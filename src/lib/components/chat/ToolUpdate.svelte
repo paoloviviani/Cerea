@@ -102,15 +102,15 @@
 {#if toolFnName}
 	<BlockWrapper>
 		<!-- Header row -->
-		<div class="flex w-fit select-none flex-col items-start gap-1">
+		<div class="flex max-w-full select-none flex-col items-start gap-1">
 			<button
 				type="button"
-				class="group/header flex w-fit cursor-pointer items-center gap-1 text-left focus:outline-none"
+				class="group/header flex max-w-full cursor-pointer items-center gap-1 whitespace-nowrap text-left focus:outline-none"
 				onclick={() => (isOpen = !isOpen)}
 				aria-label={isOpen ? "Collapse" : "Expand"}
 			>
 				<span
-					class="text-sm font-medium transition-colors {toolError
+					class="shrink-0 text-sm font-medium transition-colors {toolError
 						? `group-hover/header:text-red-700 dark:group-hover/header:text-red-300 ${
 								isOpen ? 'text-red-700 dark:text-red-300' : 'text-red-600 dark:text-red-400'
 							}`
@@ -122,12 +122,12 @@
 					{toolError ? "Error calling" : toolDone ? "Called" : "Calling"} tool
 				</span>
 				<code
-					class="rounded bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+					class="min-w-0 truncate rounded bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
 				>
 					{availableTools.find((entry) => entry.name === toolFnName)?.displayName ?? toolFnName}
 				</code>
 				<CarbonChevronRight
-					class="size-3.5 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
+					class="size-3.5 shrink-0 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
 						? 'rotate-90 text-gray-600 dark:text-gray-300'
 						: 'text-gray-400'}"
 				/>
