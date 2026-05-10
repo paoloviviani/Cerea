@@ -307,7 +307,7 @@
 									</div>
 								{/if}
 							{/each}
-						{:else}
+						{:else if block.content.trim().length > 0}
 							<div
 								class="prose max-w-none dark:prose-invert prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 prose-img:my-0 prose-img:cursor-pointer prose-img:rounded-lg dark:prose-pre:bg-gray-900"
 							>
