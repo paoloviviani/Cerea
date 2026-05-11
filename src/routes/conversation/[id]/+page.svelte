@@ -402,6 +402,15 @@
 					// Check if this is a 402 payment required error
 					if (update.statusCode === 402) {
 						showSubscribeModal = true;
+					} else if (
+						update.statusCode === 401 &&
+						typeof update.message === "string" &&
+						/oauth authorization|has been revoked|requested scopes/i.test(update.message)
+					) {
+						// The stored OAuth token was revoked or no longer matches scopes.
+						// Restart the OAuth flow and return to this conversation afterwards.
+						const next = encodeURIComponent(`${base}/conversation/${convId}`);
+						window.location.assign(`${base}/login?next=${next}`);
 					} else {
 						$error = update.message ?? "An error has occurred";
 					}
