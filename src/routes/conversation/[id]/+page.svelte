@@ -17,7 +17,8 @@
 	import { fetchMessageUpdates, resolveStreamingMode } from "$lib/utils/messageUpdates";
 	import type { v4 } from "uuid";
 	import { useSettingsStore } from "$lib/stores/settings.js";
-	import { enabledServers } from "$lib/stores/mcpServers";
+	import { enabledServers, mcpServersLoaded } from "$lib/stores/mcpServers";
+	import { get } from "svelte/store";
 	import { browser } from "$app/environment";
 	import {
 		addBackgroundGeneration,
@@ -219,6 +220,23 @@
 
 			messageUpdatesAbortController = new AbortController();
 			const streamingMode = resolveStreamingMode($settings);
+
+			// Wait for the MCP store to hydrate before sending so the server receives
+			// the user's exact selection. Sending [] before the base server list is
+			// fetched filters env servers to nothing; omitting the field would skip
+			// any explicit opt-outs the user saved in localStorage.
+			if (!get(mcpServersLoaded)) {
+				await new Promise<void>((resolve) => {
+					let unsub: (() => void) | undefined;
+					unsub = mcpServersLoaded.subscribe((loaded) => {
+						if (loaded) {
+							// unsub may still be undefined if subscribe fires synchronously
+							unsub?.();
+							resolve();
+						}
+					});
+				});
+			}
 
 			const messageUpdatesIterator = await fetchMessageUpdates(
 				convId,
