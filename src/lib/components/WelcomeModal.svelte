@@ -1,0 +1,64 @@
+<script lang="ts">
+	import Modal from "$lib/components/Modal.svelte";
+	import IconOmni from "$lib/components/icons/IconOmni.svelte";
+	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
+	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
+
+	const publicConfig = usePublicConfig();
+
+	interface Props {
+		close: () => void;
+	}
+
+	let { close }: Props = $props();
+</script>
+
+<Modal closeOnBackdrop={false} onclose={close} width="max-w-[420px]! m-4!">
+	<div
+		class="flex w-full flex-col gap-8 bg-white bg-linear-to-b to-transparent px-6 pb-7 dark:bg-black dark:from-white/10 dark:to-white/5"
+	>
+		<div
+			class="relative -mx-6 grid h-48 place-items-center overflow-hidden rounded-b-xl bg-linear-to-t from-black/5 select-none dark:from-white/10"
+		>
+			<img
+				class="size-full bg-black object-cover"
+				src="{publicConfig.assetPath}/omni-welcome.gif"
+				alt="Omni AI model router animation"
+			/>
+			<!-- <h2
+				class="flex translate-y-1 items-center text-3xl font-semibold text-gray-900 dark:text-gray-100"
+			>
+				<Logo classNames="mr-2 size-12 dark:invert" />
+				{publicConfig.PUBLIC_APP_NAME}
+			</h2> -->
+			{#if ML_ASSISTANT_MODE && publicConfig.isHuggingChat}
+				<!-- Launch label, in the corner the "Now with MCP!" badge used to take. -->
+				<div
+					class="absolute right-3 bottom-3 rounded-lg border border-[#ea580c]/30 bg-[#ea580c]/20 px-2 py-0.5 text-sm font-semibold text-[#fdba74]"
+				>
+					Now with ML Intern!
+				</div>
+			{/if}
+		</div>
+
+		<div class="text-gray-700 dark:text-gray-200">
+			<p class="text-[15px] leading-relaxed">
+				Welcome to {publicConfig.PUBLIC_APP_NAME}, the chat app powered by open source AI models.
+			</p>
+			<p class="mt-3 text-[15px] leading-relaxed">
+				<IconOmni classNames="-translate-y-px" /> Omni automatically picks the best AI model to give you
+				optimal answers depending on your requests.
+			</p>
+			<p class="mt-3 text-[15px] leading-relaxed">
+				You can also choose from any available open source models to chat with directly.
+			</p>
+		</div>
+
+		<button
+			class="k w-full rounded-xl bg-black px-5 py-2.5 text-base font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+			onclick={close}
+		>
+			Start chatting
+		</button>
+	</div>
+</Modal>

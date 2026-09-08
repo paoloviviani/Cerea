@@ -1,0 +1,1423 @@
+<script lang="ts">
+	import type { Message, MessageFile } from "$lib/types/Message";
+	import { onDestroy, untrack } from "svelte";
+
+	import ArtifactPanel from "./ArtifactPanel.svelte";
+	import TrackioPane from "./TrackioPane.svelte";
+	import { collectArtifacts } from "$lib/utils/artifacts";
+	import { setArtifactsContext } from "$lib/utils/artifactsContext";
+	import { collectTrackioDashboards } from "$lib/utils/trackio";
+	import { trackioStatus } from "$lib/stores/trackioStatus.svelte";
+	import { collectPaneItems } from "$lib/utils/paneItems";
+	import { sidePane } from "$lib/stores/sidePane.svelte";
+
+	import IconOmni from "$lib/components/icons/IconOmni.svelte";
+	import IconCheap from "$lib/components/icons/IconCheap.svelte";
+	import IconFast from "$lib/components/icons/IconFast.svelte";
+	import CarbonCaretDown from "~icons/carbon/caret-down";
+	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
+	import CarbonDirectionRight from "~icons/carbon/direction-right-01";
+	import IconArrowUp from "~icons/lucide/arrow-up";
+	import IconMic from "~icons/lucide/mic";
+
+	import ChatInput from "./ChatInput.svelte";
+	import AskQuestion from "./AskQuestion.svelte";
+	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
+	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
+	import VoiceRecorder from "./VoiceRecorder.svelte";
+	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
+	import type { Model } from "$lib/types/Model";
+	import FileDropzone from "./FileDropzone.svelte";
+	import RetryBtn from "../RetryBtn.svelte";
+	import ResumeBtn from "../ResumeBtn.svelte";
+	import {
+		buildResumeMessage,
+		canResumeAfterFailure,
+		failureDetailOf,
+	} from "$lib/utils/resumeAfterFailure";
+	import file2base64 from "$lib/utils/file2base64";
+	import { base } from "$app/paths";
+	import ChatMessage from "./ChatMessage.svelte";
+	import ThinkingEffortChip from "./ThinkingEffortChip.svelte";
+	import ScrollToBottomBtn from "../ScrollToBottomBtn.svelte";
+	import ScrollToPreviousBtn from "../ScrollToPreviousBtn.svelte";
+	import { browser } from "$app/environment";
+	import { createChatScroll } from "$lib/utils/scroll/chatScroll.svelte";
+	import { isAssistantGenerationTerminal } from "$lib/utils/generationState";
+	import { NAV_EDGE_SWIPE_ZONE_PX } from "$lib/constants/gestures";
+	import SystemPromptModal from "../SystemPromptModal.svelte";
+	import ShareConversationModal from "../ShareConversationModal.svelte";
+	import ChatIntroduction from "./ChatIntroduction.svelte";
+	import UploadedFile from "./UploadedFile.svelte";
+	import { useSettingsStore } from "$lib/stores/settings";
+	import { error } from "$lib/stores/errors";
+	import ModelSwitch from "./ModelSwitch.svelte";
+	import { routerExamples } from "$lib/constants/routerExamples";
+	import { mcpExamples } from "$lib/constants/mcpExamples";
+	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
+	import { allBaseServersEnabled, mcpServersLoaded } from "$lib/stores/mcpServers";
+	import { shareModal } from "$lib/stores/shareModal";
+	import IconShare from "$lib/components/icons/IconShare.svelte";
+	import FeatureAnnouncementToast from "../FeatureAnnouncementToast.svelte";
+	import { getActiveAnnouncement } from "$lib/utils/featureAnnouncements";
+	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
+	import { pendingComposerPayload } from "$lib/stores/pendingComposerPayload";
+	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
+	import LucideHammer from "~icons/lucide/hammer";
+	import LucideSparkles from "~icons/lucide/sparkles";
+	import MlAssistantStrip from "./MlAssistantStrip.svelte";
+	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
+	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
+	import MlInternSpotlight from "./MlInternSpotlight.svelte";
+	import { useConversationsStore } from "$lib/stores/conversations.svelte";
+	import { MediaQuery } from "svelte/reactivity";
+	import { planStepsToMlSteps } from "$lib/utils/planProgress";
+	import type { PlanState } from "$lib/types/Plan";
+	import type { MlBudget } from "$lib/types/Conversation";
+	import { reservedMicroUsd, usdToMicroUsd } from "$lib/utils/mlBudget";
+	import { handleResponse, useAPIClient } from "$lib/APIClient";
+	import {
+		ML_ASSISTANT_EFFORT,
+		ML_ASSISTANT_PLACEHOLDER,
+		mlAssistantExamples,
+	} from "$lib/constants/mlAssistant";
+
+	import { fly } from "svelte/transition";
+	import { cubicInOut } from "svelte/easing";
+
+	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
+	import { requireAuthUser } from "$lib/utils/auth";
+	import { tap, error as hapticError } from "$lib/utils/haptics";
+	import { page } from "$app/state";
+
+	// Only this conversation's question; the store outlives a navigation by a tick.
+	let questionStore = $derived(firstQuestionFor(page.params.id));
+	let askQuestion = $derived($questionStore);
+	import {
+		isMessageToolCallUpdate,
+		isMessageToolErrorUpdate,
+		isMessageToolResultUpdate,
+	} from "$lib/utils/messageUpdates";
+	import type { ToolFront } from "$lib/types/Tool";
+
+	interface Props {
+		messages?: Message[];
+		messagesAlternatives?: Message["id"][][];
+		loading?: boolean;
+		pending?: boolean;
+		resuming?: boolean;
+		shared?: boolean;
+		currentModel: Model;
+		models: Model[];
+		preprompt?: string | undefined;
+		files?: File[];
+		onmessage?: (content: string) => void;
+		onstop?: () => void;
+		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
+		draft?: string;
+	}
+
+	let {
+		messages = [],
+		messagesAlternatives = [],
+		loading = false,
+		pending = false,
+		resuming = false,
+		shared = false,
+		currentModel,
+		models,
+		preprompt = undefined,
+		files = $bindable([]),
+		draft = $bindable(""),
+		onmessage,
+		onstop,
+		onretry,
+		onshowAlternateMsg,
+	}: Props = $props();
+
+	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
+
+	const publicConfig = usePublicConfig();
+	let canShare = $derived(
+		publicConfig.isHuggingChat &&
+			Boolean(page.params?.id) &&
+			page.route.id?.startsWith("/conversation/")
+	);
+
+	// Feature announcement toast: home screen only, gone as soon as a chat starts.
+	let featureAnnouncement = $derived(
+		getActiveAnnouncement(publicConfig.PUBLIC_FEATURE_ANNOUNCEMENTS)
+	);
+	let showFeatureAnnouncement = $derived(page.route.id === "/" && !messages.length && !loading);
+
+	// Artifacts: fold <artifact> operations from the visible message path into a
+	// versioned registry, shared with the inline cards and the side panel.
+	// Only the message currently receiving tokens can have a streaming artifact;
+	// unclosed tags anywhere else are interrupted generations, not live ones.
+	let artifactRegistry = $derived(
+		collectArtifacts(messages, loading ? messages.at(-1)?.id : undefined)
+	);
+	setArtifactsContext({
+		get registry() {
+			return artifactRegistry;
+		},
+		panel: sidePane,
+		// Deep consumers (e.g. the code-block preview modal) can't render a
+		// meaningful disabled state, so streaming also gates availability here;
+		// the panel gets the handler as a prop and disables on `loading` itself.
+		get requestFix() {
+			return canSendFix && !loading ? sendFixRequest : undefined;
+		},
+	});
+
+	// Auto-open the panel when a new artifact version starts streaming in
+	// (once per version, so closing it mid-stream sticks).
+	$effect(() => {
+		const streaming = artifactRegistry.streaming;
+		if (!streaming || !loading) return;
+		sidePane.maybeAutoOpen(streaming.identifier, streaming.version);
+	});
+
+	// Trackio dashboards a training run printed into its job logs, read back out
+	// of the tool results on the messages. Derived like the artifact registry, so
+	// reopening the conversation finds the same dashboards.
+	let trackioDashboards = $derived(collectTrackioDashboards(messages));
+
+	// One ordered list of everything the pane can show, so its next/previous walks
+	// artifacts and dashboards together instead of each view navigating only its
+	// own kind.
+	let paneItems = $derived(collectPaneItems(messages, artifactRegistry, trackioDashboards));
+
+	let shareModalOpen = $state(false);
+	let editMsdgId: Message["id"] | null = $state(null);
+	let pastedLongContent = $state(false);
+
+	// Voice recording state
+	let isRecording = $state(false);
+	let isTranscribing = $state(false);
+	let transcriptionEnabled = $derived(
+		!!(page.data as { transcriptionEnabled?: boolean }).transcriptionEnabled
+	);
+	let isTouchDevice = $derived(browser && navigator.maxTouchPoints > 0);
+
+	const handleSubmit = () => {
+		if (requireAuthUser() || loading || !draft) return;
+		tap();
+		chatScroll.notifySend();
+		// Latches the mode onto the conversation, so the strip stays and swaps its
+		// tool note for the plan progress row. No-op when the mode is off.
+		mlAssistant.startTask();
+		onmessage?.(draft);
+		draft = "";
+	};
+
+	let lastTarget: EventTarget | null = null;
+
+	let onDrag = $state(false);
+
+	const onDragEnter = (e: DragEvent) => {
+		lastTarget = e.target;
+		onDrag = true;
+	};
+	const onDragLeave = (e: DragEvent) => {
+		if (e.target === lastTarget) {
+			onDrag = false;
+		}
+	};
+
+	const onPaste = (e: ClipboardEvent) => {
+		const textContent = e.clipboardData?.getData("text");
+
+		if (!$settings.directPaste && textContent && textContent.length >= 3984) {
+			e.preventDefault();
+			pastedLongContent = true;
+			setTimeout(() => {
+				pastedLongContent = false;
+			}, 1000);
+			const pastedFile = new File([textContent], "Pasted Content", {
+				type: "application/vnd.chatui.clipboard",
+			});
+
+			files = [...files, pastedFile];
+		}
+
+		if (!e.clipboardData) {
+			return;
+		}
+
+		// paste of files
+		const pastedFiles = Array.from(e.clipboardData.files);
+		if (pastedFiles.length !== 0) {
+			e.preventDefault();
+
+			// filter based on activeMimeTypes, including wildcards
+			const filteredFiles = pastedFiles.filter((file) =>
+				mimeMatchesAllowlist(file.type, activeMimeTypes)
+			);
+
+			files = [...files, ...filteredFiles];
+		}
+	};
+
+	let lastMessage = $derived(browser && (messages.at(-1) as Message));
+	let showPendingPlaceholder = $derived(
+		shouldShowPendingPlaceholder({ pending, resuming, lastMessage: lastMessage || undefined })
+	);
+	let streamingAssistantMessage = $derived(
+		(() => {
+			for (let i = messages.length - 1; i >= 0; i -= 1) {
+				const candidate = messages[i];
+				if (candidate.from === "assistant") {
+					return candidate;
+				}
+			}
+			return undefined;
+		})()
+	);
+	let streamingRouterMetadata = $derived(streamingAssistantMessage?.routerMetadata ?? null);
+	let streamingRouterModelName = $derived(
+		streamingRouterMetadata?.model
+			? (streamingRouterMetadata.model.split("/").pop() ?? streamingRouterMetadata.model)
+			: ""
+	);
+
+	let lastIsError = $derived(
+		!loading &&
+			(streamingAssistantMessage?.updates?.findIndex(
+				(u) => u.type === "status" && u.status === "error"
+			) ?? -1) !== -1
+	);
+
+	// Preview "ask to fix" buttons (artifact panel footer, fullscreen preview
+	// modals) send their message directly instead of prefilling the composer.
+	// Bypasses the draft on purpose: a half-typed message must survive the click.
+	let canSendFix = $derived(!isReadOnly && !lastIsError);
+	function sendFixRequest(text: string): boolean {
+		if (requireAuthUser() || loading) return false;
+		tap();
+		chatScroll.notifySend();
+		// Queued attachments belong to the user's next message, not to this
+		// machine-composed one. The send handler snapshots the bound `files`
+		// synchronously before its first await, so emptying around the call is
+		// enough to keep them out of the request — and it skips clearing them
+		// post-send when it consumed none (see writeMessage), so the restored
+		// queue survives.
+		const queuedFiles = files;
+		files = [];
+		try {
+			onmessage?.(text);
+		} finally {
+			files = queuedFiles;
+		}
+		return true;
+	}
+
+	// Expose currently running tool call name (if any) from the streaming assistant message
+	const availableTools: ToolFront[] = $derived.by(
+		() => (page.data as { tools?: ToolFront[] } | undefined)?.tools ?? []
+	);
+	let streamingToolCallName = $derived.by(() => {
+		const updates = streamingAssistantMessage?.updates ?? [];
+		if (!updates.length) return null;
+		const done = new Set<string>();
+		for (const u of updates) {
+			if (isMessageToolResultUpdate(u) || isMessageToolErrorUpdate(u)) done.add(u.uuid);
+		}
+		for (let i = updates.length - 1; i >= 0; i -= 1) {
+			const u = updates[i];
+			if (isMessageToolCallUpdate(u) && !done.has(u.uuid)) {
+				return u.call.name;
+			}
+		}
+		return null;
+	});
+	let showRouterDetails = $state(false);
+	let routerDetailsTimeout: ReturnType<typeof setTimeout> | undefined;
+
+	$effect(() => {
+		if (!currentModel.isRouter || !loading) {
+			showRouterDetails = false;
+			if (routerDetailsTimeout) {
+				clearTimeout(routerDetailsTimeout);
+				routerDetailsTimeout = undefined;
+			}
+			return;
+		}
+
+		if (routerDetailsTimeout) {
+			clearTimeout(routerDetailsTimeout);
+		}
+
+		showRouterDetails = false;
+		routerDetailsTimeout = setTimeout(() => {
+			showRouterDetails = true;
+		}, 500);
+	});
+
+	let sources = $derived(
+		files?.map<Promise<MessageFile>>((file) =>
+			file2base64(file).then((value) => ({
+				type: "base64",
+				value,
+				mime: file.type,
+				name: file.name,
+			}))
+		)
+	);
+
+	const unsubscribeShareModal = shareModal.subscribe((value) => {
+		shareModalOpen = value;
+	});
+
+	onDestroy(() => {
+		unsubscribeShareModal();
+		shareModal.close();
+		if (routerDetailsTimeout) {
+			clearTimeout(routerDetailsTimeout);
+		}
+	});
+
+	const chatScroll = createChatScroll();
+	let messagesEl: HTMLElement | undefined = $state();
+	let pendingEl: HTMLElement | undefined = $state();
+	let composerHeight = $state<number | undefined>(undefined);
+
+	// Turn grouping: a user message starts a turn, following assistant messages
+	// join it (plus a headless leading turn for edge shapes). Each turn renders
+	// as one group so the anchored turn's reservation is a single CSS
+	// min-height. Reads only
+	// ids/from, so token flushes never regroup.
+	let turns = $derived.by(() => {
+		const groups: { key: string; messages: Message[] }[] = [];
+		for (const message of messages) {
+			const last = groups.at(-1);
+			if (message.from === "user" || !last) {
+				groups.push({ key: message.id, messages: [message] });
+			} else {
+				last.messages.push(message);
+			}
+		}
+		return groups;
+	});
+
+	// Structural sync: conversation identity, the trailing turn, and which turn
+	// (if any) a reply is currently streaming into — the whole condition for a
+	// turn to anchor. Reads ids/from/loading only (terminal-ness untracked), so
+	// token flushes never re-run it. The terminal check keeps the pre-mount gap
+	// after a submit — when the trailing message is still the previous, settled
+	// reply — from anchoring that turn.
+	$effect(() => {
+		const lastMessage = messages.at(-1);
+		const lastTurnKey = turns.at(-1)?.key ?? null;
+		const streaming =
+			loading &&
+			lastMessage?.from === "assistant" &&
+			untrack(() => !isAssistantGenerationTerminal(lastMessage));
+		chatScroll.sync({
+			conversationKey: page.params?.id,
+			turnCount: turns.length,
+			lastTurnKey,
+			streamingTurnKey: streaming ? lastTurnKey : null,
+			// Untracked like the terminal check: read once at the streaming flip,
+			// never per token. A park resuming (wait elapsed, question answered)
+			// re-enters streaming on a message that already carries work — a
+			// continuation, not a new reply, so the carry-to-anchor must not
+			// re-run. A fresh reply's message is still empty at the flip.
+			resumedStream: Boolean(
+				streaming &&
+				lastMessage &&
+				untrack(() => lastMessage.content.length > 0 || (lastMessage.updates?.length ?? 0) > 0)
+			),
+		});
+	});
+
+	// Conversation switch also resets the artifact panel. This used to
+	// piggyback on a first-message-id heuristic that misfired when the first
+	// message was edited; the route param is the real signal.
+	let prevConversationKey = page.params?.id;
+	$effect(() => {
+		const key = page.params?.id;
+		if (key !== prevConversationKey) {
+			prevConversationKey = key;
+			sidePane.reset();
+		}
+	});
+
+	// The growing content element mounts after the container when a
+	// conversation gains its first messages (or the pending placeholder
+	// renders before any message exists) — re-point the size observer.
+	$effect(() => {
+		void messagesEl;
+		void pendingEl;
+		chatScroll.notifyContentChanged();
+	});
+
+	$effect(() => {
+		chatScroll.setComposerHeight(composerHeight);
+	});
+
+	// Open the newest dashboard the first time it shows up: the point of the run
+	// is watching it train. Once per URL, so the user can close it and read the
+	// chat while the run continues.
+	//
+	// Declared after the conversation-switch effect for the same reason the shared
+	// artifact open below is: a conversation -> conversation navigation can deliver
+	// the new messages and the new route param in one flush, and effects run in
+	// declaration order. Above the reset, this would open the destination's
+	// dashboard and record its key, then reset() would close the pane and clear
+	// that key -- and nothing would re-run this, so the dashboard would never open.
+	//
+	// Gated like the other two auto-opens rather than firing on presence. `loading`
+	// is what makes this "a run is happening now": without it, every hard load of
+	// any conversation that ever trained something re-opens the pane, because
+	// reset() clears the once-per-URL keys on each switch — framing a Space that
+	// went to sleep months ago. Desktop-only for the reason the shared-artifact
+	// open below is: on mobile the pane is a fullscreen overlay, and a shared
+	// conversation carries its tool results verbatim, so every viewer on a phone
+	// would arrive with the chat covered.
+	$effect(() => {
+		const latest = trackioDashboards.at(-1);
+		if (!latest || !loading) return;
+		// A dashboard named before it exists (create_trackio) is not framable until
+		// the run reaches trackio.init; opening it early frames a 404.
+		if (latest.spaceId && trackioStatus.status(latest.url) !== "live") return;
+		if (!window.matchMedia("(min-width: 768px)").matches) return;
+		sidePane.maybeAutoOpenTrackio(latest.url, latest.label);
+	});
+
+	// Shared conversations containing artifacts usually exist to show one off:
+	// open the most recent artifact on load. Desktop only, since on mobile the
+	// panel is a fullscreen overlay that would hide the conversation entirely.
+	// Declared after the conversation-switch effect so its reset() can never
+	// close the panel after this opens it within the same flush.
+	let autoOpenedSharedArtifact = false;
+	$effect(() => {
+		if (autoOpenedSharedArtifact || !shared) return;
+		const latest = [...artifactRegistry.artifacts.values()].at(-1);
+		if (!latest) return;
+		autoOpenedSharedArtifact = true;
+		if (!window.matchMedia("(min-width: 768px)").matches) return;
+		sidePane.openArtifact(latest.identifier, null);
+	});
+
+	const settings = useSettingsStore();
+	let hideRouterExamples = $derived($settings.hidePromptExamples?.[currentModel.id] ?? false);
+
+	// Respect per‑model multimodal toggle from settings (force enable)
+	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[currentModel.id]);
+	let modelIsMultimodal = $derived((modelIsMultimodalOverride ?? currentModel.multimodal) === true);
+
+	// Determine tool support for the current model (server-provided capability with user override)
+	let modelSupportsTools = $derived(
+		($settings.toolsOverrides?.[currentModel.id] ??
+			(currentModel as unknown as { supportsTools?: boolean }).supportsTools) === true
+	);
+
+	// Get provider override for the current model (HuggingChat only)
+	let providerOverride = $derived($settings.providerOverrides?.[currentModel.id]);
+	let hasProviderOverride = $derived(
+		providerOverride && providerOverride !== "auto" && !currentModel.isRouter
+	);
+
+	// Always allow common text-like files; add images only when model is multimodal
+	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
+
+	let activeMimeTypes = $derived(
+		Array.from(
+			new Set([
+				...TEXT_MIME_ALLOWLIST,
+				...(modelIsMultimodal
+					? (currentModel.multimodalAcceptedMimetypes ?? [...IMAGE_MIME_ALLOWLIST_DEFAULT])
+					: []),
+			])
+		)
+	);
+	let isFileUploadEnabled = $derived(activeMimeTypes.length > 0);
+	let focused = $state(false);
+
+	// --- ML Assistant mode (build flag, see $lib/utils/mlAssistantFlag) --------
+
+	let mlModeOn = $derived(ML_ASSISTANT_MODE && mlAssistant.enabled);
+	let mlTaskRunning = $derived(ML_ASSISTANT_MODE && mlAssistant.taskStarted);
+	// Resume beats Retry for a failed agentic turn: retry re-runs the whole turn
+	// (duplicating jobs and repos already created), resume continues past the
+	// preserved transcript. ML mode only — elsewhere turns rarely carry work
+	// worth saving — and only when the turn did something (see the util).
+	let canResumeTurn = $derived(
+		mlModeOn && !loading && lastIsError && !!lastMessage && canResumeAfterFailure(lastMessage)
+	);
+	function sendResumeMessage() {
+		if (!lastMessage) return;
+		sendFixRequest(buildResumeMessage(failureDetailOf(lastMessage)));
+	}
+	// The strip is a task status bar only: it slides in on the send that starts an
+	// ML task and stays for the rest of the conversation. Before that the mode
+	// lives in the composer pill, and a chat started without the mode never shows
+	// either surface.
+	let mlStripVisible = $derived(ML_ASSISTANT_MODE && mlTaskRunning);
+
+	// The pill is the mode's pre-task switch. Empty conversations only — the mode
+	// cannot be joined once a chat has started without it.
+	// With no set configured the send would fail; no switch is better than a
+	// dead end.
+	let mlModelSet = $derived(
+		ML_ASSISTANT_MODE
+			? ((page.data as { mlAssistantModels?: string[] }).mlAssistantModels ?? [])
+			: []
+	);
+	let mlPillVisible = $derived(
+		ML_ASSISTANT_MODE &&
+			!shared &&
+			!isReadOnly &&
+			!mlTaskRunning &&
+			messages.length === 0 &&
+			mlModelSet.length > 0
+	);
+
+	// ML Intern launch card under the home-screen logo (HuggingChat only). Temporary,
+	// so its dismissal lives in localStorage rather than in a settings field. Off on
+	// short viewports, and while the recorder replaces the composer: the pill (and
+	// with it the first-run onboarding its CTA relies on) is unmounted then.
+	const convsStore = useConversationsStore();
+	const shortViewport = new MediaQuery("(max-height: 560px)");
+	const ML_SPOTLIGHT_KEY = "mlInternSpotlightDismissed";
+	// Hidden until the browser has been asked, so SSR and hydration agree.
+	let mlSpotlightDismissed = $state(true);
+	$effect(() => {
+		mlSpotlightDismissed = localStorage.getItem(ML_SPOTLIGHT_KEY) === "1";
+	});
+	let mlSpotlightVisible = $derived(
+		publicConfig.isHuggingChat &&
+			mlPillVisible &&
+			page.route.id === "/" &&
+			!mlAssistant.enabled &&
+			!mlSpotlightDismissed &&
+			!shortViewport.current &&
+			!isRecording &&
+			!isTranscribing &&
+			!convsStore.list.some((conv) => conv.mlAssistant)
+	);
+
+	function dismissMlSpotlight() {
+		mlSpotlightDismissed = true;
+		localStorage.setItem(ML_SPOTLIGHT_KEY, "1");
+	}
+
+	/** The card's CTA: switches the mode on, as the pill would, and retires the card. */
+	function tryMlIntern() {
+		if (requireAuthUser()) return;
+		mlAssistant.toggle(true);
+		dismissMlSpotlight();
+	}
+	// A mode conversation whose model left the set can only move within the set.
+	let switchableModels = $derived(
+		mlTaskRunning ? models.filter((m) => mlModelSet.includes(m.id)) : models
+	);
+
+	$effect(() => {
+		if (!ML_ASSISTANT_MODE) return;
+		const conversationId = page.params?.id;
+		const {
+			mlAssistant: startedInMlMode,
+			plan,
+			mlBudget,
+		} = page.data as {
+			mlAssistant?: boolean;
+			plan?: PlanState;
+			mlBudget?: MlBudget;
+		};
+		untrack(() => {
+			const reset = mlAssistant.syncConversation(conversationId, Boolean(startedInMlMode));
+			// A reopened mode conversation renders mid-plan from the stored snapshot;
+			// a reset without one keeps the strip on its tool note.
+			if (reset && startedInMlMode && plan?.steps.length) {
+				mlAssistant.setPlan(planStepsToMlSteps(plan.steps));
+			}
+			// Loaded state seeds the ledger; the stream's Budget updates take over
+			// from there. The empty-ledger condition covers adoption — the create
+			// flow lands here with reset=false — while still refusing to let a
+			// stale invalidation roll back what the stream already reported. A mode
+			// conversation without a stored budget renders as $0.00: the gate treats
+			// it that way, and the readout must say what the gate will do.
+			if (startedInMlMode && (reset || mlAssistant.budget === undefined)) {
+				mlAssistant.setBudget({
+					totalMicroUsd: mlBudget?.totalMicroUsd ?? 0,
+					spentMicroUsd: mlBudget?.spentMicroUsd ?? 0,
+					reservedMicroUsd: mlBudget ? reservedMicroUsd(mlBudget) : 0,
+				});
+			}
+		});
+	});
+
+	const budgetClient = useAPIClient();
+
+	/**
+	 * Commits a new budget total. Optimistic: the strip shows the new total at
+	 * once and rolls back if the server said no.
+	 */
+	function changeMlBudget(totalUsd: number) {
+		const conversationId = page.params?.id;
+		const previous = mlAssistant.budget;
+		if (!conversationId || !previous) return;
+		mlAssistant.setBudget({ ...previous, totalMicroUsd: usdToMicroUsd(totalUsd) });
+		budgetClient
+			.conversations({ id: conversationId })
+			.patch({ mlBudgetTotalUsd: totalUsd })
+			.then(handleResponse)
+			.catch(() => {
+				mlAssistant.setBudget(previous);
+			});
+	}
+
+	let activeRouterExamplePrompt = $state<string | null>(null);
+	// ML Assistant mode brings its own chip set; otherwise use MCP examples when all
+	// base servers are enabled, and router examples when they are not.
+	let activeExamples = $derived<RouterExample[]>(
+		mlModeOn ? mlAssistantExamples : $allBaseServersEnabled ? mcpExamples : routerExamples
+	);
+	let routerFollowUps = $derived<RouterFollowUp[]>(
+		activeRouterExamplePrompt
+			? (activeExamples.find((ex) => ex.prompt === activeRouterExamplePrompt)?.followUps ?? [])
+			: []
+	);
+	let routerUserMessages = $derived(messages.filter((msg) => msg.from === "user"));
+	let shouldShowRouterFollowUps = $derived(
+		!draft.length &&
+			activeRouterExamplePrompt &&
+			routerFollowUps.length > 0 &&
+			routerUserMessages.length === 1 &&
+			(currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) &&
+			!hideRouterExamples &&
+			!loading
+	);
+
+	$effect(() => {
+		if (
+			!(currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) ||
+			!messages.length
+		) {
+			activeRouterExamplePrompt = null;
+			return;
+		}
+
+		const firstUserMessage = messages.find((msg) => msg.from === "user");
+		if (!firstUserMessage) {
+			activeRouterExamplePrompt = null;
+			return;
+		}
+
+		const match = activeExamples.find((ex) => ex.prompt.trim() === firstUserMessage.content.trim());
+		activeRouterExamplePrompt = match ? match.prompt : null;
+	});
+
+	// Composer content queued from outside (e.g. an annotated artifact
+	// screenshot plus its notes), consumed and cleared on arrival: files use
+	// the same accept rules as paste, text appends to the editable draft
+	$effect(() => {
+		const pending = $pendingComposerPayload;
+		if (!pending || shared) return;
+		const accepted = (pending.files ?? []).filter((file) =>
+			mimeMatchesAllowlist(file.type, activeMimeTypes)
+		);
+		if (accepted.length) {
+			files = [...untrack(() => files), ...accepted];
+		}
+		if (pending.text) {
+			const currentDraft = untrack(() => draft);
+			draft = currentDraft.trim() ? `${currentDraft}\n\n${pending.text}` : pending.text;
+		}
+		pendingComposerPayload.set(undefined);
+	});
+
+	function triggerPrompt(prompt: string) {
+		if (requireAuthUser() || loading) return;
+		draft = prompt;
+		handleSubmit();
+	}
+
+	async function startExample(example: RouterExample) {
+		if (requireAuthUser()) return;
+
+		// ML Intern chips seed the composer instead of dispatching. Their prompts
+		// are complete, but they name one specific paper, model or dataset, and a
+		// task at this price is one the user should read before it starts.
+		if (mlModeOn) {
+			draft = example.prompt;
+			return;
+		}
+
+		activeRouterExamplePrompt = example.prompt;
+
+		if (browser && example.attachments?.length) {
+			const loadedFiles: File[] = [];
+			for (const attachment of example.attachments) {
+				try {
+					const response = await fetch(`${base}/${attachment.src}`);
+					if (!response.ok) continue;
+
+					const blob = await response.blob();
+					const name = attachment.src.split("/").pop() ?? "attachment";
+					loadedFiles.push(
+						new File([blob], name, { type: blob.type || "application/octet-stream" })
+					);
+				} catch (err) {
+					console.error("Error loading attachment:", err);
+				}
+			}
+			files = loadedFiles;
+		}
+
+		triggerPrompt(example.prompt);
+	}
+
+	function startFollowUp(followUp: RouterFollowUp) {
+		triggerPrompt(followUp.prompt);
+	}
+
+	async function handleRecordingConfirm(audioBlob: Blob) {
+		isRecording = false;
+		isTranscribing = true;
+
+		try {
+			const response = await fetch(`${base}/api/transcribe`, {
+				method: "POST",
+				headers: { "Content-Type": audioBlob.type },
+				body: audioBlob,
+			});
+
+			if (!response.ok) {
+				throw new Error(await response.text());
+			}
+
+			const { text } = await response.json();
+			const trimmedText = text?.trim();
+			if (trimmedText) {
+				// Append transcribed text to draft
+				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
+			}
+		} catch (err) {
+			console.error("Transcription error:", err);
+			$error = "Transcription failed. Please try again.";
+		} finally {
+			isTranscribing = false;
+		}
+	}
+
+	async function handleRecordingSend(audioBlob: Blob) {
+		isRecording = false;
+		isTranscribing = true;
+
+		try {
+			const response = await fetch(`${base}/api/transcribe`, {
+				method: "POST",
+				headers: { "Content-Type": audioBlob.type },
+				body: audioBlob,
+			});
+
+			if (!response.ok) {
+				throw new Error(await response.text());
+			}
+
+			const { text } = await response.json();
+			const trimmedText = text?.trim();
+			if (trimmedText) {
+				// Set draft and send immediately
+				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
+				handleSubmit();
+			}
+		} catch (err) {
+			console.error("Transcription error:", err);
+			$error = "Transcription failed. Please try again.";
+		} finally {
+			isTranscribing = false;
+		}
+	}
+
+	function handleRecordingError(message: string) {
+		console.error("Recording error:", message);
+		isRecording = false;
+		$error = message;
+	}
+</script>
+
+<svelte:window
+	ondragenter={onDragEnter}
+	ondragleave={onDragLeave}
+	ondragover={(e) => {
+		e.preventDefault();
+	}}
+	ondrop={(e) => {
+		e.preventDefault();
+		onDrag = false;
+	}}
+/>
+
+<!-- pointer-events-none: the chat column sits at z-[-1]; this wrapper's
+     hit-area would otherwise swallow every click meant for it. Children
+     re-enable pointer events themselves. -->
+<div class="pointer-events-none relative flex min-h-0 min-w-0">
+	<!-- --scrollbar-gutter: measured half-gutter of the scroll container, added
+	     to the composer overlay's padding so its text stays aligned with the
+	     message column on classic-scrollbar platforms. -->
+	<div
+		class="pointer-events-auto relative z-[-1] min-h-0 min-w-0 flex-1"
+		style="--scrollbar-gutter: {chatScroll.gutterHalfPx}px"
+	>
+		{#if shareModalOpen}
+			<ShareConversationModal open={shareModalOpen} onclose={() => shareModal.close()} />
+		{/if}
+		{#if canShare}
+			<!-- Lives in the chat column (not the layout) so it stays visible when
+			     the artifact panel is open -->
+			<button
+				type="button"
+				class="hidden size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 md:absolute md:top-5 md:right-6 md:z-10 md:flex dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
+					{loading ? 'cursor-not-allowed opacity-40' : ''}"
+				onclick={() => shareModal.open()}
+				aria-label="Share conversation"
+				disabled={loading}
+			>
+				<IconShare />
+			</button>
+		{/if}
+		{#if featureAnnouncement && showFeatureAnnouncement && !mlSpotlightVisible}
+			<FeatureAnnouncementToast announcement={featureAnnouncement} />
+		{/if}
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<!-- tabindex: the document never scrolls in this app, so without it
+		     keyboard-only users cannot scroll the conversation at all. Keyboard
+		     focus draws a soft inset ring instead of the browser's default
+		     outline around the whole pane; mouse focus draws nothing. -->
+		<div
+			class="scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
+			tabindex="0"
+			aria-label="Conversation messages"
+			use:chatScroll.attach={{
+				content: () => messagesEl ?? pendingEl,
+				ignoreTouchZonePx: NAV_EDGE_SWIPE_ZONE_PX,
+			}}
+		>
+			<!-- @container: descendants (e.g. the per-message router-metadata row) adapt
+			     to the actual column width, which shrinks when the artifact panel is open -->
+			<div
+				class="@container mx-auto flex h-full max-w-3xl flex-col gap-6 px-5 pt-6 sm:gap-8 xl:max-w-4xl xl:pt-10"
+			>
+				{#if preprompt && preprompt != currentModel.preprompt}
+					<SystemPromptModal preprompt={preprompt ?? ""} />
+				{/if}
+
+				{#if messages.length > 0}
+					<!-- padding-bottom is the composer clearance (content never hides
+					     behind the composer overlay); the SSR-rendered value equals the
+					     historical clearance. The anchored turn's min-height is the
+					     reservation its reply streams into — space the turn owns from
+					     the start, so filling it moves nothing. -->
+					<div
+						bind:this={messagesEl}
+						class="flex h-max flex-col gap-8"
+						style:padding-bottom="{chatScroll.bottomClearancePx}px"
+					>
+						<!-- Turn groups are identified by position, not key: the post-stream
+						     reconciliation re-keys every message, and re-created group
+						     elements would give Safari an in-between layout to clamp the
+						     view against (it clamps synchronously mid-DOM-swap). Messages
+						     inside stay keyed by id; the group's reservation binds to the
+						     anchored INDEX for the same reason. -->
+						{#each turns as turn, turnIdx}
+							<div
+								class="flex flex-col gap-8"
+								style:min-height={turnIdx === chatScroll.anchoredTurnIndex
+									? `${chatScroll.anchorMinHeightPx}px`
+									: null}
+							>
+								{#each turn.messages as message, msgIdx (message.id)}
+									<ChatMessage
+										{loading}
+										{message}
+										alternatives={messagesAlternatives.find((a) => a.includes(message.id)) ?? []}
+										isAuthor={!shared}
+										readOnly={isReadOnly}
+										isLast={turnIdx === turns.length - 1 && msgIdx === turn.messages.length - 1}
+										bind:editMsdgId
+										onretry={(payload) => {
+											// Edit-with-content mounts a fresh turn like a send; a
+											// plain regenerate needs nothing — the reservation
+											// absorbs the old reply's collapse either way.
+											if (payload.content !== undefined) chatScroll.notifySend();
+											onretry?.(payload);
+										}}
+										onshowAlternateMsg={(payload) => {
+											chatScroll.notifyBranchSwitch();
+											onshowAlternateMsg?.(payload);
+										}}
+									/>
+								{/each}
+								{#if turnIdx === turns.length - 1 && showPendingPlaceholder}
+									<ChatMessage
+										loading={true}
+										message={{
+											id: "pending-placeholder",
+											content: "",
+											from: "assistant",
+											children: [],
+										}}
+										isAuthor={!shared}
+										readOnly={isReadOnly}
+									/>
+								{/if}
+							</div>
+						{/each}
+						{#if isReadOnly}
+							<ModelSwitch models={switchableModels} {currentModel} />
+						{/if}
+					</div>
+				{:else if pending}
+					<!-- Outside messagesEl, so it gets its own wrapper for the scroll
+					     controller's size observer (an h-full column never resizes). -->
+					<div bind:this={pendingEl} class="flex h-max flex-col">
+						<ChatMessage
+							loading={true}
+							message={{
+								id: "0-0-0-0-0",
+								content: "",
+								from: "assistant",
+								children: [],
+							}}
+							isAuthor={!shared}
+							readOnly={isReadOnly}
+						/>
+					</div>
+				{:else}
+					<ChatIntroduction
+						{currentModel}
+						onmessage={(content) => {
+							onmessage?.(content);
+						}}
+					>
+						{#if mlSpotlightVisible}
+							<MlInternSpotlight ontry={tryMlIntern} ondismiss={dismissMlSpotlight} />
+						{/if}
+					</ChatIntroduction>
+				{/if}
+			</div>
+
+			<ScrollToPreviousBtn
+				class="fixed right-4 bottom-48 lg:right-10"
+				visible={chatScroll.showJumpToPrevious}
+				onclick={() => chatScroll.scrollToPreviousMessage()}
+			/>
+
+			<ScrollToBottomBtn
+				class="fixed right-4 bottom-36 lg:right-10"
+				visible={chatScroll.showJumpToBottom}
+				onclick={() => chatScroll.scrollToBottom()}
+			/>
+		</div>
+
+		<!-- --scrollbar-gutter (measured by chatScroll) keeps the composer text
+		     aligned with the message column, whose content box is narrowed by
+		     the scroller's scrollbar-gutter on classic-scrollbar platforms. -->
+		<div
+			bind:clientHeight={composerHeight}
+			class="pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
+			max-w-3xl flex-col items-center justify-center bg-linear-to-t from-white
+			via-white to-white/0 px-[calc(0.875rem+var(--scrollbar-gutter,0px))] pt-2 *:pointer-events-auto
+			max-sm:py-0 sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))]
+			md:pb-4 xl:max-w-4xl dark:border-gray-800 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900/0"
+		>
+			{#if !draft.length && !messages.length && !sources.length && !loading && (mlModeOn || currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
+				<div
+					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
+				>
+					{#each activeExamples as ex}
+						<button
+							class={[
+								"flex items-center gap-1 rounded-lg px-2 py-0.5 text-center text-sm backdrop-blur-sm",
+								mlModeOn
+									? "bg-[#fff1e4] text-[#c2410c] dark:bg-[#3a2410] dark:text-[#fdba74]"
+									: "bg-gray-100/90 hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400",
+							]}
+							onclick={() => startExample(ex)}
+						>
+							{ex.title}
+							{#if ex.artifact}
+								<LucideSparkles class="size-3 flex-none text-blue-600 dark:text-blue-400" />
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{/if}
+			{#if shouldShowRouterFollowUps && !lastIsError}
+				<div
+					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
+				>
+					<!-- <span class=" text-gray-500 dark:text-gray-400">Follow ups</span> -->
+					{#each routerFollowUps as followUp}
+						<button
+							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
+							onclick={() => startFollowUp(followUp)}
+						>
+							<CarbonDirectionRight class="scale-y-[-1] text-xs" />
+							{followUp.title}</button
+						>
+					{/each}
+				</div>
+			{/if}
+			{#if sources?.length && !loading}
+				<div
+					in:fly|local={sources.length === 1 ? { y: -20, easing: cubicInOut } : undefined}
+					class="flex flex-row flex-wrap justify-center gap-2.5 rounded-xl pb-3"
+				>
+					{#each sources as source, index}
+						{#await source then src}
+							<UploadedFile
+								file={src}
+								onclose={() => {
+									files = files.filter((_, i) => i !== index);
+								}}
+							/>
+						{/await}
+					{/each}
+				</div>
+			{/if}
+
+			<div class="w-full">
+				{#if askQuestion}
+					<AskQuestion conversationId={askQuestion.conversationId} request={askQuestion.request} />
+				{/if}
+				<div class="flex w-full gap-2 *:mb-3">
+					{#if !loading && lastIsError}
+						{#if canResumeTurn}
+							<ResumeBtn classNames="ml-auto" onClick={sendResumeMessage} />
+						{/if}
+						<RetryBtn
+							classNames={canResumeTurn ? "" : "ml-auto"}
+							onClick={() => {
+								if (lastMessage && lastMessage.ancestors) {
+									onretry?.({
+										id: lastMessage.id,
+									});
+								}
+							}}
+						/>
+					{/if}
+				</div>
+				<form
+					tabindex="-1"
+					aria-label={isFileUploadEnabled ? "file dropzone" : undefined}
+					onsubmit={(e) => {
+						e.preventDefault();
+						handleSubmit();
+					}}
+					class={{
+						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-gray-100 dark:bg-gray-800": true,
+						"transition-[border-color] duration-[350ms] ease-[ease]": ML_ASSISTANT_MODE,
+						"border-[#e2ddd6] dark:border-[#2c2c2c]": mlModeOn && (mlStripVisible || mlPillVisible),
+						"dark:border-gray-700": !(mlModeOn && (mlStripVisible || mlPillVisible)),
+						"opacity-30": isReadOnly,
+						"max-sm:mb-4": focused && isVirtualKeyboard(),
+					}}
+					style:--composer-actions-width={transcriptionEnabled && !loading ? "84px" : "44px"}
+				>
+					{#if ML_ASSISTANT_MODE}
+						<MlAssistantStrip
+							visible={mlStripVisible}
+							steps={mlAssistant.steps}
+							statusLabel={mlAssistant.statusLabel}
+							complete={mlAssistant.complete}
+							budget={mlAssistant.budget}
+							onbudgetchange={page.params?.id ? changeMlBudget : undefined}
+							dashboard={trackioDashboards.at(-1)}
+						/>
+					{/if}
+					<!-- The composer box is a column so the ML Assistant strip can stack on
+					     top; this row is the composer proper and keeps its own layout. -->
+					<div class="flex w-full items-center">
+						{#if isRecording || isTranscribing}
+							<VoiceRecorder
+								{isTranscribing}
+								{isTouchDevice}
+								oncancel={() => {
+									isRecording = false;
+								}}
+								onconfirm={handleRecordingConfirm}
+								onsend={handleRecordingSend}
+								onerror={handleRecordingError}
+							/>
+						{:else if onDrag && isFileUploadEnabled}
+							<FileDropzone bind:files bind:onDrag mimeTypes={activeMimeTypes} />
+						{:else}
+							<div
+								class="flex w-full flex-1 rounded-xl border-none bg-transparent"
+								class:paste-glow={pastedLongContent}
+							>
+								{#if lastIsError}
+									<ChatInput
+										value="Sorry, something went wrong. Please try again."
+										disabled={true}
+									/>
+								{:else}
+									<ChatInput
+										placeholder={isReadOnly
+											? "This conversation is read-only."
+											: mlModeOn
+												? ML_ASSISTANT_PLACEHOLDER
+												: "Ask anything"}
+										{loading}
+										bind:value={draft}
+										bind:files
+										mimeTypes={activeMimeTypes}
+										onsubmit={handleSubmit}
+										{onPaste}
+										disabled={isReadOnly || lastIsError}
+										{modelIsMultimodal}
+										{modelSupportsTools}
+										showMlPill={mlPillVisible}
+										bind:focused
+									/>
+								{/if}
+
+								{#if loading}
+									<StopGeneratingBtn
+										onClick={() => {
+											hapticError();
+											onstop?.();
+										}}
+										showBorder={true}
+										classNames="absolute bottom-2 right-2 size-8 sm:size-7 self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
+									/>
+								{:else}
+									{#if transcriptionEnabled}
+										<button
+											type="button"
+											class="absolute right-10 bottom-2 mr-1.5 btn size-8 self-end rounded-full border bg-white/50 text-gray-500 transition-none hover:bg-gray-50 hover:text-gray-700 sm:right-9 sm:size-7 dark:border-transparent dark:bg-gray-600/50 dark:text-gray-300 dark:hover:bg-gray-500 dark:hover:text-white"
+											disabled={isReadOnly}
+											onclick={() => {
+												isRecording = true;
+											}}
+											aria-label="Start voice recording"
+										>
+											<IconMic class="size-4" />
+										</button>
+									{/if}
+									<button
+										class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft ||
+										isReadOnly
+											? ''
+											: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+										disabled={!draft || isReadOnly}
+										type="submit"
+										aria-label="Send message"
+										name="submit"
+									>
+										<IconArrowUp />
+									</button>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</form>
+				<div
+					class={{
+						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
+						"max-sm:hidden": focused && isVirtualKeyboard(),
+					}}
+				>
+					{#if models.find((m) => m.id === currentModel.id)}
+						{#if loading && streamingToolCallName}
+							<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
+								<LucideHammer class="size-3" />
+								Calling tool
+								<span class="loading-dots font-medium">
+									{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
+										streamingToolCallName}
+								</span>
+							</span>
+						{:else if !currentModel.isRouter || !loading}
+							<a
+								href="{base}/settings/{currentModel.id}"
+								onclick={(e) => {
+									if (requireAuthUser()) {
+										e.preventDefault();
+									}
+								}}
+								class="inline-flex min-w-0 items-center gap-1 hover:underline"
+							>
+								{#if currentModel.isRouter}
+									<IconOmni />
+									<span class="truncate">{currentModel.displayName}</span>
+								{:else}
+									<span class="shrink-0">Model:</span>
+									{#if currentModel.logoUrl}
+										<img
+											src={currentModel.logoUrl}
+											alt=""
+											class="size-3 flex-none rounded-sm border bg-white dark:border-gray-700"
+										/>
+									{/if}
+									<span class="truncate">{currentModel.displayName}</span>
+									{#if hasProviderOverride}
+										{@const hubOrg =
+											PROVIDERS_HUB_ORGS[providerOverride as keyof typeof PROVIDERS_HUB_ORGS]}
+										<span
+											class="inline-flex shrink-0 items-center rounded-sm p-0.5 {providerOverride ===
+											'fastest'
+												? 'bg-green-100 text-green-600 dark:bg-green-800/20 dark:text-green-500'
+												: providerOverride === 'cheapest'
+													? 'bg-blue-100 text-blue-600 dark:bg-blue-800/20 dark:text-blue-500'
+													: ''}"
+											title="Provider: {providerOverride}"
+										>
+											{#if providerOverride === "fastest"}
+												<IconFast classNames="text-sm" />
+											{:else if providerOverride === "cheapest"}
+												<IconCheap classNames="text-sm" />
+											{:else if hubOrg}
+												<img
+													src="https://huggingface.co/api/avatars/{hubOrg}"
+													alt={providerOverride}
+													class="size-3 flex-none rounded-xs"
+												/>
+											{/if}
+										</span>
+									{/if}
+								{/if}
+								<CarbonCaretDown class="-ml-0.5 shrink-0 text-xxs" />
+							</a>
+						{:else if showRouterDetails && streamingRouterMetadata?.route}
+							<div
+								class="mr-2 flex items-center gap-1.5 text-xs text-[.70rem] leading-none whitespace-nowrap text-gray-400 dark:text-gray-400"
+							>
+								<IconOmni classNames="text-xs animate-pulse" />
+
+								<span class="router-badge-text router-shimmer">
+									{streamingRouterMetadata.route}
+								</span>
+
+								<span class="text-gray-500">with</span>
+
+								<span class="router-badge-text">
+									{streamingRouterModelName}
+								</span>
+							</div>
+						{:else}
+							<div
+								class="loading-dots relative inline-flex items-center text-gray-400 dark:text-gray-400"
+								aria-label="Routing…"
+							>
+								<IconOmni classNames="text-xs animate-pulse mr-1" /> Routing
+							</div>
+						{/if}
+					{:else}
+						<span class="inline-flex items-center line-through dark:border-gray-700">
+							{currentModel.id}
+						</span>
+					{/if}
+					{#if !messages.length && !loading}
+						<span class="max-sm:hidden"
+							>{publicConfig.PUBLIC_CAVEAT || "Generated content may be inaccurate or false."}</span
+						>
+					{/if}
+					{#if $settings.reasoningOverrides?.[currentModel.id] ?? currentModel.supportsReasoning}
+						<div class="ml-auto">
+							<ThinkingEffortChip
+								modelId={currentModel.id}
+								presetEffort={mlModeOn ? ML_ASSISTANT_EFFORT : undefined}
+							/>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<ArtifactPanel
+		registry={artifactRegistry}
+		items={paneItems}
+		{loading}
+		canScreenshot={!shared && !isReadOnly && mimeMatchesAllowlist("image/png", activeMimeTypes)}
+		onsend={canSendFix ? sendFixRequest : undefined}
+	/>
+	<TrackioPane items={paneItems} />
+</div>
+
+<style>
+	.paste-glow {
+		animation: glow 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+		will-change: box-shadow;
+	}
+
+	@keyframes glow {
+		0% {
+			box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.8);
+		}
+		50% {
+			box-shadow: 0 0 20px 4px rgba(59, 130, 246, 0.6);
+		}
+		100% {
+			box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+		}
+	}
+
+	.router-badge-text {
+		display: inline-block;
+		position: relative;
+		color: inherit;
+	}
+
+	.router-shimmer {
+		display: inline-block;
+		background-image: linear-gradient(
+			90deg,
+			rgba(156, 163, 175, 1) 0%,
+			rgba(156, 163, 175, 0.6) 10%,
+			rgba(156, 163, 175, 0.6) 50%,
+			rgba(156, 163, 175, 0.6) 90%,
+			rgba(156, 163, 175, 1) 100%
+		);
+		background-size: 220% 100%;
+		animation: router-shimmer 2.8s linear infinite;
+		background-clip: text;
+		-webkit-background-clip: text;
+		color: transparent;
+		-webkit-text-fill-color: transparent;
+	}
+
+	:global(.dark) .router-shimmer {
+		background-image: linear-gradient(
+			90deg,
+			rgba(255, 255, 255, 0.15) 0%,
+			rgba(255, 255, 255, 0.7) 50%,
+			rgba(255, 255, 255, 0.15) 100%
+		);
+	}
+
+	@keyframes router-shimmer {
+		0% {
+			background-position: 200% 0;
+		}
+		100% {
+			background-position: -200% 0;
+		}
+	}
+
+	.loading-dots::after {
+		content: "";
+		animation: dots-content 0.9s steps(1, end) infinite;
+	}
+	@keyframes dots-content {
+		0% {
+			content: "";
+		}
+		33% {
+			content: ".";
+		}
+		66% {
+			content: "..";
+		}
+		88% {
+			content: "...";
+		}
+	}
+</style>
