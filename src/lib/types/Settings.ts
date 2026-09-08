@@ -1,0 +1,115 @@
+import { defaultModel } from "$lib/server/models";
+import type { Timestamps } from "./Timestamps";
+import type { User } from "./User";
+
+export type StreamingMode = "raw" | "smooth";
+export type ReasoningEffort = "low" | "medium" | "high";
+
+export interface Settings extends Timestamps {
+	userId?: User["_id"];
+	sessionId?: string;
+
+	shareConversationsWithModelAuthors: boolean;
+	/** One-time welcome modal acknowledgement */
+	welcomeModalSeenAt?: Date | null;
+	/** One-time ML Intern onboarding modal acknowledgement */
+	mlInternOnboardingSeenAt?: Date | null;
+	activeModel: string;
+
+	// model name and system prompts
+	customPrompts?: Record<string, string>;
+
+	/**
+	 * Per-model toggle to enable/disable the custom system prompt
+	 * without deleting its contents. Defaults to `true` (enabled).
+	 */
+	customPromptsEnabled?: Record<string, boolean>;
+
+	/**
+	 * Per‑model overrides to enable multimodal (image) support
+	 * even when not advertised by the provider/model list.
+	 * Only the `true` value is meaningful (enables images).
+	 */
+	multimodalOverrides?: Record<string, boolean>;
+
+	/**
+	 * Per‑model overrides to enable tool calling (OpenAI tools/function calling)
+	 * even when not advertised by the provider list. Only `true` is meaningful.
+	 */
+	toolsOverrides?: Record<string, boolean>;
+
+	/**
+	 * Per-model artifacts toggle. Overrides the model's `supportsArtifacts`
+	 * config flag in both directions: `true` enables artifacts on an unflagged
+	 * model, `false` disables them on a flagged one.
+	 */
+	artifactsOverrides?: Record<string, boolean>;
+
+	/**
+	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
+	 * When set to `true`, prompt examples for that model are suppressed.
+	 */
+	hidePromptExamples?: Record<string, boolean>;
+
+	/**
+	 * Per-model inference provider preference.
+	 * Values: "auto" (default), "fastest", "cheapest", or a specific provider name (e.g., "together", "sambanova").
+	 * The value is appended to the model ID when making inference requests (e.g., "model:fastest").
+	 */
+	providerOverrides?: Record<string, string>;
+
+	/**
+	 * Per-model thinking effort. Sent as `reasoning_effort` to the OpenAI-compatible
+	 * endpoint when set; omitted (provider default) when missing.
+	 */
+	reasoningEffortOverrides?: Record<string, ReasoningEffort>;
+
+	/**
+	 * Per-model override for whether the Reasoning-effort UI should appear and
+	 * `reasoning_effort` should be forwarded. Falls back to `model.supportsReasoning`.
+	 */
+	reasoningOverrides?: Record<string, boolean>;
+
+	/**
+	 * Preferred assistant output behavior in the chat UI.
+	 * - "raw": show provider-native stream chunks
+	 * - "smooth": show smoothed stream chunks
+	 */
+	streamingMode: StreamingMode;
+	directPaste: boolean;
+
+	/**
+	 * Whether haptic feedback is enabled on supported touch devices.
+	 * Uses the ios-haptics library for cross-platform vibration.
+	 */
+	hapticsEnabled: boolean;
+
+	/**
+	 * Organization to bill inference requests to (HuggingChat only).
+	 * Stores the org's preferred_username. If empty/undefined, bills to personal account.
+	 */
+	billingOrganization?: string;
+}
+
+export type SettingsEditable = Omit<
+	Settings,
+	"welcomeModalSeenAt" | "mlInternOnboardingSeenAt" | "createdAt" | "updatedAt"
+>;
+// TODO: move this to a constant file along with other constants
+export const DEFAULT_SETTINGS = {
+	shareConversationsWithModelAuthors: true,
+	// defaultModel is unset during `vite build` (models aren't fetched at build time)
+	activeModel: defaultModel?.id ?? "",
+	customPrompts: {},
+	customPromptsEnabled: {},
+	multimodalOverrides: {},
+	toolsOverrides: {},
+	artifactsOverrides: {},
+	hidePromptExamples: {},
+	providerOverrides: {},
+	reasoningEffortOverrides: {},
+	reasoningOverrides: {},
+	streamingMode: "smooth",
+	directPaste: false,
+	hapticsEnabled: true,
+} satisfies SettingsEditable;

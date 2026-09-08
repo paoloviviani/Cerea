@@ -1,84 +1,118 @@
 # Pystino Chat
 
 A chat application over [Pystino](https://github.com/paoloviviani/Pystino),
-the gateway. **Nothing is built here yet** — this repository starts empty on
-purpose.
+the gateway. **A fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui)**,
+merged with its history intact.
 
-## The one architectural rule
+## Why a fork, and why this one
+
+Building a frontend from scratch was tried and abandoned. Of the candidates
+assessed — LibreChat, Thunderbird's Thunderbolt, Open WebUI frozen at its last
+BSD-licensed release, llms.py — chat-ui won on one measurement rather than on
+features: how much of it *duplicates the gateway*.
+
+| | code | auth files | accounting | model config |
+|---|---|---|---|---|
+| **chat-ui** | 2.5 MB / 533 files | **9** | **2** | **7** |
+| LibreChat | 35.7 MB / 3,829 files | 263 | 57 | 379 |
+| Thunderbolt | 5.3 MB / 1,121 files | 119 | 17 | 35 |
+
+Those three columns are the argument. Pystino owns identity, accounting and
+model access; a fork that ships its own must either be gutted or run in
+parallel, and both cost forever. Upstream chat-ui had already deleted its
+provider-specific code — it speaks **OpenAI-compatible APIs only**, via
+`OPENAI_BASE_URL`, discovering models from `/models`. That is Pystino's `/v1`
+contract verbatim, so there was nothing to gut.
+
+Open WebUI was disqualified on security rather than licence: v0.6.5 is the last
+BSD-3-Clause tag, but **240 of the project's 400 published advisories affect
+it** (4 critical, 108 high), it is 8,348 commits stale, and the licence change
+means those patches cannot be taken.
+
+Thunderbolt is the more mature project and remains the better answer if a real
+iOS client is ever required — it already carries one, and that is a capability
+this side cannot manufacture. The trade taken here is a PWA instead, plus a
+desktop agent against this app.
+
+## The one architectural rule, unchanged
 
 This is a **`/v1` client**. It imports nothing from the gateway: no shared
-database, no shared models, no Python package in common. It authenticates the
-way any other client does — an API key, or an OIDC access token when the
-deployment accepts them (ADR 0040, ADR 0046).
+database, no shared models, no Python package in common. If it ever needs
+something `/v1` does not expose, the fix is a gateway feature with an ADR, not
+an import.
 
-That is not fastidiousness, it is the lesson of the monorepo it replaces. The
-chat lived on a branch of the gateway's repository, and on the day of the split
-that branch was **56 commits behind**: three schema migrations and a changed
-redaction seam. Every gateway improvement made the eventual merge worse, and
-nobody was paying it down. A client that talks over a public interface has no
-such debt — that interface is versioned, documented, and tested by the
-gateway's own suite.
+That rule is why upstream's history is merged here rather than snapshotted: the
+whole case for forking *this* project was staying close to it, and that is only
+true while `git fetch upstream && git merge` keeps working.
 
-The corollary: if this application ever needs something the gateway does not
-expose, the fix is a gateway feature with an ADR, not an import.
+## Authentication
 
-## What was not carried over
+**OIDC, and only OIDC.** The gateway's local email+password door (ADR 0043) is
+a development and administration tool; it is off by default
+(`LocalAuthSettings.enabled = False`) and a deployment with a directory should
+leave it off.
 
-The previous version — `apps/chat-api` (30 files) and `apps/web` (37) — is
-**not** in this repository. A deliberate restart rather than a migration. Its
-history is preserved on the `archive/monorepo-chat` branch of the gateway's
-repository if any of it is ever wanted.
+chat-ui authenticates against `/v1` with an **OIDC access token**, not an API
+key. `_bearer_principal` resolves it, picks the provider by the unverified
+`iss` claim, verifies against that provider's keys, and produces a principal
+*indistinguishable from a key-authenticated one* — quotas, model access,
+redaction scoping and the ledger all read the user and the group, and none of
+them cares which credential arrived (ADR 0040, ADR 0051).
 
-What *was* carried over is the thinking: the component plans in [docs/](docs/),
-and the decisions, which live with all the others in
-[ai-stack](https://example.invalid/viviani/ai-stack).
+Two operational consequences worth knowing before deploying this:
+
+- `GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE` must be set or `/v1` rejects every
+  token — with the same message a bad API key gets, deliberately, so a prober
+  cannot learn that an identity provider exists.
+- **Disabling the local door removes the recovery door.** ADR 0056 records that
+  a local admin adopted by a directory which does not place them in an admin
+  group loses the flag, and that the recovery is the local door. Bootstrap the
+  first provider through `GATEWAY_OIDC__*` env seeding; the console owns every
+  provider after that (ADR 0051).
+
+## What this fork adds
+
+Beyond upstream, and the reason it is Pystino-specific rather than a generic
+OpenAI client:
+
+- **Provider-side web search**, billed per search by the gateway (ADR 0058).
+  Upstream removed its own search helpers; the tool passes through the gateway
+  untouched, so this is request shaping rather than a search backend.
+- **File upload wired to the gateway's extraction surface** — `POST /v1/ocr`
+  (ADR 0055), whose local backend runs markitdown with its NLP engine switched
+  off, so a `.docx` or a text-layer PDF never leaves the deployment.
+
+## Licensing
+
+Two licence files, on purpose:
+
+- `LICENSE` — Apache-2.0, upstream chat-ui's, covering the code inherited from
+  it. Not ours to change.
+- `LICENCE` — EUPL-1.2, for first-party additions, per ADR 0001.
+
+The EUPL's compatibility matrix lists Apache-2.0 as upstream-compatible, so a
+combined work may be distributed under the EUPL; keeping both files records
+which half is which rather than asserting one answer over the whole tree.
+Apache-2.0 is OSI-approved, carries no CLA and is not open core, so it clears
+ADR 0001's gate — but the *combination* is the one licensing question in this
+fork that has not been signed off.
+
+## Not carried over
+
+The previous first-party attempt — `apps/chat-api` (30 files) and `apps/web`
+(37) — is not here. Its history is on the `archive/monorepo-chat` branch of the
+gateway's repository.
 
 ## Decisions
 
 The decision record is **not here**. It is one numbered series for the whole
 endeavour, in
-[ai-stack/docs/adr](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/README.md),
-covering the gateway, this application, the RAG pipeline and the design
-language. Cite them by number — `(ADR 0040)` — which resolves wherever the file
-lives.
+[ai-stack/docs/adr](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/README.md).
+Cite by number — `(ADR 0040)` — which resolves wherever the file lives.
 
-Already recorded, and relevant here:
-
-| | |
-|---|---|
-| [0015](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0015-frontend-stack.md) | The frontend stack |
-| [0016](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0016-pwa.md) | A PWA |
-| [0017](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0017-desktop-shell.md) | Desktop shell: Tauri v2 |
-| [0018](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0018-vector-store.md) | Vector store: pgvector first, Qdrant behind an interface |
-| [0020](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0020-embeddings-and-reranking.md) | Embeddings and reranking via configurable endpoints |
-| [0021](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0021-code-sandbox.md) | Code execution sandbox: gVisor first |
-| [0041](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0041-chat-frontend-stack.md) | The chat frontend stack |
-| [0040](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0040-bearer-tokens-on-v1.md), [0046](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0046-local-api-credentials.md) | How this authenticates against the gateway |
-
-Three of those — 0015, 0016 and 0041 — existed **only** on the monorepo's chat
-branch and were rescued during the split. They would have gone with it.
-
-## Planned components
-
-Each gets a document rather than an empty directory, because a directory whose
-only file is a README is a document pretending to be code:
-
-- **[docs/rag.md](docs/rag.md)** — ingestion and retrieval: chunking,
-  embedding, indexing, and a retrieval API the frontend can configure.
-- **[docs/desktop.md](docs/desktop.md)** — a Tauri v2 shell around the web app,
-  plus computer use. A shell, not a second client.
-- **[docs/shared.md](docs/shared.md)** — TypeScript types shared between the
-  web app and the shell, **generated** from the gateway's `/openapi.json`
-  rather than written by hand.
-
-## Licensing
-
-EUPL-1.2 for first-party code, and it is a hard requirement rather than a
-preference — see
-[ADR 0001](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0001-licensing.md).
-Anything with a non-OSI licence, a CLA or an open-core model needs a decision
-before it is adopted. That rule is restated here rather than only linked,
-because a licence policy living in another repository is a policy nobody reads.
+Planned components keep their own documents: [docs/rag.md](docs/rag.md),
+[docs/desktop.md](docs/desktop.md), [docs/shared.md](docs/shared.md).
+Upstream's own documentation is under [docs/source](docs/source).
 
 ## The name
 

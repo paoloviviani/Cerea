@@ -1,0 +1,666 @@
+import { randomUUID } from "crypto";
+import { logger } from "../../logger";
+import type { MessageUpdate } from "$lib/types/MessageUpdate";
+import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import { ToolResultStatus } from "$lib/types/Tool";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type { McpToolMapping } from "$lib/server/mcp/tools";
+import type { McpServerConfig } from "$lib/server/mcp/httpClient";
+import type { McpClientKind } from "$lib/server/mcp/client";
+import {
+	callMcpTool,
+	getMcpToolTimeoutMs,
+	type McpToolTextResponse,
+} from "$lib/server/mcp/httpClient";
+import { getClient } from "$lib/server/mcp/clientPool";
+import type { BuiltinTool } from "../builtinTools/types";
+import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
+import { turnAwaitingInput } from "$lib/server/generation/turnState";
+import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
+import type { ToolCallGuard } from "./toolGuard";
+import type { Client } from "@modelcontextprotocol/client";
+import type { ObjectId } from "mongodb";
+
+export type Primitive = string | number | boolean;
+
+export type ToolRun = {
+	name: string;
+	parameters: Record<string, Primitive>;
+	output: string;
+};
+
+export interface NormalizedToolCall {
+	id: string;
+	name: string;
+	arguments: string;
+}
+
+export interface ExecuteToolCallsParams {
+	calls: NormalizedToolCall[];
+	mapping: Record<string, McpToolMapping>;
+	servers: McpServerConfig[];
+	/** Returns `null` when the call's argument string could not be decoded — see `toolArgs.ts`. */
+	parseArgs: (raw: unknown) => Record<string, unknown> | null;
+	resolveFileRef?: FileRefResolver;
+	toPrimitive: (value: unknown) => Primitive | undefined;
+	processToolOutput: (text: string) => {
+		annotated: string;
+		sources: { index: number; link: string }[];
+	};
+	abortSignal?: AbortSignal;
+	toolTimeoutMs?: number;
+	/** Reasoning that led to this round of calls; persisted on the round's first Call update. */
+	roundReasoning?: string;
+	/** Visible text streamed before this round's calls; persisted on the round's first Call update. */
+	roundContent?: string;
+	/** Omit and elicitation requests raised by these calls are declined. */
+	elicitation?: { conversationId: ObjectId; generationId?: string; messageId?: string };
+	/** Identity the turn runs as, for a builtin that has to be resumable later. */
+	owner?: { userId?: ObjectId; sessionId?: string };
+	/** Locally-executed tools, dispatched before the MCP mapping lookup. */
+	builtinTools?: BuiltinTool[];
+	/** Policy gate consulted around every MCP dispatch (not builtins) — see toolGuard.ts. */
+	guard?: ToolCallGuard;
+	/** Identity these calls introduce themselves to the server with. */
+	clientKind?: McpClientKind;
+}
+
+export interface ToolCallExecutionResult {
+	toolMessages: ChatCompletionMessageParam[];
+	toolRuns: ToolRun[];
+	finalAnswer?: { text: string; interrupted: boolean };
+	/** A 2026-era prompt is open; this round has no result until it is answered. */
+	awaitingInput?: boolean;
+}
+
+export type ToolExecutionEvent =
+	| { type: "update"; update: MessageUpdate }
+	| { type: "complete"; summary: ToolCallExecutionResult };
+
+/**
+ * Whether a string is valid, parseable JSON encoding an object. Guards
+ * argumentsRaw persistence: a model can stream a truncated or otherwise
+ * malformed `arguments` string, which `parseArgs` already tolerates for the
+ * live tool call (falling back to `{}`), but persisting that malformed
+ * string as argumentsRaw would later replay invalid JSON as a historical
+ * tool_calls.function.arguments — some providers validate that field and
+ * would reject the whole continuation, not just this one call.
+ */
+export function isValidJsonObject(raw: string): boolean {
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+	} catch {
+		return false;
+	}
+}
+
+const serverMap = (servers: McpServerConfig[]): Map<string, McpServerConfig> => {
+	const map = new Map<string, McpServerConfig>();
+	for (const server of servers) {
+		if (server?.name) {
+			map.set(server.name, server);
+		}
+	}
+	return map;
+};
+
+export async function* executeToolCalls({
+	calls,
+	mapping,
+	servers,
+	parseArgs,
+	resolveFileRef,
+	toPrimitive,
+	processToolOutput,
+	abortSignal,
+	toolTimeoutMs,
+	roundReasoning,
+	roundContent,
+	elicitation,
+	owner,
+	builtinTools,
+	guard,
+	clientKind,
+}: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
+	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
+	const toolMessages: ChatCompletionMessageParam[] = [];
+	const toolRuns: ToolRun[] = [];
+	const serverLookup = serverMap(servers);
+	// Pre-emit call + ETA updates and prepare tasks
+	type TaskResult = {
+		index: number;
+		output?: string;
+		structured?: unknown;
+		blocks?: unknown[];
+		error?: string;
+		awaiting?: boolean;
+		uuid: string;
+		paramsClean: Record<string, Primitive>;
+	};
+
+	const prepared = calls.map((call) => {
+		const argsObj = parseArgs(call.arguments);
+		const paramsClean: Record<string, Primitive> = {};
+		for (const [k, v] of Object.entries(argsObj ?? {})) {
+			const prim = toPrimitive(v);
+			if (prim !== undefined) paramsClean[k] = prim;
+		}
+		// Attach any resolved image payloads _after_ computing paramsClean so that
+		// logging / status updates continue to show only the lightweight primitive
+		// arguments (e.g. "image_1") while the full data: URLs or image blobs are
+		// only sent to the MCP tool server.
+		if (argsObj) attachFileRefsToArgs(argsObj, resolveFileRef);
+		return { call, argsObj, paramsClean, uuid: randomUUID() };
+	});
+
+	for (const [index, p] of prepared.entries()) {
+		yield {
+			type: "update",
+			update: {
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Call,
+				uuid: p.uuid,
+				call: { name: p.call.name, parameters: p.paramsClean },
+				...(p.call.id?.trim() ? { originalId: p.call.id } : {}),
+				...(p.call.arguments?.trim() && isValidJsonObject(p.call.arguments)
+					? { argumentsRaw: p.call.arguments }
+					: {}),
+				...(index === 0 && roundReasoning?.trim() ? { reasoning: roundReasoning } : {}),
+				// Preamble text is trimmed (unlike reasoning, which stays
+				// byte-exact): replay compares it against the trim-normalized
+				// visible text from splitReasoning, so persisting leading
+				// whitespace would break the dedup match and duplicate the
+				// preamble in replayed history.
+				...(index === 0 && roundContent?.trim() ? { content: roundContent.trim() } : {}),
+			},
+		};
+		yield {
+			type: "update",
+			update: {
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.ETA,
+				uuid: p.uuid,
+				eta: 10,
+			},
+		};
+	}
+
+	// Preload clients per distinct server used in this batch
+	const distinctServerNames = Array.from(
+		new Set(prepared.map((p) => mapping[p.call.name]?.server).filter(Boolean) as string[])
+	);
+	const clientMap = new Map<string, Client>();
+	await Promise.all(
+		distinctServerNames.map(async (name) => {
+			const cfg = serverLookup.get(name);
+			if (!cfg) return;
+			try {
+				const client = await getClient(cfg, abortSignal);
+				clientMap.set(name, client);
+			} catch (e) {
+				logger.warn({ server: name, err: String(e) }, "[mcp] failed to connect client");
+			}
+		})
+	);
+
+	// Async queue to stream results in finish order
+	function createQueue<T>() {
+		const items: T[] = [];
+		const waiters: Array<(v: IteratorResult<T>) => void> = [];
+		let closed = false;
+		return {
+			push(item: T) {
+				const waiter = waiters.shift();
+				if (waiter) waiter({ value: item, done: false });
+				else items.push(item);
+			},
+			close() {
+				closed = true;
+				let waiter: ((v: IteratorResult<T>) => void) | undefined;
+				while ((waiter = waiters.shift())) {
+					waiter({ value: undefined as unknown as T, done: true });
+				}
+			},
+			async *iterator() {
+				for (;;) {
+					if (items.length) {
+						const first = items.shift();
+						if (first !== undefined) yield first as T;
+						continue;
+					}
+					if (closed) return;
+					const value: IteratorResult<T> = await new Promise((res) => waiters.push(res));
+					if (value.done) return;
+					yield value.value as T;
+				}
+			},
+		};
+	}
+
+	const updatesQueue = createQueue<MessageUpdate>();
+	const results: TaskResult[] = [];
+	let awaitingInput = false;
+
+	const elicitationSink: ElicitationSink | undefined = elicitation && {
+		conversationId: elicitation.conversationId,
+		...(elicitation.generationId ? { generationId: elicitation.generationId } : {}),
+		emit: (update) => updatesQueue.push(update),
+	};
+
+	const builtinByName = new Map((builtinTools ?? []).map((tool) => [tool.name, tool]));
+	// Positional, not success-conditional: which parking call survives must not depend
+	// on a race between concurrent tasks.
+	const parkingCalls = prepared.filter((p) => builtinByName.get(p.call.name)?.mayPark);
+
+	const tasks = prepared.map(async (p, index) => {
+		// Check abort before starting each tool call
+		if (abortSignal?.aborted) {
+			const message = "Aborted by user";
+			results.push({
+				index,
+				error: message,
+				uuid: p.uuid,
+				paramsClean: p.paramsClean,
+			});
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message,
+			});
+			return;
+		}
+
+		// Never substitute `{}` here: the tool would run with no arguments and answer
+		// as though none were needed.
+		const argsObj = p.argsObj;
+		if (argsObj === null) {
+			const message =
+				"Invalid tool arguments: not a valid JSON object. Retry the call with a smaller, complete argument payload.";
+			logger.warn({ tool: p.call.name }, "[mcp] tool call had undecodable arguments");
+			results.push({
+				index,
+				error: message,
+				uuid: p.uuid,
+				paramsClean: p.paramsClean,
+			});
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message,
+			});
+			return;
+		}
+
+		const builtin = builtinByName.get(p.call.name);
+		if (builtin) {
+			// A round parks on one prompt, so a second would never be shown and its call would
+			// never get a result — which providers reject on the next turn.
+			if (builtin.mayPark && parkingCalls.indexOf(p) > 0) {
+				const message =
+					builtin.parkRefusalMessage ?? "Only one call that waits on the user can run per turn.";
+				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: p.uuid,
+					message,
+				});
+				return;
+			}
+
+			try {
+				const outcome = await builtin.execute(argsObj, {
+					uuid: p.uuid,
+					toolCallId: p.call.id,
+					conversationId: elicitation?.conversationId,
+					userId: owner?.userId,
+					sessionId: owner?.sessionId,
+					messageId: elicitation?.messageId,
+					generationId: elicitation?.generationId,
+					elicitationSink,
+					abortSignal,
+				});
+
+				if ("awaitingInput" in outcome) {
+					awaitingInput = true;
+					results.push({ index, awaiting: true, uuid: p.uuid, paramsClean: p.paramsClean });
+					return;
+				}
+				if ("error" in outcome) {
+					results.push({ index, error: outcome.error, uuid: p.uuid, paramsClean: p.paramsClean });
+					updatesQueue.push({
+						type: MessageUpdateType.Tool,
+						subtype: MessageToolUpdateType.Error,
+						uuid: p.uuid,
+						message: outcome.error,
+					});
+					return;
+				}
+
+				results.push({
+					index,
+					output: outcome.resultText,
+					uuid: p.uuid,
+					paramsClean: p.paramsClean,
+				});
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Result,
+					uuid: p.uuid,
+					result: {
+						status: ToolResultStatus.Success,
+						call: { name: p.call.name, parameters: p.paramsClean },
+						outputs: [{ text: outcome.resultText } as unknown as Record<string, unknown>],
+						display: true,
+					},
+				});
+				for (const update of outcome.extraUpdates ?? []) {
+					updatesQueue.push(update);
+				}
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				logger.warn({ tool: p.call.name, err: message }, "[builtin] tool call failed");
+				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: p.uuid,
+					message,
+				});
+			}
+			return;
+		}
+
+		const mappingEntry = mapping[p.call.name];
+		if (!mappingEntry) {
+			const message = `Unknown MCP function: ${p.call.name}`;
+			results.push({
+				index,
+				error: message,
+				uuid: p.uuid,
+				paramsClean: p.paramsClean,
+			});
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message,
+			});
+			return;
+		}
+		const serverCfg = serverLookup.get(mappingEntry.server);
+		if (!serverCfg) {
+			const message = `Unknown MCP server: ${mappingEntry.server}`;
+			results.push({
+				index,
+				error: message,
+				uuid: p.uuid,
+				paramsClean: p.paramsClean,
+			});
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message,
+			});
+			return;
+		}
+		const client = clientMap.get(mappingEntry.server);
+
+		// Consulted before anything leaves the process: a refusal is an ordinary
+		// tool error the model recovers from, and nothing was dispatched.
+		let guardTicket: unknown;
+		if (guard) {
+			const verdict = await guard.before({
+				serverUrl: serverCfg.url,
+				tool: mappingEntry.tool,
+				fnName: p.call.name,
+				args: argsObj,
+				callUuid: p.uuid,
+			});
+			if (verdict.update) updatesQueue.push(verdict.update);
+			if (!verdict.allow) {
+				results.push({
+					index,
+					error: verdict.message,
+					uuid: p.uuid,
+					paramsClean: p.paramsClean,
+				});
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: p.uuid,
+					message: verdict.message,
+				});
+				return;
+			}
+			guardTicket = verdict.ticket;
+		}
+
+		try {
+			logger.debug(
+				{ server: mappingEntry.server, tool: mappingEntry.tool, parameters: p.paramsClean },
+				"[mcp] invoking tool"
+			);
+			const toolResponse: McpToolTextResponse = await callMcpTool(
+				serverCfg,
+				mappingEntry.tool,
+				argsObj,
+				{
+					client,
+					signal: abortSignal,
+					timeoutMs: effectiveTimeoutMs,
+					...(clientKind ? { clientKind } : {}),
+					...(elicitationSink ? { elicitation: { sink: elicitationSink, toolUuid: p.uuid } } : {}),
+					onProgress: (progress) => {
+						updatesQueue.push({
+							type: MessageUpdateType.Tool,
+							subtype: MessageToolUpdateType.Progress,
+							uuid: p.uuid,
+							progress: progress.progress,
+							total: progress.total,
+							message: progress.message,
+						});
+					},
+				}
+			);
+			if (toolResponse.inputRequired) {
+				// A guarded call must not park: the resume path re-invokes the tool
+				// without consulting any guard, so its booking would go stale and the
+				// re-run would be ungated. Decline the prompt and settle the books.
+				if (guardTicket !== undefined && !guard?.allowParking) {
+					const update = await guard?.after(guardTicket, { status: "elicited" });
+					if (update) updatesQueue.push(update);
+					const message =
+						"The tool asked for interactive input mid-call, which this call is not allowed to wait on. Nothing was charged or submitted. Retry with complete arguments.";
+					results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+					updatesQueue.push({
+						type: MessageUpdateType.Tool,
+						subtype: MessageToolUpdateType.Error,
+						uuid: p.uuid,
+						message,
+					});
+					return;
+				}
+				const opened = elicitationSink
+					? await openDurableElicitation({
+							sink: elicitationSink,
+							server: mappingEntry.server,
+							toolUuid: p.uuid,
+							pending: {
+								tool: mappingEntry.tool,
+								args: argsObj,
+								messageId: elicitation?.messageId ?? "",
+								toolCallId: p.call.id,
+								toolUuid: p.uuid,
+							},
+							inputRequired: toolResponse.inputRequired,
+						})
+					: { opened: false, reason: "no chat to ask" };
+
+				if (opened.opened) {
+					// A shown prompt parks the turn on the user — the same lifecycle
+					// transition the ask tool records (see turnState.ts). Without it
+					// the route's ending CAS reads the state as still-running and
+					// marks the turn done, closing every subscription while the
+					// prompt is open — an answer from another tab then streams into
+					// nothing. Covers re-parks too: every open lands here.
+					if (elicitation?.conversationId && elicitation.messageId) {
+						const stateUpdate = await turnAwaitingInput({
+							conversationId: elicitation.conversationId,
+							messageId: elicitation.messageId,
+							producerId: elicitation.generationId ?? "",
+							...(owner?.userId ? { userId: owner.userId } : {}),
+							...(owner?.sessionId ? { sessionId: owner.sessionId } : {}),
+						});
+						elicitationSink?.emit(stateUpdate);
+					}
+					awaitingInput = true;
+					results.push({ index, awaiting: true, uuid: p.uuid, paramsClean: p.paramsClean });
+					return;
+				}
+
+				const message = `The tool asked for input that could not be shown (${opened.reason}).`;
+				logger.warn(
+					{ server: mappingEntry.server, tool: mappingEntry.tool, reason: opened.reason },
+					"[mcp] could not open a durable elicitation"
+				);
+				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: p.uuid,
+					message,
+				});
+				return;
+			}
+
+			const { annotated } = processToolOutput(toolResponse.text ?? "");
+
+			if (guardTicket !== undefined) {
+				// Raw text, not the annotated form: the guard parses identifiers out
+				// of it and source markers could split one.
+				const update = await guard?.after(
+					guardTicket,
+					toolResponse.isError
+						? { status: "error", text: toolResponse.text ?? "" }
+						: { status: "success", text: toolResponse.text ?? "" }
+				);
+				if (update) updatesQueue.push(update);
+			}
+
+			if (toolResponse.isError) {
+				const message = annotated.trim() || "The tool reported an error with no message.";
+				logger.warn(
+					{ server: mappingEntry.server, tool: mappingEntry.tool, err: message },
+					"[mcp] tool returned an error result"
+				);
+				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: p.uuid,
+					message,
+				});
+				return;
+			}
+
+			logger.debug(
+				{ server: mappingEntry.server, tool: mappingEntry.tool },
+				"[mcp] tool call completed"
+			);
+			results.push({
+				index,
+				output: annotated,
+				structured: toolResponse.structured,
+				blocks: toolResponse.content,
+				uuid: p.uuid,
+				paramsClean: p.paramsClean,
+			});
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Result,
+				uuid: p.uuid,
+				result: {
+					status: ToolResultStatus.Success,
+					call: { name: p.call.name, parameters: p.paramsClean },
+					outputs: [
+						{
+							text: annotated ?? "",
+							structured: toolResponse.structured,
+							content: toolResponse.content,
+						} as unknown as Record<string, unknown>,
+					],
+					display: true,
+				},
+			});
+		} catch (err) {
+			if (guardTicket !== undefined) {
+				// Whether the server acted is unknown from here — the guard decides
+				// what that means for its books.
+				const update = await guard?.after(guardTicket, { status: "transport_error" });
+				if (update) updatesQueue.push(update);
+			}
+			const errMsg = err instanceof Error ? err.message : String(err);
+			const errName = err instanceof Error ? err.name : "";
+			const isAbortError =
+				abortSignal?.aborted ||
+				errName === "AbortError" ||
+				errName === "APIUserAbortError" ||
+				errMsg === "Request was aborted." ||
+				errMsg === "This operation was aborted";
+			const message = isAbortError ? "Aborted by user" : errMsg;
+
+			if (isAbortError) {
+				logger.debug(
+					{ server: mappingEntry.server, tool: mappingEntry.tool },
+					"[mcp] tool call aborted by user"
+				);
+			} else {
+				logger.warn(
+					{ server: mappingEntry.server, tool: mappingEntry.tool, err: message },
+					"[mcp] tool call failed"
+				);
+			}
+			results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message,
+			});
+		}
+	});
+
+	// kick off and stream as they finish
+	Promise.allSettled(tasks).then(() => updatesQueue.close());
+
+	for await (const update of updatesQueue.iterator()) {
+		yield { type: "update", update };
+	}
+
+	// Collate outputs in original call order
+	results.sort((a, b) => a.index - b.index);
+	for (const r of results) {
+		const name = prepared[r.index].call.name;
+		const id = prepared[r.index].call.id;
+		if (r.awaiting) continue;
+		if (!r.error) {
+			const output = r.output ?? "";
+			toolRuns.push({ name, parameters: r.paramsClean, output });
+			// For the LLM follow-up call, we keep only the textual output
+			toolMessages.push({ role: "tool", tool_call_id: id, content: output });
+		} else {
+			// Communicate error to LLM so it doesn't hallucinate success
+			toolMessages.push({ role: "tool", tool_call_id: id, content: `Error: ${r.error}` });
+		}
+	}
+
+	yield {
+		type: "complete",
+		summary: { toolMessages, toolRuns, ...(awaitingInput ? { awaitingInput: true } : {}) },
+	};
+}

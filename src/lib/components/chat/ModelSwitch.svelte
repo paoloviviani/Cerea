@@ -1,0 +1,78 @@
+<script lang="ts">
+	import { UrlDependency } from "$lib/types/UrlDependency";
+	import { safeInvalidate } from "$lib/utils/safeInvalidate";
+	import { useConversationsStore } from "$lib/stores/conversations.svelte";
+	import { page } from "$app/state";
+	import { base } from "$app/paths";
+	import type { Model } from "$lib/types/Model";
+	import { error } from "$lib/stores/errors";
+
+	interface Props {
+		models: Model[];
+		currentModel: Model;
+	}
+
+	let { models, currentModel }: Props = $props();
+
+	const convsStore = useConversationsStore();
+
+	let selectedModelId = $derived(
+		models.some((m) => m.id === currentModel.id)
+			? currentModel.id
+			: (models[0]?.id ?? currentModel.id)
+	);
+
+	async function handleModelChange() {
+		if (!page.params.id) return;
+
+		try {
+			const response = await fetch(`${base}/conversation/${page.params.id}`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ model: selectedModelId }),
+			});
+
+			if (!response.ok) {
+				let message = "Failed to update model";
+				try {
+					message = ((await response.json()) as { message?: string }).message ?? message;
+				} catch {
+					// not JSON
+				}
+				throw new Error(message);
+			}
+
+			await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
+		} catch (err) {
+			console.error(err);
+			error.set((err as Error).message);
+		}
+	}
+</script>
+
+<div
+	class="mx-auto mt-0 flex w-fit flex-col items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-500/20 p-4 dark:border-gray-800"
+>
+	<span>
+		This model is no longer available. Switch to a new one to continue this conversation:
+	</span>
+	<div class="flex items-center space-x-2">
+		<select
+			bind:value={selectedModelId}
+			class="rounded-md bg-gray-100 px-2 py-1 max-sm:max-w-32 dark:bg-gray-900"
+		>
+			{#each models as model (model.id)}
+				<option value={model.id}>{model.name}</option>
+			{/each}
+		</select>
+		<button
+			onclick={handleModelChange}
+			disabled={selectedModelId === currentModel.id}
+			class="rounded-md bg-gray-100 px-2 py-1 dark:bg-gray-900"
+		>
+			Accept
+		</button>
+	</div>
+</div>
