@@ -1,93 +1,85 @@
 # Pystino Chat
 
+A chat application over [Pystino](https://github.com/paoloviviani/Pystino),
+the gateway. **Nothing is built here yet** — this repository starts empty on
+purpose.
 
+## The one architectural rule
 
-## Getting started
+This is a **`/v1` client**. It imports nothing from the gateway: no shared
+database, no shared models, no Python package in common. It authenticates the
+way any other client does — an API key, or an OIDC access token when the
+deployment accepts them (ADR 0040, ADR 0046).
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+That is not fastidiousness, it is the lesson of the monorepo it replaces. The
+chat lived on a branch of the gateway's repository, and on the day of the split
+that branch was **56 commits behind**: three schema migrations and a changed
+redaction seam. Every gateway improvement made the eventual merge worse, and
+nobody was paying it down. A client that talks over a public interface has no
+such debt — that interface is versioned, documented, and tested by the
+gateway's own suite.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+The corollary: if this application ever needs something the gateway does not
+expose, the fix is a gateway feature with an ADR, not an import.
 
-## Add your files
+## What was not carried over
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+The previous version — `apps/chat-api` (30 files) and `apps/web` (37) — is
+**not** in this repository. A deliberate restart rather than a migration. Its
+history is preserved on the `archive/monorepo-chat` branch of the gateway's
+repository if any of it is ever wanted.
 
-```
-cd existing_repo
-git remote add origin https://github.com/paoloviviani/Cerea.git
-git branch -M main
-git push -uf origin main
-```
+What *was* carried over is the thinking: the component plans in [docs/](docs/),
+and the decisions, which live with all the others in
+[ai-stack](https://example.invalid/viviani/ai-stack).
 
-## Integrate with your tools
+## Decisions
 
-* [Set up project integrations](https://github.com/paoloviviani/Cerea/-/settings/integrations)
+The decision record is **not here**. It is one numbered series for the whole
+endeavour, in
+[ai-stack/docs/adr](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/README.md),
+covering the gateway, this application, the RAG pipeline and the design
+language. Cite them by number — `(ADR 0040)` — which resolves wherever the file
+lives.
 
-## Collaborate with your team
+Already recorded, and relevant here:
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+| | |
+|---|---|
+| [0015](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0015-frontend-stack.md) | The frontend stack |
+| [0016](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0016-pwa.md) | A PWA |
+| [0017](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0017-desktop-shell.md) | Desktop shell: Tauri v2 |
+| [0018](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0018-vector-store.md) | Vector store: pgvector first, Qdrant behind an interface |
+| [0020](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0020-embeddings-and-reranking.md) | Embeddings and reranking via configurable endpoints |
+| [0021](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0021-code-sandbox.md) | Code execution sandbox: gVisor first |
+| [0041](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0041-chat-frontend-stack.md) | The chat frontend stack |
+| [0040](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0040-bearer-tokens-on-v1.md), [0046](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0046-local-api-credentials.md) | How this authenticates against the gateway |
 
-## Test and Deploy
+Three of those — 0015, 0016 and 0041 — existed **only** on the monorepo's chat
+branch and were rescued during the split. They would have gone with it.
 
-Use the built-in continuous integration in GitLab.
+## Planned components
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+Each gets a document rather than an empty directory, because a directory whose
+only file is a README is a document pretending to be code:
 
-***
+- **[docs/rag.md](docs/rag.md)** — ingestion and retrieval: chunking,
+  embedding, indexing, and a retrieval API the frontend can configure.
+- **[docs/desktop.md](docs/desktop.md)** — a Tauri v2 shell around the web app,
+  plus computer use. A shell, not a second client.
+- **[docs/shared.md](docs/shared.md)** — TypeScript types shared between the
+  web app and the shell, **generated** from the gateway's `/openapi.json`
+  rather than written by hand.
 
-# Editing this README
+## Licensing
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+EUPL-1.2 for first-party code, and it is a hard requirement rather than a
+preference — see
+[ADR 0001](https://example.invalid/viviani/ai-stack/-/blob/main/docs/adr/0001-licensing.md).
+Anything with a non-OSI licence, a CLA or an open-core model needs a decision
+before it is adopted. That rule is restated here rather than only linked,
+because a licence policy living in another repository is a policy nobody reads.
 
-## Suggestions for a good README
+## The name
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Likely to change.
