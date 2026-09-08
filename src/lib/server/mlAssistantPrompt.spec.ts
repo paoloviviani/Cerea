@@ -1,0 +1,424 @@
+import { describe, expect, it } from "vitest";
+import {
+	ML_ASSISTANT_BUDGET_RULES,
+	ML_ASSISTANT_PREPROMPT,
+	mlAssistantSessionContext,
+} from "./mlAssistantPrompt";
+import { buildToolPreprompt } from "./textGeneration/utils/toolPrompt";
+import { ARTIFACTS_SYSTEM_PROMPT } from "./textGeneration/artifacts";
+import { askUserQuestionBuiltin } from "./textGeneration/builtinTools/askUserQuestion";
+import type { OpenAiTool } from "$lib/server/mcp/tools";
+
+const tool = (name: string): OpenAiTool =>
+	({
+		type: "function",
+		function: { name, description: "", parameters: { type: "object", properties: {} } },
+	}) as OpenAiTool;
+
+const HF_TOOLS = [tool("hf_jobs"), tool("hf_fs"), tool("hub_repo_details")];
+
+/** The preset's system message, as `runMcpFlow` asks for it. */
+const inMode = (tools: OpenAiTool[]) =>
+	buildToolPreprompt(tools, undefined, undefined, { mlAssistant: true });
+
+describe("ML Assistant preprompt", () => {
+	it("ships text that does not depend on the model or a template engine", () => {
+		expect(ML_ASSISTANT_PREPROMPT.trim().length).toBeGreaterThan(0);
+		expect(ML_ASSISTANT_PREPROMPT).not.toMatch(/\{\{|\$\{/);
+	});
+
+	it("keeps every section that carries a rule", () => {
+		for (const heading of [
+			"# Your knowledge of the HF libraries is outdated",
+			"# Reproducing or implementing a paper",
+			"# Mistakes you WILL make without checking",
+			"# Before you propose a training or evaluation run",
+			"# Audit the data before you use it",
+			"# When you write ML code",
+			"# Submitting jobs",
+			"# Scripts: artifact or payload",
+			"# When a run fails",
+			"# Finishing",
+		]) {
+			expect(ML_ASSISTANT_PREPROMPT).toContain(heading);
+		}
+	});
+
+	it("names each failure mode it wants the model to recognize", () => {
+		for (const mode of [
+			"HALLUCINATED IMPORTS",
+			"WRONG TRAINER ARGUMENTS",
+			"WRONG DATASET FORMAT",
+			"SILENT DATASET SUBSTITUTION",
+			"LOST MODELS",
+			"DEFAULT TIMEOUTS KILL JOBS",
+			"BATCH FAILURES",
+			"NEVER COMPILE FLASH-ATTENTION",
+			"PERMISSION ERRORS ARE NOT RETRIES",
+			"SCOPE-CHANGING FIXES",
+		]) {
+			expect(ML_ASSISTANT_PREPROMPT).toContain(mode);
+		}
+	});
+
+	it("states the push-to-hub rule more than once", () => {
+		// Deliberate redundancy, not an oversight: a finished run that pushed
+		// nothing is unrecoverable, so the rule is restated at every surface it can
+		// be violated at. Collapsing these into one mention is a regression.
+		const mentions = ML_ASSISTANT_PREPROMPT.match(/push_to_hub/g) ?? [];
+		expect(mentions.length).toBeGreaterThanOrEqual(2);
+	});
+
+	it("refers only to tools this harness actually has", () => {
+		// The doctrine was ported from a harness with a shell and a sandbox. A rule
+		// naming a tool that isn't on offer is dead text the model can't act on.
+		for (const absent of ["sandbox", "/app/", "bash", "read_file", "write_file"]) {
+			expect(ML_ASSISTANT_PREPROMPT).not.toContain(absent);
+		}
+	});
+});
+
+describe("ML Assistant tool-keyed doctrine", () => {
+	it("sends the job contract only to a run that can submit jobs", () => {
+		// It restates rules the preset prompt already carries, deliberately, at the
+		// surface they get violated at — but a run without the tool would be
+		// reading a contract for something it cannot do.
+		expect(inMode([tool("hf_jobs")])).toContain("RUNNING JOBS (hf_jobs):");
+		expect(inMode([tool("hf_fs")])).not.toContain("RUNNING JOBS");
+	});
+
+	it("states the three that cost a whole run", () => {
+		const jobs = inMode([tool("hf_jobs")]);
+
+		// Each of these fails late or silently: no token means the push fails after
+		// the training, no flavor means it trains on two CPU cores, and a short
+		// timeout kills the run at the end.
+		expect(jobs).toContain("HF_TOKEN");
+		expect(jobs).toContain("cpu-basic");
+		expect(jobs).toContain("Timeout.");
+		expect(jobs).toContain("push_to_hub");
+	});
+
+	it("requires a name on every submission", () => {
+		// Unnamed jobs land in the user's dashboard as an image tag plus a hash,
+		// indistinguishable from each other. Stated in the preset prompt and
+		// restated on the contract, like the other pre-flight rules.
+		expect(ML_ASSISTANT_PREPROMPT).toContain("Name every job you submit");
+		expect(inMode([tool("hf_jobs")])).toContain("- Name.");
+	});
+
+	it("points at the pricing doc instead of quoting rates", () => {
+		// A price table in a prompt goes stale silently; a pointer does not.
+		expect(inMode([tool("hf_jobs")])).toContain("hf://docs/hub/jobs-pricing.md");
+	});
+
+	it("counts queue time toward time-to-finish, and stops defaulting to l4", () => {
+		// Measured scheduling waits: CPU and a10g-small are immediate, but ~10% of
+		// l4x1 runs wait >17min on node-pool spin-up, which the hourly rate hides.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("Queue time is part of time-to-finish");
+		expect(jobs).toContain("prefer an a10g over an l4");
+		expect(jobs).toContain("a10g-small or a10g-large for a small finetune");
+		expect(jobs).not.toContain("a10g-large or l4x1 for a small finetune");
+	});
+
+	it("keeps the queue figures as shape rather than numbers to quote", () => {
+		// They are a 24h/7d snapshot with no live source behind them, so they date
+		// the same way the prices the neighbouring rule refuses to quote do.
+		expect(inMode([tool("hf_jobs")])).toContain("not as numbers to quote to the user");
+	});
+
+	it("reasons about hardware in cost to finish, not cost per hour", () => {
+		// Every job in the first real run went to the cheapest flavor, because the
+		// doctrine said "smallest" and never said "how long". Cheapest per hour is
+		// not cheapest per job when a faster GPU finishes in a third of the time.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("cost to FINISH");
+		expect(jobs).toContain("ask_user_question");
+		expect(jobs).toContain("hf://docs/hub/jobs-pricing.md");
+	});
+
+	it("makes speed-versus-cost the user's call, not an assumed objective", () => {
+		// Dogfooding: models silently optimised for cost when the user would have
+		// paid more to see the result sooner. The preference is the user's to
+		// state, and the options put to them must span the spectrum.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("not necessarily the user's");
+		expect(jobs).toContain("span the real spectrum");
+	});
+
+	it("front-loads the first status check after a submit", () => {
+		// Dogfooding: models set long waits uniformly, so a job that died on a bad
+		// dependency in its first minute sat undiscovered for twenty.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("failures cluster at the start");
+		expect(jobs).toContain("SHORT wait");
+	});
+
+	it("sends smoke checks to the sandbox first when it is on offer", () => {
+		// Dogfooding: some models smoke-tested via jobs with the sandbox sitting
+		// unused — a queue and an image pull to find a typo. Stated at both
+		// surfaces: the jobs contract and the sandbox rules.
+		expect(inMode([tool("hf_jobs")])).toContain("When hf_sandbox is on offer");
+		expect(inMode([tool("hf_sandbox")])).toContain("go here FIRST");
+	});
+
+	it("keeps the smoke test on the real flavor and the real shape", () => {
+		// A cpu-basic sandbox surfaces neither an OOM nor a usable steps-per-second.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("same flavor, batch size and sequence length as the real run");
+		expect(jobs).toContain("shrink the step count, never the shape");
+		expect(jobs).toContain("The smoke test on the real flavor gives you measured steps per second");
+		expect(ML_ASSISTANT_PREPROMPT).toContain("Memory and speed cannot");
+	});
+
+	it("says the sandbox cannot stand in for the GPU smoke test", () => {
+		// The other half of the same incident: "fast checks go here FIRST" read as
+		// permission to skip the GPU smoke entirely. Both rules ship together or
+		// the boundary is ambiguous again.
+		expect(inMode([tool("hf_sandbox")])).toContain("cannot do is stand in for the GPU smoke test");
+	});
+
+	it("pins dependencies to a resolved current release, not a remembered one", () => {
+		// A pin from memory dies at import; unpinned drifts from whatever it has to match.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("pin to the CURRENT release, never the version you remember");
+		expect(jobs).toContain("pip index versions <package>");
+		expect(jobs).toContain("Unpinned is not the safe middle");
+	});
+
+	it("names the dashboard through create_trackio, and verifies a metric lands", () => {
+		// init() succeeds and reports a live dashboard against a Space that 500s
+		// every write; reading a metric back is what catches it.
+		const jobs = inMode([tool("hf_jobs")]);
+
+		expect(jobs).toContain("Call `create_trackio` first");
+		expect(jobs).toContain("use that id unchanged");
+		expect(jobs).toContain("is not evidence that anything is recording");
+		// Checkable with the tools this run actually has: the warning is in the job
+		// log, which check_job and hf_jobs both read. Reading a metric back off the
+		// Space is not — nothing here can call the Trackio API.
+		expect(jobs).toContain("could not be sent");
+		expect(jobs).toContain("saved locally");
+		expect(jobs).toContain("confirm the dashboard has rows in it");
+	});
+
+	it("sends paper-finding rules with the filesystem tool", () => {
+		// It searched for a paper by title with hub_repo_search — a repo search —
+		// twice, and concluded nothing was there.
+		const fs = inMode([tool("hf_fs")]);
+
+		expect(fs).toContain("papers live at hf://papers");
+		expect(fs).toContain("hub_repo_search searches REPOSITORIES");
+		expect(inMode([tool("hf_jobs")])).not.toContain("papers live at hf://papers");
+	});
+
+	it("tells the model to create a repo before writing to it", () => {
+		// "Repository not found" from a put reads like a permissions problem and is
+		// not: it means nothing was created. That cost a real run several calls.
+		const write = inMode([tool("hf_fs_write")]);
+
+		expect(write).toContain("create_repo first");
+		expect(write).toContain("Work in repos you created");
+	});
+
+	it("offers the sandbox as an optimisation with a fallback, not a dependency", () => {
+		// Availability depends on the account and the deployment, so the doctrine
+		// has to survive the tool being there and refusing to work.
+		const sandbox = inMode([tool("hf_sandbox")]);
+
+		expect(sandbox).toContain("SANDBOXES (hf_sandbox)");
+		expect(sandbox).toContain("hf_jobs");
+		expect(sandbox).toContain("do not retry");
+		expect(inMode([tool("hf_jobs")])).not.toContain("SANDBOXES (hf_sandbox)");
+	});
+
+	it("puts metrics on the pre-flight list, not only in the bullets", () => {
+		// The list is the part the model prints and checks itself. Trackio guidance
+		// sat in a bullet for weeks and was never acted on unprompted: hardware,
+		// timeout and destination were on the list, metrics was not.
+		expect(ML_ASSISTANT_PREPROMPT).toContain("timeout, metrics, and where the result gets pushed");
+		expect(inMode([tool("hf_jobs")])).toContain("Every training run gets a live dashboard");
+	});
+
+	it("separates the two argument shapes where the sandbox tools are described", () => {
+		// hf_jobs takes `args` as an object with a `timeout` key; the sandbox tools
+		// take a token list where it is `--timeout 55`. Reasoning across from the
+		// sibling is the single largest class of rejected call in the traces.
+		const sandbox = inMode([tool("hf_sandbox")]);
+
+		expect(sandbox).toContain("--timeout 55");
+		expect(sandbox).toContain("hf_jobs takes an object");
+	});
+
+	it("guides web search only where web search exists", () => {
+		// The mode replaces the generic tool preprompt, SEARCH paragraph included,
+		// so a deployment with Exa configured would otherwise get none.
+		expect(inMode([tool("web_search_exa")])).toContain("SEARCHING THE WEB");
+		expect(inMode([tool("hf_fs")])).not.toContain("SEARCHING THE WEB");
+	});
+
+	it("sends the write rules only to a run that can write", () => {
+		expect(inMode([tool("hf_fs_write")])).toContain("WRITING TO THE HUB (hf_fs_write):");
+		expect(inMode([tool("hf_fs")])).not.toContain("WRITING TO THE HUB");
+	});
+
+	it("keeps each block on its own paragraph", () => {
+		// They are lists the model reads down before acting, not sentences in the
+		// run of general guidance.
+		const both = inMode([tool("hf_jobs"), tool("hf_fs_write")]);
+		expect(both.split("\n\n").length).toBeGreaterThan(2);
+	});
+});
+
+describe("ML Assistant system message size", () => {
+	it("stays under the ceiling it is re-sent at", () => {
+		// The preset's tool preprompt, prompt and the artifacts prompt it
+		// force-enables are one system message, re-sent on every round of every
+		// turn — and the mode's round budget is a hundred. This is a deliberate
+		// ceiling, not a measurement: growing past it should be a decision someone
+		// makes here, not something that happens a paragraph at a time.
+		//
+		// Counted with one builtin's guidance in it; the GitHub grounding tools add
+		// their own when a GITHUB_TOKEN is configured.
+		//
+		// Raised deliberately each time, and the reasons are the point of keeping it:
+		// 18k -> 19k for the hf_jobs submission contract; 19k -> 22k for the citation
+		// hop, paper-finding, web search and cost-to-finish hardware; 22k -> 24k for
+		// headroom alone, not content — at 21,889 the guard fired on every edit,
+		// which makes it noise. 24k -> 27k for the session budget rules (~2.6k, now
+		// measured here too, since the mode is always budget-gated and re-sends
+		// them every round) plus the same headroom rule: the grant procedure and
+		// the enforcement formula are what keep an autonomous run from inventing
+		// spend authority. 27k -> 28.5k at the merge with the parallel raise for the
+		// two call shapes that cost whole runs in practice — the uv/run submission
+		// and logs syntax, and the Trackio init/log/finish sequence, there because
+		// the model got them wrong from memory (a wrong kwarg is not a style
+		// question, it is a dead job) and a literal example is the only form of that
+		// rule that works — plus the job-naming rules that landed on the same
+		// section in the same week. That number is ~6,900 tokens, re-sent on every
+		// round of a hundred-round budget: it is the figure to watch, and the next
+		// raise should have to argue for itself against it.
+		//
+		// 28.5k -> 30.5k for the two rules a live run proved cost whole runs. The
+		// smoke test had drifted to "the smallest hardware that fits" plus a CPU
+		// sandbox, which cannot surface an OOM or a steps-per-second worth
+		// extrapolating: one SFT OOM'd at batch 8 on a T4, OOM'd again at batch 8 on
+		// an L4, then overran a 90m timeout on a ~1h44m run — three submissions and
+		// a budget raise for one finetune. And unpinned deps let the trackio client
+		// float away from the Space that was provisioned against it, which silently
+		// dropped 1h44m of metrics. Both are argued for by cost-per-incident, not
+		// by wanting the words. The same run also bought the trackio rules that
+		// followed — its own Space per project, and reading a metric back rather
+		// than trusting a successful init.
+		//
+		// 30.5k -> 32k for headroom, not content: the rules above landed at 30,495
+		// against a 30,500 ceiling, and a guard with five characters of slack fires
+		// on every edit, which is the state that made it noise at 21,889.
+		const composed = [
+			buildToolPreprompt(
+				// The worst case, not a typical one: every preset tool plus the web
+				// search a configured deployment adds. A ceiling measured against a
+				// smaller set is a ceiling that does not bind.
+				[
+					...HF_TOOLS,
+					tool("hf_fs_write"),
+					tool("ask_user_question"),
+					tool("update_plan"),
+					tool("github_find_examples"),
+					tool("web_search_exa"),
+					tool("hf_sandbox"),
+				],
+				undefined,
+				[askUserQuestionBuiltin],
+				{ mlAssistant: true }
+			),
+			ML_ASSISTANT_PREPROMPT,
+			ML_ASSISTANT_BUDGET_RULES,
+			ARTIFACTS_SYSTEM_PROMPT,
+		].join("\n\n");
+
+		expect(composed.length).toBeLessThan(32_000);
+	});
+});
+
+describe("ML Assistant session context", () => {
+	const now = new Date("2026-08-24T09:07:00Z");
+
+	it("stamps the user so the namespace rule has something to read", () => {
+		expect(mlAssistantSessionContext({ username: "pngwn", timezone: "UTC", now })).toBe(
+			"[Session context: Date=2026-08-24, Time=09:07, Timezone=UTC, User=pngwn]"
+		);
+	});
+
+	it("says unknown rather than omitting the user", () => {
+		// The prompt keys "don't guess a namespace" off this exact value, so an
+		// absent username has to be stated rather than left out.
+		expect(mlAssistantSessionContext({ timezone: "UTC", now })).toContain("User=unknown");
+		expect(mlAssistantSessionContext({ username: "   ", timezone: "UTC", now })).toContain(
+			"User=unknown"
+		);
+	});
+
+	it("survives a timezone the client made up", () => {
+		// `timezone` reaches this from the request body validated only as a string,
+		// and Intl throws RangeError on an unknown zone. This runs before the
+		// generation's try, so throwing here fails the whole turn.
+		const stamped = mlAssistantSessionContext({ username: "pngwn", timezone: "Not/AZone", now });
+
+		expect(stamped).toContain("User=pngwn");
+		expect(stamped).toContain("Date=2026-08-24");
+		// No zone is claimed, because none was honoured.
+		expect(stamped).not.toContain("Timezone=");
+	});
+
+	it("stamps the time in the user's zone", () => {
+		expect(mlAssistantSessionContext({ timezone: "Europe/Berlin", now })).toContain("Time=11:07");
+		expect(mlAssistantSessionContext({ now })).not.toContain("Timezone=");
+	});
+});
+
+describe("ML Assistant tool preprompt", () => {
+	it("replaces the generic restraint rule instead of joining it", () => {
+		// The generic text names writing code as a case to answer without tools,
+		// which is the inverse of this mode's doctrine. Both in one system message
+		// is a contradiction, so the mode swaps the paragraph rather than adding to
+		// it.
+		expect(buildToolPreprompt(HF_TOOLS)).toContain("Do NOT call a tool unless");
+		expect(inMode(HF_TOOLS)).not.toContain("Do NOT call a tool unless");
+		expect(inMode(HF_TOOLS)).toContain("USING TOOLS:");
+	});
+
+	it("swaps the web-search paragraphs for the Hub ones", () => {
+		expect(inMode(HF_TOOLS)).not.toContain("SEARCH: Use 3-6 precise keywords");
+		expect(inMode(HF_TOOLS)).toContain("only source of facts about the Hub");
+		expect(inMode(HF_TOOLS)).toContain("WHEN RESULTS ARE LARGE:");
+	});
+
+	it("still sends everything a builtin tool contributes", () => {
+		// The reason this is a swap inside one builder rather than a second
+		// builder: per-builtin guidance is added over time, and a parallel copy
+		// silently stops carrying whatever is added to the other one.
+		const builtin = {
+			name: "update_plan",
+			preprompt: "PLANNING: keep exactly one step in progress.",
+		};
+
+		const prompt = buildToolPreprompt([...HF_TOOLS, tool("update_plan")], undefined, [builtin], {
+			mlAssistant: true,
+		});
+
+		expect(prompt).toContain("PLANNING: keep exactly one step in progress.");
+		expect(prompt).toContain("hf_jobs, hf_fs, hub_repo_details, update_plan");
+	});
+
+	it("says nothing when there are no tools", () => {
+		expect(inMode([])).toBe("");
+	});
+});

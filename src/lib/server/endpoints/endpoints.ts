@@ -1,0 +1,47 @@
+import type { Conversation } from "$lib/types/Conversation";
+import type { Message } from "$lib/types/Message";
+import type {
+	TextGenerationStreamOutput,
+	TextGenerationStreamToken,
+	InferenceProvider,
+} from "@huggingface/inference";
+import { z } from "zod";
+import { endpointOAIParametersSchema, endpointOai } from "./openai/endpointOai";
+import type { BackendModel } from "$lib/server/models";
+import type { ObjectId } from "mongodb";
+
+export type EndpointMessage = Omit<Message, "id">;
+
+// parameters passed when generating text
+export interface EndpointParameters {
+	messages: EndpointMessage[];
+	preprompt?: Conversation["preprompt"];
+	generateSettings?: Partial<BackendModel["parameters"]>;
+	isMultimodal?: boolean;
+	conversationId?: ObjectId;
+	locals: App.Locals | undefined;
+	abortSignal?: AbortSignal;
+	/** Inference provider preference: "auto", "fastest", "cheapest", or a specific provider name */
+	provider?: string;
+	/** Optional thinking-effort, forwarded as OpenAI `reasoning_effort` when set */
+	reasoningEffort?: "low" | "medium" | "high";
+	/** Per-model user override for reasoning; wins over the model's supportsReasoning flag in both directions */
+	reasoningOverride?: boolean;
+}
+
+export type TextGenerationStreamOutputSimplified = TextGenerationStreamOutput & {
+	token: TextGenerationStreamToken;
+	routerMetadata?: { route?: string; model?: string; provider?: InferenceProvider };
+};
+// type signature for the endpoint
+export type Endpoint = (
+	params: EndpointParameters
+) => Promise<AsyncGenerator<TextGenerationStreamOutputSimplified, void, void>>;
+
+// list of all endpoint generators
+export const endpoints = {
+	openai: endpointOai,
+};
+
+export const endpointSchema = z.discriminatedUnion("type", [endpointOAIParametersSchema]);
+export default endpoints;

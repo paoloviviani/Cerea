@@ -1,0 +1,92 @@
+image:
+  repository: ghcr.io/huggingface
+  name: chat-ui
+  tag: 0.0.0-latest
+  pullPolicy: IfNotPresent
+
+replicas: 3
+
+domain: huggingface.co
+
+networkPolicy:
+  enabled: false
+  ## Deprecated: private ranges opened on every port. Prefer the two below.
+  allowedBlocks: []
+  ## Private ranges reachable over HTTPS only.
+  internalBlocks: []
+  ## Private destinations that need one specific port, e.g.
+  ##   - port: 27017
+  ##     blocks: ["10.0.0.0/24"]
+  ## Addresses are supplied by the deployment layer, not committed here.
+  extraEgress: []
+  ## Container ports, used by the ingress rules.
+  appPort: 3000
+  metricsPort: 5565
+  ## Restricting ingress is opt-in per environment: the blocks are the load
+  ## balancer's own ranges, supplied by the deployment layer, and a wrong list
+  ## black-holes traffic. metricsFromNamespace opens the metrics port to a
+  ## single namespace (leave empty to keep it closed).
+  ingress:
+    enabled: false
+    allowedBlocks: []
+    metricsFromNamespace: ""
+
+service:
+  type: NodePort
+  annotations: { }
+
+serviceAccount:
+  enabled: false
+  create: false
+  name: ""
+  automountServiceAccountToken: true
+  annotations: { }
+
+ingress:
+  enabled: true
+  path: "/"
+  annotations: { }
+  # className: "nginx"
+  tls: { }
+    # secretName: XXX
+
+ingressInternal:
+  enabled: false
+  path: "/"
+  annotations: { }
+  # className: "nginx"
+  tls: { }
+
+resources:
+  requests:
+    cpu: 2
+    memory: 4Gi
+  limits:
+    cpu: 2
+    memory: 4Gi
+nodeSelector: {}
+tolerations: []
+
+envVars: { }
+
+infisical:
+  enabled: false
+  env: ""
+  project: "huggingchat-v2-a1"
+  url: ""
+  resyncInterval: 60
+  operatorSecretName: "huggingchat-operator-secrets"
+  operatorSecretNamespace: "hub-utils"
+
+# Allow to environment injections on top or instead of infisical
+extraEnvFrom: []
+extraEnv: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+  targetMemoryUtilizationPercentage: ""
+  targetCPUUtilizationPercentage: ""
+
+## Metrics removed; monitoring configuration no longer used
