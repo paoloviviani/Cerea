@@ -27,3 +27,6 @@ models/*
 /blob-report
 /playwright/.cache
 .probe-results/
+
+# npm cache, when deps are installed inside a container against this tree
+.npm-cache

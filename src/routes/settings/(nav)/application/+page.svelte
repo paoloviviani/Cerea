@@ -73,8 +73,10 @@
 			// ignore if debug endpoint is unavailable
 		}
 
-		// Fetch billing organizations (only for HuggingChat + logged in users)
-		if (publicConfig.isHuggingChat && page.data.user) {
+		// Which group pays (ADR 0061). No `isHuggingChat` gate: the gateway
+		// answers this for every deployment, and the endpoint reports an empty
+		// list when it cannot, so the section below hides itself.
+		if (page.data.user) {
 			billingOrgsLoading = true;
 			try {
 				const data = (await client.user["billing-orgs"].get().then(handleResponse)) as {
@@ -258,8 +260,10 @@
 			</div>
 		</div>
 
-		<!-- Billing section (HuggingChat only) -->
-		{#if publicConfig.isHuggingChat && page.data.user}
+		<!-- Which group pays (ADR 0061). Shown once the gateway names at least
+		     one billable group, so a deployment that does not answer shows
+		     nothing rather than an empty control. -->
+		{#if page.data.user && billingOrgs.length > 0}
 			<div
 				class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 			>

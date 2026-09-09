@@ -43,6 +43,7 @@ import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { withUpstreamRetry } from "../utils/upstreamRetry";
 import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
+import { billToHeader } from "$lib/server/billTo";
 
 export type RunMcpFlowContext = Pick<
 	TextGenerationContext,
@@ -472,10 +473,11 @@ export async function* runMcpFlow({
 			baseURL: config.OPENAI_BASE_URL,
 			fetch: captureProviderFetch,
 			defaultHeaders: {
-				// Bill to organization if configured (HuggingChat only)
-				...(config.isHuggingChat && locals?.billingOrganization
-					? { "X-HF-Bill-To": locals.billingOrganization }
-					: {}),
+				// Which group pays, when the person chose one (ADR 0061). The
+				// `isHuggingChat` guard is gone with the header it guarded: the
+				// gateway bills the tool loop's completions like any other, so
+				// scoping this to one deployment would silently bill the default.
+				...billToHeader(locals?.billingOrganization),
 			},
 		});
 
