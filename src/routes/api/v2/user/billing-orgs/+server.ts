@@ -63,6 +63,11 @@ export const GET: RequestHandler = async ({ locals }) => {
 		const body = (await response.json()) as { data?: GatewayGroup[] };
 		const groups = body.data ?? [];
 
+		// `preferred_username` is the group name — what gets stored and sent back
+		// as `x-bill-to`, and what the dropdown shows. `name` carries the
+		// description, which the dropdown renders as a tooltip: overloading
+		// `name` with the description put "Created by `gateway seed`" on screen
+		// where a group name belonged.
 		const organizations = groups.map((group) => ({
 			sub: group.id,
 			name: group.description || group.name,

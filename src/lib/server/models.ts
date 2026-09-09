@@ -119,6 +119,10 @@ const listSchema = z
 			z.object({
 				id: z.string(),
 				description: z.string().optional(),
+				// Pystino reports what surface a model serves. Absent on a
+				// generic OpenAI-compatible endpoint, which is why the filter
+				// below treats missing as chat rather than as unusable.
+				kind: z.string().optional(),
 				providers: z
 					.array(
 						z
@@ -272,7 +276,33 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 		const parsed = listSchema.parse(json);
 		logger.info({ count: parsed.data.length }, "[models] Parsed models count");
 
-		let modelsRaw = parsed.data.map((m) => {
+		// Only models that can serve a chat completion.
+		//
+		// A gateway may expose surfaces this application does not speak. Pystino
+		// serves OCR at /v1/ocr, images at /v1/images and embeddings at
+		// /v1/embeddings, and lists them all in /v1/models with a `kind`. Offering
+		// one in the model picker produces a chat that can never work: the gateway
+		// answers `400 'local-documents' is an ocr model. Use /v1/ocr for it.`,
+		// which is correct and permanent — so "Retry" cannot help, and the message
+		// reads like an outage.
+		//
+		// Absent `kind` means chat, because a plain OpenAI-compatible endpoint does
+		// not send one and every model it lists is a chat model. Filtering on a
+		// field that may not exist must not empty the catalogue.
+		const CHAT_KINDS = new Set(["chat", "text", "completion", "completions"]);
+		const serves = parsed.data.filter((m) => !m.kind || CHAT_KINDS.has(m.kind.toLowerCase()));
+		const skipped = parsed.data.length - serves.length;
+		if (skipped > 0) {
+			logger.info(
+				{
+					skipped,
+					kinds: [...new Set(parsed.data.filter((m) => !serves.includes(m)).map((m) => m.kind))],
+				},
+				"[models] Skipped models that do not serve chat completions"
+			);
+		}
+
+		let modelsRaw = serves.map((m) => {
 			let logoUrl: string | undefined = undefined;
 			if (isHFRouter && m.id.includes("/")) {
 				const org = m.id.split("/")[0];
