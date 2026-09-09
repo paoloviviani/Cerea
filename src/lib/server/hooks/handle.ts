@@ -26,6 +26,16 @@ function getClientAddressSafe(event: RequestEvent): string | undefined {
 	}
 }
 
+/**
+ * Routes under /admin that a *program* calls, with a static shared secret.
+ *
+ * Enumerated rather than matched by prefix because /admin now also holds an
+ * administration UI for people, and the two need opposite credentials: a
+ * secret in a header for the cron job, a signed-in session for the human.
+ */
+const MACHINE_ADMIN_ROUTES = new Set(["/admin/export", "/admin/stats/compute"]);
+const MACHINE_ADMIN_PATHS = ["/admin/export", "/admin/stats/compute"];
+
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
 	const requestId = crypto.randomUUID();
@@ -59,7 +69,19 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				});
 			}
 
-			if (event.route.id === "/admin" || event.route.id?.startsWith("/admin/")) {
+			// The two *machine* endpoints under /admin, and only those. This used
+			// to catch every route beginning /admin, which was right while /admin
+			// meant nothing but those two: a static shared secret is the correct
+			// credential for a cron job hitting an export.
+			//
+			// It is the wrong credential for a person, and since ADR 0062 there is
+			// an administration UI under here. A browser cannot put a bearer token
+			// on a navigation, so the old rule made the page unreachable — and
+			// widening the secret to cover it would have meant one shared password
+			// standing in for "is this person an administrator", which is a worse
+			// answer than the session already in hand. The UI is gated by the
+			// signed-in user, and by the gateway refusing anyone who is not one.
+			if (MACHINE_ADMIN_ROUTES.has(event.route.id ?? "")) {
 				const ADMIN_SECRET = config.ADMIN_API_SECRET || config.PARQUET_EXPORT_SECRET;
 
 				if (!ADMIN_SECRET) {
@@ -168,7 +190,14 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				loginEnabled &&
 				!event.locals.user &&
 				!event.url.pathname.startsWith(`${base}/login`) &&
-				!event.url.pathname.startsWith(`${base}/admin`) &&
+				// The machine endpoints only, not the whole /admin tree: they
+				// authenticate with a static secret and carry no session, so the
+				// login wall would refuse the cron job that is entitled to them.
+				// The administration UI under /admin is deliberately *not* exempt —
+				// it is a person, and a person has to be signed in.
+				!MACHINE_ADMIN_PATHS.some((path) =>
+					event.url.pathname.startsWith(`${base}${path}`)
+				) &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
 				!["GET", "OPTIONS", "HEAD"].includes(event.request.method)
 			) {
