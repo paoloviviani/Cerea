@@ -305,7 +305,29 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 	const alg_supported = issuer.metadata["id_token_signing_alg_values_supported"];
 
 	if (Array.isArray(alg_supported)) {
-		client_config.id_token_signed_response_alg ??= alg_supported[0];
+		// Prefer RS256, not `alg_supported[0]`.
+		//
+		// `id_token_signing_alg_values_supported` is a *set* in the discovery
+		// spec — its order carries no meaning, and no provider promises to sign
+		// with whatever happens to be printed first. Taking element zero reads a
+		// preference into an array that has none, and then demands an algorithm
+		// the provider advertises but does not use.
+		//
+		// Keycloak is the case that shows it. It lists thirteen algorithms with
+		// PS384 first and RS256 at index seven, and signs with RS256 — so the
+		// login completes, the provider issues a correct token, and the callback
+		// fails with `unexpected JWT alg received, expected PS384, got: RS256`.
+		// Nothing in that message suggests the client chose the algorithm
+		// arbitrarily.
+		//
+		// RS256 is the right default because OIDC Core requires every provider
+		// to support it for the authorization code flow, so preferring it can
+		// only ever pick something the provider really signs with.
+		// `ID_TOKEN_SIGNED_RESPONSE_ALG` still overrides, for a provider that
+		// genuinely uses something else.
+		client_config.id_token_signed_response_alg ??= alg_supported.includes("RS256")
+			? "RS256"
+			: alg_supported[0];
 	}
 
 	return new issuer.Client(client_config);
