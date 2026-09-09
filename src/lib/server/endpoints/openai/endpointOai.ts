@@ -11,6 +11,7 @@ import type {
 } from "openai/resources/chat/completions";
 import { buildPrompt } from "$lib/buildPrompt";
 import { config } from "$lib/server/config";
+import { billToHeader } from "$lib/server/billTo";
 import type { Endpoint } from "../endpoints";
 import type OpenAI from "openai";
 import { createImageProcessorOptionsValidator, makeImageProcessor } from "../images";
@@ -156,8 +157,8 @@ export async function endpointOai(
 					...(config.USE_USER_TOKEN === "true" && locals?.token
 						? { Authorization: `Bearer ${locals.token}` }
 						: {}),
-					// Bill to organization if configured
-					...(locals?.billingOrganization ? { "X-HF-Bill-To": locals.billingOrganization } : {}),
+					// Which group pays, when the person chose one (ADR 0061).
+					...billToHeader(locals?.billingOrganization),
 				},
 				signal: abortSignal,
 			});
@@ -258,10 +259,8 @@ export async function endpointOai(
 							...(config.USE_USER_TOKEN === "true" && locals?.token
 								? { Authorization: `Bearer ${locals.token}` }
 								: {}),
-							// Bill to organization if configured
-							...(locals?.billingOrganization
-								? { "X-HF-Bill-To": locals.billingOrganization }
-								: {}),
+							// Which group pays, when the person chose one (ADR 0061).
+							...billToHeader(locals?.billingOrganization),
 						},
 						signal: abortSignal,
 					}
@@ -278,10 +277,8 @@ export async function endpointOai(
 							...(config.USE_USER_TOKEN === "true" && locals?.token
 								? { Authorization: `Bearer ${locals.token}` }
 								: {}),
-							// Bill to organization if configured
-							...(locals?.billingOrganization
-								? { "X-HF-Bill-To": locals.billingOrganization }
-								: {}),
+							// Which group pays, when the person chose one (ADR 0061).
+							...billToHeader(locals?.billingOrganization),
 						},
 						signal: abortSignal,
 					}
