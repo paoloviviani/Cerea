@@ -271,10 +271,12 @@
 					<!-- Bill usage to -->
 					<div class="flex items-start justify-between py-3">
 						<div>
-							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Billing</div>
+							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+								Billing group
+							</div>
 							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Select between personal or organization billing for inference (for eligible
-								organizations).
+								Which group your usage is charged to. You can only choose groups you belong
+								to.
 							</p>
 						</div>
 						<div class="flex items-center">
@@ -288,9 +290,10 @@
 									value={getBillingOrganization()}
 									onchange={(e) => setBillingOrganization(e.currentTarget.value)}
 								>
-									<option value="">Personal</option>
 									{#each billingOrgs as org}
-										<option value={org.preferred_username}>{org.name}</option>
+										<option value={org.preferred_username} title={org.name}
+											>{org.preferred_username}</option
+										>
 									{/each}
 								</select>
 							{/if}
@@ -299,26 +302,6 @@
 					{#if taskModelId}
 						{@render taskModelRow()}
 					{/if}
-					<!-- Providers Usage -->
-					<div class="flex items-start justify-between py-3">
-						<div>
-							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								Providers Usage
-							</div>
-							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								See which providers you use and choose your preferred ones.
-							</p>
-						</div>
-						<a
-							href={getBillingOrganization()
-								? `https://huggingface.co/organizations/${getBillingOrganization()}/settings/inference-providers/overview`
-								: "https://huggingface.co/settings/inference-providers/overview"}
-							target="_blank"
-							class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium whitespace-nowrap text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-						>
-							View Usage
-						</a>
-					</div>
 				</div>
 			</div>
 		{/if}
