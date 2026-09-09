@@ -1,6 +1,7 @@
 import { error, json } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
 import { getApiToken } from "$lib/server/apiToken";
+import { billToHeader } from "$lib/server/billTo";
 import { logger } from "$lib/server/logger";
 
 const MAX_AUDIO_SIZE = 25 * 1024 * 1024; // 25MB
@@ -64,8 +65,8 @@ export async function POST({ request, locals }) {
 			headers: {
 				Authorization: `Bearer ${token}`,
 				"Content-Type": contentType,
-				// Bill to organization if configured
-				...(locals?.billingOrganization ? { "X-HF-Bill-To": locals.billingOrganization } : {}),
+				// Which group pays, when the person chose one (ADR 0061).
+				...billToHeader(locals?.billingOrganization),
 			},
 			body: audioBuffer,
 			signal: controller.signal,
