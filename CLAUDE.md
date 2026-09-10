@@ -141,6 +141,41 @@ Smart routing via Arch-Router model. Configured with:
 - `sharedConversations` - Public share links
 - `settings` - User preferences
 
+## Where a model's capabilities come from
+
+**The gateway advertises them and this app must read its shape.** Each card on
+`GET /v1/models` carries flat `input_modalities`, `output_modalities` and
+`supported_features` (ADR 0031) — an open set of strings on purpose, because
+the reference provider documents it as "current values include json_mode,
+reasoning and tools" and a boolean per feature would need a migration whenever
+a provider adds one. So `models.ts` matches by membership, not by field.
+
+It was reading **HuggingFace's router shape instead** — `architecture
+.input_modalities` and `providers[].supports_tools` — which a gateway never
+sends. Every model therefore came back with no tools, no vision and no
+reasoning, and the capability switches for them had nothing to show. Nothing
+errored and nothing logged; the only symptom was four absent switches. Both
+shapes are read now, gateway first, because this fork also runs against the HF
+router where the nested one is all there is.
+
+Two consequences worth knowing:
+
+- **a model's row can legitimately declare nothing.** `benchmark-live` was
+  created by `scripts/benchmark_live.py` through `/api/admin/models` with the
+  three fields omitted, so it advertised nothing while its upstream declares
+  `tools` and `json_mode`. The script sets them now. An operator sets them for
+  any model through the console's `CapabilityPicker`;
+- **the switches are not gated on advertised support.** The advertised value is
+  the default and the switch overrides it — the same judgement the gateway
+  makes about its own catalogue (ADR 0031): a claim rather than a contract,
+  editable by somebody who has found out otherwise. Gating them is how all four
+  came to be invisible. Where switch and catalogue disagree, the row says what
+  the gateway said.
+
+`scripts/test_nav_live.py` asserts the crossing: a model the _gateway_ says
+does tools must be reported by the _chat_ as doing tools. That is the only
+place the mismatch was ever visible.
+
 ## Models: one dialog, and no per-model page
 
 `ModelsManager` is the **only** place models are managed. It lists all of them

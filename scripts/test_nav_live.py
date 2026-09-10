@@ -241,6 +241,43 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         ).stdout.strip()
         check(f"“{marker}” is in the bundle", bool(found), "not in the built client")
 
+    print("\ncapabilities cross from the gateway to the chat:")
+    # The gateway's own answer, through the allowlisted forwarder.
+    advertised = {
+        entry["id"]: entry
+        for entry in c.get(f"{CHAT}/api/v2/gateway/models").json()["data"]
+    }
+    tool_capable = [
+        mid
+        for mid, entry in advertised.items()
+        if "tools" in [f.lower() for f in entry.get("supported_features") or []]
+    ]
+    check(
+        "the gateway advertises tools on at least one model",
+        len(tool_capable) > 0,
+        "no model declares `tools` — the catalogue is empty, so this proves nothing",
+    )
+
+    # And what this app derived from it. superjson, so read the flags out of the
+    # raw text rather than rebuilding the envelope.
+    cards = c.get(f"{CHAT}/api/v2/models").text
+    derived = {}
+    for block in re.split(r'(?=\{"id":")', cards)[1:]:
+        found = re.search(r'"id":"([^"]+)"', block)
+        if not found:
+            continue
+        flag = re.search(r'"supportsTools":(true|false)', block)
+        derived[found.group(1)] = flag.group(1) == "true" if flag else False
+
+    mismatched = [
+        mid for mid in tool_capable if mid in derived and derived[mid] is not True
+    ]
+    check(
+        "a model the gateway says does tools is reported as doing tools",
+        mismatched == [],
+        f"{mismatched} — the chat is reading a capability shape the gateway does not send",
+    )
+
     print("\nmanaging a project from its own row:")
     # What the `⋯` menu's two items do. Edit opens the overlay on the project,
     # which is a GET; Delete is this, and it must leave the conversation alone
