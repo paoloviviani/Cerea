@@ -20,6 +20,7 @@
 	import { onDestroy, onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
+	import FileDrop from "$lib/components/FileDrop.svelte";
 	import { goto } from "$app/navigation";
 	import {
 		GatewayError,
@@ -47,7 +48,11 @@
 	let poll: ReturnType<typeof setInterval> | null = null;
 
 	let text = $state("");
-	let textTitle = $state("");
+	// A batch, not one file: dropping a folder's worth at once is the common
+	// case, and uploading them one at a time was the thing that made this
+	// cumbersome.
+	let pending = $state<File[]>([]);
+	let uploadProgress = $state<string | null>(null);
 	let shareWith = $state("");
 	let shareKind = $state<"user" | "group">("user");
 	let shareRole = $state<"viewer" | "editor">("viewer");
@@ -104,10 +109,12 @@
 		try {
 			await gwPost(`vector_stores/${id}/text`, {
 				text: text.trim(),
-				title: textTitle.trim() || "note",
+				// The first line. A note still needs *a* title to be findable in
+				// a list and nameable in a citation, but asking for one was
+				// busywork on the way to the thing somebody wanted.
+				title: text.trim().split("\n")[0].slice(0, 80),
 			});
 			text = "";
-			textTitle = "";
 			await load();
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : "Could not add that.";
@@ -116,25 +123,35 @@
 		}
 	}
 
-	async function upload(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) return;
+	async function uploadPending() {
+		if (pending.length === 0) return;
 		busy = true;
 		failure = null;
-		try {
-			// Two steps, and they are two steps in the gateway too: a file is
-			// owned by one person and may be indexed into more than one base,
-			// so uploading and attaching are separate acts.
-			const stored = await gwUpload<{ id: string }>("files", file);
-			await gwPost(`vector_stores/${id}/files`, { file_id: stored.id });
-			await load();
-		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not upload that.";
-		} finally {
-			busy = false;
-			input.value = "";
+		const failed: string[] = [];
+		let done = 0;
+		for (const file of pending) {
+			uploadProgress = `Uploading ${++done} of ${pending.length}: ${file.name}`;
+			try {
+				// Two steps, and they are two steps in the gateway too: a file is
+				// owned by one person and may be indexed into more than one base,
+				// so uploading and attaching are separate acts. No title —
+				// the gateway falls back to the filename, which is the name
+				// somebody recognises in a citation.
+				const stored = await gwUpload<{ id: string }>("files", file);
+				await gwPost(`vector_stores/${id}/files`, { file_id: stored.id });
+			} catch (err) {
+				// Collected rather than thrown: one bad file in a batch of ten
+				// should not discard the nine that worked.
+				failed.push(
+					`${file.name} — ${err instanceof GatewayError ? err.message : "upload failed"}`
+				);
+			}
 		}
+		uploadProgress = null;
+		pending = [];
+		busy = false;
+		failure = failed.length > 0 ? failed.join("; ") : null;
+		await load();
 	}
 
 	async function removeDocument(document: KnowledgeDocument) {
@@ -254,24 +271,33 @@
 			<section class="flex flex-col gap-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
 				<h2 class="text-sm font-medium">Add to this base</h2>
 
-				<label class="flex flex-col gap-1">
-					<span class="text-xs text-gray-500 dark:text-gray-400">
-						A document. Word, Excel, PowerPoint, or a PDF with a text layer — a scan needs
-						an OCR model, which an administrator configures.
-					</span>
-					<input type="file" onchange={upload} disabled={busy} class="text-sm" />
-				</label>
+				<div class="flex flex-col gap-2">
+					<FileDrop
+						bind:files={pending}
+						maxBytes={status?.max_upload_bytes}
+						disabled={busy}
+					/>
+					{#if uploadProgress}
+						<p class="text-xs text-gray-600 dark:text-gray-300">{uploadProgress}</p>
+					{/if}
+					{#if pending.length > 0}
+						<div class="flex justify-end">
+							<button
+								type="button"
+								onclick={uploadPending}
+								disabled={busy}
+								class="rounded-full bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+							>
+								Add {pending.length} file{pending.length === 1 ? "" : "s"}
+							</button>
+						</div>
+					{/if}
+				</div>
 
 				<form class="flex flex-col gap-2" onsubmit={addText}>
-					<input
-						class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-						placeholder="Title for this note"
-						maxlength="255"
-						bind:value={textTitle}
-					/>
 					<textarea
 						class="min-h-24 rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-						placeholder="Or paste text directly"
+						placeholder="Or paste a note — its first line becomes the title"
 						bind:value={text}
 					></textarea>
 					<div class="flex justify-end">
@@ -280,7 +306,7 @@
 							disabled={busy || !text.trim()}
 							class="rounded-full border border-gray-300 px-3 py-1 text-xs disabled:opacity-50 dark:border-gray-600"
 						>
-							Add text
+							Add note
 						</button>
 					</div>
 				</form>
