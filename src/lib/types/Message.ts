@@ -51,4 +51,26 @@ export type MessageFile = {
 	name: string;
 	value: string;
 	mime: string;
+	/**
+	 * For an attached document — a PDF, a `.docx` — the text the gateway's
+	 * extractor read out of it, stored as its own GridFS entry and named here
+	 * by hash.
+	 *
+	 * Extraction happens **once, at upload**, and this is where the result
+	 * lives. That is a billing decision rather than a caching one: `/v1/ocr` is
+	 * priced per page, so extracting on every turn would charge for the same
+	 * twelve-page PDF again on the second question about it.
+	 *
+	 * Absent means there is no text: no OCR model configured, a scan with no
+	 * text layer, or an extractor that refused. The attachment is still stored
+	 * — losing somebody's file because its text could not be read is worse than
+	 * an attachment the assistant cannot see — and the prompt says so rather
+	 * than leaving a document silently ignored.
+	 */
+	extracted?: {
+		/** GridFS hash of the extracted markdown. */
+		value: string;
+		/** Pages the extractor reported, which is what was billed. */
+		pages: number;
+	};
 };

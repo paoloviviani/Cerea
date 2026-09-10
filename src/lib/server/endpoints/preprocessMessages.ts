@@ -1,6 +1,7 @@
 import type { Message } from "$lib/types/Message";
 import type { EndpointMessage } from "./endpoints";
 import { downloadFile } from "../files/downloadFile";
+import { isExtractableDocument } from "../files/extractDocument";
 import type { ObjectId } from "mongodb";
 
 export async function preprocessMessages(
@@ -13,12 +14,55 @@ export async function preprocessMessages(
 		.then(stripEmptyInitialSystemMessage);
 }
 
+/**
+ * One stored attachment, as the model should see it.
+ *
+ * A document — a PDF, a `.docx` — is bytes no model reads, so what goes into
+ * the prompt is the text the gateway's extractor read out of it at upload
+ * time, fetched by the hash on `extracted` and handed over as
+ * `text/markdown`. The existing text path in `prepareFiles` then inlines it
+ * under the document's own name, so nothing downstream needs to know that
+ * extraction happened.
+ *
+ * When there is no text — no OCR model configured, a scan with no text layer,
+ * an extractor that refused — the model gets **a sentence saying so** in place
+ * of the document. That is the whole reason this is not simply a filter: an
+ * attachment dropped silently makes the assistant answer as though nothing was
+ * attached, and the person watching it sees their file in the transcript and
+ * an answer that ignores it.
+ */
+async function resolveFile(
+	file: Message["files"] extends (infer F)[] | undefined ? F : never,
+	convId: ObjectId
+) {
+	if (!file.extracted) {
+		const downloaded = await downloadFile(file.value, convId);
+		if (!isExtractableDocument(file.mime)) return downloaded;
+		return {
+			type: "base64" as const,
+			name: file.name,
+			mime: "text/markdown",
+			value: Buffer.from(
+				`No text could be read from this document. Say so rather than ` +
+					`guessing at its contents. If it is a scan, it needs an OCR model ` +
+					`rather than the built-in extractor.`,
+				"utf-8"
+			).toString("base64"),
+		};
+	}
+	const text = await downloadFile(file.extracted.value, convId);
+	// The document's own name, not the text entry's: a citation should name
+	// the file somebody attached.
+	return { ...text, name: file.name, mime: "text/markdown" };
+}
+
 async function downloadFiles(messages: Message[], convId: ObjectId): Promise<EndpointMessage[]> {
 	return Promise.all(
 		messages.map<Promise<EndpointMessage>>((message) =>
-			Promise.all((message.files ?? []).map((file) => downloadFile(file.value, convId))).then(
-				(files) => ({ ...message, files })
-			)
+			Promise.all((message.files ?? []).map((file) => resolveFile(file, convId))).then((files) => ({
+				...message,
+				files,
+			}))
 		)
 	);
 }
