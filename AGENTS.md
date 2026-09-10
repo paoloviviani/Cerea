@@ -119,28 +119,37 @@ Smart routing via Arch-Router model. Configured with:
 - `sharedConversations` - Public share links
 - `settings` - User preferences
 
-## The sidebar is a tree, and signing out is two-ended
+## The sidebar, and signing out at both ends
 
-**The left panel is one tree.** Every top-level thing is a branch — Models,
-Projects, Knowledge, Agents, MCP Servers, Chats — with the person at the foot
-in a menu that opens _upward_. `components/nav/` holds the three pieces:
-`TreeBranch`, `TreeLeaf`, `UserMenu`, plus `ProjectsBranch` for the one branch
-whose children are themselves folders.
+**Two trees, then four rows, then the person.** `components/nav/` holds the
+pieces: `TreeBranch`, `TreeLeaf`, `RowMenu`, `UserMenu`, and `ProjectsBranch`
+for the one branch whose children are themselves folders.
 
-Four rules it follows:
+The split is the point, and it was arrived at by getting it wrong first: every
+top-level entry was a branch, and Models, Knowledge, Agents and MCP Servers
+were worse for it — a disclosure triangle revealing a list you then clicked to
+open the dialog anyway. Only **Projects and Chats** have contents worth
+expanding; the other four are rows at the foot that open their dialog, which is
+where they were before.
 
-- **contents load when a branch is opened**, never on page load. The panel is
-  drawn on every page and most branches are shut most of the time. A project's
+Four rules:
+
+- **a tree's contents load when it is opened**, never on page load. A project's
   chats load when _its_ folder opens, not with the project list — a dozen
-  projects would otherwise be a dozen requests for a sidebar nobody expanded;
-- **the `+` and the row are separate buttons.** "Add one of these" and "show me
-  them" are different actions; folding them together makes one unreachable by
-  keyboard. The row carries `aria-expanded`, so the state is announced and not
-  merely drawn;
+  projects would otherwise be a dozen requests to draw a sidebar nobody
+  expanded;
+- **managing a project happens on its own row**, through the `⋯`: Edit opens
+  that project's overlay, Delete removes it after a confirmation that says what
+  is _kept_ (the chats return to the ordinary list; the knowledge bases are
+  gateway resources with their own owner). The `+` on the Projects header is
+  the only control there that is not about an existing project;
+- **nothing opens a list of all projects.** `ProjectsManager` takes
+  `initialId` or `initialView="create"`, and with either it hides its own way
+  back to the list — the tree already is that list, with per-row management.
+  The list view survives only for the `/projects` route;
 - **a project's chats live under the project, so Chats leaves them out.** That
   is what `projectId` on `ConvSidebar` is for; without it every project
-  conversation appeared in both places;
-- **only an already-opened branch is reloaded** when its overlay closes.
+  conversation appeared in both places.
 
 **Signing out ends the session at both ends** (`routes/logout/+server.ts`), and
 the second end is the one that was missing. `POST /logout` deleted the local
@@ -167,6 +176,11 @@ Three things that follow, all found by running it:
 A provider advertising no `end_session_endpoint` keeps the old behaviour
 exactly: the local sign-out still happens, and `getOIDCLogoutUrl` returns
 `null` rather than throwing.
+
+One trap for anyone writing a check against the panel: matching a row by
+`>Label<` fails for exactly the rows that carry a count badge, because the
+label is then followed by whitespace and a `<span>`. Strip the tags and match
+the text.
 
 ## The dialog language, and where it comes from
 

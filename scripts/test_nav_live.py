@@ -73,14 +73,21 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     home = c.get(f"{CHAT}/").text
     print("signed in as", env["KEYCLOAK_TEST_USER"])
 
-    print("\nthe tree's branches are all present:")
+    print("\neverything is in the panel:")
+    # Against the rendered text rather than the markup: a row with a count has
+    # its label followed by a `<span>`, so matching on `>Label<` fails for
+    # exactly the rows that have a badge.
+    text = re.sub(r"<[^>]+>", " ", home)
+    text = re.sub(r"\s+", " ", text)
     for label in ("Models", "Projects", "Knowledge", "Agents", "MCP Servers", "Chats"):
-        check(label, f">{label}</span>" in home or f">{label}<" in home, "not in the panel")
+        check(label, label in text, "not in the panel")
 
-    print("\nbranches are expandable, not links:")
+    print("\nthe two trees expand; the four rows do not pretend to:")
+    # Projects and Chats are branches, and so is each project folder under
+    # Projects. The rows at the foot open dialogs and have nothing to reveal.
     check(
-        "every branch row carries aria-expanded",
-        home.count("aria-expanded") >= 5,
+        "Projects and Chats carry aria-expanded",
+        home.count("aria-expanded") >= 2,
         f'only {home.count("aria-expanded")} found',
     )
 
@@ -180,8 +187,22 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         str(inside)[:200],
     )
 
+    print("\nmanaging a project from its own row:")
+    # What the `⋯` menu's two items do. Edit opens the overlay on the project,
+    # which is a GET; Delete is this, and it must leave the conversation alone
+    # — the confirmation promises exactly that.
+    detail = c.get(f"{CHAT}/api/v2/projects/{project['id']}")
+    check("Edit can open the project", detail.status_code == 200, str(detail.status_code))
+
+    gone = c.delete(f"{CHAT}/api/v2/projects/{project['id']}")
+    check("Delete removes it", gone.status_code == 204, str(gone.status_code))
+    check(
+        "and its conversation survives",
+        c.get(f"{CHAT}/api/v2/conversations/{conv}").status_code == 200,
+        "the chat went with the project",
+    )
+
     c.delete(f"{CHAT}/api/v2/conversations/{conv}")
-    c.delete(f"{CHAT}/api/v2/projects/{project['id']}")
     print("  (cleaned up)")
 
 print(f"\n{ok} ok, {fail} failed")
