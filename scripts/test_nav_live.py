@@ -82,6 +82,20 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     for label in ("Models", "Projects", "Knowledge", "Agents", "MCP Servers", "Chats"):
         check(label, label in text, "not in the panel")
 
+    print("\nthe row controls are actually visible:")
+    check(
+        "the Projects row offers New project",
+        'aria-label="New project"' in home,
+        "no add control on the Projects row",
+    )
+    # `opacity-0 group-hover:...` renders fine and paints never on a touch
+    # screen, so it has to be asserted against rather than looked for.
+    check(
+        "nothing in the panel is hover-gated with opacity",
+        "opacity-0" not in home,
+        "a control is hidden until hover — invisible on any touch device",
+    )
+
     print("\nthe two trees expand; the four rows do not pretend to:")
     # Projects and Chats are branches, and so is each project folder under
     # Projects. The rows at the foot open dialogs and have nothing to reveal.

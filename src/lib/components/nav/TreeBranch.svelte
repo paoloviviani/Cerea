@@ -13,6 +13,11 @@
 	announced rather than only drawn. The `+` is a **separate** button beside
 	it, because "add one of these" is a different action from "show me them",
 	and nesting them would make one unreachable.
+
+	The `+` is **always drawn**, not revealed on hover. Hover-to-reveal is
+	invisible on a touch screen — there is no hover — so the only route to
+	"new project" simply never appeared. It is muted instead, and darkens on
+	hover and focus.
 -->
 <script lang="ts">
 	import type { Snippet } from "svelte";
@@ -102,7 +107,7 @@
 				onclick={onadd}
 				title={addTitle ?? `New ${label.toLowerCase()}`}
 				aria-label={addTitle ?? `New ${label.toLowerCase()}`}
-				class="flex size-5 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-gray-200 focus:opacity-100 dark:hover:bg-gray-600"
+				class="flex size-5 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-600 dark:hover:text-gray-200"
 			>
 				<CarbonAdd class="size-3.5" />
 			</button>

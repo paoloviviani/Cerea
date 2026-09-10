@@ -6,8 +6,10 @@
 	a list and clicking it is three steps to do something the row was already
 	pointing at.
 
-	It appears on hover like the `+` beside it, and stays visible while open —
-	a menu that vanished because the pointer left the row would be unusable.
+	It is **always drawn**, like the `+` beside it. Revealing it on hover made
+	it invisible on a touch screen, where there is no hover — so Edit and
+	Delete had no route at all — and hard to find with a pointer too. Muted,
+	and it stays lit while its menu is open.
 -->
 <script lang="ts">
 	import type { Snippet } from "svelte";
@@ -51,9 +53,9 @@
 		aria-expanded={open}
 		aria-label="Manage {label}"
 		title="Manage {label}"
-		class="flex size-5 items-center justify-center rounded-md text-gray-400 transition-opacity hover:bg-gray-200 focus:opacity-100 dark:hover:bg-gray-600 {open
-			? 'opacity-100'
-			: 'opacity-0 group-hover:opacity-100'}"
+		class="flex size-5 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-600 dark:hover:text-gray-200 {open
+			? 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200'
+			: ''}"
 	>
 		<CarbonOverflowMenuHorizontal class="size-3.5" />
 	</button>
