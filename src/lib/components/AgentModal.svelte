@@ -56,9 +56,7 @@
 	let retrievalLimit = $state(untrack(() => String(agent?.retrieval_limit ?? 6)));
 	let temperature = $state(
 		untrack(() =>
-			typeof agent?.generation?.temperature === "number"
-				? String(agent.generation.temperature)
-				: ""
+			typeof agent?.generation?.temperature === "number" ? String(agent.generation.temperature) : ""
 		)
 	);
 
@@ -66,9 +64,7 @@
 	let failure = $state<string | null>(null);
 
 	function toggle(id: string) {
-		attached = attached.includes(id)
-			? attached.filter((entry) => entry !== id)
-			: [...attached, id];
+		attached = attached.includes(id) ? attached.filter((entry) => entry !== id) : [...attached, id];
 	}
 
 	async function submit(event: SubmitEvent) {
@@ -131,8 +127,8 @@
 				/>
 				{#if editing}
 					<span class="text-xs text-gray-500 dark:text-gray-400">
-						Fixed: the name is how the agent is addressed, so renaming would break
-						conversations that use it.
+						Fixed: the name is how the agent is addressed, so renaming would break conversations
+						that use it.
 					</span>
 				{/if}
 			</label>
@@ -175,8 +171,8 @@
 				disabled={busy || readOnly}
 			></textarea>
 			<span class="text-xs text-gray-500 dark:text-gray-400">
-				Sent ahead of every conversation. Somebody's own system message is kept and comes
-				after this.
+				Sent ahead of every conversation. Somebody's own system message is kept and comes after
+				this.
 			</span>
 		</label>
 
@@ -210,8 +206,8 @@
 				</div>
 			{/if}
 			<span class="text-xs text-gray-500 dark:text-gray-400">
-				Sharing this agent does <strong>not</strong> share these — whoever uses it sees
-				passages only from bases they can already read.
+				Sharing this agent does <strong>not</strong> share these — whoever uses it sees passages only
+				from bases they can already read.
 			</span>
 		</div>
 

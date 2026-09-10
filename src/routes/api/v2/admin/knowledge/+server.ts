@@ -40,10 +40,7 @@ function requireToken(locals: App.Locals): string {
 		// Signed in with something that is not an OIDC session — a local
 		// development login, or a session predating the token. Says which,
 		// because "403" on an admin screen sends people to the wrong place.
-		error(
-			401,
-			"This needs an OIDC session. Log out and sign in through the identity provider."
-		);
+		error(401, "This needs an OIDC session. Log out and sign in through the identity provider.");
 	}
 	return locals.token;
 }

@@ -1,0 +1,288 @@
+/**
+ * Projects: access, standing context, and retrieval over their own past chats.
+ *
+ * Read `$lib/types/Project` first — it carries why a project lives here rather
+ * than in the gateway, and why sharing is decided against the *viewer's* own
+ * identity. This file is the machinery.
+ *
+ * ## Three things that are easy to get wrong
+ *
+ * **Retrieval runs as the viewer, never as the owner.** Every search goes
+ * through the gateway with the reader's own token, so a project shared with a
+ * colleague retrieves only from bases that colleague can already read. The
+ * knowledge bases are named here by id and their access is not this
+ * application's to decide.
+ *
+ * **Failure to retrieve does not fail the turn.** A base still indexing, an
+ * embedding provider that is down, a base whose share was revoked — each of
+ * these degrades to an ordinary answer, logged as `project_retrieval_degraded`.
+ * The gateway makes the same judgement for agents, for the same reason: a
+ * slightly worse answer beats no answer. It is logged rather than silent
+ * because "the assistant stopped using my documents" is otherwise undebuggable.
+ *
+ * **Indexing a conversation is idempotent by handle.** The transcript is
+ * written under `source_ref = chat:conversation:<id>`, and re-posting that
+ * handle replaces the document rather than adding another copy. A conversation
+ * grows one turn at a time; without this a ten-turn thread would leave ten
+ * overlapping transcripts in the base and every search would return all of
+ * them.
+ */
+
+import { ObjectId } from "mongodb";
+import { collections } from "$lib/server/database";
+import { logger } from "$lib/server/logger";
+import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
+import type { Project, ProjectView } from "$lib/types/Project";
+import type { Conversation } from "$lib/types/Conversation";
+import type { Message } from "$lib/types/Message";
+import type { User } from "$lib/types/User";
+
+/** How a viewer is named in a share: their address, and their groups. */
+export interface ViewerPrincipals {
+	email?: string;
+	groups: string[];
+}
+
+/**
+ * The viewer's own groups, as the gateway reports them for their token.
+ *
+ * `GET /v1/billing/groups` is the only group list a bearer token can read, and
+ * it deliberately reports the caller's own memberships and nothing else
+ * (ADR 0061). That is exactly enough to decide "is this project shared with a
+ * group I am in", and it is why deciding it needs no privileged surface.
+ *
+ * An unreachable gateway yields no groups rather than an error: the effect is
+ * that group-shared projects are briefly invisible, which is the safe
+ * direction to fail.
+ */
+export async function viewerPrincipals(
+	user: User | undefined,
+	token: string | undefined
+): Promise<ViewerPrincipals> {
+	const principals: ViewerPrincipals = { groups: [] };
+	if (user?.email) principals.email = user.email.toLowerCase();
+	if (!token) return principals;
+	try {
+		const answer = await gateway.get<{ data: GatewayGroup[] }>(token, "billing/groups");
+		principals.groups = answer.data.map((group) => group.name);
+	} catch (err) {
+		logger.info({ err }, "project_groups_unavailable: group-shared projects will not be listed");
+	}
+	return principals;
+}
+
+/** The Mongo clause matching projects shared with this viewer. */
+function sharedClause(principals: ViewerPrincipals): Record<string, unknown>[] {
+	const clauses: Record<string, unknown>[] = [];
+	if (principals.email) {
+		clauses.push({ shares: { $elemMatch: { kind: "user", email: principals.email } } });
+	}
+	if (principals.groups.length > 0) {
+		clauses.push({
+			shares: { $elemMatch: { kind: "group", name: { $in: principals.groups } } },
+		});
+	}
+	return clauses;
+}
+
+/** Projects this person owns or has been given, newest activity first. */
+export async function listProjects(
+	userId: User["_id"],
+	principals: ViewerPrincipals
+): Promise<Project[]> {
+	const clauses: Record<string, unknown>[] = [{ userId }, ...sharedClause(principals)];
+	return collections.projects.find({ $or: clauses }).sort({ updatedAt: -1 }).limit(200).toArray();
+}
+
+export interface ProjectAccess {
+	project: Project;
+	owned: boolean;
+}
+
+/**
+ * One project, if this person may see it.
+ *
+ * `null` for both "does not exist" and "not shared with you", deliberately: a
+ * project id is guessable in the sense that any id is, and distinguishing the
+ * two would confirm that somebody else's project exists.
+ */
+export async function projectAccess(
+	id: string,
+	userId: User["_id"],
+	principals: ViewerPrincipals
+): Promise<ProjectAccess | null> {
+	if (!ObjectId.isValid(id)) return null;
+	const project = await collections.projects.findOne({ _id: new ObjectId(id) });
+	if (!project) return null;
+	if (project.userId.equals(userId)) return { project, owned: true };
+	const shared = project.shares.some((share) =>
+		share.kind === "user"
+			? principals.email !== undefined && share.email === principals.email
+			: principals.groups.includes(share.name)
+	);
+	return shared ? { project, owned: false } : null;
+}
+
+export async function projectView(access: ProjectAccess): Promise<ProjectView> {
+	const { project, owned } = access;
+	const conversationCount = await collections.conversations.countDocuments({
+		projectId: project._id,
+	});
+	return {
+		id: project._id.toString(),
+		name: project.name,
+		description: project.description ?? "",
+		instructions: project.instructions,
+		knowledgeBaseIds: project.knowledgeBaseIds,
+		indexPastChats: project.indexPastChats,
+		retrievalLimit: project.retrievalLimit,
+		owned,
+		// Only the owner is shown the share list. Somebody a project was shared
+		// with has no business reading who else it went to.
+		shares: owned
+			? project.shares.map((share) => ({
+					kind: share.kind,
+					principal: share.kind === "user" ? share.email : share.name,
+				}))
+			: [],
+		conversationCount,
+		updatedAt: project.updatedAt.toISOString(),
+	};
+}
+
+/**
+ * The system-prompt addition for one turn in a project: its instructions, and
+ * whatever its knowledge bases offer for the question being asked.
+ *
+ * `undefined` when there is nothing to add. Not an empty string: an empty
+ * context block tells a model there was material and it was blank, which is
+ * worse than saying nothing.
+ */
+export async function projectContext(options: {
+	project: Project;
+	question: string;
+	token: string | undefined;
+}): Promise<string | undefined> {
+	const { project, question, token } = options;
+	const parts: string[] = [];
+	if (project.instructions.trim()) parts.push(project.instructions.trim());
+
+	const bases = [...project.knowledgeBaseIds];
+	// The memory base is searched only while the feature is on, so turning it
+	// off stops retrieval without detaching anything a person attached by hand.
+	if (project.indexPastChats && project.memoryBaseId) bases.push(project.memoryBaseId);
+
+	if (token && bases.length > 0 && question.trim()) {
+		const passages = await retrieve({
+			bases,
+			question,
+			limit: project.retrievalLimit,
+			token,
+			projectName: project.name,
+		});
+		if (passages.length > 0) {
+			const rendered = passages
+				.map((hit) => `## ${hit.title || "untitled"}\n${hit.text}`)
+				.join("\n\n");
+			parts.push(
+				"The following passages come from this project's knowledge. Use them where " +
+					"they are relevant and say which one you used; ignore them where they are " +
+					`not.\n\n${rendered}`
+			);
+		}
+	}
+
+	return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+async function retrieve(options: {
+	bases: string[];
+	question: string;
+	limit: number;
+	token: string;
+	projectName: string;
+}): Promise<GatewaySearchHit[]> {
+	const { bases, question, limit, token, projectName } = options;
+	const hits: GatewaySearchHit[] = [];
+	for (const baseId of bases) {
+		try {
+			const answer = await gateway.post<{ data: GatewaySearchHit[] }>(
+				token,
+				`vector_stores/${baseId}/search`,
+				{ query: question, max_num_results: limit }
+			);
+			hits.push(...answer.data);
+		} catch (err) {
+			logger.warn(
+				{ err, project: projectName, base: baseId },
+				"project_retrieval_degraded: answering without this base"
+			);
+		}
+	}
+	// Best first, then bounded across every base rather than per base: four
+	// bases at a limit of six would otherwise put twenty-four passages in front
+	// of the model, and the cost of a prompt is the person's own.
+	hits.sort((a, b) => b.score - a.score);
+	return hits.slice(0, limit);
+}
+
+/**
+ * Write a conversation's exchange into its project's memory base.
+ *
+ * Called after a turn finishes, and it is deliberately not awaited by the
+ * generation: a failure here must not cost somebody their answer. The whole
+ * function is therefore its own try/catch, and its only outward sign is a log
+ * line.
+ *
+ * The base is created on demand and named after the project, because a base
+ * called "Chat memory" in a list of a person's knowledge bases is a mystery.
+ * It is an ordinary knowledge base, visible on the Knowledge screen, and that
+ * is on purpose: the transcripts are in a store somebody can inspect, empty
+ * and delete like any other.
+ */
+export async function indexConversation(options: {
+	project: Project;
+	conversation: Conversation;
+	messages: Message[];
+	token: string | undefined;
+}): Promise<void> {
+	const { project, conversation, messages, token } = options;
+	if (!project.indexPastChats || !token) return;
+
+	try {
+		let baseId = project.memoryBaseId;
+		if (!baseId) {
+			const created = await gateway.post<{ id: string }>(token, "vector_stores", {
+				name: `${project.name} — past chats`,
+				description:
+					"Transcripts of this project's own conversations, written by the chat " +
+					"and searched in later turns. Safe to empty; it refills as you talk.",
+			});
+			baseId = created.id;
+			await collections.projects.updateOne(
+				{ _id: project._id },
+				{ $set: { memoryBaseId: baseId, updatedAt: new Date() } }
+			);
+		}
+
+		// The whole thread, not the last turn: a transcript is only useful as
+		// a unit, and `source_ref` makes rewriting it cheap and idempotent.
+		const transcript = messages
+			.filter((message) => message.from === "user" || message.from === "assistant")
+			.map((message) => `${message.from === "user" ? "Asked" : "Answered"}: ${message.content}`)
+			.filter((line) => line.length > 8)
+			.join("\n\n");
+		if (transcript.trim().length < 40) return; // nothing worth retrieving yet
+
+		await gateway.post(token, `vector_stores/${baseId}/text`, {
+			text: transcript,
+			title: conversation.title || "Untitled conversation",
+			source_ref: `chat:conversation:${conversation._id.toString()}`,
+		});
+	} catch (err) {
+		logger.warn(
+			{ err, project: project.name, conversation: conversation._id.toString() },
+			"project_memory_index_failed: this exchange will not be retrievable"
+		);
+	}
+}

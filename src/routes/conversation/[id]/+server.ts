@@ -22,6 +22,7 @@ import { addChildren } from "$lib/utils/tree/addChildren.js";
 import { addSibling } from "$lib/utils/tree/addSibling.js";
 import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
+import { indexConversation } from "$lib/server/projects";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
@@ -780,6 +781,29 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			if (endedUpdate) await update(endedUpdate);
 
 			await persistConversation();
+
+			// The project's memory, written after the answer is already on its
+			// way out and deliberately not awaited. The same reasoning as the
+			// gateway's deferred ledger write (ADR 0060): the caller has their
+			// answer, and an embedding call on the way to closing the stream
+			// would be latency spent on something nobody is waiting for.
+			// `indexConversation` swallows and logs its own failures, so there
+			// is nothing here to catch beyond a rejected promise.
+			if (conv.projectId && !hasError) {
+				void (async () => {
+					const project = await collections.projects.findOne({ _id: conv.projectId });
+					if (!project) return;
+					await indexConversation({
+						project,
+						conversation: conv,
+						messages: conv.messages,
+						token: locals.token,
+					});
+				})().catch((err) =>
+					logger.warn({ err }, "project_memory_index_failed: unexpected rejection")
+				);
+			}
+
 			await writer.finish({
 				status: hasError ? "error" : abortedByUser ? "interrupted" : "completed",
 			});

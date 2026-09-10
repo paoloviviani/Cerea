@@ -4,6 +4,7 @@ import type { PlanState } from "./Plan";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
 import type { Assistant } from "./Assistant";
+import type { Project } from "./Project";
 
 export interface Conversation extends Timestamps {
 	_id: ObjectId;
@@ -23,6 +24,21 @@ export interface Conversation extends Timestamps {
 
 	preprompt?: string;
 	assistantId?: Assistant["_id"];
+
+	/**
+	 * The project this conversation belongs to, if any. Set at creation and
+	 * never changed: a project supplies the standing context every turn is
+	 * generated against, so moving a conversation between projects would make
+	 * its earlier turns unreproducible.
+	 */
+	projectId?: Project["_id"];
+
+	/**
+	 * Message ids already written into the project's memory base, so a
+	 * conversation revisited or branched does not index the same exchange
+	 * twice. Only written when the project has `indexPastChats` on.
+	 */
+	indexedMessageIds?: string[];
 
 	userAgent?: string;
 

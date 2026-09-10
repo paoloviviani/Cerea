@@ -186,23 +186,22 @@
 				{/if}
 			</div>
 			<div class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-					Knowledge bases
-				</span>
+				<span class="text-xs font-medium text-gray-500 dark:text-gray-400"> Knowledge bases </span>
 				{#if attachedNames.length === 0}
 					<p class="text-sm text-gray-500">None attached, so it retrieves nothing.</p>
 				{:else}
 					<p class="text-sm">{attachedNames.join(", ")}</p>
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Up to {agent.retrieval_limit} passage{agent.retrieval_limit === 1 ? "" : "s"} per
-						answer.
+						Up to {agent.retrieval_limit} passage{agent.retrieval_limit === 1 ? "" : "s"} per answer.
 					</p>
 				{/if}
 			</div>
 		</section>
 
 		{#if agent.owned}
-			<section class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+			<section
+				class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
+			>
 				<h2 class="text-sm font-medium">Share this agent</h2>
 				<form class="flex flex-wrap items-end gap-2" onsubmit={share}>
 					<label class="flex flex-col gap-1">
@@ -252,9 +251,9 @@
 					<p class="text-xs text-gray-600 dark:text-gray-300">{notice}</p>
 				{/if}
 				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Sharing this does <strong>not</strong> share its knowledge bases. And if they cannot
-					use <code>{agent.model}</code>, the agent will not appear in their model list and
-					calling it by name tells them why — the share is still allowed.
+					Sharing this does <strong>not</strong> share its knowledge bases. And if they cannot use
+					<code>{agent.model}</code>, the agent will not appear in their model list and calling it
+					by name tells them why — the share is still allowed.
 				</p>
 			</section>
 		{/if}
