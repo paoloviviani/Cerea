@@ -28,6 +28,7 @@ Run it with the deployment's variables sourced:
 
 import os
 import re
+import subprocess
 import sys
 
 import httpx
@@ -200,6 +201,45 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         any(x["id"] == conv for x in inside),
         str(inside)[:200],
     )
+
+    models = c.get(f"{CHAT}/api/v2/models").text
+    first = [x for x in re.findall(r'"id":"([^"]+)"', models) if not x.startswith("agent:")][0]
+
+    print("\nthe per-model settings page is gone:")
+    r = c.get(f"{CHAT}/settings/{first}")
+    check(
+        f"/settings/{first} is not served",
+        r.status_code == 404,
+        f"answered {r.status_code} — the route survived",
+    )
+
+    print("\nnothing links to it any more:")
+    check(
+        "the panel has no per-model settings link",
+        f'href="/chat/settings/{first}"' not in home,
+        "a link to the removed page is still rendered",
+    )
+    r = c.get(f"{CHAT}/settings/application")
+    check("the settings screen itself still works", r.status_code == 200, str(r.status_code))
+    check(
+        "and its model list no longer links to the page",
+        'href="/chat/settings/' not in r.text.replace('href="/chat/settings/application"', ""),
+        "the settings nav still links per model",
+    )
+
+    print("\nthe dialog is what ships:")
+    # In the client chunks, not the HTML: `{#if modelsOverlay.open}` means none
+    # of it is rendered until somebody opens it.
+    for marker in ("Set as default", "Every model available to you", "is the default"):
+        found = subprocess.run(
+            [
+                "docker", "exec", "llm-platform-chat-1", "sh", "-lc",
+                f'grep -rl "{marker}" /app/build/client 2>/dev/null | head -1',
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        check(f"“{marker}” is in the bundle", bool(found), "not in the built client")
 
     print("\nmanaging a project from its own row:")
     # What the `⋯` menu's two items do. Edit opens the overlay on the project,

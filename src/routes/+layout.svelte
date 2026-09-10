@@ -16,6 +16,8 @@
 	import NotificationToasts from "$lib/components/NotificationToasts.svelte";
 	import GenerationLiveWatcher from "$lib/components/GenerationLiveWatcher.svelte";
 	import NavMenu from "$lib/components/NavMenu.svelte";
+	import ModelsManager from "$lib/components/models/ModelsManager.svelte";
+	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import NavigationLoadingBar from "$lib/components/NavigationLoadingBar.svelte";
 	import MobileNav from "$lib/components/MobileNav.svelte";
 	import WelcomeModal from "$lib/components/WelcomeModal.svelte";
@@ -306,6 +308,18 @@
 	<GenerationLiveWatcher />
 	<NotificationToasts />
 	{@render children?.()}
+
+	<!-- Per-model settings are a dialog, not a page, so it is mounted here:
+	     nothing smaller encloses the composer, the introduction, a routed
+	     message and the models list, which are all places that open it. -->
+	{#if modelsOverlay.open}
+		<ModelsManager
+			models={data.models}
+			mlAssistantModels={data.mlAssistantModels ?? []}
+			initialId={modelsOverlay.modelId}
+			onclose={() => modelsOverlay.hide()}
+		/>
+	{/if}
 
 	{#if publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}
 		<script>

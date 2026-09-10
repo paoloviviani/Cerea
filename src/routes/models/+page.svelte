@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import type { PageData } from "./$types";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 
@@ -13,7 +14,6 @@
 	import IconCheap from "$lib/components/icons/IconCheap.svelte";
 	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import { useSettingsStore } from "$lib/stores/settings";
-	import { goto } from "$app/navigation";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
 	interface Props {
@@ -223,7 +223,7 @@
 								onclick={(e) => {
 									e.preventDefault();
 									e.stopPropagation();
-									goto(`${base}/settings/${model.id}`);
+									modelsOverlay.show(model.id);
 								}}
 							>
 								<LucideSettings class="size-3 sm:size-3.5" />
