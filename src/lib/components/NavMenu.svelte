@@ -226,6 +226,27 @@
 		>
 	</a>
 
+	<!-- Knowledge bases and agents (ADR 0062). Signed-in only, and not because
+	     they are privileged: both are *owned* resources, so an anonymous session
+	     has nowhere to put one. The gateway refuses either way; hiding the links
+	     saves somebody following one to a 401. -->
+	{#if user?.username || user?.email}
+		<a
+			href="{base}/knowledge"
+			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
+			onclick={handleNavItemClick}
+		>
+			Knowledge
+		</a>
+		<a
+			href="{base}/agents"
+			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
+			onclick={handleNavItemClick}
+		>
+			Agents
+		</a>
+	{/if}
+
 	{#if user?.username || user?.email}
 		<button
 			onclick={() => (showMcpModal = true)}
