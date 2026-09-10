@@ -24,6 +24,7 @@ npm run test         # Run all tests (Vitest)
 set -a; . deploy/.env; set +a          # the gateway's deployment variables
 ./scripts/test_projects_live.py        # projects: context, retrieval, memory
 ./scripts/test_attachments_live.py     # a document attachment, extracted once
+./scripts/test_nav_live.py             # the sidebar tree, and signing out for real
 ```
 
 Note the trap in the attachment check, because it will be reintroduced: the
@@ -117,6 +118,55 @@ Smart routing via Arch-Router model. Configured with:
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
+
+## The sidebar is a tree, and signing out is two-ended
+
+**The left panel is one tree.** Every top-level thing is a branch — Models,
+Projects, Knowledge, Agents, MCP Servers, Chats — with the person at the foot
+in a menu that opens _upward_. `components/nav/` holds the three pieces:
+`TreeBranch`, `TreeLeaf`, `UserMenu`, plus `ProjectsBranch` for the one branch
+whose children are themselves folders.
+
+Four rules it follows:
+
+- **contents load when a branch is opened**, never on page load. The panel is
+  drawn on every page and most branches are shut most of the time. A project's
+  chats load when _its_ folder opens, not with the project list — a dozen
+  projects would otherwise be a dozen requests for a sidebar nobody expanded;
+- **the `+` and the row are separate buttons.** "Add one of these" and "show me
+  them" are different actions; folding them together makes one unreachable by
+  keyboard. The row carries `aria-expanded`, so the state is announced and not
+  merely drawn;
+- **a project's chats live under the project, so Chats leaves them out.** That
+  is what `projectId` on `ConvSidebar` is for; without it every project
+  conversation appeared in both places;
+- **only an already-opened branch is reloaded** when its overlay closes.
+
+**Signing out ends the session at both ends** (`routes/logout/+server.ts`), and
+the second end is the one that was missing. `POST /logout` deleted the local
+session and cleared the cookie correctly, then redirected to `/` — which re-ran
+the OIDC flow, and the _provider's_ still-live session signed the person
+straight back in with no prompt. From the outside, Sign out did nothing. It now
+does RP-initiated logout: local session first (so a provider round trip that
+never returns still leaves this app signed out), then the browser to the
+`end_session_endpoint` with `id_token_hint` and back.
+
+Three things that follow, all found by running it:
+
+- **the id token is kept on the session** (`Session.oauth.idToken`) for exactly
+  one purpose, `id_token_hint`. It was previously discarded;
+- **Keycloak answers 400 for an unregistered `post_logout_redirect_uri`**, and
+  `post.logout.redirect.uris = +` registers only the _login_ callback — not the
+  app root the browser is sent back to. `deploy/keycloak/setup.sh` sets a
+  wildcard under the published origin instead, which is safe here only because
+  this deployment serves one origin (ADR 0035);
+- **landing on a login prompt afterwards is the proof, not a fault.** The
+  browser returns to `/chat/`, which is unauthenticated by then and bounces to
+  the provider's login page.
+
+A provider advertising no `end_session_endpoint` keeps the old behaviour
+exactly: the local sign-out still happens, and `getOIDCLogoutUrl` returns
+`null` rather than throwing.
 
 ## The dialog language, and where it comes from
 

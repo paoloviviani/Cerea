@@ -7,38 +7,69 @@
 	} as const;
 </script>
 
+<!--
+	The left panel, as one tree.
+
+	It used to be three stacked lists — a flat run of conversations, then a run
+	of links, then the person — which meant the panel had no structure to read
+	and everything competed for the same attention. Now every top-level thing
+	is a branch: Models, Projects, Knowledge, Agents, MCP Servers, Chats, with
+	the person at the foot in a menu that opens upward.
+
+	Three decisions worth knowing.
+
+	**A branch's contents are fetched when it is opened**, never on load. The
+	panel is drawn on every page and most branches are closed most of the time;
+	loading all of them would make the sidebar the most expensive thing on the
+	screen. The badge on a closed branch either comes from data the layout
+	already has, or appears once the branch has been opened.
+
+	**A `+` beside a branch opens that thing's create dialog**, and the branch
+	itself expands. They are separate buttons: "add one of these" and "show me
+	them" are different actions, and folding them together makes one of them
+	unreachable by keyboard.
+
+	**A project's chats live under the project, so Chats leaves them out.** That
+	is what `projectId` on the sidebar conversation is for — without it every
+	conversation in a project would appear twice, and deleting it in one place
+	would leave it in the other.
+-->
 <script lang="ts">
 	import { base } from "$app/paths";
 
 	import Logo from "$lib/components/icons/Logo.svelte";
-	import IconSun from "$lib/components/icons/IconSun.svelte";
-	import IconMoon from "$lib/components/icons/IconMoon.svelte";
-	import { switchTheme, subscribeToTheme } from "$lib/switchTheme";
 	import { isAborted } from "$lib/stores/isAborted";
-	import { onDestroy } from "svelte";
 
 	import NavConversationItem from "./NavConversationItem.svelte";
+	import TreeBranch from "./nav/TreeBranch.svelte";
+	import TreeLeaf from "./nav/TreeLeaf.svelte";
+	import ProjectsBranch from "./nav/ProjectsBranch.svelte";
+	import UserMenu from "./nav/UserMenu.svelte";
 	import type { LayoutData } from "../../routes/$types";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { Model } from "$lib/types/Model";
 	import { page } from "$app/state";
 	import InfiniteScroll from "./InfiniteScroll.svelte";
 	import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
-	import { browser } from "$app/environment";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { enabledServersCount } from "$lib/stores/mcpServers";
-	import { isPro } from "$lib/stores/isPro";
-	import IconPro from "$lib/components/icons/IconPro.svelte";
+	import { useSettingsStore } from "$lib/stores/settings";
+	import { GatewayError, gwGet, type Agent, type VectorStore } from "$lib/gateway";
 	import MCPServerManager from "./mcp/MCPServerManager.svelte";
 	import ModelsManager from "./models/ModelsManager.svelte";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
 	import AgentsManager from "./agents/AgentsManager.svelte";
+	import LucideBoxes from "~icons/lucide/boxes";
+	import LucideLibrary from "~icons/lucide/library";
+	import LucideBot from "~icons/lucide/bot";
+	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
+	const settings = useSettingsStore();
 
 	interface Props {
 		conversations: ConvSidebar[];
@@ -66,11 +97,7 @@
 		}
 	}
 
-	function handleNavItemClick(e: MouseEvent) {
-		if (requireAuthUser()) {
-			e.preventDefault();
-		}
-	}
+	const signedIn = $derived(Boolean(user?.username || user?.email));
 
 	const dateRanges = [
 		new Date().setDate(new Date().getDate() - 1),
@@ -78,18 +105,23 @@
 		new Date().setMonth(new Date().getMonth() - 1),
 	];
 
+	// A project's conversations are shown inside the project, so they are left
+	// out here rather than listed twice.
+	const loose = $derived(conversations.filter((conv) => !conv.projectId));
+
 	let groupedConversations = $derived({
-		today: conversations.filter(({ updatedAt }) => updatedAt.getTime() > dateRanges[0]),
-		week: conversations.filter(
+		today: loose.filter(({ updatedAt }) => updatedAt.getTime() > dateRanges[0]),
+		week: loose.filter(
 			({ updatedAt }) => updatedAt.getTime() > dateRanges[1] && updatedAt.getTime() < dateRanges[0]
 		),
-		month: conversations.filter(
+		month: loose.filter(
 			({ updatedAt }) => updatedAt.getTime() > dateRanges[2] && updatedAt.getTime() < dateRanges[1]
 		),
-		older: conversations.filter(({ updatedAt }) => updatedAt.getTime() < dateRanges[2]),
+		older: loose.filter(({ updatedAt }) => updatedAt.getTime() < dateRanges[2]),
 	});
 
-	const nModels: number = page.data.models.filter((el: Model) => !el.unlisted).length;
+	const listedModels = $derived((page.data.models as Model[]).filter((model) => !model.unlisted));
+	const nModels = $derived(listedModels.length);
 
 	async function handleVisible() {
 		p++;
@@ -118,23 +150,77 @@
 		}
 	});
 
-	let isDark = $state(false);
-	let unsubscribeTheme: (() => void) | undefined;
+	// ---- the overlays a branch's `+` and its leaves open -------------------
+
 	let showMcpModal = $state(false);
 	let showModelsModal = $state(false);
 	let showProjectsModal = $state(false);
 	let showKnowledgeModal = $state(false);
 	let showAgentsModal = $state(false);
+	/** Which item an overlay should open on, when a leaf was clicked. */
+	let projectTarget = $state<string | undefined>(undefined);
+	let knowledgeTarget = $state<string | undefined>(undefined);
+	let agentTarget = $state<string | undefined>(undefined);
 
-	if (browser) {
-		unsubscribeTheme = subscribeToTheme(({ isDark: nextIsDark }) => {
-			isDark = nextIsDark;
-		});
+	let projectsBranch = $state<ReturnType<typeof ProjectsBranch> | undefined>(undefined);
+
+	// ---- branch contents, each loaded on first open ------------------------
+
+	let modelsOpen = $state(false);
+	let chatsOpen = $state(true);
+
+	let knowledgeOpen = $state(false);
+	let bases = $state<VectorStore[] | null>(null);
+	let basesFailed = $state(false);
+
+	let agentsOpen = $state(false);
+	let agents = $state<Agent[] | null>(null);
+	let agentsFailed = $state(false);
+
+	async function loadBases() {
+		try {
+			bases = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data;
+			basesFailed = false;
+		} catch (err) {
+			if (!(err instanceof GatewayError)) throw err;
+			// A sidebar branch is not the place to report this loudly: the label
+			// says so and the rest of the panel keeps working.
+			bases = [];
+			basesFailed = true;
+		}
 	}
 
-	onDestroy(() => {
-		unsubscribeTheme?.();
-	});
+	async function loadAgents() {
+		try {
+			agents = (await gwGet<{ data: Agent[] }>("agents")).data;
+			agentsFailed = false;
+		} catch (err) {
+			if (!(err instanceof GatewayError)) throw err;
+			agents = [];
+			agentsFailed = true;
+		}
+	}
+
+	async function toggleKnowledge() {
+		knowledgeOpen = !knowledgeOpen;
+		if (knowledgeOpen && bases === null) await loadBases();
+	}
+
+	async function toggleAgents() {
+		agentsOpen = !agentsOpen;
+		if (agentsOpen && agents === null) await loadAgents();
+	}
+
+	/**
+	 * After an overlay closes, the branch it belongs to may be stale — the
+	 * dialog is where things are created, renamed and deleted. Only a branch
+	 * that has already been opened is reloaded, so a closed one stays free.
+	 */
+	function refreshAfter(kind: "projects" | "knowledge" | "agents") {
+		if (kind === "projects") void projectsBranch?.reload();
+		if (kind === "knowledge" && bases !== null) void loadBases();
+		if (kind === "agents" && agents !== null) void loadAgents();
+	}
 </script>
 
 <div
@@ -158,150 +244,171 @@
 </div>
 
 <div
-	class="scrollbar-custom flex touch-pan-y flex-col gap-1 overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-3 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
+	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
 >
-	<div class="flex flex-col gap-px">
+	<TreeBranch label="Models" badge={nModels} bind:open={modelsOpen}>
+		{#snippet icon()}
+			<LucideBoxes class="size-3.5 shrink-0" />
+		{/snippet}
+		{#if listedModels.length === 0}
+			<TreeLeaf label="None available to you" depth={1} />
+		{:else}
+			{#each listedModels.slice(0, 12) as model (model.id)}
+				<TreeLeaf
+					label={model.displayName || model.id}
+					depth={1}
+					active={model.id === $settings.activeModel}
+					title={model.id}
+					onclick={() => settings.instantSet({ activeModel: model.id })}
+				/>
+			{/each}
+			<TreeLeaf
+				label={listedModels.length > 12 ? `All ${listedModels.length} models…` : "Manage…"}
+				depth={1}
+				onclick={() => (showModelsModal = true)}
+			/>
+		{/if}
+	</TreeBranch>
+
+	{#if signedIn}
+		<ProjectsBranch
+			bind:this={projectsBranch}
+			onopen={(id) => {
+				projectTarget = id;
+				showProjectsModal = true;
+			}}
+		/>
+
+		<TreeBranch
+			label="Knowledge"
+			badge={bases?.length}
+			open={knowledgeOpen}
+			onactivate={toggleKnowledge}
+			onadd={() => {
+				knowledgeTarget = undefined;
+				showKnowledgeModal = true;
+			}}
+			addTitle="New knowledge base"
+		>
+			{#snippet icon()}
+				<LucideLibrary class="size-3.5 shrink-0" />
+			{/snippet}
+			{#if bases === null}
+				<TreeLeaf label="Loading…" depth={1} />
+			{:else if basesFailed}
+				<TreeLeaf label="Unavailable" depth={1} title="Could not reach the gateway" />
+			{:else if bases.length === 0}
+				<TreeLeaf
+					label="No knowledge bases yet"
+					depth={1}
+					onclick={() => {
+						knowledgeTarget = undefined;
+						showKnowledgeModal = true;
+					}}
+				/>
+			{:else}
+				{#each bases as store (store.id)}
+					<TreeLeaf
+						label={store.name}
+						depth={1}
+						title="{store.file_counts.completed} indexed"
+						onclick={() => {
+							knowledgeTarget = store.id;
+							showKnowledgeModal = true;
+						}}
+					/>
+				{/each}
+			{/if}
+		</TreeBranch>
+
+		<TreeBranch
+			label="Agents"
+			badge={agents?.length}
+			open={agentsOpen}
+			onactivate={toggleAgents}
+			onadd={() => {
+				agentTarget = undefined;
+				showAgentsModal = true;
+			}}
+			addTitle="New agent"
+		>
+			{#snippet icon()}
+				<LucideBot class="size-3.5 shrink-0" />
+			{/snippet}
+			{#if agents === null}
+				<TreeLeaf label="Loading…" depth={1} />
+			{:else if agentsFailed}
+				<TreeLeaf label="Unavailable" depth={1} title="Could not reach the gateway" />
+			{:else if agents.length === 0}
+				<TreeLeaf
+					label="No agents yet"
+					depth={1}
+					onclick={() => {
+						agentTarget = undefined;
+						showAgentsModal = true;
+					}}
+				/>
+			{:else}
+				{#each agents as agent (agent.id)}
+					<TreeLeaf
+						label={agent.name}
+						depth={1}
+						title="Runs on {agent.model}"
+						onclick={() => {
+							agentTarget = agent.id;
+							showAgentsModal = true;
+						}}
+					/>
+				{/each}
+			{/if}
+		</TreeBranch>
+
+		<TreeBranch
+			label="MCP Servers"
+			badge={$enabledServersCount > 0 ? $enabledServersCount : undefined}
+			onactivate={() => (showMcpModal = true)}
+		>
+			{#snippet icon()}
+				<IconMCP classNames="size-3.5 shrink-0" />
+			{/snippet}
+		</TreeBranch>
+	{/if}
+
+	<TreeBranch label="Chats" badge={loose.length || undefined} bind:open={chatsOpen}>
 		{#each Object.entries(groupedConversations) as [group, convs]}
 			{#if convs.length}
-				<h4 class="mt-4 mb-1.5 pl-0.5 text-xs text-gray-400 first:mt-0 dark:text-gray-500">
+				<h4 class="mt-2 mb-1 pl-6 text-xs text-gray-400 first:mt-0.5 dark:text-gray-500">
 					{titles[group]}
 				</h4>
 				{#each convs as conv (String(conv.id))}
-					<NavConversationItem {conv} {oneditConversationTitle} {ondeleteConversation} />
+					<div class="pl-3">
+						<NavConversationItem {conv} {oneditConversationTitle} {ondeleteConversation} />
+					</div>
 				{/each}
 			{/if}
 		{/each}
-	</div>
-	{#if hasMore}
-		<InfiniteScroll onvisible={handleVisible} />
-	{/if}
+		{#if loose.length === 0}
+			<TreeLeaf label="No chats yet" depth={1} href="{base}/" />
+		{/if}
+		{#if hasMore}
+			<InfiniteScroll onvisible={handleVisible} />
+		{/if}
+	</TreeBranch>
 </div>
+
 <div
-	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-3 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-gray-50 dark:border-transparent md:dark:from-gray-800/30"
+	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-gray-50 dark:border-transparent md:dark:from-gray-800/30"
 >
-	{#if user?.username || user?.email}
-		<div
-			class="group flex h-8 items-center gap-1.5 rounded-lg pr-2 pl-2 hover:bg-gray-100 first:hover:bg-transparent max-sm:h-10 dark:hover:bg-gray-700 dark:first:hover:bg-transparent"
-		>
-			<img
-				src="https://huggingface.co/api/users/{user.username}/avatar?redirect=true"
-				class="size-3.5 rounded-full border bg-gray-500 dark:border-white/40"
-				alt=""
-			/>
-			{#if publicConfig.isHuggingChat && user?.username}
-				<a
-					href="https://huggingface.co/{user.username}"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="min-w-0 truncate pr-2 text-gray-500 hover:underline dark:text-gray-400"
-					>{user.username}</a
-				>
-			{:else}
-				<span class="min-w-0 truncate pr-2 text-gray-500 dark:text-gray-400"
-					>{user?.username || user?.email}</span
-				>
-			{/if}
-
-			{#if publicConfig.isHuggingChat && $isPro === false}
-				<a
-					href="https://huggingface.co/subscribe/pro?from=HuggingChat"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="ml-auto flex h-[20px] shrink-0 items-center gap-1 px-1.5 py-0.5 text-xs text-gray-500 dark:text-gray-400"
-				>
-					<IconPro />
-					Get PRO
-				</a>
-			{:else if publicConfig.isHuggingChat && $isPro === true}
-				<span
-					class="ml-auto flex h-[20px] shrink-0 items-center gap-1 px-1.5 py-0.5 text-xs text-gray-500 dark:text-gray-400"
-				>
-					<IconPro />
-					PRO
-				</span>
-			{/if}
-		</div>
-	{/if}
-	<!-- A button rather than a link: this and the four below open overlays, in
-	     the same idiom as MCP Servers. The routes still exist and still work —
-	     `/models/[id]` is an address people link to — but the way in from the
-	     nav no longer costs somebody their place in the conversation. -->
-	<button
-		onclick={() => (showModelsModal = true)}
-		class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-	>
-		Models
-		<span
-			class="ml-auto rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20 dark:text-gray-400"
-			>{nModels}</span
-		>
-	</button>
-
-	<!-- Projects, knowledge bases and agents (ADR 0062). Signed-in only, and not
-	     because they are privileged: all three are *owned* resources, so an
-	     anonymous session has nowhere to put one. The gateway refuses either
-	     way; hiding them saves somebody a 401. -->
-	{#if user?.username || user?.email}
-		<button
-			onclick={() => (showProjectsModal = true)}
-			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			Projects
-		</button>
-		<button
-			onclick={() => (showKnowledgeModal = true)}
-			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			Knowledge
-		</button>
-		<button
-			onclick={() => (showAgentsModal = true)}
-			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			Agents
-		</button>
-	{/if}
-
-	{#if user?.username || user?.email}
-		<button
-			onclick={() => (showMcpModal = true)}
-			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			MCP Servers
-			{#if $enabledServersCount > 0}
-				<span
-					class="ml-auto rounded-md bg-blue-600/10 px-1.5 py-0.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
-				>
-					{$enabledServersCount}
-				</span>
-			{/if}
-		</button>
-	{/if}
-
-	<span class="flex gap-px">
+	{#if signedIn}
+		<UserMenu {user} />
+	{:else}
 		<a
 			href="{base}/settings/application"
-			class="flex h-8 flex-none grow items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-			onclick={handleNavItemClick}
+			class="flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-gray-500 no-underline hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
 		>
 			Settings
 		</a>
-		<button
-			onclick={() => {
-				switchTheme();
-			}}
-			aria-label="Toggle theme"
-			class="flex size-8 min-w-[1.5em] flex-none items-center justify-center rounded-lg p-2 text-gray-500 hover:bg-gray-100 max-sm:size-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			{#if browser}
-				{#if isDark}
-					<IconSun />
-				{:else}
-					<IconMoon />
-				{/if}
-			{/if}
-		</button>
-	</span>
+	{/if}
 </div>
 
 {#if showModelsModal}
@@ -313,15 +420,33 @@
 {/if}
 
 {#if showProjectsModal}
-	<ProjectsManager onclose={() => (showProjectsModal = false)} />
+	<ProjectsManager
+		initialId={projectTarget}
+		onclose={() => {
+			showProjectsModal = false;
+			refreshAfter("projects");
+		}}
+	/>
 {/if}
 
 {#if showKnowledgeModal}
-	<KnowledgeManager onclose={() => (showKnowledgeModal = false)} />
+	<KnowledgeManager
+		initialId={knowledgeTarget}
+		onclose={() => {
+			showKnowledgeModal = false;
+			refreshAfter("knowledge");
+		}}
+	/>
 {/if}
 
 {#if showAgentsModal}
-	<AgentsManager onclose={() => (showAgentsModal = false)} />
+	<AgentsManager
+		initialId={agentTarget}
+		onclose={() => {
+			showAgentsModal = false;
+			refreshAfter("agents");
+		}}
+	/>
 {/if}
 
 {#if showMcpModal}

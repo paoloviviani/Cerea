@@ -237,6 +237,8 @@ export function tokenSetToSessionOauth(tokenSet: TokenSet): Session["oauth"] {
 				: addWeeks(new Date(), 2),
 		},
 		refreshToken: tokenSet.refresh_token || undefined,
+		// Kept for `id_token_hint` on logout, and for nothing else.
+		idToken: tokenSet.id_token || undefined,
 	};
 }
 
@@ -362,6 +364,38 @@ export async function getOIDCAuthorizationUrl(
 		state: csrfToken,
 		resource: OIDConfig.RESOURCE || undefined,
 	});
+}
+
+/**
+ * Where to send the browser to end the session at the provider, or `null` when
+ * the provider advertises no such endpoint.
+ *
+ * This is the half of signing out that the local cookie cannot do. Clearing our
+ * own session while the directory's stays live means the next navigation
+ * re-authenticates silently — the person appears never to have signed out.
+ *
+ * `null` rather than a throw for a provider without an `end_session_endpoint`:
+ * ending the local session is still a correct, if partial, sign-out, and
+ * refusing to do it because the provider cannot do more would be worse.
+ */
+export async function getOIDCLogoutUrl(
+	settings: OIDCSettings,
+	params: { url: URL; idToken?: string; postLogoutRedirectUri: string }
+): Promise<string | null> {
+	if (!loginEnabled) return null;
+	try {
+		const client = await getOIDCClient(settings, params.url);
+		if (!client.issuer.metadata.end_session_endpoint) return null;
+		return client.endSessionUrl({
+			...(params.idToken ? { id_token_hint: params.idToken } : {}),
+			post_logout_redirect_uri: params.postLogoutRedirectUri,
+		});
+	} catch (err) {
+		// Discovery is a network call, and a logout must not fail on it: the
+		// local session is already gone by the time this is asked.
+		logger.warn({ err }, "oidc_logout_url_unavailable: signing out locally only");
+		return null;
+	}
 }
 
 export async function getOIDCUserData(

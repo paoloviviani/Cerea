@@ -10,6 +10,7 @@ interface ConversationListItem {
 	updatedAt: Date | string;
 	model?: string;
 	mlAssistant?: boolean;
+	projectId?: string;
 }
 
 interface UserInfo {
@@ -86,6 +87,7 @@ export const load = async ({ fetch, url }) => {
 			model: conv.model ?? defaultModel?.id,
 			updatedAt: new Date(conv.updatedAt),
 			mlAssistant: conv.mlAssistant ?? false,
+			...(conv.projectId ? { projectId: conv.projectId } : {}),
 		} satisfies ConvSidebar;
 	});
 

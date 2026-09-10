@@ -14,11 +14,14 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 	const convs = await collections.conversations
 		.find(authCondition(locals))
-		.project<Pick<Conversation, "_id" | "title" | "updatedAt" | "model" | "mlAssistant">>({
+		.project<
+			Pick<Conversation, "_id" | "title" | "updatedAt" | "model" | "mlAssistant" | "projectId">
+		>({
 			title: 1,
 			updatedAt: 1,
 			model: 1,
 			mlAssistant: 1,
+			projectId: 1,
 		})
 		.sort({ updatedAt: -1 })
 		.skip(p * pageSize)
@@ -34,6 +37,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		model: conv.model,
 		modelId: conv.model, // legacy param iOS
 		...(conv.mlAssistant ? { mlAssistant: true } : {}),
+		// A string, not an ObjectId: the sidebar compares it against ids the
+		// projects API returns, and those are strings.
+		...(conv.projectId ? { projectId: conv.projectId.toString() } : {}),
 	}));
 
 	return superjsonResponse({ conversations: res, hasMore });
