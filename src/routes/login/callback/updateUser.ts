@@ -16,6 +16,50 @@ import { OIDConfig } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 
+/**
+ * Let the gateway know this person exists, at login rather than eventually.
+ *
+ * The gateway learns about a user from the OIDC claims on a `/v1` request, so
+ * until now somebody could sign into the chat and be **invisible in the
+ * management console** until they sent their first message — or never, if they
+ * only ever browsed. That reads as a broken console rather than as a lazy
+ * write, and it was reported as one.
+ *
+ * `GET /v1/billing/groups` rather than a new endpoint, and not only to avoid
+ * surface: the chat wants this answer at login anyway. It is how the settings
+ * dropdown knows which groups the person may bill (ADR 0061), and fetching it
+ * here means the first message does not pay for it. Provisioning is a *side
+ * effect* of the call, which is worth stating plainly — but the call is one we
+ * want regardless, and an endpoint whose only purpose was the side effect would
+ * be a worse thing to explain.
+ *
+ * **Non-fatal, deliberately.** A gateway that is down, misconfigured, or does
+ * not accept this token must not stop somebody logging into the chat: the
+ * person is already authenticated by the identity provider, and refusing them
+ * a session would turn a reporting gap into an outage. It is logged at info
+ * so `gateway_login_announce` is greppable when a user is missing from the
+ * console.
+ */
+async function announceToGateway(accessToken: string | undefined): Promise<void> {
+	if (!accessToken || !config.OPENAI_BASE_URL) {
+		return;
+	}
+	const base = config.OPENAI_BASE_URL.replace(/\/$/, "");
+	try {
+		const response = await fetch(`${base}/billing/groups`, {
+			headers: { Authorization: `Bearer ${accessToken}` },
+		});
+		if (!response.ok) {
+			logger.info(
+				`gateway_login_announce: the gateway answered ${response.status}; this user ` +
+					"will not appear in the management console until their first request"
+			);
+		}
+	} catch (err) {
+		logger.info({ err }, "gateway_login_announce: the gateway could not be reached");
+	}
+}
+
 export async function updateUser(params: {
 	userData: UserinfoResponse;
 	token: TokenSet;
@@ -212,4 +256,9 @@ export async function updateUser(params: {
 			$unset: { sessionId: "" },
 		}
 	);
+
+	// Last, and awaited rather than detached: the session is already written, so
+	// a slow gateway delays the redirect but cannot lose the login, and a
+	// detached call in a serverless-shaped runtime is a call that may never run.
+	await announceToGateway(token.access_token);
 }
