@@ -91,10 +91,12 @@ describe("renderWithApp", () => {
 			{ publicConfig: { PUBLIC_APP_ASSETS: "huggingchat" } }
 		);
 
+		// A button, not a link: per-model settings are a dialog now, and a dialog
+		// has no address. The page this used to point at is gone.
 		await expect
 			.element(screen.getByText("Llama-3.3-70B-Instruct", { exact: true }))
-			.toHaveProperty("tagName", "A");
-		expect(screen.baseElement.querySelector(`a[href="/chat/settings/${MODEL}"]`)).not.toBeNull();
+			.toHaveProperty("tagName", "BUTTON");
+		expect(screen.baseElement.querySelector(`a[href="/chat/settings/${MODEL}"]`)).toBeNull();
 	});
 
 	it("exposes the $app/navigation spies without navigating", async () => {
