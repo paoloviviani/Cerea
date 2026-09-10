@@ -275,8 +275,7 @@
 								Billing group
 							</div>
 							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Which group your usage is charged to. You can only choose groups you belong
-								to.
+								Which group your usage is charged to. You can only choose groups you belong to.
 							</p>
 						</div>
 						<div class="flex items-center">

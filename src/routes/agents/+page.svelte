@@ -74,8 +74,8 @@
 		<div class="flex flex-col gap-1">
 			<h1 class="text-xl font-semibold">Agents</h1>
 			<p class="text-sm text-gray-500 dark:text-gray-400">
-				A model with standing instructions and knowledge bases attached. One you create
-				appears in the model picker as <code class="text-xs">agent:name</code>.
+				A model with standing instructions and knowledge bases attached. One you create appears in
+				the model picker as <code class="text-xs">agent:name</code>.
 			</p>
 		</div>
 		<button

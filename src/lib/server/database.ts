@@ -7,6 +7,7 @@ import { GridFSBucket, MongoClient, ReadPreference } from "mongodb";
 import "aws4";
 import "@aws-sdk/credential-providers";
 import type { Conversation } from "$lib/types/Conversation";
+import type { Project } from "$lib/types/Project";
 import type { SharedConversation } from "$lib/types/SharedConversation";
 import type { AbortedGeneration } from "$lib/types/AbortedGeneration";
 import type { Generation, GenerationEvent } from "$lib/types/Generation";
@@ -150,6 +151,10 @@ export class Database {
 		const configCollection = db.collection<ConfigKey>("config");
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
 		const sharedConversations = db.collection<SharedConversation>("sharedConversations");
+		// Primary read preference, like conversations: the redirect after a
+		// create reads the project back immediately, and secondary lag there
+		// shows as a 404 on a project that does exist.
+		const projects = db.collection<Project>("projects");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
 
 		// Collections with secondaryPreferred - heavy reads, can tolerate slight replication lag
@@ -168,6 +173,7 @@ export class Database {
 		});
 		return {
 			conversations,
+			projects,
 			conversationStats,
 			assistants,
 			reports,
@@ -199,6 +205,7 @@ export class Database {
 	private initDatabase() {
 		const {
 			conversations,
+			projects,
 			conversationStats,
 			assistants,
 			reports,
@@ -243,6 +250,25 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for conversations by messageId and ancestors")
 			);
+		projects
+			.createIndex({ userId: 1, updatedAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for projects by userId"));
+		// Serves "which projects are shared with me", which is a query by the
+		// viewer's own email or one of their group names — both of them values
+		// inside the same array, which is why one multikey index covers it.
+		projects
+			.createIndex({ "shares.email": 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for projects by share email"));
+		projects
+			.createIndex({ "shares.name": 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for projects by share group"));
+		// A project page lists its conversations newest first.
+		conversations
+			.createIndex(
+				{ projectId: 1, updatedAt: -1 },
+				{ partialFilterExpression: { projectId: { $exists: true } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for conversations by projectId"));
 		// Not strictly necessary, could use _id, but more convenient. Also for stats
 		// To do stats on conversation messages
 		conversations
