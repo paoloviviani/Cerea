@@ -1,0 +1,198 @@
+<!--
+	The person, at the foot of the tree, and what they can do about it.
+
+	Opens **upward**, because it lives at the bottom of the panel and a menu
+	that dropped down would be off-screen. Settings was a sibling row in the
+	nav and Logout did not exist at all — the endpoint did (`POST /logout`),
+	with nothing in the interface reaching it.
+
+	Two things worth knowing.
+
+	**Logout is a form post, not a link.** `POST /logout` deletes the session
+	server-side; a GET would make signing somebody out something a prefetch or
+	an `<img>` could do to them.
+
+	**It ends the session here, not at the identity provider.** There is no
+	RP-initiated logout in this app, so a directory session outlives it and the
+	next sign-in can go through without a prompt. That is worth knowing before
+	trusting this on a shared machine, and it is why the item says "Sign out"
+	rather than promising more than it does.
+-->
+<script lang="ts">
+	import { base } from "$app/paths";
+	import { onDestroy } from "svelte";
+	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
+	import { switchTheme, subscribeToTheme } from "$lib/switchTheme";
+	import { browser } from "$app/environment";
+	import { isPro } from "$lib/stores/isPro";
+	import IconPro from "$lib/components/icons/IconPro.svelte";
+	import IconSun from "$lib/components/icons/IconSun.svelte";
+	import IconMoon from "$lib/components/icons/IconMoon.svelte";
+	import CarbonSettings from "~icons/carbon/settings";
+	import CarbonLogout from "~icons/carbon/logout";
+	import CarbonUser from "~icons/carbon/user";
+	import CarbonChevronUp from "~icons/carbon/chevron-up";
+
+	interface Props {
+		/** `null` as well as `undefined`: that is what the layout's `user` is. */
+		user: { username?: string; email?: string; avatarUrl?: string } | null | undefined;
+		/** Called when a menu item navigates, so a narrow layout can close the panel. */
+		onnavigate?: () => void;
+	}
+
+	let { user, onnavigate }: Props = $props();
+
+	const publicConfig = usePublicConfig();
+
+	let open = $state(false);
+	let root: HTMLDivElement | undefined = $state();
+
+	const label = $derived(user?.username || user?.email || "Account");
+	// Two letters, because an avatar is not always there and a coloured disc
+	// with initials is what the rest of this deployment's consoles show.
+	const initials = $derived(
+		label
+			.replace(/@.*$/, "")
+			.split(/[.\-_\s]+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? "")
+			.join("") || "?"
+	);
+
+	let isDark = $state(false);
+	let unsubscribeTheme: (() => void) | undefined;
+	if (browser) {
+		unsubscribeTheme = subscribeToTheme(({ isDark: next }) => {
+			isDark = next;
+		});
+	}
+	onDestroy(() => unsubscribeTheme?.());
+
+	function onwindowclick(event: MouseEvent) {
+		if (!open || !root) return;
+		if (!root.contains(event.target as Node)) open = false;
+	}
+
+	function onwindowkeydown(event: KeyboardEvent) {
+		if (event.key === "Escape" && open) open = false;
+	}
+
+	function go() {
+		open = false;
+		onnavigate?.();
+	}
+</script>
+
+<svelte:window onclick={onwindowclick} onkeydown={onwindowkeydown} />
+
+<div bind:this={root} class="relative">
+	{#if open}
+		<!-- Above the button, hence `bottom-full`: this sits at the foot of the
+		     panel and a menu opening downward would be off-screen. -->
+		<div
+			class="absolute bottom-full left-0 z-30 mb-1 w-full min-w-52 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
+			role="menu"
+		>
+			{#if publicConfig.isHuggingChat && user?.username}
+				<a
+					href="https://huggingface.co/{user.username}"
+					target="_blank"
+					rel="noopener noreferrer"
+					onclick={go}
+					role="menuitem"
+					class="flex h-9 items-center gap-2 px-3 text-sm text-gray-700 no-underline hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+				>
+					<CarbonUser class="size-4" />
+					Your profile
+				</a>
+			{/if}
+
+			<a
+				href="{base}/settings/application"
+				onclick={go}
+				role="menuitem"
+				class="flex h-9 items-center gap-2 px-3 text-sm text-gray-700 no-underline hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+			>
+				<CarbonSettings class="size-4" />
+				Settings
+			</a>
+
+			<button
+				type="button"
+				onclick={() => {
+					switchTheme();
+				}}
+				role="menuitem"
+				class="flex h-9 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+			>
+				{#if browser && isDark}
+					<IconSun classNames="size-4" />
+					Light theme
+				{:else}
+					<IconMoon classNames="size-4" />
+					Dark theme
+				{/if}
+			</button>
+
+			{#if publicConfig.isHuggingChat && $isPro === false}
+				<a
+					href="https://huggingface.co/subscribe/pro?from=HuggingChat"
+					target="_blank"
+					rel="noopener noreferrer"
+					onclick={go}
+					role="menuitem"
+					class="flex h-9 items-center gap-2 px-3 text-sm text-gray-700 no-underline hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+				>
+					<IconPro />
+					Get PRO
+				</a>
+			{/if}
+
+			<div class="border-t border-gray-200 dark:border-gray-600">
+				<!-- A form post, not a link: signing somebody out must not be
+				     something a prefetch can do to them. -->
+				<form method="POST" action="{base}/logout" onsubmit={go}>
+					<button
+						type="submit"
+						role="menuitem"
+						class="flex h-9 w-full items-center gap-2 px-3 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+					>
+						<CarbonLogout class="size-4" />
+						Sign out
+					</button>
+				</form>
+			</div>
+		</div>
+	{/if}
+
+	<button
+		type="button"
+		onclick={(event) => {
+			event.stopPropagation();
+			open = !open;
+		}}
+		aria-expanded={open}
+		aria-haspopup="menu"
+		class="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+	>
+		{#if publicConfig.isHuggingChat && user?.username}
+			<img
+				src="https://huggingface.co/api/users/{user.username}/avatar?redirect=true"
+				class="size-6 shrink-0 rounded-full border bg-gray-500 dark:border-white/40"
+				alt=""
+			/>
+		{:else}
+			<span
+				class="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[0.6rem] font-semibold text-white"
+			>
+				{initials}
+			</span>
+		{/if}
+		<span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">{label}</span>
+		{#if publicConfig.isHuggingChat && $isPro === true}
+			<span class="shrink-0 text-gray-400"><IconPro /></span>
+		{/if}
+		<CarbonChevronUp class="size-3.5 shrink-0 text-gray-400 {open ? '' : 'rotate-180'}" />
+	</button>
+</div>
