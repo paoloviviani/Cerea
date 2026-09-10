@@ -139,6 +139,12 @@ const listSchema = z
 					})
 					.passthrough()
 					.optional(),
+				// Pystino's own, flat and per model (ADR 0031). `supported_features`
+				// is deliberately an open set of strings rather than a boolean per
+				// feature, so this is matched by membership.
+				input_modalities: z.array(z.string()).optional(),
+				output_modalities: z.array(z.string()).optional(),
+				supported_features: z.array(z.string()).optional(),
 			})
 		),
 	})
@@ -309,14 +315,25 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				logoUrl = `https://huggingface.co/api/avatars/${encodeURIComponent(org)}`;
 			}
 
-			const inputModalities = (m.architecture?.input_modalities ?? []).map((modality) =>
-				modality.toLowerCase()
-			);
+			// Gateway first, then the HuggingFace router's nested shape. A
+			// deployment has one or the other, never both, and reading only the
+			// HF shape is why a gateway's models all reported no capabilities.
+			const inputModalities = [
+				...(m.input_modalities ?? []),
+				...(m.architecture?.input_modalities ?? []),
+			].map((modality) => modality.toLowerCase());
+			const features = (m.supported_features ?? []).map((feature) => feature.toLowerCase());
+
 			const supportsImageInput =
 				inputModalities.includes("image") || inputModalities.includes("vision");
 
-			// If any provider supports tools, consider the model as supporting tools
-			const supportsTools = Boolean((m.providers ?? []).some((p) => p?.supports_tools === true));
+			// The gateway says so per model; on the HF router, any provider
+			// supporting tools makes the model tool-capable.
+			const supportsTools =
+				features.includes("tools") ||
+				Boolean((m.providers ?? []).some((p) => p?.supports_tools === true));
+
+			const supportsReasoning = features.includes("reasoning");
 			// Smallest window any provider offers, not the largest: with
 			// `provider: "auto"` the router picks, so a request sized for the
 			// roomiest provider would overflow whichever one actually serves it.
@@ -338,6 +355,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				multimodal: supportsImageInput,
 				multimodalAcceptedMimetypes: supportsImageInput ? ["image/*"] : undefined,
 				supportsTools,
+				supportsReasoning,
 				endpoints: [
 					{
 						type: "openai" as const,
