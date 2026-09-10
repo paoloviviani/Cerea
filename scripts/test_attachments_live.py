@@ -193,9 +193,15 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=180) as c:
 
     # -- a document that has text ----------------------------------------
     print("\na .docx with text in it")
-    before = ocr_rows()
     conv = c.post(f"{CHAT}/conversation", json={"model": model}).json()["conversationId"]
 
+    # A throwaway first turn. The first turn of a conversation also generates
+    # its title, which is a second completion and overwrites the upstream's
+    # recorded request — so asserting on a prompt from turn one is a coin flip.
+    # A title is generated once, so everything after it has the upstream alone.
+    turn(c, conv, "Hello.", [])
+
+    before = ocr_rows()
     payload = base64.b64encode(a_docx([MARKER, "It is not to be shared."])).decode()
     r = turn(
         c,
