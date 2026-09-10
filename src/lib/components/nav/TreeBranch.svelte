@@ -32,6 +32,8 @@
 		/** Given, the row itself acts on click instead of toggling. */
 		onactivate?: () => void;
 		icon?: Snippet;
+		/** Row controls of the caller's own — a `⋯` menu, typically. */
+		actions?: Snippet;
 		children?: Snippet;
 	}
 
@@ -44,6 +46,7 @@
 		addTitle,
 		onactivate,
 		icon,
+		actions,
 		children,
 	}: Props = $props();
 
@@ -90,6 +93,8 @@
 				{badge}
 			</span>
 		{/if}
+
+		{#if actions}{@render actions()}{/if}
 
 		{#if onadd}
 			<button
