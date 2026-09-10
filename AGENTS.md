@@ -18,6 +18,22 @@ npm run format       # Auto-format with Prettier
 npm run test         # Run all tests (Vitest)
 ```
 
+### Against a running stack
+
+```bash
+set -a; . deploy/.env; set +a          # the gateway's deployment variables
+./scripts/test_projects_live.py        # projects: context, retrieval, memory
+```
+
+Signs in through the identity provider and drives real turns. Worth running for
+anything touching the generation path, project context or the gateway
+forwarder: it asserts on **the prompt that actually left the gateway**, read
+from the smoke upstream's recorded request, which no unit test can see.
+
+Note for containerised runs: `mongodb-memory-server` needs `libcurl4`, which
+`node:*-slim` does not carry. Without it 49 test _files_ fail to start their
+in-memory Mongo and report as failures that have nothing to do with the code.
+
 ### Running a Single Test
 
 ```bash
@@ -90,10 +106,59 @@ Smart routing via Arch-Router model. Configured with:
 ### Database Collections
 
 - `conversations` - Chat sessions with nested messages
+- `projects` - Groups of conversations sharing standing context (ADR 0062)
 - `users` - User accounts (OIDC-backed)
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
+
+## Projects, knowledge bases and agents
+
+Knowledge bases and agents are the **gateway's** (ADR 0062): it owns files,
+extraction, embedding, the vector store and one ACL, and this application
+reaches them through `/api/v2/gateway`, an allowlisted forwarder that attaches
+the session's OIDC token and never lets it reach the page. Projects are
+**ours**, because a project groups _conversations_, and those live in Mongo.
+
+`src/lib/server/projects.ts` is the whole of it. Read the header of
+`src/lib/types/Project.ts` first; the parts that will bite:
+
+- **Sharing is decided against the viewer's own identity** — their email and
+  the groups `GET /v1/billing/groups` reports for _their_ token. Nothing asks
+  the gateway who is in a group, because a bearer token cannot ask and a route
+  that could would let a chat client enumerate the directory. The cost is that
+  a share names a principal that may not exist: a typo and a colleague who has
+  not signed in yet are indistinguishable.
+- **A shared project is a shared workspace.** Everyone who can see it sees
+  every conversation in it. The project page says so.
+- **Sharing a project shares no documents.** Retrieval runs with the reader's
+  own token, so they see passages only from bases they could already read.
+- **Retrieval never fails a turn.** Every error is logged
+  (`project_retrieval_degraded`, `project_memory_index_failed`) and swallowed:
+  a base being unavailable is a reason for a worse answer, not for none.
+- **Indexing past chats is idempotent by handle.** The transcript goes to the
+  gateway under `source_ref = chat:conversation:<id>`, which _replaces_ rather
+  than appends — otherwise a ten-turn thread leaves ten overlapping copies and
+  every search returns all of them.
+- The memory base is an **ordinary knowledge base**, visible on the Knowledge
+  screen and deletable there, named after its project. That is deliberate: the
+  transcripts are somewhere a person can look.
+
+Two things found only by running `scripts/test_projects_live.py`, both worth
+knowing before touching the model picker or writing another live check:
+
+- **The model catalogue is global.** `src/lib/server/models.ts` builds it once
+  at startup with the deployment's own key, so every account sees the same
+  list — including agents whose underlying model that account may not use.
+  Calling one answers 404 from the gateway, which _is_ the designed behaviour
+  for an agent shared across a model restriction; what it means is that this
+  list cannot hide it the way the gateway's per-caller `/v1/models` does.
+  Per-user filtering would mean the catalogue stops being module state.
+- **A turn is a multipart post**, with the JSON in a `data` field, needing an
+  `Origin` header past the CSRF guard, and a first user message still needs
+  its parent id — the create puts a system message at the conversation's root
+  and `addChildren` refuses to guess. A JSON body there is a 500 from undici
+  before any of this app's code runs.
 
 ## Environment Setup
 

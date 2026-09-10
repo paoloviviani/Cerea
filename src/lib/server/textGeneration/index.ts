@@ -15,6 +15,8 @@ import { settleMlBudget } from "$lib/server/mlBudget/settle";
 import { reservedMicroUsd } from "$lib/utils/mlBudget";
 import { logger } from "$lib/server/logger";
 import { resolvePreprompt } from "./preprompt";
+import { collections } from "$lib/server/database";
+import { projectContext } from "$lib/server/projects";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -100,7 +102,7 @@ async function* textGenerationWithoutTitle(
 		}
 	}
 
-	const preprompt = resolvePreprompt({
+	let preprompt = resolvePreprompt({
 		conversationPreprompt: conv.preprompt,
 		mlAssistant,
 		artifactsOverride: ctx.artifactsOverride,
@@ -109,6 +111,32 @@ async function* textGenerationWithoutTitle(
 		timezone: (ctx.locals as unknown as { timezone?: string } | undefined)?.timezone,
 		budget: conv.mlBudget,
 	});
+
+	// A project's standing context, and whatever its knowledge bases offer for
+	// this question. Appended to the system prompt rather than mixed into
+	// `resolvePreprompt`, and the ordering is the point: the conversation's own
+	// prompt — the user's per-model custom prompt, or the ML Assistant preset —
+	// keeps precedence, and the project adds to it.
+	//
+	// Retrieval runs with the *reader's* token, so a shared project retrieves
+	// only from bases they can already see. It cannot fail the turn: every
+	// error inside is logged and swallowed, because a knowledge base being
+	// unavailable is a reason for a worse answer and not for no answer
+	// (ADR 0062).
+	if (conv.projectId) {
+		const project = await collections.projects.findOne({ _id: conv.projectId });
+		if (project) {
+			const lastUser = [...messages].reverse().find((message) => message.from === "user");
+			const context = await projectContext({
+				project,
+				question: lastUser?.content ?? "",
+				token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
+			});
+			if (context) {
+				preprompt = preprompt ? `${preprompt}\n\n${context}` : context;
+			}
+		}
+	}
 
 	const processedMessages = await preprocessMessages(messages, convId);
 

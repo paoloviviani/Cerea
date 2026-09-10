@@ -131,7 +131,9 @@
 		</label>
 
 		<label class="flex flex-col gap-1">
-			<span class="text-sm font-medium">What is in it <span class="text-gray-500">(optional)</span></span>
+			<span class="text-sm font-medium"
+				>What is in it <span class="text-gray-500">(optional)</span></span
+			>
 			<input
 				class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
 				maxlength="500"
@@ -141,7 +143,9 @@
 		</label>
 
 		<div class="flex flex-col gap-1">
-			<span class="text-sm font-medium">Documents <span class="text-gray-500">(optional)</span></span>
+			<span class="text-sm font-medium"
+				>Documents <span class="text-gray-500">(optional)</span></span
+			>
 			<FileDrop bind:files maxBytes={maxUploadBytes} disabled={busy} />
 			<span class="text-xs text-gray-500 dark:text-gray-400">
 				Each file keeps its own filename as its title. A scan needs an OCR model, which an
@@ -150,7 +154,9 @@
 		</div>
 
 		<label class="flex flex-col gap-1">
-			<span class="text-sm font-medium">Or paste a note <span class="text-gray-500">(optional)</span></span>
+			<span class="text-sm font-medium"
+				>Or paste a note <span class="text-gray-500">(optional)</span></span
+			>
 			<textarea
 				class="min-h-20 rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
 				bind:value={note}

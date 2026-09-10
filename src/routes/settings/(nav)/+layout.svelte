@@ -295,9 +295,7 @@
 			     a heading is what says so. The wrapper carries the sticky and
 			     mobile-ordering behaviour the button had, so the heading travels
 			     with it instead of being stranded at the bottom on a phone. -->
-			<div
-				class="sticky bottom-0 mt-2 flex flex-col bg-white max-md:order-first dark:bg-gray-800"
-			>
+			<div class="sticky bottom-0 mt-2 flex flex-col bg-white max-md:order-first dark:bg-gray-800">
 				<h3
 					class="border-t border-gray-200 px-3 pt-3 pb-1 text-xs font-semibold text-gray-600 md:text-left dark:border-gray-700 dark:text-gray-400"
 				>

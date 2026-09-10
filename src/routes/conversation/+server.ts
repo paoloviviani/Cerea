@@ -6,6 +6,7 @@ import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
 import { models, validateModel } from "$lib/server/models";
+import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
@@ -26,6 +27,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			model: validateModel(models),
 			preprompt: z.string().optional(),
 			mlAssistant: z.boolean().optional(),
+			/** Start this conversation inside a project. */
+			projectId: z.string().optional(),
 			mlBudgetUsd: z.number().finite().min(0).max(10_000).optional(),
 		})
 		.safeParse(JSON.parse(body));
@@ -125,6 +128,28 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		messages[0].content = values.preprompt;
 	}
 
+	// The project, if one was named and this person may use it. Checked here
+	// rather than trusted from the body: the id arrives from the browser, and a
+	// conversation stamped with a project somebody cannot see would retrieve
+	// from that project's knowledge on every turn.
+	//
+	// A named project that is not visible is a 403 rather than a silent
+	// downgrade to a project-less chat. Losing the standing context without
+	// being told is how somebody spends an afternoon wondering why the
+	// assistant has forgotten their instructions.
+	let projectId: ObjectId | undefined;
+	if (values.projectId) {
+		if (!locals.user) {
+			error(401, "Projects need a signed-in account.");
+		}
+		const principals = await viewerPrincipals(locals.user, locals.token);
+		const access = await projectAccess(values.projectId, locals.user._id, principals);
+		if (!access) {
+			error(403, "That project is not available to you.");
+		}
+		projectId = access.project._id;
+	}
+
 	// Always store sanitized titles
 	const storedTitle = (title || "New Chat").replace(/<\/?think>/gi, "").trim();
 	const now = new Date();
@@ -141,6 +166,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		userAgent: request.headers.get("User-Agent") ?? undefined,
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		...(values.fromShare ? { meta: { fromShareId: values.fromShare } } : {}),
+		...(projectId ? { projectId } : {}),
 		// Only builds that ship ML Assistant mode can mark a conversation with it.
 		...(isMlAssistant ? { mlAssistant: true } : {}),
 		...(isMlAssistant && mlBudget ? { mlBudget } : {}),

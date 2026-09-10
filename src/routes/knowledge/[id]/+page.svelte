@@ -195,9 +195,7 @@
 		busy = true;
 		failure = null;
 		try {
-			await gwDelete(
-				`vector_stores/${id}/shares/${entry.principal_kind}/${entry.principal_id}`
-			);
+			await gwDelete(`vector_stores/${id}/shares/${entry.principal_kind}/${entry.principal_id}`);
 			await load();
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : "Could not remove the share.";
@@ -268,15 +266,13 @@
 		</header>
 
 		{#if canEdit}
-			<section class="flex flex-col gap-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+			<section
+				class="flex flex-col gap-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
+			>
 				<h2 class="text-sm font-medium">Add to this base</h2>
 
 				<div class="flex flex-col gap-2">
-					<FileDrop
-						bind:files={pending}
-						maxBytes={status?.max_upload_bytes}
-						disabled={busy}
-					/>
+					<FileDrop bind:files={pending} maxBytes={status?.max_upload_bytes} disabled={busy} />
 					{#if uploadProgress}
 						<p class="text-xs text-gray-600 dark:text-gray-300">{uploadProgress}</p>
 					{/if}
@@ -343,9 +339,7 @@
 									<!-- The gateway's own words. "This document has no text
 									     layer — use an OCR model" tells somebody what to do
 									     next; "failed" does not. -->
-									<span class="text-xs text-red-700 dark:text-red-300"
-										>{document.last_error}</span
-									>
+									<span class="text-xs text-red-700 dark:text-red-300">{document.last_error}</span>
 								{/if}
 							</div>
 							{#if canEdit}
@@ -365,7 +359,9 @@
 		</section>
 
 		{#if store.owned}
-			<section class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+			<section
+				class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
+			>
 				<h2 class="text-sm font-medium">Who can see this</h2>
 
 				<form class="flex flex-wrap items-end gap-2" onsubmit={share}>

@@ -199,8 +199,8 @@
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Knowledge</h1>
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			How documents become searchable: what reads them, what embeds them, and where the
-			vectors live. A change here affects the next base built, never one that already exists.
+			How documents become searchable: what reads them, what embeds them, and where the vectors
+			live. A change here affects the next base built, never one that already exists.
 		</p>
 	</header>
 
@@ -247,11 +247,11 @@
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.available_embedding_models.length === 0}
-						This deployment has no embedding model at all. One has to be created in the
-						gateway's own console first, then chosen here.
+						This deployment has no embedding model at all. One has to be created in the gateway's
+						own console first, then chosen here.
 					{:else}
-						Existing bases keep the model they were indexed with. Vectors from two models are
-						not comparable, so a base only moves when it is reindexed.
+						Existing bases keep the model they were indexed with. Vectors from two models are not
+						comparable, so a base only moves when it is reindexed.
 					{/if}
 				</span>
 			</label>
@@ -268,8 +268,8 @@
 					{/each}
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					The built-in extractor reads Word, Excel, PowerPoint and PDFs with a text layer, on
-					this hardware. A scan needs an OCR model, which sends the document to that provider.
+					The built-in extractor reads Word, Excel, PowerPoint and PDFs with a text layer, on this
+					hardware. A scan needs an OCR model, which sends the document to that provider.
 				</span>
 			</label>
 
@@ -296,8 +296,8 @@
 				</label>
 			</div>
 			<p class="-mt-3 text-xs text-gray-500 dark:text-gray-400">
-				Each base snapshots these when it is created, so a change applies to new bases only.
-				Overlap is capped at a third of the passage size.
+				Each base snapshots these when it is created, so a change applies to new bases only. Overlap
+				is capped at a third of the passage size.
 			</p>
 
 			{#if needsReason}
@@ -310,8 +310,8 @@
 						placeholder="This extractor sends documents to a provider. Say why."
 					/>
 					<span class="text-xs text-gray-500 dark:text-gray-400">
-						Kept with the change, because this is the one setting that alters where user
-						documents go.
+						Kept with the change, because this is the one setting that alters where user documents
+						go.
 					</span>
 				</label>
 			{/if}
@@ -339,8 +339,8 @@
 				<h2 class="font-medium">Knowledge bases</h2>
 				<p class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.stale_base_count > 0}
-						{status.stale_base_count} of {status.bases.length} were indexed with a different
-						embedding model. They still answer searches, from their own vectors.
+						{status.stale_base_count} of {status.bases.length} were indexed with a different embedding
+						model. They still answer searches, from their own vectors.
 					{:else}
 						Every base is on the embedding model configured above.
 					{/if}
@@ -354,7 +354,7 @@
 			{:else}
 				<div class="overflow-x-auto">
 					<table class="w-full text-sm">
-						<thead class="text-left text-xs uppercase text-gray-500 dark:text-gray-400">
+						<thead class="text-left text-xs text-gray-500 uppercase dark:text-gray-400">
 							<tr>
 								<th class="py-2 pr-3">Base</th>
 								<th class="py-2 pr-3">Owner</th>
@@ -379,7 +379,7 @@
 											<div class="text-xs text-gray-500">{row.group_name}</div>
 										{/if}
 									</td>
-									<td class="whitespace-nowrap py-2 pr-3">
+									<td class="py-2 pr-3 whitespace-nowrap">
 										{row.embedding_model ?? "not indexed"}
 										{#if row.stale}
 											<span
@@ -388,7 +388,7 @@
 											>
 										{/if}
 									</td>
-									<td class="whitespace-nowrap py-2 pr-3 text-right">
+									<td class="py-2 pr-3 text-right whitespace-nowrap">
 										{row.document_count}
 										{#if row.failed_count > 0}
 											<span
@@ -423,8 +423,8 @@
 				<div class="flex flex-col gap-1">
 					<h2 class="font-medium">Changes</h2>
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Append-only: every decision is kept, because "which model was this base built
-						with, and who moved the default" gets asked long after the change.
+						Append-only: every decision is kept, because "which model was this base built with, and
+						who moved the default" gets asked long after the change.
 					</p>
 				</div>
 				<ul class="flex flex-col gap-2 text-sm">

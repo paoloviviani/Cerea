@@ -17,12 +17,7 @@
 	import { base } from "$app/paths";
 	import CarbonAdd from "~icons/carbon/add";
 	import KnowledgeBaseModal from "$lib/components/KnowledgeBaseModal.svelte";
-	import {
-		GatewayError,
-		gwGet,
-		type KnowledgeStatus,
-		type VectorStore,
-	} from "$lib/gateway";
+	import { GatewayError, gwGet, type KnowledgeStatus, type VectorStore } from "$lib/gateway";
 
 	let stores = $state<VectorStore[]>([]);
 	let status = $state<KnowledgeStatus | null>(null);
@@ -66,8 +61,8 @@
 		<div class="flex flex-col gap-1">
 			<h1 class="text-xl font-semibold">Knowledge bases</h1>
 			<p class="text-sm text-gray-500 dark:text-gray-400">
-				Documents an assistant can search. Yours to own and to share; how they are read and
-				embedded is a deployment setting.
+				Documents an assistant can search. Yours to own and to share; how they are read and embedded
+				is a deployment setting.
 			</p>
 		</div>
 		<button
@@ -91,9 +86,8 @@
 		<p
 			class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 		>
-			{status.detail ??
-				"No embedding model is configured, so documents cannot be indexed yet."} You can still
-			create a base and add files; they will index once an administrator chooses one.
+			{status.detail ?? "No embedding model is configured, so documents cannot be indexed yet."} You can
+			still create a base and add files; they will index once an administrator chooses one.
 		</p>
 	{/if}
 

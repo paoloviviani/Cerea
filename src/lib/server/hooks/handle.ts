@@ -195,9 +195,7 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// login wall would refuse the cron job that is entitled to them.
 				// The administration UI under /admin is deliberately *not* exempt —
 				// it is a person, and a person has to be signed in.
-				!MACHINE_ADMIN_PATHS.some((path) =>
-					event.url.pathname.startsWith(`${base}${path}`)
-				) &&
+				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
 				!["GET", "OPTIONS", "HEAD"].includes(event.request.method)
 			) {
