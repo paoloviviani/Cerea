@@ -46,12 +46,19 @@
 	}
 
 	interface Props {
-		/** Open straight onto one project, for `/projects/<id>`. */
+		/** Open straight onto one project, for `/projects/<id>` and the tree. */
 		initialId?: string;
+		/**
+		 * `"create"` opens the form directly, for the `+` on the tree's Projects
+		 * row. With either this or `initialId` the dialog is about **one**
+		 * project and the route back to the list is hidden: the sidebar tree
+		 * already lists them, with per-row management.
+		 */
+		initialView?: "create";
 		onclose: () => void;
 	}
 
-	let { initialId, onclose }: Props = $props();
+	let { initialId, initialView, onclose }: Props = $props();
 
 	const settings = useSettingsStore();
 
@@ -65,10 +72,14 @@
 	);
 
 	type View = "list" | "form" | "detail";
-	// Read once: `initialId` is the address somebody arrived on. A `$derived`
-	// here would drag them back to the detail view every time they navigated
-	// to the list inside the dialog.
-	let view = $state<View>(untrack(() => (initialId ? "detail" : "list")));
+	// Read once: these are how the dialog was opened, not props that change
+	// under it. A `$derived` here would drag somebody back to the detail view
+	// every time they navigated inside the dialog.
+	let view = $state<View>(
+		untrack(() => (initialId ? "detail" : initialView === "create" ? "form" : "list"))
+	);
+	/** Opened about one project, so the list is not part of this dialog. */
+	const single = untrack(() => Boolean(initialId) || initialView === "create");
 
 	let projects = $state<ProjectView[]>([]);
 	let stores = $state<VectorStore[]>([]);
@@ -217,6 +228,12 @@
 	}
 
 	function backToList() {
+		// Nothing to go back to when the dialog is about one project: closing is
+		// what "back" means there, and the tree is the list.
+		if (single) {
+			onclose();
+			return;
+		}
 		view = "list";
 		current = null;
 		editing = null;
@@ -592,10 +609,12 @@
 						</div>
 					</div>
 					<div class="flex gap-2">
-						<button onclick={backToList} class={s.SECONDARY}>
-							<IconArrowLeft class="size-4" />
-							All projects
-						</button>
+						{#if !single}
+							<button onclick={backToList} class={s.SECONDARY}>
+								<IconArrowLeft class="size-4" />
+								All projects
+							</button>
+						{/if}
 						<button onclick={() => openForm(current)} class={s.SECONDARY}>
 							<IconSettings class="size-4" />
 							{current.owned ? "Edit" : "View settings"}

@@ -8,26 +8,25 @@
 </script>
 
 <!--
-	The left panel, as one tree.
+	The left panel: two trees, then the rows, then the person.
 
-	It used to be three stacked lists — a flat run of conversations, then a run
-	of links, then the person — which meant the panel had no structure to read
-	and everything competed for the same attention. Now every top-level thing
-	is a branch: Models, Projects, Knowledge, Agents, MCP Servers, Chats, with
-	the person at the foot in a menu that opens upward.
+	The split is the point. **Projects and Chats are trees**, because they have
+	contents worth expanding. **Models, Knowledge, Agents and MCP Servers are
+	rows at the foot**, because each opens a dialog and has no hierarchy —
+	making all six branches was tried and was worse, a disclosure triangle that
+	revealed a list you then clicked to open the dialog anyway.
 
 	Three decisions worth knowing.
 
-	**A branch's contents are fetched when it is opened**, never on load. The
-	panel is drawn on every page and most branches are closed most of the time;
-	loading all of them would make the sidebar the most expensive thing on the
-	screen. The badge on a closed branch either comes from data the layout
-	already has, or appears once the branch has been opened.
+	**A tree's contents are fetched when it is opened**, never on load. The
+	panel is drawn on every page. A project's chats load when *its* folder
+	opens, not with the project list — a dozen projects would otherwise be a
+	dozen requests to draw a sidebar nobody expanded.
 
-	**A `+` beside a branch opens that thing's create dialog**, and the branch
-	itself expands. They are separate buttons: "add one of these" and "show me
-	them" are different actions, and folding them together makes one of them
-	unreachable by keyboard.
+	**Managing a project happens on its own row**, through the `⋯`: Edit opens
+	that project, Delete removes it. The `+` on the Projects header is the only
+	control there that is not about an existing project. Nothing here opens a
+	list of every project, because the tree already is one.
 
 	**A project's chats live under the project, so Chats leaves them out.** That
 	is what `projectId` on the sidebar conversation is for — without it every
@@ -55,21 +54,21 @@
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { enabledServersCount } from "$lib/stores/mcpServers";
-	import { useSettingsStore } from "$lib/stores/settings";
-	import { GatewayError, gwGet, type Agent, type VectorStore } from "$lib/gateway";
 	import MCPServerManager from "./mcp/MCPServerManager.svelte";
 	import ModelsManager from "./models/ModelsManager.svelte";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
 	import AgentsManager from "./agents/AgentsManager.svelte";
-	import LucideBoxes from "~icons/lucide/boxes";
-	import LucideLibrary from "~icons/lucide/library";
-	import LucideBot from "~icons/lucide/bot";
-	import IconMCP from "$lib/components/icons/IconMCP.svelte";
+	import CarbonChat from "~icons/carbon/chat";
+
+	/** The bottom block's rows, which are all the same shape. */
+	const ROW =
+		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700";
+	const ROW_BADGE =
+		"ml-auto rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
-	const settings = useSettingsStore();
 
 	interface Props {
 		conversations: ConvSidebar[];
@@ -120,8 +119,7 @@
 		older: loose.filter(({ updatedAt }) => updatedAt.getTime() < dateRanges[2]),
 	});
 
-	const listedModels = $derived((page.data.models as Model[]).filter((model) => !model.unlisted));
-	const nModels = $derived(listedModels.length);
+	const nModels = $derived((page.data.models as Model[]).filter((model) => !model.unlisted).length);
 
 	async function handleVisible() {
 		p++;
@@ -157,70 +155,12 @@
 	let showProjectsModal = $state(false);
 	let showKnowledgeModal = $state(false);
 	let showAgentsModal = $state(false);
-	/** Which item an overlay should open on, when a leaf was clicked. */
+	/** Which project the overlay opens on, and whether it opens to create one. */
 	let projectTarget = $state<string | undefined>(undefined);
-	let knowledgeTarget = $state<string | undefined>(undefined);
-	let agentTarget = $state<string | undefined>(undefined);
+	let projectCreate = $state(false);
 
 	let projectsBranch = $state<ReturnType<typeof ProjectsBranch> | undefined>(undefined);
-
-	// ---- branch contents, each loaded on first open ------------------------
-
-	let modelsOpen = $state(false);
 	let chatsOpen = $state(true);
-
-	let knowledgeOpen = $state(false);
-	let bases = $state<VectorStore[] | null>(null);
-	let basesFailed = $state(false);
-
-	let agentsOpen = $state(false);
-	let agents = $state<Agent[] | null>(null);
-	let agentsFailed = $state(false);
-
-	async function loadBases() {
-		try {
-			bases = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data;
-			basesFailed = false;
-		} catch (err) {
-			if (!(err instanceof GatewayError)) throw err;
-			// A sidebar branch is not the place to report this loudly: the label
-			// says so and the rest of the panel keeps working.
-			bases = [];
-			basesFailed = true;
-		}
-	}
-
-	async function loadAgents() {
-		try {
-			agents = (await gwGet<{ data: Agent[] }>("agents")).data;
-			agentsFailed = false;
-		} catch (err) {
-			if (!(err instanceof GatewayError)) throw err;
-			agents = [];
-			agentsFailed = true;
-		}
-	}
-
-	async function toggleKnowledge() {
-		knowledgeOpen = !knowledgeOpen;
-		if (knowledgeOpen && bases === null) await loadBases();
-	}
-
-	async function toggleAgents() {
-		agentsOpen = !agentsOpen;
-		if (agentsOpen && agents === null) await loadAgents();
-	}
-
-	/**
-	 * After an overlay closes, the branch it belongs to may be stale — the
-	 * dialog is where things are created, renamed and deleted. Only a branch
-	 * that has already been opened is reloaded, so a closed one stays free.
-	 */
-	function refreshAfter(kind: "projects" | "knowledge" | "agents") {
-		if (kind === "projects") void projectsBranch?.reload();
-		if (kind === "knowledge" && bases !== null) void loadBases();
-		if (kind === "agents" && agents !== null) void loadAgents();
-	}
 </script>
 
 <div
@@ -246,135 +186,21 @@
 <div
 	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
 >
-	<TreeBranch label="Models" badge={nModels} bind:open={modelsOpen}>
-		{#snippet icon()}
-			<LucideBoxes class="size-3.5 shrink-0" />
-		{/snippet}
-		{#if listedModels.length === 0}
-			<TreeLeaf label="None available to you" depth={1} />
-		{:else}
-			{#each listedModels.slice(0, 12) as model (model.id)}
-				<TreeLeaf
-					label={model.displayName || model.id}
-					depth={1}
-					active={model.id === $settings.activeModel}
-					title={model.id}
-					onclick={() => settings.instantSet({ activeModel: model.id })}
-				/>
-			{/each}
-			<TreeLeaf
-				label={listedModels.length > 12 ? `All ${listedModels.length} models…` : "Manage…"}
-				depth={1}
-				onclick={() => (showModelsModal = true)}
-			/>
-		{/if}
-	</TreeBranch>
-
 	{#if signedIn}
 		<ProjectsBranch
 			bind:this={projectsBranch}
 			onopen={(id) => {
 				projectTarget = id;
+				projectCreate = id === undefined;
 				showProjectsModal = true;
 			}}
 		/>
-
-		<TreeBranch
-			label="Knowledge"
-			badge={bases?.length}
-			open={knowledgeOpen}
-			onactivate={toggleKnowledge}
-			onadd={() => {
-				knowledgeTarget = undefined;
-				showKnowledgeModal = true;
-			}}
-			addTitle="New knowledge base"
-		>
-			{#snippet icon()}
-				<LucideLibrary class="size-3.5 shrink-0" />
-			{/snippet}
-			{#if bases === null}
-				<TreeLeaf label="Loading…" depth={1} />
-			{:else if basesFailed}
-				<TreeLeaf label="Unavailable" depth={1} title="Could not reach the gateway" />
-			{:else if bases.length === 0}
-				<TreeLeaf
-					label="No knowledge bases yet"
-					depth={1}
-					onclick={() => {
-						knowledgeTarget = undefined;
-						showKnowledgeModal = true;
-					}}
-				/>
-			{:else}
-				{#each bases as store (store.id)}
-					<TreeLeaf
-						label={store.name}
-						depth={1}
-						title="{store.file_counts.completed} indexed"
-						onclick={() => {
-							knowledgeTarget = store.id;
-							showKnowledgeModal = true;
-						}}
-					/>
-				{/each}
-			{/if}
-		</TreeBranch>
-
-		<TreeBranch
-			label="Agents"
-			badge={agents?.length}
-			open={agentsOpen}
-			onactivate={toggleAgents}
-			onadd={() => {
-				agentTarget = undefined;
-				showAgentsModal = true;
-			}}
-			addTitle="New agent"
-		>
-			{#snippet icon()}
-				<LucideBot class="size-3.5 shrink-0" />
-			{/snippet}
-			{#if agents === null}
-				<TreeLeaf label="Loading…" depth={1} />
-			{:else if agentsFailed}
-				<TreeLeaf label="Unavailable" depth={1} title="Could not reach the gateway" />
-			{:else if agents.length === 0}
-				<TreeLeaf
-					label="No agents yet"
-					depth={1}
-					onclick={() => {
-						agentTarget = undefined;
-						showAgentsModal = true;
-					}}
-				/>
-			{:else}
-				{#each agents as agent (agent.id)}
-					<TreeLeaf
-						label={agent.name}
-						depth={1}
-						title="Runs on {agent.model}"
-						onclick={() => {
-							agentTarget = agent.id;
-							showAgentsModal = true;
-						}}
-					/>
-				{/each}
-			{/if}
-		</TreeBranch>
-
-		<TreeBranch
-			label="MCP Servers"
-			badge={$enabledServersCount > 0 ? $enabledServersCount : undefined}
-			onactivate={() => (showMcpModal = true)}
-		>
-			{#snippet icon()}
-				<IconMCP classNames="size-3.5 shrink-0" />
-			{/snippet}
-		</TreeBranch>
 	{/if}
 
 	<TreeBranch label="Chats" badge={loose.length || undefined} bind:open={chatsOpen}>
+		{#snippet icon()}
+			<CarbonChat class="size-3.5 shrink-0" />
+		{/snippet}
 		{#each Object.entries(groupedConversations) as [group, convs]}
 			{#if convs.length}
 				<h4 class="mt-2 mb-1 pl-6 text-xs text-gray-400 first:mt-0.5 dark:text-gray-500">
@@ -399,8 +225,33 @@
 <div
 	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-gray-50 dark:border-transparent md:dark:from-gray-800/30"
 >
+	<!-- Rows, not branches: each opens a dialog and contains nothing to expand.
+	     `/models/[id]` is still a real address, so the routes remain; this is
+	     only the way in. -->
+	<button onclick={() => (showModelsModal = true)} class={ROW}>
+		Models
+		<span class={ROW_BADGE}>{nModels}</span>
+	</button>
+
 	{#if signedIn}
-		<UserMenu {user} />
+		<button onclick={() => (showKnowledgeModal = true)} class={ROW}> Knowledge </button>
+		<button onclick={() => (showAgentsModal = true)} class={ROW}> Agents </button>
+		<button onclick={() => (showMcpModal = true)} class={ROW}>
+			MCP Servers
+			{#if $enabledServersCount > 0}
+				<span
+					class="ml-auto rounded-md bg-blue-600/10 px-1.5 py-0.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
+				>
+					{$enabledServersCount}
+				</span>
+			{/if}
+		</button>
+	{/if}
+
+	{#if signedIn}
+		<div class="mt-1 border-t border-gray-200/60 pt-1 dark:border-gray-700/60">
+			<UserMenu {user} />
+		</div>
 	{:else}
 		<a
 			href="{base}/settings/application"
@@ -422,31 +273,22 @@
 {#if showProjectsModal}
 	<ProjectsManager
 		initialId={projectTarget}
+		initialView={projectCreate ? "create" : undefined}
 		onclose={() => {
 			showProjectsModal = false;
-			refreshAfter("projects");
+			// The dialog is where a project is created, renamed and shared, so
+			// the tree may be stale by the time it closes.
+			void projectsBranch?.reload();
 		}}
 	/>
 {/if}
 
 {#if showKnowledgeModal}
-	<KnowledgeManager
-		initialId={knowledgeTarget}
-		onclose={() => {
-			showKnowledgeModal = false;
-			refreshAfter("knowledge");
-		}}
-	/>
+	<KnowledgeManager onclose={() => (showKnowledgeModal = false)} />
 {/if}
 
 {#if showAgentsModal}
-	<AgentsManager
-		initialId={agentTarget}
-		onclose={() => {
-			showAgentsModal = false;
-			refreshAfter("agents");
-		}}
-	/>
+	<AgentsManager onclose={() => (showAgentsModal = false)} />
 {/if}
 
 {#if showMcpModal}
