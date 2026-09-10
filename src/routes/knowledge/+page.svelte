@@ -7,17 +7,19 @@
 	decides how documents are read and embedded; it does not decide whose they
 	are.
 
-	The empty state carries the one thing a new base cannot do anything without
-	— an embedding model — because "create" succeeding and "upload" then failing
-	is the sequence that wastes somebody's afternoon.
+	The create form used to be inline, and creating then landed you on an empty
+	detail page to add documents one at a time. It is now a single dialog that
+	takes the name and the files together, because nobody wants an empty
+	knowledge base — what they have is a name and a pile of files.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import CarbonAdd from "~icons/carbon/add";
+	import KnowledgeBaseModal from "$lib/components/KnowledgeBaseModal.svelte";
 	import {
 		GatewayError,
 		gwGet,
-		gwPost,
 		type KnowledgeStatus,
 		type VectorStore,
 	} from "$lib/gateway";
@@ -26,15 +28,13 @@
 	let status = $state<KnowledgeStatus | null>(null);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
-	let creating = $state(false);
-	let name = $state("");
-	let description = $state("");
+	let showCreate = $state(false);
 
 	async function load() {
 		failure = null;
 		try {
 			// Both, in parallel: the list is what to show and the status is
-			// whether the "new base" form can honestly be offered.
+			// whether indexing can honestly be promised.
 			const [listed, state] = await Promise.all([
 				gwGet<{ data: VectorStore[] }>("vector_stores"),
 				gwGet<KnowledgeStatus>("vector_stores/status"),
@@ -50,38 +50,33 @@
 
 	onMount(load);
 
-	async function create(event: SubmitEvent) {
-		event.preventDefault();
-		if (!name.trim()) return;
-		creating = true;
-		failure = null;
-		try {
-			const made = await gwPost<VectorStore>("vector_stores", {
-				name: name.trim(),
-				description: description.trim(),
-			});
-			// Prepended rather than refetched: the list is ordered newest first,
-			// so this is what a reload would show anyway.
-			stores = [made, ...stores];
-			name = "";
-			description = "";
-		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not create it.";
-		} finally {
-			creating = false;
-		}
+	function created(store: VectorStore) {
+		// Prepended, then reloaded: the row appears at once, and the reload
+		// picks up the document counts the uploads produced — which the create
+		// response predates.
+		stores = [store, ...stores.filter((entry) => entry.id !== store.id)];
+		void load();
 	}
 </script>
 
 <svelte:head><title>Knowledge bases</title></svelte:head>
 
 <div class="mx-auto flex w-full max-w-3xl flex-col gap-6 overflow-y-auto p-6">
-	<header class="flex flex-col gap-1">
-		<h1 class="text-xl font-semibold">Knowledge bases</h1>
-		<p class="text-sm text-gray-500 dark:text-gray-400">
-			Documents an assistant can search. Yours to own and to share; how they are read and
-			embedded is a deployment setting.
-		</p>
+	<header class="flex flex-wrap items-start justify-between gap-3">
+		<div class="flex flex-col gap-1">
+			<h1 class="text-xl font-semibold">Knowledge bases</h1>
+			<p class="text-sm text-gray-500 dark:text-gray-400">
+				Documents an assistant can search. Yours to own and to share; how they are read and
+				embedded is a deployment setting.
+			</p>
+		</div>
+		<button
+			type="button"
+			onclick={() => (showCreate = true)}
+			class="flex items-center gap-1.5 rounded-full bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
+		>
+			<CarbonAdd /> New
+		</button>
 	</header>
 
 	{#if failure}
@@ -98,44 +93,19 @@
 		>
 			{status.detail ??
 				"No embedding model is configured, so documents cannot be indexed yet."} You can still
-			create a base; its documents will index once an administrator chooses one.
+			create a base and add files; they will index once an administrator chooses one.
 		</p>
 	{/if}
-
-	<form
-		class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
-		onsubmit={create}
-	>
-		<h2 class="text-sm font-medium">New knowledge base</h2>
-		<input
-			class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-			placeholder="Name"
-			maxlength="128"
-			bind:value={name}
-			required
-		/>
-		<input
-			class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-			placeholder="What is in it (optional)"
-			maxlength="500"
-			bind:value={description}
-		/>
-		<div class="flex justify-end">
-			<button
-				type="submit"
-				disabled={creating || !name.trim()}
-				class="rounded-full bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
-			>
-				{creating ? "Creating…" : "Create"}
-			</button>
-		</div>
-	</form>
 
 	{#if loading}
 		<p class="text-sm text-gray-500">Loading…</p>
 	{:else if stores.length === 0}
 		<p class="text-sm text-gray-500">
-			No knowledge bases yet. Create one above, then add documents to it.
+			No knowledge bases yet. <button
+				type="button"
+				onclick={() => (showCreate = true)}
+				class="underline">Create one</button
+			> and drop some files into it.
 		</p>
 	{:else}
 		<ul class="flex flex-col gap-2">
@@ -180,3 +150,11 @@
 		</ul>
 	{/if}
 </div>
+
+{#if showCreate}
+	<KnowledgeBaseModal
+		maxUploadBytes={status?.max_upload_bytes}
+		oncreated={created}
+		onclose={() => (showCreate = false)}
+	/>
+{/if}

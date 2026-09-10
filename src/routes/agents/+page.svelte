@@ -6,11 +6,19 @@
 	page — it is how agents work. They are addressed as models, so every part of
 	this app that already picks a model can use one without knowing agents
 	exist.
+
+	Creating and configuring are one dialog. They were two steps, and for an
+	agent that was worse than for a knowledge base: an agent with no
+	instructions and no knowledge bases is not half-built, it is the underlying
+	model with a new name, and everything that made it an agent was on the
+	second screen.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
-	import { GatewayError, gwGet, gwPost, type Agent } from "$lib/gateway";
+	import CarbonAdd from "~icons/carbon/add";
+	import AgentModal from "$lib/components/AgentModal.svelte";
+	import { GatewayError, gwGet, type Agent, type VectorStore } from "$lib/gateway";
 
 	interface ModelCard {
 		id: string;
@@ -20,19 +28,20 @@
 
 	let agents = $state<Agent[]>([]);
 	let models = $state<ModelCard[]>([]);
+	let stores = $state<VectorStore[]>([]);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
-	let creating = $state(false);
-	let name = $state("");
-	let model = $state("");
-	let description = $state("");
+	let showCreate = $state(false);
 
 	async function load() {
 		failure = null;
 		try {
-			const [listed, catalogue] = await Promise.all([
+			const [listed, catalogue, bases] = await Promise.all([
 				gwGet<{ data: Agent[] }>("agents"),
 				gwGet<{ data: ModelCard[] }>("models"),
+				// Fetched here rather than in the dialog so opening it is instant
+				// and needs no spinner of its own.
+				gwGet<{ data: VectorStore[] }>("vector_stores"),
 			]);
 			agents = listed.data;
 			// Chat models only, and agents filtered out: an agent on an agent is
@@ -41,7 +50,7 @@
 			models = catalogue.data.filter(
 				(entry) => !entry.id.startsWith("agent:") && (entry.kind ?? "chat") === "chat"
 			);
-			if (!model && models.length > 0) model = models[0].id;
+			stores = bases.data;
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : "Could not reach the gateway.";
 		} finally {
@@ -51,37 +60,32 @@
 
 	onMount(load);
 
-	async function create(event: SubmitEvent) {
-		event.preventDefault();
-		if (!name.trim() || !model) return;
-		creating = true;
-		failure = null;
-		try {
-			const made = await gwPost<Agent>("agents", {
-				name: name.trim(),
-				model,
-				description: description.trim(),
-			});
-			agents = [...agents, made].sort((a, b) => a.name.localeCompare(b.name));
-			name = "";
-			description = "";
-		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not create it.";
-		} finally {
-			creating = false;
-		}
+	function saved(agent: Agent) {
+		agents = [...agents.filter((entry) => entry.id !== agent.id), agent].sort((a, b) =>
+			a.name.localeCompare(b.name)
+		);
 	}
 </script>
 
 <svelte:head><title>Agents</title></svelte:head>
 
 <div class="mx-auto flex w-full max-w-3xl flex-col gap-6 overflow-y-auto p-6">
-	<header class="flex flex-col gap-1">
-		<h1 class="text-xl font-semibold">Agents</h1>
-		<p class="text-sm text-gray-500 dark:text-gray-400">
-			A model with standing instructions, tools and knowledge bases attached. An agent you
-			create appears in the model picker as <code class="text-xs">agent:name</code>.
-		</p>
+	<header class="flex flex-wrap items-start justify-between gap-3">
+		<div class="flex flex-col gap-1">
+			<h1 class="text-xl font-semibold">Agents</h1>
+			<p class="text-sm text-gray-500 dark:text-gray-400">
+				A model with standing instructions and knowledge bases attached. One you create
+				appears in the model picker as <code class="text-xs">agent:name</code>.
+			</p>
+		</div>
+		<button
+			type="button"
+			onclick={() => (showCreate = true)}
+			disabled={models.length === 0}
+			class="flex items-center gap-1.5 rounded-full bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+		>
+			<CarbonAdd /> New
+		</button>
 	</header>
 
 	{#if failure}
@@ -92,49 +96,14 @@
 		</p>
 	{/if}
 
-	<form
-		class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
-		onsubmit={create}
-	>
-		<h2 class="text-sm font-medium">New agent</h2>
-		<input
-			class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-			placeholder="Name — letters, digits, dots, dashes"
-			pattern="[A-Za-z0-9][A-Za-z0-9._\-]*"
-			maxlength="128"
-			bind:value={name}
-			required
-		/>
-		<label class="flex flex-col gap-1">
-			<span class="text-xs text-gray-500 dark:text-gray-400">
-				Runs on — only models you can already use are listed
-			</span>
-			<select
-				class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-				bind:value={model}
-				disabled={models.length === 0}
-			>
-				{#each models as entry (entry.id)}
-					<option value={entry.id}>{entry.display_name || entry.id}</option>
-				{/each}
-			</select>
-		</label>
-		<input
-			class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-			placeholder="What it is for (optional)"
-			maxlength="500"
-			bind:value={description}
-		/>
-		<div class="flex justify-end">
-			<button
-				type="submit"
-				disabled={creating || !name.trim() || !model}
-				class="rounded-full bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
-			>
-				{creating ? "Creating…" : "Create"}
-			</button>
-		</div>
-	</form>
+	{#if !loading && models.length === 0}
+		<p
+			class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+		>
+			You have no chat models available, so there is nothing to build an agent on. Ask an
+			administrator for access to one.
+		</p>
+	{/if}
 
 	{#if loading}
 		<p class="text-sm text-gray-500">Loading…</p>
@@ -176,3 +145,7 @@
 		</ul>
 	{/if}
 </div>
+
+{#if showCreate}
+	<AgentModal {models} {stores} onsaved={saved} onclose={() => (showCreate = false)} />
+{/if}
