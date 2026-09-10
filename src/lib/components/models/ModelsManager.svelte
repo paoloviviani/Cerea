@@ -56,6 +56,17 @@
 		supportsArtifacts?: boolean;
 	}
 
+	/** One switch: what it is called, what it does, and where its value lives. */
+	interface Capability {
+		key: "tools" | "multimodal" | "reasoning" | "artifacts";
+		label: string;
+		detail: string;
+		/** What the gateway advertises for this model, and the switch's default. */
+		advertised: boolean;
+		current: boolean;
+		set: (value: boolean) => void;
+	}
+
 	interface Props {
 		models: ModelCard[];
 		mlAssistantModels?: string[];
@@ -159,15 +170,66 @@
 			artifactsOverrides: { ...current.artifactsOverrides, [id]: value },
 		}));
 	}
+	function setTools(id: string, value: boolean) {
+		settings.update((current) => ({
+			...current,
+			toolsOverrides: { ...current.toolsOverrides, [id]: value },
+		}));
+	}
+	function setMultimodal(id: string, value: boolean) {
+		settings.update((current) => ({
+			...current,
+			multimodalOverrides: { ...current.multimodalOverrides, [id]: value },
+		}));
+	}
 
-	const reasoningOf = $derived(
-		(model: ModelCard) =>
-			$settings.reasoningOverrides?.[model.id] ?? Boolean(model.supportsReasoning)
-	);
-	const artifactsOf = $derived(
-		(model: ModelCard) =>
-			$settings.artifactsOverrides?.[model.id] ?? Boolean(model.supportsArtifacts)
-	);
+	/**
+	 * The four switches for one model.
+	 *
+	 * None is gated on the model advertising support. The advertised value is
+	 * the default and the switch is the override — the same judgement the
+	 * gateway makes about its own catalogue (ADR 0031): a claim rather than a
+	 * contract, editable by somebody who has found out otherwise. Hiding a
+	 * switch because a model does not claim a capability is how all four came
+	 * to be missing.
+	 */
+	function capabilitiesFor(model: ModelCard): Capability[] {
+		return [
+			{
+				key: "tools",
+				label: "Tool calling",
+				detail: "Let it call tools — MCP servers, and the built-in ones.",
+				advertised: Boolean(model.supportsTools),
+				current: $settings.toolsOverrides?.[model.id] ?? Boolean(model.supportsTools),
+				set: (value) => setTools(model.id, value),
+			},
+			{
+				key: "multimodal",
+				label: "Image input",
+				detail: "Accept image attachments and send them to the model.",
+				advertised: Boolean(model.multimodal),
+				current: $settings.multimodalOverrides?.[model.id] ?? Boolean(model.multimodal),
+				set: (value) => setMultimodal(model.id, value),
+			},
+			{
+				key: "reasoning",
+				label: "Reasoning",
+				detail: "Let it think before answering, and offer the effort selector.",
+				advertised: Boolean(model.supportsReasoning),
+				current: $settings.reasoningOverrides?.[model.id] ?? Boolean(model.supportsReasoning),
+				set: (value) => setReasoning(model.id, value),
+			},
+			{
+				key: "artifacts",
+				label: "Artifacts",
+				detail: "Show substantial output in a side panel rather than inline.",
+				advertised: Boolean(model.supportsArtifacts),
+				current: $settings.artifactsOverrides?.[model.id] ?? Boolean(model.supportsArtifacts),
+				set: (value) => setArtifacts(model.id, value),
+			},
+		];
+	}
+
 	/** Whether the prompt has been changed from the model's own. */
 	const promptIsCustom = $derived(
 		(model: ModelCard) => promptOf(model.id) !== (model.preprompt ?? "")
@@ -407,45 +469,39 @@
 					</div>
 				</div>
 
-				{#if model.supportsReasoning || model.supportsArtifacts}
-					<div>
-						<h3 class={s.SECTION_TITLE}>What it may do</h3>
-						<div class="flex flex-col gap-2">
-							{#if model.supportsReasoning}
-								<label class="flex items-center justify-between gap-3 text-sm">
-									<span>
-										Reasoning
-										<span class="block text-xs text-gray-500 dark:text-gray-400">
-											Let it think before answering. Slower, and better on hard questions.
-										</span>
+				<div>
+					<h3 class={s.SECTION_TITLE}>What it may do</h3>
+					<div class="flex flex-col divide-y divide-gray-200/60 dark:divide-gray-700/60">
+						{#each capabilitiesFor(model) as capability (capability.key)}
+							<label class="flex items-start justify-between gap-3 py-2.5 text-sm">
+								<span class="min-w-0">
+									{capability.label}
+									<span class="block text-xs text-gray-500 dark:text-gray-400">
+										{capability.detail}
 									</span>
-									<Switch
-										name="model-reasoning"
-										bind:checked={
-											() => reasoningOf(model), (value) => setReasoning(model.id, value)
-										}
-									/>
-								</label>
-							{/if}
-							{#if model.supportsArtifacts}
-								<label class="flex items-center justify-between gap-3 text-sm">
-									<span>
-										Artifacts
-										<span class="block text-xs text-gray-500 dark:text-gray-400">
-											Show substantial output in a side panel rather than inline.
+									{#if capability.current !== capability.advertised}
+										<!-- Said out loud, because a switch disagreeing with the
+										     model is the case where somebody needs to know which
+										     of the two they are looking at. -->
+										<span class="mt-0.5 block text-xs text-amber-700 dark:text-amber-500">
+											{capability.advertised
+												? "The gateway says this model supports it."
+												: "The gateway does not report this model as supporting it."}
 										</span>
-									</span>
-									<Switch
-										name="model-artifacts"
-										bind:checked={
-											() => artifactsOf(model), (value) => setArtifacts(model.id, value)
-										}
-									/>
-								</label>
-							{/if}
-						</div>
+									{/if}
+								</span>
+								<Switch
+									name="model-{capability.key}"
+									bind:checked={() => capability.current, (value) => capability.set(value)}
+								/>
+							</label>
+						{/each}
 					</div>
-				{/if}
+					<p class={s.HINT}>
+						What the gateway advertises for this model is the default. These switches override it,
+						for a model whose catalogue entry is wrong or incomplete.
+					</p>
+				</div>
 
 				<div class={s.TIPS}>
 					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
