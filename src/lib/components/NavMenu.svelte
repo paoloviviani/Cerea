@@ -55,11 +55,11 @@
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { enabledServersCount } from "$lib/stores/mcpServers";
 	import MCPServerManager from "./mcp/MCPServerManager.svelte";
-	import ModelsManager from "./models/ModelsManager.svelte";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
 	import AgentsManager from "./agents/AgentsManager.svelte";
 	import CarbonChat from "~icons/carbon/chat";
+	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
@@ -151,7 +151,6 @@
 	// ---- the overlays a branch's `+` and its leaves open -------------------
 
 	let showMcpModal = $state(false);
-	let showModelsModal = $state(false);
 	let showProjectsModal = $state(false);
 	let showKnowledgeModal = $state(false);
 	let showAgentsModal = $state(false);
@@ -228,7 +227,7 @@
 	<!-- Rows, not branches: each opens a dialog and contains nothing to expand.
 	     `/models/[id]` is still a real address, so the routes remain; this is
 	     only the way in. -->
-	<button onclick={() => (showModelsModal = true)} class={ROW}>
+	<button onclick={() => modelsOverlay.show()} class={ROW}>
 		Models
 		<span class={ROW_BADGE}>{nModels}</span>
 	</button>
@@ -261,14 +260,6 @@
 		</a>
 	{/if}
 </div>
-
-{#if showModelsModal}
-	<ModelsManager
-		models={(page.data.models ?? []) as never}
-		mlAssistantModels={(page.data.mlAssistantModels ?? []) as never}
-		onclose={() => (showModelsModal = false)}
-	/>
-{/if}
 
 {#if showProjectsModal}
 	<ProjectsManager

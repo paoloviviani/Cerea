@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import { onMount, tick } from "svelte";
 	import { base } from "$app/paths";
 	import { afterNavigate, goto } from "$app/navigation";
@@ -187,11 +188,8 @@
 				}) as model (model.id)}
 				<button
 					type="button"
-					onclick={() => goto(`${base}/settings/${model.id}`)}
-					class="group flex h-9 w-full flex-none items-center gap-1 rounded-lg px-3 text-[13px] text-gray-600 hover:bg-gray-100 md:rounded-xl md:px-3 dark:text-gray-300 dark:hover:bg-gray-700/50 {model.id ===
-					page.params.model
-						? 'bg-gray-100! text-gray-800! dark:bg-gray-700! dark:text-gray-200!'
-						: ''}"
+					onclick={() => modelsOverlay.show(model.id)}
+					class="group flex h-9 w-full flex-none items-center gap-1 rounded-lg px-3 text-[13px] text-gray-600 hover:bg-gray-100 md:rounded-xl md:px-3 dark:text-gray-300 dark:hover:bg-gray-700/50"
 					data-model-id={model.id}
 					aria-label="Configure {model.displayName}"
 				>

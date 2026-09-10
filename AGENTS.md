@@ -37,9 +37,31 @@ anything touching the generation path, project context or the gateway
 forwarder: it asserts on **the prompt that actually left the gateway**, read
 from the smoke upstream's recorded request, which no unit test can see.
 
-Note for containerised runs: `mongodb-memory-server` needs `libcurl4`, which
-`node:*-slim` does not carry. Without it 49 test _files_ fail to start their
-in-memory Mongo and report as failures that have nothing to do with the code.
+Two things about running the suites in a container:
+
+- **`npm run test` is not the whole suite.** It is
+  `vitest --project=server --project=ssr`, so the **`client`** project — 18
+  files, 234 tests, every Svelte component test — does not run. It needs a real
+  Chromium through Playwright, and the image's browsers must match the
+  _installed_ Playwright rather than the caret range in `package.json`
+  (`node_modules/playwright` was 1.61.1 while the range said `^1.55.1`, and the
+  mismatched image reports `no tests` plus a `Serialized Error: { log: [] }`,
+  which says nothing about the cause):
+
+  ```bash
+  docker run --rm -v $PWD:/chat -w /chat --entrypoint /bin/sh \
+    mcr.microsoft.com/playwright:v1.61.1-noble \
+    -c 'export HOME=/root CI=true; corepack enable; npx vitest run --project=client'
+  ```
+
+  Worth knowing because a component assertion can go stale for weeks without
+  anything going red: the link this section's own dialog work replaced was
+  asserted in `renderWithApp.svelte.test.ts` and stayed green through the
+  change.
+
+- **`mongodb-memory-server` needs `libcurl4`**, which `node:*-slim` does not
+  carry. Without it 49 test _files_ fail to start their in-memory Mongo and
+  report as failures that have nothing to do with the code.
 
 ### Running a Single Test
 
@@ -118,6 +140,35 @@ Smart routing via Arch-Router model. Configured with:
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
+
+## Models: one dialog, and no per-model page
+
+`ModelsManager` is the **only** place models are managed. It lists all of them
+with a search, and opens one to set it as the default or change its settings —
+the system prompt, and reasoning and artifacts where the model supports them.
+`routes/settings/(nav)/[...model]` is **gone**; everything that pointed at it
+now opens the dialog.
+
+That needed one small thing: a dialog has no address, so the affordances that
+were links need something to call. `stores/modelsOverlay.svelte.ts` is a
+module-level rune with `show(modelId?)` / `hide()`, and the dialog is mounted
+once in the root layout — nothing smaller encloses the composer's model name,
+the introduction's gear, a routed message's model, the models list and the
+settings nav, which are all places that open it.
+
+Two things worth knowing:
+
+- **"Default" is what a _new_ chat starts on.** An open conversation keeps the
+  model it was started with, so the button says "Set as default" and the pill
+  says "Default", not "Active" — the earlier wording implied changing it would
+  move the conversation you were looking at;
+- **`providerOverrides` is not in the dialog, and is not a loss.** It picks
+  which _HuggingFace Inference Provider_ serves a model — inherited from
+  upstream, and meaningless in a gateway deployment, where every call goes to
+  the gateway and which upstream serves a model is the gateway's decision
+  (ADR 0032). Its UI was already hidden behind `isHuggingChat`. The
+  server-side plumbing is deliberately left in place, because it is live on the
+  branch this fork came from.
 
 ## The sidebar, and signing out at both ends
 

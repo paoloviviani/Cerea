@@ -1,28 +1,44 @@
 <!--
-	Choosing the model this chat runs on, as an overlay.
+	Models: the whole list, and what each one can be set to.
 
-	The same shape as the MCP dialog, deliberately: a tinted strip saying what
-	is configured and what is active, cards in two columns, the active one
-	tinted blue. `/models` and `/models/[id]` stay as pages so a link into a
-	model still resolves — this replaces the *way in from the nav*, not the
-	addresses.
+	This **is** the full list — there is no "see all" leading anywhere else.
+	Splitting a searchable list of cards across a dialog and a page meant two
+	places showing the same models with different affordances, and the dialog
+	was the one people opened.
 
-	Picking a card sets the active model and closes. There is no Save: the
-	choice is one click and a dialog that then asks for confirmation of a
-	radio button is a dialog nobody thanks you for.
+	Two views, as everywhere else in this app's dialogs. The list, with a card
+	per model; and one model, where it can be made the default and its own
+	settings changed.
+
+	**"Default" is what a new chat starts on.** An open conversation keeps the
+	model it was started with, so changing this does not move a chat that is
+	already running — which is why the button says "Set as default" rather than
+	"Use", and why the card's pill says "Default" rather than "Active".
+
+	One thing from the old settings page is deliberately not carried over:
+	`providerOverrides`, which picks *which HuggingFace Inference Provider*
+	serves a model. It is inherited from upstream and does nothing in a
+	gateway deployment — every call goes to the gateway, and which upstream
+	serves a model is the gateway's decision (ADR 0032). Its UI was already
+	hidden behind `isHuggingChat`. The server-side plumbing is left alone,
+	because it is live on the branch this fork came from.
 -->
 <script lang="ts">
-	import { base } from "$app/paths";
+	import { untrack } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
+	import Switch from "$lib/components/Switch.svelte";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconSearch from "~icons/carbon/search";
+	import IconSettings from "~icons/carbon/settings";
+	import IconArrowLeft from "~icons/carbon/arrow-left";
+	import IconReset from "~icons/carbon/reset";
 	import LucideHammer from "~icons/lucide/hammer";
 	import LucideImage from "~icons/lucide/image";
 	import LucideBoxes from "~icons/lucide/boxes";
-	import IconArrowRight from "~icons/carbon/arrow-right";
+	import LucideBrain from "~icons/lucide/brain";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface ModelCard {
@@ -31,21 +47,34 @@
 		displayName?: string;
 		description?: string | null;
 		logoUrl?: string | null;
+		preprompt?: string | null;
 		unlisted?: boolean;
 		isRouter?: boolean;
 		multimodal?: boolean;
 		supportsTools?: boolean;
+		supportsReasoning?: boolean;
+		supportsArtifacts?: boolean;
 	}
 
 	interface Props {
 		models: ModelCard[];
 		mlAssistantModels?: string[];
+		/** Open straight onto one model's settings, from anywhere in the app. */
+		initialId?: string;
 		onclose: () => void;
 	}
 
-	let { models, mlAssistantModels = [], onclose }: Props = $props();
+	let { models, mlAssistantModels = [], initialId, onclose }: Props = $props();
 
 	const settings = useSettingsStore();
+
+	type View = "list" | "detail";
+	// Read once: `initialId` is how the dialog was opened, not a prop that
+	// changes under it.
+	let view = $state<View>(untrack(() => (initialId ? "detail" : "list")));
+	let current = $state<ModelCard | null>(
+		untrack(() => models.find((model) => model.id === initialId) ?? null)
+	);
 
 	let filter = $state("");
 	const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ");
@@ -62,9 +91,9 @@
 			: models.filter((model) => !model.unlisted)
 	);
 
-	// Agents are addressed as models and appear in this list. They are labelled
-	// rather than hidden: an agent is a model somebody made, and the one thing
-	// they need to know is that picking it brings its instructions with it.
+	// Agents are addressed as models and appear in this list. Labelled rather
+	// than hidden: an agent is a model somebody made, and the thing worth
+	// knowing is that picking it brings its instructions with it.
 	const isAgent = (model: ModelCard) => model.id.startsWith("agent:");
 
 	const shown = $derived(
@@ -74,143 +103,360 @@
 		})
 	);
 
-	const active = $derived(browsable.find((model) => model.id === $settings.activeModel));
+	const defaultModel = $derived(browsable.find((model) => model.id === $settings.activeModel));
 
-	function choose(model: ModelCard) {
+	function setDefault(model: ModelCard) {
 		settings.instantSet({ activeModel: model.id });
-		onclose();
 	}
+
+	function open(model: ModelCard) {
+		current = model;
+		view = "detail";
+	}
+
+	/** Opened on one model, so the list is not part of this dialog. */
+	const single = untrack(() => Boolean(initialId));
+
+	function backToList() {
+		if (single) {
+			onclose();
+			return;
+		}
+		view = "list";
+		current = null;
+	}
+
+	// ---- one model's own settings -------------------------------------------
+	//
+	// Read and written straight through the settings store, per model id, the
+	// same maps the per-model settings page uses. Nothing is cached in local
+	// state: two editors of one value that disagree is worse than a re-render.
+
+	const promptOf = $derived((id: string) => $settings.customPrompts?.[id] ?? "");
+	const promptEnabledOf = $derived((id: string) => $settings.customPromptsEnabled?.[id] ?? true);
+
+	function setPrompt(id: string, value: string) {
+		settings.update((current) => ({
+			...current,
+			customPrompts: { ...current.customPrompts, [id]: value },
+		}));
+	}
+	function setPromptEnabled(id: string, value: boolean) {
+		settings.update((current) => ({
+			...current,
+			customPromptsEnabled: { ...current.customPromptsEnabled, [id]: value },
+		}));
+	}
+	function setReasoning(id: string, value: boolean) {
+		settings.update((current) => ({
+			...current,
+			reasoningOverrides: { ...current.reasoningOverrides, [id]: value },
+		}));
+	}
+	function setArtifacts(id: string, value: boolean) {
+		settings.update((current) => ({
+			...current,
+			artifactsOverrides: { ...current.artifactsOverrides, [id]: value },
+		}));
+	}
+
+	const reasoningOf = $derived(
+		(model: ModelCard) =>
+			$settings.reasoningOverrides?.[model.id] ?? Boolean(model.supportsReasoning)
+	);
+	const artifactsOf = $derived(
+		(model: ModelCard) =>
+			$settings.artifactsOverrides?.[model.id] ?? Boolean(model.supportsArtifacts)
+	);
+	/** Whether the prompt has been changed from the model's own. */
+	const promptIsCustom = $derived(
+		(model: ModelCard) => promptOf(model.id) !== (model.preprompt ?? "")
+	);
 </script>
 
-<Modal width={s.OVERLAY_WIDE} {onclose} closeButton labelledBy="models-modal-title">
+<Modal
+	width={view === "list" ? s.OVERLAY_WIDE : s.OVERLAY_NARROW}
+	{onclose}
+	closeButton
+	labelledBy="models-modal-title"
+>
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
-			<h2 id="models-modal-title" class={s.TITLE}>Models</h2>
-			<p class={s.SUBTITLE}>Choose the model this chat runs on.</p>
+			<h2 id="models-modal-title" class={s.TITLE}>
+				{view === "list" ? "Models" : current?.displayName || current?.id}
+			</h2>
+			<p class={s.SUBTITLE}>
+				{#if view === "list"}
+					Every model available to you. The default is what a new chat starts on.
+				{:else}
+					{current?.description || current?.id}
+				{/if}
+			</p>
 		</div>
 
-		<div class="{s.STRIP} {active ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
-			<div class="flex items-center gap-3">
-				<div class={s.STRIP_TILE} class:grayscale={!active}>
-					<LucideBoxes class="size-5 text-blue-600 dark:text-blue-500" />
-				</div>
-				<div>
-					<p class={s.STRIP_HEADLINE}>
-						{browsable.length}
-						{browsable.length === 1 ? "model" : "models"} available
-					</p>
-					<p class={s.STRIP_DETAIL}>
-						{active ? `${active.displayName || active.id} active` : "none chosen yet"}
-					</p>
-				</div>
-			</div>
-			<div class="flex gap-2">
-				<a href="{base}/models" onclick={onclose} class={s.SECONDARY}>
-					Full list
-					<IconArrowRight class="size-4" />
-				</a>
-			</div>
-		</div>
-
-		<div class={s.STACK}>
-			<div class="relative">
-				<IconSearch
-					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-gray-400"
-				/>
-				<input
-					type="search"
-					bind:value={filter}
-					placeholder="Search by name"
-					aria-label="Search models by name or id"
-					class="{s.SEARCH} pl-9"
-				/>
-			</div>
-
-			{#if shown.length === 0}
-				<div class={s.EMPTY}>
-					<LucideBoxes class={s.EMPTY_ICON} />
-					<p class={s.EMPTY_TITLE}>Nothing matches “{filter}”</p>
-					<p class={s.EMPTY_DETAIL}>Try a shorter search, or clear it to see everything.</p>
-					<button onclick={() => (filter = "")} class={s.PRIMARY}>Clear the search</button>
-				</div>
-			{:else}
-				<div>
-					<h3 class={s.SECTION_TITLE}>
-						{mlOnly ? "ML Intern models" : "Available"} ({shown.length})
-					</h3>
-					<div class={s.GRID}>
-						{#each shown as model (model.id)}
-							{@const isActive = model.id === $settings.activeModel}
-							<button
-								type="button"
-								onclick={() => choose(model)}
-								class="{s.card(isActive)} text-left"
-							>
-								<div class={s.CARD_BODY}>
-									<div class="mb-3 flex items-start justify-between gap-3">
-										<div class="min-w-0 flex-1">
-											<div class="mb-0.5 flex items-center gap-2">
-												{#if model.logoUrl}
-													<img src={model.logoUrl} alt="" class="size-4 flex-shrink-0 rounded-sm" />
-												{/if}
-												<h3 class={s.CARD_TITLE}>{model.displayName || model.id}</h3>
-											</div>
-											<p class={s.CARD_SUBTITLE}>
-												{model.isRouter
-													? "Routes your messages to the best model for your request."
-													: model.description || model.id}
-											</p>
-										</div>
-										{#if isActive}
-											<IconCheckmark
-												class="size-5 flex-shrink-0 text-blue-600 dark:text-blue-500"
-											/>
-										{/if}
-									</div>
-
-									<div class="flex flex-wrap items-center gap-2">
-										{#if isActive}
-											<span class="{s.PILL} {s.PILL_TONES.busy}">
-												<IconCheckmark class="size-3" />
-												In use
-											</span>
-										{/if}
-										{#if isAgent(model)}
-											<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
-										{/if}
-										{#if model.supportsTools}
-											<span
-												class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
-											>
-												<LucideHammer class="size-3" />
-												tools
-											</span>
-										{/if}
-										{#if model.multimodal}
-											<span
-												class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
-											>
-												<LucideImage class="size-3" />
-												images
-											</span>
-										{/if}
-									</div>
-								</div>
-							</button>
-						{/each}
+		{#if view === "list"}
+			<div class="{s.STRIP} {defaultModel ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
+				<div class="flex items-center gap-3">
+					<div class={s.STRIP_TILE} class:grayscale={!defaultModel}>
+						<LucideBoxes class="size-5 text-blue-600 dark:text-blue-500" />
+					</div>
+					<div>
+						<p class={s.STRIP_HEADLINE}>
+							{browsable.length}
+							{browsable.length === 1 ? "model" : "models"} available
+						</p>
+						<p class={s.STRIP_DETAIL}>
+							{defaultModel
+								? `${defaultModel.displayName || defaultModel.id} is the default`
+								: "no default chosen yet"}
+						</p>
 					</div>
 				</div>
-			{/if}
-
-			<div class={s.TIPS}>
-				<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
-				<ul class={s.TIPS_LIST}>
-					<li>• The model you pick applies to new chats; an open chat keeps its own.</li>
-					<li>• An <strong>Agent</strong> brings its own instructions and knowledge with it.</li>
-					<li>• A router picks a model per message rather than pinning one.</li>
-					<li>• Per-model settings, including custom prompts, live on the full list.</li>
-				</ul>
 			</div>
-		</div>
+
+			<div class={s.STACK}>
+				<div class="relative">
+					<IconSearch
+						class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-gray-400"
+					/>
+					<input
+						type="search"
+						bind:value={filter}
+						placeholder="Search by name"
+						aria-label="Search models by name or id"
+						class="{s.SEARCH} pl-9"
+					/>
+				</div>
+
+				{#if shown.length === 0}
+					<div class={s.EMPTY}>
+						<LucideBoxes class={s.EMPTY_ICON} />
+						<p class={s.EMPTY_TITLE}>Nothing matches “{filter}”</p>
+						<p class={s.EMPTY_DETAIL}>Try a shorter search, or clear it to see everything.</p>
+						<button onclick={() => (filter = "")} class={s.PRIMARY}>Clear the search</button>
+					</div>
+				{:else}
+					<div>
+						<h3 class={s.SECTION_TITLE}>
+							{mlOnly ? "ML Intern models" : "Available"} ({shown.length})
+						</h3>
+						<div class={s.GRID}>
+							{#each shown as model (model.id)}
+								{@const isDefault = model.id === $settings.activeModel}
+								<!-- A div, not a button: the card carries its own buttons, and
+								     nesting one inside another is invalid and unreachable. -->
+								<div class={s.card(isDefault)}>
+									<div class={s.CARD_BODY}>
+										<div class="mb-3 flex items-start justify-between gap-3">
+											<div class="min-w-0 flex-1">
+												<div class="mb-0.5 flex items-center gap-2">
+													{#if model.logoUrl}
+														<img src={model.logoUrl} alt="" class="size-4 shrink-0 rounded-sm" />
+													{/if}
+													<h3 class={s.CARD_TITLE}>{model.displayName || model.id}</h3>
+												</div>
+												<p class={s.CARD_SUBTITLE}>
+													{model.isRouter
+														? "Routes your messages to the best model for your request."
+														: model.description || model.id}
+												</p>
+											</div>
+											{#if isDefault}
+												<IconCheckmark class="size-5 shrink-0 text-blue-600 dark:text-blue-500" />
+											{/if}
+										</div>
+
+										<div class="mb-3 flex flex-wrap items-center gap-2">
+											{#if isDefault}
+												<span class="{s.PILL} {s.PILL_TONES.busy}">
+													<IconCheckmark class="size-3" />
+													Default
+												</span>
+											{/if}
+											{#if isAgent(model)}
+												<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
+											{/if}
+											{#if promptIsCustom(model)}
+												<span class="{s.PILL} {s.PILL_TONES.good}">custom prompt</span>
+											{/if}
+											{#if model.supportsTools}
+												<span
+													class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
+												>
+													<LucideHammer class="size-3" />
+													tools
+												</span>
+											{/if}
+											{#if model.multimodal}
+												<span
+													class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
+												>
+													<LucideImage class="size-3" />
+													images
+												</span>
+											{/if}
+											{#if model.supportsReasoning}
+												<span
+													class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
+												>
+													<LucideBrain class="size-3" />
+													reasoning
+												</span>
+											{/if}
+										</div>
+
+										<div class="flex flex-wrap gap-1">
+											{#if isDefault}
+												<span class="{s.CARD_ACTION} cursor-default opacity-60">
+													<IconCheckmark class="size-3" />
+													Is the default
+												</span>
+											{:else}
+												<button onclick={() => setDefault(model)} class={s.CARD_ACTION}>
+													<IconCheckmark class="size-3" />
+													Set as default
+												</button>
+											{/if}
+											<button onclick={() => open(model)} class={s.CARD_ACTION}>
+												<IconSettings class="size-3" />
+												Edit
+											</button>
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<div class={s.TIPS}>
+					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+					<ul class={s.TIPS_LIST}>
+						<li>
+							• The default is what a <strong>new</strong> chat starts on; an open chat keeps its own.
+						</li>
+						<li>• <strong>Edit</strong> gives a model its own system prompt, kept per model.</li>
+						<li>• An <strong>Agent</strong> brings its own instructions and knowledge with it.</li>
+						<li>• A router picks a model per message rather than pinning one.</li>
+					</ul>
+				</div>
+			</div>
+		{:else if current}
+			{@const model = current}
+			{@const isDefault = model.id === $settings.activeModel}
+			<div class={s.STACK}>
+				<div class="{s.STRIP} {isDefault ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
+					<div class="flex items-center gap-3">
+						<div class={s.STRIP_TILE} class:grayscale={!isDefault}>
+							<LucideBoxes class="size-5 text-blue-600 dark:text-blue-500" />
+						</div>
+						<div>
+							<p class={s.STRIP_HEADLINE}>
+								{isDefault ? "The default for new chats" : "Not the default"}
+							</p>
+							<p class={s.STRIP_DETAIL}><code>{model.id}</code></p>
+						</div>
+					</div>
+					<div class="flex gap-2">
+						{#if !single}
+							<button onclick={backToList} class={s.SECONDARY}>
+								<IconArrowLeft class="size-4" />
+								All models
+							</button>
+						{/if}
+						{#if !isDefault}
+							<button onclick={() => setDefault(model)} class={s.PRIMARY}>
+								<IconCheckmark class="size-4" />
+								Set as default
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				<div>
+					<div class="mb-2 flex items-center justify-between gap-3">
+						<h3 class="{s.SECTION_TITLE} mb-0">System prompt</h3>
+						<Switch
+							name="model-prompt-enabled"
+							bind:checked={
+								() => promptEnabledOf(model.id), (value) => setPromptEnabled(model.id, value)
+							}
+						/>
+					</div>
+					<textarea
+						class="{s.INPUT} min-h-32 font-mono text-xs"
+						placeholder="Instructions this model gets on every new conversation."
+						disabled={!promptEnabledOf(model.id)}
+						value={promptOf(model.id)}
+						oninput={(event) => setPrompt(model.id, event.currentTarget.value)}
+					></textarea>
+					<div class="mt-1 flex items-center justify-between gap-3">
+						<p class={s.HINT}>
+							Yours, kept per model, and applied to conversations you start after saving it. The
+							switch turns it off without losing it.
+						</p>
+						{#if promptIsCustom(model)}
+							<button
+								onclick={() => setPrompt(model.id, model.preprompt ?? "")}
+								class="{s.CARD_ACTION} shrink-0"
+							>
+								<IconReset class="size-3" />
+								Reset
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				{#if model.supportsReasoning || model.supportsArtifacts}
+					<div>
+						<h3 class={s.SECTION_TITLE}>What it may do</h3>
+						<div class="flex flex-col gap-2">
+							{#if model.supportsReasoning}
+								<label class="flex items-center justify-between gap-3 text-sm">
+									<span>
+										Reasoning
+										<span class="block text-xs text-gray-500 dark:text-gray-400">
+											Let it think before answering. Slower, and better on hard questions.
+										</span>
+									</span>
+									<Switch
+										name="model-reasoning"
+										bind:checked={
+											() => reasoningOf(model), (value) => setReasoning(model.id, value)
+										}
+									/>
+								</label>
+							{/if}
+							{#if model.supportsArtifacts}
+								<label class="flex items-center justify-between gap-3 text-sm">
+									<span>
+										Artifacts
+										<span class="block text-xs text-gray-500 dark:text-gray-400">
+											Show substantial output in a side panel rather than inline.
+										</span>
+									</span>
+									<Switch
+										name="model-artifacts"
+										bind:checked={
+											() => artifactsOf(model), (value) => setArtifacts(model.id, value)
+										}
+									/>
+								</label>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
+				<div class={s.TIPS}>
+					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+					<ul class={s.TIPS_LIST}>
+						<li>
+							• These are <strong>your</strong> settings for this model, not the deployment's.
+						</li>
+						<li>• They take effect on conversations you start from now on.</li>
+					</ul>
+				</div>
+			</div>
+		{/if}
 	</div>
 </Modal>

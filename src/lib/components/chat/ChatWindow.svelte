@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import type { Message, MessageFile } from "$lib/types/Message";
 	import { onDestroy, untrack } from "svelte";
 
@@ -1242,12 +1243,13 @@
 								</span>
 							</span>
 						{:else if !currentModel.isRouter || !loading}
-							<a
-								href="{base}/settings/{currentModel.id}"
-								onclick={(e) => {
-									if (requireAuthUser()) {
-										e.preventDefault();
-									}
+							<!-- The model's own settings are a dialog now, so this is a button.
+							     It was a link to a page that no longer exists. -->
+							<button
+								type="button"
+								onclick={() => {
+									if (requireAuthUser()) return;
+									modelsOverlay.show(currentModel.id);
 								}}
 								class="inline-flex min-w-0 items-center gap-1 hover:underline"
 							>
@@ -1291,7 +1293,7 @@
 									{/if}
 								{/if}
 								<CarbonCaretDown class="-ml-0.5 shrink-0 text-xxs" />
-							</a>
+							</button>
 						{:else if showRouterDetails && streamingRouterMetadata?.route}
 							<div
 								class="mr-2 flex items-center gap-1.5 text-xs text-[.70rem] leading-none whitespace-nowrap text-gray-400 dark:text-gray-400"
