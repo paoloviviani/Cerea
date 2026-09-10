@@ -277,9 +277,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		error(413, "File too large, should be <10MB");
 	}
 
-	const uploadedFiles = await Promise.all(b64Files.map((file) => uploadFile(file, conv))).then(
-		(files) => [...files, ...hashFiles]
-	);
+	// The token goes with it: a document attachment is extracted through the
+	// gateway at upload, as the person who attached it, so what reads their
+	// document is a model they are allowed to use and the page is billed to
+	// them rather than to the deployment.
+	const uploadedFiles = await Promise.all(
+		b64Files.map((file) => uploadFile(file, conv, locals.token))
+	).then((files) => [...files, ...hashFiles]);
 
 	// we will append tokens to the content of this message
 	let messageToWriteToId: Message["id"] | undefined = undefined;

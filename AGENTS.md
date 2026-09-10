@@ -23,6 +23,7 @@ npm run test         # Run all tests (Vitest)
 ```bash
 set -a; . deploy/.env; set +a          # the gateway's deployment variables
 ./scripts/test_projects_live.py        # projects: context, retrieval, memory
+./scripts/test_attachments_live.py     # a document attachment, extracted once
 ```
 
 Signs in through the identity provider and drives real turns. Worth running for
@@ -143,6 +144,28 @@ the session's OIDC token and never lets it reach the page. Projects are
 - The memory base is an **ordinary knowledge base**, visible on the Knowledge
   screen and deletable there, named after its project. That is deliberate: the
   transcripts are somewhere a person can look.
+
+### Attaching a document to a message
+
+A PDF or an Office file is bytes no model reads. `POST /v1/ocr` in the gateway
+turns one into markdown, and `src/lib/server/files/extractDocument.ts` calls
+it. The two things to know:
+
+- **Extraction happens once, at upload**, and the text is stored beside the
+  file as its own GridFS entry, named by `MessageFile.extracted`. That is a
+  **billing** decision, not a caching one: `/v1/ocr` is priced per page, so
+  re-extracting per turn charges for the same twelve-page PDF on every question
+  about it. `scripts/test_attachments_live.py` asserts the count from the
+  gateway's ledger, which is the only place that can tell the two apart.
+- **A document with no readable text is not dropped.** `preprocessMessages`
+  puts a sentence saying so in its place, because an attachment silently
+  omitted makes the assistant answer as though nothing was attached while the
+  person watching sees their file in the transcript.
+
+Which model extracts is `CHAT_OCR_MODEL`, or the first `kind: ocr` model the
+caller may use. With only the built-in extractor installed that is the built-in
+extractor, and **it never sends the document anywhere** — naming an upstream
+OCR model does, which is why it is a setting rather than a default.
 
 Two things found only by running `scripts/test_projects_live.py`, both worth
 knowing before touching the model picker or writing another live check:
