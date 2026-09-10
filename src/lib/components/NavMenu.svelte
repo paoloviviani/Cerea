@@ -32,6 +32,10 @@
 	import { isPro } from "$lib/stores/isPro";
 	import IconPro from "$lib/components/icons/IconPro.svelte";
 	import MCPServerManager from "./mcp/MCPServerManager.svelte";
+	import ModelsManager from "./models/ModelsManager.svelte";
+	import ProjectsManager from "./projects/ProjectsManager.svelte";
+	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
+	import AgentsManager from "./agents/AgentsManager.svelte";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
@@ -117,6 +121,10 @@
 	let isDark = $state(false);
 	let unsubscribeTheme: (() => void) | undefined;
 	let showMcpModal = $state(false);
+	let showModelsModal = $state(false);
+	let showProjectsModal = $state(false);
+	let showKnowledgeModal = $state(false);
+	let showAgentsModal = $state(false);
 
 	if (browser) {
 		unsubscribeTheme = subscribeToTheme(({ isDark: nextIsDark }) => {
@@ -214,44 +222,44 @@
 			{/if}
 		</div>
 	{/if}
-	<a
-		href="{base}/models"
+	<!-- A button rather than a link: this and the four below open overlays, in
+	     the same idiom as MCP Servers. The routes still exist and still work —
+	     `/models/[id]` is an address people link to — but the way in from the
+	     nav no longer costs somebody their place in the conversation. -->
+	<button
+		onclick={() => (showModelsModal = true)}
 		class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		onclick={handleNavItemClick}
 	>
 		Models
 		<span
 			class="ml-auto rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20 dark:text-gray-400"
 			>{nModels}</span
 		>
-	</a>
+	</button>
 
 	<!-- Projects, knowledge bases and agents (ADR 0062). Signed-in only, and not
 	     because they are privileged: all three are *owned* resources, so an
 	     anonymous session has nowhere to put one. The gateway refuses either
-	     way; hiding the links saves somebody following one to a 401. -->
+	     way; hiding them saves somebody a 401. -->
 	{#if user?.username || user?.email}
-		<a
-			href="{base}/projects"
+		<button
+			onclick={() => (showProjectsModal = true)}
 			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-			onclick={handleNavItemClick}
 		>
 			Projects
-		</a>
-		<a
-			href="{base}/knowledge"
+		</button>
+		<button
+			onclick={() => (showKnowledgeModal = true)}
 			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-			onclick={handleNavItemClick}
 		>
 			Knowledge
-		</a>
-		<a
-			href="{base}/agents"
+		</button>
+		<button
+			onclick={() => (showAgentsModal = true)}
 			class="flex h-8 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-			onclick={handleNavItemClick}
 		>
 			Agents
-		</a>
+		</button>
 	{/if}
 
 	{#if user?.username || user?.email}
@@ -295,6 +303,26 @@
 		</button>
 	</span>
 </div>
+
+{#if showModelsModal}
+	<ModelsManager
+		models={(page.data.models ?? []) as never}
+		mlAssistantModels={(page.data.mlAssistantModels ?? []) as never}
+		onclose={() => (showModelsModal = false)}
+	/>
+{/if}
+
+{#if showProjectsModal}
+	<ProjectsManager onclose={() => (showProjectsModal = false)} />
+{/if}
+
+{#if showKnowledgeModal}
+	<KnowledgeManager onclose={() => (showKnowledgeModal = false)} />
+{/if}
+
+{#if showAgentsModal}
+	<AgentsManager onclose={() => (showAgentsModal = false)} />
+{/if}
 
 {#if showMcpModal}
 	<MCPServerManager onclose={() => (showMcpModal = false)} />

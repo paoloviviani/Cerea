@@ -26,6 +26,11 @@ set -a; . deploy/.env; set +a          # the gateway's deployment variables
 ./scripts/test_attachments_live.py     # a document attachment, extracted once
 ```
 
+Note the trap in the attachment check, because it will be reintroduced: the
+**first** turn of a conversation also generates its title, which is a second
+completion and overwrites the smoke upstream's `GET /_last_request`. Any
+assertion about the prompt has to run on a later turn, or it is a coin flip.
+
 Signs in through the identity provider and drives real turns. Worth running for
 anything touching the generation path, project context or the gateway
 forwarder: it asserts on **the prompt that actually left the gateway**, read
@@ -112,6 +117,47 @@ Smart routing via Arch-Router model. Configured with:
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
+
+## The dialog language, and where it comes from
+
+**Models, projects, knowledge and agents are overlays, not pages**, and they
+are overlays in the shape the MCP dialog already had — that is this app's own
+design language and the reference implementation is still
+`src/lib/components/mcp/`. Read `MCPServerManager.svelte` and
+`ServerCard.svelte` before adding a screen.
+
+What it consists of, all of it in `src/lib/components/overlay/styles.ts` as
+constants lifted verbatim from those two files:
+
+- an overlay with **per-view widths** (`w-[800px]` for a list, `w-[600px]` for
+  a form) and sub-views switching _inside_ it on a `view` variable, rather than
+  navigating — somebody managing knowledge is doing one task and should not
+  lose their place in the conversation that prompted it;
+- a **tinted summary strip** under the header: a `size-10 rounded-xl
+bg-blue-500/10` icon tile, a count, a state, and the actions on the right.
+  `bg-blue-50` when there is something, `bg-gray-100` and `grayscale` when
+  there is not;
+- **blue-600 as the single accent** — the only place blue is a fill rather than
+  a tint is a primary button;
+- **two-column gradient cards** (`bg-linear-to-br`) that tint blue when active;
+- **rounded-full status pills** with an icon, in four tones;
+- **dashed empty states** with a large muted icon and a primary call to action;
+- a closing **Quick Tips** block, which is where the surprising rules go.
+
+Three practical notes. `btn` is a project class, not a Tailwind one.
+`bg-linear-to-br` is Tailwind 4's spelling and `bg-gradient-to-br` silently
+does nothing. And the MCP dialog deliberately still inlines its own classes
+rather than importing the constants — it is the definition, and moving it one
+step away from itself would be the wrong direction.
+
+**The routes are kept and render the same component.** `/knowledge`,
+`/agents`, `/projects` and their `/<id>` forms are thin wrappers that mount the
+manager with `initialId`, because people link to those addresses. One
+implementation and one design: a dialog for whoever arrives from the nav and a
+separate page for whoever arrives from a link is how the two drift apart. The
+one trap that caused — **a page body runs on the server**, so a manager that
+fetched in its component body answered 502 with `Failed to parse URL from
+/chat/api/v2/...`. Every manager loads in `onMount`.
 
 ## Projects, knowledge bases and agents
 
