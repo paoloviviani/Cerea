@@ -29,12 +29,14 @@ async function addConnector(options: {
 	name: string;
 	auth: "none" | "oauth" | "token";
 	token?: string;
+	scope?: "user" | "deployment";
 }) {
 	const { seal } = await import("./secretBox");
 	const _id = new ObjectId();
 	await collections.mcpConnectors.insertOne({
 		_id,
 		userId: options.userId,
+		scope: options.scope ?? ("user" as const),
 		name: options.name,
 		url: `https://${options.name.toLowerCase()}.test/mcp`,
 		auth: options.auth,
@@ -144,5 +146,79 @@ describe("the name filter the turn is narrowed by", () => {
 
 	it("keeps it once the list names it", () => {
 		expect(narrow([{ name: "Notion" }], ["Notion"])).toEqual([{ name: "Notion" }]);
+	});
+});
+
+describe("a connector the deployment shares", () => {
+	/**
+	 * An administrator's connector is offered to everybody, and the widening
+	 * that makes that work is one `$or` away from the widening that would hand
+	 * everybody everybody else's credentials. So each case here is paired: the
+	 * shared one resolves for a stranger, the private one does not, on the same
+	 * data in the same test.
+	 *
+	 * This is the shape CLAUDE.md warns about in the gateway's `may_reach`,
+	 * where fourteen tests passed against a real bug because every negative one
+	 * failed closed for an unrelated reason.
+	 */
+	it("resolves for somebody who does not own it, while a private one does not", async () => {
+		const { resolveSelection } = await import("./selection");
+		const shared = await addConnector({
+			userId: owner,
+			name: "Shared",
+			auth: "none",
+			scope: "deployment",
+		});
+		const private_ = await addConnector({ userId: owner, name: "Private", auth: "none" });
+
+		const theirs = await resolveSelection({
+			connectorIds: [shared.toString(), private_.toString()],
+			userId: stranger,
+		});
+
+		// Both ids were offered; exactly one came back.
+		expect(theirs.servers.map((s) => s.name)).toEqual(["Shared"]);
+
+		// And the owner still gets both, so the filter is not simply broken.
+		const mine = await resolveSelection({
+			connectorIds: [shared.toString(), private_.toString()],
+			userId: owner,
+		});
+		expect(mine.servers.map((s) => s.name).sort()).toEqual(["Private", "Shared"]);
+	});
+
+	it("does not lend one person's OAuth token to another", async () => {
+		// The property the whole design rests on: sharing a *definition* must
+		// not share a credential. The connector is reachable by the stranger and
+		// the owner has authorised it; the stranger must still be told to sign
+		// in rather than handed the owner's bearer.
+		const { seal } = await import("./secretBox");
+		const { resolveSelection } = await import("./selection");
+		const shared = await addConnector({
+			userId: owner,
+			name: "SharedOauth",
+			auth: "oauth",
+			scope: "deployment",
+		});
+		await collections.mcpTokens.insertOne({
+			_id: new ObjectId(),
+			connectorId: shared,
+			userId: owner,
+			accessTokenSealed: seal("the-owners-token"),
+			expiresAt: new Date(Date.now() + 3_600_000),
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		const mine = await resolveSelection({ connectorIds: [shared.toString()], userId: owner });
+		expect(mine.servers[0]?.headers?.Authorization).toBe("Bearer the-owners-token");
+
+		const theirs = await resolveSelection({
+			connectorIds: [shared.toString()],
+			userId: stranger,
+		});
+		expect(theirs.servers).toEqual([]);
+		expect(theirs.needAuthorization).toEqual(["SharedOauth"]);
+		expect(JSON.stringify(theirs)).not.toContain("the-owners-token");
 	});
 });

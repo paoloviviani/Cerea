@@ -151,6 +151,7 @@ describe("the bearer token for a call", () => {
 			userId: new ObjectId(),
 			name: "n",
 			url: "https://example.org/mcp",
+			scope: "user" as const,
 			auth: "oauth" as const,
 			createdAt: new Date(),
 			updatedAt: new Date(),
@@ -166,6 +167,7 @@ describe("the bearer token for a call", () => {
 			userId: new ObjectId(),
 			name: "n",
 			url: "https://example.org/mcp",
+			scope: "user" as const,
 			auth: "token" as const,
 			tokenSealed: seal("a-static-token"),
 			createdAt: new Date(),
@@ -185,6 +187,7 @@ describe("the bearer token for a call", () => {
 		const connector = {
 			_id: connectorId,
 			userId,
+			scope: "user" as const,
 			name: "n",
 			url: "https://example.org/mcp",
 			auth: "oauth" as const,
@@ -225,6 +228,7 @@ describe("the bearer token for a call", () => {
 			connector: {
 				_id: connectorId,
 				userId,
+				scope: "user" as const,
 				name: "n",
 				url: "https://example.org/mcp",
 				auth: "oauth",
@@ -282,6 +286,7 @@ describe("static OAuth credentials", () => {
 			connector: {
 				_id: connectorId,
 				userId,
+				scope: "user" as const,
 				name: "No DCR here",
 				url: "https://strict.test/mcp",
 				auth: "oauth",

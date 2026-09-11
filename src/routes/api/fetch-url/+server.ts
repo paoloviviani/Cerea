@@ -1,6 +1,7 @@
 import { error } from "@sveltejs/kit";
 import { logger } from "$lib/server/logger.js";
 import { isValidUrl, ssrfSafeFetch } from "$lib/server/urlSafety";
+import { configuredBackend, fetchPage } from "$lib/server/fetching";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const FETCH_TIMEOUT = 30000; // 30 seconds
@@ -91,6 +92,34 @@ export async function GET({ url }) {
 
 	// Stream the response back
 	const originalContentType = response.headers.get("content-type") || "application/octet-stream";
+
+	// If an administrator has chosen a renderer, use it — but **only for HTML**.
+	// This endpoint fetches attachments of every kind, and a PDF or a .docx put
+	// through a browser is at best a waste and at worst a different file. The
+	// byte-streaming path below is therefore untouched; the renderer is an
+	// alternative for the one content type where "what the server sent" and
+	// "what a person would see" differ.
+	if (originalContentType.includes("text/html") && configuredBackend() !== "direct") {
+		try {
+			const rendered = await fetchPage(currentUrl);
+			logger.info({ url: currentUrl, backend: rendered.backend }, "fetch_url_rendered");
+			return new Response(rendered.content, {
+				headers: {
+					"Content-Type": "text/plain; charset=utf-8",
+					"X-Forwarded-Content-Type": originalContentType,
+					"X-Fetch-Backend": rendered.backend,
+					"Cache-Control": "public, max-age=3600",
+					...SECURITY_HEADERS,
+				},
+			});
+		} catch (err) {
+			// Logged, then fall through to the bytes already in hand. Failing the
+			// attachment instead would make a renderer outage look like a broken
+			// link, and an unrendered page is a worse answer rather than none.
+			logger.warn({ err, url: currentUrl }, "fetch_url_render_failed_using_raw");
+		}
+	}
+
 	// Send as text/plain for safety; expose the original type via secondary header
 	const safeContentType = "text/plain; charset=utf-8";
 	const contentDisposition = response.headers.get("content-disposition");

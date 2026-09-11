@@ -42,8 +42,35 @@ export interface McpRegistration {
 export interface McpConnector extends Timestamps {
 	_id: ObjectId;
 
-	/** Who added it. Only they see it, until connector sharing exists. */
+	/**
+	 * Who added it. For a `user` connector this is also who may edit it; for a
+	 * `deployment` one it is only a record of which administrator added it,
+	 * kept because "who put this here" is asked about a server everyone's
+	 * requests are going to.
+	 */
 	userId: User["_id"];
+
+	/**
+	 * Whose connector this is.
+	 *
+	 * `user` — one person's, visible and editable only by them. The original
+	 * shape, and still the default.
+	 *
+	 * `deployment` — an administrator's, offered to everybody. **The definition
+	 * is shared; the credential never is.** Each person signs in to it
+	 * themselves and their token stays keyed on `(userId, connectorId)`
+	 * exactly as before, so a shared Notion connector still means everybody
+	 * reading their own workspace as themselves. ADR 0064 anticipated this
+	 * ("a connector's *definition* is worth sharing; a token never is") and
+	 * this is that, no more.
+	 *
+	 * The one exception is a `token` connector: a static credential belongs to
+	 * the connector rather than to a person, so a deployment-scoped one shares
+	 * its key with everyone who uses it. That is a real decision an
+	 * administrator makes — an API key the organisation holds — and the screen
+	 * says so rather than leaving it to be discovered.
+	 */
+	scope: "user" | "deployment";
 
 	name: string;
 	/** The MCP endpoint, e.g. `https://mcp.notion.com/mcp`. */
@@ -146,18 +173,25 @@ export interface McpToken extends Timestamps {
  * One shape for both kinds, because the dialog used to have two lists whose
  * only real difference was authentication — and one that was a defect: a
  * "custom" server lived in `localStorage`, so it did not follow anybody to a
- * second device. `source` is the distinction worth keeping: an entry from
- * `MCP_SERVERS` belongs to the operator and is nobody's to delete.
+ * second device. What survives of that split is `scope`, and it is the half
+ * that was never about storage: an administrator's connector is offered to
+ * everybody and is nobody else's to delete.
  */
-export type McpEntrySource = "deployment" | "mine";
-
 /** What the client is given: never a credential, only whether there is one. */
 export interface McpConnectorView {
 	id: string;
 	name: string;
 	url: string;
 	auth: "none" | "oauth" | "token";
-	source: McpEntrySource;
+	/** Whose it is. `deployment` entries come from an administrator. */
+	scope: "user" | "deployment";
+	/**
+	 * Whether *this* caller may edit or remove it. False for everybody on a
+	 * deployment connector except an administrator — the row still renders,
+	 * because it is offered to them, but the buttons that would change it for
+	 * everyone else do not.
+	 */
+	manageable: boolean;
 	/** Whether *this* person has a usable credential for it. */
 	connected: boolean;
 	/** For an OAuth connector, whether it can be signed in to at all. */
