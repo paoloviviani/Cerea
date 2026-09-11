@@ -28,7 +28,6 @@
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
 	import type { ProjectView } from "$lib/types/Project";
 	import IconAddLarge from "~icons/carbon/add-large";
-	import IconRefresh from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconShare from "~icons/carbon/share";
@@ -85,7 +84,6 @@
 	let stores = $state<VectorStore[]>([]);
 	let groups = $state<BillableGroup[]>([]);
 	let loading = $state(true);
-	let refreshing = $state(false);
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 	let notice = $state<string | null>(null);
@@ -132,17 +130,6 @@
 			if (initialId) void openDetail(initialId);
 		})
 	);
-
-	async function refresh() {
-		if (refreshing) return;
-		refreshing = true;
-		try {
-			await load();
-			if (current) await openDetail(current.id);
-		} finally {
-			refreshing = false;
-		}
-	}
 
 	// ---- the form, for create and for edit ---------------------------------
 
@@ -390,10 +377,6 @@
 					</div>
 				</div>
 				<div class="flex gap-2">
-					<button onclick={refresh} disabled={refreshing} class={s.SECONDARY}>
-						<IconRefresh class="size-4 {refreshing ? 'animate-spin' : ''}" />
-						{refreshing ? "Refreshing…" : "Refresh"}
-					</button>
 					<button onclick={() => openForm(null)} class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
 						New project

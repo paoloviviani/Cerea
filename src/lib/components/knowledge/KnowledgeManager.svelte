@@ -56,7 +56,6 @@
 	let status = $state<KnowledgeStatus | null>(null);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
-	let refreshing = $state(false);
 
 	const indexed = $derived(stores.reduce((total, store) => total + store.file_counts.completed, 0));
 	const working = $derived(
@@ -89,17 +88,6 @@
 			if (initialId) void openDetail(initialId);
 		})
 	);
-
-	async function refresh() {
-		if (refreshing) return;
-		refreshing = true;
-		try {
-			await load();
-			if (current) await openDetail(current.id);
-		} finally {
-			refreshing = false;
-		}
-	}
 
 	function tone(store: VectorStore): { tone: s.PillTone; label: string } {
 		if (store.file_counts.failed > 0)
@@ -207,6 +195,87 @@
 
 	let current = $state<VectorStore | null>(null);
 	let documents = $state<KnowledgeDocument[]>([]);
+
+	/**
+	 * Whether anything is still being indexed.
+	 *
+	 * "Not finished and not failed" rather than a list of the in-progress
+	 * names, because the gateway has two vocabularies for this — its own
+	 * `pending`/`extracting`/`embedding`, and the OpenAI-shaped `in_progress`
+	 * it uses on the vector-store surface — and a predicate that enumerated one
+	 * of them would quietly stop polling the moment the other arrived.
+	 */
+	const indexing = $derived(
+		working > 0 ||
+			documents.some((document) => document.status !== "completed" && document.status !== "failed")
+	);
+
+	/**
+	 * Refresh the data without disturbing what is on screen.
+	 *
+	 * Deliberately not `openDetail`, which the Refresh button used to call: that
+	 * sets the view and clears `notice` and `failure`, which is right for a
+	 * click and wrong on a timer — it would wipe the "Reindexing…" line the
+	 * reader is in the middle of reading, every few seconds.
+	 */
+	async function pollOnce() {
+		try {
+			const [listed, state] = await Promise.all([
+				gwGet<{ data: VectorStore[] }>("vector_stores"),
+				gwGet<KnowledgeStatus>("vector_stores/status"),
+			]);
+			stores = listed.data;
+			status = state;
+			if (current) {
+				const [base, docs] = await Promise.all([
+					gwGet<VectorStore>(`vector_stores/${current.id}`),
+					gwGet<{ data: KnowledgeDocument[] }>(`vector_stores/${current.id}/files`),
+				]);
+				current = base;
+				documents = docs.data;
+			}
+		} catch {
+			// Swallowed on purpose. A poll is unasked-for, so a failed one must
+			// not put an error in front of somebody who did not press anything;
+			// the next tick either recovers or the work finishes and polling
+			// stops. A failure the reader *caused* still surfaces, because those
+			// paths set `failure` themselves.
+		}
+	}
+
+	/**
+	 * Poll while work is outstanding, and only then.
+	 *
+	 * Ingestion is asynchronous by design — the gateway answers `in_progress`
+	 * and the document's status *is* the progress bar — and there was no
+	 * polling, so the only way to see a document finish was to press Refresh.
+	 * A progress bar that advances when you ask it to is not a progress bar.
+	 *
+	 * The interval backs off from two seconds to fifteen. A document that has
+	 * been extracting for a minute is not about to finish within the next two,
+	 * and a dialog left open on a stuck ingestion should not keep asking at the
+	 * same rate forever. It is never cancelled on a timeout, though: closing the
+	 * dialog stops it, and that is a bound the reader controls. Giving up while
+	 * work is genuinely outstanding would put back the state this replaced —
+	 * something in progress, and no way to watch it.
+	 */
+	$effect(() => {
+		if (!indexing) return;
+		let delay = 2_000;
+		let timer: ReturnType<typeof setTimeout>;
+		let stopped = false;
+		const tick = async () => {
+			await pollOnce();
+			if (stopped) return;
+			delay = Math.min(delay * 1.5, 15_000);
+			timer = setTimeout(() => void tick(), delay);
+		};
+		timer = setTimeout(() => void tick(), delay);
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
+	});
 	let groups = $state<BillableGroup[]>([]);
 	let shareWith = $state("");
 	let shareKind = $state<"user" | "group">("user");
@@ -307,7 +376,7 @@
 		busy = true;
 		try {
 			await gwPost(`vector_stores/${current.id}/reindex`);
-			notice = "Reindexing. It runs in the background — refresh to watch it.";
+			notice = "Reindexing. It runs in the background; this list follows along.";
 			await openDetail(current.id);
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : "Could not reindex it.";
@@ -426,10 +495,6 @@
 					</div>
 				</div>
 				<div class="flex gap-2">
-					<button onclick={refresh} disabled={refreshing} class={s.SECONDARY}>
-						<IconRefresh class="size-4 {refreshing ? 'animate-spin' : ''}" />
-						{refreshing ? "Refreshing…" : "Refresh"}
-					</button>
 					<button
 						onclick={() => {
 							resetForm();
