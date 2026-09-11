@@ -20,6 +20,7 @@ import { probe } from "$lib/server/mcp/discovery";
 import { seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { staticRegistration } from "$lib/server/mcp/oauth";
 import { view, viewsFor } from "$lib/server/mcp/connectors";
+import { callerIdentity, requireAdmin } from "$lib/server/admin";
 import type { McpConnector } from "$lib/types/McpConnector";
 
 const create = z.object({
@@ -54,6 +55,12 @@ const create = z.object({
 	 * `X-API-Key` takes the value bare — so this is not defaulted by `||`.
 	 */
 	tokenPrefix: z.string().max(32).optional(),
+	/**
+	 * `deployment` offers it to everybody and requires an administrator.
+	 * Defaults to `user`: a connector somebody adds for themselves must never
+	 * become the whole deployment's by omission.
+	 */
+	scope: z.enum(["user", "deployment"]).default("user"),
 });
 
 function requireUser(locals: App.Locals) {
@@ -63,7 +70,11 @@ function requireUser(locals: App.Locals) {
 
 export const GET: RequestHandler = async ({ locals }) => {
 	const user = requireUser(locals);
-	return json({ data: await viewsFor(user._id) });
+	// Asked once per listing, and it decides only whether the *manage*
+	// buttons render — never what is listed. Everybody sees the deployment's
+	// connectors, because they are offered to them.
+	const identity = await callerIdentity(locals);
+	return json({ data: await viewsFor(user._id, identity?.isAdmin ?? false) });
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -82,8 +93,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!parsed.success) {
 		error(400, parsed.error.issues[0]?.message ?? "That connector is not valid.");
 	}
-	const { name, url, authMode, token, tokenHeader, tokenPrefix, clientId, clientSecret } =
+	const { name, url, authMode, token, tokenHeader, tokenPrefix, clientId, clientSecret, scope } =
 		parsed.data;
+
+	if (scope === "deployment") {
+		// Checked before the probe, so a non-administrator does not cause an
+		// outbound request to somebody else's server on their way to a 403.
+		await requireAdmin(locals);
+	}
 
 	if (authMode === "token" && !token) {
 		error(400, "That auth mode needs a token.");
@@ -96,6 +113,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const connector: McpConnector = {
 		_id: new ObjectId(),
 		userId: user._id,
+		scope,
 		name,
 		url,
 		auth: "none",
@@ -150,5 +168,5 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	await collections.mcpConnectors.insertOne(connector);
-	return json(await view(connector, user._id), { status: 201 });
+	return json(await view(connector, user._id, scope === "deployment"), { status: 201 });
 };

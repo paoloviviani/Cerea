@@ -74,9 +74,19 @@ export async function resolveSelection(options: {
 	const ids = connectorIds.filter((id) => Oid.isValid(id)).map((id) => new Oid(id));
 	if (ids.length === 0) return { servers: [], needAuthorization: [] };
 
-	// Scoped to the owner, so an id from somebody else's connector resolves to
-	// nothing rather than to their credential.
-	const connectors = await collections.mcpConnectors.find({ _id: { $in: ids }, userId }).toArray();
+	// Their own, plus the deployment's. An id belonging to *another person's*
+	// connector still resolves to nothing — that is the property the tests
+	// pair a positive case against — while an administrator's shared connector
+	// resolves for everybody, which is what sharing a definition means.
+	//
+	// The credential is unaffected by this widening and that is the whole
+	// design: `credentialHeaders` looks a token up by `(userId, connectorId)`,
+	// so a shared Notion connector still reaches each person's own workspace as
+	// themselves. Widening the *definition* lookup does not widen the token
+	// lookup, and the two must not be merged for convenience.
+	const connectors = await collections.mcpConnectors
+		.find({ _id: { $in: ids }, $or: [{ userId }, { scope: "deployment" }] })
+		.toArray();
 
 	const servers: ResolvedServer[] = [];
 	const needAuthorization: string[] = [];

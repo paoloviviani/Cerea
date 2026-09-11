@@ -18,16 +18,18 @@
 	import { base } from "$app/paths";
 	import IconBook from "~icons/carbon/book";
 	import IconDocument from "~icons/carbon/document";
+	import IconPlug from "~icons/carbon/plug";
 	import type { LayoutServerData } from "./$types";
 
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
 
-	// Only what exists. Connectors (site-wide MCP servers) and Published
-	// (agents and knowledge bases shared with everyone) belong here and are not
-	// built yet; a tab leading to a 404 is worse than a tab that is not there.
+	// Only what exists. Published (agents and knowledge bases shared with
+	// everyone) belongs here and is not built yet; a tab leading to a 404 is
+	// worse than a tab that is not there.
 	const sections = [
 		{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook },
 		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
+		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
 	];
 
 	const current = $derived(page.url.pathname);
