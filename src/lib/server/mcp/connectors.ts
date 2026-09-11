@@ -12,7 +12,12 @@ import { collections } from "$lib/server/database";
 import type { McpConnector, McpConnectorView } from "$lib/types/McpConnector";
 
 /** One connector as the client sees it. */
-export async function view(connector: McpConnector, userId: ObjectId): Promise<McpConnectorView> {
+export async function view(
+	connector: McpConnector,
+	userId: ObjectId,
+	/** Whether this caller administers the deployment. */
+	isAdmin = false
+): Promise<McpConnectorView> {
 	let connected = false;
 	if (connector.auth === "token") {
 		connected = Boolean(connector.tokenSealed);
@@ -54,19 +59,52 @@ export async function view(connector: McpConnector, userId: ObjectId): Promise<M
 		lastError: connector.lastError,
 		tools: connector.tools,
 		checkedAt: connector.checkedAt?.toISOString(),
-		source: "mine",
+		scope: connector.scope ?? "user",
+		// Using a connector and changing one are different permissions. A
+		// deployment connector renders for everybody because it is offered to
+		// them; only an administrator gets the buttons that would change it for
+		// everyone else, and that answer is computed here rather than guessed at
+		// in the component.
+		manageable: (connector.scope ?? "user") === "user" ? true : isAdmin,
 		updatedAt: connector.updatedAt.toISOString(),
 	};
 }
 
-/** Everything this person has, newest activity first. */
-export async function viewsFor(userId: ObjectId): Promise<McpConnectorView[]> {
+/**
+ * Everything this person can use: their own, plus the deployment's.
+ *
+ * Both in one list rather than two, because from the composer's point of view
+ * there is one question — which servers is this message carrying — and a
+ * second list would only re-create the base/custom split that this work
+ * removed. Whose it is stays visible as `scope`.
+ *
+ * A connector with no `scope` is one added before this existed and is treated
+ * as `user`; that is the safe direction, since the alternative would silently
+ * publish somebody's personal Notion connector to the whole deployment.
+ */
+export async function viewsFor(userId: ObjectId, isAdmin = false): Promise<McpConnectorView[]> {
 	const rows = await collections.mcpConnectors
-		.find({ userId })
+		.find({ $or: [{ userId }, { scope: "deployment" }] })
 		.sort({ updatedAt: -1 })
 		.limit(200)
 		.toArray();
-	return Promise.all(rows.map((row) => view(row, userId)));
+	return Promise.all(rows.map((row) => view(row, userId, isAdmin)));
+}
+
+/**
+ * One connector this person may *use*, or null.
+ *
+ * Wider than `ownedBy`: a deployment connector is usable by everybody, which
+ * is what signing in to one and calling it require. Changing one is a
+ * different question and `ownedBy` is still what answers it.
+ */
+export async function usableBy(id: string, userId: ObjectId): Promise<McpConnector | null> {
+	const { ObjectId: Oid } = await import("mongodb");
+	if (!Oid.isValid(id)) return null;
+	return collections.mcpConnectors.findOne({
+		_id: new Oid(id),
+		$or: [{ userId }, { scope: "deployment" }],
+	});
 }
 
 /**
@@ -75,8 +113,19 @@ export async function viewsFor(userId: ObjectId): Promise<McpConnectorView[]> {
  * Null for both "no such connector" and "not yours", deliberately: telling
  * those apart confirms that somebody else's connector exists.
  */
-export async function ownedBy(id: string, userId: ObjectId): Promise<McpConnector | null> {
+export async function ownedBy(
+	id: string,
+	userId: ObjectId,
+	isAdmin = false
+): Promise<McpConnector | null> {
 	const { ObjectId: Oid } = await import("mongodb");
 	if (!Oid.isValid(id)) return null;
-	return collections.mcpConnectors.findOne({ _id: new Oid(id), userId });
+	const connector = await collections.mcpConnectors.findOne({ _id: new Oid(id) });
+	if (!connector) return null;
+	// A deployment connector is an administrator's to change, whoever added it.
+	// A personal one is its owner's and nobody else's — including an
+	// administrator's, because "I administer this deployment" is not "I may
+	// edit your private Notion credential".
+	if ((connector.scope ?? "user") === "deployment") return isAdmin ? connector : null;
+	return connector.userId.equals(userId) ? connector : null;
 }
