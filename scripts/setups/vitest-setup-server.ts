@@ -1,3 +1,9 @@
+// Connector credentials are sealed with this (ADR 0064), and the suite should
+// not depend on whoever runs it having exported one. A fixed throwaway value:
+// the tests assert that sealing round-trips and rejects tampering, not that
+// any particular key is secret.
+process.env.CHAT_SECRET_KEY ||= "vitest-only-connector-sealing-key";
+
 import { vi, afterAll } from "vitest";
 import dotenv from "dotenv";
 import { resolve } from "path";

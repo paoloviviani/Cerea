@@ -8,6 +8,7 @@ import "aws4";
 import "@aws-sdk/credential-providers";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Project } from "$lib/types/Project";
+import type { McpConnector, McpOauthPending, McpToken } from "$lib/types/McpConnector";
 import type { SharedConversation } from "$lib/types/SharedConversation";
 import type { AbortedGeneration } from "$lib/types/AbortedGeneration";
 import type { Generation, GenerationEvent } from "$lib/types/Generation";
@@ -155,6 +156,13 @@ export class Database {
 		// create reads the project back immediately, and secondary lag there
 		// shows as a 404 on a project that does exist.
 		const projects = db.collection<Project>("projects");
+		// Connector definitions, one person's authorisations, and in-flight
+		// flows (ADR 0064). Primary read preference throughout: a callback
+		// reads back the state it just wrote, and secondary lag there is an
+		// expired sign-in for something that worked.
+		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
+		const mcpTokens = db.collection<McpToken>("mcpTokens");
+		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
 
 		// Collections with secondaryPreferred - heavy reads, can tolerate slight replication lag
@@ -174,6 +182,9 @@ export class Database {
 		return {
 			conversations,
 			projects,
+			mcpConnectors,
+			mcpTokens,
+			mcpOauthPending,
 			conversationStats,
 			assistants,
 			reports,
@@ -206,6 +217,9 @@ export class Database {
 		const {
 			conversations,
 			projects,
+			mcpConnectors,
+			mcpTokens,
+			mcpOauthPending,
 			conversationStats,
 			assistants,
 			reports,
@@ -250,6 +264,24 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for conversations by messageId and ancestors")
 			);
+		mcpConnectors
+			.createIndex({ userId: 1, updatedAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for mcpConnectors by userId"));
+		// One authorisation per person per connector, and the uniqueness is the
+		// point rather than an optimisation: two rows would mean two tokens and
+		// no rule for which one a call uses.
+		mcpTokens
+			.createIndex({ connectorId: 1, userId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for mcpTokens"));
+		mcpOauthPending
+			.createIndex({ state: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for mcpOauthPending by state"));
+		// A TTL, so an abandoned consent screen does not leave a usable state
+		// behind. `expiresAfterSeconds: 0` means "when the date in the field
+		// passes", which is what the flow already sets.
+		mcpOauthPending
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for mcpOauthPending"));
 		projects
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for projects by userId"));
