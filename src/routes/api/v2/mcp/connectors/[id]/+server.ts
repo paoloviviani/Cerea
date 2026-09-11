@@ -11,7 +11,8 @@ import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
 import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
-import { ownedBy, view } from "$lib/server/mcp/connectors";
+import { ownedBy, usableBy, view } from "$lib/server/mcp/connectors";
+import { callerIdentity } from "$lib/server/admin";
 import { credentialHeaders } from "$lib/server/mcp/selection";
 import { listTools } from "$lib/server/mcp/health";
 import { seal } from "$lib/server/mcp/secretBox";
@@ -57,19 +58,38 @@ function requireUser(locals: App.Locals) {
 
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const user = requireUser(locals);
-	const connector = await ownedBy(params.id as string, user._id);
+	// Usable, not owned: a deployment connector is readable by everybody it
+	// is offered to, which is what a row needs in order to render.
+	const connector = await usableBy(params.id as string, user._id);
 	if (!connector) error(404, "No such connector.");
-	return json(await view(connector, user._id));
+	const identity = await callerIdentity(locals);
+	return json(await view(connector, user._id, identity?.isAdmin ?? false));
 };
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const user = requireUser(locals);
-	const connector = await ownedBy(params.id as string, user._id);
-	if (!connector) error(404, "No such connector.");
 
 	const parsed = body.safeParse(await request.json());
 	if (!parsed.success) error(400, "Say which action.");
 	const { action, next } = parsed.data;
+
+	// Two different permissions, and conflating them was the thing to get right
+	// here. **Using** a connector — signing in to it, checking it, disconnecting
+	// your own token — is open to everybody it is offered to. **Changing** one —
+	// its URL, its credentials, its existence — belongs to whoever owns it, and
+	// for a deployment connector that is an administrator, because the change
+	// lands on everybody else's requests too.
+	const identity = await callerIdentity(locals);
+	const isAdmin = identity?.isAdmin ?? false;
+	const changes = action === "update" || action === "reprobe";
+	const connector = changes
+		? await ownedBy(params.id as string, user._id, isAdmin)
+		: await usableBy(params.id as string, user._id);
+	if (!connector) {
+		// 404 rather than 403 for a connector that exists but is not this
+		// person's to change: telling those apart confirms it exists.
+		error(404, "No such connector.");
+	}
 
 	if (action === "reprobe") {
 		const result = await probe(connector.url);
@@ -88,8 +108,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			update.lastError = result.reason;
 		}
 		await collections.mcpConnectors.updateOne({ _id: connector._id }, { $set: update });
-		const refreshed = await ownedBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id));
+		const refreshed = await usableBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id, isAdmin));
 	}
 
 	if (action === "check") {
@@ -121,8 +141,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 				...(result.ok ? { $unset: { lastError: "" } } : {}),
 			}
 		);
-		const refreshed = await ownedBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id));
+		const refreshed = await usableBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id, isAdmin));
 	}
 
 	if (action === "update") {
@@ -184,16 +204,16 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			{ _id: connector._id },
 			{ $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) }
 		);
-		const refreshed = await ownedBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id));
+		const refreshed = await usableBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id, isAdmin));
 	}
 
 	if (action === "disconnect") {
 		// The authorisation goes; the connector stays, so signing in again is
 		// one click rather than re-adding a URL.
 		await collections.mcpTokens.deleteMany({ connectorId: connector._id, userId: user._id });
-		const refreshed = await ownedBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id));
+		const refreshed = await usableBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id, isAdmin));
 	}
 
 	// authorize
@@ -222,7 +242,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 
 export const DELETE: RequestHandler = async ({ locals, params }) => {
 	const user = requireUser(locals);
-	const connector = await ownedBy(params.id as string, user._id);
+	const identity = await callerIdentity(locals);
+	const connector = await ownedBy(params.id as string, user._id, identity?.isAdmin ?? false);
 	if (!connector) error(404, "No such connector.");
 	// The tokens go with it. There is no polymorphic-address problem here as
 	// there is in the gateway's sharing (ADR 0062), so this is one delete each.
