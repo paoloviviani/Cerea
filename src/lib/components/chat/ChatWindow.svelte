@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import type { Message, MessageFile } from "$lib/types/Message";
 	import { onDestroy, untrack } from "svelte";
 
@@ -53,6 +52,7 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
+	import ModelPicker from "./ModelPicker.svelte";
 	import { routerExamples } from "$lib/constants/routerExamples";
 	import { mcpExamples } from "$lib/constants/mcpExamples";
 	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
@@ -138,6 +138,10 @@
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
+
+	/** The per-conversation model picker. Not `modelsOverlay`, which is the
+	    management dialog and sets the default. */
+	let pickerOpen = $state(false);
 
 	const publicConfig = usePublicConfig();
 	let canShare = $derived(
@@ -1243,13 +1247,17 @@
 								</span>
 							</span>
 						{:else if !currentModel.isRouter || !loading}
-							<!-- The model's own settings are a dialog now, so this is a button.
-							     It was a link to a page that no longer exists. -->
+							<!-- Opens the picker, not the Models dialog. This control draws a
+							     caret and sits under the composer, so it reads as "change what
+							     this chat runs on" — which is what it now does. The Models
+							     dialog is a management surface: it sets the *default* and edits
+							     per-model prompts, so reaching it from here meant the only way
+							     to move one conversation was to change every future one. -->
 							<button
 								type="button"
 								onclick={() => {
 									if (requireAuthUser()) return;
-									modelsOverlay.show(currentModel.id);
+									pickerOpen = true;
 								}}
 								class="inline-flex min-w-0 items-center gap-1 hover:underline"
 							>
@@ -1350,6 +1358,14 @@
 	/>
 	<TrackioPane items={paneItems} />
 </div>
+
+<!-- Outside the composer's wrapper on purpose: that subtree is
+     `pointer-events-none` with its own stacking, and a dialog rendered
+     inside it inherits both. Modal portals anyway, but mounting it here
+     keeps the reason visible. -->
+{#if pickerOpen}
+	<ModelPicker {models} {currentModel} onclose={() => (pickerOpen = false)} />
+{/if}
 
 <style>
 	.paste-glow {
