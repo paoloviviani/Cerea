@@ -1,4 +1,4 @@
-# Pystino Chat
+# Cerea
 
 A chat application over [Pystino](https://gitlab.linksfoundation.com/viviani/pystino),
 the gateway. **A fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui)**,
@@ -116,4 +116,6 @@ Upstream's own documentation is under [docs/source](docs/source).
 
 ## The name
 
-Likely to change.
+**Cerea** — a Turinese *modo di dire*: a historic, affectionate greeting that
+means both *buongiorno* and *arrivederci*. The gateway keeps the name Pystino;
+this app now has its own.
