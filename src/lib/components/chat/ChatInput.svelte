@@ -21,12 +21,16 @@
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import {
-		enabledServersCount,
 		selectedServerIds,
 		allMcpServers,
 		toggleServer,
 		disableAllServers,
 	} from "$lib/stores/mcpServers";
+	import {
+		enabledConnectors,
+		totalEnabledMcpCount,
+		disableAllConnectors,
+	} from "$lib/stores/mcpConnectors";
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 	import { type HfHubResource } from "$lib/utils/hfHubSearch";
 	import { HubMentionState } from "$lib/utils/hubMention.svelte";
@@ -346,9 +350,13 @@
 	// Show file upload when any mime is allowed (text always; images if multimodal)
 	let showFileUpload = $derived(mimeTypes.length > 0);
 	let showNoTools = $derived(!showFileUpload);
-	let selectedServers = $derived(
-		$allMcpServers.filter((server) => $selectedServerIds.has(server.id))
-	);
+	// Servers and connectors together, because the badge is about what this
+	// message carries and a favicon is a favicon either way. `id` stays unique
+	// across the two: one is a uuid or `base-…`, the other a Mongo id.
+	let selectedServers = $derived([
+		...$allMcpServers.filter((server) => $selectedServerIds.has(server.id)),
+		...$enabledConnectors,
+	]);
 </script>
 
 <div class="flex min-h-full flex-1 flex-col" onpaste={onPaste}>
@@ -579,7 +587,7 @@
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
 
-					{#if $enabledServersCount > 0}
+					{#if $totalEnabledMcpCount > 0}
 						<div
 							class="ml-1.5 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
 							class:grayscale={!modelSupportsTools}
@@ -612,12 +620,15 @@
 										{/if}
 									</span>
 								{/if}
-								MCP ({$enabledServersCount})
+								MCP ({$totalEnabledMcpCount})
 							</button>
 							<button
 								class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
 								aria-label="Disable all MCP servers"
-								onclick={() => disableAllServers()}
+								onclick={() => {
+									disableAllServers();
+									disableAllConnectors();
+								}}
 								type="button"
 							>
 								<CarbonClose class="size-3.5" />

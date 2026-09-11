@@ -34,6 +34,15 @@ type MessageUpdateRequestOptions = {
 	selectedMcpServerNames?: string[];
 	// Optional: pass selected MCP server configs (for custom client-defined servers)
 	selectedMcpServers?: Array<{ name: string; url: string; headers?: KeyValuePair[] }>;
+	/**
+	 * Connectors to use, by id only (ADR 0064).
+	 *
+	 * Note what is *not* here, and why that is the point: no URL and no
+	 * headers. The server looks the connector up, re-checks that this person
+	 * owns it and unseals the credential itself, so a browser that sends
+	 * somebody else's id gets a 404 rather than their token.
+	 */
+	selectedConnectorIds?: string[];
 	// User's IANA timezone (e.g. "America/New_York")
 	timezone?: string;
 	streamingMode?: StreamingMode;
@@ -73,6 +82,7 @@ export async function fetchMessageUpdates(
 		// Will be ignored server-side if unsupported
 		selectedMcpServerNames: opts.selectedMcpServerNames,
 		selectedMcpServers: opts.selectedMcpServers,
+		selectedConnectorIds: opts.selectedConnectorIds,
 		timezone: opts.timezone,
 	});
 

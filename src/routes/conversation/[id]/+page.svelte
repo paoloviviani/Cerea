@@ -25,6 +25,7 @@
 	import { v4 } from "uuid";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { enabledServers, mcpServersLoaded } from "$lib/stores/mcpServers";
+	import { enabledConnectors } from "$lib/stores/mcpConnectors";
 	import { get } from "svelte/store";
 	import { browser } from "$app/environment";
 	import { reattachStream } from "$lib/utils/reattachStream";
@@ -306,12 +307,24 @@
 					...(resumeElicitationId ? { resumeElicitationId } : {}),
 					generationId: activeGenerationId,
 					files: isRetry ? userMessage?.files : base64Files,
-					selectedMcpServerNames: $enabledServers.map((s) => s.name),
+					// Connectors go in this list too, and leaving them out was a real
+					// bug: `runMcpFlow` filters the merged server list down to these
+					// names, so a turn with one connector and no servers sent an
+					// empty array — an array, so the filter ran — and arrived with
+					// no tools at all.
+					selectedMcpServerNames: [
+						...$enabledServers.map((s) => s.name),
+						...$enabledConnectors.map((c) => c.name),
+					],
 					selectedMcpServers: $enabledServers.map((s) => ({
 						name: s.name,
 						url: s.url,
 						headers: s.headers,
 					})),
+					// Ids only. The line above sends a URL and headers because a
+					// custom server is *defined* in this browser; a connector is
+					// defined on the server, and so is its credential.
+					selectedConnectorIds: $enabledConnectors.map((c) => c.id),
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 					streamingMode,
 				},

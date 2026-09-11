@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""MCP connectors and their OAuth, against the running stack (ADR 0064).
+
+    set -a; . deploy/.env; set +a
+    ./scripts/test_connectors_live.py
+
+Adds Notion's remote MCP server as a connector and drives the flow as far as a
+machine can: discovery finds its authorization server, dynamic client
+registration gets us a client id, and the authorize URL comes back pointing at
+**our own** redirect URI. The last step — approving a consent screen — needs a
+person with a Notion account, and this says so rather than pretending a green
+run covers it.
+
+What it also asserts, and what the whole ADR is for: **no credential reaches
+the browser.** The connector listing carries `connected` and never a token.
+"""
+
+import os
+import re
+import sys
+
+import httpx
+
+ok = 0
+fail = 0
+
+
+def check(name: str, condition: bool, detail: str = "") -> None:
+    global ok, fail
+    if condition:
+        ok += 1
+        print(f"  ok   {name}")
+    else:
+        fail += 1
+        print(f"  FAIL {name}" + (f" — {detail}" if detail else ""))
+
+
+def ca_bundle() -> str | bool:
+    path = "deploy/tls/caddy-root.crt"
+    return path if os.path.exists(path) else True
+
+
+def base_url() -> str:
+    host = os.environ.get("PUBLIC_HOST")
+    if not host:
+        sys.exit("source deploy/.env first — PUBLIC_HOST is not set")
+    return f"https://{host}:{os.environ.get('HTTPS_PORT', '443')}"
+
+
+NOTION = "https://mcp.notion.com/mcp"
+BASE = base_url()
+CHAT = f"{BASE}/chat"
+
+
+def sign_in(client: httpx.Client) -> None:
+    r = client.get(f"{CHAT}/")
+    form = re.search(r'action="([^"]+)"', r.text)
+    if not form:
+        sys.exit(f"no login form at {CHAT}/ (status {r.status_code})")
+    client.post(
+        form.group(1).replace("&amp;", "&"),
+        data={
+            "username": os.environ["KEYCLOAK_TEST_USER"],
+            "password": os.environ["KEYCLOAK_TEST_PASSWORD"],
+            "credentialId": "",
+        },
+    )
+
+
+def main() -> int:
+    with httpx.Client(verify=ca_bundle(), follow_redirects=True, timeout=120) as c:
+        sign_in(c)
+        print("signed in as", os.environ["KEYCLOAK_TEST_USER"])
+
+        api = f"{CHAT}/api/v2/mcp/connectors"
+
+        # Start from nothing, so the run is repeatable.
+        for existing in c.get(api).json()["data"]:
+            if existing["name"].startswith("Notion live check"):
+                c.delete(f"{api}/{existing['id']}")
+
+        print("\nadding it probes the server rather than asking:")
+        r = c.post(api, json={"name": "Notion live check", "url": NOTION})
+        check("the connector was created", r.status_code == 201, r.text[:300])
+        if r.status_code != 201:
+            return 1
+        connector = r.json()
+
+        check(
+            "discovery found that it wants OAuth",
+            connector["auth"] == "oauth",
+            f"it reported auth={connector['auth']}: {connector.get('lastError')}",
+        )
+        check(
+            "and named its authorization server",
+            connector.get("issuer") == "https://mcp.notion.com",
+            str(connector.get("issuer")),
+        )
+        check(
+            "so a sign-in can be offered",
+            connector["canAuthorize"] is True,
+            "no registration endpoint was discovered",
+        )
+        check("nobody is connected yet", connector["connected"] is False)
+
+        print("\nno credential reaches the browser:")
+        body = r.text
+        for leaked in ("tokenSealed", "clientSecret", "accessToken", "refreshToken"):
+            check(f"`{leaked}` is not in the response", leaked not in body)
+
+        print("\nstarting a sign-in registers us and builds the URL:")
+        r = c.post(
+            f"{api}/{connector['id']}",
+            json={"action": "authorize", "next": "/chat/"},
+        )
+        check("authorize returned a URL", r.status_code == 200, r.text[:300])
+        if r.status_code != 200:
+            return 1
+        authorize = r.json()["authorizeUrl"]
+        parsed = httpx.URL(authorize)
+        params = dict(parsed.params)
+
+        check(
+            "it points at Notion's authorization endpoint",
+            str(parsed).startswith("https://mcp.notion.com/authorize"),
+            str(parsed)[:120],
+        )
+        check(
+            "the redirect URI is ours, not a localhost",
+            params.get("redirect_uri") == f"{BASE}/chat/mcp/callback",
+            f"redirect_uri={params.get('redirect_uri')}",
+        )
+        check("PKCE S256", params.get("code_challenge_method") == "S256")
+        check("a code challenge is present", len(params.get("code_challenge", "")) > 20)
+        # The MCP server's canonical URI, not its issuer's origin: RFC 8707 is
+        # about naming the resource the token is *for*, and one authorization
+        # server can front several. Asserted here because getting it wrong is
+        # invisible until a provider starts checking the audience.
+        check(
+            "the RFC 8707 resource indicator names the server",
+            params.get("resource") == NOTION,
+            f"resource={params.get('resource')}",
+        )
+        check("a state was issued", len(params.get("state", "")) > 20)
+        check(
+            "a client id was obtained by registration",
+            bool(params.get("client_id")),
+            "no client_id — dynamic registration did not happen",
+        )
+
+        print("\nthe callback refuses what it should:")
+        r = c.get(f"{CHAT}/mcp/callback?state=not-one-we-issued&code=x")
+        check(
+            "an unknown state does not connect anything",
+            "mcp=failed" in str(r.url),
+            f"landed on {r.url}",
+        )
+        still = c.get(f"{api}/{connector['id']}").json()
+        check("and the connector is still unconnected", still["connected"] is False)
+
+        print("\ncleanup")
+        r = c.delete(f"{api}/{connector['id']}")
+        check("removed", r.status_code == 204, str(r.status_code))
+
+        print(f"\n{ok} ok, {fail} failed")
+        print(
+            "\nTo finish it by hand: open the Connectors section of the MCP dialog,\n"
+            "add https://mcp.notion.com/mcp, and press Sign in. Approving the\n"
+            "consent screen is the one step no script can do."
+        )
+    return 1 if fail else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
