@@ -60,7 +60,7 @@ export async function renderWithPlaywright(url: string): Promise<FetchedPage> {
 		// from whatever the last person asked for. Two people fetching the same
 		// site must not share a session.
 		const context = await browser.newContext({
-			userAgent: "Pystino-Chat-Fetcher/1.0",
+			userAgent: "Cerea-Chat-Fetcher/1.0",
 			javaScriptEnabled: true,
 		});
 		const pageHandle = await context.newPage();
