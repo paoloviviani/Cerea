@@ -3,14 +3,15 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import ServerCard from "./ServerCard.svelte";
 	import AddServerForm from "./AddServerForm.svelte";
+	import ConnectorsSection from "./ConnectorsSection.svelte";
 	import {
 		allMcpServers,
 		selectedServerIds,
-		enabledServersCount,
 		addCustomServer,
 		refreshMcpServers,
 		healthCheckServer,
 	} from "$lib/stores/mcpServers";
+	import { totalEnabledMcpCount } from "$lib/stores/mcpConnectors";
 	import type { KeyValuePair } from "$lib/types/Tool";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconRefresh from "~icons/carbon/renew";
@@ -31,7 +32,7 @@
 
 	const baseServers = $derived($allMcpServers.filter((s) => s.type === "base"));
 	const customServers = $derived($allMcpServers.filter((s) => s.type === "custom"));
-	const enabledCount = $derived($enabledServersCount);
+	const enabledCount = $derived($totalEnabledMcpCount);
 
 	function handleAddServer(serverData: { name: string; url: string; headers?: KeyValuePair[] }) {
 		addCustomServer(serverData);
@@ -120,6 +121,12 @@
 				</div>
 			</div>
 			<div class="space-y-5">
+				<!-- Connectors: remote servers with OAuth or a server-side token
+				     (ADR 0064). First, because it is the half that works for the
+				     servers people actually have, and the custom-server form
+				     below is the one whose credential handling it replaces. -->
+				<ConnectorsSection />
+
 				<!-- Base Servers -->
 				{#if baseServers.length > 0}
 					<div>

@@ -23,6 +23,7 @@ import { addSibling } from "$lib/utils/tree/addSibling.js";
 import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
 import { indexConversation } from "$lib/server/projects";
+import { resolveSelection, withoutClientCredentials } from "$lib/server/mcp/selection";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
@@ -173,6 +174,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		generationId,
 		selectedMcpServerNames,
 		selectedMcpServers,
+		selectedConnectorIds,
 		timezone,
 	} = z
 		.object({
@@ -190,6 +192,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			/** Continue the tool call a durable elicitation parked, before generating. */
 			resumeElicitationId: z.optional(z.string().uuid()),
 			selectedMcpServerNames: z.optional(z.array(z.string())),
+			/**
+			 * Connectors this person picked, by id (ADR 0064). The URL and the
+			 * credential are read server-side; the browser holds neither.
+			 */
+			selectedConnectorIds: z.optional(z.array(z.string().max(64))),
 			selectedMcpServers: z
 				.optional(
 					z.array(
@@ -217,21 +224,58 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		})
 		.parse(JSON.parse(json));
 
-	// Attach MCP selection to locals so the text generation pipeline can consume it
+	// Attach MCP selection to locals so the text generation pipeline can consume it.
+	//
+	// Connectors are resolved here, server-side, with this person's own
+	// credential (ADR 0064). Anything the client sent about an ad-hoc server
+	// keeps its URL and **loses its headers**: a credential the browser
+	// supplies is a credential the browser holds, which is the defect
+	// connectors exist to close.
 	try {
+		const resolved = locals.user
+			? await resolveSelection({
+					connectorIds: selectedConnectorIds ?? [],
+					userId: locals.user._id,
+				})
+			: { servers: [], needAuthorization: [] };
+
+		if (resolved.needAuthorization.length > 0) {
+			// Left out rather than called without a token: a 401 would reach the
+			// model as "that tool failed" and the person would get an answer
+			// shaped by a missing capability instead of a prompt to sign in.
+			logger.info(
+				{ connectors: resolved.needAuthorization },
+				"mcp_connector_not_authorized: left out of this turn"
+			);
+		}
+
 		(locals as unknown as Record<string, unknown>).mcp = {
 			selectedServerNames: selectedMcpServerNames,
-			selectedServers: (selectedMcpServers ?? []).map((s) => ({
-				name: s.name,
-				url: s.url,
-				headers:
-					s.headers && s.headers.length > 0
-						? Object.fromEntries(s.headers.map((h) => [h.key, h.value]))
-						: undefined,
-			})),
+			selectedServers: [
+				...withoutClientCredentials(
+					(selectedMcpServers ?? []).map((s) => ({
+						name: s.name,
+						url: s.url,
+						headers:
+							s.headers && s.headers.length > 0
+								? Object.fromEntries(s.headers.map((h) => [h.key, h.value]))
+								: undefined,
+					}))
+				),
+				// Connectors **last**, because `runMcpFlow` deduplicates by name
+				// and the later entry wins. Two of these can share a name — a
+				// connector called "Notion" beside a stale custom server of the
+				// same name in somebody's localStorage — and the one that must
+				// survive is the one carrying a credential this browser never
+				// held.
+				...resolved.servers,
+			],
 		};
-	} catch {
-		// ignore attachment errors, pipeline will just use env servers
+	} catch (err) {
+		// The pipeline falls back to the environment's servers. Logged rather
+		// than swallowed: a connector silently absent is the hardest version of
+		// this to debug.
+		logger.warn({ err }, "mcp_selection_failed");
 	}
 
 	// Attach user timezone so the tool prompt can include localized time

@@ -53,7 +53,7 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import { enabledServersCount } from "$lib/stores/mcpServers";
+	import { totalEnabledMcpCount } from "$lib/stores/mcpConnectors";
 	import MCPServerManager from "./mcp/MCPServerManager.svelte";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
@@ -237,11 +237,11 @@
 		<button onclick={() => (showAgentsModal = true)} class={ROW}> Agents </button>
 		<button onclick={() => (showMcpModal = true)} class={ROW}>
 			MCP Servers
-			{#if $enabledServersCount > 0}
+			{#if $totalEnabledMcpCount > 0}
 				<span
 					class="ml-auto rounded-md bg-blue-600/10 px-1.5 py-0.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
 				>
-					{$enabledServersCount}
+					{$totalEnabledMcpCount}
 				</span>
 			{/if}
 		</button>
