@@ -1,7 +1,7 @@
 {
 	"background_color": "#ffffff",
-	"name": "ChatUI",
-	"short_name": "ChatUI",
+	"name": "Cerea",
+	"short_name": "Cerea",
 	"display": "standalone",
 	"start_url": "/chat",
 	"icons": [

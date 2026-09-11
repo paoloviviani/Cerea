@@ -47,7 +47,7 @@ export type Probe =
 	| { auth: "unknown"; reason: string };
 
 /** Browser-ish, because some providers filter on the agent. */
-const AGENT = "Mozilla/5.0 (compatible; Pystino MCP client)";
+const AGENT = "Mozilla/5.0 (compatible; Cerea MCP client)";
 
 async function json(url: string): Promise<Record<string, unknown> | null> {
 	try {

@@ -20,7 +20,7 @@ export async function fetchDirect(url: string): Promise<FetchedPage> {
 	}
 
 	const response = await ssrfSafeFetch(url, {
-		headers: { "user-agent": "Pystino-Chat-Fetcher/1.0" },
+		headers: { "user-agent": "Cerea-Chat-Fetcher/1.0" },
 		signal: AbortSignal.timeout(TIMEOUT_MS),
 	});
 	if (!response.ok) {

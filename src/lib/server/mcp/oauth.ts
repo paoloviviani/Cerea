@@ -79,7 +79,7 @@ export async function register(connector: McpConnector): Promise<McpRegistration
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
-			client_name: config.PUBLIC_APP_NAME || "Pystino Chat",
+			client_name: config.PUBLIC_APP_NAME || "Cerea",
 			redirect_uris: [redirectUri()],
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
