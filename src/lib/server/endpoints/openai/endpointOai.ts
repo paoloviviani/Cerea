@@ -153,7 +153,6 @@ export async function endpointOai(
 				body: { ...body, ...extraBody },
 				headers: {
 					"ChatUI-Conversation-ID": conversationId?.toString() ?? "",
-					"X-use-cache": "false",
 					...(config.USE_USER_TOKEN === "true" && locals?.token
 						? { Authorization: `Bearer ${locals.token}` }
 						: {}),
@@ -255,7 +254,6 @@ export async function endpointOai(
 						body: { ...body, ...extraBody },
 						headers: {
 							"ChatUI-Conversation-ID": conversationId?.toString() ?? "",
-							"X-use-cache": "false",
 							...(config.USE_USER_TOKEN === "true" && locals?.token
 								? { Authorization: `Bearer ${locals.token}` }
 								: {}),
@@ -273,7 +271,6 @@ export async function endpointOai(
 						body: { ...body, ...extraBody },
 						headers: {
 							"ChatUI-Conversation-ID": conversationId?.toString() ?? "",
-							"X-use-cache": "false",
 							...(config.USE_USER_TOKEN === "true" && locals?.token
 								? { Authorization: `Bearer ${locals.token}` }
 								: {}),
