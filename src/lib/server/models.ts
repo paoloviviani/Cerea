@@ -476,10 +476,21 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 	}
 };
 
-// Skip the initial fetch during `vite build`: SvelteKit's analyse phase imports this
-// module, and hitting the live router from CI builds fails on rate limits (429).
-// The model list is built once at server startup; new models appear on redeploy.
-if (!building) {
+/**
+ * Rebuild the catalogue and publish it.
+ *
+ * `models`, `defaultModel`, `taskModel` and `validModelIdSchema` are
+ * `export let`, and ESM exports are *live bindings* — reassigning them here is
+ * seen by every module that imported them. That is what makes a refresh
+ * possible at all without touching the twenty files that import `models`.
+ *
+ * **A failed rebuild keeps the catalogue that is in force.** The old list is
+ * stale, and stale is very much better than empty: emptying it would take every
+ * model away from every user, turn `defaultModel` undefined, and make
+ * `validModelIdSchema` reject the model the conversation is already on. A
+ * gateway blip must not do that.
+ */
+const publishModels = async (): Promise<void> => {
 	const startedAt = Date.now();
 	const newModels = await buildModels();
 	if (newModels.length === 0) {
@@ -491,11 +502,79 @@ if (!building) {
 	defaultModel = models[0];
 	taskModel = resolveTaskModel(models);
 	validModelIdSchema = createValidModelIdSchema(models);
+	builtAt = Date.now();
 
 	logger.info(
 		{ total: models.length, durationMs: Date.now() - startedAt },
 		"[models] Model cache built"
 	);
+};
+
+let builtAt = 0;
+let rebuilding: Promise<void> | null = null;
+
+/**
+ * How long a catalogue is trusted before the next read rebuilds it.
+ *
+ * This used to be forever — "the model list is built once at server startup;
+ * new models appear on redeploy" — which was defensible when a model was a
+ * deployment-level fact an operator added. It stopped being defensible when
+ * users gained the ability to *create* one: an agent made in the Agents dialog
+ * did not exist in the catalogue, so it was missing from the model list, could
+ * not be validated, and could not be chosen — while an agent created before the
+ * last restart stayed listed for everybody. Two dialogs describing the same
+ * thing disagreed, and neither was wrong about what it could see.
+ *
+ * A minute rather than seconds: creating an agent is a deliberate act followed
+ * by going to use it, so a short wait is tolerable, and the rebuild costs one
+ * request to the gateway plus the override merge. Rebuilding per request would
+ * put a round trip in front of every page load for a list that changes hourly
+ * at most.
+ */
+const MODEL_TTL_MS = 60_000;
+
+/**
+ * The catalogue, rebuilt if it has gone stale.
+ *
+ * Concurrent callers share one rebuild: without the in-flight promise, a burst
+ * of page loads after the TTL expires would each start their own fetch and the
+ * last to finish would win, which is both wasteful and a way to publish an
+ * older answer than one already published.
+ *
+ * Callers that simply want to *read* the catalogue should keep importing
+ * `models` directly. This exists for the paths that must not miss something
+ * created a moment ago — listing what a person may choose, and resolving what
+ * they just chose.
+ */
+export const ensureModelsFresh = async (): Promise<ProcessedModel[]> => {
+	if (building) return models;
+	if (Date.now() - builtAt < MODEL_TTL_MS) return models;
+	if (!rebuilding) {
+		rebuilding = publishModels()
+			.catch((error) => {
+				// Deliberately swallowed: see `publishModels`. Logged once per
+				// failed attempt rather than per waiting caller.
+				logger.warn(error, "[models] Refresh failed; keeping the catalogue in force");
+				// Back off for a full TTL rather than retrying on every request
+				// while the gateway is down.
+				builtAt = Date.now();
+			})
+			.finally(() => {
+				rebuilding = null;
+			});
+	}
+	await rebuilding;
+	return models;
+};
+
+// Skip the initial fetch during `vite build`: SvelteKit's analyse phase imports this
+// module, and hitting the live router from CI builds fails on rate limits (429).
+//
+// The startup build still throws on failure, unlike a later refresh: a worker
+// that has never had a catalogue has nothing to fall back on, and coming up
+// with an empty model list would be a silent outage rather than a loud one.
+if (!building) {
+	await publishModels();
 }
 
 export const validateModel = (_models: BackendModel[]) => {
