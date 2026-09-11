@@ -32,7 +32,6 @@
 		type VectorStore,
 	} from "$lib/gateway";
 	import IconAddLarge from "~icons/carbon/add-large";
-	import IconRefresh from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconShare from "~icons/carbon/share";
@@ -62,7 +61,6 @@
 	let models = $state<ModelCard[]>([]);
 	let groups = $state<BillableGroup[]>([]);
 	let loading = $state(true);
-	let refreshing = $state(false);
 	let failure = $state<string | null>(null);
 	let notice = $state<string | null>(null);
 	let busy = $state(false);
@@ -99,16 +97,6 @@
 			if (found) void openDetail(found);
 		})
 	);
-
-	async function refresh() {
-		if (refreshing) return;
-		refreshing = true;
-		try {
-			await load();
-		} finally {
-			refreshing = false;
-		}
-	}
 
 	// ---- the form, for create and for edit ---------------------------------
 	//
@@ -304,10 +292,6 @@
 					</div>
 				</div>
 				<div class="flex gap-2">
-					<button onclick={refresh} disabled={refreshing} class={s.SECONDARY}>
-						<IconRefresh class="size-4 {refreshing ? 'animate-spin' : ''}" />
-						{refreshing ? "Refreshing…" : "Refresh"}
-					</button>
 					<button onclick={() => openForm(null)} disabled={models.length === 0} class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
 						New agent
