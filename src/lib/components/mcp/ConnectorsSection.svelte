@@ -47,6 +47,22 @@
 	let name = $state("");
 	let url = $state("");
 	let token = $state("");
+	let tokenHeader = $state("");
+	let authMode = $state<"auto" | "none" | "token" | "oauth_static">("auto");
+	let clientId = $state("");
+	let clientSecret = $state("");
+
+	/** Which row has its credentials form open, and what is in it. */
+	let credentialsFor = $state<string | null>(null);
+	let rowClientId = $state("");
+	let rowClientSecret = $state("");
+
+	// Shown so somebody registering a client by hand can copy it. Built here
+	// rather than fetched: it is the same value the server derives from
+	// PUBLIC_ORIGIN, and a round trip to display a constant is silly.
+	const redirectUri = $derived(
+		typeof window === "undefined" ? "" : `${window.location.origin}${base}/mcp/callback`
+	);
 
 	// The callback comes back with `?mcp=connected|failed`, so a person who has
 	// just approved a consent screen is told it worked rather than having to
@@ -100,12 +116,35 @@
 				json({
 					name: name.trim(),
 					url: url.trim(),
-					...(token.trim() ? { token: token.trim() } : {}),
+					authMode,
+					...(authMode === "token"
+						? {
+								token: token.trim(),
+								...(tokenHeader.trim()
+									? {
+											tokenHeader: tokenHeader.trim(),
+											// An `X-API-Key` takes the value bare; only
+											// `Authorization` conventionally wants a scheme.
+											tokenPrefix: /^authorization$/i.test(tokenHeader.trim()) ? "Bearer " : "",
+										}
+									: {}),
+							}
+						: {}),
+					...(authMode === "oauth_static"
+						? {
+								clientId: clientId.trim(),
+								...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}),
+							}
+						: {}),
 				})
 			);
 			name = "";
 			url = "";
 			token = "";
+			tokenHeader = "";
+			clientId = "";
+			clientSecret = "";
+			authMode = "auto";
 			adding = false;
 			await load();
 		} catch (err) {
@@ -128,6 +167,31 @@
 			window.location.href = authorizeUrl;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			busy = false;
+		}
+	}
+
+	async function saveCredentials(event: SubmitEvent, connector: McpConnectorView) {
+		event.preventDefault();
+		if (!rowClientId.trim()) return;
+		busy = true;
+		failure = null;
+		try {
+			await api(
+				`/connectors/${connector.id}`,
+				json({
+					action: "update",
+					clientId: rowClientId.trim(),
+					...(rowClientSecret.trim() ? { clientSecret: rowClientSecret.trim() } : {}),
+				})
+			);
+			rowClientId = "";
+			rowClientSecret = "";
+			credentialsFor = null;
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not save those credentials.";
+		} finally {
 			busy = false;
 		}
 	}
@@ -231,23 +295,87 @@
 				</label>
 			</div>
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-gray-700 dark:text-gray-300">
-					Token <span class="font-normal text-gray-500"
-						>(only if it takes one instead of OAuth)</span
-					>
-				</span>
-				<input
-					type="password"
-					autocomplete="off"
+				<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Authentication</span>
+				<select
 					class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-					bind:value={token}
+					bind:value={authMode}
 					disabled={busy}
-				/>
+				>
+					<option value="auto">Detect automatically</option>
+					<option value="none">None</option>
+					<option value="token">Token</option>
+					<option value="oauth_static">OAuth — credentials I already have</option>
+				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					Leave it empty and the server is asked how it authenticates. If it wants OAuth, a Sign in
-					button appears.
+					{#if authMode === "auto"}
+						The server is asked how it authenticates. If it wants OAuth and can register a client
+						itself, a Sign in button appears.
+					{:else if authMode === "oauth_static"}
+						For a provider that will not register a client automatically. Create one in its
+						developer settings with this redirect URI, then paste its credentials here.
+					{:else if authMode === "token"}
+						A static key or token. It is sealed on the server — it never returns to this browser.
+					{:else}
+						No credential is sent.
+					{/if}
 				</span>
 			</label>
+
+			{#if authMode === "token"}
+				<div class="flex flex-wrap gap-2">
+					<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Token</span>
+						<input
+							type="password"
+							autocomplete="off"
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+							bind:value={token}
+							required
+							disabled={busy}
+						/>
+					</label>
+					<label class="flex flex-1 flex-col gap-1">
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">
+							Header <span class="font-normal text-gray-500">(optional)</span>
+						</span>
+						<input
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+							placeholder="Authorization"
+							bind:value={tokenHeader}
+							disabled={busy}
+						/>
+					</label>
+				</div>
+			{:else if authMode === "oauth_static"}
+				<div class="flex flex-wrap gap-2">
+					<label class="flex flex-1 flex-col gap-1">
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Client ID</span>
+						<input
+							autocomplete="off"
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+							bind:value={clientId}
+							required
+							disabled={busy}
+						/>
+					</label>
+					<label class="flex flex-1 flex-col gap-1">
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">
+							Client secret <span class="font-normal text-gray-500">(if it has one)</span>
+						</span>
+						<input
+							type="password"
+							autocomplete="off"
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+							bind:value={clientSecret}
+							disabled={busy}
+						/>
+					</label>
+				</div>
+				<p class="text-xs text-gray-500 dark:text-gray-400">
+					Redirect URI to register with the provider:
+					<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
+				</p>
+			{/if}
 			<div class="flex justify-end gap-2">
 				<button
 					type="button"
@@ -344,6 +472,17 @@
 										? "token"
 										: "no auth"}
 							</span>
+							{#if connector.registrationSource === "static"}
+								<!-- Worth saying: it explains why Sign in works on a server
+								     that refuses to register clients, and why a re-check
+								     will not replace these credentials. -->
+								<span
+									class="text-xs text-gray-500 dark:text-gray-500"
+									title={`Client ID ${connector.clientId}`}
+								>
+									own client
+								</span>
+							{/if}
 						</div>
 
 						{#if connector.lastError}
@@ -361,12 +500,25 @@
 									disabled={busy || !connector.canAuthorize}
 									title={connector.canAuthorize
 										? "Sign in to this connector"
-										: "This server offers no way to register a client automatically"}
+										: "This server will not register a client automatically — add credentials instead"}
 									class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 								>
 									<IconLogin class="size-3" />
 									Sign in
 								</button>
+								{#if !connector.canAuthorize}
+									<!-- The way out of a dead end. A provider that does not
+									     offer RFC 7591 leaves Sign in disabled for good, and
+									     pasting a client id is what makes it usable. -->
+									<button
+										onclick={() =>
+											(credentialsFor = credentialsFor === connector.id ? null : connector.id)}
+										disabled={busy}
+										class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+									>
+										Add credentials
+									</button>
+								{/if}
 							{:else if connector.auth === "oauth"}
 								<button
 									onclick={() => act(connector, "disconnect")}
@@ -394,6 +546,45 @@
 								Remove
 							</button>
 						</div>
+
+						{#if credentialsFor === connector.id}
+							<form
+								class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+								onsubmit={(event) => saveCredentials(event, connector)}
+							>
+								<input
+									autocomplete="off"
+									placeholder="Client ID"
+									class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+									bind:value={rowClientId}
+									required
+									disabled={busy}
+								/>
+								<input
+									type="password"
+									autocomplete="off"
+									placeholder="Client secret (if it has one)"
+									class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+									bind:value={rowClientSecret}
+									disabled={busy}
+								/>
+								<p class="text-xs text-gray-500 dark:text-gray-400">
+									Register this redirect URI with the provider:
+									<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800"
+										>{redirectUri}</code
+									>
+								</p>
+								<div class="flex justify-end">
+									<button
+										type="submit"
+										disabled={busy || !rowClientId.trim()}
+										class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+									>
+										Save
+									</button>
+								</div>
+							</form>
+						{/if}
 					</div>
 				</div>
 			{/each}

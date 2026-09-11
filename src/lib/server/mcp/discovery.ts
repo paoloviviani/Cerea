@@ -28,6 +28,7 @@
  */
 
 import { logger } from "$lib/server/logger";
+import { ssrfSafeFetch } from "$lib/server/urlSafety";
 
 export interface DiscoveredOAuth {
 	issuer: string;
@@ -50,7 +51,7 @@ const AGENT = "Mozilla/5.0 (compatible; Pystino MCP client)";
 
 async function json(url: string): Promise<Record<string, unknown> | null> {
 	try {
-		const response = await fetch(url, {
+		const response = await ssrfSafeFetch(url, {
 			headers: { accept: "application/json", "user-agent": AGENT },
 			signal: AbortSignal.timeout(15_000),
 		});
@@ -101,7 +102,7 @@ export async function probe(endpoint: string): Promise<Probe> {
 		// An empty POST is enough: an MCP server answers 401 before it cares
 		// that the body is not a JSON-RPC message, and a GET is not part of
 		// the streamable-HTTP transport.
-		response = await fetch(endpoint, {
+		response = await ssrfSafeFetch(endpoint, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",

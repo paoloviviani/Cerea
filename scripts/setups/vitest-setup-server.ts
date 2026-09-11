@@ -34,6 +34,13 @@ for (const [key, value] of Object.entries(envVars)) {
 	}
 }
 
+// The OAuth redirect URI for MCP connectors is built from this, and there is
+// no request to infer it from, so a connector test without it fails on the
+// origin rather than on what it is testing. `.env` ships it empty; the value
+// here is a placeholder because what the tests assert is that the redirect URI
+// is *ours* and constant, never which host it names.
+publicEnv["PUBLIC_ORIGIN"] ||= "https://vitest.invalid";
+
 /*
  * Serve the model registry from a fixture instead of the network.
  *

@@ -238,3 +238,77 @@ describe("the bearer token for a call", () => {
 		fetchSpy.mockRestore();
 	});
 });
+
+describe("static OAuth credentials", () => {
+	/**
+	 * Why the mode exists, in one sentence: a provider that does not offer
+	 * RFC 7591 leaves `canAuthorize` false and Sign in disabled *for good*, so
+	 * without this a whole class of server cannot be used at all. These cover
+	 * the credentials being usable; the flow itself is covered above.
+	 */
+	it("seals the secret and records where the credentials came from", async () => {
+		const { staticRegistration } = await import("./oauth");
+		const { open } = await import("./secretBox");
+
+		const registration = staticRegistration({
+			clientId: "client-from-the-provider",
+			clientSecret: "the-secret",
+		});
+
+		expect(registration.clientId).toBe("client-from-the-provider");
+		expect(registration.source).toBe("static");
+		expect(registration.clientSecretSealed).toBeDefined();
+		expect(registration.clientSecretSealed).not.toContain("the-secret");
+		expect(open(registration.clientSecretSealed as string)).toBe("the-secret");
+	});
+
+	it("allows a public client, which PKCE is what protects", async () => {
+		const { staticRegistration } = await import("./oauth");
+		const registration = staticRegistration({ clientId: "public-client" });
+		expect(registration.clientSecretSealed).toBeUndefined();
+		expect(registration.source).toBe("static");
+	});
+
+	it("signs in to a server that offers no registration endpoint", async () => {
+		// The regression that matters. `beginAuthorization` registers only when
+		// a connector has none; given one it must never reach `register()`,
+		// which would throw here because there is nowhere to post.
+		const { beginAuthorization, staticRegistration } = await import("./oauth");
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const connectorId = new ObjectId();
+		const userId = new ObjectId();
+		const url = await beginAuthorization({
+			connector: {
+				_id: connectorId,
+				userId,
+				name: "No DCR here",
+				url: "https://strict.test/mcp",
+				auth: "oauth",
+				oauth: {
+					issuer: "https://strict.test",
+					authorizationEndpoint: "https://strict.test/authorize",
+					tokenEndpoint: "https://strict.test/token",
+					// Deliberately absent: no registrationEndpoint. That is the case.
+					resource: "https://strict.test/mcp",
+					supportsS256: true,
+				},
+				registration: staticRegistration({ clientId: "pasted-client" }),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+			userId,
+			sessionId: "a-session",
+		});
+
+		const params = new URL(url).searchParams;
+		expect(params.get("client_id")).toBe("pasted-client");
+		expect(params.get("code_challenge_method")).toBe("S256");
+		expect(params.get("resource")).toBe("https://strict.test/mcp");
+		// Nothing was registered, there being nothing to register with.
+		expect(fetchSpy).not.toHaveBeenCalled();
+		fetchSpy.mockRestore();
+
+		await collections.mcpOauthPending.deleteMany({ connectorId });
+	});
+});
