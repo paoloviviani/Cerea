@@ -124,10 +124,145 @@ export function selectConnector(id: string): void {
 	selectedConnectorIds.update(($ids) => new Set([...$ids, id]));
 }
 
+/**
+ * Move whatever the old UI left in `localStorage` to the server, once.
+ *
+ * Not optional and not a prompt. Those entries are the servers people are
+ * actually using, and a release that silently dropped them would be
+ * indistinguishable from data loss. The headers come across too — the sealed
+ * server-side store is a strictly better home for them than the one they are
+ * sitting in, which is the whole point of ADR 0064.
+ *
+ * Only the first credential-looking header migrates, because a connector holds
+ * one credential. A server configured with two keeps its definition and is
+ * logged, which is the honest outcome: better a connector somebody has to
+ * finish than one quietly missing a header it needs.
+ */
+const CREDENTIAL_HEADERS = [
+	"authorization",
+	"x-api-key",
+	"api-key",
+	"apikey",
+	"x-auth-token",
+	"token",
+];
+
+/** Set once the localStorage servers have been moved server-side. */
+const MIGRATED_KEY = "pystino:mcp:custom-servers-migrated";
+
+interface StoredServer {
+	name?: string;
+	url?: string;
+	headers?: { key: string; value: string }[];
+}
+
+export async function migrateCustomServers(): Promise<number> {
+	if (!browser) return 0;
+
+	let stored: StoredServer[] = [];
+	try {
+		if (localStorage.getItem(MIGRATED_KEY)) return 0;
+		// The old key was namespaced by app identity, so read every spelling of
+		// it rather than reconstructing the one this build would have used.
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (!key?.endsWith(":mcp:custom-servers")) continue;
+			const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
+			if (Array.isArray(parsed)) stored.push(...parsed);
+		}
+	} catch (error) {
+		// Not marked as migrated: a browser that could not be read today may be
+		// readable next time, and giving up silently is how the data is lost.
+		console.error("Could not read the old custom servers:", error);
+		return 0;
+	}
+
+	stored = stored.filter((s) => typeof s?.url === "string" && s.url.startsWith("https://"));
+	if (stored.length === 0) {
+		markMigrated();
+		return 0;
+	}
+
+	const existing = new Set(get(connectors).map((c) => c.url));
+	let moved = 0;
+
+	for (const server of stored) {
+		if (!server.url || existing.has(server.url)) continue;
+		const headers = server.headers?.filter((h) => h?.key && h?.value) ?? [];
+		const credential = headers.find((h) => CREDENTIAL_HEADERS.includes(h.key.toLowerCase()));
+		const extras = headers.filter((h) => h !== credential);
+
+		try {
+			const created = await addConnector({
+				name: server.name?.trim() || new URL(server.url).hostname,
+				url: server.url,
+				...(credential
+					? {
+							authMode: "token" as const,
+							// The value as stored, minus the scheme the header
+							// carries separately — a migrated `Bearer abc` must not
+							// become `Bearer Bearer abc`.
+							token: credential.value.replace(/^Bearer\s+/i, ""),
+							tokenHeader: credential.key,
+							tokenPrefix: /^authorization$/i.test(credential.key) ? "Bearer " : "",
+						}
+					: { authMode: "auto" as const }),
+			});
+			moved++;
+			// Carried over as it was: a server that was on stays on.
+			selectConnector(created.id);
+			if (extras.length > 0) {
+				console.warn(
+					`[mcp] "${created.name}" had extra headers that were not migrated:`,
+					extras.map((h) => h.key)
+				);
+			}
+		} catch (error) {
+			console.error(`[mcp] could not migrate "${server.name ?? server.url}":`, error);
+		}
+	}
+
+	markMigrated();
+	return moved;
+}
+
+function markMigrated() {
+	try {
+		localStorage.setItem(MIGRATED_KEY, new Date().toISOString());
+	} catch {
+		// A browser refusing to remember this will simply look again, which is
+		// harmless: the URL check above skips what is already a connector.
+	}
+}
+
+export interface NewConnector {
+	name: string;
+	url: string;
+	authMode?: "auto" | "none" | "token" | "oauth" | "oauth_static";
+	token?: string;
+	tokenHeader?: string;
+	tokenPrefix?: string;
+}
+
+export async function addConnector(input: NewConnector): Promise<McpConnectorView> {
+	const response = await fetch(`${base}/api/v2/mcp/connectors`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+	if (!response.ok) {
+		const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
+		throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+	}
+	const created = (await response.json()) as McpConnectorView;
+	await refreshConnectors();
+	return created;
+}
+
 // Loaded on import rather than when the dialog opens, because the composer's
 // badge has to be right before anybody opens anything. A signed-out visitor
 // gets a 401, which `refreshConnectors` treats as "none" — the same answer, and
 // not worth a special case.
 if (browser) {
-	void refreshConnectors();
+	void refreshConnectors().then(() => migrateCustomServers());
 }
