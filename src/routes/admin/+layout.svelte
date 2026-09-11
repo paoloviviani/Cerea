@@ -35,11 +35,32 @@
 	const current = $derived(page.url.pathname);
 </script>
 
-{#if !data.identity}
+<!--
+	`!isAdmin`, not `!identity`. The first version tested only whether the
+	gateway answered at all, so a signed-in non-administrator was handed the
+	whole panel and every button in it then 403'd — which is exactly the
+	experience asking the gateway was supposed to prevent. Found by
+	`scripts/test_admin_panel_live.py`, not by a unit test: the refusal depends
+	on a real answer from a real gateway.
+-->
+{#if !data.identity?.isAdmin}
 	<div class="mx-auto flex max-w-2xl flex-col gap-4 p-6">
 		<h1 class="text-xl font-semibold">Administration</h1>
 		{#if !data.signedIn}
 			<p class="text-sm text-gray-600 dark:text-gray-400">You are not signed in.</p>
+		{:else if data.identity}
+			<!-- The gateway answered and said no. Said plainly, because this is
+			     the common case and it is not an error. -->
+			<div
+				class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:border-gray-700 dark:bg-gray-800"
+			>
+				<p class="font-medium">This area is for administrators.</p>
+				<p class="mt-1 text-gray-600 dark:text-gray-400">
+					You are signed in as {data.identity.email ?? "yourself"}, and this deployment's gateway
+					does not list you as an administrator. Nothing here is hidden from you out of caution —
+					these are settings that change the chat for everybody.
+				</p>
+			</div>
 		{:else}
 			<!-- Two different problems, said apart. A bare 403 would send somebody
 			     to ask for a permission they may already have. -->
