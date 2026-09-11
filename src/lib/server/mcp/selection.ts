@@ -17,11 +17,42 @@ import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { bearerFor } from "./oauth";
+import type { McpConnector } from "$lib/types/McpConnector";
 
 export interface ResolvedServer {
 	name: string;
 	url: string;
 	headers?: Record<string, string>;
+}
+
+/**
+ * The headers that authenticate one connector, for one person.
+ *
+ * `Authorization: Bearer …` is the common case and the default, but the header
+ * name is configurable because `X-API-Key` with no prefix is what a real share
+ * of servers want — and before connectors existed that case was served by the
+ * free-form headers editor, whose values sat in `localStorage`. Migrating
+ * those without this would have meant telling people their server "isn't
+ * supported any more", which is not a migration.
+ *
+ * Returns null when there is no usable credential, which the callers treat as
+ * "needs authorising" rather than "call it bare".
+ */
+export async function credentialHeaders(options: {
+	connector: McpConnector;
+	userId: ObjectId;
+}): Promise<Record<string, string> | null> {
+	const { connector, userId } = options;
+	if (connector.auth === "none") return {};
+
+	const secret = await bearerFor({ connector, userId });
+	if (!secret) return null;
+
+	const header = connector.tokenHeader?.trim() || "Authorization";
+	// `?? "Bearer "` rather than `|| "Bearer "`: an empty prefix is a real
+	// choice (that is exactly what `X-API-Key` wants) and must survive.
+	const prefix = connector.tokenPrefix ?? "Bearer ";
+	return { [header]: `${prefix}${secret}` };
 }
 
 /**
@@ -55,15 +86,15 @@ export async function resolveSelection(options: {
 			servers.push({ name: connector.name, url: connector.url });
 			continue;
 		}
-		const bearer = await bearerFor({ connector, userId });
-		if (!bearer) {
+		const headers = await credentialHeaders({ connector, userId });
+		if (!headers) {
 			needAuthorization.push(connector.name);
 			continue;
 		}
 		servers.push({
 			name: connector.name,
 			url: connector.url,
-			headers: { Authorization: `Bearer ${bearer}` },
+			headers,
 		});
 	}
 

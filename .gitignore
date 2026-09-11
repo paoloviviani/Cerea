@@ -30,3 +30,7 @@ models/*
 
 # npm cache, when deps are installed inside a container against this tree
 .npm-cache
+
+# Container HOME for running the toolchain (no Node on this host).
+# 184 MB of mongod binary and npm logs; never part of the tree.
+.container-home/

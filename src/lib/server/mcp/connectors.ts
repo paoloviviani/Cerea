@@ -40,9 +40,21 @@ export async function view(connector: McpConnector, userId: ObjectId): Promise<M
 			connector.auth === "oauth" &&
 			Boolean(connector.oauth) &&
 			Boolean(connector.oauth?.registrationEndpoint || connector.registration),
+		// The header *name*, never its value. Somebody editing an `X-API-Key`
+		// connector has to see which header it uses, and the name is not the
+		// secret.
+		tokenHeader: connector.tokenHeader,
+		// The id, never the secret: it is already public — it travels in the
+		// authorize URL — and seeing it is how somebody confirms the connector
+		// is using the registration they pasted.
+		clientId: connector.registration?.clientId,
+		registrationSource: connector.registration?.source,
 		scopesSupported: connector.oauth?.scopesSupported,
 		issuer: connector.oauth?.issuer,
 		lastError: connector.lastError,
+		tools: connector.tools,
+		checkedAt: connector.checkedAt?.toISOString(),
+		source: "mine",
 		updatedAt: connector.updatedAt.toISOString(),
 	};
 }

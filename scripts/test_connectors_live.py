@@ -148,6 +148,56 @@ def main() -> int:
             "no client_id — dynamic registration did not happen",
         )
 
+        print("\nstatic credentials, for a provider that will not register us:")
+        # The dead end this mode exists for. Notion *does* offer DCR, so the
+        # case is built by hand: a connector created with credentials we supply
+        # must reach an authorize URL carrying exactly those.
+        r = c.post(
+            api,
+            json={
+                "name": "Notion live check static",
+                "url": NOTION,
+                "authMode": "oauth_static",
+                "clientId": "a-client-id-we-were-given",
+                "clientSecret": "a-secret-we-were-given",
+            },
+        )
+        check("a static connector was created", r.status_code == 201, r.text[:300])
+        if r.status_code == 201:
+            static = r.json()
+            check(
+                "it reports its own client rather than a registered one",
+                static.get("registrationSource") == "static",
+                f"registrationSource={static.get('registrationSource')}",
+            )
+            check(
+                "the client id is shown back, since it is not a secret",
+                static.get("clientId") == "a-client-id-we-were-given",
+                str(static.get("clientId")),
+            )
+            check(
+                "the client secret is not",
+                "a-secret-we-were-given" not in r.text,
+                "the client secret came back to the browser",
+            )
+            check("so it can be signed in to", static["canAuthorize"] is True)
+
+            r = c.post(
+                f"{api}/{static['id']}",
+                json={"action": "authorize", "next": "/chat/"},
+            )
+            check("authorize works with those credentials", r.status_code == 200, r.text[:200])
+            if r.status_code == 200:
+                params = dict(httpx.URL(r.json()["authorizeUrl"]).params)
+                check(
+                    "and carries the client id we supplied",
+                    params.get("client_id") == "a-client-id-we-were-given",
+                    f"client_id={params.get('client_id')}",
+                )
+                check("still PKCE S256", params.get("code_challenge_method") == "S256")
+
+            c.delete(f"{api}/{static['id']}")
+
         print("\nthe callback refuses what it should:")
         r = c.get(f"{CHAT}/mcp/callback?state=not-one-we-issued&code=x")
         check(
