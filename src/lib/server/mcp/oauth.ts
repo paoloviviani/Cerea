@@ -21,6 +21,16 @@
  *
  * **Tokens are sealed before they are stored.** See `secretBox.ts` for why the
  * key has no default.
+ *
+ * And every outbound call goes through `ssrfSafeFetch`, which is not optional
+ * here. The chain is attacker-influenced end to end: a URL somebody typed names
+ * a metadata document, that document names an authorization server, and we then
+ * post a client registration and later an authorization *code* to whatever it
+ * said. Plain `fetch` would make a connector a way to reach anything the
+ * container can — `https://` in the schema stops none of it, since a hostname
+ * is free to resolve into the compose network. This was written with `fetch`
+ * first and is the one thing in this file that was wrong rather than merely
+ * incomplete.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -29,6 +39,7 @@ import { base } from "$app/paths";
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import { ssrfSafeFetch } from "$lib/server/urlSafety";
 import { open, seal } from "./secretBox";
 import type { McpConnector, McpRegistration } from "$lib/types/McpConnector";
 
@@ -64,7 +75,7 @@ export async function register(connector: McpConnector): Promise<McpRegistration
 		);
 	}
 
-	const response = await fetch(endpoint, {
+	const response = await ssrfSafeFetch(endpoint, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
@@ -99,6 +110,32 @@ export async function register(connector: McpConnector): Promise<McpRegistration
 		clientSecretSealed:
 			typeof body.client_secret === "string" ? seal(body.client_secret) : undefined,
 		registeredAt: new Date(),
+		source: "dcr",
+	};
+}
+
+/**
+ * A registration somebody already holds, rather than one we asked for.
+ *
+ * Open WebUI calls this shape `oauth_2.1_static` and it exists for the same
+ * reason there: a provider is free not to offer RFC 7591 at all, and without
+ * this such a server cannot be signed in to — `canAuthorize` is false and the
+ * button is disabled, which is a dead end rather than an inconvenience.
+ *
+ * Everything else is unchanged. Metadata discovery still finds the endpoints,
+ * PKCE still protects the exchange, and the token endpoint already sends
+ * `client_secret` in the form when one is present — so a confidential client
+ * needed no new code path, only a way to say what its credentials are.
+ */
+export function staticRegistration(options: {
+	clientId: string;
+	clientSecret?: string;
+}): McpRegistration {
+	return {
+		clientId: options.clientId,
+		clientSecretSealed: options.clientSecret ? seal(options.clientSecret) : undefined,
+		registeredAt: new Date(),
+		source: "static",
 	};
 }
 
@@ -222,7 +259,7 @@ export async function completeAuthorization(options: {
 		form.client_secret = open(connector.registration.clientSecretSealed);
 	}
 
-	const response = await fetch(connector.oauth.tokenEndpoint, {
+	const response = await ssrfSafeFetch(connector.oauth.tokenEndpoint, {
 		method: "POST",
 		headers: { "content-type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams(form).toString(),
@@ -321,7 +358,7 @@ export async function bearerFor(options: {
 	}
 
 	try {
-		const response = await fetch(connector.oauth.tokenEndpoint, {
+		const response = await ssrfSafeFetch(connector.oauth.tokenEndpoint, {
 			method: "POST",
 			headers: { "content-type": "application/x-www-form-urlencoded" },
 			body: new URLSearchParams(form).toString(),

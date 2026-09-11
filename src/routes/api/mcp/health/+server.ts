@@ -1,11 +1,25 @@
-import { StreamableHTTPClientTransport, SSEClientTransport } from "@modelcontextprotocol/client";
-import type { Client } from "@modelcontextprotocol/client";
-import { createMcpClient } from "$lib/server/mcp/client";
+/**
+ * Health check for a server the client names: can we reach it, and what tools
+ * does it have?
+ *
+ * The transport dance moved to `$lib/server/mcp/health` so connectors could
+ * use it too. What stays here is what is specific to a *client-supplied*
+ * server: the Exa key injection, the HuggingFace user-token overlay, and
+ * turning a transport error into a sentence somebody can act on.
+ *
+ * One of those sentences used to be the whole story for authentication —
+ * "provide appropriate Authorization headers in the server configuration" —
+ * which is the dead end ADR 0064 exists to remove. It is still the right thing
+ * to say about an ad-hoc server typed into a form; the way out of it is to add
+ * the thing as a connector, which the message now says.
+ */
+
 import type { KeyValuePair } from "$lib/types/Tool";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import type { RequestHandler } from "./$types";
-import { isValidUrl, mcpFetch } from "$lib/server/urlSafety";
+import { isValidUrl } from "$lib/server/urlSafety";
+import { listTools } from "$lib/server/mcp/health";
 import { isStrictHfMcpLogin, hasNonEmptyToken, isExaMcpServer } from "$lib/server/mcp/hf";
 
 interface HealthCheckRequest {
@@ -15,278 +29,112 @@ interface HealthCheckRequest {
 
 interface HealthCheckResponse {
 	ready: boolean;
-	tools?: Array<{
-		name: string;
-		description?: string;
-		inputSchema?: unknown;
-	}>;
+	tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>;
 	error?: string;
 	authRequired?: boolean;
 }
 
-export const POST: RequestHandler = async ({ request, locals }) => {
-	let client: Client | undefined;
+function json(body: HealthCheckResponse, status: number): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "Content-Type": "application/json" },
+	});
+}
 
+/** Exa takes its key in the URL rather than a header. Best effort. */
+function withExaKey(url: string): string {
 	try {
-		const body: HealthCheckRequest = await request.json();
-		const { url, headers } = body;
+		const key = config.EXA_API_KEY;
+		if (!isExaMcpServer(url) || !hasNonEmptyToken(key)) return url;
+		const parsed = new URL(url);
+		if (parsed.searchParams.has("exaApiKey")) return url;
+		parsed.searchParams.set("exaApiKey", key);
+		logger.debug({}, "[MCP Health] injected Exa API key");
+		return parsed.toString();
+	} catch {
+		return url;
+	}
+}
 
-		if (!url) {
-			return new Response(JSON.stringify({ ready: false, error: "URL is required" }), {
-				status: 400,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
+/** Say what to do about a failure, rather than restating it. */
+function explain(url: string, error: string, authRequired: boolean): string {
+	if (authRequired) {
+		return (
+			"Authentication required. Add this as a connector and sign in, or give it a " +
+			"token — a credential typed in here would live in this browser."
+		);
+	}
+	if (error.includes("not valid JSON")) {
+		return (
+			"Server returned invalid response. This might not be a valid MCP endpoint. MCP " +
+			"servers should respond to POST requests at /mcp with JSON-RPC messages."
+		);
+	}
+	if (error.includes("fetch failed") || error.includes("ECONNREFUSED")) {
+		return `Cannot connect to ${url}. Please verify the server is running and accessible.`;
+	}
+	if (error.includes("CORS")) {
+		return "CORS error. The MCP server needs to allow requests from this origin.";
+	}
+	return error;
+}
 
-		// URL validation handled above
+export const POST: RequestHandler = async ({ request, locals }) => {
+	try {
+		const { url, headers }: HealthCheckRequest = await request.json();
 
+		if (!url) return json({ ready: false, error: "URL is required" }, 400);
 		if (!isValidUrl(url, { allowInsecure: true })) {
-			return new Response(
-				JSON.stringify({
-					ready: false,
-					error: "Invalid or unsafe URL (only HTTPS is supported)",
-				} as HealthCheckResponse),
-				{ status: 400, headers: { "Content-Type": "application/json" } }
-			);
+			return json({ ready: false, error: "Invalid or unsafe URL (only HTTPS is supported)" }, 400);
 		}
 
-		// Inject Exa API key for mcp.exa.ai servers via URL param
-		let finalUrl = url;
-		try {
-			const exaApiKey = config.EXA_API_KEY;
-			if (isExaMcpServer(url) && hasNonEmptyToken(exaApiKey)) {
-				const urlObj = new URL(url);
-				if (!urlObj.searchParams.has("exaApiKey")) {
-					urlObj.searchParams.set("exaApiKey", exaApiKey);
-					finalUrl = urlObj.toString();
-					logger.debug({}, "[MCP Health] injected Exa API key");
-				}
-			}
-		} catch {
-			// best-effort injection
-		}
-
-		const baseUrl = new URL(finalUrl);
-
-		// Minimal header handling
 		const headersRecord: Record<string, string> = headers?.length
 			? Object.fromEntries(headers.map((h) => [h.key, h.value]))
 			: {};
-		if (!headersRecord["Accept"]) {
-			headersRecord["Accept"] = "application/json, text/event-stream";
-		}
 
-		// If enabled, attach the logged-in user's HF token only for the official HF MCP endpoint
+		// The logged-in user's HF token, only for the official HF endpoint and
+		// only when the deployment opted in.
 		try {
-			const shouldForward = config.MCP_FORWARD_HF_USER_TOKEN === "true";
 			const userToken =
 				(locals as unknown as { hfAccessToken?: string } | undefined)?.hfAccessToken ??
 				(locals as unknown as { token?: string } | undefined)?.token;
-			const hasAuth = typeof headersRecord["Authorization"] === "string";
-			const isHfMcpTarget = isStrictHfMcpLogin(url);
-			if (shouldForward && !hasAuth && isHfMcpTarget && hasNonEmptyToken(userToken)) {
+			if (
+				config.MCP_FORWARD_HF_USER_TOKEN === "true" &&
+				typeof headersRecord["Authorization"] !== "string" &&
+				isStrictHfMcpLogin(url) &&
+				hasNonEmptyToken(userToken)
+			) {
 				headersRecord["Authorization"] = `Bearer ${userToken}`;
 			}
 		} catch {
 			// best-effort overlay
 		}
 
-		// Add an abort timeout to outbound requests (align with fetch-url: 30s)
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 30000);
-		const signal = controller.signal;
-		const requestInit: RequestInit = {
-			headers: headersRecord,
-			signal,
-		};
+		const result = await listTools(withExaKey(url), headersRecord);
 
-		let httpError: Error | undefined;
-		let lastError: Error | undefined;
-
-		// Try Streamable HTTP transport first
-		try {
-			logger.info({}, `[MCP Health] Trying HTTP transport for ${url}`);
-			client = createMcpClient("health");
-
-			const transport = new StreamableHTTPClientTransport(baseUrl, {
-				requestInit,
-				fetch: mcpFetch,
-			});
-			logger.info({}, `[MCP Health] Connecting to ${url}...`);
-			await client.connect(transport);
-			logger.info({}, `[MCP Health] Connected successfully via HTTP`);
-
-			// Connection successful, get tools
-			const toolsResponse = await client.listTools();
-
-			// Disconnect after getting tools
-			await client.close();
-
-			if (toolsResponse && toolsResponse.tools) {
-				const response: HealthCheckResponse = {
-					ready: true,
-					tools: toolsResponse.tools.map((tool) => ({
-						name: tool.name,
-						description: tool.description,
-						inputSchema: tool.inputSchema,
-					})),
-					authRequired: false,
-				};
-
-				const res = new Response(JSON.stringify(response), {
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				});
-				clearTimeout(timeoutId);
-				return res;
-			} else {
-				const res = new Response(
-					JSON.stringify({
-						ready: false,
-						error: "Connected but no tools available",
-						authRequired: false,
-					} as HealthCheckResponse),
-					{
-						status: 503,
-						headers: { "Content-Type": "application/json" },
-					}
+		if (result.ok) {
+			if (result.tools.length === 0) {
+				return json(
+					{ ready: false, error: "Connected but no tools available", authRequired: false },
+					503
 				);
-				clearTimeout(timeoutId);
-				return res;
 			}
-		} catch (error) {
-			httpError = error instanceof Error ? error : new Error(String(error));
-			lastError = httpError;
-			logger.warn({ err: lastError }, "Streamable HTTP failed, trying SSE transport...");
-
-			// Close failed client
-			try {
-				await client?.close();
-			} catch {
-				// Ignore
-			}
-
-			// Try SSE transport
-			try {
-				logger.info({}, `[MCP Health] Trying SSE transport for ${url}`);
-				client = createMcpClient("health");
-
-				const sseTransport = new SSEClientTransport(baseUrl, {
-					requestInit,
-					fetch: mcpFetch,
-				});
-				logger.info({}, `[MCP Health] Connecting via SSE...`);
-				await client.connect(sseTransport);
-				logger.info({}, `[MCP Health] Connected successfully via SSE`);
-
-				// Connection successful, get tools
-				const toolsResponse = await client.listTools();
-
-				// Disconnect after getting tools
-				await client.close();
-
-				if (toolsResponse && toolsResponse.tools) {
-					const response: HealthCheckResponse = {
-						ready: true,
-						tools: toolsResponse.tools.map((tool) => ({
-							name: tool.name,
-							description: tool.description,
-							inputSchema: tool.inputSchema,
-						})),
-						authRequired: false,
-					};
-
-					const res = new Response(JSON.stringify(response), {
-						status: 200,
-						headers: { "Content-Type": "application/json" },
-					});
-					clearTimeout(timeoutId);
-					return res;
-				} else {
-					const res = new Response(
-						JSON.stringify({
-							ready: false,
-							error: "Connected but no tools available",
-							authRequired: false,
-						} as HealthCheckResponse),
-						{
-							status: 503,
-							headers: { "Content-Type": "application/json" },
-						}
-					);
-					clearTimeout(timeoutId);
-					return res;
-				}
-			} catch (sseError) {
-				lastError = sseError instanceof Error ? sseError : new Error(String(sseError));
-				// Prefer the HTTP error when both failed so UI shows the primary failure (e.g., HTTP 500) instead
-				// of the fallback SSE message.
-				if (httpError) {
-					lastError = new Error(
-						`HTTP transport failed: ${httpError.message}; SSE fallback failed: ${lastError.message}`,
-						{ cause: sseError instanceof Error ? sseError : undefined }
-					);
-				}
-				logger.error(lastError, "Both transports failed.");
-			}
+			return json({ ready: true, tools: result.tools, authRequired: false }, 200);
 		}
 
-		// Both transports failed
-		let errorMessage = lastError?.message || "Failed to connect to MCP server";
-
-		// Detect unauthorized to signal auth requirement
-		const lower = (errorMessage || "").toLowerCase();
-		const authRequired =
-			lower.includes("unauthorized") ||
-			lower.includes("forbidden") ||
-			lower.includes("401") ||
-			lower.includes("403");
-
-		// Provide more helpful error messages
-		if (authRequired) {
-			errorMessage =
-				"Authentication required. Provide appropriate Authorization headers in the server configuration.";
-		} else if (errorMessage.includes("not valid JSON")) {
-			errorMessage =
-				"Server returned invalid response. This might not be a valid MCP endpoint. MCP servers should respond to POST requests at /mcp with JSON-RPC messages.";
-		} else if (errorMessage.includes("fetch failed") || errorMessage.includes("ECONNREFUSED")) {
-			errorMessage = `Cannot connect to ${url}. Please verify the server is running and accessible.`;
-		} else if (errorMessage.includes("CORS")) {
-			errorMessage = `CORS error. The MCP server needs to allow requests from this origin.`;
-		}
-
-		const res = new Response(
-			JSON.stringify({
-				ready: false,
-				error: errorMessage,
-				authRequired,
-			} as HealthCheckResponse),
+		return json(
 			{
-				status: 503,
-				headers: { "Content-Type": "application/json" },
-			}
+				ready: false,
+				error: explain(url, result.error, result.authRequired),
+				authRequired: result.authRequired,
+			},
+			503
 		);
-		clearTimeout(timeoutId);
-		return res;
 	} catch (error) {
 		logger.error(error, "MCP health check failed");
-
-		// Clean up client if it exists
-		try {
-			await client?.close();
-		} catch {
-			// Ignore
-		}
-
-		const response: HealthCheckResponse = {
-			ready: false,
-			error: error instanceof Error ? error.message : "Unknown error",
-		};
-
-		const res = new Response(JSON.stringify(response), {
-			status: 503,
-			headers: { "Content-Type": "application/json" },
-		});
-		return res;
+		return json(
+			{ ready: false, error: error instanceof Error ? error.message : "Unknown error" },
+			503
+		);
 	}
 };

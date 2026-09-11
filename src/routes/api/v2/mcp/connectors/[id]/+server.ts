@@ -10,14 +10,44 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
-import { beginAuthorization } from "$lib/server/mcp/oauth";
+import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
 import { ownedBy, view } from "$lib/server/mcp/connectors";
+import { credentialHeaders } from "$lib/server/mcp/selection";
+import { listTools } from "$lib/server/mcp/health";
+import { seal } from "$lib/server/mcp/secretBox";
 import { logger } from "$lib/server/logger";
 
 const body = z.object({
-	action: z.enum(["authorize", "reprobe", "disconnect"]),
+	action: z.enum(["authorize", "reprobe", "disconnect", "check", "update"]),
 	/** Where to land after a sign-in, within this app. */
 	next: z.string().max(512).optional(),
+
+	// `update` only. Each is optional because editing a name should not
+	// require resending a credential — and an absent `token` therefore means
+	// "leave it alone", never "clear it".
+	name: z.string().trim().min(1).max(128).optional(),
+	url: z
+		.string()
+		.trim()
+		.url()
+		.startsWith("https://", "a connector must be served over HTTPS")
+		.optional(),
+	token: z.string().trim().min(1).optional(),
+	tokenHeader: z.string().trim().max(128).optional(),
+	tokenPrefix: z.string().max(32).optional(),
+	/** Explicitly drop the stored token, which `token: undefined` does not. */
+	clearToken: z.boolean().optional(),
+	/**
+	 * Static OAuth credentials, settable after the fact.
+	 *
+	 * This is the recovery path and the reason `update` carries them: a
+	 * connector whose provider offers no `registration_endpoint` is created
+	 * with `canAuthorize: false` and a disabled button, and pasting a client id
+	 * here is what turns it into something that can be signed in to — without
+	 * re-typing the URL or losing the row.
+	 */
+	clientId: z.string().trim().min(1).max(512).optional(),
+	clientSecret: z.string().trim().min(1).max(2048).optional(),
 });
 
 function requireUser(locals: App.Locals) {
@@ -58,6 +88,102 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			update.lastError = result.reason;
 		}
 		await collections.mcpConnectors.updateOne({ _id: connector._id }, { $set: update });
+		const refreshed = await ownedBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id));
+	}
+
+	if (action === "check") {
+		// The health check the old server list had, moved server-side — which
+		// is what makes it work at all here: the credential is sealed in the
+		// database, so a browser-side check could never have used it.
+		const headers = await credentialHeaders({ connector, userId: user._id });
+		if (!headers) {
+			error(400, "Sign in to this connector first, or give it a token.");
+		}
+		const result = await listTools(connector.url, headers);
+		await collections.mcpConnectors.updateOne(
+			{ _id: connector._id },
+			{
+				$set: {
+					checkedAt: new Date(),
+					updatedAt: new Date(),
+					// Names and descriptions only. An input schema is large, is
+					// not shown, and would put arbitrary third-party JSON in a
+					// document we read on every listing.
+					tools: result.ok
+						? result.tools.map(({ name, description }) => ({ name, description }))
+						: [],
+					...(result.ok ? {} : { lastError: result.error.slice(0, 500) }),
+				},
+				// `$unset` rather than `$set: undefined`: the driver does not
+				// drop undefined by default, so that writes a literal null and
+				// the field stops matching its own `string | undefined` type.
+				...(result.ok ? { $unset: { lastError: "" } } : {}),
+			}
+		);
+		const refreshed = await ownedBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id));
+	}
+
+	if (action === "update") {
+		const set: Record<string, unknown> = { updatedAt: new Date() };
+		// `""` is the value `$unset` wants; the driver's types insist on it
+		// rather than `unknown`, and they are right to.
+		const unset: Record<string, ""> = {};
+
+		if (parsed.data.name) set.name = parsed.data.name;
+		if (parsed.data.url && parsed.data.url !== connector.url) {
+			set.url = parsed.data.url;
+			// The old discovery described a different server, and a stale
+			// authorization endpoint is worse than none: it would send somebody
+			// to consent for a resource they are no longer adding.
+			unset.oauth = "";
+			unset.registration = "";
+			unset.probedAt = "";
+			unset.tools = "";
+			unset.checkedAt = "";
+			set.auth = connector.auth === "oauth" ? "none" : connector.auth;
+		}
+
+		if (parsed.data.clearToken) {
+			unset.tokenSealed = "";
+			unset.tokenHeader = "";
+			unset.tokenPrefix = "";
+			if (connector.auth === "token") set.auth = "none";
+		} else if (parsed.data.token) {
+			set.tokenSealed = seal(parsed.data.token);
+			set.auth = "token";
+			if (parsed.data.tokenHeader) set.tokenHeader = parsed.data.tokenHeader;
+			if (parsed.data.tokenPrefix !== undefined) set.tokenPrefix = parsed.data.tokenPrefix;
+		} else if (connector.auth === "token") {
+			// Editing the header of a connector whose secret is staying put.
+			if (parsed.data.tokenHeader) set.tokenHeader = parsed.data.tokenHeader;
+			if (parsed.data.tokenPrefix !== undefined) set.tokenPrefix = parsed.data.tokenPrefix;
+		}
+
+		if (parsed.data.clientId) {
+			// A URL change above asks to drop the registration; supplying one
+			// in the same call asks to set it. Mongo refuses a field in both
+			// `$set` and `$unset`, and the explicit value is the later intent.
+			delete unset.registration;
+			set.registration = staticRegistration({
+				clientId: parsed.data.clientId,
+				clientSecret: parsed.data.clientSecret,
+			});
+			set.auth = "oauth";
+			// Any sign-in held under the old client id is void: the tokens were
+			// issued to a different client, and keeping them would show a
+			// connector as connected while every call 401s.
+			await collections.mcpTokens.deleteMany({ connectorId: connector._id });
+			// The recorded failure was "no way to register a client", and that
+			// is precisely what has just been answered.
+			unset.lastError = "";
+		}
+
+		await collections.mcpConnectors.updateOne(
+			{ _id: connector._id },
+			{ $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) }
+		);
 		const refreshed = await ownedBy(params.id as string, user._id);
 		return json(await view(refreshed ?? connector, user._id));
 	}

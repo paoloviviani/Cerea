@@ -16,12 +16,27 @@ import type { User } from "./User";
  * Only remote servers. Running MCP servers ourselves is what a gateway is for,
  * and ADR 0063 records why we do not have one.
  */
-/** Our RFC 7591 registration with one authorization server. */
+/** Our registration with one authorization server. */
 export interface McpRegistration {
 	clientId: string;
 	/** Sealed. Absent for a public client, which PKCE makes acceptable. */
 	clientSecretSealed?: string;
 	registeredAt: Date;
+	/**
+	 * How we got these credentials.
+	 *
+	 * `dcr` is RFC 7591 dynamic registration and is the default. `static` is a
+	 * client id and secret an operator already holds, which exists because a
+	 * provider is free not to offer DCR at all — and without this mode such a
+	 * server simply cannot be signed in to, which was a real dead end rather
+	 * than a theoretical one. Metadata discovery still runs either way; only
+	 * the registration step is skipped.
+	 *
+	 * It matters beyond display: a static registration must never be replaced
+	 * by a re-probe, because the credentials are somebody's to manage and not
+	 * ours to overwrite.
+	 */
+	source: "dcr" | "static";
 }
 
 export interface McpConnector extends Timestamps {
@@ -74,11 +89,34 @@ export interface McpConnector extends Timestamps {
 
 	/** For `auth: "token"` — the static credential, sealed. */
 	tokenSealed?: string;
+	/**
+	 * Which header carries that credential, and what precedes it.
+	 *
+	 * `Authorization` / `Bearer ` covers most of the world, but `X-API-Key`
+	 * with no prefix is common enough that the old headers editor was being
+	 * used for it. The header *name* is not a secret and is stored plainly —
+	 * only the value is sealed — which is also what lets a custom server
+	 * migrated out of localStorage keep working unchanged.
+	 */
+	tokenHeader?: string;
+	tokenPrefix?: string;
 
 	/** When the server was last asked how it authenticates. */
 	probedAt?: Date;
 	/** Why the last probe or connection failed, for the row to show. */
 	lastError?: string;
+
+	/**
+	 * What the last check found, so a row can list its tools.
+	 *
+	 * This is the one capability connectors lacked that the old server list
+	 * had, and here it is strictly better: the check runs server-side with the
+	 * sealed credential, so it can reach a server whose token the browser has
+	 * never seen. Stored rather than recomputed, because the dialog should open
+	 * already knowing and a check is a round trip to somebody else's server.
+	 */
+	tools?: { name: string; description?: string }[];
+	checkedAt?: Date;
 }
 
 /**
@@ -102,19 +140,45 @@ export interface McpToken extends Timestamps {
 	scope?: string;
 }
 
+/**
+ * What a person picks from, whoever defined it.
+ *
+ * One shape for both kinds, because the dialog used to have two lists whose
+ * only real difference was authentication — and one that was a defect: a
+ * "custom" server lived in `localStorage`, so it did not follow anybody to a
+ * second device. `source` is the distinction worth keeping: an entry from
+ * `MCP_SERVERS` belongs to the operator and is nobody's to delete.
+ */
+export type McpEntrySource = "deployment" | "mine";
+
 /** What the client is given: never a credential, only whether there is one. */
 export interface McpConnectorView {
 	id: string;
 	name: string;
 	url: string;
 	auth: "none" | "oauth" | "token";
+	source: McpEntrySource;
 	/** Whether *this* person has a usable credential for it. */
 	connected: boolean;
 	/** For an OAuth connector, whether it can be signed in to at all. */
 	canAuthorize: boolean;
+	/** Which header carries a static token. Never its value. */
+	tokenHeader?: string;
+	/**
+	 * The OAuth client id in use, and where it came from.
+	 *
+	 * A client id is not a secret — it travels in the authorize URL the browser
+	 * follows — and showing it is what lets somebody confirm the connector is
+	 * using the registration they pasted. The secret never appears here.
+	 */
+	clientId?: string;
+	registrationSource?: "dcr" | "static";
 	scopesSupported?: string[];
 	issuer?: string;
 	lastError?: string;
+	/** From the last check. Absent means "not checked", not "none". */
+	tools?: { name: string; description?: string }[];
+	checkedAt?: string;
 	updatedAt: string;
 }
 
