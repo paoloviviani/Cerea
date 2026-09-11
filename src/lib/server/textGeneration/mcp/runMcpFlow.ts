@@ -645,7 +645,6 @@ export async function* runMcpFlow({
 			completionBase,
 			requestHeaders: {
 				"ChatUI-Conversation-ID": conv._id.toString(),
-				"X-use-cache": "false",
 				...(config.USE_USER_TOKEN === "true" && locals?.token
 					? { Authorization: `Bearer ${locals.token}` }
 					: {}),
@@ -742,7 +741,6 @@ export async function* runMcpFlow({
 						signal: abortSignal,
 						headers: {
 							"ChatUI-Conversation-ID": conv._id.toString(),
-							"X-use-cache": "false",
 							...(config.USE_USER_TOKEN === "true" && locals?.token
 								? { Authorization: `Bearer ${locals.token}` }
 								: {}),
@@ -982,7 +980,6 @@ export async function* runMcpFlow({
 									signal: abortSignal,
 									headers: {
 										"ChatUI-Conversation-ID": conv._id.toString(),
-										"X-use-cache": "false",
 										...(config.USE_USER_TOKEN === "true" && locals?.token
 											? { Authorization: `Bearer ${locals.token}` }
 											: {}),
