@@ -17,6 +17,7 @@ import { logger } from "$lib/server/logger";
 import { resolvePreprompt } from "./preprompt";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
+import { agentContext, isAgentModel, resolveForUser } from "$lib/server/agents";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -111,6 +112,42 @@ async function* textGenerationWithoutTitle(
 		timezone: (ctx.locals as unknown as { timezone?: string } | undefined)?.timezone,
 		budget: conv.mlBudget,
 	});
+
+	// An agent conversation (ADR 0067): resolved here, chat-side. The model
+	// becomes the agent's underlying model — everything downstream, from
+	// capability switches to the OpenAI call, reads `ctx.model` — and the
+	// agent's persona opens the system prompt, with the conversation's own
+	// additions after it. Retrieval runs with the reader's token and cannot
+	// fail the turn, exactly as a project's does. An agent that has gone (been
+	// renamed or deleted) refuses the turn rather than answering as somebody
+	// else: the name in `conv.model` is the only thing that says what this
+	// conversation was talking to.
+	if (isAgentModel(conv.model)) {
+		const user = (ctx.locals as unknown as { user?: { _id: import("bson").ObjectId } | undefined })
+			?.user;
+		const agent = user ? await resolveForUser(user._id, conv.model) : null;
+		if (!agent) {
+			throw new Error(
+				"This agent no longer exists, or was renamed. Pick it again from the model list."
+			);
+		}
+		const underlying = (await import("$lib/server/models")).models.find(
+			(model) => model.id === agent.model
+		);
+		if (!underlying) {
+			throw new Error(`This agent's model (${agent.model}) is not available on this deployment.`);
+		}
+		ctx.model = underlying;
+		const lastUser = [...messages].reverse().find((message) => message.from === "user");
+		const context = await agentContext({
+			agent,
+			question: lastUser?.content ?? "",
+			token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
+		});
+		if (context) {
+			preprompt = preprompt ? `${context}\n\n${preprompt}` : context;
+		}
+	}
 
 	// A project's standing context, and whatever its knowledge bases offer for
 	// this question. Appended to the system prompt rather than mixed into

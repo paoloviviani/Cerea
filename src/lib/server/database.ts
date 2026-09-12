@@ -7,6 +7,7 @@ import { GridFSBucket, MongoClient, ReadPreference } from "mongodb";
 import "aws4";
 import "@aws-sdk/credential-providers";
 import type { Conversation } from "$lib/types/Conversation";
+import type { Agent } from "$lib/types/Agent";
 import type { Project } from "$lib/types/Project";
 import type { McpConnector, McpOauthPending, McpToken } from "$lib/types/McpConnector";
 import type { SharedConversation } from "$lib/types/SharedConversation";
@@ -156,6 +157,9 @@ export class Database {
 		// create reads the project back immediately, and secondary lag there
 		// shows as a 404 on a project that does exist.
 		const projects = db.collection<Project>("projects");
+		// Agents, chat-side since ADR 0067: owned by the user who made them,
+		// stored beside the conversations they serve, sharing nothing.
+		const agents = db.collection<Agent>("agents");
 		// Connector definitions, one person's authorisations, and in-flight
 		// flows (ADR 0064). Primary read preference throughout: a callback
 		// reads back the state it just wrote, and secondary lag there is an
@@ -182,6 +186,7 @@ export class Database {
 		return {
 			conversations,
 			projects,
+			agents,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
@@ -217,6 +222,7 @@ export class Database {
 		const {
 			conversations,
 			projects,
+			agents,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
@@ -285,6 +291,10 @@ export class Database {
 		projects
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for projects by userId"));
+		// The agents list is always the owner's own: one key, one query.
+		agents
+			.createIndex({ userId: 1, updatedAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for agents by userId"));
 		// Serves "which projects are shared with me", which is a query by the
 		// viewer's own email or one of their group names — both of them values
 		// inside the same array, which is why one multikey index covers it.

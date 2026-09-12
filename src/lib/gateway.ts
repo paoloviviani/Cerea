@@ -112,24 +112,6 @@ export interface Share {
 	created_at: number;
 }
 
-export interface Agent {
-	id: string;
-	model_name: string;
-	name: string;
-	created_at: number;
-	description: string;
-	model: string;
-	system_prompt: string;
-	tools: unknown[];
-	generation: Record<string, unknown>;
-	knowledge_base_ids: string[];
-	retrieval_limit: number;
-	retrieval_min_score: number;
-	is_active: boolean;
-	owned: boolean;
-	role: string;
-}
-
 export interface KnowledgeStatus {
 	enabled: boolean;
 	ready: boolean;
