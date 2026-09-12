@@ -73,6 +73,8 @@
 	interface Props {
 		conversations: ConvSidebar[];
 		user: LayoutData["user"];
+		/** The gateway's own answer — the chat's user flag means nothing here. */
+		gatewayIsAdmin: LayoutData["gatewayIsAdmin"];
 		p?: number;
 		ondeleteConversation?: (id: string) => void;
 		oneditConversationTitle?: (payload: { id: string; title: string }) => void;
@@ -81,6 +83,7 @@
 	let {
 		conversations = $bindable(),
 		user,
+		gatewayIsAdmin,
 		p = $bindable(0),
 		ondeleteConversation,
 		oneditConversationTitle,
