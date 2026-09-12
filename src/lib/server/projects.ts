@@ -32,6 +32,7 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
+import { callerFrom, searchBase, type Caller } from "$lib/server/knowledge/service";
 import type { Project, ProjectView } from "$lib/types/Project";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Message } from "$lib/types/Message";
@@ -162,8 +163,10 @@ export async function projectContext(options: {
 	project: Project;
 	question: string;
 	token: string | undefined;
+	/** The generation's locals: who is asking, for the store's reach checks. */
+	locals: App.Locals | undefined;
 }): Promise<string | undefined> {
-	const { project, question, token } = options;
+	const { project, question, token, locals } = options;
 	const parts: string[] = [];
 	if (project.instructions.trim()) parts.push(project.instructions.trim());
 
@@ -173,12 +176,18 @@ export async function projectContext(options: {
 	if (project.indexPastChats && project.memoryBaseId) bases.push(project.memoryBaseId);
 
 	if (token && bases.length > 0 && question.trim()) {
+		// The caller is the reader: reach checks run against this person, and
+		// the query's embedding is metered to their token. No signed-in user
+		// means nothing to check against and nothing to bill — no retrieval.
+		if (!locals?.user) return parts.length > 0 ? parts.join("\n\n") : undefined;
+		const caller = await callerFrom(locals);
 		const passages = await retrieve({
 			bases,
 			question,
 			limit: project.retrievalLimit,
 			token,
 			projectName: project.name,
+			caller,
 		});
 		if (passages.length > 0) {
 			const rendered = passages
@@ -201,16 +210,17 @@ async function retrieve(options: {
 	limit: number;
 	token: string;
 	projectName: string;
+	caller: Caller;
 }): Promise<GatewaySearchHit[]> {
-	const { bases, question, limit, token, projectName } = options;
+	const { bases, question, limit, token, projectName, caller } = options;
 	const hits: GatewaySearchHit[] = [];
+	// The chat's own store, since ADR 0070: an in-process search.
 	for (const baseId of bases) {
 		try {
-			const answer = await gateway.post<{ data: GatewaySearchHit[] }>(
-				token,
-				`vector_stores/${baseId}/search`,
-				{ query: question, max_num_results: limit }
-			);
+			const answer = await searchBase(baseId, caller, token, {
+				query: question,
+				max_num_results: limit,
+			});
 			hits.push(...answer.data);
 		} catch (err) {
 			logger.warn(
@@ -245,14 +255,21 @@ export async function indexConversation(options: {
 	conversation: Conversation;
 	messages: Message[];
 	token: string | undefined;
+	/** The turn's locals: whose memory base this is, for ownership and reach. */
+	locals: App.Locals | undefined;
 }): Promise<void> {
-	const { project, conversation, messages, token } = options;
+	const { project, conversation, messages, token, locals } = options;
 	if (!project.indexPastChats || !token) return;
 
+	if (!locals?.user) return;
 	try {
+		// The chat's own store, since ADR 0070: the memory base is created
+		// here, owned by the person talking, and written in-process.
+		const { createStore, addText, callerFrom } = await import("$lib/server/knowledge/service");
+		const caller = await callerFrom(locals);
 		let baseId = project.memoryBaseId;
 		if (!baseId) {
-			const created = await gateway.post<{ id: string }>(token, "vector_stores", {
+			const created = await createStore(caller, {
 				name: `${project.name} — past chats`,
 				description:
 					"Transcripts of this project's own conversations, written by the chat " +
@@ -274,7 +291,7 @@ export async function indexConversation(options: {
 			.join("\n\n");
 		if (transcript.trim().length < 40) return; // nothing worth retrieving yet
 
-		await gateway.post(token, `vector_stores/${baseId}/text`, {
+		await addText(baseId, caller, token, {
 			text: transcript,
 			title: conversation.title || "Untitled conversation",
 			source_ref: `chat:conversation:${conversation._id.toString()}`,
