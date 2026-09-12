@@ -49,6 +49,8 @@ export interface Conversation extends Timestamps {
 	 * the feature (see `$lib/utils/mlAssistantFlag`).
 	 */
 	mlAssistant?: boolean;
+	/** The user's web-search consent for this conversation (ADR 0058's plan). */
+	webSearch?: boolean;
 
 	/**
 	 * Spaces this conversation's artifacts have been deployed to, keyed by the

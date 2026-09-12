@@ -1,4 +1,5 @@
 import { config } from "$lib/server/config";
+import { collections } from "$lib/server/database";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import { getMcpServers } from "$lib/server/mcp/registry";
 import { isValidUrl } from "$lib/server/urlSafety";
@@ -150,13 +151,24 @@ export async function* runMcpFlow({
 	// The gateway's search tool is metered to the person asking, so it needs
 	// their token and their own search-tier grants; both are read here, where
 	// the turn's identity is already in hand, and the tool withholds itself
-	// when either is missing.
+	// when either is missing. The user-side switch is their web-search
+	// setting — the ML Assistant preset searches regardless, because search
+	// is part of what that mode is. The settings doc is keyed the way the
+	// settings API keys it: by user when signed in, by session otherwise.
 	const turnToken = (locals as unknown as { token?: string } | undefined)?.token;
+	const identityUser = (locals as unknown as { user?: { _id?: unknown } } | undefined)?.user;
+	const identitySession = (locals as unknown as { sessionId?: string } | undefined)?.sessionId;
+	const serverSettings = identityUser
+		? await collections.settings.findOne({ userId: identityUser._id as never })
+		: identitySession
+			? await collections.settings.findOne({ sessionId: identitySession })
+			: null;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
 		token: turnToken,
 		searchModelIds: turnToken ? await findSearchModelIds(turnToken) : [],
+		webSearchEnabled: serverSettings?.webSearchEnabled === true,
 	});
 	// Read once: the preset decides the servers, the round budget and which tool
 	// doctrine is sent, and they must all agree within a run.
