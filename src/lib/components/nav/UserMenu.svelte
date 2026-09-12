@@ -31,16 +31,21 @@
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonLogout from "~icons/carbon/logout";
 	import CarbonUser from "~icons/carbon/user";
+	import CarbonBook from "~icons/carbon/book";
 	import CarbonChevronUp from "~icons/carbon/chevron-up";
 
 	interface Props {
 		/** `null` as well as `undefined`: that is what the layout's `user` is. */
 		user: { username?: string; email?: string; avatarUrl?: string } | null | undefined;
+		/** The gateway's answer (`GET /v1/me`), not the chat's own flag — the
+		 * admin panel's gate is the gateway's, so the link shows only for the
+		 * people that same answer admits. Absent for signed-out visitors. */
+		gatewayIsAdmin?: boolean;
 		/** Called when a menu item navigates, so a narrow layout can close the panel. */
 		onnavigate?: () => void;
 	}
 
-	let { user, onnavigate }: Props = $props();
+	let { user, gatewayIsAdmin = false, onnavigate }: Props = $props();
 
 	const publicConfig = usePublicConfig();
 
@@ -117,6 +122,22 @@
 				<CarbonSettings class="size-4" />
 				Settings
 			</a>
+
+			{#if gatewayIsAdmin}
+				<!-- The chat's administration area (product decisions: which model
+				     reads a document, what fetches a URL, which connectors everybody
+				     gets). The panel's own gate re-asks the gateway; the link merely
+				     spares an administrator the URL. -->
+				<a
+					href="{base}/admin"
+					onclick={go}
+					role="menuitem"
+					class="flex h-9 items-center gap-2 px-3 text-sm text-gray-700 no-underline hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+				>
+					<CarbonBook class="size-4" />
+					Admin
+				</a>
+			{/if}
 
 			<button
 				type="button"
