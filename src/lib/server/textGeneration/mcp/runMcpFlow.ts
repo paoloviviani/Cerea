@@ -42,6 +42,7 @@ import { composeGuards } from "./toolGuard";
 import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { withUpstreamRetry } from "../utils/upstreamRetry";
 import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
+import { findSearchModelIds } from "../builtinTools/gatewaySearchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
 
@@ -146,9 +147,16 @@ export async function* runMcpFlow({
 		}
 		return false;
 	};
+	// The gateway's search tool is metered to the person asking, so it needs
+	// their token and their own search-tier grants; both are read here, where
+	// the turn's identity is already in hand, and the tool withholds itself
+	// when either is missing.
+	const turnToken = (locals as unknown as { token?: string } | undefined)?.token;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
+		token: turnToken,
+		searchModelIds: turnToken ? await findSearchModelIds(turnToken) : [],
 	});
 	// Read once: the preset decides the servers, the round budget and which tool
 	// doctrine is sent, and they must all agree within a run.

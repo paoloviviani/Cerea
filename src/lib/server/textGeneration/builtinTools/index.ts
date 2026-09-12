@@ -8,6 +8,7 @@ import { createResearchTool } from "./researchTool";
 import { createSandboxTool } from "./sandboxTool";
 import { createJobCheckTool } from "./jobCheckTool";
 import { createTrackioTool } from "./createTrackioTool";
+import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
 import type { BuiltinTool } from "./types";
 
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
@@ -28,6 +29,10 @@ export function getEnabledBuiltinTools(params: {
 	conv: Pick<Conversation, "_id" | "plan" | "mlAssistant">;
 	/** Hub namespace to name a Trackio Space in; absent when the run has no user. */
 	namespace?: string;
+	/** The turn's OIDC token; the gateway search tool meters the search to its owner. */
+	token?: string;
+	/** Ids of the `kind: "search"` models this caller may use; absent means none. */
+	searchModelIds?: string[];
 }): BuiltinTool[] {
 	if (!isMlAssistantConversation(params.conv)) return [];
 	// The GitHub tools carry a second condition of their own — they withhold
@@ -40,6 +45,13 @@ export function getEnabledBuiltinTools(params: {
 		createPlanTool(params.conv),
 		waitBuiltin,
 		...githubGroundingBuiltins(),
+		// The gateway's own search backends, metered to this caller. Withholds
+		// itself without a search model in their catalogue, like the GitHub
+		// tools do without a token.
+		...createGatewaySearchBuiltins({
+			token: params.token,
+			searchModelIds: params.searchModelIds ?? [],
+		}),
 		createResearchTool(),
 		createSandboxTool(),
 		createJobCheckTool(),
