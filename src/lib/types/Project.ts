@@ -48,8 +48,8 @@ export interface Project extends Timestamps {
 	/**
 	 * Standing context, prepended to the system prompt of every conversation in
 	 * the project. Text only, on purpose: a project is not an agent, and
-	 * anything richer — tools, sampling defaults, a pinned model — is what an
-	 * agent already is, addressable as `agent:<name>`.
+	 * anything richer — a pinned model, its own persona — is what an agent is
+	 * (ADR 0067), in this application's Agents screen.
 	 */
 	instructions: string;
 

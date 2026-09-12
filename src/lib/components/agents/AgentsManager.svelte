@@ -1,43 +1,45 @@
 <!--
-	Agents, as an overlay in this app's own dialog language.
+	Agents, as an overlay in this app's own dialog language — and, since
+	ADR 0067, **chat-side**: owned by the person who made them, stored beside
+	their conversations, shared with nobody. The list is always exactly yours,
+	which is why there is no share section and no "yours and shared with you":
+	there is nothing to be shared with you.
 
-	Three views in one dialog: the list, the form that creates or edits one, and
-	one agent's summary with its sharing. The MCP dialog's shape, for the same
-	reason — this is one task, and it should not cost somebody their place in
-	the conversation that prompted it.
+	Two things that were true of the gateway's agents and stay true here,
+	because they are about retrieval rather than about ownership:
 
-	Two things about sharing an agent that this has to say out loud, because
-	both are deliberate and both surprise people (ADR 0062).
+	**An agent does not publish its knowledge bases.** Retrieval re-checks the
+	user's own access to every attached base on every turn, with their token.
 
-	**Sharing an agent does not share its knowledge bases.** Retrieval re-checks
-	the recipient's own access to every attached base on every request, so a
-	colleague sees passages only from bases they could already read. That is
-	what stops an agent being a way to publish a document without sharing it.
-
-	**An agent may be shared even when its model is not.** The share is allowed;
-	the agent simply does not appear in that person's model list, and calling it
-	by name answers with the reason. Refusing the share instead would make an
-	owner debug somebody else's permissions before they could offer anything.
+	**The name is the address.** A conversation keeps the model it was started
+	with, and that name is `agent:<name>` — so the name is fixed at creation and
+	renaming is refused, the same rule the gateway's version had for the same
+	reason.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { base } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
-	import {
-		GatewayError,
-		gwDelete,
-		gwGet,
-		gwPost,
-		type Agent,
-		type BillableGroup,
-		type VectorStore,
-	} from "$lib/gateway";
+	import { GatewayError, gwGet, type VectorStore } from "$lib/gateway";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
-	import IconShare from "~icons/carbon/share";
 	import IconSettings from "~icons/carbon/settings";
 	import LucideBot from "~icons/lucide/bot";
 	import * as s from "$lib/components/overlay/styles";
+
+	/** What this application stores and serves for one agent. */
+	interface Agent {
+		_id: string;
+		name: string;
+		description: string;
+		model: string;
+		system_prompt: string;
+		knowledgeBaseIds: string[];
+		retrievalLimit: number;
+		retrievalMinScore: number;
+		wire_name: string;
+	}
 
 	interface ModelCard {
 		id: string;
@@ -59,17 +61,28 @@
 	let agents = $state<Agent[]>([]);
 	let stores = $state<VectorStore[]>([]);
 	let models = $state<ModelCard[]>([]);
-	let groups = $state<BillableGroup[]>([]);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
 	let notice = $state<string | null>(null);
 	let busy = $state(false);
 
+	async function api<T>(path: string, init?: RequestInit): Promise<T> {
+		const response = await fetch(`${base}/api/v2${path}`, {
+			...init,
+			headers: { "content-type": "application/json", ...init?.headers },
+		});
+		if (!response.ok) {
+			const body = (await response.json().catch(() => null)) as { message?: string } | null;
+			throw new Error(body?.message ?? `The request answered ${response.status}.`);
+		}
+		return (await response.json()) as T;
+	}
+
 	async function load() {
 		failure = null;
 		try {
 			const [listed, bases, catalogue] = await Promise.all([
-				gwGet<{ data: Agent[] }>("agents"),
+				api<{ data: Agent[] }>("/agents"),
 				gwGet<{ data: VectorStore[] }>("vector_stores"),
 				gwGet<{ data: ModelCard[] }>("models"),
 			]);
@@ -80,7 +93,7 @@
 				(model) => !model.id.startsWith("agent:") && (model.kind ?? "chat") === "chat"
 			);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not reach the gateway.";
+			failure = err instanceof GatewayError ? err.message : "Could not load the agents.";
 		} finally {
 			loading = false;
 		}
@@ -93,7 +106,7 @@
 		load().then(() => {
 			// The address somebody arrived on, resolved against the list that just
 			// loaded — an id that is no longer readable leaves them on the list.
-			const found = initialId && agents.find((agent) => agent.id === initialId);
+			const found = initialId && agents.find((agent) => agent._id === initialId);
 			if (found) void openDetail(found);
 		})
 	);
@@ -110,7 +123,6 @@
 	let systemPrompt = $state("");
 	let attached = $state<string[]>([]);
 	let retrievalLimit = $state("6");
-	let temperature = $state("");
 
 	function openForm(agent: Agent | null) {
 		editing = agent;
@@ -118,12 +130,8 @@
 		model = agent?.model ?? models[0]?.id ?? "";
 		description = agent?.description ?? "";
 		systemPrompt = agent?.system_prompt ?? "";
-		attached = [...(agent?.knowledge_base_ids ?? [])];
-		retrievalLimit = String(agent?.retrieval_limit ?? 6);
-		temperature =
-			typeof agent?.generation?.temperature === "number"
-				? String(agent.generation.temperature)
-				: "";
+		attached = [...(agent?.knowledgeBaseIds ?? [])];
+		retrievalLimit = String(agent?.retrievalLimit ?? 6);
 		failure = null;
 		notice = null;
 		view = "form";
@@ -139,27 +147,33 @@
 		busy = true;
 		failure = null;
 		try {
-			const body: Record<string, unknown> = {
+			const body = {
 				description: description.trim(),
 				system_prompt: systemPrompt,
-				knowledge_base_ids: attached,
-				retrieval_limit: Number(retrievalLimit) || 6,
+				knowledgeBaseIds: attached,
+				retrievalLimit: Number(retrievalLimit) || 6,
 				model,
-				// Blank means "say nothing", not zero: an agent supplies defaults
-				// only where the request is silent, and writing 0 would pin every
-				// conversation to it.
-				generation: temperature.trim() === "" ? {} : { temperature: Number(temperature) },
 			};
-			const saved = editing
-				? // The name is not editable: it *is* the address (`agent:<name>`),
-					// so renaming would break every conversation that named it.
-					await gwPost<Agent>(`agents/${editing.id}`, body)
-				: await gwPost<Agent>("agents", { ...body, name: name.trim() });
-			await load();
-			current = saved;
-			view = "detail";
+			if (editing) {
+				await api(`/agents/${editing._id}`, { method: "PATCH", body: JSON.stringify(body) });
+				current = { ...editing, ...body };
+				view = "detail";
+			} else {
+				await api("/agents", {
+					method: "POST",
+					body: JSON.stringify({ ...body, name: name.trim() }),
+				});
+				await load();
+				const created = agents.find((agent) => agent.name === name.trim());
+				if (created) {
+					current = created;
+					view = "detail";
+				} else {
+					backToList();
+				}
+			}
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not save it.";
+			failure = err instanceof Error ? err.message : "Could not save it.";
 		} finally {
 			busy = false;
 		}
@@ -168,21 +182,12 @@
 	// ---- one agent ----------------------------------------------------------
 
 	let current = $state<Agent | null>(null);
-	let shareWith = $state("");
-	let shareKind = $state<"user" | "group">("user");
 
 	async function openDetail(agent: Agent) {
 		current = agent;
 		failure = null;
 		notice = null;
 		view = "detail";
-		if (groups.length === 0) {
-			try {
-				groups = (await gwGet<{ data: BillableGroup[] }>("billing/groups")).data;
-			} catch {
-				/* a convenience: the group field falls back to free text */
-			}
-		}
 	}
 
 	function backToList() {
@@ -193,10 +198,8 @@
 		notice = null;
 	}
 
-	const canEdit = $derived(current !== null && (current.owned || current.role === "editor"));
-
 	const attachedNames = $derived(
-		(current?.knowledge_base_ids ?? [])
+		(current?.knowledgeBaseIds ?? [])
 			.map((id) => stores.find((store) => store.id === id)?.name)
 			// A base attached but no longer readable by this person shows as such
 			// rather than vanishing: an agent quietly retrieving from fewer bases
@@ -204,39 +207,16 @@
 			.map((base) => base ?? "one you can no longer read")
 	);
 
-	async function share(event: SubmitEvent) {
-		event.preventDefault();
-		if (!current || !shareWith.trim()) return;
-		busy = true;
-		failure = null;
-		notice = null;
-		try {
-			await gwPost(`agents/${current.id}/shares`, {
-				principal_kind: shareKind,
-				...(shareKind === "user"
-					? { principal_email: shareWith.trim() }
-					: { group_name: shareWith.trim() }),
-				role: "viewer",
-			});
-			shareWith = "";
-			notice = "Shared. They see passages only from bases they can already read.";
-		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not share it.";
-		} finally {
-			busy = false;
-		}
-	}
-
 	async function destroy() {
 		if (!current) return;
 		if (!confirm(`Delete the agent “${current.name}”?`)) return;
 		busy = true;
 		try {
-			await gwDelete(`agents/${current.id}`);
+			await api(`/agents/${current._id}`, { method: "DELETE" });
 			await load();
 			backToList();
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not delete it.";
+			failure = err instanceof Error ? err.message : "Could not delete it.";
 			busy = false;
 		}
 	}
@@ -261,12 +241,12 @@
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}
-					A model with standing instructions and knowledge attached. Pick one in the model list to
-					use it.
+					A model with standing instructions and knowledge attached. Yours alone; pick one in the
+					model list to use it.
 				{:else if view === "form"}
 					Everything that makes it an agent is on this one screen.
 				{:else if current}
-					Use it by picking <code>{current.model_name}</code> in the model list.
+					Use it by picking <code>{current.wire_name}</code> in the model list.
 				{/if}
 			</p>
 		</div>
@@ -286,9 +266,7 @@
 							{agents.length}
 							{agents.length === 1 ? "agent" : "agents"}
 						</p>
-						<p class={s.STRIP_DETAIL}>
-							{agents.filter((agent) => agent.owned).length} yours
-						</p>
+						<p class={s.STRIP_DETAIL}>yours</p>
 					</div>
 				</div>
 				<div class="flex gap-2">
@@ -316,13 +294,13 @@
 					</div>
 				{:else}
 					<div>
-						<h3 class={s.SECTION_TITLE}>Yours and shared with you ({agents.length})</h3>
+						<h3 class={s.SECTION_TITLE}>Yours ({agents.length})</h3>
 						<div class={s.GRID}>
-							{#each agents as agent (agent.id)}
+							{#each agents as agent (agent._id)}
 								<button
 									type="button"
 									onclick={() => openDetail(agent)}
-									class="{s.card(agent.is_active)} text-left"
+									class="{s.card(true)} text-left"
 								>
 									<div class={s.CARD_BODY}>
 										<div class="mb-3 min-w-0">
@@ -334,19 +312,14 @@
 										</div>
 										<div class="flex flex-wrap items-center gap-2">
 											<span class="{s.PILL} {s.PILL_TONES.busy}">
-												<code class="font-mono">{agent.model_name}</code>
+												<code class="font-mono">{agent.wire_name}</code>
 											</span>
-											{#if agent.knowledge_base_ids.length > 0}
+											{#if agent.knowledgeBaseIds.length > 0}
 												<span class="text-xs text-gray-600 dark:text-gray-400">
-													{agent.knowledge_base_ids.length} base{agent.knowledge_base_ids.length ===
+													{agent.knowledgeBaseIds.length} base{agent.knowledgeBaseIds.length ===
 													1
 														? ""
 														: "s"}
-												</span>
-											{/if}
-											{#if !agent.owned}
-												<span class="{s.PILL} {s.PILL_TONES.neutral}">
-													shared · {agent.role}
 												</span>
 											{/if}
 										</div>
@@ -370,8 +343,11 @@
 						<li>
 							• Its instructions go <em>before</em> yours — it supplies defaults, not overrides.
 						</li>
-						<li>• Sharing an agent does <strong>not</strong> share its knowledge bases.</li>
-						<li>• Shared with somebody who cannot use its model, it is hidden from them.</li>
+						<li>
+							• Retrieval uses <strong>your</strong> access: it sees only the bases you could read
+							yourself.
+						</li>
+						<li>• The name is fixed once created — conversations address the agent by it.</li>
 					</ul>
 				</div>
 			</div>
@@ -469,38 +445,22 @@
 						</div>
 					{/if}
 					<p class={s.HINT}>
-						Sharing this agent does <strong>not</strong> share these — whoever uses it sees passages only
-						from bases they can already read.
+						Retrieval uses your own access: whoever runs the agent sees passages only from bases
+						they could already read.
 					</p>
 				</div>
 
-				<div class="flex flex-wrap gap-3">
-					<div>
-						<label for="agent-limit" class={s.LABEL}>Passages per answer</label>
-						<input
-							id="agent-limit"
-							type="number"
-							min="1"
-							max="50"
-							class="{s.INPUT} w-32"
-							bind:value={retrievalLimit}
-							disabled={busy}
-						/>
-					</div>
-					<div>
-						<label for="agent-temp" class={s.LABEL}>Temperature</label>
-						<input
-							id="agent-temp"
-							type="number"
-							step="0.1"
-							min="0"
-							max="2"
-							class="{s.INPUT} w-32"
-							bind:value={temperature}
-							disabled={busy}
-						/>
-						<p class={s.HINT}>Blank leaves it to the caller.</p>
-					</div>
+				<div>
+					<label for="agent-limit" class={s.LABEL}>Passages per answer</label>
+					<input
+						id="agent-limit"
+						type="number"
+						min="1"
+						max="50"
+						class="{s.INPUT} w-32"
+						bind:value={retrievalLimit}
+						disabled={busy}
+					/>
 				</div>
 
 				<div class="flex justify-end gap-2">
@@ -527,10 +487,9 @@
 						<div>
 							<p class={s.STRIP_HEADLINE}>Runs on {current.model}</p>
 							<p class={s.STRIP_DETAIL}>
-								{attachedNames.length} knowledge base{attachedNames.length === 1 ? "" : "s"} · up to {current.retrieval_limit}
-								passage{current.retrieval_limit === 1 ? "" : "s"}
+								{attachedNames.length} knowledge base{attachedNames.length === 1 ? "" : "s"} · up to {current.retrievalLimit}
+								passage{current.retrievalLimit === 1 ? "" : "s"}
 								per answer
-								{#if !current.owned}· shared with you as {current.role}{/if}
 							</p>
 						</div>
 					</div>
@@ -541,7 +500,7 @@
 						</button>
 						<button onclick={() => openForm(current)} class={s.SECONDARY}>
 							<IconSettings class="size-4" />
-							{canEdit ? "Edit" : "View settings"}
+							Edit
 						</button>
 					</div>
 				</div>
@@ -566,58 +525,12 @@
 					{/if}
 				</div>
 
-				{#if current.owned}
-					<div>
-						<h3 class={s.SECTION_TITLE}>Share it</h3>
-						<form class="flex flex-wrap items-end gap-2" onsubmit={share}>
-							<div>
-								<label for="agent-share-kind" class={s.LABEL}>With</label>
-								<select id="agent-share-kind" class={s.INPUT} bind:value={shareKind}>
-									<option value="user">A person</option>
-									<option value="group">A group</option>
-								</select>
-							</div>
-							<div class="min-w-48 flex-1">
-								<label for="agent-share-who" class={s.LABEL}>
-									{shareKind === "user" ? "Their email address" : "Group name"}
-								</label>
-								{#if shareKind === "group" && groups.length > 0}
-									<select id="agent-share-who" class={s.INPUT} bind:value={shareWith}>
-										<option value="">— choose —</option>
-										{#each groups as group (group.id)}
-											<option value={group.name}>{group.name}</option>
-										{/each}
-									</select>
-								{:else}
-									<input
-										id="agent-share-who"
-										class={s.INPUT}
-										placeholder={shareKind === "user" ? "colleague@example.org" : "research"}
-										bind:value={shareWith}
-									/>
-								{/if}
-							</div>
-							<button type="submit" disabled={busy || !shareWith.trim()} class={s.PRIMARY}>
-								<IconShare class="size-4" />
-								Share
-							</button>
-						</form>
-						{#if notice}
-							<p class="{s.NOTICE} mt-2">{notice}</p>
-						{/if}
-						<p class={s.HINT}>
-							Sharing this does <strong>not</strong> share its knowledge bases. And if they cannot
-							use <code>{current.model}</code>, it will not appear in their model list and calling
-							it by name tells them why — the share is still allowed.
-						</p>
-						<div class="mt-3 flex justify-end">
-							<button onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
-								<IconTrash class="size-3" />
-								Delete this agent
-							</button>
-						</div>
-					</div>
-				{/if}
+				<div class="mt-3 flex justify-end">
+					<button onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
+						<IconTrash class="size-3" />
+						Delete this agent
+					</button>
+				</div>
 			</div>
 		{/if}
 	</div>
