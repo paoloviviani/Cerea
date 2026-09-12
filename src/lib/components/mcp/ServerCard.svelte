@@ -1,11 +1,10 @@
 <script lang="ts">
 	import type { MCPServer } from "$lib/types/Tool";
-	import { toggleServer, healthCheckServer, deleteCustomServer } from "$lib/stores/mcpServers";
+	import { toggleServer, healthCheckServer } from "$lib/stores/mcpServers";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconPending from "~icons/carbon/pending-filled";
 	import IconRefresh from "~icons/carbon/renew";
-	import IconTrash from "~icons/carbon/trash-can";
 	import LucideHammer from "~icons/lucide/hammer";
 	import IconSettings from "~icons/carbon/settings";
 	import Switch from "$lib/components/Switch.svelte";
@@ -72,10 +71,6 @@
 		} finally {
 			isLoadingHealth = false;
 		}
-	}
-
-	function handleDelete() {
-		deleteCustomServer(server.id);
 	}
 </script>
 
@@ -168,16 +163,6 @@
 					<IconSettings class="size-3" />
 					Settings
 				</a>
-			{/if}
-
-			{#if server.type === "custom"}
-				<button
-					onclick={handleDelete}
-					class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-[.29rem] text-xs font-medium text-red-600 hover:bg-red-100 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
-				>
-					<IconTrash class="size-3" />
-					Delete
-				</button>
 			{/if}
 		</div>
 
