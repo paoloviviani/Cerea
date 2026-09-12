@@ -288,6 +288,7 @@
 		<NavMenu
 			conversations={convsStore.list}
 			user={data.user}
+			gatewayIsAdmin={data.gatewayIsAdmin}
 			ondeleteConversation={(id) => deleteConversation(id)}
 			oneditConversationTitle={(payload) => editConversationTitle(payload.id, payload.title)}
 		/>
@@ -298,6 +299,7 @@
 		<NavMenu
 			conversations={convsStore.list}
 			user={data.user}
+			gatewayIsAdmin={data.gatewayIsAdmin}
 			ondeleteConversation={(id) => deleteConversation(id)}
 			oneditConversationTitle={(payload) => editConversationTitle(payload.id, payload.title)}
 		/>

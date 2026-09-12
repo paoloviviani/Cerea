@@ -43,8 +43,13 @@ interface SettingsResponse {
 	billingOrganization?: string;
 }
 
-export const load = async ({ fetch, url }) => {
+export const load = async ({ fetch, url, data }) => {
 	const client = useAPIClient({ fetch, origin: url.origin });
+	// `data` is the server load's output (+layout.server.ts): the gateway's
+	// "is this person an administrator". It must be re-returned here, because
+	// when a universal load exists the layout's `data` is exactly what the
+	// universal load returns — a server field not forwarded here would exist
+	// and be invisible at once.
 
 	// Fetch the MCP base-server list alongside the other layout data.
 	// During SSR, SvelteKit's fetch intercepts same-origin requests and serves
@@ -96,6 +101,7 @@ export const load = async ({ fetch, url }) => {
 		models,
 		oldModels: [],
 		user,
+		gatewayIsAdmin: data.gatewayIsAdmin,
 		settings: {
 			...settings,
 			welcomeModalSeenAt: settings.welcomeModalSeenAt
