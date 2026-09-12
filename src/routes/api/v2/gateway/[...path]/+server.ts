@@ -5,7 +5,7 @@
  * between them — list, create, update, delete, upload, attach, search, share,
  * unshare, on two resource types. Written as one route file per operation that
  * is a dozen files of the same eight lines, and the eight lines are the part
- * that must not vary: attach the session's token, relay the gateway's own
+ * that must not vary: attach the session's token, relay the caller's own
  * status, never let the token reach the page.
  *
  * **The allowlist is the security property, not tidiness.** A path parameter
@@ -14,6 +14,12 @@
  * keeping the token on the server prevents. So the prefixes are enumerated,
  * and anything else is a 404 rather than a proxied request.
  *
+ * Since ADR 0070 the `vector_stores` and `files` paths no longer forward:
+ * the vector store belongs to the chat, and these are served by the chat's
+ * own knowledge module in-process. The paths keep their place on the
+ * allowlist — they authorise *handling* now, not a second hop — and the
+ * browser's URLs do not move. Everything else still forwards to the gateway.
+ *
  * Note what is deliberately *not* allowed through: `chat/completions` and the
  * other generation surfaces. They already have their own paths in this app,
  * with the tool loop, the abort handling and the accounting the chat needs;
@@ -21,33 +27,32 @@
  * app cannot see.
  */
 
-import { error, type RequestHandler } from "@sveltejs/kit";
+import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 
 /**
  * Gateway paths the browser may reach, as anchored patterns.
  *
- * Anchored on purpose: an unanchored `vector_stores` would also match
- * `chat/completions?x=vector_stores`, which is the shape of mistake an
- * allowlist exists to prevent.
+ * Knowledge bases: the collection, one base, its documents, its shares, and
+ * searching it — handled in-process since ADR 0070. Files: upload and delete;
+ * reading one back is *not* here — a knowledge base's own passages are what
+ * the chat shows, and serving arbitrary uploaded bytes back through this
+ * origin is a decision with its own reasons.
  */
-const ALLOWED: RegExp[] = [
-	// Knowledge bases: the collection, one base, its documents, its shares, and
-	// searching it.
+const INTERNAL = [
 	/^vector_stores$/,
 	/^vector_stores\/status$/,
-	/^vector_stores\/[0-9a-f-]{36}$/,
-	/^vector_stores\/[0-9a-f-]{36}\/(files|text|search|reindex)$/,
-	/^vector_stores\/[0-9a-f-]{36}\/files\/[0-9a-f-]{36}$/,
-	/^vector_stores\/[0-9a-f-]{36}\/shares$/,
-	/^vector_stores\/[0-9a-f-]{36}\/shares\/(user|group)\/[0-9a-f-]{36}$/,
-	// Files: upload and delete. Reading one back is *not* here — a knowledge
-	// base's own passages are what the chat shows, and serving arbitrary
-	// uploaded bytes back through this origin is a decision with its own
-	// reasons (see `files.py`, which sets an attachment disposition for them).
+	/^vector_stores\/[0-9a-f-]{24}$/,
+	/^vector_stores\/[0-9a-f-]{24}\/(files|text|search|reindex|shares)$/,
+	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}$/,
 	/^files$/,
-	/^files\/[0-9a-f-]{36}$/,
+	/^files\/[0-9a-f-]{24}$/,
+];
+
+/** Paths that still belong to the gateway, forwarded with the caller's token. */
+const FORWARDED = [
+	/^vector_stores\/[0-9a-f-]{36}.*$/,
 	// Agents, and their shares.
 	/^agents$/,
 	/^agents\/[0-9a-f-]{36}$/,
@@ -64,7 +69,7 @@ function target(path: string, search: string): string {
 	if (!config.OPENAI_BASE_URL) {
 		error(404, "This deployment has no gateway configured.");
 	}
-	if (!ALLOWED.some((pattern) => pattern.test(path))) {
+	if (!INTERNAL.some((pattern) => pattern.test(path)) && !FORWARDED.some((p) => p.test(path))) {
 		// 404 rather than 403: this forwarder does not offer that path at all,
 		// and saying "forbidden" would imply it might with different
 		// credentials.
@@ -98,11 +103,125 @@ async function relay(response: Response): Promise<Response> {
 	});
 }
 
+/** Knowledge errors speak HTTP already; pass the status and message through. */
+async function handled(fn: () => Promise<Response>): Promise<Response> {
+	try {
+		return await fn();
+	} catch (err) {
+		const { KnowledgeError } = await import("$lib/server/knowledge/service");
+		if (err instanceof KnowledgeError) {
+			return json({ error: { message: err.message } }, { status: err.status });
+		}
+		throw err;
+	}
+}
+
+/** The chat's own store, behind the same URLs the browser already calls. */
+async function handleInternal(
+	path: string,
+	method: "GET" | "POST" | "DELETE",
+	event: Parameters<RequestHandler>[0]
+): Promise<Response> {
+	const bearer = token(event.locals);
+	const { callerFrom } = await import("$lib/server/knowledge/service");
+	const caller = await callerFrom(event.locals);
+	// A small router over the same paths the gateway answered, so the screens
+	// needed no edits when the store moved. `fetch` errors become 502s, like
+	// a refused forward would be.
+	try {
+		const service = await import("$lib/server/knowledge/service");
+
+		if (path === "files" && method === "POST") {
+			const form = await event.request.formData();
+			const file = form.get("file");
+			if (!(file instanceof File)) error(400, "A file is required.");
+			const bytes = Buffer.from(await file.arrayBuffer());
+			const stored = await service.storeUpload(
+				{ name: file.name, bytes, mime: file.type || "application/octet-stream" },
+				caller.userId
+			);
+			return json({ id: stored.id, filename: stored.filename, bytes: stored.bytes });
+		}
+
+		const fileMatch = /^files\/([0-9a-f-]{24})$/.exec(path);
+		if (fileMatch && method === "DELETE") {
+			await service.deleteUpload(fileMatch[1], caller);
+			return json({ id: fileMatch[1], object: "file", deleted: true });
+		}
+
+		if (path === "vector_stores/status" && method === "GET") {
+			return json(await service.statusObject(caller, bearer));
+		}
+
+		if (path === "vector_stores") {
+			if (method === "GET") return json(await service.listStores(caller));
+			if (method === "POST") {
+				return json(await service.createStore(caller, await event.request.json()));
+			}
+		}
+
+		const storeMatch = /^vector_stores\/([0-9a-f-]{24})$/.exec(path);
+		if (storeMatch) {
+			if (method === "GET") {
+				const base = await service.reachableStore(storeMatch[1], caller);
+				return json(await service.storeObject(base, caller));
+			}
+			if (method === "DELETE") {
+				await service.deleteStore(storeMatch[1], caller);
+				return json({ id: storeMatch[1], object: "vector_store.deleted", deleted: true });
+			}
+		}
+
+		const sub = /^vector_stores\/([0-9a-f-]{24})\/(\w+)$/.exec(path);
+		if (sub) {
+			const [, id, action] = sub;
+			if (action === "files" && method === "GET")
+				return json(await service.listDocuments(id, caller));
+			if (action === "files" && method === "POST") {
+				return json(await service.attachFile(id, caller, bearer, await event.request.json()));
+			}
+			if (action === "text" && method === "POST") {
+				return json(await service.addText(id, caller, bearer, await event.request.json()));
+			}
+			if (action === "search" && method === "POST") {
+				return json(await service.search(id, caller, bearer, await event.request.json()));
+			}
+			if (action === "reindex" && method === "POST") {
+				return json(await service.reindex(id, caller, bearer));
+			}
+			if (action === "shares" && method === "GET")
+				return json(await service.listShares(id, caller));
+			if (action === "shares" && method === "POST") {
+				await service.addShare(id, caller, await event.request.json());
+				return json({ shared: true });
+			}
+		}
+
+		const docMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})$/.exec(path);
+		if (docMatch && method === "DELETE") {
+			await service.deleteDocument(docMatch[1], docMatch[2], caller);
+			return json({ id: docMatch[2], object: "vector_store.file.deleted", deleted: true });
+		}
+
+		error(404, "Not available through this endpoint.");
+	} catch (err) {
+		if (err && typeof err === "object" && "status" in err && "body" in err) throw err;
+		logger.error({ err, path }, "knowledge handling failed");
+		error(502, "The knowledge store could not be reached.");
+	}
+}
+
+/** The gateway's status and body, verbatim. */
 async function forward(
 	event: Parameters<RequestHandler>[0],
 	method: "GET" | "POST" | "DELETE"
 ): Promise<Response> {
 	const path = event.params.path ?? "";
+	const isInternal = INTERNAL.some((pattern) => pattern.test(path));
+	if (isInternal) {
+		return handleInternal(path, method, event);
+	}
+
 	const bearer = token(event.locals);
 	const url = target(path, event.url.search);
 
@@ -132,6 +251,6 @@ async function forward(
 	}
 }
 
-export const GET: RequestHandler = (event) => forward(event, "GET");
-export const POST: RequestHandler = (event) => forward(event, "POST");
-export const DELETE: RequestHandler = (event) => forward(event, "DELETE");
+export const GET: RequestHandler = (event) => handled(() => forward(event, "GET"));
+export const POST: RequestHandler = (event) => handled(() => forward(event, "POST"));
+export const DELETE: RequestHandler = (event) => handled(() => forward(event, "DELETE"));

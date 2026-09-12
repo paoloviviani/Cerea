@@ -73,7 +73,7 @@ export interface GatewaySearchHit {
 	ordinal: number;
 	score: number;
 	text: string;
-	title: string;
+	title: string | null;
 	source_ref: string | null;
 }
 

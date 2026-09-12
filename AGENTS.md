@@ -311,31 +311,47 @@ fetched in its component body answered 502 with `Failed to parse URL from
 
 ## Projects, knowledge bases and agents
 
-Knowledge bases and agents are the **gateway's** (ADR 0062): it owns files,
-extraction, embedding, the vector store and one ACL, and this application
-reaches them through `/api/v2/gateway`, an allowlisted forwarder that attaches
-the session's OIDC token and never lets it reach the page. Projects are
-**ours**, because a project groups _conversations_, and those live in Mongo.
+The knowledge pipeline is **ours** since ADR 0070: bases, documents, chunks,
+vectors, sharing and reindexing live in this application — Mongo for the
+things a person names, and a chat-owned Postgres (`CHAT_PG_URL`, pgvector) for
+the passages and vectors. The gateway kept only the two inference services the
+pipeline consumes: `POST /v1/embeddings` (catalogue-managed, metered to the
+acting user's token) and `POST /v1/ocr` for reading documents. The browser's
+paths did not move — `/api/v2/gateway/vector_stores/…` and `/files` are
+served in-process by `src/lib/server/knowledge/`, behind the same forwarder
+and its allowlist; only the handling is local now. Agents are ours too
+(ADR 0067). Projects are **ours** because a project groups _conversations_,
+and those live in Mongo.
 
-`src/lib/server/projects.ts` is the whole of it. Read the header of
-`src/lib/types/Project.ts` first; the parts that will bite:
+`src/lib/server/projects.ts` and `src/lib/server/knowledge/` are the whole of
+it. Read the header of `src/lib/types/Project.ts` first; the parts that will
+bite:
 
+- **Postgres refuses a 24-hex ObjectId as `uuid`, and a pgvector type
+  modifier cannot be a bind parameter.** `toUuid`/`fromUuid` (`db.ts`) are
+  the boundary — pad to 32 hex, format; read back by taking the first 24. The
+  search SQL formats the width into the cast (`::halfvec(N)`) because
+  `::halfvec($1)` is a prepare-time *syntax* error — an int from a checked
+  range, never caller input. Ranking runs in half precision through partial
+  expression indexes on `dimensions` (384…3072); storage stays full precision
+  in an untyped `vector` column, because a fixed width would make changing
+  the embedding model a schema change instead of a reindex.
 - **Sharing is decided against the viewer's own identity** — their email and
-  the groups `GET /v1/billing/groups` reports for _their_ token. Nothing asks
-  the gateway who is in a group, because a bearer token cannot ask and a route
-  that could would let a chat client enumerate the directory. The cost is that
-  a share names a principal that may not exist: a typo and a colleague who has
-  not signed in yet are indistinguishable.
+  the groups `GET /v1/me` reports for _their_ token. Nothing asks the gateway
+  who is in a group, because a bearer token cannot ask and a route that could
+  would let a chat client enumerate the directory. The cost is that a share
+  names a principal that may not exist: a typo and a colleague who has not
+  signed in yet are indistinguishable.
 - **A shared project is a shared workspace.** Everyone who can see it sees
   every conversation in it. The project page says so.
 - **Sharing a project shares no documents.** Retrieval runs with the reader's
-  own token, so they see passages only from bases they could already read.
+  own identity, so they see passages only from bases they could already read.
 - **Retrieval never fails a turn.** Every error is logged
   (`project_retrieval_degraded`, `project_memory_index_failed`) and swallowed:
   a base being unavailable is a reason for a worse answer, not for none.
-- **Indexing past chats is idempotent by handle.** The transcript goes to the
-  gateway under `source_ref = chat:conversation:<id>`, which _replaces_ rather
-  than appends — otherwise a ten-turn thread leaves ten overlapping copies and
+- **Indexing past chats is idempotent by handle.** The transcript is stored
+  under `source_ref = chat:conversation:<id>`, which _replaces_ rather than
+  appends — otherwise a ten-turn thread leaves ten overlapping copies and
   every search returns all of them.
 - The memory base is an **ordinary knowledge base**, visible on the Knowledge
   screen and deletable there, named after its project. That is deliberate: the

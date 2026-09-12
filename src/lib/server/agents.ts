@@ -17,7 +17,8 @@
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import { gateway, type GatewaySearchHit } from "$lib/server/gatewayServer";
+import { type GatewaySearchHit } from "$lib/server/gatewayServer";
+import { callerFrom, searchBase, type Caller } from "$lib/server/knowledge/service";
 import type { Agent } from "$lib/types/Agent";
 import type { User } from "$lib/types/User";
 
@@ -105,12 +106,17 @@ export async function agentContext(options: {
 	agent: Agent;
 	question: string;
 	token: string | undefined;
+	/** The generation's locals: who is asking, for the store's reach checks. */
+	locals: App.Locals | undefined;
 }): Promise<string | undefined> {
-	const { agent, question, token } = options;
+	const { agent, question, token, locals } = options;
 	const parts: string[] = [];
 	if (agent.system_prompt.trim()) parts.push(agent.system_prompt.trim());
 
-	if (token && agent.knowledgeBaseIds.length > 0 && question.trim()) {
+	if (token && agent.knowledgeBaseIds.length > 0 && question.trim() && locals?.user) {
+		// The caller is the reader: the store's reach checks run against this
+		// person, and the query's embedding is metered to their token.
+		const caller = await callerFrom(locals);
 		const passages = await retrieve({
 			bases: agent.knowledgeBaseIds,
 			question,
@@ -118,6 +124,7 @@ export async function agentContext(options: {
 			minScore: agent.retrievalMinScore,
 			token,
 			agentName: agent.name,
+			caller,
 		});
 		if (passages.length > 0) {
 			const rendered = passages
@@ -141,22 +148,21 @@ async function retrieve(options: {
 	minScore: number;
 	token: string;
 	agentName: string;
+	caller: Caller;
 }): Promise<GatewaySearchHit[]> {
-	const { bases, question, limit, minScore, token, agentName } = options;
+	const { bases, question, limit, minScore, token, agentName, caller } = options;
 	const hits: GatewaySearchHit[] = [];
 	for (const baseId of bases) {
 		try {
-			const answer = await gateway.post<{ data: GatewaySearchHit[] }>(
-				token,
-				`vector_stores/${baseId}/search`,
-				{
-					query: question,
-					max_num_results: limit,
-					// Below the floor a passage is noise; the gateway scores, so the
-					// filter is its parameter, spelled the way its search accepts.
-					...(minScore > 0 ? { min_score: minScore } : {}),
-				}
-			);
+			// The chat's own store, since ADR 0070: an in-process search, with the
+			// query's embedding metered to this caller's token.
+			const answer = await searchBase(baseId, caller, token, {
+				query: question,
+				max_num_results: limit,
+				// Below the floor a passage is noise; the store scores, so the
+				// filter is its parameter, spelled the way its search accepts.
+				...(minScore > 0 ? { min_score: minScore } : {}),
+			});
 			hits.push(...answer.data);
 		} catch (err) {
 			logger.warn(

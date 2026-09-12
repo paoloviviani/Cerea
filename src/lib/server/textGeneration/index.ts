@@ -143,6 +143,7 @@ async function* textGenerationWithoutTitle(
 			agent,
 			question: lastUser?.content ?? "",
 			token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
+			locals: ctx.locals,
 		});
 		if (context) {
 			preprompt = preprompt ? `${context}\n\n${preprompt}` : context;
@@ -168,6 +169,7 @@ async function* textGenerationWithoutTitle(
 				project,
 				question: lastUser?.content ?? "",
 				token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
+				locals: ctx.locals,
 			});
 			if (context) {
 				preprompt = preprompt ? `${preprompt}\n\n${context}` : context;

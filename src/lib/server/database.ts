@@ -8,6 +8,7 @@ import "aws4";
 import "@aws-sdk/credential-providers";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Agent } from "$lib/types/Agent";
+import type { KnowledgeConfig, KnowledgeDocument, VectorStore } from "$lib/types/VectorStore";
 import type { Project } from "$lib/types/Project";
 import type { McpConnector, McpOauthPending, McpToken } from "$lib/types/McpConnector";
 import type { SharedConversation } from "$lib/types/SharedConversation";
@@ -160,6 +161,11 @@ export class Database {
 		// Agents, chat-side since ADR 0067: owned by the user who made them,
 		// stored beside the conversations they serve, sharing nothing.
 		const agents = db.collection<Agent>("agents");
+		// The knowledge pipeline, chat-side since ADR 0070: bases and their
+		// documents here, passages and vectors in the chat's own Postgres.
+		const vectorStores = db.collection<VectorStore>("vectorStores");
+		const knowledgeDocuments = db.collection<KnowledgeDocument>("knowledgeDocuments");
+		const knowledgeConfig = db.collection<KnowledgeConfig>("knowledgeConfig");
 		// Connector definitions, one person's authorisations, and in-flight
 		// flows (ADR 0064). Primary read preference throughout: a callback
 		// reads back the state it just wrote, and secondary lag there is an
@@ -187,6 +193,9 @@ export class Database {
 			conversations,
 			projects,
 			agents,
+			vectorStores,
+			knowledgeDocuments,
+			knowledgeConfig,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,

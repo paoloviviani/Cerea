@@ -1,105 +1,87 @@
 /**
- * The knowledge pipeline's configuration, proxied to the gateway.
+ * The knowledge pipeline's configuration — the chat's own, since ADR 0070.
  *
- * A proxy rather than a direct call from the browser, for the reason every
- * gateway call in this app goes through the server: the user's OIDC access
- * token lives in the session and is never handed to client code. Putting it in
- * a browser would make every extension on the page a gateway client.
- *
- * **Who may do this is the gateway's decision, not ours.** This route checks
- * only that somebody is signed in and forwards their token; the gateway's
- * `/v1/knowledge/config` refuses anyone who is not an administrator, and its
- * 403 is passed straight through. That is deliberate: `user.isAdmin` here is
- * derived from a HuggingFace organisation claim (`updateUser.ts`), which has
- * nothing to do with who administers *this* deployment. Two answers to "is
- * this person an administrator" is one answer too many, and the gateway's is
- * the one that governs the data.
- *
- * It also refuses to work with an API key, by construction — there is no key
- * here to send. The gateway requires a bearer token for this surface precisely
- * so that changing where documents are sent needs a person who signed in
- * (ADR 0062).
+ * The store and its pipeline live here now; this config is what the pipeline
+ * reads. The gate stays the same in kind as the admin area's: the gateway's
+ * answer to "is this person an administrator" (via `callerIdentity`), not the
+ * chat's own `user.isAdmin`, which comes from a HuggingFace organisation claim
+ * and has nothing to do with who administers this deployment. A pipeline that
+ * decides where documents are embedded and spent on deserves the same gate as
+ * the rest of the administration surface.
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
-import { config } from "$lib/server/config";
+
+import { callerIdentity } from "$lib/server/admin";
 import { logger } from "$lib/server/logger";
 
-function gatewayBase(): string {
-	if (!config.OPENAI_BASE_URL) {
-		error(404, "This deployment has no gateway configured.");
+async function requireAdmin(locals: App.Locals): Promise<void> {
+	if (!locals.user) error(401, "Login required");
+	const identity = await callerIdentity(locals);
+	if (!identity) {
+		error(401, "This needs a session from the identity provider. Log out and sign in through it.");
 	}
-	return config.OPENAI_BASE_URL.replace(/\/$/, "");
+	if (!identity.isAdmin) {
+		error(403, "This deployment's gateway does not list you as an administrator.");
+	}
 }
 
-function requireToken(locals: App.Locals): string {
-	if (!locals.user) {
-		error(401, "Login required");
-	}
-	if (!locals.token) {
-		// Signed in with something that is not an OIDC session — a local
-		// development login, or a session predating the token. Says which,
-		// because "403" on an admin screen sends people to the wrong place.
-		error(401, "This needs an OIDC session. Log out and sign in through the identity provider.");
-	}
-	return locals.token;
-}
-
-/** Pass the gateway's own status and body through, including its refusals. */
-async function relay(response: Response): Promise<Response> {
-	const text = await response.text();
-	if (!response.ok) {
-		let message = text;
-		try {
-			const parsed = JSON.parse(text) as { error?: { message?: string }; detail?: string };
-			message = parsed.error?.message ?? parsed.detail ?? text;
-		} catch {
-			/* not JSON; the raw text is the best available */
-		}
-		// The gateway's status, not a blanket 502: a 403 means "you are not an
-		// administrator" and a 404 means "the feature is off", and collapsing
-		// them would make the screen unable to say which.
-		error(response.status, message || "The gateway refused the request.");
-	}
-	return json(JSON.parse(text));
-}
-
-export const GET: RequestHandler = async ({ locals, fetch }) => {
-	const token = requireToken(locals);
-	try {
-		return await relay(
-			await fetch(`${gatewayBase()}/knowledge/config`, {
-				headers: { Authorization: `Bearer ${token}` },
-			})
-		);
-	} catch (err) {
-		if (err && typeof err === "object" && "status" in err) throw err;
-		logger.error(err, "reading the knowledge configuration");
-		error(502, "The gateway could not be reached.");
-	}
+export const GET: RequestHandler = async ({ locals }) => {
+	await requireAdmin(locals);
+	const { readConfig, statusObject } = await import("$lib/server/knowledge/service");
+	const user = locals.user;
+	if (!user) error(401, "Login required");
+	const config = await readConfig();
+	const status = await statusObject(
+		{
+			userId: user._id,
+			email: user.email ?? null,
+			groups: [],
+			isAdmin: true,
+		},
+		locals.token
+	);
+	return json({
+		enabled: config.enabled,
+		embedding_model: config.embeddingModel,
+		chunk_chars: config.chunkChars,
+		chunk_overlap: config.chunkOverlap,
+		ready: status.ready,
+		detail: status.detail,
+		max_upload_bytes: status.max_upload_bytes,
+	});
 };
 
-export const PUT: RequestHandler = async ({ locals, request, fetch }) => {
-	const token = requireToken(locals);
-	// Forwarded as received. Validating the shape here as well as in the
-	// gateway would mean two schemas for one form, and the gateway's is the one
-	// that decides — including the rule that a third-party extractor needs a
-	// stated reason.
-	const body = await request.text();
-	try {
-		return await relay(
-			await fetch(`${gatewayBase()}/knowledge/config`, {
-				method: "PUT",
-				headers: {
-					Authorization: `Bearer ${token}`,
-					"content-type": "application/json",
-				},
-				body,
-			})
-		);
-	} catch (err) {
-		if (err && typeof err === "object" && "status" in err) throw err;
-		logger.error(err, "writing the knowledge configuration");
-		error(502, "The gateway could not be reached.");
+export const PUT: RequestHandler = async ({ locals, request }) => {
+	await requireAdmin(locals);
+	const body = (await request.json()) as {
+		enabled?: boolean;
+		embedding_model?: string | null;
+		chunk_chars?: number;
+		chunk_overlap?: number;
+	};
+	if (body.chunk_chars !== undefined) {
+		const n = Number(body.chunk_chars);
+		if (!Number.isFinite(n) || n < 80 || n > 8000) {
+			error(400, "chunk_chars must be between 80 and 8000.");
+		}
 	}
+	if (body.chunk_overlap !== undefined) {
+		const n = Number(body.chunk_overlap);
+		if (!Number.isFinite(n) || n < 0 || n > 2000) {
+			error(400, "chunk_overlap must be between 0 and 2000.");
+		}
+	}
+	const { writeConfig } = await import("$lib/server/knowledge/service");
+	const config = await writeConfig({
+		...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
+		...(body.embedding_model !== undefined ? { embeddingModel: body.embedding_model } : {}),
+		...(body.chunk_chars !== undefined ? { chunkChars: Math.floor(body.chunk_chars) } : {}),
+		...(body.chunk_overlap !== undefined ? { chunkOverlap: Math.floor(body.chunk_overlap) } : {}),
+	});
+	logger.info(
+		{ enabled: config.enabled, model: config.embeddingModel },
+		"knowledge_config_updated"
+	);
+	return json({ saved: true });
 };
