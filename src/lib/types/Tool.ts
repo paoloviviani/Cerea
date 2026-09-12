@@ -57,7 +57,9 @@ export interface MCPServer {
 	id: string;
 	name: string;
 	url: string;
-	type: "base" | "custom";
+	/** "base": deployment-configured (MCP_SERVERS). The user-added "custom"
+	 * half is gone — connectors are how a person brings a server (ADR 0064). */
+	type: "base";
 	headers?: KeyValuePair[];
 	env?: KeyValuePair[];
 	status?: ServerStatus;
