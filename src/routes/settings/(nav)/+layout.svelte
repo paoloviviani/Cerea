@@ -1,21 +1,13 @@
 <script lang="ts">
-	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import { onMount, tick } from "svelte";
 	import { base } from "$app/paths";
 	import { afterNavigate, goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import { useSettingsStore } from "$lib/stores/settings";
-	import IconOmni from "$lib/components/icons/IconOmni.svelte";
 	import IconBurger from "$lib/components/icons/IconBurger.svelte";
-	import IconFast from "$lib/components/icons/IconFast.svelte";
-	import IconCheap from "$lib/components/icons/IconCheap.svelte";
 	import CarbonClose from "~icons/carbon/close";
-	import CarbonTextLongParagraph from "~icons/carbon/text-long-paragraph";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
-	import LucideImage from "~icons/lucide/image";
-	import LucideHammer from "~icons/lucide/hammer";
 	import IconGear from "~icons/bi/gear-fill";
-	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 
 	const publicConfig = usePublicConfig();
@@ -24,8 +16,6 @@
 	import { browser } from "$app/environment";
 	import { isDesktop } from "$lib/utils/isDesktop";
 	import { debounce } from "$lib/utils/debounce";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
-	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
 
 	interface Props {
 		data: LayoutData;
@@ -37,26 +27,6 @@
 	let previousPage: string = $state(base || "/");
 	let showContent: boolean = $state(false);
 
-	let navContainer: HTMLDivElement | undefined = $state();
-
-	async function scrollSelectedModelIntoView() {
-		await tick();
-		const container = navContainer;
-		if (!container) return;
-		const currentModelId = page.params.model as string | undefined;
-		if (!currentModelId) return;
-		const buttons = container.querySelectorAll<HTMLButtonElement>("button[data-model-id]");
-		let target: HTMLElement | null = null;
-		for (const btn of buttons) {
-			if (btn.dataset.modelId === currentModelId) {
-				target = btn;
-				break;
-			}
-		}
-		if (!target) return;
-		// Use minimal movement; keep within view if needed
-		target.scrollIntoView({ block: "nearest", inline: "nearest" });
-	}
 
 	function checkDesktopRedirect() {
 		if (
@@ -75,9 +45,6 @@
 		// Initial desktop redirect check
 		checkDesktopRedirect();
 
-		// Ensure the selected model (if any) is visible in the nav
-		void scrollSelectedModelIntoView();
-
 		// Add resize listener for desktop redirect
 		if (browser) {
 			const debouncedCheck = debounce(checkDesktopRedirect, 100);
@@ -94,27 +61,9 @@
 		showContent = page.url.pathname !== `${base}/settings`;
 		// Check desktop redirect after navigation
 		checkDesktopRedirect();
-		// After navigation, keep the selected model in view
-		void scrollSelectedModelIntoView();
+
 	});
 
-	const settings = useSettingsStore();
-
-	// Local filter for model list (hyphen/space insensitive)
-	let modelFilter = $state("");
-	const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-	let queryTokens = $derived(normalize(modelFilter).trim().split(/\s+/).filter(Boolean));
-
-	// With the ML Intern switch on, only the mode's fixed set is offered, in its
-	// configured order — anything else would be swapped for the default on send.
-	let mlModelsOnly = $derived(ML_ASSISTANT_MODE && mlAssistant.enabled);
-	let browsableModels = $derived(
-		mlModelsOnly
-			? data.mlAssistantModels
-					.map((id) => data.models.find((el) => el.id === id))
-					.filter((el): el is (typeof data.models)[number] => el !== undefined)
-			: data.models
-	);
 </script>
 
 <div
@@ -155,136 +104,8 @@
 		<div
 			class="col-span-1 scrollbar-custom flex flex-col overflow-y-auto rounded-r-xl bg-linear-to-l from-gray-50 to-10% whitespace-nowrap max-md:-mx-4 max-md:h-full md:pr-6 dark:from-gray-700/40"
 			class:max-md:hidden={showContent && browser}
-			bind:this={navContainer}
 		>
 			<!-- Section Headers -->
-			<h3
-				class="px-3 pt-2 pb-1 text-xs font-semibold text-gray-600 md:text-left dark:text-gray-400"
-			>
-				Models
-			</h3>
-
-			<!-- Filter input -->
-			<div class="px-2 py-2">
-				<input
-					bind:value={modelFilter}
-					type="search"
-					placeholder="Search by name"
-					aria-label="Search models by name or id"
-					class="w-full rounded-full border border-gray-300 bg-white px-4 py-1 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-gray-300 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder:text-gray-500 dark:focus:ring-gray-700"
-				/>
-			</div>
-
-			{#if mlModelsOnly}
-				<p class="px-3 pb-2 text-xs text-gray-500 dark:text-gray-400">
-					ML Intern mode is on, so only its models are listed.
-				</p>
-			{/if}
-			{#each browsableModels
-				.filter((el) => !el.unlisted)
-				.filter((el) => {
-					const haystack = normalize(`${el.id} ${el.name ?? ""} ${el.displayName ?? ""}`);
-					return queryTokens.every((q) => haystack.includes(q));
-				}) as model (model.id)}
-				<button
-					type="button"
-					onclick={() => modelsOverlay.show(model.id)}
-					class="group flex h-9 w-full flex-none items-center gap-1 rounded-lg px-3 text-[13px] text-gray-600 hover:bg-gray-100 md:rounded-xl md:px-3 dark:text-gray-300 dark:hover:bg-gray-700/50"
-					data-model-id={model.id}
-					aria-label="Configure {model.displayName}"
-				>
-					<div class="mr-auto flex items-center gap-1.5 truncate">
-						{#if model.isRouter}
-							<IconOmni classNames="size-3.5 flex-none" />
-						{:else if model.logoUrl}
-							<img
-								src={model.logoUrl}
-								alt=""
-								loading="lazy"
-								decoding="async"
-								class="size-3.5 flex-none rounded-sm border bg-white dark:border-gray-700"
-							/>
-						{:else}
-							<div
-								class="size-3.5 flex-none rounded-sm border border-transparent bg-gray-300 dark:bg-gray-800"
-							></div>
-						{/if}
-						<span class="truncate">{model.displayName}</span>
-					</div>
-
-					{#if publicConfig.isHuggingChat && !model.isRouter && $settings.providerOverrides?.[model.id] && $settings.providerOverrides[model.id] !== "auto"}
-						{@const providerOverride = $settings.providerOverrides[model.id]}
-						{@const hubOrg =
-							PROVIDERS_HUB_ORGS[providerOverride as keyof typeof PROVIDERS_HUB_ORGS]}
-						{#if providerOverride === "fastest"}
-							<span
-								title="Provider: {providerOverride}"
-								class="grid size-[21px] flex-none place-items-center rounded-md bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-								aria-label="Provider: {providerOverride}"
-								role="img"
-							>
-								<IconFast classNames="size-3" />
-							</span>
-						{:else if providerOverride === "cheapest"}
-							<span
-								title="Provider: {providerOverride}"
-								class="grid size-[21px] flex-none place-items-center rounded-md bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-								aria-label="Provider: {providerOverride}"
-								role="img"
-							>
-								<IconCheap classNames="size-3" />
-							</span>
-						{:else if hubOrg}
-							<span
-								title="Provider: {providerOverride}"
-								class="flex size-[21px] flex-none items-center justify-center rounded-md bg-gray-500/10 p-[0.225rem]"
-							>
-								<img
-									src="https://huggingface.co/api/avatars/{hubOrg}"
-									alt={providerOverride}
-									class="size-full rounded-sm"
-								/>
-							</span>
-						{/if}
-					{/if}
-
-					{#if $settings.toolsOverrides?.[model.id] ?? (model as { supportsTools?: boolean }).supportsTools}
-						<span
-							title="Tool calling supported"
-							class="grid size-[21px] flex-none place-items-center rounded-md bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-							aria-label="Model supports tools"
-							role="img"
-						>
-							<LucideHammer class="size-3" />
-						</span>
-					{/if}
-
-					{#if $settings.multimodalOverrides?.[model.id] ?? model.multimodal}
-						<span
-							title="Multimodal support (image inputs)"
-							class="grid size-[21px] flex-none place-items-center rounded-md bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-							aria-label="Model is multimodal"
-							role="img"
-						>
-							<LucideImage class="size-3" />
-						</span>
-					{/if}
-
-					{#if $settings.customPrompts?.[model.id]}
-						<CarbonTextLongParagraph
-							class="size-6 rounded-md border border-gray-300 p-1 text-gray-800 dark:border-gray-600 dark:text-gray-200"
-						/>
-					{/if}
-					{#if model.id === $settings.activeModel}
-						<div
-							class="flex h-[21px] items-center rounded-md bg-black/90 px-2 text-[11px] leading-none font-semibold text-white dark:bg-white dark:text-black"
-						>
-							Active
-						</div>
-					{/if}
-				</button>
-			{/each}
-
 			<!-- A second section, not an entry appended to the first.
 			     "Application Settings" sat directly under the model list with the
 			     same shape as a model row, so the panel read as one list whose

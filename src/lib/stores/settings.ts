@@ -6,6 +6,7 @@ import { type Writable, writable, get } from "svelte/store";
 
 type SettingsStore = {
 	shareConversationsWithModelAuthors: boolean;
+	webSearchEnabled?: boolean;
 	welcomeModalSeen: boolean;
 	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;

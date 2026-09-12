@@ -252,7 +252,7 @@
 
 	{#if signedIn}
 		<div class="mt-1 border-t border-gray-200/60 pt-1 dark:border-gray-700/60">
-			<UserMenu {user} />
+			<UserMenu {user} {gatewayIsAdmin} />
 		</div>
 	{:else}
 		<a

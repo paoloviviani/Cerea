@@ -9,6 +9,9 @@ const settingsSchema = z.object({
 	shareConversationsWithModelAuthors: z
 		.boolean()
 		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
+	// Off by default and stored as absent: the field is the user's consent to
+	// web search, and the tool it enables also needs the console's search tier.
+	webSearchEnabled: z.boolean().optional(),
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),

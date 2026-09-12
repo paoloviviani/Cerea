@@ -108,9 +108,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// this list decides what to show, never what is permitted.
 		if (locals.user) {
 			const { listForUser, wireName } = await import("$lib/server/agents");
+			const agentList = await listForUser(locals.user._id);
 			const byId = new Map(catalogue.map((model) => [model.id, model]));
 			const cards: GETModelsResponse = [];
-			for (const agent of await listForUser(locals.user._id)) {
+			for (const agent of agentList) {
 				const underlying = byId.get(agent.model);
 				if (!underlying) continue; // its model left the catalogue; it would refuse at send
 				cards.push({

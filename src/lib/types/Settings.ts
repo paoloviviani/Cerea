@@ -46,6 +46,15 @@ export interface Settings extends Timestamps {
 	artifactsOverrides?: Record<string, boolean>;
 
 	/**
+	 * Web search through the gateway's own backends (`POST /v1/search`,
+	 * ADR 0058's plan phase 2). Off by default: turning it on is the user's
+	 * decision to spend, and the tool it enables only exists when the
+	 * console has granted a `kind: "search"` tier — the toggle expresses
+	 * intent, the tier is the permission.
+	 */
+	webSearchEnabled?: boolean;
+
+	/**
 	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
 	 * When set to `true`, prompt examples for that model are suppressed.
 	 */
