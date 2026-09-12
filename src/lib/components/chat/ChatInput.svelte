@@ -11,8 +11,10 @@
 	import CarbonLink from "~icons/carbon/link";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import CarbonClose from "~icons/carbon/close";
-	import UrlFetchModal from "./UrlFetchModal.svelte";
-	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
+import UrlFetchModal from "./UrlFetchModal.svelte";
+import { useSettingsStore } from "$lib/stores/settings";
+import CarbonEarth from "~icons/carbon/earth";
+import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
 	import MCPServerManager from "$lib/components/mcp/MCPServerManager.svelte";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
@@ -73,6 +75,10 @@
 		focused = $bindable(false),
 		onsubmit,
 	}: Props = $props();
+
+	// The composer reads (and flips) the web-search setting; the store syncs
+	// the change to the server, where the generation reads it back.
+	const settings = useSettingsStore();
 
 	const onFileChange = async (e: Event) => {
 		if (!e.target) return;
@@ -427,6 +433,25 @@
 				"-ml-0.5 scrollbar-custom flex max-w-[calc(100%-var(--composer-actions-width,40px))] flex-wrap items-center justify-start gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 max-md:flex-nowrap max-md:overflow-x-auto max-md:mask-r-from-85% dark:text-gray-400",
 			]}
 		>
+			<!-- Web search through the gateway's own backends (ADR 0058's plan,
+			     phase 2). The toggle is the user's consent to spend; the tool
+			     itself only exists when the console has granted a search tier,
+			     so a toggle with nothing behind it costs nothing and changes
+			     nothing. -->
+			<button
+				type="button"
+				class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {$settings.webSearchEnabled
+					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				aria-pressed={$settings.webSearchEnabled}
+				title="Search the web through this deployment's search backends"
+				onclick={() =>
+					settings.instantSet({ webSearchEnabled: !$settings.webSearchEnabled })}
+			>
+				<CarbonEarth class="size-3.5" />
+				Web search
+			</button>
+
 			{#if showFileUpload}
 				<div class="flex shrink-0 items-center">
 					<input

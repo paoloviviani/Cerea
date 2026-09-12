@@ -26,37 +26,56 @@ export { isNestedAgentTool } from "./nestedAgent";
  * mode) there are no builtin tools at all.
  */
 export function getEnabledBuiltinTools(params: {
-	conv: Pick<Conversation, "_id" | "plan" | "mlAssistant">;
+	conv: Pick<Conversation, "_id" | "plan" | "mlAssistant" | "webSearch">;
 	/** Hub namespace to name a Trackio Space in; absent when the run has no user. */
 	namespace?: string;
 	/** The turn's OIDC token; the gateway search tool meters the search to its owner. */
 	token?: string;
 	/** Ids of the `kind: "search"` models this caller may use; absent means none. */
 	searchModelIds?: string[];
+	/** The user's web-search setting; on, the search builtin joins any conversation. */
+	webSearchEnabled?: boolean;
 }): BuiltinTool[] {
-	if (!isMlAssistantConversation(params.conv)) return [];
-	// The GitHub tools carry a second condition of their own — they withhold
-	// themselves without a GITHUB_TOKEN — which is still policy, so it lives with
-	// them rather than leaking a config read into this list. The research tool's
-	// definition is static too, but its nested loop needs the turn's request
-	// plumbing, which runMcpFlow binds onto it once that exists.
-	return [
-		askUserQuestionBuiltin,
-		createPlanTool(params.conv),
-		waitBuiltin,
-		...githubGroundingBuiltins(),
-		// The gateway's own search backends, metered to this caller. Withholds
-		// itself without a search model in their catalogue, like the GitHub
-		// tools do without a token.
-		...createGatewaySearchBuiltins({
-			token: params.token,
-			searchModelIds: params.searchModelIds ?? [],
-		}),
-		createResearchTool(),
-		createSandboxTool(),
-		createJobCheckTool(),
-		createTrackioTool(() => params.namespace),
-	];
+	const tools: BuiltinTool[] = [];
+
+	if (isMlAssistantConversation(params.conv)) {
+		// The GitHub tools carry a second condition of their own — they withhold
+		// themselves without a GITHUB_TOKEN — which is still policy, so it lives
+		// with them rather than leaking a config read into this list. The
+		// research tool's definition is static too, but its nested loop needs
+		// the turn's request plumbing, which runMcpFlow binds onto it once that
+		// exists.
+		tools.push(
+			askUserQuestionBuiltin,
+			createPlanTool(params.conv),
+			waitBuiltin,
+			...githubGroundingBuiltins(),
+			createResearchTool(),
+			createSandboxTool(),
+			createJobCheckTool(),
+			createTrackioTool(() => params.namespace)
+		);
+	}
+
+	// The gateway's own search backends, metered to this caller. Two switches,
+	// both meaningful: the user's setting says they consent to web search on
+	// this conversation (the ML Assistant preset includes it by nature), and
+	// the console's search tier says the deployment permits it. The tool
+	// withholds itself when either is missing — like the GitHub tools do
+	// without a token.
+	if (
+		(params.webSearchEnabled || isMlAssistantConversation(params.conv)) &&
+		(params.searchModelIds?.length ?? 0) > 0
+	) {
+		tools.push(
+			...createGatewaySearchBuiltins({
+				token: params.token,
+				searchModelIds: params.searchModelIds ?? [],
+			})
+		);
+	}
+
+	return tools;
 }
 
 /**
