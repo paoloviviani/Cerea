@@ -1,7 +1,9 @@
 /**
  * MCP Servers Store
- * Manages base (env-configured) and custom (user-added) MCP servers
- * Stores custom servers and selection state in browser localStorage
+ * Manages base (env-configured) MCP servers. User-added custom servers were
+ * the half this store used to carry; they are gone (ADR 0064 — connectors
+ * are how a person brings their own server), and what remains of the split
+ * is the selection and disable state for the deployment's base list.
  */
 
 import { writable, derived, get } from "svelte/store";
@@ -21,25 +23,9 @@ const baseLabel = toKeyPart(typeof base === "string" ? base : "");
 const KEY_PREFIX = appLabel || baseLabel || "app";
 
 const STORAGE_KEYS = {
-	CUSTOM_SERVERS: `${KEY_PREFIX}:mcp:custom-servers`,
 	SELECTED_IDS: `${KEY_PREFIX}:mcp:selected-ids`,
 	DISABLED_BASE_IDS: `${KEY_PREFIX}:mcp:disabled-base-ids`,
 } as const;
-
-// No migration needed per request — read/write only namespaced keys
-
-// Load custom servers from localStorage
-function loadCustomServers(): MCPServer[] {
-	if (!browser) return [];
-
-	try {
-		const json = localStorage.getItem(STORAGE_KEYS.CUSTOM_SERVERS);
-		return json ? JSON.parse(json) : [];
-	} catch (error) {
-		console.error("Failed to load custom MCP servers from localStorage:", error);
-		return [];
-	}
-}
 
 // Load selected server IDs from localStorage
 function loadSelectedIds(): Set<string> {
@@ -52,17 +38,6 @@ function loadSelectedIds(): Set<string> {
 	} catch (error) {
 		console.error("Failed to load selected MCP server IDs from localStorage:", error);
 		return new Set();
-	}
-}
-
-// Save custom servers to localStorage
-function saveCustomServers(servers: MCPServer[]) {
-	if (!browser) return;
-
-	try {
-		localStorage.setItem(STORAGE_KEYS.CUSTOM_SERVERS, JSON.stringify(servers));
-	} catch (error) {
-		console.error("Failed to save custom MCP servers to localStorage:", error);
 	}
 }
 
@@ -101,7 +76,7 @@ function saveDisabledBaseIds(ids: Set<string>) {
 	}
 }
 
-// Store for all servers (base + custom)
+// Store for base servers
 export const allMcpServers = writable<MCPServer[]>([]);
 
 // Track if initial server load has completed
@@ -139,38 +114,26 @@ export const allBaseServersEnabled = derived(
 
 /**
  * Populate the MCP store from a known base-server list without making a network
- * request. Merges with any custom servers saved in localStorage, applies the
- * user's disabled-server preferences, and sets mcpServersLoaded synchronously.
+ * request. Applies the user's disabled-server preferences and sets
+ * mcpServersLoaded synchronously.
  *
  * Called from the root layout script block with the server list that arrived in
  * the SSR payload, so the store is ready before any child onMount fires.
  * The background refreshMcpServers() call still runs to pick up status changes.
  */
 export function initWithServers(baseServers: MCPServer[]): void {
-	const customServers = loadCustomServers();
-
-	// Merge base and custom servers
-	const merged = [...baseServers, ...customServers];
-	allMcpServers.set(merged);
+	allMcpServers.set(baseServers);
 
 	// Load disabled base servers
 	const disabledBaseIds = loadDisabledBaseIds();
 
 	// Auto-enable all base servers that aren't explicitly disabled.
-	// Keep any custom servers that were previously selected and still exist.
-	const validIds = new Set(merged.map((s) => s.id));
-	selectedServerIds.update(($currentIds) => {
+	selectedServerIds.update(() => {
 		const newSelection = new Set<string>();
 
 		for (const server of baseServers) {
 			if (!disabledBaseIds.has(server.id)) {
 				newSelection.add(server.id);
-			}
-		}
-
-		for (const id of $currentIds) {
-			if (validIds.has(id) && !id.startsWith("base-")) {
-				newSelection.add(id);
 			}
 		}
 
@@ -180,7 +143,7 @@ export function initWithServers(baseServers: MCPServer[]): void {
 }
 
 /**
- * Refresh base servers from API and merge with custom servers
+ * Refresh base servers from API
  */
 export async function refreshMcpServers() {
 	try {
@@ -193,8 +156,8 @@ export async function refreshMcpServers() {
 		initWithServers(baseServers);
 	} catch (error) {
 		console.error("Failed to refresh MCP servers:", error);
-		// On error, just use custom servers
-		allMcpServers.set(loadCustomServers());
+		// On error, keep whatever is in the store rather than blanking it: a
+		// failed refresh is a stale list, which is the useful half of the truth.
 		mcpServersLoaded.set(true);
 	}
 }
@@ -239,59 +202,6 @@ export function disableAllServers() {
 
 	// Clear the selection
 	selectedServerIds.set(new Set());
-}
-
-/**
- * Add a custom MCP server
- */
-export function addCustomServer(server: Omit<MCPServer, "id" | "type" | "status">): string {
-	const newServer: MCPServer = {
-		...server,
-		id: crypto.randomUUID(),
-		type: "custom",
-		status: "disconnected",
-	};
-
-	const customServers = loadCustomServers();
-	customServers.push(newServer);
-	saveCustomServers(customServers);
-
-	// Refresh all servers to include the new one
-	refreshMcpServers();
-
-	return newServer.id;
-}
-
-/**
- * Update an existing custom server
- */
-export function updateCustomServer(id: string, updates: Partial<MCPServer>) {
-	const customServers = loadCustomServers();
-	const index = customServers.findIndex((s) => s.id === id);
-
-	if (index !== -1) {
-		customServers[index] = { ...customServers[index], ...updates };
-		saveCustomServers(customServers);
-		refreshMcpServers();
-	}
-}
-
-/**
- * Delete a custom server
- */
-export function deleteCustomServer(id: string) {
-	const customServers = loadCustomServers();
-	const filtered = customServers.filter((s) => s.id !== id);
-	saveCustomServers(filtered);
-
-	// Also remove from selected IDs
-	selectedServerIds.update(($ids) => {
-		const newSet = new Set($ids);
-		newSet.delete(id);
-		return newSet;
-	});
-
-	refreshMcpServers();
 }
 
 /**
