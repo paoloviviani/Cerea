@@ -846,6 +846,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						conversation: conv,
 						messages: conv.messages,
 						token: locals.token,
+						locals,
 					});
 				})().catch((err) =>
 					logger.warn({ err }, "project_memory_index_failed: unexpected rejection")
