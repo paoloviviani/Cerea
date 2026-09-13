@@ -100,30 +100,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 		const summaries = shown.map(serializeModelSummary);
 
-		// The caller's own agents, as picker entries named `agent:<name>`
-		// (ADR 0067 — agents are chat-side now). The card is the *underlying*
-		// model's, so capabilities and multimodality are what the request will
-		// actually be bound by, with the agent's identity on top. A model the
-		// gateway would refuse still shows and still refuses at send time —
-		// this list decides what to show, never what is permitted.
-		if (locals.user) {
-			const { listForUser, wireName } = await import("$lib/server/agents");
-			const agentList = await listForUser(locals.user._id);
-			const byId = new Map(catalogue.map((model) => [model.id, model]));
-			const cards: GETModelsResponse = [];
-			for (const agent of agentList) {
-				const underlying = byId.get(agent.model);
-				if (!underlying) continue; // its model left the catalogue; it would refuse at send
-				cards.push({
-					...serializeModelSummary(underlying),
-					id: wireName(agent),
-					displayName: agent.description || agent.name,
-					preprompt: agent.system_prompt,
-				});
-			}
-			summaries.push(...cards);
-		}
-
 		return superjsonResponse(summaries satisfies GETModelsResponse, {
 			headers: MODELS_CACHE_HEADERS,
 		});

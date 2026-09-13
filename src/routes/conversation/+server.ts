@@ -5,8 +5,8 @@ import { error, redirect } from "@sveltejs/kit";
 import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
-import { models } from "$lib/server/models";
-import { isAgentModel, isValidConversationModel } from "$lib/server/agents";
+import { models, validateModel } from "$lib/server/models";
+import { resolveForConversation } from "$lib/server/agents";
 import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
@@ -25,7 +25,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const parsedBody = z
 		.object({
 			fromShare: z.string().optional(),
-			model: z.string(),
+			// An agent conversation passes its wrapper separately: the model is
+			// the plain one, and the agent adds the prompt and knowledge.
+			agentId: z.string().optional(),
+			model: validateModel(models),
 			preprompt: z.string().optional(),
 			mlAssistant: z.boolean().optional(),
 			/** Start this conversation inside a project. */
@@ -39,12 +42,26 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 	const values = parsedBody.data;
 
-	// Catalogue ids and — for their owner — agent wire names. The picker
-	// offers agent cards, so the create route must accept what it offers;
-	// the previous check ran against the catalogue alone and refused the very
-	// card the picker had just listed.
-	if (!(await isValidConversationModel(values.model, locals.user?._id))) {
-		error(400, "Invalid request");
+	// The wrapper arrives by id and must belong to the caller — an agent is
+	// per-user and shared with nobody, so someone else's id is exactly as
+	// invisible as one that does not exist.
+	let agentId: ObjectId | undefined;
+	if (values.agentId !== undefined) {
+		const user = locals.user;
+		if (!user) error(401, "Login required");
+		if (!ObjectId.isValid(values.agentId)) {
+			error(400, "Invalid request");
+		}
+		const agent = await resolveForConversation(new ObjectId(values.agentId), user._id);
+		if (!agent) {
+			error(404, "No such agent");
+		}
+		// The wrapper adds to the request; the conversation's model is the
+		// plain one it wraps. The picker already sent the right model —
+		// correcting it here costs nothing and keeps the invariant in code
+		// rather than in a shared assumption.
+		values.model = agent.model;
+		agentId = new ObjectId(values.agentId);
 	}
 
 	const convCount = await collections.conversations.countDocuments(authCondition(locals));
@@ -56,13 +73,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	// Only builds that ship ML Assistant mode can start a conversation in it.
 	const isMlAssistant = ML_ASSISTANT_MODE && values.mlAssistant === true;
 
-	// An agent conversation has no catalogue model to find — the generation
-	// resolves the agent, and its underlying model, when the turn runs.
-	const agentConversation = isAgentModel(values.model);
-
 	let model = models.find((m) => (m.id || m.name) === values.model);
 
-	if (!model && !agentConversation) {
+	if (!model) {
 		error(400, "Invalid model");
 	}
 
@@ -180,6 +193,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		...(values.fromShare ? { meta: { fromShareId: values.fromShare } } : {}),
 		...(projectId ? { projectId } : {}),
+		...(agentId ? { agentId } : {}),
 		// Only builds that ship ML Assistant mode can mark a conversation with it.
 		...(isMlAssistant ? { mlAssistant: true } : {}),
 		...(isMlAssistant && mlBudget ? { mlBudget } : {}),

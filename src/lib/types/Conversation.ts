@@ -32,6 +32,13 @@ export interface Conversation extends Timestamps {
 	 * its earlier turns unreproducible.
 	 */
 	projectId?: Project["_id"];
+	/**
+	 * The agent wrapping this conversation (ADR 0067, as clarified 2026-09-13).
+	 * An agent is a passthrough wrapper on a plain model: the conversation's
+	 * `model` is always the underlying model, and the wrapper contributes its
+	 * system prompt and knowledge bases at request time. Null is a plain chat.
+	 */
+	agentId?: ObjectId;
 
 	/**
 	 * Message ids already written into the project's memory base, so a

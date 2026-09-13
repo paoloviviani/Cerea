@@ -11,12 +11,16 @@
 	**An agent does not publish its knowledge bases.** Retrieval re-checks the
 	user's own access to every attached base on every turn, with their token.
 
-	**The name is the address.** A conversation keeps the model it was started
-	with, and that name is `agent:<name>` — so the name is fixed at creation and
-	renaming is refused, the same rule the gateway's version had for the same
-	reason.
+	**A wrapper, not a model** (clarified 2026-09-13). A conversation pointed
+	at an agent keeps a plain model — the one the agent runs on — and holds the
+	agent by id; each request passes through, adding the system prompt and the
+	knowledge retrieval. Nothing is snapshotted: editing the agent changes what
+	its existing conversations retrieve, which is what "passing through" means.
+	Because conversations address it by id, the name is editable and renaming
+	breaks nothing.
 -->
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
@@ -38,7 +42,6 @@
 		knowledgeBaseIds: string[];
 		retrievalLimit: number;
 		retrievalMinScore: number;
-		wire_name: string;
 	}
 
 	interface ModelCard {
@@ -88,10 +91,8 @@
 			]);
 			agents = listed.data;
 			stores = bases.data;
-			// The models an agent may run on: chat models, and not other agents.
-			models = catalogue.data.filter(
-				(model) => !model.id.startsWith("agent:") && (model.kind ?? "chat") === "chat"
-			);
+			// The models an agent may run on: plain chat models.
+			models = catalogue.data.filter((model) => (model.kind ?? "chat") === "chat");
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : "Could not load the agents.";
 		} finally {
@@ -137,6 +138,29 @@
 		view = "form";
 	}
 
+	async function startChat() {
+		if (!current) return;
+		busy = true;
+		failure = null;
+		try {
+			const response = await fetch(`${base}/conversation`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ model: current.model, agentId: current._id }),
+			});
+			if (!response.ok) {
+				throw new Error(((await response.json()) as { message?: string }).message ?? "Could not start the chat.");
+			}
+			const created = (await response.json()) as { conversationId: string };
+			// A full navigation, not a dialog swap: the chat *is* the next screen.
+			await goto(`${base}/conversation/${created.conversationId}`);
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not start the chat.";
+		} finally {
+			busy = false;
+		}
+	}
+
 	function toggle(id: string) {
 		attached = attached.includes(id) ? attached.filter((entry) => entry !== id) : [...attached, id];
 	}
@@ -153,6 +177,9 @@
 				knowledgeBaseIds: attached,
 				retrievalLimit: Number(retrievalLimit) || 6,
 				model,
+				// Conversations address the agent by id, so the name is a label
+				// — editable like any other field.
+				...(editing ? { name: name.trim() } : {}),
 			};
 			if (editing) {
 				await api(`/agents/${editing._id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -246,7 +273,8 @@
 				{:else if view === "form"}
 					Everything that makes it an agent is on this one screen.
 				{:else if current}
-					Use it by picking <code>{current.wire_name}</code> in the model list.
+					Start a chat with it below — it runs on {current.model} and adds your instructions
+					and knowledge to every turn.
 				{/if}
 			</p>
 		</div>
@@ -311,9 +339,7 @@
 											<p class={s.CARD_SUBTITLE}>{agent.description || agent.model}</p>
 										</div>
 										<div class="flex flex-wrap items-center gap-2">
-											<span class="{s.PILL} {s.PILL_TONES.busy}">
-												<code class="font-mono">{agent.wire_name}</code>
-											</span>
+											<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.model}</span>
 											{#if agent.knowledgeBaseIds.length > 0}
 												<span class="text-xs text-gray-600 dark:text-gray-400">
 													{agent.knowledgeBaseIds.length} base{agent.knowledgeBaseIds.length ===
@@ -339,7 +365,10 @@
 				<div class={s.TIPS}>
 					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
 					<ul class={s.TIPS_LIST}>
-						<li>• An agent appears in the model list as <code>agent:name</code>.</li>
+						<li>
+							• Start a chat from the agent's page; the conversation runs on the agent's model with
+							the wrapper on top.
+						</li>
 						<li>
 							• Its instructions go <em>before</em> yours — it supplies defaults, not overrides.
 						</li>
@@ -347,7 +376,8 @@
 							• Retrieval uses <strong>your</strong> access: it sees only the bases you could read
 							yourself.
 						</li>
-						<li>• The name is fixed once created — conversations address the agent by it.</li>
+						<li>• Editing the agent changes the conversations it wraps; the model stays theirs to
+							switch.</li>
 					</ul>
 				</div>
 			</div>
@@ -364,14 +394,8 @@
 							maxlength="128"
 							bind:value={name}
 							required
-							disabled={busy || editing !== null}
+							disabled={busy}
 						/>
-						{#if editing}
-							<p class={s.HINT}>
-								Fixed: the name is how the agent is addressed, so renaming would break conversations
-								that use it.
-							</p>
-						{/if}
 					</div>
 					<div class="min-w-48 flex-1">
 						<label for="agent-model" class={s.LABEL}>Runs on</label>
@@ -501,6 +525,10 @@
 						<button onclick={() => openForm(current)} class={s.SECONDARY}>
 							<IconSettings class="size-4" />
 							Edit
+						</button>
+						<button onclick={startChat} disabled={busy} class={s.PRIMARY}>
+							<LucideBot class="size-4" />
+							Start a chat
 						</button>
 					</div>
 				</div>

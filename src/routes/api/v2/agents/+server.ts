@@ -11,7 +11,7 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
-import { create, listForUser, wireName } from "$lib/server/agents";
+import { create, listForUser } from "$lib/server/agents";
 
 const createSchema = z.object({
 	name: z
@@ -48,7 +48,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 			knowledgeBaseIds: agent.knowledgeBaseIds,
 			retrievalLimit: agent.retrievalLimit,
 			retrievalMinScore: agent.retrievalMinScore,
-			wire_name: wireName(agent),
 			updatedAt: agent.updatedAt,
 		})),
 	});
@@ -64,5 +63,5 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(409, `You already have an agent named "${parsed.data.name}".`);
 	}
 	const agent = await create(user._id, parsed.data);
-	return json({ id: agent._id, wire_name: wireName(agent) }, { status: 201 });
+	return json({ id: agent._id }, { status: 201 });
 };

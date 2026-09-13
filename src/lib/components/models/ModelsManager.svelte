@@ -102,11 +102,6 @@
 			: models.filter((model) => !model.unlisted)
 	);
 
-	// Agents are addressed as models and appear in this list. Labelled rather
-	// than hidden: an agent is a model somebody made, and the thing worth
-	// knowing is that picking it brings its instructions with it.
-	const isAgent = (model: ModelCard) => model.id.startsWith("agent:");
-
 	const shown = $derived(
 		browsable.filter((model) => {
 			const haystack = normalise(`${model.id} ${model.name ?? ""} ${model.displayName ?? ""}`);
@@ -334,9 +329,6 @@
 													<IconCheckmark class="size-3" />
 													Default
 												</span>
-											{/if}
-											{#if isAgent(model)}
-												<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
 											{/if}
 											{#if promptIsCustom(model)}
 												<span class="{s.PILL} {s.PILL_TONES.good}">custom prompt</span>
