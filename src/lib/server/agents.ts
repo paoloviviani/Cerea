@@ -177,3 +177,25 @@ async function retrieve(options: {
 	hits.sort((a, b) => b.score - a.score);
 	return hits.slice(0, limit);
 }
+
+/**
+ * May this conversation be pinned to this model, as *this caller* sees it?
+ *
+ * The catalogue check alone refuses exactly the models the picker offers:
+ * agent cards are appended per caller and exist nowhere in the catalogue.
+ * An agent wire name is therefore valid when the caller owns that agent —
+ * and the generation re-asks, so this stays display-shaped, not
+ * permission-shaped: an agent deleted between choosing and sending refuses
+ * the turn, not the choice.
+ */
+export async function isValidConversationModel(
+	model: string,
+	userId: User["_id"] | undefined
+): Promise<boolean> {
+	if (isAgentModel(model)) {
+		if (!userId) return false;
+		return Boolean(await resolveForUser(userId, model));
+	}
+	const { validModelIdSchema } = await import("$lib/server/models");
+	return validModelIdSchema.safeParse(model).success;
+}
