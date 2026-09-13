@@ -28,12 +28,20 @@ interface SearchAdapter {
 	read: (payload: unknown) => { title: string; url: string; snippet: string }[];
 }
 
-/** Linkup: `q`/`depth`/`outputType`, and results named `name` not `title`. */
+/**
+ * Linkup: `q`/`depth`/`outputType`, and results named `name` not `title`.
+ *
+ * `depth` is a required enum of exactly four words — the model will
+ * eventually guess a word from another vendor's vocabulary, and a guaranteed
+ * 400 is not a result: unknown words fall back to the vendor's recommended
+ * default rather than being forwarded to fail.
+ */
+const LINKUP_DEPTHS = new Set(["deep", "fast", "flash", "standard"]);
 const LINKUP: SearchAdapter = {
 	backend: "linkup",
 	build: (query, depth, maxResults) => ({
 		q: query,
-		depth: depth ?? "standard",
+		depth: depth && LINKUP_DEPTHS.has(depth) ? depth : "standard",
 		outputType: "searchResults",
 		maxResults,
 	}),
@@ -54,12 +62,33 @@ const LINKUP: SearchAdapter = {
 	},
 };
 
-/** Exa: `query`/`type`/`numResults`, text as a separate charge. */
+/**
+ * Exa: `query`/`type`/`numResults`, text as a separate charge.
+ *
+ * The accepted `type` values are Exa's own business and they change — the
+ * authoritative list as of today came from their validation error, not their
+ * docs (which serve a stale enum): neural, keyword, auto, hybrid, fast, blue,
+ * deep-reasoning, deep-lite, magic, deep, instant. An unknown word is omitted
+ * — Exa defaults to `auto` — because forwarding it forwards a 400.
+ */
+const EXA_TYPES = new Set([
+	"neural",
+	"keyword",
+	"auto",
+	"hybrid",
+	"fast",
+	"blue",
+	"deep-reasoning",
+	"deep-lite",
+	"magic",
+	"deep",
+	"instant",
+]);
 const EXA: SearchAdapter = {
 	backend: "exa",
 	build: (query, depth, maxResults) => ({
 		query,
-		type: depth ?? "auto",
+		...(depth && EXA_TYPES.has(depth) ? { type: depth } : {}),
 		numResults: maxResults,
 	}),
 	read: (payload) => {
@@ -161,8 +190,8 @@ export function createGatewaySearchBuiltins(params: {
 							depth: {
 								type: "string",
 								description:
-									"How hard to search. The backend's own vocabulary — a quick tier " +
-									"is cheaper and usually enough.",
+									"How hard to search, in the backend's own words. Unknown words are " +
+									"ignored and the backend's default is used — usually the right call.",
 							},
 							max_results: {
 								type: "number",
