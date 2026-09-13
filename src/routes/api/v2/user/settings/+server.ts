@@ -5,6 +5,7 @@ import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
+import { isAgentModel } from "$lib/server/agents";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
 import { z } from "zod";
@@ -37,7 +38,14 @@ export const GET: RequestHandler = async ({ locals }) => {
 	requireAuth(locals);
 	const settings = await collections.settings.findOne(authCondition(locals));
 
-	if (settings && !validateModel(models).safeParse(settings?.activeModel).success) {
+	if (
+		settings &&
+		!isAgentModel(settings.activeModel) &&
+		!validateModel(models).safeParse(settings?.activeModel).success
+	) {
+		// A wire name stays: it is the picker's default-agent card, and the
+		// create route resolves it per caller. Resetting it here would unset
+		// the default agent on the next page load.
 		settings.activeModel = defaultModel.id;
 		await collections.settings.updateOne(authCondition(locals), {
 			$set: { activeModel: defaultModel.id },
