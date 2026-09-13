@@ -81,7 +81,10 @@
 				// Nothing to pin yet. This is the same write the Models dialog's
 				// "Set as default" makes, and it is correct here: on this screen
 				// the default *is* what the chat about to be created starts on.
-				settings.instantSet({ activeModel: model.id });
+				// Picking a model is also the explicit escape from a default
+				// agent — the wrapper is what new chats start with until a
+				// model is chosen by hand.
+				settings.instantSet({ activeModel: model.id, activeAgentId: undefined });
 				onclose();
 				return;
 			}
