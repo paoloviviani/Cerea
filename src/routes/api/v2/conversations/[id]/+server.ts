@@ -6,6 +6,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
+import { isAgentModel, resolveForConversation } from "$lib/server/agents";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
 import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
 import { usdToMicroUsd } from "$lib/utils/mlBudget";
@@ -86,6 +87,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const body = await request.json();
 	const title = body?.title as string | undefined;
 	const model = body?.model as string | undefined;
+	const agentIdInput = body?.agentId as string | undefined;
 	const mlBudgetTotalUsd = body?.mlBudgetTotalUsd as number | undefined;
 
 	if (title !== undefined) {
@@ -94,10 +96,30 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		}
 	}
 
-	if (model !== undefined) {
-		if (!validModelIdSchema.safeParse(model).success) {
-			error(400, "Invalid model ID");
-		}
+	if (model !== undefined && !isAgentModel(model) && !validModelIdSchema.safeParse(model).success) {
+		error(400, "Invalid model ID");
+	}
+
+	// The wrapper, however it arrives: an agent wire name from the picker's
+	// card, or a bare agentId. Either way the conversation keeps a plain
+	// model — the agent's underlying one — and holds the wrapper by id;
+	// switching to a plain model clears it.
+	let nextAgentId: ObjectId | undefined;
+	let wrappedModel: string | undefined;
+	if (isAgentModel(model) || agentIdInput !== undefined) {
+		const user = locals.user;
+		if (!user) error(401, "Login required");
+		const agent = agentIdInput
+			? ObjectId.isValid(agentIdInput)
+				? await resolveForConversation(new ObjectId(agentIdInput), user._id)
+				: null
+			: await collections.agents.findOne({
+					userId: user._id,
+					name: (model as string).slice("agent:".length),
+				});
+		if (!agent) error(400, "No such agent");
+		nextAgentId = agent._id;
+		wrappedModel = agent.model;
 	}
 
 	if (mlBudgetTotalUsd !== undefined) {
@@ -138,11 +160,32 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	// request would replay one model's reasoning onto another.
 	const res = await applyConversationSettings(
 		{ _id: new ObjectId(id), ...authCondition(locals) },
-		{ title, model }
+		// An agent wire name is not a model id: the conversation's model
+		// becomes the agent's underlying one below, beside the wrapper.
+		{ title, model: isAgentModel(model) ? undefined : model }
 	);
 
 	if (typeof res.matchedCount === "number" ? res.matchedCount === 0 : res.modifiedCount === 0) {
 		error(404, "Conversation not found");
+	}
+
+	if (nextAgentId !== undefined || (model !== undefined && !isAgentModel(model))) {
+		const patch: Record<string, unknown> = { updatedAt: new Date() };
+		// The wrapper rides beside the model: setting it pins the
+		// conversation to the agent's underlying model and stores the id; a
+		// plain model choice clears it.
+		if (nextAgentId !== undefined) {
+			patch.agentId = nextAgentId;
+		} else if (model !== undefined) {
+			patch.agentId = null;
+		}
+		if (model !== undefined) {
+			patch.model = wrappedModel ?? model;
+		}
+		await collections.conversations.updateOne(
+			{ _id: new ObjectId(id), ...authCondition(locals) },
+			{ $set: patch }
+		);
 	}
 
 	return superjsonResponse({ success: true });
