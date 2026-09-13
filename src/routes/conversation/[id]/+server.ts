@@ -2,6 +2,7 @@ import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
 import { models, validModelIdSchema } from "$lib/server/models";
+import { isAgentModel, resolveForUser } from "$lib/server/agents";
 import { ERROR_MESSAGES } from "$lib/stores/errors";
 import type { Message } from "$lib/types/Message";
 import { error } from "@sveltejs/kit";
@@ -150,8 +151,19 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		);
 	}
 
-	// fetch the model
-	const model = models.find((m) => m.id === conv.model);
+	// fetch the model. An agent conversation has no catalogue entry under its
+	// wire name — the model that will serve the turn is the agent's
+	// *underlying* model, resolved here so the endpoint and capability flags
+	// are real; the generation re-resolves the agent itself and prepends its
+	// persona. An agent that has gone keeps the 410: the name in conv.model is
+	// the only thing that says what this conversation was talking to.
+	let model = models.find((m) => m.id === conv.model);
+	if (!model && isAgentModel(conv.model) && locals.user) {
+		const agent = await resolveForUser(locals.user._id, conv.model);
+		if (agent) {
+			model = models.find((m) => m.id === agent.model);
+		}
+	}
 
 	if (!model) {
 		error(410, "Model not available anymore");
