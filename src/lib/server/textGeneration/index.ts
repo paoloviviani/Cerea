@@ -124,15 +124,13 @@ async function* textGenerationWithoutTitle(
 	// else: the name in `conv.model` is the only thing that says what this
 	// conversation was talking to.
 	if (conv.agentId) {
-		// An agent is a passthrough wrapper on a plain model (ADR 0067, as
-		// clarified 2026-09-13): the conversation's model is the underlying
-		// one — everything downstream, from the OpenAI call to the capability
-		// switches, reads exactly what a plain chat would read — and the
-		// wrapper contributes the system prompt and the knowledge retrieval
-		// here, per request. A deleted agent falls back to the plain model
-		// quietly: the wrapper is gone, the conversation is not. Ownership is
-		// the lookup itself, so one person's conversation never reads
-		// another's agent.
+		// The knowledge half of the wrapper (ADR 0067, as clarified): the
+		// prompt was snapshotted into the conversation when it was created —
+		// this conversation reads as a plain one everywhere else — and only
+		// the retrieval stays live behind the id, because "which passages
+		// exist" is the one thing that changes under the conversation. A
+		// deleted agent is not an error: the wrapper is gone, the chat keeps
+		// its model and its prompt.
 		const user = (ctx.locals as unknown as { user?: { _id: import("bson").ObjectId } | undefined })
 			?.user;
 		if (!user) {
@@ -148,6 +146,8 @@ async function* textGenerationWithoutTitle(
 				locals: ctx.locals,
 			});
 			if (context) {
+				// The agent's instructions came first when the conversation was
+				// created; they keep their place ahead of anything added since.
 				preprompt = preprompt ? `${context}\n\n${preprompt}` : context;
 			}
 		}
