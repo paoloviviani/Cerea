@@ -16,10 +16,7 @@ import { logger } from "$lib/server/logger";
  * **It used to be a deployment-wide snapshot taken at boot**, which produced two
  * symptoms nobody could reconcile from the outside:
  *
- * * an agent created after the last restart appeared in the Agents dialog —
- *   which is live and per-caller — and **not** in the model list, so it could be
- *   made and never used;
- * * an agent belonging to somebody else appeared for *everyone*, because the
+ * * a model granted to one group appeared for *everyone*, because the
  *   catalogue was fetched with `OPENAI_API_KEY`, a deployment credential, rather
  *   than with the token of the person reading it. Choosing one answered 404 at
  *   send time.
@@ -99,29 +96,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		const shown = reachable ? catalogue.filter((model) => reachable.has(model.id)) : catalogue;
 
 		const summaries = shown.map(serializeModelSummary);
-
-		// The caller's own agents, as picker entries named `agent:<name>`
-		// (ADR 0067, as clarified: a wrapper, not a model — the card is the
-		// *underlying* model's, so capabilities and multimodality are what the
-		// request will actually be bound by, with the agent's identity on
-		// top). One list, one place to set a default: the picker.
-		if (locals.user) {
-			const { listForUser, wireName } = await import("$lib/server/agents");
-			const agentList = await listForUser(locals.user._id);
-			const byId = new Map(catalogue.map((model) => [model.id, model]));
-			const cards: GETModelsResponse = [];
-			for (const agent of agentList) {
-				const underlying = byId.get(agent.model);
-				if (!underlying) continue; // its model left the catalogue; it would refuse at send
-				cards.push({
-					...serializeModelSummary(underlying),
-					id: wireName(agent),
-					displayName: agent.description || agent.name,
-					preprompt: agent.system_prompt,
-				});
-			}
-			summaries.push(...cards);
-		}
 
 		return superjsonResponse(summaries satisfies GETModelsResponse, {
 			headers: MODELS_CACHE_HEADERS,

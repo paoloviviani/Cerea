@@ -202,6 +202,10 @@
 	}
 
 	function openForm(agent: Agent | null) {
+		// Which form this is — create or edit — decides whether Save posts or
+		// patches. Losing this line is how "Edit" became "create it again and
+		// fail on the name".
+		editing = agent;
 		name = agent?.name ?? "";
 		model = agent?.model ?? models[0]?.id ?? "";
 		description = agent?.description ?? "";

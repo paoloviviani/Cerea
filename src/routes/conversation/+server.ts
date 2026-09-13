@@ -6,7 +6,7 @@ import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
 import { models, validateModel } from "$lib/server/models";
-import { AGENT_PREFIX, isAgentModel, resolveForConversation } from "$lib/server/agents";
+import { resolveForConversation } from "$lib/server/agents";
 import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
@@ -26,12 +26,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		.object({
 			fromShare: z.string().optional(),
 			// An agent conversation passes its wrapper separately: the model is
-			// the plain one, and the agent adds the prompt and knowledge. The
-			// model field itself is a plain string at the door, because the
-			// picker's default for an agent IS the wire name — validated just
-			// below, where the wire can be resolved against its owner.
+			// the plain one, and the agent adds the prompt and knowledge.
 			agentId: z.string().optional(),
-			model: z.string(),
+			model: validateModel(models),
 			preprompt: z.string().optional(),
 			mlAssistant: z.boolean().optional(),
 			/** Start this conversation inside a project. */
@@ -45,20 +42,28 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 	const values = parsedBody.data;
 
-	// An agent wire name resolves to its owner's agent, and the conversation's
-	// model becomes the underlying one; a plain id must be in the catalogue.
-	if (isAgentModel(values.model)) {
+	// The wrapper arrives by id and must belong to the caller — an agent is
+	// per-user and shared with nobody, so someone else's id is exactly as
+	// invisible as one that does not exist. The conversation stays a plain
+	// one: a real model, and the agent's prompt as the preprompt. Nothing
+	// about it needs the catalogue to know agents exist.
+	if (values.agentId !== undefined) {
 		const user = locals.user;
 		if (!user) error(401, "Login required");
-		const agent = await collections.agents.findOne({
-			userId: user._id,
-			name: values.model.slice(AGENT_PREFIX.length),
-		});
-		if (!agent) error(400, "Invalid request");
+		if (!ObjectId.isValid(values.agentId)) {
+			error(400, "Invalid request");
+		}
+		const agent = await resolveForConversation(new ObjectId(values.agentId), user._id);
+		if (!agent) {
+			error(404, "No such agent");
+		}
+		// The prompt is snapshotted, not referenced: the conversation reads as
+		// a plain one from here on, and only the knowledge retrieval stays
+		// live behind the id.
+		if (!values.preprompt?.trim()) {
+			values.preprompt = agent.system_prompt;
+		}
 		values.model = agent.model;
-		values.agentId ??= agent._id.toString();
-	} else if (!validateModel(models).safeParse(values.model).success) {
-		error(400, "Invalid request");
 	}
 
 	// The wrapper arrives by id and must belong to the caller — an agent is
