@@ -23,20 +23,6 @@ import type { Agent } from "$lib/types/Agent";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
 
-/** The prefix that marks a picker entry as an agent. The wire name exists
- * only in the model list — conversations persist the wrapper by id, and the
- * route resolves the id to the underlying model before anything is sent. */
-export const AGENT_PREFIX = "agent:";
-
-export function isAgentModel(modelId: string | undefined): boolean {
-	return typeof modelId === "string" && modelId.startsWith(AGENT_PREFIX);
-}
-
-/** The picker id for an agent. */
-export function wireName(agent: { name: string }): string {
-	return `${AGENT_PREFIX}${agent.name}`;
-}
-
 /**
  * The agent this conversation is wrapped by.
  *
@@ -111,13 +97,14 @@ export class AgentNameTaken extends Error {
 }
 
 /**
- * The system-prompt addition for one turn with an agent: its instructions, and
- * whatever its knowledge bases offer for the question being asked.
- *
- * Appended after the agent's own prompt by the caller (the agent persona is
- * the point of the agent; the conversation's extras follow it), and `undefined`
- * when there is nothing to add — not an empty string, which would tell the
- * model there was material and it was blank.
+ * The knowledge half of one turn with an agent: whatever its knowledge bases
+ * offer for the question being asked. The agent's *instructions* are not
+ * here — they were snapshotted into the conversation when it was created
+ * (ADR 0067, as clarified: the wrapper is minimal, and the conversation reads
+ * as a plain one everywhere except the retrieval, which stays live behind
+ * the agent's id because the passages are the one thing that changes under
+ * it). `undefined` when there is nothing to add — not an empty string, which
+ * would tell the model there was material and it was blank.
  */
 export async function agentContext(options: {
 	agent: Agent;
@@ -128,7 +115,6 @@ export async function agentContext(options: {
 }): Promise<string | undefined> {
 	const { agent, question, token, locals } = options;
 	const parts: string[] = [];
-	if (agent.system_prompt.trim()) parts.push(agent.system_prompt.trim());
 
 	if (token && agent.knowledgeBaseIds.length > 0 && question.trim() && locals?.user) {
 		// The caller is the reader: the store's reach checks run against this
