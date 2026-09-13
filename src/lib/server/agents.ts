@@ -20,25 +20,28 @@ import { logger } from "$lib/server/logger";
 import { type GatewaySearchHit } from "$lib/server/gatewayServer";
 import { callerFrom, searchBase, type Caller } from "$lib/server/knowledge/service";
 import type { Agent } from "$lib/types/Agent";
+import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
 
-/** The prefix that marks a model id as an agent, in the picker and here. */
-export const AGENT_PREFIX = "agent:";
-
-export function isAgentModel(modelId: string | undefined): boolean {
-	return typeof modelId === "string" && modelId.startsWith(AGENT_PREFIX);
-}
-
-/** The wire name for an agent — the picker's id for it. */
-export function wireName(agent: { name: string }): string {
-	return `${AGENT_PREFIX}${agent.name}`;
-}
-
-/** The agent behind a wire name, owned by this user and nobody else. */
-export async function resolveForUser(userId: User["_id"], modelId: string): Promise<Agent | null> {
-	if (!isAgentModel(modelId)) return null;
-	const name = modelId.slice(AGENT_PREFIX.length);
-	return await collections.agents.findOne({ userId, name });
+/**
+ * The agent this conversation is wrapped by.
+ *
+ * An agent is a passthrough wrapper on a plain model (ADR 0067, as clarified
+ * 2026-09-13): the conversation's `model` is the underlying one, and the
+ * wrapper contributes its system prompt and knowledge bases to each request.
+ * The wrapper applies **live**, not as a snapshot — an agent whose prompt or
+ * knowledge was edited changes what its existing conversations retrieve,
+ * which is what "adds them to the request" means. A deleted agent is not an
+ * error: the wrapper is gone and the conversation remains a plain chat.
+ *
+ * Ownership is inherent to the lookup — agents are per-user and shared with
+ * nobody — so one person's conversation never reads another's agent.
+ */
+export async function resolveForConversation(
+	agentId: NonNullable<Conversation["agentId"]>,
+	userId: User["_id"]
+): Promise<Agent | null> {
+	return await collections.agents.findOne({ _id: agentId, userId });
 }
 
 export async function listForUser(userId: User["_id"]): Promise<Agent[]> {
@@ -176,26 +179,4 @@ async function retrieve(options: {
 	// cost of a prompt is the person's own.
 	hits.sort((a, b) => b.score - a.score);
 	return hits.slice(0, limit);
-}
-
-/**
- * May this conversation be pinned to this model, as *this caller* sees it?
- *
- * The catalogue check alone refuses exactly the models the picker offers:
- * agent cards are appended per caller and exist nowhere in the catalogue.
- * An agent wire name is therefore valid when the caller owns that agent —
- * and the generation re-asks, so this stays display-shaped, not
- * permission-shaped: an agent deleted between choosing and sending refuses
- * the turn, not the choice.
- */
-export async function isValidConversationModel(
-	model: string,
-	userId: User["_id"] | undefined
-): Promise<boolean> {
-	if (isAgentModel(model)) {
-		if (!userId) return false;
-		return Boolean(await resolveForUser(userId, model));
-	}
-	const { validModelIdSchema } = await import("$lib/server/models");
-	return validModelIdSchema.safeParse(model).success;
 }
