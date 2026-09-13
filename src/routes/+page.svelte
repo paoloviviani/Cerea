@@ -51,22 +51,51 @@
 			if (mlAssistant.taskStarted && data.mlAssistantModels.length > 0) {
 				model = data.mlAssistantModels.includes(model) ? model : data.mlAssistantModels[0];
 			}
-			const res = await fetch(`${base}/conversation`, {
+			// A default agent wraps the new conversation (ADR 0067, clarified):
+			// the model stays a plain one and the wrapper rides by id. The
+			// server corrects the model to the agent's own, so the value sent
+			// here only has to be valid.
+			const agentId = mlAssistant.taskStarted ? undefined : $settings.activeAgentId;
+			const createBody = JSON.stringify({
+				model,
+				preprompt:
+					($settings.customPromptsEnabled?.[$settings.activeModel] ?? true)
+						? $settings.customPrompts[$settings.activeModel]
+						: "",
+				// The composer latches the mode before handing the message over, so
+				// the conversation this creates is marked with it from the start.
+				mlAssistant: mlAssistant.taskStarted,
+				...(agentId ? { agentId } : {}),
+			});
+
+			let res = await fetch(`${base}/conversation`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({
-					model,
-					preprompt:
-						($settings.customPromptsEnabled?.[$settings.activeModel] ?? true)
-							? $settings.customPrompts[$settings.activeModel]
-							: "",
-					// The composer latches the mode before handing the message over, so
-					// the conversation this creates is marked with it from the start.
-					mlAssistant: mlAssistant.taskStarted,
-				}),
+				body: createBody,
 			});
+
+			if (res.status === 404 && agentId) {
+				// The default agent is gone. The wrapper is gone; the chat is
+				// not. Clear the stale default and start plain, rather than
+				// making every new chat fail until somebody finds the setting.
+				await settings.instantSet({ activeAgentId: undefined });
+				res = await fetch(`${base}/conversation`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						model,
+						preprompt:
+							($settings.customPromptsEnabled?.[$settings.activeModel] ?? true)
+								? $settings.customPrompts[$settings.activeModel]
+								: "",
+						mlAssistant: mlAssistant.taskStarted,
+					}),
+				});
+			}
 
 			if (!res.ok) {
 				let errorMessage = ERROR_MESSAGES.default;
