@@ -23,6 +23,20 @@ import type { Agent } from "$lib/types/Agent";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
 
+/** The prefix that marks a picker entry as an agent. The wire name exists
+ * only in the model list — conversations persist the wrapper by id, and the
+ * route resolves the id to the underlying model before anything is sent. */
+export const AGENT_PREFIX = "agent:";
+
+export function isAgentModel(modelId: string | undefined): boolean {
+	return typeof modelId === "string" && modelId.startsWith(AGENT_PREFIX);
+}
+
+/** The picker id for an agent. */
+export function wireName(agent: { name: string }): string {
+	return `${AGENT_PREFIX}${agent.name}`;
+}
+
 /**
  * The agent this conversation is wrapped by.
  *

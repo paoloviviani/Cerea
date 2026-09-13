@@ -20,9 +20,7 @@
 	breaks nothing.
 -->
 <script lang="ts">
-	import { goto } from "$app/navigation";
-	import { useSettingsStore } from "$lib/stores/settings";
-	import { onMount } from "svelte";
+			import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
 	import { GatewayError, gwGet, type VectorStore } from "$lib/gateway";
@@ -127,48 +125,6 @@
 	let retrievalLimit = $state("6");
 	let current = $state<Agent | null>(null);
 
-	// The settings store, for the default-agent toggle. Set here rather than
-	// in the picker, because an agent is not a model: the thing being defaulted
-	// is the wrapper new conversations start with, and the wrapper's home is
-	// this screen.
-	const settings = useSettingsStore();
-	const isDefault = $derived(Boolean(current && settings && $settings.activeAgentId === current._id));
-
-	async function toggleDefault() {
-		if (!current) return;
-		busy = true;
-		failure = null;
-		try {
-			if (isDefault) {
-				await settings.instantSet({ activeAgentId: undefined });
-				notice = "New chats start as plain chats again.";
-			} else {
-				await settings.instantSet({
-					activeAgentId: current._id,
-					activeModel: current.model,
-				});
-				notice = "New chats will start wrapped by this agent. Pick a model in the composer to stop.";
-			}
-		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not set the default.";
-		} finally {
-			busy = false;
-		}
-	}
-
-	function openForm(agent: Agent | null) {
-		editing = agent;
-		name = agent?.name ?? "";
-		model = agent?.model ?? models[0]?.id ?? "";
-		description = agent?.description ?? "";
-		systemPrompt = agent?.system_prompt ?? "";
-		attached = [...(agent?.knowledgeBaseIds ?? [])];
-		retrievalLimit = String(agent?.retrievalLimit ?? 6);
-		failure = null;
-		notice = null;
-		view = "form";
-	}
-
 	async function startChat() {
 		if (!current) return;
 		busy = true;
@@ -180,14 +136,19 @@
 				body: JSON.stringify({ model: current.model, agentId: current._id }),
 			});
 			if (!response.ok) {
-				throw new Error(((await response.json()) as { message?: string }).message ?? "Could not start the chat.");
+				throw new Error(
+					((await response.json()) as { message?: string }).message ??
+						"Could not start the chat.",
+				);
 			}
 			const created = (await response.json()) as { conversationId: string };
-			// Close before navigating, the same order the projects twin uses: the
-			// dialog is an overlay, and a navigation under a still-mounted
-			// overlay reads as "nothing happened".
-			onclose();
-			await goto(`${base}/conversation/${created.conversationId}`);
+			// A full page load, not a client-side navigation. This manager lives
+			// two lives — an overlay over whatever page is open, and the /agents
+			// page whose own close button navigates home — and a client-side
+			// `goto` loses in both: under the overlay it is invisible, and after
+			// the page's close-navigation it races it and loses. One full load
+			// unmounts every case and lands on the chat.
+			window.location.assign(`${base}/conversation/${created.conversationId}`);
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not start the chat.";
 		} finally {
@@ -240,8 +201,19 @@
 		}
 	}
 
-	// ---- one agent ----------------------------------------------------------
+	function openForm(agent: Agent | null) {
+		name = agent?.name ?? "";
+		model = agent?.model ?? models[0]?.id ?? "";
+		description = agent?.description ?? "";
+		systemPrompt = agent?.system_prompt ?? "";
+		attached = [...(agent?.knowledgeBaseIds ?? [])];
+		retrievalLimit = String(agent?.retrievalLimit ?? 6);
+		failure = null;
+		notice = null;
+		view = "form";
+	}
 
+	// ---- one agent ----------------------------------------------------------
 
 	async function openDetail(agent: Agent) {
 		current = agent;
@@ -562,13 +534,6 @@
 						<button onclick={startChat} disabled={busy} class={s.PRIMARY}>
 							<LucideBot class="size-4" />
 							Start a chat
-						</button>
-						<button
-							onclick={toggleDefault}
-							disabled={busy}
-							class={isDefault ? s.SECONDARY : s.PRIMARY}
-						>
-							{isDefault ? "Unset as default" : "Set as default"}
 						</button>
 					</div>
 				</div>
