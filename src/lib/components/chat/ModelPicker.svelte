@@ -70,6 +70,8 @@
 	// a deployment with a dozen agents reaches it quickly.
 	const searchable = $derived(models.length > 6);
 
+	const isAgent = (model: Model) => model.id.startsWith("agent:");
+
 	async function choose(model: Model) {
 		if (model.id === currentModel.id) {
 			onclose();
@@ -81,10 +83,14 @@
 				// Nothing to pin yet. This is the same write the Models dialog's
 				// "Set as default" makes, and it is correct here: on this screen
 				// the default *is* what the chat about to be created starts on.
-				// Picking a model is also the explicit escape from a default
-				// agent — the wrapper is what new chats start with until a
-				// model is chosen by hand.
-				settings.instantSet({ activeModel: model.id, activeAgentId: undefined });
+				// An agent card sets the wrapper as the default (the model sent
+				// is the agent's underlying one, corrected server-side too);
+				// picking a plain model is the explicit escape from a wrapper.
+				settings.instantSet(
+					isAgent(model)
+						? { activeModel: model.id, activeAgentId: model.id.slice("agent:".length) }
+						: { activeModel: model.id, activeAgentId: undefined },
+				);
 				onclose();
 				return;
 			}
@@ -92,6 +98,8 @@
 			const response = await fetch(`${base}/conversation/${conversationId}`, {
 				method: "PATCH",
 				headers: { "Content-Type": "application/json" },
+				// The wire name is all the server needs: it resolves the
+				// caller's own agent from it.
 				body: JSON.stringify({ model: model.id }),
 			});
 			if (!response.ok) {
@@ -174,6 +182,9 @@
 						</span>
 						<span class="{s.CARD_SUBTITLE} block">{model.id}</span>
 					</span>
+					{#if model.id.startsWith("agent:")}
+						<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
+					{/if}
 					{#if busy === model.id}
 						<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>
 					{:else if active}
