@@ -6,7 +6,6 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
-import { resolveForUser } from "$lib/server/agents";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
 import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
 import { usdToMicroUsd } from "$lib/utils/mlBudget";
@@ -96,17 +95,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	}
 
 	if (model !== undefined) {
-		// An agent's wire name (`agent:<name>`) is never in the catalogue — the
-		// cards are appended per caller in the models response — so the schema
-		// alone would refuse the very models the picker offers. An agent model
-		// is valid when the caller owns that agent; the generation re-asks and
-		// refuses a turn whose agent has gone, so this is display, not
-		// permission.
-		const isAgentModel = model.startsWith("agent:");
-		const valid = isAgentModel
-			? Boolean(locals.user && (await resolveForUser(locals.user._id, model)))
-			: validModelIdSchema.safeParse(model).success;
-		if (!valid) {
+		if (!validModelIdSchema.safeParse(model).success) {
 			error(400, "Invalid model ID");
 		}
 	}

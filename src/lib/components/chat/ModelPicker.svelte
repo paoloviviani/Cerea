@@ -56,11 +56,6 @@
 	/** No conversation yet means the new-chat screen. See the module comment. */
 	const conversationId = $derived(page.params?.id);
 
-	// Same rule as the Models dialog: an agent is a model whose id the gateway
-	// prefixed. Shown rather than hidden, because the reason to pick one is
-	// precisely that it brings its own instructions and knowledge.
-	const isAgent = (model: Model) => model.id.startsWith("agent:");
-
 	const normalise = (value: string) => value.toLowerCase().trim();
 	const tokens = $derived(normalise(query).split(/\s+/).filter(Boolean));
 
@@ -173,9 +168,6 @@
 					<span class="min-w-0 flex-1">
 						<span class="flex items-center gap-2">
 							<span class={s.CARD_TITLE}>{model.displayName || model.name}</span>
-							{#if isAgent(model)}
-								<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
-							{/if}
 						</span>
 						<span class="{s.CARD_SUBTITLE} block">{model.id}</span>
 					</span>

@@ -1,4 +1,5 @@
 import { preprocessMessages } from "../endpoints/preprocessMessages";
+import { error } from "@sveltejs/kit";
 
 import { generateTitleForConversation } from "./title";
 import {
@@ -17,7 +18,7 @@ import { logger } from "$lib/server/logger";
 import { resolvePreprompt } from "./preprompt";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
-import { agentContext, isAgentModel, resolveForUser } from "$lib/server/agents";
+import { agentContext, resolveForConversation } from "$lib/server/agents";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -122,31 +123,33 @@ async function* textGenerationWithoutTitle(
 	// renamed or deleted) refuses the turn rather than answering as somebody
 	// else: the name in `conv.model` is the only thing that says what this
 	// conversation was talking to.
-	if (isAgentModel(conv.model)) {
+	if (conv.agentId) {
+		// An agent is a passthrough wrapper on a plain model (ADR 0067, as
+		// clarified 2026-09-13): the conversation's model is the underlying
+		// one — everything downstream, from the OpenAI call to the capability
+		// switches, reads exactly what a plain chat would read — and the
+		// wrapper contributes the system prompt and the knowledge retrieval
+		// here, per request. A deleted agent falls back to the plain model
+		// quietly: the wrapper is gone, the conversation is not. Ownership is
+		// the lookup itself, so one person's conversation never reads
+		// another's agent.
 		const user = (ctx.locals as unknown as { user?: { _id: import("bson").ObjectId } | undefined })
 			?.user;
-		const agent = user ? await resolveForUser(user._id, conv.model) : null;
-		if (!agent) {
-			throw new Error(
-				"This agent no longer exists, or was renamed. Pick it again from the model list."
-			);
+		if (!user) {
+			error(401, "Sign in to continue this conversation.");
 		}
-		const underlying = (await import("$lib/server/models")).models.find(
-			(model) => model.id === agent.model
-		);
-		if (!underlying) {
-			throw new Error(`This agent's model (${agent.model}) is not available on this deployment.`);
-		}
-		ctx.model = underlying;
-		const lastUser = [...messages].reverse().find((message) => message.from === "user");
-		const context = await agentContext({
-			agent,
-			question: lastUser?.content ?? "",
-			token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
-			locals: ctx.locals,
-		});
-		if (context) {
-			preprompt = preprompt ? `${context}\n\n${preprompt}` : context;
+		const agent = await resolveForConversation(conv.agentId, user._id);
+		if (agent) {
+			const lastUser = [...messages].reverse().find((message) => message.from === "user");
+			const context = await agentContext({
+				agent,
+				question: lastUser?.content ?? "",
+				token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
+				locals: ctx.locals,
+			});
+			if (context) {
+				preprompt = preprompt ? `${context}\n\n${preprompt}` : context;
+			}
 		}
 	}
 
