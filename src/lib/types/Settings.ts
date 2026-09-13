@@ -46,6 +46,15 @@ export interface Settings extends Timestamps {
 	artifactsOverrides?: Record<string, boolean>;
 
 	/**
+	 * The agent new conversations start wrapped by, or absent for plain chats
+	 * (ADR 0067, as clarified 2026-09-13). A default agent is not a default
+	 * model: the conversation keeps a plain model and holds the wrapper by
+	 * id, and switching the model in the picker clears it — picking a model
+	 * is the explicit escape from the wrapper.
+	 */
+	activeAgentId?: string;
+
+	/**
 	 * Web search through the gateway's own backends (`POST /v1/search`,
 	 * ADR 0058's plan phase 2). Off by default: turning it on is the user's
 	 * decision to spend, and the tool it enables only exists when the

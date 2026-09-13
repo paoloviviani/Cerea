@@ -21,6 +21,7 @@
 -->
 <script lang="ts">
 	import { goto } from "$app/navigation";
+	import { useSettingsStore } from "$lib/stores/settings";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
@@ -124,6 +125,36 @@
 	let systemPrompt = $state("");
 	let attached = $state<string[]>([]);
 	let retrievalLimit = $state("6");
+	let current = $state<Agent | null>(null);
+
+	// The settings store, for the default-agent toggle. Set here rather than
+	// in the picker, because an agent is not a model: the thing being defaulted
+	// is the wrapper new conversations start with, and the wrapper's home is
+	// this screen.
+	const settings = useSettingsStore();
+	const isDefault = $derived(Boolean(current && settings && $settings.activeAgentId === current._id));
+
+	async function toggleDefault() {
+		if (!current) return;
+		busy = true;
+		failure = null;
+		try {
+			if (isDefault) {
+				await settings.instantSet({ activeAgentId: undefined });
+				notice = "New chats start as plain chats again.";
+			} else {
+				await settings.instantSet({
+					activeAgentId: current._id,
+					activeModel: current.model,
+				});
+				notice = "New chats will start wrapped by this agent. Pick a model in the composer to stop.";
+			}
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not set the default.";
+		} finally {
+			busy = false;
+		}
+	}
 
 	function openForm(agent: Agent | null) {
 		editing = agent;
@@ -152,7 +183,10 @@
 				throw new Error(((await response.json()) as { message?: string }).message ?? "Could not start the chat.");
 			}
 			const created = (await response.json()) as { conversationId: string };
-			// A full navigation, not a dialog swap: the chat *is* the next screen.
+			// Close before navigating, the same order the projects twin uses: the
+			// dialog is an overlay, and a navigation under a still-mounted
+			// overlay reads as "nothing happened".
+			onclose();
 			await goto(`${base}/conversation/${created.conversationId}`);
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not start the chat.";
@@ -208,7 +242,6 @@
 
 	// ---- one agent ----------------------------------------------------------
 
-	let current = $state<Agent | null>(null);
 
 	async function openDetail(agent: Agent) {
 		current = agent;
@@ -529,6 +562,13 @@
 						<button onclick={startChat} disabled={busy} class={s.PRIMARY}>
 							<LucideBot class="size-4" />
 							Start a chat
+						</button>
+						<button
+							onclick={toggleDefault}
+							disabled={busy}
+							class={isDefault ? s.SECONDARY : s.PRIMARY}
+						>
+							{isDefault ? "Unset as default" : "Set as default"}
 						</button>
 					</div>
 				</div>
