@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildHtmlSrcdoc, PREVIEW_ALLOW, PREVIEW_SANDBOX } from "$lib/utils/previewSrcdoc";
+import {
+	buildHtmlSrcdoc,
+	buildMermaidSrcdoc,
+	buildReactSrcdoc,
+	PREVIEW_ALLOW,
+	PREVIEW_CSP,
+	PREVIEW_SANDBOX,
+} from "$lib/utils/previewSrcdoc";
 import { captureArtifactScreenshot } from "$lib/utils/artifactCapture";
 
 type PreviewMessage = {
@@ -293,6 +300,49 @@ describe("preview iframe capability grants", () => {
 		for (const feature of ["camera", "microphone", "geolocation", "clipboard-read"]) {
 			expect(PREVIEW_ALLOW).not.toContain(feature);
 		}
+	});
+
+	// Opaque origin is not a network boundary; the CSP is what makes "the
+	// artifact phones home" false. Lock the load-bearing directives at the
+	// source so a rewording can't silently reopen them.
+	it("denies the frame every network destination except the wrappers' own CDNs", () => {
+		for (const directive of ["connect-src 'none'", "form-action 'none'", "default-src 'none'"]) {
+			expect(PREVIEW_CSP).toContain(directive);
+		}
+		// No remote image/media/font destinations: URL-carried beacons are the
+		// cheapest exfiltration there is.
+		for (const directive of ["img-src", "media-src", "font-src"]) {
+			const policy = PREVIEW_CSP.split("; ").find((entry) => entry.startsWith(directive));
+			if (!policy) throw new Error(`missing CSP directive: ${directive}`);
+			expect(/https?:/.test(policy), directive).toBe(false);
+		}
+		// The script hosts are exactly the ones the preview wrappers load.
+		const scriptPolicy = PREVIEW_CSP.split("; ").find((entry) => entry.startsWith("script-src"));
+		for (const host of [
+			"https://cdn.tailwindcss.com",
+			"https://unpkg.com",
+			"https://cdn.jsdelivr.net",
+		]) {
+			expect(scriptPolicy).toContain(host);
+		}
+		expect(scriptPolicy).not.toMatch(
+			/https:\/\/(?!cdn\.tailwindcss\.com|unpkg\.com|cdn\.jsdelivr\.net)/
+		);
+	});
+
+	it("previews carry the CSP meta; deployed documents do not", () => {
+		const withChannel = buildHtmlSrcdoc("<p>hi</p>", "channel_x");
+		expect(withChannel).toContain("Content-Security-Policy");
+		const deployed = buildHtmlSrcdoc("<p>hi</p>", "");
+		expect(deployed).not.toContain("Content-Security-Policy");
+		const reactPreview = buildReactSrcdoc("export default () => null", "channel_x");
+		expect(reactPreview).toContain("Content-Security-Policy");
+		const reactDeployed = buildReactSrcdoc("export default () => null", "");
+		expect(reactDeployed).not.toContain("Content-Security-Policy");
+		const mermaidPreview = buildMermaidSrcdoc("graph TD", "channel_x");
+		expect(mermaidPreview).toContain("Content-Security-Policy");
+		const mermaidDeployed = buildMermaidSrcdoc("graph TD", "");
+		expect(mermaidDeployed).not.toContain("Content-Security-Policy");
 	});
 
 	it("delegates device-UX features to the frame but keeps privacy-sensitive ones and escape hatches blocked", async () => {

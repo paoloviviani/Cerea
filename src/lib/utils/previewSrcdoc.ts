@@ -50,6 +50,55 @@ export const PREVIEW_SANDBOX =
 	"allow-scripts allow-forms allow-pointer-lock allow-orientation-lock";
 
 /**
+ * Content-Security-Policy injected into every preview srcdoc (never into
+ * deployed documents, which have no sandbox channel and are the person's own
+ * page).
+ *
+ * The sandbox tokens make the frame opaque, but opacity is not a network
+ * boundary: an opaque-origin document can still issue `fetch()`, submit forms
+ * to a collector, or beacon through `<img src="https://…?d=…">`. For rendered
+ * HTML artifacts — untrusted by construction, and instructable via a
+ * knowledge-base document — that is the one exfiltration vector worth its own
+ * wall, so the policy denies by default and names only what the preview
+ * wrappers themselves load:
+ * - `connect-src 'none'` + `form-action 'none'`: no fetch/XHR/WebSocket, no
+ *   form submission anywhere.
+ * - `img-src`/`media-src`/`font-src` limited to `data:`/`blob:`: no
+ *   URL-carried beacons; a relative URL would otherwise resolve against the
+ *   app's own origin and ride the session's cookies.
+ * - `script-src` allows inline code plus exactly the CDN hosts the wrappers
+ *   use (Tailwind Play, React UMD, Mermaid ESM). `unsafe-eval` and
+ *   `wasm-unsafe-eval` are granted because the wrappers themselves compile
+ *   artifact code with Babel and eval it, and sandboxed games instantiate
+ *   wasm — execution inside the frame was never the boundary (the sandbox
+ *   grants allow-scripts), the network is. An artifact's own remote
+ *   `<script src>` is still blocked: computation belongs in the execution
+ *   runtime, not in a fetched file.
+ * - `base-uri 'none'`: the wrapper's own `<base target="_blank">` carries no
+ *   href and is unaffected; an artifact cannot re-base relative URLs toward
+ *   a host it picked.
+ */
+export const PREVIEW_CSP = [
+	"default-src 'none'",
+	"script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net",
+	"style-src 'unsafe-inline' https://cdn.tailwindcss.com",
+	"img-src data: blob:",
+	"media-src data: blob:",
+	"font-src data:",
+	"worker-src blob:",
+	"connect-src 'none'",
+	"form-action 'none'",
+	"base-uri 'none'",
+	"frame-src 'none'",
+	"object-src 'none'",
+].join("; ");
+
+/** The CSP as a <meta> tag for srcdoc injection; empty when not previewing. */
+export function previewCspMeta(channel: string): string {
+	return channel ? `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">` : "";
+}
+
+/**
  * Permission-policy delegations for preview iframes. Features default to a
  * `'self'` allowlist, which a sandboxed srcdoc frame (opaque origin) never
  * matches, so anything artifacts should be able to use must be delegated
@@ -317,7 +366,7 @@ function embedAsJsString(source: string): string {
 export function buildHtmlSrcdoc(content: string, channel: string): string {
 	const trimmed = content.trimStart();
 	const svgPattern = /^(?:<\?xml[^>]*>\s*)?(?:<!doctype\s+svg[^>]*>\s*)?<svg[\s>]/i;
-	const baseTag = '<base target="_blank">';
+	const baseTag = `<base target="_blank">${previewCspMeta(channel)}`;
 	const previewHook = buildPreviewHookScript(channel);
 
 	if (svgPattern.test(trimmed)) {
@@ -386,7 +435,7 @@ export function buildReactSrcdoc(code: string, channel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewHook}
+<base target="_blank">${previewCspMeta(channel)}${previewHook}
 <script src="https://cdn.tailwindcss.com">${END_SCRIPT_TAG}
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js">${END_SCRIPT_TAG}
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js">${END_SCRIPT_TAG}
@@ -445,7 +494,7 @@ export function buildMermaidSrcdoc(code: string, channel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewHook}
+<base target="_blank">${previewCspMeta(channel)}${previewHook}
 <style>
 html, body { margin: 0; min-height: 100%; background: #fff; }
 #artifact-root { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; box-sizing: border-box; }
