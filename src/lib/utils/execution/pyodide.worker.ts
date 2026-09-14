@@ -56,12 +56,12 @@ async function getPyodide(): Promise<PyodideAPI> {
 			// are unambiguous. Batched handlers coalesce per newline, which keeps
 			// line-oriented output ordered without a callback per byte.
 			py.setStdout({
-				batched: (chunk) => {
+				batched: (chunk: string) => {
 					stdoutBuffer.push(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
 				},
 			});
 			py.setStderr({
-				batched: (chunk) => {
+				batched: (chunk: string) => {
 					stderrBuffer.push(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
 				},
 			});

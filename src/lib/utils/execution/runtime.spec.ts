@@ -15,7 +15,10 @@ import {
  * and terminate paths.
  */
 class FakeWorker implements ExecutionWorkerLike {
-	listeners = { message: [] as ((event: MessageEvent<WorkerToHost>) => void)[], error: [] };
+	listeners = {
+		message: [] as ((event: MessageEvent<WorkerToHost>) => void)[],
+		error: [] as ((event: ErrorEvent) => void)[],
+	};
 	terminated = 0;
 	received: Array<HostToWorker & { id?: number }> = [];
 
@@ -25,7 +28,7 @@ class FakeWorker implements ExecutionWorkerLike {
 		if (type === "message") {
 			this.listeners.message.push(listener as (event: MessageEvent<WorkerToHost>) => void);
 		} else {
-			this.listeners.error.push(listener);
+			this.listeners.error.push(listener as (event: ErrorEvent) => void);
 		}
 	}
 
@@ -45,7 +48,7 @@ class FakeWorker implements ExecutionWorkerLike {
 
 	fail(): void {
 		for (const listener of this.listeners.error) {
-			listener(new Error("worker crashed") as ErrorEvent);
+			listener(new Error("worker crashed") as unknown as ErrorEvent);
 		}
 	}
 }
