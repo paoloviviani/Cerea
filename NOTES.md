@@ -21,6 +21,9 @@ Resume = read this file, then `git log --oneline -12` to see where we stopped.
   recorded in docs/pyodide.md.
 
 ## Done
+- e7dab67f vendor pyodide + sync script + hooks (static/pyodide, gitignored)
+- worker core: protocol.ts, gate.ts, pyodide.worker.ts, runtime.ts + 15 tests green
+- docs/pyodide.md (licence, posture, limitations)
 - (nothing committed yet)
 
 ## Next
