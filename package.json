@@ -4,6 +4,10 @@
 	"private": true,
 	"packageManager": "npm@9.5.0",
 	"scripts": {
+		"predev": "npm run sync-pyodide",
+		"prebuild": "npm run sync-pyodide",
+		"prebuild:static": "npm run sync-pyodide",
+		"sync-pyodide": "node scripts/sync_pyodide.mjs",
 		"dev": "vite dev",
 		"build": "vite build",
 		"build:static": "ADAPTER=static vite build",
@@ -108,6 +112,7 @@
 		"playwright": "1.61.1",
 		"polka": "^0.5.2",
 		"prom-client": "^15.1.3",
+		"pyodide": "314.0.7",
 		"remend": "^1.3.0",
 		"satori": "^0.10.11",
 		"satori-html": "^0.3.2",
