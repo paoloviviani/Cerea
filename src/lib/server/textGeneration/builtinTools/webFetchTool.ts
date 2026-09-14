@@ -6,7 +6,7 @@ export const WEB_FETCH_TOOL_NAME = "web_fetch";
 // A page is useful only after its markup, navigation, and boilerplate have
 // gone. This keeps one fetch from crowding out the actual conversation.
 export const MAX_FETCH_RESULT_CHARS = 24_000;
-export const MAX_FETCHES_PER_TURN = 3;
+export const MAX_FETCHES_PER_TURN = 20;
 
 /** Canonical form used for the provenance set, not an SSRF validation step. */
 export function canonicalUrl(value: string): string | null {
