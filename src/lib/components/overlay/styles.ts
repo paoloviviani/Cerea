@@ -5,7 +5,7 @@
  * `mcp/ServerCard.svelte`, which is the design this app already had: an
  * overlay rather than a page, blue-600 as the single accent, gradient cards
  * that tint blue when active, rounded-full status pills, dashed empty states.
- * Knowledge, agents, projects and models were built as prose pages with black
+ * Knowledge, projects and models were built as prose pages with black
  * buttons and no accent, which is why they looked like a different product.
  *
  * Kept as constants rather than copied into each screen for the obvious

@@ -279,10 +279,13 @@ describe("runMcpFlow", () => {
 
 		// ...and the follow-up has to carry the assistant's tool_calls *and* the matching
 		// results. An assistant message without its tool_calls leaves the tool messages
-		// orphaned, which providers reject outright.
+		// orphaned, which providers reject outright. content is always present —
+		// null when no preamble was streamed: a missing key reads as undefined
+		// and llmbase-class validators reject it.
 		const followUp = requestMessages(1);
-		expect(followUp.at(-2)).toMatchObject({
+		expect(followUp.at(-2)).toEqual({
 			role: "assistant",
+			content: null,
 			tool_calls: [
 				{ id: "call_1", type: "function", function: { name: "do_thing", arguments: '{"a":1}' } },
 			],

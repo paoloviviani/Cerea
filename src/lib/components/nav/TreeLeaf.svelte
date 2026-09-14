@@ -1,5 +1,5 @@
 <!--
-	A leaf in the sidebar tree: one model, one base, one agent, one chat.
+	A leaf in the sidebar tree: one model, one base, one chat.
 
 	A link when it has an `href`, a button when it has an action, because a
 	conversation is an address and opening a dialog is not. Both draw the same,

@@ -80,6 +80,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 			{ role: "user", content: "weather in Paris?" },
 			{
 				role: "assistant",
+				content: null,
 				tool_calls: [
 					{
 						id: "u10000000",
@@ -91,6 +92,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 			{ role: "tool", tool_call_id: "u10000000", content: "18°C, sunny" },
 			{
 				role: "assistant",
+				content: null,
 				tool_calls: [
 					{
 						id: "u20000000",
@@ -110,10 +112,15 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		for (const m of prepared) {
 			if (m.role === "tool") expect(m.tool_call_id).toMatch(/^[a-zA-Z0-9]{9}$/);
 		}
-		// tool-call messages must not carry a content key at all
+		// tool-call messages always carry content: text when a preamble was
+		// persisted, else null — the key must exist (llmbase-class validators
+		// reject a missing key) and must never be "" (backends that reject
+		// empty text next to tool_calls).
 		const withToolCalls = prepared.filter((m) => "tool_calls" in m);
 		for (const message of withToolCalls) {
-			expect("content" in message).toBe(false);
+			expect("content" in message).toBe(true);
+			expect(message.content === null || typeof message.content === "string").toBe(true);
+			expect(message.content).not.toBe("");
 		}
 	});
 
@@ -136,6 +143,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		expect(prepared).toEqual([
 			{
 				role: "assistant",
+				content: null,
 				tool_calls: [
 					{
 						id: "a00000000",
@@ -191,6 +199,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		expect(prepared).toEqual([
 			{
 				role: "assistant",
+				content: null,
 				tool_calls: [
 					{
 						id: "u10000000",
@@ -491,6 +500,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		expect(prepared).toEqual([
 			{
 				role: "assistant",
+				content: null,
 				tool_calls: [
 					{
 						id: "u10000000",
@@ -761,7 +771,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		]);
 	});
 
-	it("omits content on the tool-call message when no preamble was persisted (pre-existing messages)", async () => {
+	it("replays content as null on the tool-call message when no preamble was persisted (pre-existing messages)", async () => {
 		const messages: EndpointMessage[] = [
 			{
 				from: "assistant",
@@ -776,7 +786,8 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 			replayToolHistory: true,
 		});
 		const toolCallMsg = prepared.find((m) => "tool_calls" in m);
-		expect(toolCallMsg && "content" in toolCallMsg).toBe(false);
+		expect(toolCallMsg && "content" in toolCallMsg).toBe(true);
+		expect(toolCallMsg?.content).toBeNull();
 	});
 
 	it("strips <think> from the replayToolHistory budget fallback instead of leaking it raw", async () => {
@@ -921,6 +932,7 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		expect(prepared).toEqual([
 			{
 				role: "assistant",
+				content: null,
 				tool_calls: [
 					{
 						id: "u10000000",

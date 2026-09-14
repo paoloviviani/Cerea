@@ -12,6 +12,7 @@ import { ObjectId } from "bson";
 import type { GridFSBucket } from "mongodb";
 
 import { collections } from "$lib/server/database";
+import { config } from "$lib/server/config";
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
 import { chunkMarkdown } from "./chunking";
@@ -52,18 +53,47 @@ export async function readConfig(): Promise<KnowledgeConfig> {
 	};
 }
 
-export async function writeConfig(patch: Partial<KnowledgeConfig>): Promise<KnowledgeConfig> {
+export async function writeConfig(
+	patch: Partial<KnowledgeConfig>,
+	meta: { changedBy?: string | null; reason?: string } = {}
+): Promise<KnowledgeConfig> {
 	const current = await readConfig();
 	const next: KnowledgeConfig = {
 		...current,
 		...patch,
 		updatedAt: new Date(),
 	};
+	// Overlap never exceeds a third of the passage: past that, the same words
+	// sit in enough neighbouring passages that a search returns one passage
+	// three times over. Capped here rather than only at base creation, so the
+	// geometry the screen shows is the geometry a new base will copy.
+	next.chunkOverlap = Math.min(next.chunkOverlap, Math.floor(next.chunkChars / 3));
+
 	const id = new ObjectId(current._id as ObjectId);
 	const saved = { ...next, _id: id };
 	await collections.knowledgeConfig.replaceOne({ _id: id } as never, saved as never, {
 		upsert: true,
 	});
+
+	const changed =
+		saved.enabled !== current.enabled ||
+		saved.embeddingModel !== current.embeddingModel ||
+		saved.extractorModel !== current.extractorModel ||
+		saved.chunkChars !== current.chunkChars ||
+		saved.chunkOverlap !== current.chunkOverlap;
+	if (changed) {
+		// Append-only, and only when something actually moved: the screen shows
+		// this as the audit trail of decisions, and a no-op save is not one.
+		await collections.knowledgeConfigHistory.insertOne({
+			embeddingModel: saved.embeddingModel ?? null,
+			extractorModel: saved.extractorModel ?? null,
+			chunkChars: saved.chunkChars,
+			chunkOverlap: saved.chunkOverlap,
+			reason: meta.reason ?? "",
+			changedBy: meta.changedBy ?? null,
+			createdAt: new Date(),
+		});
+	}
 	return saved;
 }
 
@@ -261,6 +291,178 @@ export async function statusObject(
 		embedding_model: config.embeddingModel,
 		max_upload_bytes: MAX_UPLOAD_BYTES,
 		detail,
+	};
+}
+
+// -- the administration screen ------------------------------------------------
+
+/**
+ * The whole of what the admin Knowledge screen renders, in the shape its page
+ * reads (ADR 0070). `statusObject` above answers the *user-facing* Knowledge
+ * screen and stops at the pipeline's own readiness; this one adds the things
+ * only an administrator decides or needs to see: the catalogue's embedding
+ * and OCR models to choose among, every base in the deployment (not just the
+ * caller's), which of those are stranded on an older embedding model, and the
+ * append-only history of configuration changes.
+ *
+ * The screen renders `status.bases.length`, `status.available_embedding_models.length`
+ * and friends unguarded, so every field here is part of a contract with the
+ * page: a missing one is not a smaller answer, it is a TypeError that leaves
+ * the screen on "Loading…" forever — which is exactly what a partial object
+ * produced before this shape was written.
+ */
+export async function adminStatus(token: string | undefined): Promise<{
+	enabled: boolean;
+	ready: boolean;
+	embedding_model: string | null;
+	extractor_model: string | null;
+	vector_store: string;
+	chunk_chars: number;
+	chunk_overlap: number;
+	max_upload_bytes: number;
+	source: string;
+	propagation_seconds: number;
+	detail: string | null;
+	available_embedding_models: string[];
+	available_extractor_models: string[];
+	bases: {
+		id: string;
+		name: string;
+		description: string;
+		owner_email: string | null;
+		group_name: string | null;
+		embedding_model: string | null;
+		dimensions: number | null;
+		document_count: number;
+		chunk_count: number;
+		failed_count: number;
+		stale: boolean;
+		share_count: number;
+		created_at: number;
+	}[];
+	stale_base_count: number;
+	history: {
+		id: string;
+		embedding_model: string | null;
+		extractor_model: string | null;
+		chunk_chars: number;
+		chunk_overlap: number;
+		reason: string;
+		changed_by: string | null;
+		created_at: number;
+	}[];
+}> {
+	const pipeline = await readConfig();
+
+	// One catalogue fetch answers both "which models may be chosen" and the
+	// readiness probe. Without a token (no OIDC session behind this request)
+	// the lists are empty and the screen says so in its own words — better
+	// than refusing to render what is still true.
+	let detail: string | null = null;
+	let embeddingModels: string[] = [];
+	let extractorModels: string[] = [];
+	if (pipeline.enabled && !pipeline.embeddingModel) {
+		detail =
+			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
+	} else if (token) {
+		try {
+			const models = await gateway.get<{ data: { id: string; kind?: string }[] }>(token, "models");
+			const ids = models.data.map((model) => model.id);
+			embeddingModels = models.data
+				.filter((model) => model.kind === "embedding")
+				.map((model) => model.id);
+			extractorModels = models.data
+				.filter((model) => model.kind === "ocr")
+				.map((model) => model.id);
+			if (pipeline.embeddingModel && !ids.includes(pipeline.embeddingModel)) {
+				detail = `The configured embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
+			}
+		} catch (err) {
+			logger.warn({ err }, "knowledge_status_model_probe_failed");
+		}
+	}
+
+	// Every base, not the caller's: this is the deployment's administrator
+	// looking at the deployment's pipeline. One aggregate over the documents
+	// and one lookup over the owners, rather than a query per base.
+	const rows = await collections.vectorStores.find().sort({ createdAt: -1 }).toArray();
+	const ownerIds = [...new Set(rows.map((row) => row.ownerId))];
+	const owners = ownerIds.length
+		? await collections.users.find({ _id: { $in: ownerIds } }).toArray()
+		: [];
+	const ownerEmail = new Map(owners.map((owner) => [owner._id.toString(), owner.email]));
+	const counts = await collections.knowledgeDocuments
+		.aggregate<{ _id: ObjectId; documents: number; chunks: number; failed: number }>([
+			{
+				$group: {
+					_id: "$storeId",
+					documents: { $sum: 1 },
+					chunks: { $sum: "$chunkCount" },
+					failed: { $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] } },
+				},
+			},
+		])
+		.toArray();
+	const byStore = new Map(counts.map((row) => [row._id.toString(), row]));
+
+	const bases = rows.map((base) => {
+		const row = byStore.get(base._id.toString());
+		// A base with nothing indexed is not stale: it has no vectors to be
+		// comparable with the current model, and calling it stale would send
+		// somebody to re-embed an empty base.
+		const stale =
+			base.dimensions !== null && (base.embeddingModel || null) !== pipeline.embeddingModel;
+		return {
+			id: base._id.toString(),
+			name: base.name,
+			description: base.description ?? "",
+			owner_email: ownerEmail.get(base.ownerId.toString()) ?? null,
+			group_name: null,
+			embedding_model: base.embeddingModel || null,
+			dimensions: base.dimensions ?? null,
+			document_count: row?.documents ?? 0,
+			chunk_count: row?.chunks ?? 0,
+			failed_count: row?.failed ?? 0,
+			stale,
+			share_count: base.shares.length,
+			created_at: base.createdAt.getTime(),
+		};
+	});
+
+	const history = (
+		await collections.knowledgeConfigHistory.find().sort({ createdAt: -1 }).limit(20).toArray()
+	).map((entry) => ({
+		id: (entry._id ?? new ObjectId()).toString(),
+		embedding_model: entry.embeddingModel ?? null,
+		extractor_model: entry.extractorModel ?? null,
+		chunk_chars: entry.chunkChars,
+		chunk_overlap: entry.chunkOverlap,
+		reason: entry.reason || "",
+		changed_by: entry.changedBy ?? null,
+		created_at: entry.createdAt.getTime(),
+	}));
+
+	return {
+		enabled: pipeline.enabled,
+		ready: configReady(pipeline) && !detail,
+		embedding_model: pipeline.embeddingModel,
+		// What extraction will actually use, env fallback included, so the
+		// screen never shows "built in" for a deployment whose documents are
+		// in fact being sent to a model named in the environment.
+		extractor_model: pipeline.extractorModel ?? (config.CHAT_OCR_MODEL?.trim() || null),
+		vector_store: "pgvector — this deployment's own Postgres (ADR 0070)",
+		chunk_chars: pipeline.chunkChars,
+		chunk_overlap: pipeline.chunkOverlap,
+		max_upload_bytes: MAX_UPLOAD_BYTES,
+		// The row is Mongo, read per request: no cache, no propagation delay.
+		source: "console",
+		propagation_seconds: 0,
+		detail,
+		available_embedding_models: embeddingModels,
+		available_extractor_models: extractorModels,
+		bases,
+		stale_base_count: bases.filter((base) => base.stale).length,
+		history,
 	};
 }
 
