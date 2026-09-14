@@ -9,6 +9,7 @@ import { createSandboxTool } from "./sandboxTool";
 import { createJobCheckTool } from "./jobCheckTool";
 import { createTrackioTool } from "./createTrackioTool";
 import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
+import { createWebFetchBuiltin } from "./webFetchTool";
 import type { BuiltinTool } from "./types";
 
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
@@ -35,6 +36,8 @@ export function getEnabledBuiltinTools(params: {
 	searchModelIds?: string[];
 	/** The user's web-search setting; on, the search builtin joins any conversation. */
 	webSearchEnabled?: boolean;
+	/** URLs from user messages; search results join this set during the run. */
+	allowedFetchUrls?: Set<string>;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -63,16 +66,26 @@ export function getEnabledBuiltinTools(params: {
 	// the console's search tier says the deployment permits it. The tool
 	// withholds itself when either is missing — like the GitHub tools do
 	// without a token.
-	if (
-		(params.webSearchEnabled || isMlAssistantConversation(params.conv)) &&
-		(params.searchModelIds?.length ?? 0) > 0
-	) {
+	const webAccessEnabled = params.webSearchEnabled || isMlAssistantConversation(params.conv);
+	if (webAccessEnabled && (params.searchModelIds?.length ?? 0) > 0) {
 		tools.push(
 			...createGatewaySearchBuiltins({
 				token: params.token,
 				searchModelIds: params.searchModelIds ?? [],
+				allowedFetchUrls: params.allowedFetchUrls,
 			})
 		);
+	}
+	// Fetch needs the same consent as search. Offer it with a granted search
+	// backend even when the user supplied no URL: search can add safe targets
+	// during this run, and the tool list cannot change between model rounds.
+	// A direct user URL does not require a granted search backend to be read.
+	if (
+		webAccessEnabled &&
+		params.allowedFetchUrls &&
+		(params.allowedFetchUrls.size > 0 || (params.searchModelIds?.length ?? 0) > 0)
+	) {
+		tools.push(createWebFetchBuiltin({ allowedUrls: params.allowedFetchUrls }));
 	}
 
 	return tools;
