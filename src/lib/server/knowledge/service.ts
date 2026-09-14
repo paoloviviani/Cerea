@@ -522,10 +522,12 @@ async function embedChunks(token: string, base: VectorStore, texts: string[]): P
 	if (!model) {
 		throw new KnowledgeError(400, "This base has no embedding model configured.");
 	}
-	// Batched: one call per document, in slices the gateway will accept.
+	// Batched: one call per document, in slices the gateway will accept. A base
+	// that has indexed before knows its width — every embed for it asks for
+	// exactly that, so a query vector and the stored ones are comparable.
 	const out: number[][] = [];
 	for (let i = 0; i < texts.length; i += 32) {
-		out.push(...(await embed(token, model, texts.slice(i, i + 32))));
+		out.push(...(await embed(token, model, texts.slice(i, i + 32), base.dimensions ?? undefined)));
 	}
 	return out;
 }
@@ -654,11 +656,43 @@ export async function ingestDocument(
 			if (!settled) throw new KnowledgeError(500, "The document vanished while indexing.");
 			return settled;
 		}
-		const vectors = await embedChunks(
+		let vectors = await embedChunks(
 			token,
 			base,
 			chunks.map((chunk) => chunk.text)
 		);
+		// A model can speak wider than the store can index — this deployment's
+		// qwen3-embedding-8b answers 4096, and no partial index covers that
+		// (halfvec stops at 4000). MRL models accept a `dimensions` parameter
+		// and truncate; asking for the largest width the schema covers below
+		// the model's native keeps the base on the same index as every other,
+		// and the base's recorded width is what every later embed — search
+		// included — asks for. A model without MRL refuses the parameter and
+		// the refusal lands on the row, which is the honest answer.
+		const width = vectors[0]?.length ?? 0;
+		if (!INDEXED_DIMENSIONS.includes(width as (typeof INDEXED_DIMENSIONS)[number])) {
+			const target = Math.max(...INDEXED_DIMENSIONS.filter((d) => d < width));
+			if (!target) {
+				throw new KnowledgeError(
+					400,
+					`The embedding model returns ${width} dimensions; this store indexes ${INDEXED_DIMENSIONS.join(", ")}.`
+				);
+			}
+			logger.info(
+				{ base: base._id.toString(), native: width, truncatedTo: target },
+				"knowledge_embedding_truncated: the model speaks wider than the store indexes"
+			);
+			base.dimensions = target;
+			await collections.vectorStores.updateOne(
+				{ _id: base._id },
+				{ $set: { dimensions: target, updatedAt: new Date() } }
+			);
+			vectors = await embedChunks(
+				token,
+				base,
+				chunks.map((chunk) => chunk.text)
+			);
+		}
 		await upsertChunks(base._id, document._id, chunks, vectors);
 		if (base.dimensions === null || base.dimensions !== vectors[0].length) {
 			await collections.vectorStores.updateOne(
