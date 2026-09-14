@@ -240,10 +240,24 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	}
 };
 
-export const DELETE: RequestHandler = async ({ locals, params }) => {
+export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	const user = requireUser(locals);
 	const identity = await callerIdentity(locals);
-	const connector = await ownedBy(params.id as string, user._id, identity?.isAdmin ?? false);
+	// Removing a deployment connector is an administrative act performed *as*
+	// an administrator — "remove it for everyone", which the admin screen's
+	// own confirmation says. The request has to say so (`?scope=deployment`)
+	// as well, because this route is also the overlay's remove button, and an
+	// administrator browsing the MCP dialog is still a person looking at a
+	// list they did not build: `ownedBy` alone would hand them a working
+	// delete on a connector everybody shares, silently, from a screen whose
+	// confirm dialog talks about "its sign-in" — the wrong warning for losing
+	// something other people are using.
+	const asDeployment = url.searchParams.get("scope") === "deployment";
+	const connector = await ownedBy(
+		params.id as string,
+		user._id,
+		(identity?.isAdmin ?? false) && asDeployment
+	);
 	if (!connector) error(404, "No such connector.");
 	// The tokens go with it. There is no polymorphic-address problem here as
 	// there is in the gateway's sharing (ADR 0062), so this is one delete each.

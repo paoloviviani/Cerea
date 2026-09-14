@@ -114,7 +114,10 @@
 		}
 		busy = true;
 		try {
-			await api(`/connectors/${connector.id}`, { method: "DELETE" });
+			// `?scope=deployment` is the request saying it is the administrative
+			// remove — the same DELETE route also serves the MCP overlay, where
+			// a deployment connector is nobody's to delete, whatever their role.
+			await api(`/connectors/${connector.id}?scope=deployment`, { method: "DELETE" });
 			await load();
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not remove it.";
