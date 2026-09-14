@@ -44,14 +44,16 @@ export type HostToWorker =
 			type: "loadFiles";
 			id: number;
 			files: Array<{ name: string; data: ArrayBuffer | string }>;
-	  };
+	  }
+	| { type: "removeFile"; id: number; path: string };
 
 export type WorkerToHost =
 	| { type: "loading" }
 	| { type: "ready" }
 	| { type: "loadError"; message: string }
 	| ({ type: "result"; id: number } & RunOutcome)
-	| { type: "filesLoaded"; id: number; written: string[] };
+	| { type: "filesLoaded"; id: number; written: string[] }
+	| { type: "fileRemoved"; id: number; path: string; error?: string };
 
 /**
  * Strip a client-supplied name to a safe single path segment under
