@@ -23,6 +23,7 @@
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconRefresh from "~icons/carbon/renew";
 	import IconLogin from "~icons/carbon/login";
+	import IconEdit from "~icons/carbon/edit";
 	import LucidePlug from "~icons/lucide/plug";
 	import Switch from "$lib/components/Switch.svelte";
 	import type { McpConnectorView } from "$lib/types/McpConnector";
@@ -51,6 +52,13 @@
 	let authMode = $state<"auto" | "none" | "token" | "oauth_static">("auto");
 	let clientId = $state("");
 	let clientSecret = $state("");
+	/** One existing connector can be changed without losing its id or sign-in. */
+	let editing = $state<McpConnectorView | null>(null);
+	let editName = $state("");
+	let editUrl = $state("");
+	let editToken = $state("");
+	let editTokenHeader = $state("");
+	let clearEditToken = $state(false);
 
 	/** Which row has its credentials form open, and what is in it. */
 	let credentialsFor = $state<string | null>(null);
@@ -167,6 +175,57 @@
 			window.location.href = authorizeUrl;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			busy = false;
+		}
+	}
+
+	function beginEdit(connector: McpConnectorView) {
+		editing = connector;
+		editName = connector.name;
+		editUrl = connector.url;
+		editToken = "";
+		editTokenHeader = "";
+		clearEditToken = false;
+		failure = null;
+	}
+
+	function cancelEdit() {
+		editing = null;
+		editToken = "";
+		clearEditToken = false;
+	}
+
+	async function saveEdit(event: SubmitEvent) {
+		event.preventDefault();
+		if (!editing || !editName.trim() || !editUrl.trim()) return;
+		busy = true;
+		failure = null;
+		try {
+			await api(
+				`/connectors/${editing.id}`,
+				json({
+					action: "update",
+					name: editName.trim(),
+					url: editUrl.trim(),
+					...(editToken.trim()
+						? {
+								token: editToken.trim(),
+								...(editTokenHeader.trim()
+									? {
+											tokenHeader: editTokenHeader.trim(),
+											tokenPrefix: /^authorization$/i.test(editTokenHeader.trim()) ? "Bearer " : "",
+										}
+									: {}),
+							}
+						: {}),
+					...(clearEditToken ? { clearToken: true } : {}),
+				})
+			);
+			cancelEdit();
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not save the connector.";
+		} finally {
 			busy = false;
 		}
 	}
@@ -494,6 +553,14 @@
 						{/if}
 
 						<div class="flex flex-wrap gap-1">
+							<button
+								onclick={() => beginEdit(connector)}
+								disabled={busy}
+								class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+							>
+								<IconEdit class="size-3" />
+								Edit
+							</button>
 							{#if connector.auth === "oauth" && !connector.connected}
 								<button
 									onclick={() => signIn(connector)}
@@ -581,6 +648,87 @@
 										class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 									>
 										Save
+									</button>
+								</div>
+							</form>
+						{/if}
+
+						{#if editing?.id === connector.id}
+							<form
+								class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+								onsubmit={saveEdit}
+							>
+								<label class="flex flex-col gap-1">
+									<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</span>
+									<input
+										class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+										bind:value={editName}
+										required
+										disabled={busy}
+									/>
+								</label>
+								<label class="flex flex-col gap-1">
+									<span class="text-xs font-medium text-gray-700 dark:text-gray-300">URL</span>
+									<input
+										type="url"
+										class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+										bind:value={editUrl}
+										required
+										disabled={busy}
+									/>
+								</label>
+								{#if connector.auth === "token"}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+											>Replacement token <span class="font-normal text-gray-500"
+												>(leave blank to keep)</span
+											></span
+										>
+										<input
+											type="password"
+											autocomplete="off"
+											class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+											bind:value={editToken}
+											disabled={busy}
+										/>
+									</label>
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Header</span>
+										<input
+											placeholder="Authorization"
+											class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+											bind:value={editTokenHeader}
+											disabled={busy || !editToken.trim()}
+										/>
+									</label>
+									<label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+										<input
+											type="checkbox"
+											bind:checked={clearEditToken}
+											disabled={busy || !!editToken.trim()}
+										/>
+										Remove the stored token
+									</label>
+								{/if}
+								<p class="text-xs text-gray-500 dark:text-gray-400">
+									Changing the URL clears cached server details; re-check it, then sign in again if
+									needed.
+								</p>
+								<div class="flex justify-end gap-2">
+									<button
+										type="button"
+										onclick={cancelEdit}
+										disabled={busy}
+										class="btn rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+									>
+										Cancel
+									</button>
+									<button
+										type="submit"
+										disabled={busy || !editName.trim() || !editUrl.trim()}
+										class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+									>
+										{busy ? "Saving…" : "Save changes"}
 									</button>
 								</div>
 							</form>
