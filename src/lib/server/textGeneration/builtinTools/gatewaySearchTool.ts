@@ -152,6 +152,8 @@ export function createGatewaySearchBuiltins(params: {
 	token?: string;
 	/** The search backends this caller is granted, by name. */
 	searchModelIds: string[];
+	/** Search result URLs become safe fetch targets in a later tool round. */
+	allowedFetchUrls?: Set<string>;
 }): BuiltinTool[] {
 	if (params.searchModelIds.length === 0) return [];
 	// The backend is a grant, not the model's choice: with one backend there is
@@ -235,6 +237,14 @@ export function createGatewaySearchBuiltins(params: {
 						adapter.build(query, depth, max)
 					);
 					const results = adapter.read(payload);
+					for (const result of results) {
+						try {
+							const url = new URL(result.url);
+							if (url.protocol === "https:") params.allowedFetchUrls?.add(url.href);
+						} catch {
+							// A malformed vendor result is not a fetch capability.
+						}
+					}
 					if (results.length === 0) {
 						return { resultText: "No results. Try different keywords." };
 					}
