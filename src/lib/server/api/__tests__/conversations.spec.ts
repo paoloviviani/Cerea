@@ -1,5 +1,6 @@
 import { describe, expect, it, afterEach, beforeAll } from "vitest";
 import superjson from "superjson";
+import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
 import {
@@ -170,12 +171,14 @@ describe.sequential("DELETE /api/v2/conversations", () => {
 		await cleanupTestData();
 	});
 
-	it("removes all conversations for authenticated user", async () => {
+	it("removes all loose conversations for authenticated user but preserves project chats", async () => {
 		const { locals } = await createTestUser();
+		const projectId = new ObjectId();
 
 		await createTestConversation(locals, { title: "Chat 1" });
 		await createTestConversation(locals, { title: "Chat 2" });
 		await createTestConversation(locals, { title: "Chat 3" });
+		await createTestConversation(locals, { title: "Project Chat", projectId });
 
 		const res = await testRequest(DELETE, {
 			path: conversationsPath(),
@@ -187,8 +190,10 @@ describe.sequential("DELETE /api/v2/conversations", () => {
 		const data = await parseResponse<number>(res);
 		expect(data).toBe(3);
 
-		const remaining = await collections.conversations.countDocuments();
-		expect(remaining).toBe(0);
+		const remaining = await collections.conversations.find().toArray();
+		expect(remaining).toHaveLength(1);
+		expect(remaining[0].title).toBe("Project Chat");
+		expect(remaining[0].projectId?.toString()).toBe(projectId.toString());
 	});
 
 	it("returns 401 for unauthenticated request", async () => {
