@@ -76,11 +76,15 @@
 	let notice = $state<string | null>(null);
 	let reindexing = $state<string | null>(null);
 
-	// The built-in extractor has no model row, so the empty option means it.
-	const BUILT_IN = "";
+	// The empty option is "Automatic" — the deployment default, not a reader of
+	// its own. There was once a third value here, a "built-in extractor" that
+	// was really the absence of one: choosing it extracted no documents at all
+	// while promising to read them. The deployment's own reader is an ordinary
+	// model in the list below once it is registered on the gateway.
+	const AUTOMATIC = "";
 
 	let embedding = $state("");
-	let extractor = $state(BUILT_IN);
+	let extractor = $state(AUTOMATIC);
 	let chunkChars = $state("1200");
 	let chunkOverlap = $state("150");
 	let reason = $state("");
@@ -88,7 +92,7 @@
 	function seed(next: Status) {
 		status = next;
 		embedding = next.embedding_model ?? "";
-		extractor = next.extractor_model ?? BUILT_IN;
+		extractor = next.extractor_model ?? AUTOMATIC;
 		chunkChars = String(next.chunk_chars);
 		chunkOverlap = String(next.chunk_overlap);
 		reason = "";
@@ -114,7 +118,9 @@
 	// one that asks for a sentence. The gateway enforces this too; the form
 	// states it so the refusal is never a surprise.
 	const needsReason = $derived(
-		status !== null && extractor !== (status.extractor_model ?? BUILT_IN) && extractor !== BUILT_IN
+		status !== null &&
+			extractor !== (status.extractor_model ?? AUTOMATIC) &&
+			extractor !== AUTOMATIC
 	);
 
 	async function save(event: SubmitEvent) {
@@ -130,8 +136,8 @@
 		if (embedding && embedding !== (status.embedding_model ?? "")) {
 			body.embedding_model = embedding;
 		}
-		if (extractor !== (status.extractor_model ?? BUILT_IN)) {
-			if (extractor === BUILT_IN) body.clear_extractor = true;
+		if (extractor !== (status.extractor_model ?? AUTOMATIC)) {
+			if (extractor === AUTOMATIC) body.clear_extractor = true;
 			else body.extractor_model = extractor;
 		}
 		if (Number(chunkChars) !== status.chunk_chars) body.chunk_chars = Number(chunkChars);
@@ -262,14 +268,17 @@
 					class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
 					bind:value={extractor}
 				>
-					<option value={BUILT_IN}>Built in — never leaves this deployment</option>
+					<option value={AUTOMATIC}>Automatic — the deployment default</option>
 					{#each status.available_extractor_models as name (name)}
 						<option value={name}>{name}</option>
 					{/each}
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					The built-in extractor reads Word, Excel, PowerPoint and PDFs with a text layer, on this
-					hardware. A scan needs an OCR model, which sends the document to that provider.
+					Automatic reads with <code class="text-xs">CHAT_OCR_MODEL</code> when the environment names
+					one, else the first reader in the catalogue this account may use. This deployment's own reader
+					— Word, Excel, PowerPoint and text-layer PDFs, read on this hardware — appears in the list once
+					it is registered on the gateway. A scan needs an OCR model, which sends the document to that
+					provider.
 				</span>
 			</label>
 
@@ -435,7 +444,7 @@
 							</div>
 							<div>
 								{entry.embedding_model ?? "no embedding model"} · {entry.extractor_model ??
-									"built-in extractor"}
+									"automatic"}
 							</div>
 							{#if entry.reason}
 								<div class="text-xs text-gray-500">{entry.reason}</div>
