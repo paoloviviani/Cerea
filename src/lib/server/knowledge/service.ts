@@ -945,6 +945,50 @@ export async function listDocuments(
 	return { data: rows.map((row) => documentObject(row, null)) };
 }
 
+/**
+ * The indexed text of one document, for mounting into the browser's code
+ * execution runtime.
+ *
+ * This is the retrieval payload, not the original upload: what a question
+ * against this base can see is exactly what the runtime gets, and the
+ * gateway forwarder's decision not to serve raw uploaded bytes back through
+ * this origin stands. Access is the same viewer-level check every other
+ * read takes, and the 50 MB runtime cap is enforced here too — a refusal
+ * with the number in it, not a truncated payload.
+ */
+export async function readDocumentText(
+	storeId: string,
+	documentId: string,
+	caller: Caller
+): Promise<{ id: string; title: string; filename: string | null; text: string; chars: number }> {
+	const base = await reachableStore(storeId, caller);
+	const document = await collections.knowledgeDocuments.findOne({
+		_id: new ObjectId(documentId),
+		storeId: base._id,
+	});
+	if (!document) throw new KnowledgeError(404, "No such document.");
+	if (typeof document.text !== "string") {
+		throw new KnowledgeError(
+			409,
+			`"${document.title}" has no indexed text yet (status: ${document.status}).`
+		);
+	}
+	const { MAX_FILE_BYTES } = await import("$lib/utils/execution/protocol");
+	if (Buffer.byteLength(document.text, "utf8") > MAX_FILE_BYTES) {
+		throw new KnowledgeError(
+			413,
+			`"${document.title}" is larger than the 50 MB the execution runtime accepts.`
+		);
+	}
+	return {
+		id: document._id.toString(),
+		title: document.title,
+		filename: document.filename ?? null,
+		text: document.text,
+		chars: document.chars,
+	};
+}
+
 export async function deleteDocument(
 	storeId: string,
 	documentId: string,

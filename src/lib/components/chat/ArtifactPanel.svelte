@@ -8,6 +8,8 @@
 	import { artifactRunKey } from "$lib/utils/execution/keys";
 	import { getArtifactRunsStore } from "$lib/utils/execution/artifactRuns.svelte";
 	import RunOutput from "./RunOutput.svelte";
+	import ExecutionFiles from "./ExecutionFiles.svelte";
+	import MountedChips from "./MountedChips.svelte";
 	import { diffLines, diffStats, renderDiffHtml } from "$lib/utils/artifactDiff";
 	import {
 		buildArtifactSrcdoc,
@@ -703,6 +705,7 @@
 					<!-- Floating so toggling them on/off never reflows the header tab switcher -->
 					<div class="absolute top-2 right-3 z-10 flex items-center gap-1">
 						{#if pythonCell}
+							<ExecutionFiles />
 							<button
 								type="button"
 								class="{codeFloatBtn} text-gray-600 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-200"
@@ -749,8 +752,11 @@
 						></div>
 					{/if}
 				</div>
-				{#if pythonCell && cellRunState}
-					<RunOutput state={cellRunState} class="mx-3 mb-2" />
+				{#if pythonCell}
+					<MountedChips />
+					{#if cellRunState}
+						<RunOutput state={cellRunState} class="mx-3 mb-2" />
+					{/if}
 				{/if}
 			</div>
 		{/if}

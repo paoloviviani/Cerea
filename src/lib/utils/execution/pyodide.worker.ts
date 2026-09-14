@@ -197,9 +197,27 @@ async function loadFiles(
 	}
 }
 
+async function removeFile(id: number, path: string): Promise<void> {
+	try {
+		const py = await getPyodide();
+		// Only files under the mount point may be removed: the runtime's
+		// filesystem is shared state, and the interpreter's own files are not
+		// the UI's to delete.
+		if (!path.startsWith(`${MOUNT_ROOT}/`) || path.includes("..")) {
+			post({ type: "fileRemoved", id, path, error: "only /mnt/data files can be removed" });
+			return;
+		}
+		py.FS.unlink(path);
+		post({ type: "fileRemoved", id, path });
+	} catch (err) {
+		post({ type: "fileRemoved", id, path, error: describeError(err) });
+	}
+}
+
 scope.onmessage = (event: MessageEvent<HostToWorker>) => {
 	const data = event.data;
 	if (!data || typeof data !== "object") return;
 	if (data.type === "run") void run(data.id, data.code);
 	if (data.type === "loadFiles") void loadFiles(data.id, data.files);
+	if (data.type === "removeFile") void removeFile(data.id, data.path);
 };
