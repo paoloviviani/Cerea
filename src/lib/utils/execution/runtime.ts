@@ -138,6 +138,19 @@ export class ExecutionSession {
 		this.statusListeners.clear();
 	}
 
+	/** Remove one mounted file from /mnt/data. */
+	async removeFile(path: string): Promise<string> {
+		const message = await this.enqueue(() =>
+			this.dispatch(
+				{ type: "removeFile", id: this.nextId++, path },
+				this.runTimeoutMs,
+				(m): m is Extract<WorkerToHost, { type: "fileRemoved" }> => m.type === "fileRemoved"
+			)
+		);
+		if (message.error) throw new ExecutionError("worker", message.error);
+		return message.path;
+	}
+
 	private enqueue<T>(job: () => Promise<T>): Promise<T> {
 		// A failed predecessor must not poison the queue: every job runs, its
 		// result is what rejects. The tail swallows outcomes either way.

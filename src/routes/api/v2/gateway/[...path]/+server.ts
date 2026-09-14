@@ -38,7 +38,10 @@ import { logger } from "$lib/server/logger";
  * searching it — handled in-process since ADR 0070. Files: upload and delete;
  * reading one back is *not* here — a knowledge base's own passages are what
  * the chat shows, and serving arbitrary uploaded bytes back through this
- * origin is a decision with its own reasons.
+ * origin is a decision with its own reasons. The one carve-out is a
+ * document's *indexed text* (`.../content`), which the code-execution
+ * runtime mounts for analysis: it is the retrieval payload, behind the same
+ * viewer check, and still never the raw upload.
  */
 const INTERNAL = [
 	/^vector_stores$/,
@@ -46,6 +49,9 @@ const INTERNAL = [
 	/^vector_stores\/[0-9a-f-]{24}$/,
 	/^vector_stores\/[0-9a-f-]{24}\/(files|text|search|reindex|shares)$/,
 	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}$/,
+	// A document's *indexed text* for the code-execution runtime — the
+	// retrieval payload behind the same viewer check, never the raw upload.
+	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/content$/,
 	/^files$/,
 	/^files\/[0-9a-f-]{24}$/,
 ];
@@ -196,6 +202,13 @@ async function handleInternal(
 		if (docMatch && method === "DELETE") {
 			await service.deleteDocument(docMatch[1], docMatch[2], caller);
 			return json({ id: docMatch[2], object: "vector_store.file.deleted", deleted: true });
+		}
+
+		const contentMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/content$/.exec(
+			path
+		);
+		if (contentMatch && method === "GET") {
+			return json(await service.readDocumentText(contentMatch[1], contentMatch[2], caller));
 		}
 
 		error(404, "Not available through this endpoint.");
