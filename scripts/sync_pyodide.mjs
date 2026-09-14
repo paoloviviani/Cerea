@@ -18,6 +18,7 @@ import path from "node:path";
 
 const RUNTIME_FILES = [
 	"pyodide.mjs",
+	"pyodide.mjs.map",
 	"pyodide.asm.mjs",
 	"pyodide.asm.wasm",
 	"python_stdlib.zip",
