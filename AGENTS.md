@@ -330,7 +330,7 @@ bite:
   modifier cannot be a bind parameter.** `toUuid`/`fromUuid` (`db.ts`) are
   the boundary — pad to 32 hex, format; read back by taking the first 24. The
   search SQL formats the width into the cast (`::halfvec(N)`) because
-  `::halfvec($1)` is a prepare-time *syntax* error — an int from a checked
+  `::halfvec($1)` is a prepare-time _syntax_ error — an int from a checked
   range, never caller input. Ranking runs in half precision through partial
   expression indexes on `dimensions` (384…3072); storage stays full precision
   in an untyped `vector` column, because a fixed width would make changing
@@ -373,10 +373,16 @@ it. The two things to know:
   omitted makes the assistant answer as though nothing was attached while the
   person watching sees their file in the transcript.
 
-Which model extracts is `CHAT_OCR_MODEL`, or the first `kind: ocr` model the
-caller may use. With only the built-in extractor installed that is the built-in
-extractor, and **it never sends the document anywhere** — naming an upstream
-OCR model does, which is why it is a setting rather than a default.
+Which model extracts is the Knowledge screen's choice, else `CHAT_OCR_MODEL`,
+else the first `kind: ocr` model the caller may use. The deployment's own
+extractor is not a special case — it is an ordinary model row on the gateway
+whose provider is the local extractor service, and it shows up in the
+catalogue like any other reader. There is no value that means "extract
+nothing": one existed, and a deployment that held it read no documents while
+being told it would. A model embedding wider than the store indexes (halfvec
+stops at 4000) is MRL-truncated to the largest width the schema covers, and
+the base's recorded width is what every later embed — search included — asks
+for.
 
 Two things found only by running `scripts/test_projects_live.py`, both worth
 knowing before touching the model picker or writing another live check:
