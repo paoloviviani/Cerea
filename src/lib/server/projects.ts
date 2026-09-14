@@ -29,6 +29,7 @@
  */
 
 import { ObjectId } from "mongodb";
+import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
@@ -43,6 +44,16 @@ export interface ViewerPrincipals {
 	email?: string;
 	groups: string[];
 }
+
+/**
+ * The name a knowledge base travels under, since ADR 0070: one of this chat's
+ * own store ids, 24 hex characters. It was a gateway uuid once, and the routes
+ * still asking for that reject every base the Knowledge screen lists before
+ * the project is even touched.
+ */
+export const knowledgeBaseId = z
+	.string()
+	.regex(/^[0-9a-f]{24}$/, "That knowledge base id is not one of this chat's store ids.");
 
 /**
  * The viewer's own groups, as the gateway reports them for their token.
