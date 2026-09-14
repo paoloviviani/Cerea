@@ -17,7 +17,9 @@
 	Each chat inside a project is the same row the flat Chats list uses —
 	`NavConversationItem` — so it carries the same `⋯`: Rename and Delete,
 	plus the double-click-to-rename inline edit. The branch just keeps its own
-	list, so a rename or a delete lands where the row will show it.
+	list, so a rename or a delete lands where the row will show it. Its list
+	is indented under a faint rail aligned with the folder's disclosure arrow:
+	project chats are contents of that folder, not peers of it.
 
 	The chats inside a project are fetched **when the folder is opened**, not
 	with the list. A deployment with a dozen projects would otherwise make a
@@ -351,20 +353,27 @@
 						title="Start a chat"
 					/>
 				{:else}
-					{#each chats[project.id] as conversation (conversation.id)}
-						{@const sidebarConv = {
-							id: conversation.id,
-							title: conversation.title,
-							model: conversation.model,
-							updatedAt: new Date(conversation.updatedAt),
-						} as ConvSidebar}
-						<NavConversationItem
-							conv={sidebarConv}
-							oneditConversationTitle={(payload) =>
-								renameChat(project.id, payload.id, payload.title)}
-							ondeleteConversation={(id) => destroyChat(project.id, id)}
-						/>
-					{/each}
+					<!-- The guide begins at the folder's disclosure-arrow centre. Its
+					     padding plus the shared row's own padding leaves chat titles
+					     aligned with the other depth-two leaves. -->
+					<div
+						class="ml-[1.375rem] flex flex-col gap-px border-l border-gray-200 pl-2.5 dark:border-gray-700"
+					>
+						{#each chats[project.id] as conversation (conversation.id)}
+							{@const sidebarConv = {
+								id: conversation.id,
+								title: conversation.title,
+								model: conversation.model,
+								updatedAt: new Date(conversation.updatedAt),
+							} as ConvSidebar}
+							<NavConversationItem
+								conv={sidebarConv}
+								oneditConversationTitle={(payload) =>
+									renameChat(project.id, payload.id, payload.title)}
+								ondeleteConversation={(id) => destroyChat(project.id, id)}
+							/>
+						{/each}
+					</div>
 				{/if}
 			</TreeBranch>
 		{/each}
