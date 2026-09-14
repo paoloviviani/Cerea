@@ -5,9 +5,11 @@
 	interface Props {
 		tokens: Token[];
 		loading?: boolean;
+		/** Assistant-written blocks may auto-run (see CodeBlock). */
+		autorun?: boolean;
 	}
 
-	let { tokens, loading = false }: Props = $props();
+	let { tokens, loading = false, autorun = false }: Props = $props();
 
 	// Derive rendered tokens for memoization
 	const renderedTokens = $derived(tokens);
@@ -18,6 +20,12 @@
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 		{@html token.html}
 	{:else if token.type === "code"}
-		<CodeBlock code={token.code} rawCode={token.rawCode} loading={loading && !token.isClosed} />
+		<CodeBlock
+			code={token.code}
+			rawCode={token.rawCode}
+			loading={loading && !token.isClosed}
+			language={token.lang}
+			{autorun}
+		/>
 	{/if}
 {/each}

@@ -15,9 +15,11 @@
 		content: string;
 		sources?: { title?: string; link: string }[];
 		loading?: boolean;
+		/** Assistant-written blocks may auto-run in the execution sandbox. */
+		autorun?: boolean;
 	}
 
-	let { content, sources = [], loading = false }: Props = $props();
+	let { content, sources = [], loading = false, autorun = false }: Props = $props();
 
 	// Lightweight blocks used for SSR and the initial client render. Full markdown
 	// rendering is deferred to the shared worker pool (or async processBlocks fallback)
@@ -49,5 +51,5 @@
 </script>
 
 {#each blocks as block, index (loading && index === blocks.length - 1 ? `stream-${index}` : block.id)}
-	<MarkdownBlock tokens={block.tokens} {loading} />
+	<MarkdownBlock tokens={block.tokens} {loading} {autorun} />
 {/each}
