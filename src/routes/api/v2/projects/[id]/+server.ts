@@ -17,13 +17,18 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
-import { projectAccess, projectView, viewerPrincipals } from "$lib/server/projects";
+import {
+	knowledgeBaseId,
+	projectAccess,
+	projectView,
+	viewerPrincipals,
+} from "$lib/server/projects";
 
 const patch = z.object({
 	name: z.string().trim().min(1).max(128).optional(),
 	description: z.string().trim().max(500).optional(),
 	instructions: z.string().max(20_000).optional(),
-	knowledgeBaseIds: z.array(z.string().uuid()).max(20).optional(),
+	knowledgeBaseIds: z.array(knowledgeBaseId).max(20).optional(),
 	indexPastChats: z.boolean().optional(),
 	retrievalLimit: z.number().int().min(1).max(20).optional(),
 });
