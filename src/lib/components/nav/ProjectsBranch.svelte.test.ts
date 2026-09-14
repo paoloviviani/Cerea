@@ -212,6 +212,12 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		);
 		if (!folder) throw new Error("no folder row for the project");
 		folder.click();
+		const rail = await vi.waitFor(() => {
+			const el = container.querySelector<HTMLElement>(".border-l");
+			if (!el) throw new Error("no project chat guide rail yet");
+			return el;
+		});
+		expect(rail.textContent).toContain("First chat");
 		const menu = await vi.waitFor(() => find(container, 'button[title="More options"]'));
 		fireTap(menu);
 
