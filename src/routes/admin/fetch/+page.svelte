@@ -9,23 +9,18 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 
-	type Backend = "direct" | "playwright" | "pystino";
+	type Backend = "direct" | "playwright";
 
 	const DESCRIPTIONS: Record<Backend, { title: string; detail: string }> = {
 		direct: {
 			title: "Direct",
 			detail:
-				"A plain HTTPS request. Needs nothing else deployed, and is what this app has always done. A page built by JavaScript arrives as an empty shell with a 200 and nothing to say the content was never there.",
+				"A plain HTTPS request — no browser, no JavaScript. Needs nothing else deployed, and is what this app has always done. A page built by JavaScript arrives as an empty shell with a 200 and nothing to say the content was never there.",
 		},
 		playwright: {
-			title: "Local renderer",
+			title: "Local renderer (Playwright)",
 			detail:
-				"A headless browser in this deployment. Runs the page's JavaScript, so what is fetched is what a person would see. Needs the playwright compose overlay, which is opt-in and publishes no port.",
-		},
-		pystino: {
-			title: "Pystino endpoint",
-			detail:
-				"The gateway fetches and renders it. Not implemented yet — selecting it makes fetching fail with a message saying so rather than quietly falling back.",
+				"A headless browser in this deployment, driven over the Playwright protocol. Runs the page's JavaScript, so what is fetched is what a person would see. Needs the playwright compose overlay, which is opt-in and publishes no port.",
 		},
 	};
 
@@ -113,6 +108,14 @@
 		{/if}
 
 		<div class="flex flex-col gap-2">
+			{#if backend !== "direct" && backend !== "playwright"}
+				<p
+					class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+				>
+					The saved value (“{backend}”) is not a fetch backend this app offers — pick one below and
+					save.
+				</p>
+			{/if}
 			{#each Object.entries(DESCRIPTIONS) as [value, meta] (value)}
 				<label
 					class="flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors {backend ===
