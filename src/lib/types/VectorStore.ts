@@ -69,6 +69,35 @@ export interface KnowledgeConfig extends Timestamps {
 	/** Off is the honest default: the pipeline needs an embedding model to be useful. */
 	enabled: boolean;
 	embeddingModel: string | null;
+	/**
+	 * Which model reads documents, as the Knowledge screen chose. `null` is the
+	 * built-in extractor said *deliberately* — it never leaves this deployment —
+	 * while `undefined` means the screen has never decided, and extraction falls
+	 * back to `CHAT_OCR_MODEL` and then to the first OCR model the caller may
+	 * use. The distinction is load-bearing: writing `null` for "not decided yet"
+	 * would silently switch a deployment that configured extraction through the
+	 * environment over to the built-in extractor the moment any other setting
+	 * was saved.
+	 */
+	extractorModel?: string | null;
 	chunkChars: number;
 	chunkOverlap: number;
+}
+
+/**
+ * One append-only record of a configuration change, for the "which model was
+ * this base built with, and who moved the default" question that gets asked
+ * long after the change. Reason is only ever attached to the change that
+ * re-points extraction at a model — the one setting that alters where user
+ * documents are sent.
+ */
+export interface KnowledgeConfigChange {
+	_id?: ObjectId;
+	embeddingModel: string | null;
+	extractorModel: string | null;
+	chunkChars: number;
+	chunkOverlap: number;
+	reason: string;
+	changedBy: string | null;
+	createdAt: Date;
 }

@@ -80,7 +80,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     # exactly the rows that have a badge.
     text = re.sub(r"<[^>]+>", " ", home)
     text = re.sub(r"\s+", " ", text)
-    for label in ("Models", "Projects", "Knowledge", "Agents", "MCP Servers", "Chats"):
+    for label in ("Models", "Projects", "Knowledge", "MCP Servers", "Chats"):
         check(label, label in text, "not in the panel")
 
     print("\nthe row controls are actually visible:")
@@ -184,7 +184,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         json={"name": "Nav tree check", "instructions": "", "knowledgeBaseIds": []},
     ).json()
     models = c.get(f"{CHAT}/api/v2/models").text
-    ids = [x for x in re.findall(r'"id":"([^"]+)"', models) if not x.startswith("agent:")]
+    ids = [x for x in re.findall(r'"id":"([^"]+)"', models)]
     conv = c.post(
         f"{CHAT}/conversation", json={"model": ids[0], "projectId": project["id"]}
     ).json()["conversationId"]
@@ -203,7 +203,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     )
 
     models = c.get(f"{CHAT}/api/v2/models").text
-    first = [x for x in re.findall(r'"id":"([^"]+)"', models) if not x.startswith("agent:")][0]
+    first = [x for x in re.findall(r'"id":"([^"]+)"', models)][0]
 
     print("\nthe per-model settings page is gone:")
     r = c.get(f"{CHAT}/settings/{first}")

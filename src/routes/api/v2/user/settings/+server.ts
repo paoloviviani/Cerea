@@ -14,7 +14,6 @@ const settingsSchema = z.object({
 		.boolean()
 		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 	webSearchEnabled: z.boolean().optional(),
-	activeAgentId: z.string().optional(),
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),

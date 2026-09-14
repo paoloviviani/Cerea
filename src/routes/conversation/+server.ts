@@ -6,7 +6,6 @@ import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
 import { models, validateModel } from "$lib/server/models";
-import { resolveForConversation } from "$lib/server/agents";
 import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
@@ -25,9 +24,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const parsedBody = z
 		.object({
 			fromShare: z.string().optional(),
-			// An agent conversation passes its wrapper separately: the model is
-			// the plain one, and the agent adds the prompt and knowledge.
-			agentId: z.string().optional(),
 			model: validateModel(models),
 			preprompt: z.string().optional(),
 			mlAssistant: z.boolean().optional(),
@@ -41,52 +37,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, "Invalid request");
 	}
 	const values = parsedBody.data;
-
-	// The wrapper arrives by id and must belong to the caller — an agent is
-	// per-user and shared with nobody, so someone else's id is exactly as
-	// invisible as one that does not exist. The conversation stays a plain
-	// one: a real model, and the agent's prompt as the preprompt. Nothing
-	// about it needs the catalogue to know agents exist.
-	if (values.agentId !== undefined) {
-		const user = locals.user;
-		if (!user) error(401, "Login required");
-		if (!ObjectId.isValid(values.agentId)) {
-			error(400, "Invalid request");
-		}
-		const agent = await resolveForConversation(new ObjectId(values.agentId), user._id);
-		if (!agent) {
-			error(404, "No such agent");
-		}
-		// The prompt is snapshotted, not referenced: the conversation reads as
-		// a plain one from here on, and only the knowledge retrieval stays
-		// live behind the id.
-		if (!values.preprompt?.trim()) {
-			values.preprompt = agent.system_prompt;
-		}
-		values.model = agent.model;
-	}
-
-	// The wrapper arrives by id and must belong to the caller — an agent is
-	// per-user and shared with nobody, so someone else's id is exactly as
-	// invisible as one that does not exist.
-	let agentId: ObjectId | undefined;
-	if (values.agentId !== undefined) {
-		const user = locals.user;
-		if (!user) error(401, "Login required");
-		if (!ObjectId.isValid(values.agentId)) {
-			error(400, "Invalid request");
-		}
-		const agent = await resolveForConversation(new ObjectId(values.agentId), user._id);
-		if (!agent) {
-			error(404, "No such agent");
-		}
-		// The wrapper adds to the request; the conversation's model is the
-		// plain one it wraps. The picker already sent the right model —
-		// correcting it here costs nothing and keeps the invariant in code
-		// rather than in a shared assumption.
-		values.model = agent.model;
-		agentId = new ObjectId(values.agentId);
-	}
 
 	const convCount = await collections.conversations.countDocuments(authCondition(locals));
 
@@ -217,7 +167,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		...(values.fromShare ? { meta: { fromShareId: values.fromShare } } : {}),
 		...(projectId ? { projectId } : {}),
-		...(agentId ? { agentId } : {}),
 		// Only builds that ship ML Assistant mode can mark a conversation with it.
 		...(isMlAssistant ? { mlAssistant: true } : {}),
 		...(isMlAssistant && mlBudget ? { mlBudget } : {}),

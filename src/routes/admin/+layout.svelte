@@ -23,8 +23,7 @@
 
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
 
-	// Only what exists. Published (agents and knowledge bases shared with
-	// everyone) belongs here and is not built yet; a tab leading to a 404 is
+	// Only what exists. A tab leading to a 404 is
 	// worse than a tab that is not there.
 	const sections = [
 		{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook },

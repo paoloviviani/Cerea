@@ -123,7 +123,7 @@
 	}
 
 	// `onMount`, not the component body: these managers are also rendered as
-	// pages (`/knowledge`, `/agents`, `/projects`), and a page body runs on the
+	// pages (`/knowledge`, `/projects`), and a page body runs on the
 	// server, where a relative fetch has no origin to resolve against.
 	onMount(() =>
 		load().then(() => {
@@ -491,10 +491,7 @@
 						bind:value={instructions}
 						disabled={busy}
 					></textarea>
-					<p class={s.HINT}>
-						Added to the system prompt of every conversation here. Text only — a project with tools
-						and a fixed model is what an agent is.
-					</p>
+					<p class={s.HINT}>Added to the system prompt of every conversation here.</p>
 				</div>
 
 				<div>

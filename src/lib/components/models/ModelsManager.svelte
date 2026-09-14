@@ -112,15 +112,7 @@
 	const defaultModel = $derived(browsable.find((model) => model.id === $settings.activeModel));
 
 	function setDefault(model: ModelCard) {
-		// An agent card sets the wrapper as the default (the conversation
-		// keeps a plain model — the agent's underlying one — and the wrapper
-		// rides by id); a plain model is the escape from a wrapper.
-		const isAgentCard = model.id.startsWith("agent:");
-		settings.instantSet(
-			isAgentCard
-				? { activeModel: model.id, activeAgentId: model.id.slice("agent:".length) }
-				: { activeModel: model.id, activeAgentId: undefined },
-		);
+		settings.instantSet({ activeModel: model.id });
 	}
 
 	function open(model: ModelCard) {
@@ -338,9 +330,6 @@
 													Default
 												</span>
 											{/if}
-{#if model.id.startsWith("agent:")}
-	<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
-{/if}
 											{#if promptIsCustom(model)}
 												<span class="{s.PILL} {s.PILL_TONES.good}">custom prompt</span>
 											{/if}
@@ -401,7 +390,6 @@
 							• The default is what a <strong>new</strong> chat starts on; an open chat keeps its own.
 						</li>
 						<li>• <strong>Edit</strong> gives a model its own system prompt, kept per model.</li>
-						<li>• An <strong>Agent</strong> brings its own instructions and knowledge with it.</li>
 						<li>• A router picks a model per message rather than pinning one.</li>
 					</ul>
 				</div>

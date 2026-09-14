@@ -1,5 +1,4 @@
 import { preprocessMessages } from "../endpoints/preprocessMessages";
-import { error } from "@sveltejs/kit";
 
 import { generateTitleForConversation } from "./title";
 import {
@@ -18,7 +17,6 @@ import { logger } from "$lib/server/logger";
 import { resolvePreprompt } from "./preprompt";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
-import { agentContext, resolveForConversation } from "$lib/server/agents";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -113,45 +111,6 @@ async function* textGenerationWithoutTitle(
 		timezone: (ctx.locals as unknown as { timezone?: string } | undefined)?.timezone,
 		budget: conv.mlBudget,
 	});
-
-	// An agent conversation (ADR 0067): resolved here, chat-side. The model
-	// becomes the agent's underlying model — everything downstream, from
-	// capability switches to the OpenAI call, reads `ctx.model` — and the
-	// agent's persona opens the system prompt, with the conversation's own
-	// additions after it. Retrieval runs with the reader's token and cannot
-	// fail the turn, exactly as a project's does. An agent that has gone (been
-	// renamed or deleted) refuses the turn rather than answering as somebody
-	// else: the name in `conv.model` is the only thing that says what this
-	// conversation was talking to.
-	if (conv.agentId) {
-		// The knowledge half of the wrapper (ADR 0067, as clarified): the
-		// prompt was snapshotted into the conversation when it was created —
-		// this conversation reads as a plain one everywhere else — and only
-		// the retrieval stays live behind the id, because "which passages
-		// exist" is the one thing that changes under the conversation. A
-		// deleted agent is not an error: the wrapper is gone, the chat keeps
-		// its model and its prompt.
-		const user = (ctx.locals as unknown as { user?: { _id: import("bson").ObjectId } | undefined })
-			?.user;
-		if (!user) {
-			error(401, "Sign in to continue this conversation.");
-		}
-		const agent = await resolveForConversation(conv.agentId, user._id);
-		if (agent) {
-			const lastUser = [...messages].reverse().find((message) => message.from === "user");
-			const context = await agentContext({
-				agent,
-				question: lastUser?.content ?? "",
-				token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
-				locals: ctx.locals,
-			});
-			if (context) {
-				// The agent's instructions came first when the conversation was
-				// created; they keep their place ahead of anything added since.
-				preprompt = preprompt ? `${context}\n\n${preprompt}` : context;
-			}
-		}
-	}
 
 	// A project's standing context, and whatever its knowledge bases offer for
 	// this question. Appended to the system prompt rather than mixed into

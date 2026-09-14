@@ -335,7 +335,9 @@ export async function runNestedAgent(
 		// Wire-safe rebuild: only role/content/tool_calls go back. The raw
 		// message can carry provider fields (reasoning_content and friends)
 		// that OpenAI-compatible backends reject when echoed; content is
-		// omitted when empty because some backends 400 on empty text next to
+		// always present — the streamed preamble, else null. Omitting the key
+		// reads as `undefined` on backends that validate presence (llmbase
+		// 400s), and "" breaks the kind that rejects empty text next to
 		// tool_calls.
 		messages = [
 			...messages,
@@ -344,9 +346,8 @@ export async function runNestedAgent(
 				// Same guard as the parent loop: an unparseable payload echoed back
 				// 400s every later request of the run. See withParseableArguments.
 				tool_calls: withParseableArguments(toolCalls),
-				...(typeof msg.content === "string" && msg.content.trim().length > 0
-					? { content: msg.content }
-					: {}),
+				content:
+					typeof msg.content === "string" && msg.content.trim().length > 0 ? msg.content : null,
 			},
 		];
 

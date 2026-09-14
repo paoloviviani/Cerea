@@ -9,14 +9,13 @@
 	Two things worth knowing.
 
 	**Logout is a form post, not a link.** `POST /logout` deletes the session
-	server-side; a GET would make signing somebody out something a prefetch or
-	an `<img>` could do to them.
+	server-side; a GET would make signing somebody out something a prefetch or an
+	`<img>` could do to them.
 
-	**It ends the session here, not at the identity provider.** There is no
-	RP-initiated logout in this app, so a directory session outlives it and the
-	next sign-in can go through without a prompt. That is worth knowing before
-	trusting this on a shared machine, and it is why the item says "Sign out"
-	rather than promising more than it does.
+	**It ends the session at both ends.** `POST /logout` also sends the browser
+	to the provider's `end_session_endpoint` (see `routes/logout/+server.ts`), so
+	the directory's own session goes too — without that half, the next visit
+	re-authenticates silently and signing out looks like it did nothing.
 -->
 <script lang="ts">
 	import { base } from "$app/paths";
@@ -173,7 +172,13 @@
 			<div class="border-t border-gray-200 dark:border-gray-600">
 				<!-- A form post, not a link: signing somebody out must not be
 				     something a prefetch can do to them. -->
-				<form method="POST" action="{base}/logout" onsubmit={go}>
+				<!-- And the handler must not close this menu: `go` sets `open =
+				     false`, which unmounts the form **while the browser is still
+				     submitting it** — Chromium drops the submission of a form
+				     detached during the submit event, so Sign out closed the menu
+				     and did nothing else. The navigation the post produces takes
+				     the whole page away; there is no menu left to close. -->
+				<form method="POST" action="{base}/logout" onsubmit={() => onnavigate?.()}>
 					<button
 						type="submit"
 						role="menuitem"

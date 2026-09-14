@@ -516,20 +516,9 @@ let rebuilding: Promise<void> | null = null;
 /**
  * How long a catalogue is trusted before the next read rebuilds it.
  *
- * This used to be forever — "the model list is built once at server startup;
- * new models appear on redeploy" — which was defensible when a model was a
- * deployment-level fact an operator added. It stopped being defensible when
- * users gained the ability to *create* one: an agent made in the Agents dialog
- * did not exist in the catalogue, so it was missing from the model list, could
- * not be validated, and could not be chosen — while an agent created before the
- * last restart stayed listed for everybody. Two dialogs describing the same
- * thing disagreed, and neither was wrong about what it could see.
- *
- * A minute rather than seconds: creating an agent is a deliberate act followed
- * by going to use it, so a short wait is tolerable, and the rebuild costs one
- * request to the gateway plus the override merge. Rebuilding per request would
- * put a round trip in front of every page load for a list that changes hourly
- * at most.
+ * A minute rather than seconds: the rebuild costs one request to the gateway
+ * plus the override merge, and the list changes hourly at most. Rebuilding
+ * per request would put a round trip in front of every page load.
  */
 const MODEL_TTL_MS = 60_000;
 

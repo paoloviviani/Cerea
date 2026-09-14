@@ -15,11 +15,7 @@ then checks the two things that are only observable against a live stack:
 Three things this found that no unit test could:
 
 * the chat's model catalogue is built **once at startup with the deployment's
-  own key**, so it is the same list for everybody and includes agents whose
-  underlying model the caller may not use. Calling one is a 404 from the
-  gateway — which is the designed behaviour for sharing an agent whose model is
-  restricted — but it means the *list* cannot hide it the way `/v1/models`
-  does per caller. This script therefore picks a non-agent model;
+  own key**, so it is the same list for everybody;
 * a turn is a **multipart** post with the JSON in a `data` field, and a native
   form content type needs an `Origin` header past the CSRF guard;
 * a first user message still needs its parent message id — the conversation is
@@ -179,14 +175,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=120) as c:
     # -- a conversation inside it -----------------------------------------
     print("\nconversation")
     models = c.get(f"{CHAT}/api/v2/models").text
-    # Agents are addressed as models but may run on a model this account
-    # cannot use, which is a 404 from the gateway rather than a hidden row:
-    # the chat's catalogue is global (built once with the deployment key).
-    model_ids = [
-        m
-        for m in re.findall(r'"id":"([^"]+)"', models)
-        if not m.startswith("agent:")
-    ]
+    model_ids = re.findall(r'"id":"([^"]+)"', models)
     if not model_ids:
         sys.exit("no models available to this account")
     model = model_ids[0]
