@@ -112,23 +112,29 @@ async function* textGenerationWithoutTitle(
 		budget: conv.mlBudget,
 	});
 
-	// A project's standing context, and whatever its knowledge bases offer for
-	// this question. Appended to the system prompt rather than mixed into
+	// A project's standing context, and whatever its knowledge bases — plus any
+	// bases attached to this conversation from the composer — offer for this
+	// question. Appended to the system prompt rather than mixed into
 	// `resolvePreprompt`, and the ordering is the point: the conversation's own
 	// prompt — the user's per-model custom prompt, or the ML Assistant preset —
 	// keeps precedence, and the project adds to it.
 	//
-	// Retrieval runs with the *reader's* token, so a shared project retrieves
-	// only from bases they can already see. It cannot fail the turn: every
-	// error inside is logged and swallowed, because a knowledge base being
-	// unavailable is a reason for a worse answer and not for no answer
-	// (ADR 0062).
-	if (conv.projectId) {
-		const project = await collections.projects.findOne({ _id: conv.projectId });
-		if (project) {
+	// The two sources of bases are additive: the conversation's own bases join
+	// the project's candidate pool and never replace it. Retrieval runs with
+	// the *reader's* token, so a shared project — or an attached base —
+	// retrieves only from stores they can already see. It cannot fail the
+	// turn: every error inside is logged and swallowed, because a knowledge
+	// base being unavailable is a reason for a worse answer and not for no
+	// answer (ADR 0062).
+	if (conv.projectId || conv.knowledgeBaseIds?.length) {
+		const project = conv.projectId
+			? await collections.projects.findOne({ _id: conv.projectId })
+			: undefined;
+		if (project || conv.knowledgeBaseIds?.length) {
 			const lastUser = [...messages].reverse().find((message) => message.from === "user");
 			const context = await projectContext({
 				project,
+				knowledgeBaseIds: conv.knowledgeBaseIds,
 				question: lastUser?.content ?? "",
 				token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
 				locals: ctx.locals,

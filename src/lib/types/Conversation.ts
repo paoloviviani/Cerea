@@ -40,6 +40,16 @@ export interface Conversation extends Timestamps {
 	 */
 	indexedMessageIds?: string[];
 
+	/**
+	 * Knowledge bases attached to this conversation by hand, from the
+	 * composer's upload menu. Used in addition to any bases the conversation's
+	 * project carries, never instead of them, and validated at attach time
+	 * against the attacher's own access — every later turn re-checks the
+	 * reader's reach at retrieval, so a share revoked after attaching simply
+	 * stops contributing passages.
+	 */
+	knowledgeBaseIds?: string[];
+
 	userAgent?: string;
 
 	/**
