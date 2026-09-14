@@ -100,7 +100,8 @@ export interface KnowledgeDocument {
 	chunk_count: number;
 	pages: number;
 	chars: number;
-	last_error: string | null;
+	/** Why indexing failed, when it did — the reason travels to the screen. */
+	error: string | null;
 	indexed_at: number | null;
 }
 
