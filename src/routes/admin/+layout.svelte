@@ -77,7 +77,17 @@
 		{/if}
 	</div>
 {:else}
-	<div class="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
+	<!--
+		h-full and min-h-0 bound this frame to the row the root layout gives it:
+		the root shell is `fixed h-dvh overflow-hidden` by design — the chat
+		scrolls inside its own panes — so a frame that merely grew with its
+		content was clipped at the window edge with no scrollbar anywhere, and
+		on the phone-sized viewport of the installed PWA most of a page simply
+		did not exist. min-h-0 is what stops this frame's own height from
+		inflating the 1fr row back out to its content: without it the row (and
+		so the clipping) returns, whatever h-full says.
+	-->
+	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 		<header class="flex flex-col gap-1">
 			<h1 class="text-xl font-semibold">Administration</h1>
 			<p class="text-sm text-gray-500 dark:text-gray-400">
@@ -102,6 +112,17 @@
 			{/each}
 		</nav>
 
-		{@render children()}
+		<!--
+			The page scrolls here, under the pinned tabs, not the window. It also
+			gives every page a block-level parent again: as a direct flex item, a
+			centered `mx-auto max-w-4xl` frame is sized fit-content, whose
+			min-content floor is the width of the widest unbreakable row — for
+			knowledge's nowrap table that was 749px inside a 390px viewport, and
+			overflow-hidden ate the difference. In a plain block the same classes
+			are the ordinary "fill, cap at 4xl, centre" idiom.
+		-->
+		<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
+			{@render children()}
+		</div>
 	</div>
 {/if}
