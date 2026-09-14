@@ -20,12 +20,12 @@ interface FakeScope {
 	location: { origin: string };
 	postMessage: (message: WorkerToHost) => void;
 	onmessage: ((event: MessageEvent<HostToWorker>) => void) | null;
-	fetch: () => Promise<never>;
+	fetch: typeof fetch;
 	sent: WorkerToHost[];
 }
 
 const rawNetwork = vi.hoisted(() =>
-	vi.fn(async () => {
+	vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
 		throw new Error("the raw network was reached");
 	})
 );
