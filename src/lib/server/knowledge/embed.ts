@@ -16,13 +16,27 @@ export interface Embedding {
 	embedding: number[];
 }
 
-/** One embedding call, up to `texts.length` vectors in one request. */
-export async function embed(token: string, model: string, texts: string[]): Promise<number[][]> {
+/**
+ * One embedding call, up to `texts.length` vectors in one request.
+ *
+ * `dimensions` is the MRL truncation the base's width asks for, forwarded
+ * untouched by the gateway for the provider to interpret. Sent only when the
+ * base has one: a model at its native width needs no parameter, and one
+ * without MRL refuses it — which is the honest answer, landing on the
+ * document row rather than being absorbed here.
+ */
+export async function embed(
+	token: string,
+	model: string,
+	texts: string[],
+	dimensions?: number
+): Promise<number[][]> {
 	if (texts.length === 0) return [];
 	try {
 		const answer = await gateway.post<{ data: Embedding[] }>(token, "embeddings", {
 			model,
 			input: texts,
+			...(dimensions === undefined ? {} : { dimensions }),
 		});
 		const byIndex = new Map(answer.data.map((row) => [row.index, row.embedding]));
 		const out: number[][] = [];
