@@ -5,6 +5,7 @@ model-written code, wired into artifacts. Work ONLY in this worktree.
 Resume = read this file, then `git log --oneline -12` to see where we stopped.
 
 ## Decisions taken (do not re-litigate)
+
 - Pyodide (user-named), self-hosted dist under `static/pyodide/`, lazy-loaded.
 - Auto-run for model-written python code blocks; HTML artifacts stay gated
   (PREVIEW_SANDBOX floor is kept; CSP added on top, see below).
@@ -21,12 +22,14 @@ Resume = read this file, then `git log --oneline -12` to see where we stopped.
   recorded in docs/pyodide.md.
 
 ## Done
+
 - e7dab67f vendor pyodide + sync script + hooks (static/pyodide, gitignored)
 - worker core: protocol.ts, gate.ts, pyodide.worker.ts, runtime.ts + 15 tests green
 - docs/pyodide.md (licence, posture, limitations)
 - (nothing committed yet)
 
 ## Next
+
 1. npm i pyodide (pinned) + scripts/sync_pyodide.mjs → static/pyodide/, predev/prebuild hooks, .gitignore.
 2. src/lib/utils/execution/: protocol.ts, pyodide.worker.ts, runtime.ts + tests.
 3. docs/pyodide.md (licence MPL-2.0, posture, limitations).
@@ -36,10 +39,11 @@ Resume = read this file, then `git log --oneline -12` to see where we stopped.
 7. PREVIEW_CSP: default-src 'none', connect-src 'none', form-action 'none', img-src data:/blob:, script-src inline + existing CDNs (tailwind/unpkg/jsdelivr for the react+mermaid wrappers). Both preview iframes.
 8. Verify: npm run check; npm run lint; npm run test; client suite in
    mcr.microsoft.com/playwright:v1.61.1-noble (see CLAUDE.md for exact command).
-Commit style: reasoning statements ("X is nobody's to Y"), one-shot git identity:
-`git -c user.name="Paolo Viviani" -c user.email="paolo.viviani@ik.me" commit ...`
+   Commit style: reasoning statements ("X is nobody's to Y"), one-shot git identity:
+   `git -c user.name="Paolo Viviani" -c user.email="paolo.viviani@ik.me" commit ...`
 
 ## Facts learned (source-verified)
+
 - ArtifactKind "code" already exists with `language`; `<artifact type="code" language="python">`
   parses, is NOT previewable, shows in the panel code view. No parser change needed.
 - Code tokens carry `rawCode`, `lang`, `isClosed` (marked.ts processTokens);
