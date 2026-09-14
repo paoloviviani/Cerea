@@ -21,26 +21,36 @@ Resume = read this file, then `git log --oneline -12` to see where we stopped.
   is the extension point. No wheels shipped by default — known limitation,
   recorded in docs/pyodide.md.
 
-## Done
+## Done (chronological, newest last)
 
-- e7dab67f vendor pyodide + sync script + hooks (static/pyodide, gitignored)
-- worker core: protocol.ts, gate.ts, pyodide.worker.ts, runtime.ts + 15 tests green
-- docs/pyodide.md (licence, posture, limitations)
-- (nothing committed yet)
+- e7dab67f vendor pyodide 314.0.7 + sync script + predev/prebuild hooks (static/pyodide, gitignored)
+- worker core: protocol.ts, gate.ts, pyodide.worker.ts, runtime.ts + 15 tests
+- docs/pyodide.md (licence MPL-2.0, posture, micropip limitation, residual risks)
+- chat auto-run surface: ChatMessage→MarkdownRenderer→MarkdownBlock→CodeBlock (assistant-only,
+  streamed-this-session only), inline output, runs.svelte.ts; effect-loop bug fixed
+  (untracked read + dedupe-on-any-existing) — 7 component tests
+- artifact cells: artifactRuns.svelte.ts (localStorage, keyed identifier+version+content hash),
+  RunOutput shared component, panel Run button + auto-run-when-streamed-live; 4 store tests
+- KB loading: GET /api/v2/gateway/vector_stores/:sid/files/:docId/content (indexed text, viewer
+  check, 50MB cap, allowlist+comment updated); files.ts fetchWithinCap (pre-body abort) +
+  listKnowledgeFiles + mountKnowledgeFile/mountConversationFile; mounts.svelte.ts +
+  ExecutionFiles picker + MountedChips in panel; files.spec.ts green (4)
+- preview CSP: PREVIEW_CSP meta injected in all three srcdoc builders (previews only, deployed
+  untouched), locked by new tests
+- worker refactor: bootstrapWorker(scope) + REAL-dist integration test (boot/run/mount/
+  gate-blocks-await/remove-guard) green; sync script ships pyodide.mjs.map
+- typecheck/format fixes folded in as small commits
 
-## Next
+## Environment constraint found
+mongodb-memory-server CANNOT run on this host: mongod 5+ needs AVX, the CPU answers SIGILL.
+Affects ALL mongo-backed server specs repo-wide (pre-existing; verified with mcp/elicitation.spec.ts).
+Non-mongo server tests (execution/*, files.spec) pass locally. Client suite runs in the
+playwright container. Report mongo-spec status as "cannot execute on this host" (content.spec.ts
+is written and waits for an AVX host / CI).
 
-1. npm i pyodide (pinned) + scripts/sync_pyodide.mjs → static/pyodide/, predev/prebuild hooks, .gitignore.
-2. src/lib/utils/execution/: protocol.ts, pyodide.worker.ts, runtime.ts + tests.
-3. docs/pyodide.md (licence MPL-2.0, posture, limitations).
-4. Chat auto-run: prop chain ChatMessage→MarkdownRenderer→MarkdownBlock→CodeBlock (assistant-only).
-5. Artifact code cells: version.type "code" + language python → run in panel; outputs keyed (identifier, version), persisted via content hash.
-6. KB text endpoint + mount UI in artifact panel code view.
-7. PREVIEW_CSP: default-src 'none', connect-src 'none', form-action 'none', img-src data:/blob:, script-src inline + existing CDNs (tailwind/unpkg/jsdelivr for the react+mermaid wrappers). Both preview iframes.
-8. Verify: npm run check; npm run lint; npm run test; client suite in
-   mcr.microsoft.com/playwright:v1.61.1-noble (see CLAUDE.md for exact command).
-   Commit style: reasoning statements ("X is nobody's to Y"), one-shot git identity:
-   `git -c user.name="Paolo Viviani" -c user.email="paolo.viviani@linksfoundation.com" commit ...`
+## Remaining
+- full `npm run test` (server+ssr) + full client suite in playwright container; fix any fallout
+- final report
 
 ## Facts learned (source-verified)
 
