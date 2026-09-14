@@ -22,7 +22,6 @@
 	let loadedOnce = $state(false);
 	let busyName = $state<string | null>(null);
 
-
 	async function toggle() {
 		open = !open;
 		if (open && !loadedOnce) {

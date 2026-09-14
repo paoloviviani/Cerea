@@ -51,7 +51,7 @@ thread never executes model-written code and runaway code is killable.
 
 ## What artifacts may and may not do
 
-Computation auto-runs; *rendered HTML artifacts* do not get the network. The
+Computation auto-runs; _rendered HTML artifacts_ do not get the network. The
 previews run in opaque-origin srcdoc iframes (`PREVIEW_SANDBOX` — no
 `allow-same-origin`, so no cookies, storage or DOM), and a CSP applied to every
 preview frame takes away what the sandbox tokens alone cannot:
