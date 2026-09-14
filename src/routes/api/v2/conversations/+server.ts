@@ -48,8 +48,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 export const DELETE: RequestHandler = async ({ locals }) => {
 	requireAuth(locals);
 
+	// Deletes loose/standalone conversations only. Chats that belong to a project
+	// (`projectId` is set) are part of that project's standing context and
+	// transcript, and are managed or deleted from within the project itself.
 	const res = await collections.conversations.deleteMany({
 		...authCondition(locals),
+		projectId: { $exists: false },
 	});
 
 	return superjsonResponse(res.deletedCount);

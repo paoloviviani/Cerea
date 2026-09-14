@@ -17,6 +17,7 @@
 	import { browser } from "$app/environment";
 	import { getThemePreference, setTheme, type ThemePreference } from "$lib/switchTheme";
 	import { supportsHaptics } from "$lib/utils/haptics";
+	import DeleteAllConversationsModal from "$lib/components/DeleteAllConversationsModal.svelte";
 
 	const publicConfig = usePublicConfig();
 	let settings = useSettingsStore();
@@ -101,6 +102,18 @@
 
 	const taskModelId = $derived((page.data as { taskModelId?: string | null }).taskModelId ?? null);
 	const showTaskModelInBilling = $derived(publicConfig.isHuggingChat && !!page.data.user);
+
+	let deleteAllOpen = $state(false);
+
+	async function deleteAllConversations() {
+		try {
+			await client.conversations.delete().then(handleResponse);
+			await goto(`${base}/`, { invalidateAll: true });
+		} catch (err) {
+			console.error(err);
+			$error = err instanceof Error ? err.message : String(err);
+		}
+	}
 </script>
 
 {#snippet taskModelRow()}
@@ -334,24 +347,20 @@
 				>
 			{/if}
 			<button
-				onclick={async (e) => {
+				onclick={(e) => {
 					e.preventDefault();
-
-					confirm("Are you sure you want to delete all conversations?") &&
-						client.conversations
-							.delete()
-							.then(async () => {
-								await goto(`${base}/`, { invalidateAll: true });
-							})
-							.catch((err) => {
-								console.error(err);
-								$error = err.message;
-							});
+					deleteAllOpen = true;
 				}}
-				type="submit"
+				type="button"
 				class="flex items-center underline decoration-red-200 underline-offset-2 hover:decoration-red-500 dark:decoration-red-900 dark:hover:decoration-red-700"
 				><CarbonTrashCan class="mr-2 inline text-sm text-red-500" />Delete all conversations</button
 			>
 		</div>
 	</div>
 </div>
+
+<DeleteAllConversationsModal
+	open={deleteAllOpen}
+	onclose={() => (deleteAllOpen = false)}
+	ondelete={deleteAllConversations}
+/>
