@@ -26,19 +26,6 @@ export interface RunState {
 	finishedAt?: number;
 }
 
-function hashCode(code: string): string {
-	let hash = 5381;
-	for (let i = 0; i < code.length; i++) {
-		hash = ((hash << 5) + hash + code.charCodeAt(i)) | 0;
-	}
-	return (hash >>> 0).toString(36);
-}
-
-/** Stable key for a chat code block: identical code in one session runs once. */
-export function chatRunKey(code: string): string {
-	return `chat:${hashCode(code)}`;
-}
-
 class RunsStore {
 	#runs = $state<Record<string, RunState>>({});
 	#runtimeStatus = $state<ExecutionStatus>("unloaded");

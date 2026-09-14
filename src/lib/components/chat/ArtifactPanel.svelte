@@ -5,6 +5,9 @@
 	import type { ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
 	import type { PaneItem } from "$lib/utils/paneItems";
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
+	import { artifactRunKey } from "$lib/utils/execution/keys";
+	import { getArtifactRunsStore } from "$lib/utils/execution/artifactRuns.svelte";
+	import RunOutput from "./RunOutput.svelte";
 	import { diffLines, diffStats, renderDiffHtml } from "$lib/utils/artifactDiff";
 	import {
 		buildArtifactSrcdoc,
@@ -44,6 +47,7 @@
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonRocket from "~icons/carbon/rocket";
 	import CarbonMaximize from "~icons/carbon/maximize";
+	import CarbonPlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import LucideWrapText from "~icons/lucide/wrap-text";
 	import LucideDiff from "~icons/lucide/diff";
 	import EosIconsLoading from "~icons/eos-icons/loading";
@@ -418,6 +422,56 @@
 		if (!isDesktop.current) sidePane.close();
 	}
 
+	// ----- execution of python code cells -----
+	// An artifact the model emitted as `<artifact type="code" language="python">`
+	// is an executable cell: it runs in the same worker sandbox as chat code
+	// blocks, and its output is kept per version (persisted under a content
+	// hash, so navigating versions shows each version its own result).
+	const artifactRuns = getArtifactRunsStore();
+	const PYTHON_LANGUAGES = new Set(["python", "py", "python3", "ipython"]);
+	let pythonCell = $derived(
+		!!version &&
+			version.type === "code" &&
+			PYTHON_LANGUAGES.has((version.language ?? "").trim().toLowerCase()) &&
+			version.content.length > 0
+	);
+	let cellRunKey = $derived(
+		pythonCell && version && artifact
+			? artifactRunKey(artifact.identifier, version.version, version.content)
+			: ""
+	);
+	let cellRunState = $derived(
+		artifactRuns && cellRunKey ? artifactRuns.get(cellRunKey) : undefined
+	);
+	let cellSpinner = $derived(
+		!!cellRunState &&
+			(cellRunState.status === "loading" ||
+				cellRunState.status === "running" ||
+				cellRunState.status === "queued")
+	);
+
+	function runCell() {
+		if (!artifactRuns || !artifact || !version || !pythonCell) return;
+		artifactRuns.run(artifact.identifier, version.version, version.content, { force: true });
+	}
+
+	// Auto-run mirrors chat blocks: a python cell that streamed in while the
+	// panel watched it executes once it completes; a version navigated to from
+	// history keeps its Run button and any output it already has. The effect
+	// reads only props/layout state — the run state write must not re-trigger
+	// it (see runs.svelte.ts on the untracked-read rule).
+	const liveSeenCells = new Set<string>();
+	$effect(() => {
+		if (!pythonCell || !cellRunKey || !version) return;
+		if (loading && !version.complete) {
+			liveSeenCells.add(cellRunKey);
+			return;
+		}
+		if (!loading && version.complete && liveSeenCells.has(cellRunKey) && artifactRuns && artifact) {
+			artifactRuns.run(artifact.identifier, version.version, version.content);
+		}
+	});
+
 	// ----- actions -----
 	let fullscreenOpen = $state(false);
 	let fullscreenSupported = $derived(
@@ -625,57 +679,80 @@
 				></iframe>
 			{/if}
 		{:else}
-			<!-- Same .prose pre styling as chat code blocks so the syntax theme matches
-			     exactly in both modes; text-smd matches the chat prose root so the code
-			     renders at the same size; border-0! since the panel provides its own frame -->
-			<div
-				class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
-			>
-				<!-- eslint-disable svelte/no-at-html-tags -->
-				<!-- The code element MUST be block-level: the scroll controller's
-				     ResizeObserver watches it, and observers never fire for
-				     non-replaced inline elements — with the default inline display
-				     the streaming follow silently dies after the first pin. -->
-				<pre
-					bind:this={codeScrollEl}
-					class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono {sidePane.codeWrap
-						? 'wrap-break-word whitespace-pre-wrap'
-						: ''} {showingDiff ? 'diff-view' : ''}"><code class="block"
-						>{@html highlightedCode}</code
-					></pre>
-			</div>
-			<!-- Floating so toggling them on/off never reflows the header tab switcher -->
-			<div class="absolute top-2 right-3 z-10 flex items-center gap-1">
-				{#if canDiff}
-					<button
-						type="button"
-						class="{codeFloatBtn} {sidePane.diffView
-							? 'text-gray-600 dark:text-gray-300'
-							: 'text-gray-400'}"
-						title={sidePane.diffView ? "Show full code" : "Show what changed"}
-						aria-pressed={sidePane.diffView}
-						onclick={() => sidePane.toggleDiffView()}
+			<div class="flex h-full flex-col">
+				<div class="relative min-h-0 flex-1">
+					<!-- Same .prose pre styling as chat code blocks so the syntax theme matches
+					     exactly in both modes; text-smd matches the chat prose root so the code
+					     renders at the same size; border-0! since the panel provides its own frame -->
+					<div
+						class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
 					>
-						<LucideDiff />
-					</button>
+						<!-- eslint-disable svelte/no-at-html-tags -->
+						<!-- The code element MUST be block-level: the scroll controller's
+						     ResizeObserver watches it, and observers never fire for
+						     non-replaced inline elements — with the default inline display
+						     the streaming follow silently dies after the first pin. -->
+						<pre
+							bind:this={codeScrollEl}
+							class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono {sidePane.codeWrap
+								? 'wrap-break-word whitespace-pre-wrap'
+								: ''} {showingDiff ? 'diff-view' : ''}"><code class="block"
+								>{@html highlightedCode}</code
+							></pre>
+					</div>
+					<!-- Floating so toggling them on/off never reflows the header tab switcher -->
+					<div class="absolute top-2 right-3 z-10 flex items-center gap-1">
+						{#if pythonCell}
+							<button
+								type="button"
+								class="{codeFloatBtn} text-gray-600 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-200"
+								title="Run this code in the browser sandbox"
+								aria-label="Run code"
+								disabled={isStreamingVersion || cellSpinner}
+								onclick={runCell}
+							>
+								{#if cellSpinner}
+									<EosIconsLoading />
+								{:else}
+									<CarbonPlayFilledAlt />
+								{/if}
+							</button>
+						{/if}
+						{#if canDiff}
+							<button
+								type="button"
+								class="{codeFloatBtn} {sidePane.diffView
+									? 'text-gray-600 dark:text-gray-300'
+									: 'text-gray-400'}"
+								title={sidePane.diffView ? "Show full code" : "Show what changed"}
+								aria-pressed={sidePane.diffView}
+								onclick={() => sidePane.toggleDiffView()}
+							>
+								<LucideDiff />
+							</button>
+						{/if}
+						<button
+							type="button"
+							class="{codeFloatBtn} {sidePane.codeWrap
+								? 'text-gray-600 dark:text-gray-300'
+								: 'text-gray-400'}"
+							title="{sidePane.codeWrap ? 'Disable' : 'Enable'} word wrap"
+							aria-pressed={sidePane.codeWrap}
+							onclick={() => sidePane.toggleCodeWrap()}
+						>
+							<LucideWrapText />
+						</button>
+					</div>
+					{#if isStreamingVersion}
+						<div
+							class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-white/90 to-transparent dark:from-gray-900/90"
+						></div>
+					{/if}
+				</div>
+				{#if pythonCell && cellRunState}
+					<RunOutput state={cellRunState} class="mx-3 mb-2" />
 				{/if}
-				<button
-					type="button"
-					class="{codeFloatBtn} {sidePane.codeWrap
-						? 'text-gray-600 dark:text-gray-300'
-						: 'text-gray-400'}"
-					title="{sidePane.codeWrap ? 'Disable' : 'Enable'} word wrap"
-					aria-pressed={sidePane.codeWrap}
-					onclick={() => sidePane.toggleCodeWrap()}
-				>
-					<LucideWrapText />
-				</button>
 			</div>
-			{#if isStreamingVersion}
-				<div
-					class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-white/90 to-transparent dark:from-gray-900/90"
-				></div>
-			{/if}
 		{/if}
 	</div>
 
