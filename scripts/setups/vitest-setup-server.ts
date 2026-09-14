@@ -75,6 +75,22 @@ vi.mock("$env/dynamic/public", () => ({
 }));
 
 vi.mock("$env/dynamic/private", async () => {
+	// A CPU without AVX cannot run the memory server's binary (MongoDB 5.0+
+	// requires it), and neither can a locked-down CI. `TEST_MONGODB_URL` opts
+	// the whole server suite onto an already-running disposable Mongo instead —
+	// one the caller owns, never a deployment's database: tests reset collections.
+	if (process.env.TEST_MONGODB_URL) {
+		return {
+			env: {
+				...privateEnv,
+				MONGODB_URL: process.env.TEST_MONGODB_URL,
+				// Pin the model registry at the intercepted fixture host. Must stay in sync with
+				// the intercept above.
+				OPENAI_BASE_URL: TEST_OPENAI_BASE_URL,
+			},
+		};
+	}
+
 	mongoServer = await MongoMemoryServer.create();
 
 	return {

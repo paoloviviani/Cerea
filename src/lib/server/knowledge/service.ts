@@ -170,6 +170,35 @@ export async function reachableStore(
 	return base;
 }
 
+/**
+ * Every base in `storeIds` this caller may reach, in the order given, or a
+ * 404 naming the first one that is missing or out of reach.
+ *
+ * One query rather than one per id: this runs on attach, where a body may
+ * carry up to twenty ids, and the answer it needs is all-or-nothing — the
+ * same rule `reachableStore` applies to a single id, applied to the batch.
+ */
+export async function reachableStores(
+	storeIds: string[],
+	caller: Caller
+): Promise<VectorStore[]> {
+	const ids = storeIds.map((id) => {
+		if (!/^[0-9a-f]{24}$/.test(id)) {
+			throw new KnowledgeError(404, `No such vector store: ${id}`);
+		}
+		return new ObjectId(id);
+	});
+	const rows = await collections.vectorStores.find({ _id: { $in: ids } }).toArray();
+	const byId = new Map(rows.map((base) => [base._id.toString(), base]));
+	for (const id of storeIds) {
+		const base = byId.get(id);
+		if (!base || !mayReach(base, caller, "viewer")) {
+			throw new KnowledgeError(404, `No such vector store: ${id}`);
+		}
+	}
+	return storeIds.map((id) => byId.get(id) as VectorStore);
+}
+
 // -- shapes the screens read --------------------------------------------------
 
 interface FileCounts {

@@ -29,11 +29,17 @@
  */
 
 import { ObjectId } from "mongodb";
+import { error } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
-import { callerFrom, searchBase, type Caller } from "$lib/server/knowledge/service";
+import {
+	callerFrom,
+	reachableStores,
+	searchBase,
+	type Caller,
+} from "$lib/server/knowledge/service";
 import type { Project, ProjectView } from "$lib/types/Project";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Message } from "$lib/types/Message";
@@ -163,15 +169,32 @@ export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 }
 
 /**
- * The system-prompt addition for one turn in a project: its instructions, and
- * whatever its knowledge bases offer for the question being asked.
+ * The system-prompt addition for one turn: a project's instructions, and
+ * whatever its knowledge bases — plus any bases attached to the conversation
+ * itself — offer for the question being asked.
+ *
+ * The two sources are **additive**: a conversation's own bases join the
+ * project's candidate pool, they never replace it, so a base attached from
+ * the composer cannot silently switch off the standing context the
+ * conversation's project was built around. They also share one retrieval
+ * budget, bounded best-first across every base, for the reason the `retrieve`
+ * comment states — the cost of a prompt is the person's own.
+ *
+ * `project` may be absent: a conversation attached to no project retrieves
+ * from its own bases alone, at the same default limit a project would start
+ * with.
  *
  * `undefined` when there is nothing to add. Not an empty string: an empty
  * context block tells a model there was material and it was blank, which is
  * worse than saying nothing.
  */
+export const DEFAULT_RETRIEVAL_LIMIT = 6;
+
 export async function projectContext(options: {
-	project: Project;
+	/** The conversation's project, when it belongs to one. */
+	project?: Project;
+	/** Bases attached to the conversation itself, additive to the project's. */
+	knowledgeBaseIds?: string[];
 	question: string;
 	token: string | undefined;
 	/** The generation's locals: who is asking, for the store's reach checks. */
@@ -179,33 +202,43 @@ export async function projectContext(options: {
 }): Promise<string | undefined> {
 	const { project, question, token, locals } = options;
 	const parts: string[] = [];
-	if (project.instructions.trim()) parts.push(project.instructions.trim());
+	if (project?.instructions.trim()) parts.push(project.instructions.trim());
 
-	const bases = [...project.knowledgeBaseIds];
+	const conversationBases = options.knowledgeBaseIds ?? [];
 	// The memory base is searched only while the feature is on, so turning it
 	// off stops retrieval without detaching anything a person attached by hand.
-	if (project.indexPastChats && project.memoryBaseId) bases.push(project.memoryBaseId);
+	const bases = [...(project?.knowledgeBaseIds ?? []), ...conversationBases];
+	if (project?.indexPastChats && project.memoryBaseId) bases.push(project.memoryBaseId);
+	// Deduped: a base attached to both the project and the conversation must
+	// not be searched twice — its passages would crowd the budget with copies.
+	const uniqueBases = [...new Set(bases)];
 
-	if (token && bases.length > 0 && question.trim()) {
+	if (token && uniqueBases.length > 0 && question.trim()) {
 		// The caller is the reader: reach checks run against this person, and
 		// the query's embedding is metered to their token. No signed-in user
 		// means nothing to check against and nothing to bill — no retrieval.
 		if (!locals?.user) return parts.length > 0 ? parts.join("\n\n") : undefined;
 		const caller = await callerFrom(locals);
 		const passages = await retrieve({
-			bases,
+			bases: uniqueBases,
 			question,
-			limit: project.retrievalLimit,
+			limit: project?.retrievalLimit ?? DEFAULT_RETRIEVAL_LIMIT,
 			token,
-			projectName: project.name,
+			projectName: project?.name,
 			caller,
 		});
 		if (passages.length > 0) {
 			const rendered = passages
 				.map((hit) => `## ${hit.title || "untitled"}\n${hit.text}`)
 				.join("\n\n");
+			// The conversation's own bases say "this conversation's knowledge":
+			// with no project there is no project to name, and with both, the
+			// project's bases belong to this conversation anyway.
+			const source = conversationBases.length > 0
+				? "this conversation's knowledge"
+				: "this project's knowledge";
 			parts.push(
-				"The following passages come from this project's knowledge. Use them where " +
+				`The following passages come from ${source}. Use them where ` +
 					"they are relevant and say which one you used; ignore them where they are " +
 					`not.\n\n${rendered}`
 			);
@@ -220,7 +253,7 @@ async function retrieve(options: {
 	question: string;
 	limit: number;
 	token: string;
-	projectName: string;
+	projectName: string | undefined;
 	caller: Caller;
 }): Promise<GatewaySearchHit[]> {
 	const { bases, question, limit, token, projectName, caller } = options;
@@ -313,4 +346,73 @@ export async function indexConversation(options: {
 			"project_memory_index_failed: this exchange will not be retrievable"
 		);
 	}
+}
+
+/**
+ * Validate a client-supplied list of knowledge bases to attach to one
+ * conversation, and hand back the ids — or `undefined` when the field was
+ * absent, so an endpoint can tell "not sent" from "sent empty".
+ *
+ * The schema is the project create schema's (`knowledgeBaseId`, at most
+ * twenty), and the access rule is stricter than a project create's in one
+ * deliberate way: every id must name a base the *sender* can already read.
+ * A project stores well-formed ids and leaves the checking to retrieval,
+ * which is right for a one-time configuration — but an attach is a live
+ * action on a list the picker has just shown, so storing an id that names
+ * nothing would make every later turn retrieve from a base that is not
+ * there, discoverable only through the degraded-retrieval log. Refusing
+ * here turns that silent degradation into an error the person can act on.
+ * Retrieval still re-checks the reader on every turn, so a share revoked
+ * after attaching degrades exactly as a project's would.
+ *
+ * Attaching needs a signed-in account, like starting a conversation in a
+ * project does: retrieval runs as the reader, and an anonymous session has
+ * no reader to be.
+ */
+export async function parseAttachedKnowledgeBaseIds(
+	value: unknown,
+	locals: App.Locals
+): Promise<string[] | undefined> {
+	const parsed = z.array(knowledgeBaseId).max(20).optional().safeParse(value);
+	if (!parsed.success) {
+		error(400, parsed.error.issues[0]?.message ?? "Those knowledge bases are not valid.");
+	}
+	if (!parsed.data) return undefined;
+	if (parsed.data.length === 0) return parsed.data;
+	if (!locals.user) {
+		error(401, "Knowledge bases need a signed-in account.");
+	}
+	const caller = await callerFrom(locals);
+	try {
+		await reachableStores(parsed.data, caller);
+	} catch {
+		error(400, "One of those knowledge bases is not available to you.");
+	}
+	return parsed.data;
+}
+
+/**
+ * A conversation's attached bases as `{id, name}` pairs, in stored order,
+ * for the composer's removable chips.
+ *
+ * Names resolve against the store as it exists now: a base deleted since it
+ * was attached is simply left out of what the composer shows, while its id
+ * stays on the conversation until the next attach or detach rewrites the
+ * list — retrieval already skips it, logged.
+ */
+export async function knowledgeBaseViews(
+	ids: string[] | undefined
+): Promise<{ id: string; name: string }[]> {
+	if (!ids || ids.length === 0) return [];
+	const objectIds = ids
+		.filter((id) => ObjectId.isValid(id))
+		.map((id) => new ObjectId(id));
+	if (objectIds.length === 0) return [];
+	const rows = await collections.vectorStores
+		.find({ _id: { $in: objectIds } }, { projection: { name: 1 } })
+		.toArray();
+	const names = new Map(rows.map((row) => [row._id.toString(), row.name]));
+	return ids
+		.filter((id) => names.has(id))
+		.map((id) => ({ id, name: names.get(id) as string }));
 }
