@@ -507,7 +507,11 @@
 						{#if block.type === "text"}
 							{#if block.content.trim().length > 0}
 								<div class={proseClasses}>
-									<MarkdownRenderer content={block.content} loading={isLast && loading} />
+									<MarkdownRenderer
+										content={block.content}
+										loading={isLast && loading}
+										autorun={message.from === "assistant"}
+									/>
 								</div>
 							{/if}
 						{:else if block.type === "artifact"}
@@ -552,7 +556,11 @@
 								<IconLoading classNames="loading inline ml-2 first:ml-0" />
 							{:else if unit.content.trim().length > 0}
 								<div class={proseClasses}>
-									<MarkdownRenderer content={unit.content} loading={isLast && loading} />
+									<MarkdownRenderer
+										content={unit.content}
+										loading={isLast && loading}
+										autorun={message.from === "assistant"}
+									/>
 								</div>
 							{/if}
 						{:else if unit.kind === "artifact"}

@@ -28,7 +28,7 @@ export interface ExecutionWorkerLike {
 export type ExecutionStatus = "unloaded" | "loading" | "ready" | "broken";
 
 export class ExecutionError extends Error {
-	kind: "timeout" | "terminated" | "worker" | "invalid";
+	kind: "timeout" | "terminated" | "worker" | "invalid" | "load";
 	constructor(kind: ExecutionError["kind"], message: string) {
 		super(message);
 		this.kind = kind;
@@ -81,9 +81,9 @@ export class ExecutionSession {
 	run(code: string, timeoutMs = this.runTimeoutMs): Promise<RunOutcome> {
 		return this.enqueue(() =>
 			this.dispatch(
-				{ type: "run", code },
+				{ type: "run", id: this.nextId++, code },
 				timeoutMs,
-				(message): message is Extract<WorkerToHost, { type: "result" }> => message.type === "result"
+				(m): m is Extract<WorkerToHost, { type: "result" }> => m.type === "result"
 			).then((message) => ({
 				ok: message.ok,
 				stdout: message.stdout,
@@ -114,7 +114,7 @@ export class ExecutionSession {
 		}
 		const message = await this.enqueue(() =>
 			this.dispatch(
-				{ type: "loadFiles", files },
+				{ type: "loadFiles", id: this.nextId++, files },
 				timeoutMs,
 				(m): m is Extract<WorkerToHost, { type: "filesLoaded" }> => m.type === "filesLoaded"
 			)
@@ -150,7 +150,7 @@ export class ExecutionSession {
 	}
 
 	private dispatch<Reply extends WorkerToHost>(
-		message: Omit<Extract<HostToWorker, { type: Reply["type"] }>, "id">,
+		message: HostToWorker,
 		timeoutMs: number,
 		matches: (message: WorkerToHost) => message is Reply
 	): Promise<Reply> {
@@ -165,7 +165,7 @@ export class ExecutionSession {
 				reject(err);
 				return;
 			}
-			const id = this.nextId++;
+			const id = message.id;
 			const timer = setTimeout(() => {
 				// Reject with the timeout kind first, then kill the worker: the
 				// terminate sweep rejects everything still pending, and the request
@@ -190,7 +190,7 @@ export class ExecutionSession {
 				},
 				timer,
 			});
-			worker.postMessage({ ...message, id } as HostToWorker);
+			worker.postMessage(message);
 		});
 	}
 
