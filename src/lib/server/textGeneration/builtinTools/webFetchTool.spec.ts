@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BuiltinToolResult } from "./types";
 
 const fetchPage = vi.fn();
 
@@ -82,11 +83,17 @@ describe("web_fetch builtin", () => {
 			backend: "playwright",
 		});
 		const tool = createWebFetchBuiltin({ allowedUrls: new Set(urls) });
+		const allowed: BuiltinToolResult[] = [];
 		for (const url of urls.slice(0, -1)) {
-			await tool.execute({ url }, {} as never);
+			allowed.push(await tool.execute({ url }, {} as never));
 		}
+		expect(allowed).toHaveLength(MAX_FETCHES_PER_TURN);
+		expect(allowed.at(-1)).toEqual({ resultText: expect.any(String) });
+		expect(fetchPage).toHaveBeenCalledTimes(MAX_FETCHES_PER_TURN);
 		expect(await tool.execute({ url: urls.at(-1) }, {} as never)).toEqual(
-			expect.objectContaining({ error: expect.stringContaining("at most") })
+			expect.objectContaining({
+				error: expect.stringContaining(`at most ${MAX_FETCHES_PER_TURN}`),
+			})
 		);
 	});
 
