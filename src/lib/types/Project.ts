@@ -7,10 +7,10 @@ import type { User } from "./User";
  *
  * Projects live here and not in the gateway, and the split is deliberate
  * (ADR 0062): a project is a way of organising *conversations*, and
- * conversations are this application's, in its own database. The gateway owns
- * what is infrastructure — files, extraction, embedding, the vector store —
- * and what is shareable across clients, which is why the knowledge bases a
- * project attaches are named by gateway id here rather than duplicated.
+ * conversations are this application's, in its own database. The knowledge
+ * pipeline moved in here with ADR 0070 as well — bases, documents, vectors —
+ * so a project names them the same way everything else in the chat does, by
+ * this application's own store id rather than a copy of somebody else's.
  *
  * ## Sharing without an admin surface
  *
@@ -51,11 +51,12 @@ export interface Project extends Timestamps {
 	 */
 	instructions: string;
 
-	/** Gateway vector store ids. Names, not copies: the gateway owns them. */
+	/** This chat's knowledge base ids. Names, not copies: each base is its own
+	 * thing, with its own owner and its own lifecycle. */
 	knowledgeBaseIds: string[];
 
 	/**
-	 * The gateway knowledge base holding this project's own past conversations,
+	 * The knowledge base holding this project's own past conversations,
 	 * created on demand the first time `indexPastChats` is on and a turn
 	 * finishes. Separate from `knowledgeBaseIds` because it is written by this
 	 * application rather than by a person, and because turning the feature off

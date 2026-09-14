@@ -6,17 +6,18 @@
  * knowledge bases with the name, because a project with neither is just a
  * folder and everything that makes it a project was on the second screen.
  *
- * Note what is *not* validated here: the knowledge base ids. This route stores
- * whichever the client sent, and every retrieval re-checks the reader's own
- * access to each one through the gateway. Checking at write time as well would
- * be a second answer to "may you use this base" that goes stale the moment a
- * share is revoked — and the answer that matters is the one at read time.
+ * Note what is *not* validated here: whether the knowledge base ids name bases
+ * the sender may read. This route stores whichever well-formed ids the client
+ * sent, and every retrieval re-checks the reader's own access to each one.
+ * Checking at write time as well would be a second answer to "may you use this
+ * base" that goes stale the moment a share is revoked — and the answer that
+ * matters is the one at read time.
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
-import { listProjects, projectView, viewerPrincipals } from "$lib/server/projects";
+import { knowledgeBaseId, listProjects, projectView, viewerPrincipals } from "$lib/server/projects";
 import type { Project } from "$lib/types/Project";
 import { ObjectId } from "mongodb";
 
@@ -24,7 +25,7 @@ const create = z.object({
 	name: z.string().trim().min(1).max(128),
 	description: z.string().trim().max(500).default(""),
 	instructions: z.string().max(20_000).default(""),
-	knowledgeBaseIds: z.array(z.string().uuid()).max(20).default([]),
+	knowledgeBaseIds: z.array(knowledgeBaseId).max(20).default([]),
 	indexPastChats: z.boolean().default(false),
 	retrievalLimit: z.number().int().min(1).max(20).default(6),
 });
