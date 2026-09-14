@@ -70,14 +70,15 @@ export interface KnowledgeConfig extends Timestamps {
 	enabled: boolean;
 	embeddingModel: string | null;
 	/**
-	 * Which model reads documents, as the Knowledge screen chose. `null` is the
-	 * built-in extractor said *deliberately* — it never leaves this deployment —
-	 * while `undefined` means the screen has never decided, and extraction falls
-	 * back to `CHAT_OCR_MODEL` and then to the first OCR model the caller may
-	 * use. The distinction is load-bearing: writing `null` for "not decided yet"
-	 * would silently switch a deployment that configured extraction through the
-	 * environment over to the built-in extractor the moment any other setting
-	 * was saved.
+	 * Which model reads documents, as the Knowledge screen chose. Only a
+	 * non-empty string is a choice: `null` (the screen's "Automatic" option)
+	 * and an absent field both mean the deployment default — `CHAT_OCR_MODEL`,
+	 * then the first reader in the catalogue the caller may use. There is
+	 * deliberately no value meaning "read nothing": one existed, and a
+	 * deployment that chose it extracted no documents while being told the
+	 * opposite. The deployment's own reader is an ordinary model in the
+	 * catalogue — its provider is the local extractor service — so naming it
+	 * and naming any other reader are the same act.
 	 */
 	extractorModel?: string | null;
 	chunkChars: number;

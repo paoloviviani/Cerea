@@ -200,14 +200,15 @@
 	 * Whether anything is still being indexed.
 	 *
 	 * "Not finished and not failed" rather than a list of the in-progress
-	 * names, because the gateway has two vocabularies for this — its own
-	 * `pending`/`extracting`/`embedding`, and the OpenAI-shaped `in_progress`
-	 * it uses on the vector-store surface — and a predicate that enumerated one
-	 * of them would quietly stop polling the moment the other arrived.
+	 * names, and the finished words are both spellings the pipeline has used:
+	 * this app's own rows say `ready`, while the OpenAI-shaped surface this
+	 * UI once read said `completed`. A predicate enumerating only one of them
+	 * kept polling a finished document forever — which is exactly what
+	 * happened, invisibly, until a base held an indexed document.
 	 */
 	const indexing = $derived(
 		working > 0 ||
-			documents.some((document) => document.status !== "completed" && document.status !== "failed")
+			documents.some((document) => document.status !== "ready" && document.status !== "failed")
 	);
 
 	/**
@@ -422,7 +423,11 @@
 	}
 
 	function docTone(document: KnowledgeDocument): { tone: s.PillTone; label: string } {
+		// Both finished spellings, for the same reason `indexing` lists both:
+		// the rows say `ready`, the surface this replaced said `completed`,
+		// and only the failed state is spelled one way.
 		switch (document.status) {
+			case "ready":
 			case "completed":
 				return { tone: "good", label: `${document.chunk_count} passages` };
 			case "failed":
@@ -594,7 +599,10 @@
 					<ul class={s.TIPS_LIST}>
 						<li>• Attach a base to a project and it is searched every turn.</li>
 						<li>• Sharing a base lets somebody read it; only you can change it.</li>
-						<li>• A scan with no text layer needs an OCR model, not the built-in extractor.</li>
+						<li>
+							• A scan with no text layer needs an OCR model; this deployment's own reader reads
+							text layers only.
+						</li>
 						<li>• Reindex after an administrator changes the embedding model.</li>
 					</ul>
 				</div>
@@ -762,9 +770,9 @@
 													{/if}
 													{state.label}
 												</span>
-												{#if document.last_error}
+												{#if document.error}
 													<span class="text-xs text-red-600 dark:text-red-400">
-														{document.last_error}
+														{document.error}
 													</span>
 												{/if}
 											</div>

@@ -50,7 +50,10 @@ export async function uploadFile(
 	if (!isExtractableDocument(mime)) return stored;
 
 	const extracted = await extractDocument({ bytes: buffer, mime, filename: file.name, token });
-	if (!extracted) return stored;
+	// A failed extraction does not fail the upload — the attachment is stored
+	// without text either way, and the reason is extractDocument's to have
+	// logged.
+	if (!extracted.ok) return stored;
 
 	// The text gets its own hash, over the text: attachments of the same
 	// document already share the bytes entry by sha, and the text entry should

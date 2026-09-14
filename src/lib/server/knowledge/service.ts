@@ -593,40 +593,48 @@ export async function ingestDocument(
 	const base = await collections.vectorStores.findOne({ _id: document.storeId });
 	if (!base) throw new KnowledgeError(404, "No such vector store.");
 
-	let text = document.text;
-	if (text === undefined || text === null) {
-		if (!document.fileId) {
-			throw new KnowledgeError(400, "The document has no text and no file to read.");
-		}
-		// Re-read the stored bytes through the reading service. A reindex of a
-		// file document whose text was lost re-pays the extraction; keeping the
-		// text on the row is what makes the ordinary reindex cheap.
-		const bytes = await readStoredFile(document.fileId);
-		const { extractDocument, isExtractableDocument } =
-			await import("$lib/server/files/extractDocument");
-		const mime = await storedFileMime(document.fileId);
-		if (!isExtractableDocument(mime)) {
-			text = bytes.toString("utf-8");
-		} else {
-			const extracted = await extractDocument({
-				bytes: bytes.buffer.slice(
-					bytes.byteOffset,
-					bytes.byteOffset + bytes.byteLength
-				) as ArrayBuffer,
-				mime,
-				filename: document.filename ?? "document",
-				token,
-			});
-			if (!extracted) throw new KnowledgeError(502, "The document could not be read.");
-			text = extracted.text;
-		}
-		await collections.knowledgeDocuments.updateOne(
-			{ _id: document._id },
-			{ $set: { text, chars: text.length, updatedAt: new Date() } }
-		);
-	}
-
+	// Everything from here can fail, and every failure lands on the row: the
+	// reading phase used to sit outside this try, so a document whose text
+	// could not be extracted stayed `pending` forever — shown as in-progress,
+	// polled forever, with the reason nowhere. Failed is a state, not a throw;
+	// the caller gets the row either way and the list says what happened.
 	try {
+		let text = document.text;
+		if (text === undefined || text === null) {
+			if (!document.fileId) {
+				throw new KnowledgeError(400, "The document has no text and no file to read.");
+			}
+			// Re-read the stored bytes through the reading service. A reindex of a
+			// file document whose text was lost re-pays the extraction; keeping the
+			// text on the row is what makes the ordinary reindex cheap.
+			const bytes = await readStoredFile(document.fileId);
+			const { extractDocument, isExtractableDocument } =
+				await import("$lib/server/files/extractDocument");
+			const mime = await storedFileMime(document.fileId);
+			if (!isExtractableDocument(mime)) {
+				text = bytes.toString("utf-8");
+			} else {
+				const extracted = await extractDocument({
+					bytes: bytes.buffer.slice(
+						bytes.byteOffset,
+						bytes.byteOffset + bytes.byteLength
+					) as ArrayBuffer,
+					mime,
+					filename: document.filename ?? "document",
+					token,
+				});
+				// The reason travels verbatim: "no reader configured" and "this is
+				// a scan" are different problems with different fixes, and the row
+				// is the one place the person asking can see either.
+				if (!extracted.ok) throw new KnowledgeError(extracted.status, extracted.reason);
+				text = extracted.text;
+			}
+			await collections.knowledgeDocuments.updateOne(
+				{ _id: document._id },
+				{ $set: { text, chars: text.length, updatedAt: new Date() } }
+			);
+		}
+
 		const chunks = chunkMarkdown(text, base.chunkChars, base.chunkOverlap);
 		if (chunks.length === 0) {
 			await collections.knowledgeDocuments.updateOne(
@@ -761,6 +769,15 @@ export async function attachFile(
 			400,
 			"No embedding model has been configured for this deployment, so documents cannot be indexed yet."
 		);
+	}
+	// The same gate, for the reading half: a file that cannot be read cannot
+	// be indexed, and refusing before the row exists keeps the failure out of
+	// the list of half-made things. The reader resolves from the same places
+	// extraction will look, so passing here means the ingest below has one.
+	const { NO_READER_MESSAGE, resolveExtractorModel } =
+		await import("$lib/server/files/extractDocument");
+	if (!(await resolveExtractorModel(token))) {
+		throw new KnowledgeError(503, NO_READER_MESSAGE);
 	}
 	const fileId = new ObjectId(body.file_id);
 	const stored = await bucket().find({ _id: fileId }).next();
