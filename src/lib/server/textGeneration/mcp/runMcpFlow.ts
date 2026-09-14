@@ -1059,16 +1059,19 @@ export async function* runMcpFlow({
 				// exact bytes, so stripping whitespace here would send a corrupted
 				// trace on the next round/turn.
 				const reasoningForToolMsg = thinkParts.join("\n");
-				// Omit `content` entirely when nothing visible remains — some
-				// OpenAI-compatible backends 400 on empty text next to tool_calls.
+				// `content` is always present — text when a preamble was streamed,
+				// else null. Omitting the key entirely reads as `undefined` on
+				// OpenAI-compatible backends that validate presence (llmbase 400s:
+				// "messages[2].content must be a string, array, or null"), and an
+				// empty string breaks the other kind that 400s on "" next to
+				// tool_calls. null is the OpenAI-canonical shape for a tool-call turn
+				// and satisfies both.
 				const assistantToolMessage: ChatCompletionMessageParam & { reasoning_content?: string } = {
 					role: "assistant",
 					// Never the raw calls: one unparseable payload in the history 400s
 					// every later request of this turn. See withParseableArguments.
 					tool_calls: withParseableArguments(toolCalls),
-					...(assistantContentForToolMsg.trim().length > 0
-						? { content: assistantContentForToolMsg }
-						: {}),
+					content: assistantContentForToolMsg.trim().length > 0 ? assistantContentForToolMsg : null,
 					// Gated by mayEchoReasoning — see where it is defined. Still
 					// persisted below regardless of the gate: recording what the model
 					// thought is inert, and only sending it can break a request.

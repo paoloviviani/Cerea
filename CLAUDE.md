@@ -212,10 +212,10 @@ pieces: `TreeBranch`, `TreeLeaf`, `RowMenu`, `UserMenu`, and `ProjectsBranch`
 for the one branch whose children are themselves folders.
 
 The split is the point, and it was arrived at by getting it wrong first: every
-top-level entry was a branch, and Models, Knowledge, Agents and MCP Servers
+top-level entry was a branch, and Models, Knowledge and MCP Servers
 were worse for it — a disclosure triangle revealing a list you then clicked to
 open the dialog anyway. Only **Projects and Chats** have contents worth
-expanding; the other four are rows at the foot that open their dialog, which is
+expanding; the others are rows at the foot that open their dialog, which is
 where they were before.
 
 Four rules:
@@ -270,7 +270,7 @@ the text.
 
 ## The dialog language, and where it comes from
 
-**Models, projects, knowledge and agents are overlays, not pages**, and they
+**Models, projects and knowledge are overlays, not pages**, and they
 are overlays in the shape the MCP dialog already had — that is this app's own
 design language and the reference implementation is still
 `src/lib/components/mcp/`. Read `MCPServerManager.svelte` and
@@ -301,7 +301,7 @@ rather than importing the constants — it is the definition, and moving it one
 step away from itself would be the wrong direction.
 
 **The routes are kept and render the same component.** `/knowledge`,
-`/agents`, `/projects` and their `/<id>` forms are thin wrappers that mount the
+`/projects` and their `/<id>` forms are thin wrappers that mount the
 manager with `initialId`, because people link to those addresses. One
 implementation and one design: a dialog for whoever arrives from the nav and a
 separate page for whoever arrives from a link is how the two drift apart. The
@@ -309,7 +309,7 @@ one trap that caused — **a page body runs on the server**, so a manager that
 fetched in its component body answered 502 with `Failed to parse URL from
 /chat/api/v2/...`. Every manager loads in `onMount`.
 
-## Projects, knowledge bases and agents
+## Projects and knowledge bases
 
 The knowledge pipeline is **ours** since ADR 0070: bases, documents, chunks,
 vectors, sharing and reindexing live in this application — Mongo for the
@@ -319,9 +319,8 @@ pipeline consumes: `POST /v1/embeddings` (catalogue-managed, metered to the
 acting user's token) and `POST /v1/ocr` for reading documents. The browser's
 paths did not move — `/api/v2/gateway/vector_stores/…` and `/files` are
 served in-process by `src/lib/server/knowledge/`, behind the same forwarder
-and its allowlist; only the handling is local now. Agents are ours too
-(ADR 0067). Projects are **ours** because a project groups _conversations_,
-and those live in Mongo.
+and its allowlist; only the handling is local now. Projects are **ours**
+because a project groups _conversations_, and those live in Mongo.
 
 `src/lib/server/projects.ts` and `src/lib/server/knowledge/` are the whole of
 it. Read the header of `src/lib/types/Project.ts` first; the parts that will
@@ -384,11 +383,9 @@ knowing before touching the model picker or writing another live check:
 
 - **The model catalogue is global.** `src/lib/server/models.ts` builds it once
   at startup with the deployment's own key, so every account sees the same
-  list — including agents whose underlying model that account may not use.
-  Calling one answers 404 from the gateway, which _is_ the designed behaviour
-  for an agent shared across a model restriction; what it means is that this
-  list cannot hide it the way the gateway's per-caller `/v1/models` does.
-  Per-user filtering would mean the catalogue stops being module state.
+  list. What it means is that this list cannot hide a model the way the
+  gateway's per-caller `/v1/models` does. Per-user filtering would mean the
+  catalogue stops being module state.
 - **A turn is a multipart post**, with the JSON in a `data` field, needing an
   `Origin` header past the CSRF guard, and a first user message still needs
   its parent id — the create puts a system message at the conversation's root

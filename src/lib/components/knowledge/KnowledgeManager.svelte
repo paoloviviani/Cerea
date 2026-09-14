@@ -79,7 +79,7 @@
 	}
 
 	// `onMount`, not the component body: these managers are also rendered as
-	// pages (`/knowledge`, `/agents`, `/projects`), and a page body runs on the
+	// pages (`/knowledge`, `/projects`), and a page body runs on the
 	// server, where a relative fetch has no origin to resolve against.
 	// `initialId` is the address somebody arrived on, not a prop that changes
 	// under the dialog.
@@ -592,7 +592,7 @@
 				<div class={s.TIPS}>
 					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
 					<ul class={s.TIPS_LIST}>
-						<li>• Attach a base to an agent or a project and it is searched every turn.</li>
+						<li>• Attach a base to a project and it is searched every turn.</li>
 						<li>• Sharing a base lets somebody read it; only you can change it.</li>
 						<li>• A scan with no text layer needs an OCR model, not the built-in extractor.</li>
 						<li>• Reindex after an administrator changes the embedding model.</li>

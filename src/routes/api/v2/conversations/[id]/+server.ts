@@ -6,7 +6,6 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
-import { resolveForConversation } from "$lib/server/agents";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
 import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
 import { usdToMicroUsd } from "$lib/utils/mlBudget";
@@ -87,7 +86,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const body = await request.json();
 	const title = body?.title as string | undefined;
 	const model = body?.model as string | undefined;
-	const agentIdInput = body?.agentId as string | undefined;
 	const mlBudgetTotalUsd = body?.mlBudgetTotalUsd as number | undefined;
 
 	if (title !== undefined) {
@@ -98,25 +96,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 	if (model !== undefined && !validModelIdSchema.safeParse(model).success) {
 		error(400, "Invalid model ID");
-	}
-
-	// The wrapper arrives by id and must belong to the caller. The
-	// conversation keeps a plain model — the agent's underlying one — and
-	// holds the wrapper by id; a plain model choice clears it. The agent's
-	// prompt is snapshotted into the conversation at the same moment, so the
-	// conversation reads as a plain one from here on.
-	let nextAgentId: ObjectId | undefined;
-	let wrappedModel: string | undefined;
-	let wrappedPrompt: string | undefined;
-	if (agentIdInput !== undefined) {
-		const user = locals.user;
-		if (!user) error(401, "Login required");
-		if (!ObjectId.isValid(agentIdInput)) error(400, "No such agent");
-		const agent = await resolveForConversation(new ObjectId(agentIdInput), user._id);
-		if (!agent) error(400, "No such agent");
-		nextAgentId = agent._id;
-		wrappedModel = agent.model;
-		wrappedPrompt = agent.system_prompt;
 	}
 
 	if (mlBudgetTotalUsd !== undefined) {
@@ -164,20 +143,9 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		error(404, "Conversation not found");
 	}
 
-	if (nextAgentId !== undefined || model !== undefined) {
+	if (model !== undefined) {
 		const patch: Record<string, unknown> = { updatedAt: new Date() };
-		if (nextAgentId !== undefined) {
-			// The wrapper: the conversation keeps a plain model — the agent's
-			// underlying one — and the agent's prompt becomes its preprompt,
-			// so it reads as a plain conversation from here on.
-			patch.agentId = nextAgentId;
-			patch.model = wrappedModel;
-			patch.preprompt = wrappedPrompt;
-		} else if (model !== undefined) {
-			// A plain model choice clears the wrapper.
-			patch.agentId = null;
-			patch.model = model;
-		}
+		patch.model = model;
 		await collections.conversations.updateOne(
 			{ _id: new ObjectId(id), ...authCondition(locals) },
 			{ $set: patch }

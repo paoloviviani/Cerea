@@ -11,7 +11,7 @@
 	The left panel: two trees, then the rows, then the person.
 
 	The split is the point. **Projects and Chats are trees**, because they have
-	contents worth expanding. **Models, Knowledge, Agents and MCP Servers are
+	contents worth expanding. **Models, Knowledge and MCP Servers are
 	rows at the foot**, because each opens a dialog and has no hierarchy —
 	making all six branches was tried and was worse, a disclosure triangle that
 	revealed a list you then clicked to open the dialog anyway.
@@ -57,7 +57,6 @@
 	import MCPServerManager from "./mcp/MCPServerManager.svelte";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
-	import AgentsManager from "./agents/AgentsManager.svelte";
 	import CarbonChat from "~icons/carbon/chat";
 	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 
@@ -156,7 +155,6 @@
 	let showMcpModal = $state(false);
 	let showProjectsModal = $state(false);
 	let showKnowledgeModal = $state(false);
-	let showAgentsModal = $state(false);
 	/** Which project the overlay opens on, and whether it opens to create one. */
 	let projectTarget = $state<string | undefined>(undefined);
 	let projectCreate = $state(false);
@@ -237,7 +235,6 @@
 
 	{#if signedIn}
 		<button onclick={() => (showKnowledgeModal = true)} class={ROW}> Knowledge </button>
-		<button onclick={() => (showAgentsModal = true)} class={ROW}> Agents </button>
 		<button onclick={() => (showMcpModal = true)} class={ROW}>
 			MCP Servers
 			{#if $totalEnabledMcpCount > 0}
@@ -279,10 +276,6 @@
 
 {#if showKnowledgeModal}
 	<KnowledgeManager onclose={() => (showKnowledgeModal = false)} />
-{/if}
-
-{#if showAgentsModal}
-	<AgentsManager onclose={() => (showAgentsModal = false)} />
 {/if}
 
 {#if showMcpModal}

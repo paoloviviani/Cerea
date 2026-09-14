@@ -1,28 +1,22 @@
 <script lang="ts">
-	import { onMount, tick } from "svelte";
+	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { afterNavigate, goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import { useSettingsStore } from "$lib/stores/settings";
 	import IconBurger from "$lib/components/icons/IconBurger.svelte";
 	import CarbonClose from "~icons/carbon/close";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
 	import IconGear from "~icons/bi/gear-fill";
-	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 
-	const publicConfig = usePublicConfig();
-
-	import type { LayoutData } from "../$types";
 	import { browser } from "$app/environment";
 	import { isDesktop } from "$lib/utils/isDesktop";
 	import { debounce } from "$lib/utils/debounce";
 
 	interface Props {
-		data: LayoutData;
 		children?: import("svelte").Snippet;
 	}
 
-	let { data, children }: Props = $props();
+	let { children }: Props = $props();
 
 	let previousPage: string = $state(base || "/");
 	let showContent: boolean = $state(false);

@@ -186,7 +186,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=180) as c:
     print("signed in as", env["KEYCLOAK_TEST_USER"])
 
     models = c.get(f"{CHAT}/api/v2/models").text
-    ids = [m for m in re.findall(r'"id":"([^"]+)"', models) if not m.startswith("agent:")]
+    ids = [m for m in re.findall(r'"id":"([^"]+)"', models)]
     if not ids:
         sys.exit("no models available to this account")
     model = ids[0]

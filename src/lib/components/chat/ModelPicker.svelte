@@ -27,7 +27,6 @@
 	 * model the chat has just stopped using.
 	 */
 	import { base } from "$app/paths";
-	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import Modal from "$lib/components/Modal.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -50,25 +49,6 @@
 
 	const settings = useSettingsStore();
 
-	// Agents compose into this dialog client-side (ADR 0067, as clarified):
-	// the catalogue never carries them — they are chat-only concepts, a
-	// wrapper on a plain model — so the list comes from the agents API and
-	// the section below is this dialog's own. Choosing one creates a plain
-	// conversation: the agent's model, the agent's prompt, and the wrapper
-	// id for the knowledge retrieval.
-	let agents: { _id: string; name: string; model: string }[] = $state([]);
-
-	onMount(async () => {
-		try {
-			const response = await fetch(`${base}/api/v2/agents`);
-			if (response.ok) {
-				const listed = (await response.json()) as { data?: typeof agents };
-				agents = listed.data ?? [];
-			}
-		} catch {
-			// The section simply does not render; the models are unaffected.
-		}
-	});
 	const convsStore = useConversationsStore();
 
 	let query = $state("");
@@ -87,41 +67,21 @@
 		})
 	);
 
-	// The agents section filters on the same box.
-	const shownAgents = $derived(
-		agents.filter((agent) => {
-			const haystack = normalise(`${agent.name} ${agent.model}`);
-			return tokens.every((token) => haystack.includes(token));
-		})
-	);
+	// A search box for three models is furniture.
+	const searchable = $derived(models.length > 6);
 
-	// A search box for three models is furniture. The threshold is low because
-	// a deployment with a dozen agents reaches it quickly.
-	const searchable = $derived(models.length + agents.length > 6);
-
-	type AgentEntry = (typeof agents)[number];
-
-	async function choose(entry: Model | AgentEntry) {
-		const isAgentEntry = "system_prompt" in entry;
-		const modelId = isAgentEntry ? (entry as AgentEntry).model : (entry as Model).id;
-		if (modelId === currentModel.id && !isAgentEntry) {
+	async function choose(model: Model) {
+		if (model.id === currentModel.id) {
 			onclose();
 			return;
 		}
-		busy = isAgentEntry ? `agent:${(entry as AgentEntry)._id}` : modelId;
+		busy = model.id;
 		try {
 			if (!conversationId) {
 				// Nothing to pin yet. This is the same write the Models dialog's
 				// "Set as default" makes, and it is correct here: on this screen
 				// the default *is* what the chat about to be created starts on.
-				// An agent sets the wrapper as the default — the model stays a
-				// plain one, the wrapper rides by id — and picking a plain model
-				// is the explicit escape from a wrapper.
-				settings.instantSet(
-					isAgentEntry
-						? { activeModel: modelId, activeAgentId: (entry as AgentEntry)._id }
-						: { activeModel: modelId, activeAgentId: undefined },
-				);
+				settings.instantSet({ activeModel: model.id });
 				onclose();
 				return;
 			}
@@ -129,11 +89,7 @@
 			const response = await fetch(`${base}/conversation/${conversationId}`, {
 				method: "PATCH",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(
-					isAgentEntry
-						? { agentId: (entry as AgentEntry)._id }
-						: { model: modelId },
-				),
+				body: JSON.stringify({ model: model.id }),
 			});
 			if (!response.ok) {
 				let message = "Could not switch model";
@@ -192,77 +148,38 @@
 		{/if}
 
 		<div class="max-h-[50dvh] space-y-2 overflow-y-auto">
-			{#if shownAgents.length > 0}
-				<p class="{s.CARD_SUBTITLE} px-1 pt-1 text-xs font-semibold uppercase tracking-wide">
-					Agents
-				</p>
-				{#each shownAgents as agent (agent._id)}
-					{@const agentActive = $settings.activeAgentId === agent._id}
-					<button
-						type="button"
-						onclick={() => choose(agent)}
-						disabled={busy !== null}
-						class="{s.card(agentActive)} {s.CARD_BODY} flex w-full items-center gap-3 text-left
+			{#each shown as model (model.id)}
+				{@const active = model.id === currentModel.id}
+				<button
+					type="button"
+					onclick={() => choose(model)}
+					disabled={busy !== null}
+					class="{s.card(active)} {s.CARD_BODY} flex w-full items-center gap-3 text-left
 							hover:border-blue-600/40 disabled:opacity-60"
-					>
-						<span class="min-w-0 flex-1">
-							<span class="flex items-center gap-2">
-								<span class={s.CARD_TITLE}>{agent.name}</span>
-								<span class="{s.PILL} {s.PILL_TONES.neutral}">Agent</span>
-							</span>
-							<span class="{s.CARD_SUBTITLE} block">runs on {agent.model}</span>
-						</span>
-						{#if busy === `agent:${agent._id}`}
-							<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>
-						{:else if agentActive}
-							<CarbonCheckmark class="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
-						{/if}
-					</button>
-				{/each}
-				<div class="border-t border-gray-200 pt-2 dark:border-gray-700"></div>
-			{/if}
-
-			{#if shownAgents.length === 0 || shown.length > 0}
-				{#if shownAgents.length > 0}
-					<p class="{s.CARD_SUBTITLE} px-1 text-xs font-semibold uppercase tracking-wide">
-						Models
-					</p>
-				{/if}
-				{#each shown as model (model.id)}
-					{@const active = model.id === currentModel.id}
-					<button
-						type="button"
-						onclick={() => choose(model)}
-						disabled={busy !== null}
-						class="{s.card(active)} {s.CARD_BODY} flex w-full items-center gap-3 text-left
-							hover:border-blue-600/40 disabled:opacity-60"
-						aria-current={active ? "true" : undefined}
-					>
-						{#if model.logoUrl}
-							<img
-								src={model.logoUrl}
-								alt=""
-								class="size-5 flex-none rounded-sm border bg-white dark:border-gray-700"
-							/>
-						{/if}
-						<span class="min-w-0 flex-1">
-							<span class="flex items-center gap-2">
-								<span class={s.CARD_TITLE}>{model.displayName || model.name}</span>
-							</span>
-							<span class="{s.CARD_SUBTITLE} block">{model.id}</span>
-						</span>
-						{#if busy === model.id}
-							<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>
-						{:else if active}
-							<CarbonCheckmark class="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
-						{/if}
-					</button>
-				{:else}
-					{#if shownAgents.length === 0}
-						<p class={s.EMPTY_DETAIL}>No model matches that.</p>
+					aria-current={active ? "true" : undefined}
+				>
+					{#if model.logoUrl}
+						<img
+							src={model.logoUrl}
+							alt=""
+							class="size-5 flex-none rounded-sm border bg-white dark:border-gray-700"
+						/>
 					{/if}
-				{/each}
-			{/if}
+					<span class="min-w-0 flex-1">
+						<span class="flex items-center gap-2">
+							<span class={s.CARD_TITLE}>{model.displayName || model.name}</span>
+						</span>
+						<span class="{s.CARD_SUBTITLE} block">{model.id}</span>
+					</span>
+					{#if busy === model.id}
+						<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>
+					{:else if active}
+						<CarbonCheckmark class="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+					{/if}
+				</button>
+			{:else}
+				<p class={s.EMPTY_DETAIL}>No model matches that.</p>
+			{/each}
 		</div>
 	</div>
 </Modal>

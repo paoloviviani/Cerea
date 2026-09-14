@@ -108,7 +108,19 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 					// AUTOMATIC_LOGIN: always redirect to OAuth flow (unless already on login or healthcheck pages)
 					if (
 						!event.url.pathname.startsWith(`${base}/login`) &&
-						!event.url.pathname.startsWith(`${base}/healthcheck`)
+						!event.url.pathname.startsWith(`${base}/healthcheck`) &&
+						// Signing out must reach the logout route even when this
+						// session is already gone: intercepted here instead, the
+						// browser is silently re-authenticated by the provider's
+						// still-live SSO session and Sign out does nothing at all.
+						event.url.pathname !== `${base}/logout` &&
+						// The API answers for itself with a 401. Redirected here
+						// instead, a signed-out `fetch` follows it to the provider
+						// and back as HTML, and every caller that checked
+						// `response.ok` now dies on a JSON parse. The non-automatic
+						// branch below has always exempted `/api`; this one agreeing
+						// is the fix, not the exception.
+						!event.url.pathname.startsWith(`${base}/api`)
 					) {
 						// To get the same CSRF token after callback
 						refreshSessionCookie(event.cookies, auth.secretSessionId);
@@ -122,6 +134,10 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 						!event.url.pathname.startsWith(`${base}/login`) &&
 						!event.url.pathname.startsWith(`${base}/login/callback`) &&
 						!event.url.pathname.startsWith(`${base}/healthcheck`) &&
+						// Same reason as the AUTOMATIC_LOGIN branch above: a logout
+						// the wall intercepts becomes a login, and the sign-out the
+						// person asked for never happens.
+						event.url.pathname !== `${base}/logout` &&
 						!event.url.pathname.startsWith(`${base}/r/`) &&
 						!event.url.pathname.startsWith(`${base}/conversation/`) &&
 						!event.url.pathname.startsWith(`${base}/models/`) &&
@@ -197,6 +213,9 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// it is a person, and a person has to be signed in.
 				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
+				// And `/logout` answers for itself: refusing a 401 to a session
+				// that is already gone is refusing to clean up after it.
+				event.url.pathname !== `${base}/logout` &&
 				!["GET", "OPTIONS", "HEAD"].includes(event.request.method)
 			) {
 				return errorResponse(401, ERROR_MESSAGES.authOnly);

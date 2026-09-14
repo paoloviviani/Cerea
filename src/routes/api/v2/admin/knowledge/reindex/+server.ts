@@ -6,23 +6,23 @@
  * spends money: a reindex embeds every passage in the base again. Whose money
  * is not this route's decision — the embeddings carry the acting
  * administrator's token, and the ledger shows it.
+ *
+ * The answer is the whole admin status, same as the GET: the page re-seeds its
+ * render from it, and a document list here would land in a shape the page
+ * never reads.
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 
-import { callerIdentity } from "$lib/server/admin";
+import { requireAdmin } from "$lib/server/admin";
 import { KnowledgeError } from "$lib/server/knowledge/service";
 
 export const POST: RequestHandler = async ({ locals, request }) => {
-	if (!locals.user) {
-		error(401, "Login required");
-	}
+	await requireAdmin(locals);
+	// The embeddings carry the acting administrator's own token; without one
+	// there is nobody to bill the re-embedding to.
 	if (!locals.token) {
-		error(401, "This needs an OIDC session. Log out and sign in through the provider.");
-	}
-	const identity = await callerIdentity(locals);
-	if (!identity?.isAdmin) {
-		error(403, "This deployment's gateway does not list you as an administrator.");
+		error(401, "This needs a session from the identity provider. Log out and sign in through it.");
 	}
 
 	const body = (await request.json()) as { base_id?: string };
@@ -30,14 +30,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, "base_id is required.");
 	}
 
-	const { callerFrom, reindex } = await import("$lib/server/knowledge/service");
+	const { callerFrom, reindex, adminStatus } = await import("$lib/server/knowledge/service");
 	const caller = await callerFrom(locals);
 	try {
-		return json(await reindex(body.base_id, caller, locals.token));
+		await reindex(body.base_id, caller, locals.token);
 	} catch (err) {
 		if (err instanceof KnowledgeError) {
 			error(err.status, err.message);
 		}
 		throw err;
 	}
+	return json(await adminStatus(locals.token));
 };

@@ -316,10 +316,12 @@ function replayAssistantTurn(
 			// mode of not matching is mild duplication, which is safer.
 			remainingVisible = remainingVisible.slice(roundContent.length).trimStart();
 		}
-		// `content` is included only when a preamble was actually persisted
-		// (messages recorded before this field existed have none); omitted
-		// otherwise since some OpenAI-compatible backends reject empty text
-		// next to tool_calls with a 400.
+		// `content` is always present on the replayed assistant message — the
+		// persisted preamble text, else null. Omitting the key reads as
+		// `undefined` on backends that validate presence (llmbase 400s:
+		// "messages[N].content must be a string, array, or null"), and an empty
+		// string breaks the kind that rejects "" next to tool_calls. Messages
+		// recorded before the content field existed replay with null too.
 		// Arguments prefer the persisted raw JSON string the model actually
 		// sent (argumentsRaw): the sanitized fallback only keeps top-level
 		// primitive params (nested values and file payloads are deliberately
@@ -342,7 +344,7 @@ function replayAssistantTurn(
 							: JSON.stringify(u.call.parameters ?? {}),
 				},
 			})),
-			...(roundContent.trim().length > 0 ? { content: roundContent } : {}),
+			content: roundContent.trim().length > 0 ? roundContent : null,
 			...(roundReasoning ? { reasoning_content: roundReasoning } : {}),
 		});
 		for (const u of callsInRound) {

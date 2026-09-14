@@ -31,7 +31,7 @@ import type { User } from "./User";
  * ## Sharing a project does not share its knowledge bases
  *
  * Retrieval re-checks the *viewer's* access to every attached base on every
- * turn, exactly as an agent does. Somebody a project is shared with sees
+ * turn. Somebody a project is shared with sees
  * passages only from bases they could already read, and the project page says
  * so. That is what stops a project being a way to publish a document without
  * sharing the document.
@@ -47,9 +47,7 @@ export interface Project extends Timestamps {
 
 	/**
 	 * Standing context, prepended to the system prompt of every conversation in
-	 * the project. Text only, on purpose: a project is not an agent, and
-	 * anything richer — a pinned model, its own persona — is what an agent is
-	 * (ADR 0067), in this application's Agents screen.
+	 * the project. Text only.
 	 */
 	instructions: string;
 

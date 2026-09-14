@@ -1,7 +1,7 @@
 /**
  * One forwarder to the gateway, for the surfaces the browser is allowed to use.
  *
- * Knowledge bases and agents are user-facing resources with a dozen operations
+ * Knowledge bases are user-facing resources with a dozen operations
  * between them — list, create, update, delete, upload, attach, search, share,
  * unshare, on two resource types. Written as one route file per operation that
  * is a dozen files of the same eight lines, and the eight lines are the part
@@ -53,14 +53,9 @@ const INTERNAL = [
 /** Paths that still belong to the gateway, forwarded with the caller's token. */
 const FORWARDED = [
 	/^vector_stores\/[0-9a-f-]{36}.*$/,
-	// Agents, and their shares.
-	/^agents$/,
-	/^agents\/[0-9a-f-]{36}$/,
-	/^agents\/[0-9a-f-]{36}\/shares$/,
-	/^agents\/[0-9a-f-]{36}\/shares\/(user|group)\/[0-9a-f-]{36}$/,
 	// The caller's billable groups, so a share dialog can offer them by name.
 	/^billing\/groups$/,
-	// The model list, so an agent form can offer the models this person may
+	// The model list, so a share dialog can offer the models this person may
 	// actually use rather than every model the deployment has.
 	/^models$/,
 ];

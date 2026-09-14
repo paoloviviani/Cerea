@@ -16,7 +16,7 @@
  * **Failure to retrieve does not fail the turn.** A base still indexing, an
  * embedding provider that is down, a base whose share was revoked — each of
  * these degrades to an ordinary answer, logged as `project_retrieval_degraded`.
- * The gateway makes the same judgement for agents, for the same reason: a
+ * The gateway makes the same judgement, for the same reason: a
  * slightly worse answer beats no answer. It is logged rather than silent
  * because "the assistant stopped using my documents" is otherwise undebuggable.
  *

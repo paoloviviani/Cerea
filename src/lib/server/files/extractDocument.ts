@@ -12,16 +12,19 @@
  * for the same twelve-page PDF again on the second question about it, and
  * again on the third. Once per file, kept beside the file.
  *
- * Which model does it is the deployment's choice: `CHAT_OCR_MODEL` if set,
- * otherwise the first model the caller may use whose `kind` is `ocr`. With no
- * such model the attachment is still stored and simply carries no text — said
- * out loud in the message rather than left as a document the assistant
- * silently ignores.
+ * Which model does it, in order: the Knowledge screen's choice (an
+ * administrator's, with a stated reason when it names a model — see
+ * `routes/api/v2/admin/knowledge`), then `CHAT_OCR_MODEL` if the screen has
+ * never decided, then the first model the caller may use whose `kind` is
+ * `ocr`. With no such model the attachment is still stored and simply carries
+ * no text — said out loud in the message rather than left as a document the
+ * assistant silently ignores.
  */
 
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
+import { readConfig } from "$lib/server/knowledge/service";
 
 /** Document types worth sending to an extractor. Images go the vision route. */
 export const DOCUMENT_MIME_ALLOWLIST = [
@@ -64,6 +67,13 @@ interface ModelCard {
  * — not per turn — so one extra request is not a cost worth caching against.
  */
 async function extractorModel(token: string): Promise<string | null> {
+	// The Knowledge screen first, and the distinction it depends on: `null`
+	// there is the built-in extractor chosen deliberately, while `undefined`
+	// is "the screen has never decided" — those are different answers, and
+	// treating them alike would let any unrelated settings save quietly
+	// override a deployment configured through the environment.
+	const knowledge = await readConfig();
+	if (knowledge.extractorModel !== undefined) return knowledge.extractorModel;
 	const configured = config.CHAT_OCR_MODEL?.trim();
 	if (configured) return configured;
 	try {
