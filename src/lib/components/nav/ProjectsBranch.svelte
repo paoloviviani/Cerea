@@ -14,6 +14,11 @@
 	The `+` on the header line is the one thing that is not about an existing
 	project, so it is the one thing on the header line.
 
+	Each chat inside a project is the same row the flat Chats list uses —
+	`NavConversationItem` — so it carries the same `⋯`: Rename and Delete,
+	plus the double-click-to-rename inline edit. The branch just keeps its own
+	list, so a rename or a delete lands where the row will show it.
+
 	The chats inside a project are fetched **when the folder is opened**, not
 	with the list. A deployment with a dozen projects would otherwise make a
 	dozen requests to draw a sidebar nobody has expanded, and the count on the
@@ -30,29 +35,31 @@
 	import TreeBranch from "./TreeBranch.svelte";
 	import TreeLeaf from "./TreeLeaf.svelte";
 	import RowMenu from "./RowMenu.svelte";
+	import NavConversationItem from "../NavConversationItem.svelte";
+	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings.js";
+	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { ProjectView } from "$lib/types/Project";
 	import CarbonFolder from "~icons/carbon/folder";
 	import CarbonEdit from "~icons/carbon/edit";
 	import CarbonTrash from "~icons/carbon/trash-can";
 
 	const settings = useSettingsStore();
+	const client = useAPIClient();
 
 	interface ProjectConversation {
 		id: string;
 		title: string;
 		model: string;
 		updatedAt: string;
-		mine: boolean;
 	}
 
 	interface Props {
 		/** Opens one project's overlay: an id to edit, nothing to create. */
 		onopen: (id?: string) => void;
-		onnavigate?: () => void;
 	}
 
-	let { onopen, onnavigate }: Props = $props();
+	let { onopen }: Props = $props();
 
 	let open = $state(false);
 	let projects = $state<ProjectView[]>([]);
@@ -157,10 +164,11 @@
 					[project.id]: [
 						{
 							id: conversationId,
-							title: "",
+							// Matches the server's own default title (and the flat
+							// Chats list's); the real one arrives once a turn names it.
+							title: "New Chat",
 							model,
 							updatedAt: new Date().toISOString(),
-							mine: true,
 						},
 						...chats[project.id],
 					],
@@ -175,8 +183,59 @@
 	}
 
 	/**
-	 * Delete one project from its own row.
+	 * Rename one of the project's chats, from its row's `⋯` menu.
 	 *
+	 * The same endpoint and optimistic write the flat Chats list uses; the
+	 * branch just keeps its own list, so the new title lands where the row
+	 * will show it.
+	 */
+	async function renameChat(projectId: string, conversationId: string, title: string) {
+		const before = chats[projectId] ?? [];
+		chats = {
+			...chats,
+			[projectId]: before.map((entry) =>
+				entry.id === conversationId ? { ...entry, title } : entry
+			),
+		};
+		try {
+			await client.conversations({ id: conversationId }).patch({ title }).then(handleResponse);
+		} catch (err) {
+			console.error(err);
+			alert("Could not rename the chat.");
+		}
+	}
+
+	/**
+	 * Delete one of the project's chats, from its row's `⋯` menu.
+	 *
+	 * Only the conversation goes — deleting a chat is not a step towards
+	 * anything else. It is removed from the folder at once, and if it was the
+	 * one on screen the app returns to the ordinary list, mirroring what
+	 * deleting from the flat Chats list does.
+	 */
+	async function destroyChat(projectId: string, conversationId: string) {
+		chats = {
+			...chats,
+			[projectId]: (chats[projectId] ?? []).filter((entry) => entry.id !== conversationId),
+		};
+		projects = projects.map((entry) =>
+			entry.id === projectId
+				? { ...entry, conversationCount: Math.max(0, entry.conversationCount - 1) }
+				: entry
+		);
+		if (page.params.id === conversationId) {
+			await goto(base);
+		}
+		try {
+			await client.conversations({ id: conversationId }).delete().then(handleResponse);
+		} catch (err) {
+			console.error(err);
+			alert("Could not delete the chat.");
+		}
+	}
+
+	/**
+	 * Delete one project from its own row.
 	 * The confirmation says what is *kept*, because the surprising part is that
 	 * nothing else goes: the conversations return to the ordinary Chats list and
 	 * the knowledge bases are gateway resources with their own owner. Somebody
@@ -213,8 +272,6 @@
 		chats = {};
 		await loadProjects();
 	}
-
-	const currentConversation = $derived(page.params.id);
 </script>
 
 <TreeBranch
@@ -295,15 +352,17 @@
 					/>
 				{:else}
 					{#each chats[project.id] as conversation (conversation.id)}
-						<TreeLeaf
-							label={conversation.title || "New chat"}
-							href="{base}/conversation/{conversation.id}"
-							depth={2}
-							active={conversation.id === currentConversation}
-							title={conversation.mine
-								? conversation.title
-								: `${conversation.title} — somebody else's`}
-							onclick={onnavigate}
+						{@const sidebarConv = {
+							id: conversation.id,
+							title: conversation.title,
+							model: conversation.model,
+							updatedAt: new Date(conversation.updatedAt),
+						} as ConvSidebar}
+						<NavConversationItem
+							conv={sidebarConv}
+							oneditConversationTitle={(payload) =>
+								renameChat(project.id, payload.id, payload.title)}
+							ondeleteConversation={(id) => destroyChat(project.id, id)}
 						/>
 					{/each}
 				{/if}
