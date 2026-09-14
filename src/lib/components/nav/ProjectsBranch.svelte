@@ -2,10 +2,14 @@
 	Projects in the tree: a branch of folders, each holding its own chats.
 
 	**Managing one happens on its own row**, through the `⋯` beside it — Edit
-	opens that project, Delete removes it after a confirmation. There is no
-	route from here to a list of every project, deliberately: reaching a
-	project's settings by opening an overlay, finding it in a list and clicking
-	it is three steps to do something the row was already pointing at.
+	opens that project, Delete removes it after a confirmation. **Starting a
+	chat in one also happens on its own row**, through the `+` — it creates a
+	conversation with the project attached and goes there, because standing
+	context applies from the conversation itself and the overlay would only be
+	three steps to the same POST. There is no route from here to a list of
+	every project, deliberately: reaching a project's settings by opening an
+	overlay, finding it in a list and clicking it is three steps to do
+	something the row was already pointing at.
 
 	The `+` on the header line is the one thing that is not about an existing
 	project, so it is the one thing on the header line.
@@ -21,14 +25,18 @@
 -->
 <script lang="ts">
 	import { base } from "$app/paths";
+	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import TreeBranch from "./TreeBranch.svelte";
 	import TreeLeaf from "./TreeLeaf.svelte";
 	import RowMenu from "./RowMenu.svelte";
+	import { useSettingsStore } from "$lib/stores/settings.js";
 	import type { ProjectView } from "$lib/types/Project";
 	import CarbonFolder from "~icons/carbon/folder";
 	import CarbonEdit from "~icons/carbon/edit";
 	import CarbonTrash from "~icons/carbon/trash-can";
+
+	const settings = useSettingsStore();
 
 	interface ProjectConversation {
 		id: string;
@@ -56,6 +64,8 @@
 	// reopened folder does not blink.
 	let expanded = $state<Record<string, boolean>>({});
 	let chats = $state<Record<string, ProjectConversation[]>>({});
+	/** The project whose new chat is being created, for the in-flight guard. */
+	let starting = $state<string | null>(null);
 
 	async function loadProjects() {
 		try {
@@ -89,6 +99,78 @@
 			} catch {
 				chats = { ...chats, [project.id]: [] };
 			}
+		}
+	}
+
+	/**
+	 * Start a new chat inside the project, from the row itself.
+	 *
+	 * The `+` beside a project means "chat with what this project knows", not
+	 * "change what this project is" — that stays with the `⋯` menu. The only
+	 * thing needed is creating the conversation *with the project attached*:
+	 * `/conversation` takes a projectId, and the project's instructions and
+	 * knowledge bases join every turn at generation time from `conv.projectId`
+	 * (ADR 0062), so there is nothing to copy in here. Which is why starting a
+	 * chat never needed the overlay at all — the overlay only created the
+	 * conversation with the project attached after three steps through the
+	 * project's own settings.
+	 *
+	 * The model is the one a plain new chat would use: the person's active
+	 * model, or the first in the list.
+	 */
+	async function startChat(project: ProjectView) {
+		if (starting) return;
+		const models: { id: string }[] = page.data.models ?? [];
+		if (models.length === 0) return;
+		const model = models.some((entry) => entry.id === $settings.activeModel)
+			? $settings.activeModel
+			: models[0].id;
+		starting = project.id;
+		try {
+			const response = await fetch(`${base}/conversation`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model, projectId: project.id }),
+			});
+			if (!response.ok) {
+				let message = "Could not start the chat.";
+				try {
+					message = ((await response.json()) as { message?: string }).message ?? message;
+				} catch {
+					// An HTML error page says the same thing less usefully.
+				}
+				throw new Error(message);
+			}
+			const { conversationId } = (await response.json()) as { conversationId: string };
+			// The branch keeps its own lists, so put the new chat where the row
+			// will show it when this comes back: opened, counted, first in the
+			// folder. No refetch — the title arrives when the generation names it.
+			projects = projects.map((entry) =>
+				entry.id === project.id
+					? { ...entry, conversationCount: entry.conversationCount + 1 }
+					: entry
+			);
+			expanded = { ...expanded, [project.id]: true };
+			if (chats[project.id] !== undefined) {
+				chats = {
+					...chats,
+					[project.id]: [
+						{
+							id: conversationId,
+							title: "",
+							model,
+							updatedAt: new Date().toISOString(),
+							mine: true,
+						},
+						...chats[project.id],
+					],
+				};
+			}
+			await goto(`${base}/conversation/${conversationId}`);
+		} catch (err) {
+			alert(err instanceof Error ? err.message : "Could not start the chat.");
+		} finally {
+			starting = null;
 		}
 	}
 
@@ -161,6 +243,8 @@
 				badge={project.conversationCount || undefined}
 				open={expanded[project.id] ?? false}
 				onactivate={() => toggleFolder(project)}
+				onadd={() => startChat(project)}
+				addTitle="New chat"
 			>
 				{#snippet icon()}
 					<CarbonFolder class="size-3.5 shrink-0" />
@@ -206,13 +290,13 @@
 					<TreeLeaf
 						label="No chats yet"
 						depth={2}
-						onclick={() => onopen(project.id)}
-						title="Open the project to start one"
+						onclick={() => startChat(project)}
+						title="Start a chat"
 					/>
 				{:else}
 					{#each chats[project.id] as conversation (conversation.id)}
 						<TreeLeaf
-							label={conversation.title}
+							label={conversation.title || "New chat"}
 							href="{base}/conversation/{conversation.id}"
 							depth={2}
 							active={conversation.id === currentConversation}
