@@ -10,6 +10,7 @@ import { createJobCheckTool } from "./jobCheckTool";
 import { createTrackioTool } from "./createTrackioTool";
 import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
+import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import type { BuiltinTool } from "./types";
 
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
@@ -59,6 +60,10 @@ export function getEnabledBuiltinTools(params: {
 			createTrackioTool(() => params.namespace)
 		);
 	}
+
+	// Gated on the deployment-level flag alone: absent flag = fences only,
+	// exactly today's behavior. The tool withholds itself when the flag is off.
+	tools.push(...createExecuteCodeBuiltin());
 
 	// The gateway's own search backends, metered to this caller. Two switches,
 	// both meaningful: the user's setting says they consent to web search on

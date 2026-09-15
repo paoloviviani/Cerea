@@ -27,6 +27,7 @@
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
 	import ElicitationForm from "./ElicitationForm.svelte";
+	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import {
 		isMessageToolUpdate,
@@ -34,12 +35,16 @@
 		isMessageToolErrorUpdate,
 		isMessageElicitationRequestUpdate,
 		isMessageElicitationResolvedUpdate,
+		isMessageCodeExecutionRequestUpdate,
+		isMessageCodeExecutionResolvedUpdate,
 		isMessagePlanUpdate,
 	} from "$lib/utils/messageUpdates";
 	import {
 		MessageUpdateType,
 		type MessageToolUpdate,
 		type MessageElicitationResolvedUpdate,
+		type MessageCodeExecutionRequestUpdate,
+		type MessageCodeExecutionResolvedUpdate,
 		type MessagePlanUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
@@ -161,12 +166,19 @@
 		resolved?: MessageElicitationResolvedUpdate;
 	};
 
+	type CodeExecutionBlock = {
+		type: "codeExecution";
+		request: MessageCodeExecutionRequestUpdate;
+		resolved?: MessageCodeExecutionResolvedUpdate;
+	};
+
 	type Block =
 		| { type: "text"; content: string }
 		| { type: "think"; content: string; closed: boolean }
 		| { type: "tool"; uuid: string; updates: MessageToolUpdate[] }
 		| { type: "artifact"; op: ArtifactOperation; opIndex: number }
 		| ElicitationBlock
+		| CodeExecutionBlock
 		| { type: "plan"; update: MessagePlanUpdate };
 
 	type ToolBlock = Extract<Block, { type: "tool" }>;
@@ -177,6 +189,7 @@
 		| { kind: "group"; blocks: ProcessBlock[]; toolCount: number }
 		| { kind: "artifact"; op: ArtifactOperation; opIndex: number }
 		| ({ kind: "elicitation" } & Omit<ElicitationBlock, "type">)
+		| ({ kind: "codeExecution" } & Omit<CodeExecutionBlock, "type">)
 		| { kind: "plan"; update: MessagePlanUpdate };
 
 	// Expand any text block containing <think>…</think> into dedicated think blocks
@@ -311,6 +324,18 @@
 						b.type === "elicitation" && b.request.elicitationId === update.elicitationId
 				);
 				if (target) target.resolved = update;
+			} else if (isMessageCodeExecutionRequestUpdate(update)) {
+				res.push({
+					type: "codeExecution" as const,
+					request: update,
+				});
+			} else if (isMessageCodeExecutionResolvedUpdate(update)) {
+				// Settles the existing card rather than adding one.
+				const codeTarget = res.find(
+					(b): b is CodeExecutionBlock =>
+						b.type === "codeExecution" && b.request.executionId === update.executionId
+				);
+				if (codeTarget) codeTarget.resolved = update;
 			} else if (isMessagePlanUpdate(update)) {
 				// One live card per message: a later update supersedes the earlier card and
 				// takes its stream position, and the generic tool card for the same call
@@ -390,6 +415,14 @@
 					kind: "elicitation",
 					request: block.request,
 					expiresAt: block.expiresAt,
+					resolved: block.resolved,
+				});
+			} else if (block.type === "codeExecution") {
+				// Never folded into the collapsible summary: the run happens here.
+				flush();
+				units.push({
+					kind: "codeExecution",
+					request: block.request,
 					resolved: block.resolved,
 				});
 			} else if (block.type === "plan") {
@@ -525,6 +558,14 @@
 									resolved={block.resolved}
 								/>
 							</div>
+						{:else if block.type === "codeExecution"}
+							<div data-exclude-from-copy>
+								<CodeExecutionCard
+									conversationId={page.params.id ?? ""}
+									request={block.request}
+									resolved={block.resolved}
+								/>
+							</div>
 						{:else if block.type === "plan"}
 							<div data-exclude-from-copy>
 								<PlanCard update={block.update} />
@@ -571,6 +612,14 @@
 									conversationId={page.params.id ?? ""}
 									request={unit.request}
 									expiresAt={unit.expiresAt}
+									resolved={unit.resolved}
+								/>
+							</div>
+						{:else if unit.kind === "codeExecution"}
+							<div data-exclude-from-copy>
+								<CodeExecutionCard
+									conversationId={page.params.id ?? ""}
+									request={unit.request}
 									resolved={unit.resolved}
 								/>
 							</div>

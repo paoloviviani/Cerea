@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { EXECUTION_SYSTEM_PROMPT, injectExecutionPrompt } from "./executionPrompt";
 
 /**
- * The file-deliverable convention: when the user asks for a file, the file
- * is the deliverable and the model must not narrate a run-it-yourself ritual
- * (base64 pastes, local installs) — the app surfaces the download itself.
- * When the user asks for code, presentation is unchanged.
+ * Two honest channels over one engine, plus the file-deliverable convention:
+ * when the user asks for a file, the file is the deliverable and the model
+ * must not narrate a run-it-yourself ritual (base64 pastes, local installs) —
+ * the app surfaces the download itself. When the user asks for code,
+ * presentation is unchanged.
  */
 describe("execution prompt", () => {
 	it("tells file-deliverables apart from code-deliverables", () => {
@@ -14,10 +15,21 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("the code is the deliverable");
 	});
 
-	it("keeps the standing execution contract intact", () => {
+	it("keeps the standing code-block contract intact", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("executed automatically");
-		expect(EXECUTION_SYSTEM_PROMPT).toContain("You do NOT see the execution output yourself");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"You do NOT see the code block's execution output yourself"
+		);
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("no network access");
+	});
+
+	it("describes the autonomous tool channel honestly", () => {
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("execute_code");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("You see the truncated stdout");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("Run, read the output, fix, run again");
+		// The unavailable fallback: never claim results, fall back to a fence.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("execution environment is unavailable");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("fall back to a code block");
 	});
 
 	it("states the stdlib-only reality instead of promising packages", () => {
