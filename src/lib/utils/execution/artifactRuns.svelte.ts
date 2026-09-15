@@ -1,6 +1,7 @@
 import { untrack } from "svelte";
 import { getExecutionSession } from "./runtime";
 import { artifactRunKey } from "./keys";
+import { collectOutputFiles } from "./runs.svelte";
 import type { RunState } from "./runs.svelte";
 import type { RunOutcome } from "./protocol";
 
@@ -108,11 +109,18 @@ class ArtifactRunsStore {
 		session
 			.run(content)
 			.then((outcome) => {
-				this.settle(key, {
+				const settled: RunState = {
 					...state,
 					status: outcome.ok ? "done" : "error",
 					outcome,
 					finishedAt: Date.now(),
+				};
+				// Settle (and persist) synchronously as before; the file
+				// listing amends the memory entry when it lands and is never
+				// persisted — the worker filesystem dies with the page load.
+				this.settle(key, settled);
+				void collectOutputFiles(session).then((outputFiles) => {
+					if (outputFiles) this.#memory[key] = { ...settled, outputFiles };
 				});
 			})
 			.catch((error: unknown) => {

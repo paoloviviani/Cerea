@@ -158,4 +158,102 @@ describe("pyodide worker pipeline (real dist)", () => {
 		},
 		{ timeout: 180_000 }
 	);
+
+	it(
+		"reports a clean interpreter exit as success, not an error",
+		async () => {
+			// NOTE: this test leaves two "Unhandled Rejection" notices in the
+			// runner output. They are Pyodide's own stray duplicates of the two
+			// SystemExits asserted below — its internal event loop echoes each
+			// one where no await can reach it. In a real worker the
+			// guardCleanExitRejection hook swallows exactly that shape; the
+			// Node harness has no worker scope to hang it on, so the echo is
+			// visible here and harmless: every assertion below still holds.
+			gateProcessFetch();
+			const scope = makeScope();
+
+			send(scope, { type: "run", id: 1, code: "import sys\nprint('before exit')\nsys.exit(0)" });
+			const clean = (await until(scope, (m) => m.type === "result" && m.id === 1)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			// A script that worked must not wear the ERROR block: exit(0) is
+			// success, with the output it printed still captured.
+			expect(clean.ok).toBe(true);
+			expect(clean.error).toBeUndefined();
+			expect(clean.stdout).toContain("before exit");
+
+			send(scope, { type: "run", id: 2, code: "import sys\nsys.exit(3)" });
+			const dirty = (await until(scope, (m) => m.type === "result" && m.id === 2)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(dirty.ok).toBe(false);
+			expect(dirty.error).toContain("SystemExit");
+
+			// The interpreter survives the exit: the next run works.
+			send(scope, { type: "run", id: 3, code: "40 + 2" });
+			const after = (await until(scope, (m) => m.type === "result" && m.id === 3)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(after.ok).toBe(true);
+			expect(after.result).toBe("42");
+		},
+		{ timeout: 180_000 }
+	);
+
+	it(
+		"lists generated files and reads them back for download",
+		async () => {
+			gateProcessFetch();
+			const scope = makeScope();
+
+			send(scope, {
+				type: "run",
+				id: 2,
+				code: "from pathlib import Path\nPath('hello.txt').write_text('hello download')",
+			});
+			const written = (await until(scope, (m) => m.type === "result" && m.id === 2)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(written.ok).toBe(true);
+
+			send(scope, { type: "listFiles", id: 3 });
+			const listed = (await until(scope, (m) => m.type === "filesListed" && m.id === 3)) as Extract<
+				WorkerToHost,
+				{ type: "filesListed" }
+			>;
+			const entry = listed.files.find((f) => f.path.endsWith("/hello.txt"));
+			expect(entry).toBeDefined();
+			expect(entry?.size).toBeGreaterThan(0);
+
+			send(scope, { type: "readFile", id: 4, path: entry?.path ?? "" });
+			const data = (await until(scope, (m) => m.type === "fileData" && m.id === 4)) as Extract<
+				WorkerToHost,
+				{ type: "fileData" }
+			>;
+			expect(data.error).toBeUndefined();
+			expect(Buffer.from(data.data ?? new ArrayBuffer(0)).toString("utf8")).toBe("hello download");
+
+			// Outside the readable roots, and traversal besides: refused, with
+			// the reason named rather than a hang.
+			for (const [id, path] of [
+				[5, "/etc/passwd"],
+				[6, "/home/pyodide/../../etc/passwd"],
+				[7, "/lib/python314.zip"],
+				[8, "/home/pyodide/does-not-exist.txt"],
+			] as Array<[number, string]>) {
+				send(scope, { type: "readFile", id, path });
+				const refused = (await until(
+					scope,
+					(m) => m.type === "fileData" && "id" in m && m.id === id
+				)) as Extract<WorkerToHost, { type: "fileData" }>;
+				expect(refused.data).toBeUndefined();
+				expect(refused.error).toBeDefined();
+			}
+		},
+		{ timeout: 180_000 }
+	);
 });

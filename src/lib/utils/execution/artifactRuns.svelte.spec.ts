@@ -12,6 +12,7 @@ const sessionMock = vi.hoisted(() => {
 		run: vi.fn(
 			(_code: string) => new Promise((resolve, reject) => pending.push({ resolve, reject }))
 		),
+		listFiles: vi.fn(async () => [] as Array<{ path: string; size: number }>),
 		onStatus: vi.fn(() => () => undefined),
 		settleNext: (value: unknown) => pending.shift()?.resolve(value),
 		failNext: (error: unknown) => pending.shift()?.reject(error),
@@ -51,6 +52,7 @@ beforeEach(() => {
 	localStorage.removeItem(ARTIFACT_RUNS_STORAGE_KEY);
 	clearArtifactRunsForTests();
 	sessionMock.run.mockClear();
+	sessionMock.listFiles.mockClear();
 });
 
 describe("artifact run outputs", () => {
@@ -114,5 +116,35 @@ describe("artifact run outputs", () => {
 		// A sandbox failure carries no outcome, so it is not re-persisted as a
 		// success-shaped record.
 		expect(state?.outcome).toBeUndefined();
+	});
+
+	it("attaches the runtime's files to the settled state, memory-only", async () => {
+		sessionMock.listFiles.mockResolvedValueOnce([
+			{ path: "/home/pyodide/report.docx", size: 2916 },
+		]);
+		const store = getArtifactRunsStore();
+		store?.run("analysis", 1, "build()");
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		sessionMock.settleNext(outcome({ stdout: "[ok]\n" }));
+		// The outcome settles first; the file listing amends the entry when
+		// it lands, so wait for the amendment rather than the persist.
+		await vi.waitFor(() =>
+			expect(store?.get(artifactRunKey("analysis", 1, "build()"))?.outputFiles).toEqual([
+				{ path: "/home/pyodide/report.docx", size: 2916 },
+			])
+		);
+		await waitForPersisted(artifactRunKey("analysis", 1, "build()"));
+
+		const state = store?.get(artifactRunKey("analysis", 1, "build()"));
+		expect(state?.status).toBe("done");
+
+		// The listing is not persisted: the worker filesystem dies with the
+		// page load, so a reload must not offer files that no longer exist.
+		const raw = JSON.parse(localStorage.getItem(ARTIFACT_RUNS_STORAGE_KEY) ?? "{}");
+		expect(raw[artifactRunKey("analysis", 1, "build()")].outputFiles).toBeUndefined();
+		clearArtifactRunsForTests();
+		expect(
+			getArtifactRunsStore()?.get(artifactRunKey("analysis", 1, "build()"))?.outputFiles
+		).toBeUndefined();
 	});
 });
