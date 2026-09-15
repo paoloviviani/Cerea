@@ -178,10 +178,7 @@ export async function reachableStore(
  * carry up to twenty ids, and the answer it needs is all-or-nothing — the
  * same rule `reachableStore` applies to a single id, applied to the batch.
  */
-export async function reachableStores(
-	storeIds: string[],
-	caller: Caller
-): Promise<VectorStore[]> {
+export async function reachableStores(storeIds: string[], caller: Caller): Promise<VectorStore[]> {
 	const ids = storeIds.map((id) => {
 		if (!/^[0-9a-f]{24}$/.test(id)) {
 			throw new KnowledgeError(404, `No such vector store: ${id}`);
