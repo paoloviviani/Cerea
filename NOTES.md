@@ -49,8 +49,23 @@ playwright container. Report mongo-spec status as "cannot execute on this host" 
 is written and waits for an AVX host / CI).
 
 ## Remaining
-- full `npm run test` (server+ssr) + full client suite in playwright container; fix any fallout
-- final report
+- (nothing — final verification done; see below for numbers)
+
+## Verification results (final)
+- `npm run check` (svelte-check): 0 errors, 0 warnings.
+- `npx eslint .`: clean. Prettier: all files authored/touched by this branch clean; NOTE
+  several PRE-EXISTING files on main (README.md, docs/*.md, ChatInput.svelte,
+  settings/(nav)/+layout.svelte) fail `prettier --check` with the current config — left
+  untouched to keep the branch scoped.
+- `npm run test` (server+ssr): 785 passed, 0 assertion failures; 54 test FILES cannot start
+  on this host (mongodb-memory-server needs AVX, mongod answers SIGILL — same for every
+  mongo spec repo-wide, incl. pre-existing ones). src/lib/server/knowledge/content.spec.ts
+  is among them: written per conventions, unverifiable on this host.
+- Client suite (playwright container): 262 passed / 1 failed — the 1 is
+  MarkdownRenderer "trailing setext heading in completed messages", which fails
+  IDENTICALLY on the pristine base commit c67a3264 (verified by checking out base src/).
+  Branch adds 15 passing tests incl. the real-browser Pyodide E2E (worker + vendored dist +
+  terminate path) and a Node integration test that boots the shipped dist.
 
 ## Facts learned (source-verified)
 
