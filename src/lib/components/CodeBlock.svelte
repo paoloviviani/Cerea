@@ -179,7 +179,7 @@
 		{@render codeFence()}
 	{/if}
 
-	<RunOutput state={runState} class="mx-3 mb-3" />
+	<RunOutput state={runState} class="mx-5 mb-3" />
 
 	{#if previewOpen}
 		<HtmlPreviewModal
