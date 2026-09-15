@@ -85,6 +85,16 @@ describe("the execute_code tool", () => {
 		}
 	});
 
+	it("says in its own description that the call goes through function calling", () => {
+		// Pinned beside the execution prompt's rule (executionPrompt.spec.ts):
+		// the description reaches models that never read the system prompt, and
+		// the recorded failure was a model writing the call into its reply as
+		// text because nothing anywhere said how the tool is invoked.
+		const description = createExecuteCodeBuiltin()[0]?.definition.function.description ?? "";
+		expect(description).toContain("function-calling mechanism, as a real");
+		expect(description).toContain("never by writing the call into your reply as text markup");
+	});
+
 	it("parks the turn on the browser and emits the code execution request", async () => {
 		const c = ctx();
 		const before = Date.now();

@@ -38,6 +38,10 @@ const mocks = vi.hoisted(() => ({
 		name: string;
 		url: string;
 	}>,
+	// The deployment's execute_code flag, readable per test: "true" mirrors the
+	// live deployment (where the recovery path is reachable), "false" pins the
+	// flag-off behavior.
+	codeToolEnabled: "true",
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
@@ -62,6 +66,11 @@ vi.mock("$lib/server/config", () => ({
 		EXA_API_KEY: "",
 		USE_USER_TOKEN: "false",
 		isHuggingChat: false,
+		// A getter, not a value: the flag is a per-test switch (see
+		// mocks.codeToolEnabled), and the mocked config object is shared.
+		get CHAT_CODE_TOOL_ENABLED() {
+			return mocks.codeToolEnabled;
+		},
 	},
 }));
 
@@ -250,6 +259,7 @@ beforeEach(() => {
 	mocks.mcpTools = [{ type: "function", function: { name: "do_thing" } }];
 	mocks.multimodalFlags = [];
 	mocks.servers = [{ name: "hf", url: "https://example.test/mcp" }];
+	mocks.codeToolEnabled = "true";
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
 });
@@ -747,7 +757,9 @@ describe("runMcpFlow offering the question tool", () => {
 	it("withholds it from a conversation outside the mode", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
-		expect(toolNames()).toEqual(["do_thing"]);
+		// execute_code rides on the deployment flag alone, outside the mode
+		// gating — which is why it is here at all with the flag forced on.
+		expect(toolNames()).toEqual(["execute_code", "do_thing"]);
 	});
 
 	it("engages the flow with builtin tools alone when MCP listing yields nothing", async () => {
@@ -763,10 +775,15 @@ describe("runMcpFlow offering the question tool", () => {
 			"sandbox_task",
 			"check_job",
 			"create_trackio",
+			"execute_code",
 		]);
 	});
 
 	it("still skips the flow outside the mode when no MCP server is selected", async () => {
+		// Flag off: with it on, execute_code alone is enough to engage the flow
+		// for an ordinary conversation, which is the deployment's reality — this
+		// test pins the skip when there is truly nothing to offer.
+		mocks.codeToolEnabled = "false";
 		mocks.servers = [];
 		const { result } = await runFlow();
 		expect(result).toBe("not_applicable");
@@ -1043,5 +1060,176 @@ describe("leaked tool-call markup", () => {
 
 		expect(mocks.create).toHaveBeenCalledTimes(1);
 		expect(finalAnswer(updates)).toContain("<do_thing_output>");
+	});
+});
+
+describe("leaked execute_code markup recovery", () => {
+	// Recorded live (2026-09-15, glm-5.3-flash through the gateway): the same
+	// prompt made a real execute_code call in one conversation and, in the next,
+	// wrote the call as reply markup twice across two turns — the leaked-markup
+	// correction above fired (the persisted stream/finalAnswer lengths show the
+	// replaced round) and the model still could not comply. Recovery parses the
+	// block out and dispatches it as an ordinary tool call, so the park/resume
+	// machinery, the card and the per-turn cap are the standard path's.
+	const LEAK =
+		'Let me compute that.\n\n<execute_code lang="python">\nprint(1 + 1)\n</execute_code>';
+
+	it("dispatches a leaked block as a real execute_code call", async () => {
+		scriptRounds([{ content: LEAK }, { content: "done" }]);
+
+		const { updates, result } = await runFlow();
+
+		expect(result).toBe("completed");
+		expect(mocks.executeToolCalls).toHaveBeenCalledTimes(1);
+		const [dispatch] = mocks.executeToolCalls.mock.calls[0][0].calls;
+		expect(dispatch.name).toBe("execute_code");
+		expect(dispatch.id).toBeTruthy();
+		expect(JSON.parse(dispatch.arguments)).toEqual({ code: "print(1 + 1)" });
+
+		// The follow-up round must see a proper tool call and its result — the
+		// same shape a compliant model produces — not the raw markup.
+		const followUp = requestMessages(1);
+		expect(followUp.at(-2)).toEqual({
+			role: "assistant",
+			content: expect.stringContaining("Let me compute that."),
+			tool_calls: [
+				{
+					id: dispatch.id,
+					type: "function",
+					function: { name: "execute_code", arguments: JSON.stringify({ code: "print(1 + 1)" }) },
+				},
+			],
+		});
+		expect(followUp.at(-1)).toEqual({
+			role: "tool",
+			tool_call_id: dispatch.id,
+			content: "tool ok",
+		});
+		expect(finalAnswer(updates)).toBe("done");
+	});
+
+	it("parks the turn when the recovered call waits on the browser", async () => {
+		mocks.executeToolCalls.mockImplementation(async function* ({
+			calls,
+		}: {
+			calls: Array<{ id: string; name: string }>;
+		}) {
+			for (const call of calls) {
+				yield {
+					type: "update" as const,
+					update: {
+						type: MessageUpdateType.Tool,
+						subtype: MessageToolUpdateType.Call,
+						uuid: call.id,
+						call: { name: call.name, parameters: { code: "print(1 + 1)" } },
+					},
+				};
+			}
+			yield {
+				type: "complete" as const,
+				summary: { toolMessages: [], toolRuns: [], awaitingInput: true },
+			};
+		});
+		scriptRounds([{ content: LEAK }]);
+
+		const { updates, result } = await runFlow();
+
+		// The recovered call parks exactly like a real one: the run ends waiting
+		// on the browser, and no FinalAnswer is emitted — the turn is not over.
+		expect(result).toBe("awaiting_input");
+		expect(updates.some((u) => u.type === MessageUpdateType.FinalAnswer)).toBe(false);
+		expect(
+			updates.some(
+				(u) => u.type === MessageUpdateType.Tool && u.subtype === MessageToolUpdateType.Call
+			)
+		).toBe(true);
+	});
+
+	it("leaves fenced markup alone and lets the leak correction handle it", async () => {
+		scriptRounds([
+			{
+				content:
+					'Like this:\n\n```python\n<execute_code lang="python">\nprint(1)\n</execute_code>\n```',
+			},
+			{ content: "Here is a clean answer." },
+		]);
+
+		const { updates, result } = await runFlow();
+
+		expect(result).toBe("completed");
+		expect(mocks.executeToolCalls).not.toHaveBeenCalled();
+		// The correction still fires — the markup names an advertised tool — but
+		// the illustration itself never runs.
+		expect(mocks.create).toHaveBeenCalledTimes(2);
+		expect(finalAnswer(updates)).toBe("Here is a clean answer.");
+	});
+
+	it("does nothing when the reply carries two blocks", async () => {
+		scriptRounds([
+			{ content: `${LEAK}\n\nAnd also:\n\n<execute_code>\nprint(2)\n</execute_code>` },
+			{ content: "Here is a clean answer." },
+		]);
+
+		const { result } = await runFlow();
+
+		expect(mocks.executeToolCalls).not.toHaveBeenCalled();
+		expect(mocks.create).toHaveBeenCalledTimes(2);
+		expect(result).toBe("completed");
+	});
+
+	it("recovers at most one call per run", async () => {
+		scriptRounds([
+			{ content: LEAK },
+			// The next leak is past the recovery budget: the correction is what
+			// answers it, and the second markup never runs.
+			{ content: LEAK },
+			{ content: "Here is a clean answer." },
+		]);
+
+		const { result } = await runFlow();
+
+		expect(result).toBe("completed");
+		expect(mocks.executeToolCalls).toHaveBeenCalledTimes(1);
+		expect(mocks.create).toHaveBeenCalledTimes(3);
+	});
+
+	it("keeps today's behavior when the deployment flag is off", async () => {
+		mocks.codeToolEnabled = "false";
+		scriptRounds([{ content: LEAK }]);
+
+		const { updates, result } = await runFlow();
+
+		// No advertised execute_code: no recovery, and no correction either — the
+		// markup is not a leaked call to any tool this run offered. The turn
+		// finalizes exactly as it did before recovery existed.
+		expect(result).toBe("completed");
+		expect(mocks.executeToolCalls).not.toHaveBeenCalled();
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(finalAnswer(updates)).toContain("<execute_code");
+	});
+
+	it("ignores a block the model only wrote inside its reasoning", async () => {
+		// The visible text carries no markup; only the reasoning does. Matching
+		// the raw reply would run code the model was merely thinking out loud
+		// about.
+		scriptRounds([
+			{
+				deltas: [
+					{ reasoning: "I will call it like this: <execute_code>print(1)</execute_code>." },
+					{ content: "Let me compute that." },
+				],
+			},
+			{ content: "Here is a clean answer." },
+		]);
+
+		const { updates, result } = await runFlow();
+
+		expect(result).toBe("completed");
+		expect(mocks.executeToolCalls).not.toHaveBeenCalled();
+		// Neither the recovery nor the leak correction sees reasoning text: the
+		// round simply finalizes its visible answer. (The mocked final answer
+		// carries the reasoning inline, as every think-bearing round here does.)
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(finalAnswer(updates)).toContain("Let me compute that.");
 	});
 });

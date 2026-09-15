@@ -98,7 +98,10 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 					name: EXECUTE_CODE_TOOL_NAME,
 					description:
 						"Run a Python snippet in the person's own browser sandbox and read the " +
-						"result, so you can iterate: run, read the output, fix, run again. The " +
+						"result, so you can iterate: run, read the output, fix, run again. " +
+						"Invoke this tool through the function-calling mechanism, as a real " +
+						"tool call — never by writing the call into your reply as text markup, " +
+						"which runs nothing and leaves the person with broken markup. The " +
 						"engine is the same sandbox the code blocks run in: Python with the " +
 						"STANDARD LIBRARY ONLY (zipfile, csv, json, sqlite3, xml, ...), no " +
 						"network access, no pip, no third-party packages — imports beyond the " +
