@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
 		type: string;
 		function: { name: string };
 	}>,
+	// Every isMultimodal value the flow passed to message preparation, in order.
+	multimodalFlags: [] as Array<unknown>,
 	servers: [{ name: "hf", url: "https://example.test/mcp" }] as Array<{
 		name: string;
 		url: string;
@@ -89,8 +91,14 @@ vi.mock("./routerResolution", () => ({
 vi.mock("./toolInvocation", () => ({ executeToolCalls: mocks.executeToolCalls }));
 
 vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
-	prepareMessagesWithFiles: async (messages: Array<{ from: string; content: string }>) =>
-		messages.map((m) => ({ role: m.from, content: m.content })),
+	prepareMessagesWithFiles: async (
+		messages: Array<{ from: string; content: string }>,
+		_processor: unknown,
+		isMultimodal: unknown
+	) => {
+		mocks.multimodalFlags.push(isMultimodal);
+		return messages.map((m) => ({ role: m.from, content: m.content }));
+	},
 }));
 
 vi.mock("$lib/server/endpoints/images", () => ({ makeImageProcessor: () => () => undefined }));
@@ -240,6 +248,7 @@ beforeEach(() => {
 	mocks.executeToolCalls.mockReset();
 	mocks.getAbortTime.mockReset();
 	mocks.mcpTools = [{ type: "function", function: { name: "do_thing" } }];
+	mocks.multimodalFlags = [];
 	mocks.servers = [{ name: "hf", url: "https://example.test/mcp" }];
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
@@ -649,6 +658,72 @@ describe("runMcpFlow in-loop reasoning echo", () => {
 
 		const message = toolCallMessage(1);
 		expect(message && "reasoning_content" in message).toBe(false);
+	});
+});
+
+describe("runMcpFlow capability overrides", () => {
+	it("skips the flow when the user turns tools off for a tools-advertised model", async () => {
+		scriptRounds([{ content: "the answer" }]);
+
+		const { result } = await runFlow({ forceTools: false });
+
+		expect(result).toBe("not_applicable");
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+
+	it("runs the flow when the user turns tools on for a model advertising none", async () => {
+		scriptRounds([{ content: "the answer" }]);
+
+		const { result } = await runFlow({
+			forceTools: true,
+			model: { ...context().model, supportsTools: false },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(result).toBe("completed");
+		expect(mocks.create).toHaveBeenCalled();
+	});
+
+	it("still skips the flow for a model advertising no tools and no override", async () => {
+		scriptRounds([{ content: "the answer" }]);
+
+		const { result } = await runFlow({
+			model: { ...context().model, supportsTools: false },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(result).toBe("not_applicable");
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+
+	it("excludes images when the user turns image input off for a multimodal model", async () => {
+		scriptRounds([{ content: "the answer" }]);
+
+		await runFlow({
+			forceMultimodal: false,
+			model: { ...context().model, multimodal: true },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(mocks.multimodalFlags.at(-1)).toBe(false);
+	});
+
+	it("sends images when the user turns image input on for a model advertising none", async () => {
+		scriptRounds([{ content: "the answer" }]);
+
+		await runFlow({
+			forceMultimodal: true,
+			model: { ...context().model, multimodal: false },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(mocks.multimodalFlags.at(-1)).toBe(true);
+	});
+
+	it("keeps the advertised multimodal value without an override", async () => {
+		scriptRounds([{ content: "the answer" }]);
+
+		await runFlow({
+			model: { ...context().model, multimodal: true },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(mocks.multimodalFlags.at(-1)).toBe(true);
 	});
 });
 

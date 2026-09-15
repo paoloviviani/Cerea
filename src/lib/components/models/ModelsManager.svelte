@@ -489,8 +489,9 @@
 						{/each}
 					</div>
 					<p class={s.HINT}>
-						What the gateway advertises for this model is the default. These switches override it,
-						for a model whose catalogue entry is wrong or incomplete.
+						What the gateway advertises for this model is the default. These switches override it in
+						either direction — turning one off disables the capability even where advertised — for a
+						model whose catalogue entry is wrong or incomplete.
 					</p>
 				</div>
 
@@ -500,7 +501,7 @@
 						<li>
 							• These are <strong>your</strong> settings for this model, not the deployment's.
 						</li>
-						<li>• They take effect on conversations you start from now on.</li>
+						<li>• They take effect on new turns, including in conversations already open.</li>
 					</ul>
 				</div>
 			</div>

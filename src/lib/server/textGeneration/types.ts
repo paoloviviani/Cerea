@@ -13,9 +13,9 @@ export interface TextGenerationContext {
 	promptedAt: Date;
 	ip: string;
 	username?: string;
-	/** Force-enable multimodal handling for endpoints that support it */
+	/** Per-model user override for multimodal; wins over the model's advertised flag in both directions */
 	forceMultimodal?: boolean;
-	/** Force-enable tool calling even if model does not advertise support */
+	/** Per-model user override for tool calling; wins over the model's advertised flag in both directions */
 	forceTools?: boolean;
 	/** Inference provider preference: "auto", "fastest", "cheapest", or a specific provider name */
 	provider?: string;
