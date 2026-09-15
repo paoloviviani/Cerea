@@ -234,9 +234,8 @@ export async function projectContext(options: {
 			// The conversation's own bases say "this conversation's knowledge":
 			// with no project there is no project to name, and with both, the
 			// project's bases belong to this conversation anyway.
-			const source = conversationBases.length > 0
-				? "this conversation's knowledge"
-				: "this project's knowledge";
+			const source =
+				conversationBases.length > 0 ? "this conversation's knowledge" : "this project's knowledge";
 			parts.push(
 				`The following passages come from ${source}. Use them where ` +
 					"they are relevant and say which one you used; ignore them where they are " +
@@ -404,15 +403,11 @@ export async function knowledgeBaseViews(
 	ids: string[] | undefined
 ): Promise<{ id: string; name: string }[]> {
 	if (!ids || ids.length === 0) return [];
-	const objectIds = ids
-		.filter((id) => ObjectId.isValid(id))
-		.map((id) => new ObjectId(id));
+	const objectIds = ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
 	if (objectIds.length === 0) return [];
 	const rows = await collections.vectorStores
 		.find({ _id: { $in: objectIds } }, { projection: { name: 1 } })
 		.toArray();
 	const names = new Map(rows.map((row) => [row._id.toString(), row.name]));
-	return ids
-		.filter((id) => names.has(id))
-		.map((id) => ({ id, name: names.get(id) as string }));
+	return ids.filter((id) => names.has(id)).map((id) => ({ id, name: names.get(id) as string }));
 }
