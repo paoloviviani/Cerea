@@ -100,6 +100,16 @@
 				runState.status === "running" ||
 				runState.status === "queued")
 	);
+
+	/**
+	 * File-first presentation, guarded: when the run produced files, the file
+	 * is (at least part of) the deliverable, so the code folds behind a
+	 * disclosure and the RunOutput files below carry the result. When the run
+	 * produced no files the code IS the deliverable and renders exactly as
+	 * before — nothing is ever removed, only folded, and one click restores
+	 * it.
+	 */
+	let generatedFileCount = $derived(runState?.outputFiles?.length ?? 0);
 </script>
 
 <div class="group relative my-4 rounded-lg">
@@ -150,9 +160,24 @@
 			/>
 		</div>
 	</div>
-	<pre class="scrollbar-custom overflow-auto px-5 font-mono transition-[height]"><code
-			><!-- eslint-disable svelte/no-at-html-tags -->{@html sanitizedCode}</code
-		></pre>
+	{#snippet codeFence()}
+		<pre class="scrollbar-custom overflow-auto px-5 font-mono transition-[height]"><code
+				><!-- eslint-disable svelte/no-at-html-tags -->{@html sanitizedCode}</code
+			></pre>
+	{/snippet}
+
+	{#if generatedFileCount > 0}
+		<details
+			class="mx-5 mb-2 rounded-lg border border-gray-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700/70 dark:text-gray-400"
+		>
+			<summary class="cursor-pointer">
+				View code · {generatedFileCount} generated file{generatedFileCount === 1 ? "" : "s"} below
+			</summary>
+			<div class="pt-1">{@render codeFence()}</div>
+		</details>
+	{:else}
+		{@render codeFence()}
+	{/if}
 
 	<RunOutput state={runState} class="mx-3 mb-3" />
 

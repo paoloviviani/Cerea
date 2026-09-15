@@ -2,9 +2,7 @@
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import CarbonWarningAlt from "~icons/carbon/warning-alt";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
-	import CarbonDownload from "~icons/carbon/download";
-	import CarbonDocument from "~icons/carbon/document";
-	import { getExecutionSession } from "$lib/utils/execution/runtime";
+	import FileCard from "./FileCard.svelte";
 	import type { RunState } from "$lib/utils/execution/runs.svelte";
 
 	/**
@@ -22,54 +20,6 @@
 	// Bound off `state`: a `state` binding in scope turns every `$state` rune
 	// into a store reference (store_rune_conflict), so the runes below would
 	// stop compiling. Call sites still pass `state={...}`.
-
-	let downloading = $state<string | null>(null);
-	let downloadError = $state<string | null>(null);
-
-	function formatSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	}
-
-	/**
-	 * Pull one runtime file out of the sandbox and hand it to the browser as
-	 * a download. The bytes travel as a transferable ArrayBuffer — never
-	 * through the capped text output — and land in a blob URL the anchor
-	 * consumes, so nothing generated lingers in a readable page context.
-	 */
-	async function downloadFile(path: string): Promise<void> {
-		const session = getExecutionSession();
-		if (!session) return;
-		downloading = path;
-		downloadError = null;
-		try {
-			const data = await session.readFile(path);
-			const name = path.split("/").pop() || "download";
-			const url = URL.createObjectURL(new Blob([data]));
-			try {
-				const link = window.document.createElement("a");
-				link.href = url;
-				link.download = name;
-				link.rel = "noopener";
-				window.document.body.appendChild(link);
-				link.click();
-				link.remove();
-			} finally {
-				URL.revokeObjectURL(url);
-			}
-		} catch (err) {
-			// The worker filesystem dies with the page load: a file listed by
-			// an earlier run may be gone already, and re-running the code is
-			// the way back — the message says exactly that.
-			downloadError =
-				err instanceof Error
-					? err.message
-					: "that file is no longer in the runtime; run the code again to recreate it";
-		} finally {
-			downloading = null;
-		}
-	}
 
 	let spinner = $derived(
 		!!runState &&
@@ -145,29 +95,9 @@
 						</div>
 						<ul class="space-y-1">
 							{#each runState.outputFiles as file (file.path)}
-								<li
-									class="flex items-center gap-2 rounded-lg bg-gray-100 px-2 py-1.5 text-xs dark:bg-gray-800/70"
-								>
-									<CarbonDocument class="size-3.5 shrink-0 text-gray-400" />
-									<span class="min-w-0 flex-1 truncate font-mono" title={file.path}>
-										{file.path.split("/").pop()}
-									</span>
-									<span class="shrink-0 text-gray-400">{formatSize(file.size)}</span>
-									<button
-										onclick={() => downloadFile(file.path)}
-										disabled={downloading === file.path}
-										class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-400"
-										aria-label={`Download ${file.path.split("/").pop()}`}
-									>
-										<CarbonDownload class="size-3.5" />
-										{downloading === file.path ? "…" : "Download"}
-									</button>
-								</li>
+								<FileCard {file} />
 							{/each}
 						</ul>
-						{#if downloadError}
-							<p class="text-xs text-amber-600 dark:text-amber-400">{downloadError}</p>
-						{/if}
 					</div>
 				{/if}
 			</div>
