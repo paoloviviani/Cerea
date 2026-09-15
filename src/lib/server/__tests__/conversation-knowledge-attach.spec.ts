@@ -59,7 +59,6 @@ afterEach(async () => {
 	createdConvIds.length = 0;
 });
 
-
 async function makeBase(owner: ObjectId, id: string, name = "A base"): Promise<void> {
 	const now = new Date();
 	const base: VectorStore = {
