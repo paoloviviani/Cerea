@@ -117,6 +117,8 @@
 		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		draft?: string;
+		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
+		knowledgeBases?: { id: string; name: string }[];
 	}
 
 	let {
@@ -135,6 +137,7 @@
 		onstop,
 		onretry,
 		onshowAlternateMsg,
+		knowledgeBases = $bindable([]),
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
@@ -1179,6 +1182,7 @@
 										{loading}
 										bind:value={draft}
 										bind:files
+										bind:knowledgeBases
 										mimeTypes={activeMimeTypes}
 										onsubmit={handleSubmit}
 										{onPaste}

@@ -11,10 +11,11 @@
 	import CarbonLink from "~icons/carbon/link";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import CarbonClose from "~icons/carbon/close";
-import UrlFetchModal from "./UrlFetchModal.svelte";
-import { useSettingsStore } from "$lib/stores/settings";
-import CarbonEarth from "~icons/carbon/earth";
-import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
+	import LucideLibrary from "~icons/lucide/library";
+	import UrlFetchModal from "./UrlFetchModal.svelte";
+	import { useSettingsStore } from "$lib/stores/settings";
+	import CarbonEarth from "~icons/carbon/earth";
+	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
 	import MCPServerManager from "$lib/components/mcp/MCPServerManager.svelte";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
@@ -39,6 +40,9 @@ import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constant
 	import { getCaretCoordinates } from "$lib/utils/caretCoordinates";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { page } from "$app/state";
+	import { base } from "$app/paths";
+	import { gwGet, GatewayError, type VectorStore } from "$lib/gateway";
+	import { error as errorToast } from "$lib/stores/errors";
 
 	interface Props {
 		files?: File[];
@@ -53,6 +57,11 @@ import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constant
 		modelSupportsTools?: boolean;
 		// Offers the ML Intern mode switch beside the MCP pill (empty conversations only)
 		showMlPill?: boolean;
+		// Knowledge bases attached to THIS conversation, as {id, name} pairs.
+		// Bindable: the toggle updates it optimistically, and on the home page —
+		// where no conversation exists to PATCH — the list rides into the
+		// create-conversation body instead.
+		knowledgeBases?: { id: string; name: string }[];
 		children?: import("svelte").Snippet;
 		onPaste?: (e: ClipboardEvent) => void;
 		focused?: boolean;
@@ -70,6 +79,7 @@ import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constant
 		modelIsMultimodal = false,
 		modelSupportsTools = true,
 		showMlPill = false,
+		knowledgeBases = $bindable([]),
 		children,
 		onPaste,
 		focused = $bindable(false),
@@ -127,6 +137,75 @@ import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constant
 	let isUrlModalOpen = $state(false);
 	let isMcpManagerOpen = $state(false);
 	let isDropdownOpen = $state(false);
+
+	// Knowledge bases attachable to THIS conversation. The picker lists what
+	// the person can reach (`GET /api/v2/gateway/vector_stores` is already
+	// filtered to the caller's own access server-side), fetched when the
+	// submenu opens so a base created moments ago is offered immediately.
+	let knowledgeStores = $state<VectorStore[] | null>(null);
+	let knowledgeStoresLoading = $state(false);
+	let knowledgeStoresFailed = $state(false);
+
+	const signedIn = $derived(Boolean(page.data.user));
+
+	async function loadKnowledgeStores() {
+		if (knowledgeStoresLoading) return;
+		knowledgeStoresLoading = true;
+		knowledgeStoresFailed = false;
+		try {
+			knowledgeStores = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data;
+		} catch (err) {
+			if (err instanceof GatewayError) {
+				// The bases list failing to load must not break the menu: it is the
+				// same judgement the project dialog makes ("not fatal"), and the
+				// submenu says so rather than pretending there is nothing.
+				knowledgeStoresFailed = true;
+			} else {
+				throw err;
+			}
+		} finally {
+			knowledgeStoresLoading = false;
+		}
+	}
+
+	function isBaseAttached(id: string): boolean {
+		return knowledgeBases.some((base) => base.id === id);
+	}
+
+	async function toggleKnowledgeBase(store: VectorStore, checked: boolean) {
+		const previous = knowledgeBases;
+		const next = checked
+			? [...knowledgeBases, { id: store.id, name: store.name }]
+			: knowledgeBases.filter((base) => base.id !== store.id);
+		knowledgeBases = next;
+
+		// No conversation yet: the create request carries the ids, so the base
+		// is attached before the first turn is ever generated.
+		if (!page.params.id) return;
+
+		try {
+			const response = await fetch(`${base}/conversation/${page.params.id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ knowledgeBaseIds: next.map((base) => base.id) }),
+			});
+			if (!response.ok) {
+				let message = "Failed to update knowledge bases";
+				try {
+					message = ((await response.json()) as { message?: string }).message ?? message;
+				} catch {
+					// not JSON
+				}
+				throw new Error(message);
+			}
+		} catch (err) {
+			// Roll back the optimistic toggle so the checkmark never claims an
+			// attachment the server refused; the turn's retrieval would silently
+			// miss the base otherwise.
+			knowledgeBases = previous;
+			errorToast.set(err instanceof Error ? err.message : "Failed to update knowledge bases");
+		}
+	}
 
 	function openPickerWithAccept(accept: string) {
 		if (!fileInputEl) return;
@@ -445,8 +524,7 @@ import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constant
 					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
 				aria-pressed={$settings.webSearchEnabled}
 				title="Search the web through this deployment's search backends"
-				onclick={() =>
-					settings.instantSet({ webSearchEnabled: !$settings.webSearchEnabled })}
+				onclick={() => settings.instantSet({ webSearchEnabled: !$settings.webSearchEnabled })}
 			>
 				<CarbonEarth class="size-3.5" />
 				Web search
@@ -608,6 +686,98 @@ import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constant
 										</DropdownMenu.Item>
 									</DropdownMenu.SubContent>
 								</DropdownMenu.Sub>
+
+								<!-- Knowledge bases submenu: attach to THIS conversation, in
+								     addition to any bases its project carries. Signed-in only,
+								     since retrieval runs as the reader. -->
+								{#if signedIn}
+									<DropdownMenu.Sub
+										onOpenChange={(open) => {
+											if (open) void loadKnowledgeStores();
+										}}
+									>
+										<DropdownMenu.SubTrigger
+											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
+										>
+											<div class="flex items-center gap-1">
+												<LucideLibrary class="size-4 opacity-90 dark:opacity-80" />
+												Knowledge bases
+												{#if knowledgeBases.length > 0}
+													<span
+														class="rounded-md bg-blue-600/10 px-1.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
+													>
+														{knowledgeBases.length}
+													</span>
+												{/if}
+											</div>
+											<div class="ml-auto flex items-center">
+												<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
+											</div>
+										</DropdownMenu.SubTrigger>
+										<DropdownMenu.SubContent
+											class="z-50 scrollbar-custom max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+											sideOffset={10}
+											trapFocus={false}
+											onCloseAutoFocus={(e) => e.preventDefault()}
+											interactOutsideBehavior="defer-otherwise-close"
+										>
+											{#if knowledgeStoresLoading}
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+													disabled
+												>
+													Loading knowledge bases…
+												</DropdownMenu.Item>
+											{:else if knowledgeStoresFailed}
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+													disabled
+												>
+													Could not load knowledge bases
+												</DropdownMenu.Item>
+											{:else if !knowledgeStores || knowledgeStores.length === 0}
+												<DropdownMenu.Item
+													class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+													disabled
+												>
+													No knowledge bases yet. Create one from the Knowledge screen.
+												</DropdownMenu.Item>
+											{:else}
+												{#each knowledgeStores as store (store.id)}
+													<DropdownMenu.CheckboxItem
+														checked={isBaseAttached(store.id)}
+														onCheckedChange={(checked) => toggleKnowledgeBase(store, checked)}
+														closeOnSelect={false}
+														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+													>
+														{#snippet children({ checked })}
+															<LucideLibrary class="size-4 shrink-0 opacity-90 dark:opacity-80" />
+															<span class="max-w-52 truncate py-1" title={store.description}>
+																{store.name}
+															</span>
+															<div class="ml-auto flex items-center">
+																<!-- Toggle visual -->
+																<span
+																	class={[
+																		"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+																		checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
+																	]}
+																>
+																	<span
+																		class={[
+																			"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+																			checked ? "translate-x-[14px]" : "translate-x-0.5",
+																		]}
+																	></span>
+																</span>
+															</div>
+														{/snippet}
+													</DropdownMenu.CheckboxItem>
+												{/each}
+											{/if}
+										</DropdownMenu.SubContent>
+									</DropdownMenu.Sub>
+								{/if}
 							</DropdownMenu.Content>
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>

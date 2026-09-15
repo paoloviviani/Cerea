@@ -28,6 +28,10 @@
 	let hasModels = $derived(Boolean(data.models?.length));
 	let files: File[] = $state([]);
 	let draft = $state("");
+	// Bases picked from the composer's knowledge submenu while no conversation
+	// exists yet: they ride into the create request, so the conversation is
+	// attached before its first turn is ever generated.
+	let knowledgeBases: { id: string; name: string }[] = $state([]);
 
 	const settings = useSettingsStore();
 
@@ -60,6 +64,7 @@
 				// The composer latches the mode before handing the message over, so
 				// the conversation this creates is marked with it from the start.
 				mlAssistant: mlAssistant.taskStarted,
+				knowledgeBaseIds: knowledgeBases.map((base) => base.id),
 			});
 
 			let res = await fetch(`${base}/conversation`, {
@@ -203,6 +208,7 @@
 		models={data.models}
 		bind:files
 		bind:draft
+		bind:knowledgeBases
 	/>
 {:else}
 	<div class="mx-auto my-20 max-w-xl rounded-xl border p-6 text-center dark:border-gray-700">

@@ -20,6 +20,8 @@ export interface ConversationData {
 	mlAssistant?: boolean;
 	mlBudget?: MlBudget;
 	plan?: PlanState;
+	/** Bases attached to this conversation, resolved to names for the composer. */
+	knowledgeBases?: { id: string; name: string }[];
 	turnState?: TurnStateSnapshot;
 }
 
