@@ -3,6 +3,7 @@ import { ExecutionError, ExecutionSession, type ExecutionWorkerLike } from "./ru
 import {
 	MAX_FILE_BYTES,
 	MAX_OUTPUT_CHARS,
+	isCleanSystemExit,
 	safeMountName,
 	clampOutput,
 	type HostToWorker,
@@ -233,6 +234,47 @@ describe("ExecutionSession", () => {
 		await expect(promise).rejects.toMatchObject({ kind: "load" });
 		expect(session.status).toBe("broken");
 	});
+
+	it("lists runtime files and reads one back for download", async () => {
+		const session = new ExecutionSession({ spawn });
+		const listing = session.listFiles();
+		await flush();
+		const listSent = worker.received[worker.received.length - 1];
+		expect(listSent?.type).toBe("listFiles");
+		worker.emit({
+			type: "filesListed",
+			id: listSent?.id ?? -1,
+			files: [{ path: "/home/pyodide/report.docx", size: 2916 }],
+		});
+		await expect(listing).resolves.toEqual([{ path: "/home/pyodide/report.docx", size: 2916 }]);
+
+		const reading = session.readFile("/home/pyodide/report.docx");
+		await flush();
+		const readSent = worker.received[worker.received.length - 1];
+		expect(readSent?.type).toBe("readFile");
+		const bytes = new Uint8Array([80, 75, 3, 4]).buffer;
+		worker.emit({
+			type: "fileData",
+			id: readSent?.id ?? -1,
+			path: "/home/pyodide/report.docx",
+			data: bytes,
+		});
+		await expect(reading).resolves.toBe(bytes);
+	});
+
+	it("turns a worker-side file refusal into an ExecutionError", async () => {
+		const session = new ExecutionSession({ spawn });
+		const reading = session.readFile("/etc/passwd");
+		await flush();
+		const sent = worker.received[worker.received.length - 1];
+		worker.emit({
+			type: "fileData",
+			id: sent?.id ?? -1,
+			path: "/etc/passwd",
+			error: "only /home/pyodide and /mnt/data files can be downloaded",
+		});
+		await expect(reading).rejects.toMatchObject({ kind: "worker" });
+	});
 });
 
 describe("protocol helpers", () => {
@@ -251,6 +293,25 @@ describe("protocol helpers", () => {
 		expect(clamped.length).toBeLessThanOrEqual(MAX_OUTPUT_CHARS);
 		expect(clamped.endsWith("[output truncated]")).toBe(true);
 		expect(clampOutput("short")).toBe("short");
+	});
+
+	it("recognizes only a clean interpreter exit as success", () => {
+		const clean = (code: string) =>
+			`Traceback (most recent call last):\n  File "<exec>", line 1, in <module>\n${code}`;
+		expect(isCleanSystemExit(clean("SystemExit: 0"))).toBe(true);
+		expect(isCleanSystemExit(clean("SystemExit"))).toBe(true);
+		expect(isCleanSystemExit(clean("SystemExit: None"))).toBe(true);
+		expect(isCleanSystemExit(clean("SystemExit: 1"))).toBe(false);
+		expect(isCleanSystemExit(clean("SystemExit: nope"))).toBe(false);
+		expect(isCleanSystemExit(clean("ValueError: boom"))).toBe(false);
+		// A *mention* of a clean exit inside another error's text is not one:
+		// the verdict reads the traceback's final line only.
+		expect(
+			isCleanSystemExit(
+				'ValueError: saw "SystemExit: 0" in the log\nTraceback: ...\nValueError: boom'
+			)
+		).toBe(false);
+		expect(isCleanSystemExit("")).toBe(false);
 	});
 });
 

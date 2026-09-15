@@ -49,6 +49,11 @@ thread never executes model-written code and runaway code is killable.
 - **Files**: anything loaded into the runtime is capped at 50 MB, checked
   before the bytes leave the page (Content-Length / stream abort), and
   re-checked in the worker. Files mount read-write under `/mnt/data`.
+  The other direction works too: files a run writes to the working directory
+  are listed under the run's output and downloadable from there — the worker
+  reads them back as transferable bytes, never through the capped text
+  output, and only from the working directory or `/mnt/data`. A clean
+  `sys.exit(0)` at the end of a script is reported as success, not an error.
 
 ## What artifacts may and may not do
 

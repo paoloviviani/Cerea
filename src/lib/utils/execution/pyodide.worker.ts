@@ -1,12 +1,16 @@
 /// <reference lib="webworker" />
 import {
 	clampOutput,
+	EXECUTION_CWD,
+	isCleanSystemExit,
 	MAX_FILE_BYTES,
+	MAX_LISTED_FILES,
 	MOUNT_ROOT,
 	pyodideBasePath,
 	safeMountName,
 	type HostToWorker,
 	type RunOutcome,
+	type RuntimeFile,
 	type WorkerToHost,
 } from "./protocol";
 import { installNetworkGate } from "./gate";
@@ -33,6 +37,7 @@ interface WorkerScope {
 	location: { origin: string };
 	postMessage: (message: WorkerToHost, transfer?: Transferable[]) => void;
 	onmessage: ((event: MessageEvent<HostToWorker>) => void) | null;
+	addEventListener?: (type: string, listener: (event: Event) => void) => void;
 	fetch: typeof fetch;
 }
 
@@ -51,6 +56,7 @@ export function bootstrapWorker(
 	// The gate first: it must be watching before anything, including the
 	// interpreter import, can move a byte.
 	installNetworkGate(scope as unknown as typeof globalThis);
+	guardCleanExitRejection(scope);
 
 	let pyodidePromise: Promise<PyodideAPI> | null = null;
 	let stdoutBuffer: string[] = [];
@@ -58,6 +64,25 @@ export function bootstrapWorker(
 
 	function post(message: WorkerToHost, transfer?: Transferable[]): void {
 		scope.postMessage(message, transfer ?? []);
+	}
+
+	/**
+	 * Swallow Pyodide's stray duplicate of a clean interpreter exit. A
+	 * `sys.exit(0)` rejects `runPythonAsync` — which the run handler verdicts
+	 * — and *also* escapes through the interpreter's internal event loop as a
+	 * second rejection nothing can await. Left alone it logs as an unhandled
+	 * rejection for a script that worked. Only the clean-exit shape is
+	 * stopped here, with the same predicate as the verdict; every other
+	 * rejection still surfaces.
+	 */
+	function guardCleanExitRejection(scope: WorkerScope): void {
+		if (typeof scope.addEventListener !== "function") return;
+		scope.addEventListener("unhandledrejection", (event: Event) => {
+			const rejection = event as PromiseRejectionEvent;
+			const reason = rejection.reason as unknown;
+			const message = reason instanceof Error ? reason.message : String(reason ?? "");
+			if (isCleanSystemExit(message)) rejection.preventDefault();
+		});
 	}
 
 	function resolveIndexURL(): string {
@@ -192,7 +217,16 @@ export function bootstrapWorker(
 			const result = await py.runPythonAsync(code);
 			outcome = { ok: true, ...drainBuffers(), result: reprResult(result) };
 		} catch (err) {
-			outcome = { ok: false, ...drainBuffers(), error: describeError(err) };
+			const message = describeError(err);
+			// A clean interpreter exit is a success the runner used to paint as
+			// an error: `sys.exit(0)` rejects runPythonAsync with a traceback
+			// ending in `SystemExit: 0`, and the ERROR block it produced sent
+			// people debugging a script that had worked.
+			if (isCleanSystemExit(message)) {
+				outcome = { ok: true, ...drainBuffers(), result: undefined };
+			} else {
+				outcome = { ok: false, ...drainBuffers(), error: message };
+			}
 		}
 		post({ type: "result", id, ...outcome });
 	}
@@ -266,12 +300,107 @@ export function bootstrapWorker(
 		}
 	}
 
+	/**
+	 * Whether the UI may read this path back out of the runtime. Generated
+	 * files land in the working directory; mounted inputs live under the
+	 * mount root. Everything else is interpreter state, not user output, and
+	 * `..` never resolves anywhere — the check is on the raw string, before
+	 * the FS normalizes anything.
+	 */
+	function readablePath(path: string): boolean {
+		if (!path.startsWith("/") || path.includes("..")) return false;
+		return path.startsWith(`${EXECUTION_CWD}/`) || path.startsWith(`${MOUNT_ROOT}/`);
+	}
+
+	async function listFiles(id: number): Promise<void> {
+		try {
+			const py = await getPyodide();
+			const found: RuntimeFile[] = [];
+			const walk = (dir: string): void => {
+				if (found.length >= MAX_LISTED_FILES) return;
+				let entries: string[];
+				try {
+					entries = py.FS.readdir(dir);
+				} catch {
+					return;
+				}
+				for (const entry of entries) {
+					if (found.length >= MAX_LISTED_FILES) return;
+					if (entry === "." || entry === "..") continue;
+					const full = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
+					let mode: number | undefined;
+					let size = 0;
+					try {
+						const st = py.FS.stat(full);
+						mode = st.mode;
+						size = st.size;
+					} catch {
+						continue;
+					}
+					if (mode !== undefined && py.FS.isDir(mode)) walk(full);
+					else found.push({ path: full, size });
+				}
+			};
+			walk(EXECUTION_CWD);
+			post({ type: "filesListed", id, files: found });
+		} catch (err) {
+			post({
+				type: "result",
+				id,
+				ok: false,
+				stdout: "",
+				stderr: "",
+				error: describeError(err),
+			});
+		}
+	}
+
+	async function readFile(id: number, path: string): Promise<void> {
+		if (!readablePath(path)) {
+			post({
+				type: "fileData",
+				id,
+				path,
+				error: `only ${EXECUTION_CWD} and ${MOUNT_ROOT} files can be downloaded`,
+			});
+			return;
+		}
+		try {
+			const py = await getPyodide();
+			let size = 0;
+			try {
+				size = py.FS.stat(path).size;
+			} catch {
+				post({ type: "fileData", id, path, error: `no such file: ${path}` });
+				return;
+			}
+			if (size > MAX_FILE_BYTES) {
+				post({
+					type: "fileData",
+					id,
+					path,
+					error: `${path} is larger than the 50 MB runtime cap`,
+				});
+				return;
+			}
+			// slice() copies into an exactly-sized buffer: the FS view's own
+			// buffer may span a larger allocation, and the whole thing would
+			// transfer otherwise.
+			const data = py.FS.readFile(path).slice().buffer as ArrayBuffer;
+			post({ type: "fileData", id, path, data }, [data]);
+		} catch (err) {
+			post({ type: "fileData", id, path, error: describeError(err) });
+		}
+	}
+
 	scope.onmessage = (event: MessageEvent<HostToWorker>) => {
 		const data = event.data;
 		if (!data || typeof data !== "object") return;
 		if (data.type === "run") void run(data.id, data.code);
 		if (data.type === "loadFiles") void loadFiles(data.id, data.files);
 		if (data.type === "removeFile") void removeFile(data.id, data.path);
+		if (data.type === "listFiles") void listFiles(data.id);
+		if (data.type === "readFile") void readFile(data.id, data.path);
 	};
 }
 

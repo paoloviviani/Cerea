@@ -31,6 +31,19 @@ export function pyodideBasePath(baseUrl: string | undefined): string {
 export const MOUNT_ROOT = "/mnt/data";
 
 /**
+ * The runtime's working directory: where executed code lands when it writes a
+ * relative path, so where generated files (a .docx, a .png, a .csv) appear.
+ * Files only flow host → worker today through `loadFiles`; this is the
+ * directory the new `listFiles`/`readFile` pair reads back, which is what
+ * makes a generated file downloadable instead of stranded in the sandbox.
+ */
+export const EXECUTION_CWD = "/home/pyodide";
+
+/** How many files one listing returns at most; a runaway generator that emits
+ * thousands of shards is a UI problem, not 200 honest outputs. */
+export const MAX_LISTED_FILES = 200;
+
+/**
  * Hard cap on any single file entering the runtime, in bytes (50 MiB).
  * Enforced before download on the host (Content-Length / stream abort) and
  * re-checked in the worker, so an oversized file is refused by name, never
@@ -46,6 +59,32 @@ export const LOAD_TIMEOUT_MS = 90_000;
 
 /** A captured output larger than this is truncated with a marker. */
 export const MAX_OUTPUT_CHARS = 8_000;
+
+/** One file the runtime holds: absolute sandbox path and byte size. */
+export interface RuntimeFile {
+	path: string;
+	size: number;
+}
+
+/**
+ * Whether a worker-reported error is really a clean interpreter exit.
+ * `sys.exit(0)` (or a bare `sys.exit()`) rejects `runPythonAsync` with a
+ * traceback ending in `SystemExit: 0` — a success the runner must not paint
+ * as an error. Anything with a nonzero code stays a failure. Matched on the
+ * traceback's final line so a *mention* of SystemExit inside another error's
+ * text cannot launder it.
+ */
+export function isCleanSystemExit(message: string): boolean {
+	const lines = message
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const last = lines[lines.length - 1] ?? "";
+	const match = /^SystemExit(?::\s*(.*))?$/.exec(last);
+	if (!match) return false;
+	const code = (match[1] ?? "").trim();
+	return code === "" || code === "None" || /^0(\.0+)?$/.test(code);
+}
 
 /** The outcome of one executed snippet. `result` is the repr of the last expression. */
 export interface RunOutcome {
@@ -63,7 +102,9 @@ export type HostToWorker =
 			id: number;
 			files: Array<{ name: string; data: ArrayBuffer | string }>;
 	  }
-	| { type: "removeFile"; id: number; path: string };
+	| { type: "removeFile"; id: number; path: string }
+	| { type: "listFiles"; id: number }
+	| { type: "readFile"; id: number; path: string };
 
 export type WorkerToHost =
 	| { type: "loading" }
@@ -71,7 +112,9 @@ export type WorkerToHost =
 	| { type: "loadError"; message: string }
 	| ({ type: "result"; id: number } & RunOutcome)
 	| { type: "filesLoaded"; id: number; written: string[] }
-	| { type: "fileRemoved"; id: number; path: string; error?: string };
+	| { type: "fileRemoved"; id: number; path: string; error?: string }
+	| { type: "filesListed"; id: number; files: RuntimeFile[] }
+	| { type: "fileData"; id: number; path: string; data?: ArrayBuffer; error?: string };
 
 /**
  * Strip a client-supplied name to a safe single path segment under
