@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolvePreprompt } from "./preprompt";
 import { injectArtifactsPrompt } from "./artifacts";
+import { injectExecutionPrompt } from "./executionPrompt";
 import {
 	ML_ASSISTANT_BUDGET_RULES,
 	ML_ASSISTANT_PREPROMPT,
@@ -10,16 +11,20 @@ import {
 /**
  * The ML Assistant preset must not change how artifacts resolve for anything
  * else. `legacy` is the expression this replaced, kept here verbatim so the
- * non-preset half of the matrix is pinned to the old behaviour.
+ * non-preset half of the matrix is pinned to the current behaviour — the
+ * execution prompt is injected unconditionally on top of it, since it is a
+ * client capability and never per-model.
  */
 const legacy = (
 	conversationPreprompt: string | undefined,
 	artifactsOverride: boolean | undefined,
 	supportsArtifacts: boolean | undefined
 ) =>
-	(artifactsOverride ?? supportsArtifacts)
-		? injectArtifactsPrompt(conversationPreprompt)
-		: conversationPreprompt;
+	injectExecutionPrompt(
+		(artifactsOverride ?? supportsArtifacts)
+			? injectArtifactsPrompt(conversationPreprompt)
+			: conversationPreprompt
+	);
 
 const PREPROMPTS = [undefined, "", "You are a pirate."];
 const OVERRIDES = [undefined, true, false];
@@ -52,7 +57,7 @@ describe("resolvePreprompt", () => {
 		});
 
 		expect(resolved).toContain("You are a pirate.");
-		expect(resolved).toBe(injectArtifactsPrompt("You are a pirate."));
+		expect(resolved).toBe(injectExecutionPrompt(injectArtifactsPrompt("You are a pirate.")));
 		expect(resolved).not.toContain(ML_ASSISTANT_PREPROMPT);
 	});
 
@@ -63,7 +68,7 @@ describe("resolvePreprompt", () => {
 				mlAssistant: false,
 				supportsArtifacts: false,
 			})
-		).toBe("You are a pirate.");
+		).toBe(injectExecutionPrompt("You are a pirate."));
 	});
 
 	it("lets the per-model override win in both directions outside the preset", () => {
@@ -74,7 +79,7 @@ describe("resolvePreprompt", () => {
 				artifactsOverride: false,
 				supportsArtifacts: true,
 			})
-		).toBe("base");
+		).toBe(injectExecutionPrompt("base"));
 
 		expect(
 			resolvePreprompt({
@@ -83,7 +88,7 @@ describe("resolvePreprompt", () => {
 				artifactsOverride: true,
 				supportsArtifacts: false,
 			})
-		).toBe(injectArtifactsPrompt("base"));
+		).toBe(injectExecutionPrompt(injectArtifactsPrompt("base")));
 	});
 
 	it("replaces the conversation prompt with the preset, not per model", () => {
@@ -110,7 +115,7 @@ describe("resolvePreprompt", () => {
 				now,
 			})
 		).toBe(
-			`${injectArtifactsPrompt(ML_ASSISTANT_PREPROMPT)}\n\n${ML_ASSISTANT_BUDGET_RULES}\n\n${mlAssistantSessionContext(
+			`${injectExecutionPrompt(injectArtifactsPrompt(ML_ASSISTANT_PREPROMPT))}\n\n${ML_ASSISTANT_BUDGET_RULES}\n\n${mlAssistantSessionContext(
 				{
 					timezone: "UTC",
 					now,
@@ -149,7 +154,7 @@ describe("resolvePreprompt", () => {
 				mlAssistant: false,
 				username: "pngwn",
 			})
-		).toBe("You are a pirate.");
+		).toBe(injectExecutionPrompt("You are a pirate."));
 	});
 
 	it("carries the live balance in the session context", () => {
