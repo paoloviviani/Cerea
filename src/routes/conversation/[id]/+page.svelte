@@ -78,6 +78,22 @@
 
 	let files: File[] = $state([]);
 
+	// Bases attached to THIS conversation, seeded from the page data and edited
+	// optimistically by the composer (each toggle PATCHes immediately). The
+	// seed re-reads only when the conversation changes: an invalidation of the
+	// same conversation must not clobber a toggle this tab just made, whose
+	// PATCH has already landed server-side.
+	let knowledgeBases: { id: string; name: string }[] = $state(
+		untrack(() => data.knowledgeBases ?? [])
+	);
+	let knowledgeBasesForConv: string | null = $state(null);
+	$effect(() => {
+		if (knowledgeBasesForConv !== page.params.id) {
+			knowledgeBasesForConv = page.params.id ?? null;
+			knowledgeBases = data.knowledgeBases ?? [];
+		}
+	});
+
 	function createMessagesPath<T>(messages: TreeNode<T>[], msgId?: TreeId): TreeNode<T>[] {
 		if (initialRun) {
 			if (!msgId && page.url.searchParams.get("leafId")) {
@@ -760,6 +776,7 @@
 	shared={data.shared}
 	preprompt={data.preprompt}
 	bind:files
+	bind:knowledgeBases
 	onmessage={onMessage}
 	onretry={onRetry}
 	onshowAlternateMsg={onShowAlternateMsg}
