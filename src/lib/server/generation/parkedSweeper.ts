@@ -320,6 +320,12 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			promptedAt,
 			ip: "sweeper",
 			username: locals.user?.username,
+			// Same per-model capability overrides as a fresh turn: tri-state,
+			// winning in both directions, ignored on HuggingChat.
+			forceMultimodal: !config.isHuggingChat
+				? settings?.multimodalOverrides?.[model.id]
+				: undefined,
+			forceTools: !config.isHuggingChat ? settings?.toolsOverrides?.[model.id] : undefined,
 			provider:
 				config.isHuggingChat && !model.isRouter
 					? isMlAssistantConversation(conv)

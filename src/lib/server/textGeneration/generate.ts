@@ -57,8 +57,8 @@ export async function* generate(
 		messages,
 		preprompt,
 		generateSettings: assistant?.generateSettings,
-		// Allow user-level override to force multimodal
-		isMultimodal: (forceMultimodal ?? false) || model.multimodal,
+		// Per-model user override for multimodal, winning in both directions
+		isMultimodal: forceMultimodal ?? model.multimodal,
 		conversationId: conv._id,
 		locals,
 		abortSignal: abortController.signal,

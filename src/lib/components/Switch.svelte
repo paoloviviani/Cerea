@@ -24,6 +24,19 @@
 		tap();
 	}
 
+	/**
+	 * The visible control, not the hidden input, owns the click. Without this a
+	 * switch nested in a `<label>` toggles twice per trusted click: once here,
+	 * and once more when the label forwards its activation to the input — which
+	 * nets to no change and reads as the switch being stuck. Cancelling the
+	 * event's default stops the forwarded click; a click on the label's text
+	 * still reaches the input and toggles once, as before.
+	 */
+	function onToggleClick(event: MouseEvent) {
+		event.preventDefault();
+		toggle();
+	}
+
 	function onKeydown(e: KeyboardEvent) {
 		if (disabled) return;
 		if (e.key === " " || e.key === "Enter") {
@@ -47,7 +60,7 @@
 	aria-label="switch"
 	role="switch"
 	tabindex={disabled ? -1 : 0}
-	onclick={toggle}
+	onclick={onToggleClick}
 	onkeydown={onKeydown}
 	class="relative inline-flex shrink-0 items-center rounded-full bg-gray-300 shadow-inner ring-gray-400 peer-checked:bg-blue-600 focus-visible:ring-3 focus-visible:ring-offset-1 dark:bg-gray-600 dark:ring-gray-700 {trackClasses} {disabled
 		? 'cursor-not-allowed opacity-50'

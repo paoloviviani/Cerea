@@ -380,15 +380,17 @@ export async function* runMcpFlow({
 		return "not_applicable";
 	}
 
-	// Gate MCP flow based on model tool support (aggregated) with user override
+	// Gate MCP flow based on model tool support (aggregated) with user override.
+	// The override wins in both directions: an explicit `false` skips the flow
+	// for a tools-advertised model, `true` runs it for one that is not.
 	try {
 		const supportsTools = Boolean((model as unknown as { supportsTools?: boolean }).supportsTools);
-		const toolsEnabled = Boolean(forceTools) || supportsTools;
+		const toolsEnabled = forceTools ?? supportsTools;
 		logger.debug(
 			{
 				model: model.id ?? model.name,
 				supportsTools,
-				forceTools: Boolean(forceTools),
+				forceTools,
 				toolsEnabled,
 			},
 			"[mcp] tools gate evaluation"
@@ -511,7 +513,7 @@ export async function* runMcpFlow({
 			},
 		});
 
-		const mmEnabled = (forceMultimodal ?? false) || targetModel.multimodal;
+		const mmEnabled = forceMultimodal ?? targetModel.multimodal;
 		logger.info(
 			{
 				targetModel: targetModel.id ?? targetModel.name,
