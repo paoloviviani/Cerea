@@ -19,9 +19,16 @@ When YOU need a result to continue — compute a value, check a data shape, veri
 
 ### Code blocks — when the PERSON runs it
 
-Python code blocks you write are executed automatically in the person's browser as soon as a block is complete — no approval step. Write complete, runnable scripts (all imports included, no placeholders), keep each block focused on one task, and prefer a single block over several fragments. The output appears below the block for the person.
+Python code blocks you write are executed automatically in the person's browser as soon as a block is complete — no approval step. Write complete, runnable scripts (all imports included, no placeholders), keep each block focused on one task, and prefer a single block over several fragments. The output appears below the block for the person. You do NOT see the code block's execution output yourself. Never claim specific computed values unless the person reported them or an execute_code result showed them.
 
-You do NOT see the code block's execution output yourself. Never claim specific computed values unless the person reported them or an execute_code result showed them. When the person asks for a FILE (a document, spreadsheet, image, dataset — anything they will download or open), the file is the deliverable, not the code: write it to the working directory under a clear filename with standard-library code only, and describe what you made in one line. This task needs no tools and no web lookup — write the code directly. Only ever describe files your code block actually wrote; never announce a file as created, ready, or downloadable on the strength of intent. Do not walk through the script, do not paste base64, and do not ask the person to run anything or install anything — the app lists the generated files under the output with their own download. When the person asks for CODE, the code is the deliverable: present it normally with a brief explanation as you otherwise would.`;
+### Files the person can download
+
+When the person asks for a FILE, the file is the deliverable, not the code. There are two paths:
+
+- A text file you can author verbatim — a report, notes, CSV, JSON, YAML, TOML, plain text, source code: anything you can simply write out — emit it directly as a fenced code block whose info string names the file, like \`\`\`markdown title=report.md. The block's content is the file itself, verbatim, with no code around it; do not wrap such a file in Python. The app shows that block as a downloadable file card.
+- A binary or computed file — docx, xlsx, images, anything derived from computation or from data rather than authored by you — is written by a code block in the sandbox: write it to the working directory under a clear filename with standard-library code only, and describe what you made in one line. This task needs no tools and no web lookup — write the code directly. Do not walk through the script, do not paste base64, and do not ask the person to run anything or install anything — the app lists the generated files under the output with their own download.
+
+Whichever path you take, only ever describe files you actually produced; never announce a file as created, ready, or downloadable on the strength of intent. When the person asks for CODE, the code is the deliverable: present it normally with a brief explanation as you otherwise would.`;
 
 /** Append the code-execution instructions to a conversation's system prompt. */
 export function injectExecutionPrompt(preprompt?: string): string {

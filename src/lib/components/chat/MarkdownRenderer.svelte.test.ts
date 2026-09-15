@@ -112,6 +112,13 @@ describe("MarkdownRenderer streaming", () => {
 	it("renders a trailing setext heading in completed messages", async () => {
 		// Streaming repairs must not apply when loading is false
 		const { baseElement } = render(MarkdownRenderer, { content: "Title\n-" });
-		await vi.waitFor(() => expect(baseElement.querySelector("h2")?.textContent).toBe("Title"));
+		// Under full-suite parallel load (several Chromium contexts plus the
+		// Mongo download this suite triggers) the worker's first upgrade can
+		// take well past the 1s default waitFor budget — this assertion is the
+		// one that trips, and it trips on the untouched base commit too. Five
+		// seconds keeps the race bounded without loosening what is asserted.
+		await vi.waitFor(() => expect(baseElement.querySelector("h2")?.textContent).toBe("Title"), {
+			timeout: 5000,
+		});
 	});
 });

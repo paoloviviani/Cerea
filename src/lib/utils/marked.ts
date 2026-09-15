@@ -31,6 +31,7 @@ import sql from "highlight.js/lib/languages/sql";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import { parseIncompleteMarkdown } from "./parseIncompleteMarkdown";
 import { parseMarkdownIntoBlocks } from "./parseBlocks";
+import { parseFileBlockInfo } from "./fileBlock";
 import { escapeHTML, type BlockToken, type Token } from "./markedLight";
 
 // Re-export the light pieces so existing consumers of this module (the worker,
@@ -447,7 +448,10 @@ export async function processTokens(content: string, sources: SimpleSource[]): P
 				return {
 					type: "code" as const,
 					lang: token.lang,
-					code: highlightCode(token.text, token.lang),
+					// A file-block annotation (```markdown title=report.md) is not a
+					// highlightable language: highlight with the token before it, so
+					// streaming titled blocks don't fall into expensive auto-detection.
+					code: highlightCode(token.text, parseFileBlockInfo(token.lang)?.language ?? token.lang),
 					rawCode: token.text,
 					isClosed: isFencedBlockClosed(token.raw ?? ""),
 				};
@@ -471,7 +475,7 @@ export function processTokensSync(content: string, sources: SimpleSource[]): Tok
 			return {
 				type: "code" as const,
 				lang: token.lang,
-				code: highlightCode(token.text, token.lang),
+				code: highlightCode(token.text, parseFileBlockInfo(token.lang)?.language ?? token.lang),
 				rawCode: token.text,
 				isClosed: isFencedBlockClosed(token.raw ?? ""),
 			};
