@@ -10,6 +10,12 @@
 	 * and an inline preview where the type allows one. Used by RunOutput, so
 	 * chat blocks and artifact code cells present files identically.
 	 *
+	 * The same card also presents direct-emission file blocks (CodeBlock):
+	 * there `inlineContent` carries the file's own text and no sandbox exists
+	 * — the bytes travel client-side from the message content, and the docx
+	 * preview (which runs Python in the sandbox) is not offered. Both modes
+	 * share every class and the preview logic, so the two cards cannot drift.
+	 *
 	 * Previews are fetched lazily on first expand and kept for the session:
 	 * text decodes in-page, images and PDFs render from a blob URL, and Word
 	 * documents go through a tiny in-sandbox extraction (the standard
@@ -18,9 +24,16 @@
 	 */
 	interface Props {
 		file: { path: string; size: number };
+		/**
+		 * Direct-emission mode: the bytes are this message text itself (a
+		 * titled file block), not a sandbox file. When set, `file.size` is
+		 * ignored (the byte length is derived) and the execution sandbox is
+		 * never touched.
+		 */
+		inlineContent?: string;
 	}
 
-	let { file }: Props = $props();
+	let { file, inlineContent }: Props = $props();
 
 	const name = $derived(file.path.split("/").pop() || "download");
 	const extension = $derived(
@@ -28,7 +41,7 @@
 	);
 
 	type PreviewKind = "text" | "image" | "pdf" | "docx" | "none";
-	function previewKindFor(extension: string): PreviewKind {
+	function previewKindFor(extension: string, allowDocx: boolean): PreviewKind {
 		if (
 			[
 				"txt",
@@ -54,11 +67,19 @@
 		if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"].includes(extension))
 			return "image";
 		if (extension === "pdf") return "pdf";
-		if (extension === "docx") return "docx";
+		// The docx preview runs Python in the sandbox, which direct-emission
+		// blocks must never touch — and inline content is text, not a zip.
+		if (extension === "docx") return allowDocx ? "docx" : "none";
 		return "none";
 	}
 
-	const previewKind = $derived(previewKindFor(extension));
+	const previewKind = $derived(previewKindFor(extension, inlineContent === undefined));
+
+	/** UTF-8 byte length of the inline content; only computed in direct-emission mode. */
+	const inlineSize = $derived(
+		inlineContent === undefined ? 0 : new TextEncoder().encode(inlineContent).length
+	);
+	const size = $derived(inlineContent === undefined ? file.size : inlineSize);
 
 	let downloading = $state(false);
 	let downloadError = $state<string | null>(null);
@@ -84,16 +105,23 @@
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
-	async function readBytes(): Promise<ArrayBuffer> {
+	/**
+	 * The card's two byte sources: direct-emission blocks carry their own text
+	 * (the block content IS the file), sandbox files are read out of the
+	 * runtime. Both land as transferable bytes — never through the capped
+	 * text output.
+	 */
+	async function readBytes(): Promise<ArrayBuffer | Uint8Array<ArrayBuffer>> {
+		if (inlineContent !== undefined) return new TextEncoder().encode(inlineContent);
 		const session = getExecutionSession();
 		if (!session) throw new Error("the execution sandbox is not available in this context");
 		return session.readFile(file.path);
 	}
 
 	/**
-	 * Pull the file out of the sandbox and hand it to the browser as a
-	 * download. Bytes travel as a transferable ArrayBuffer — never through
-	 * the capped text output — and land in a blob URL the anchor consumes.
+	 * Hand the bytes to the browser as a download: they travel as transferable
+	 * bytes — never through the capped text output — and land in a blob URL
+	 * the anchor consumes.
 	 */
 	async function downloadFile(): Promise<void> {
 		downloading = true;
@@ -115,11 +143,14 @@
 		} catch (err) {
 			// The worker filesystem dies with the page load: a file listed by
 			// an earlier run may be gone already, and re-running the code is
-			// the way back — the message says exactly that.
+			// the way back — the message says exactly that. Direct-emission
+			// blocks carry their own bytes and cannot lose them this way.
 			downloadError =
 				err instanceof Error
 					? err.message
-					: "that file is no longer in the runtime; run the code again to recreate it";
+					: inlineContent !== undefined
+						? "the download failed"
+						: "that file is no longer in the runtime; run the code again to recreate it";
 		} finally {
 			downloading = false;
 		}
@@ -158,23 +189,25 @@
 		previewBusy = true;
 		previewError = null;
 		try {
-			const session = getExecutionSession();
-			if (!session) throw new Error("the execution sandbox is not available in this context");
 			if (previewKind === "text") {
-				if (file.size > 2 * 1024 * 1024) {
+				if (size > 2 * 1024 * 1024) {
 					throw new Error("too large to preview — download it to read the whole file");
 				}
-				const data = await session.readFile(file.path);
+				const data = await readBytes();
 				const text = new TextDecoder("utf-8", { fatal: false }).decode(data);
 				previewText =
 					text.length > PREVIEW_TEXT_CHARS
-						? `${text.slice(0, PREVIEW_TEXT_CHARS)}\n\n… showing the first ${(PREVIEW_TEXT_CHARS / 1000).toFixed(0)}k of ${formatSize(file.size)}`
+						? `${text.slice(0, PREVIEW_TEXT_CHARS)}\n\n… showing the first ${(PREVIEW_TEXT_CHARS / 1000).toFixed(0)}k of ${formatSize(size)}`
 						: text;
 			} else if (previewKind === "image" || previewKind === "pdf") {
-				const data = await session.readFile(file.path);
+				const data = await readBytes();
 				revokePreviewUrl();
 				previewUrl = URL.createObjectURL(new Blob([data]));
 			} else if (previewKind === "docx") {
+				// Only reachable in sandbox mode: direct-emission blocks never get
+				// a docx preview kind (their content is text, not a zip).
+				const session = getExecutionSession();
+				if (!session) throw new Error("the execution sandbox is not available in this context");
 				const outcome = await session.run(docxPreviewCode(file.path, PREVIEW_TEXT_CHARS));
 				if (!outcome.ok) throw new Error(outcome.error ?? "the preview run failed");
 				previewText = outcome.stdout.trim() === "" ? "(no readable text found)" : outcome.stdout;
@@ -194,7 +227,7 @@
 		<span class="min-w-0 flex-1 truncate font-mono" title={file.path}>
 			{name}
 		</span>
-		<span class="shrink-0 text-gray-400">{formatSize(file.size)}</span>
+		<span class="shrink-0 text-gray-400">{formatSize(size)}</span>
 		{#if previewKind !== "none"}
 			<button
 				onclick={togglePreview}

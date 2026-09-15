@@ -15,6 +15,34 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("the code is the deliverable");
 	});
 
+	it("routes text files to direct emission and binary ones to the sandbox", () => {
+		// Two paths, one per file kind. The text path is verbatim emission: no
+		// wrapper code, no sandbox — the block IS the file, which also makes it
+		// ordinary message content that survives reload, export and share
+		// links, unlike sandbox files that die with the page.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("There are two paths");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("you can author verbatim");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("```markdown title=report.md");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("the file itself, verbatim, with no code around it");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("do not wrap such a file in Python");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("downloadable file card");
+		// The sandbox path keeps its contract, scoped to binary/computed files.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("binary or computed file");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("write it to the working directory");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("standard-library code only");
+		// The superseded single-path wording is gone: a file request must not
+		// read as "always write Python that writes the file".
+		expect(EXECUTION_SYSTEM_PROMPT).not.toContain(
+			"the file is the deliverable, not the code: write it to the working directory"
+		);
+		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("anything they will download or open");
+		// The no-phantom-files rule survives the rewording, path-independent.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("only ever describe files you actually produced");
+		expect(EXECUTION_SYSTEM_PROMPT).not.toContain(
+			"Only ever describe files your code block actually wrote"
+		);
+	});
+
 	it("keeps the standing code-block contract intact", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("executed automatically");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain(
@@ -57,12 +85,6 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("no package installation");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("only the Python standard library");
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("numpy, pandas");
-	});
-
-	it("forbids claiming files the code never wrote", () => {
-		expect(EXECUTION_SYSTEM_PROMPT).toContain(
-			"Only ever describe files your code block actually wrote"
-		);
 	});
 
 	it("injects the convention with the prompt", () => {
