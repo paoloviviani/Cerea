@@ -42,8 +42,14 @@ import { createSchemaPreflightGuard } from "$lib/server/mcp/preflightGuard";
 import { composeGuards } from "./toolGuard";
 import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { withUpstreamRetry } from "../utils/upstreamRetry";
+import { stripThink } from "$lib/utils/stripThink";
 import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
+import { EXECUTE_CODE_TOOL_NAME } from "../builtinTools/executeCodeTool";
 import { findSearchModelIds } from "../builtinTools/gatewaySearchTool";
+import {
+	MAX_RECOVERED_EXECUTE_CODE_CALLS,
+	recoverLeakedExecuteCodeCall,
+} from "./leakedExecuteCode";
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
@@ -730,6 +736,9 @@ export async function* runMcpFlow({
 		let truncatedToolCallRetries = 0;
 		let cutAnswerRetries = 0;
 		let leakedToolCallRetries = 0;
+		// Recovered execute_code calls this run has already dispatched — bounded by
+		// MAX_RECOVERED_EXECUTE_CODE_CALLS, which is why the counter exists at all.
+		let recoveredExecuteCodeCalls = 0;
 		// For the leaked-markup check: only names that are really callable this
 		// run can make "<name" in a final answer mean a call that never happened.
 		const advertisedToolNames = oaTools.map((tool) => tool.function.name);
@@ -993,11 +1002,44 @@ export async function* runMcpFlow({
 				logger.warn({ loop }, "[mcp] tool call truncated repeatedly; answering without running it");
 			}
 
-			if (!discardedTruncatedToolCalls && Object.keys(toolCallState).length > 0) {
+			// Recovery: the round produced no real tool calls, but the model wrote
+			// the execute_code call as markup in its reply. Recorded live
+			// (2026-09-15, glm-5.3-flash): the same prompt made a real tool call in
+			// one conversation and, in the next, leaked the markup twice across two
+			// turns — the leaked-markup correction below fired and did not help,
+			// because a model that re-invents the syntax cannot be corrected into
+			// compliance. Parsing the block out and dispatching it as an ordinary
+			// tool call is the only fallback that gets that model the result;
+			// everything downstream (parking row, card, cap, resume) is the
+			// standard path. The guards — offered tool, well-formed block, not
+			// inside a fence or code span, exactly one, once per run — live in
+			// recoverLeakedExecuteCodeCall, because a false positive runs code the
+			// model never meant to run.
+			const recoveredExecuteCodeCall =
+				!discardedTruncatedToolCalls &&
+				Object.keys(toolCallState).length === 0 &&
+				recoveredExecuteCodeCalls < MAX_RECOVERED_EXECUTE_CODE_CALLS
+					? recoverLeakedExecuteCodeCall({
+							content: stripThink(lastAssistantContent),
+							toolOffered: advertisedToolNames.includes(EXECUTE_CODE_TOOL_NAME),
+						})
+					: undefined;
+
+			if (
+				!discardedTruncatedToolCalls &&
+				(Object.keys(toolCallState).length > 0 || recoveredExecuteCodeCall)
+			) {
 				// If any streamed call is missing id, perform a quick non-stream retry to recover full tool_calls with ids
 				const missingId = Object.values(toolCallState).some((c) => c?.name && !c?.id);
 				let calls: NormalizedToolCall[];
-				if (missingId) {
+				if (recoveredExecuteCodeCall && Object.keys(toolCallState).length === 0) {
+					calls = [recoveredExecuteCodeCall];
+					recoveredExecuteCodeCalls += 1;
+					logger.warn(
+						{ loop },
+						"[mcp] execute_code call recovered from reply markup; dispatching it as a real call"
+					);
+				} else if (missingId) {
 					logger.debug(
 						{ loop },
 						"[mcp] missing tool_call id in stream; retrying non-stream to recover ids"
