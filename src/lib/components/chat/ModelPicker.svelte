@@ -25,6 +25,12 @@
 	 * afterwards: the conversation document *and* the sidebar both carry the
 	 * model, so refreshing one and not the other leaves the list showing the
 	 * model the chat has just stopped using.
+	 *
+	 * Shaped like a picker, not a form: `OVERLAY_PICKER` (420px — the rows carry
+	 * a name and one meta line, nothing wider earns its keep), the search above
+	 * the list unconditionally and focused on open, and rows slim enough that a
+	 * dozen read as one column, not a card grid. `Modal` owns Escape at window
+	 * level, so it closes from inside the search like from anywhere else.
 	 */
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -53,6 +59,13 @@
 
 	let query = $state("");
 	let busy = $state<string | null>(null);
+	let searchEl = $state<HTMLInputElement>();
+
+	// Focused on open, after `Modal`'s own onMount has put focus on the dialog —
+	// a plain `autofocus` would lose that race, since effects run after mounts.
+	$effect(() => {
+		searchEl?.focus();
+	});
 
 	/** No conversation yet means the new-chat screen. See the module comment. */
 	const conversationId = $derived(page.params?.id);
@@ -62,13 +75,12 @@
 
 	const shown = $derived(
 		models.filter((model) => {
-			const haystack = normalise(`${model.id} ${model.name ?? ""} ${model.displayName ?? ""}`);
+			const haystack = normalise(
+				`${model.id} ${model.name ?? ""} ${model.displayName ?? ""} ${model.description ?? ""}`
+			);
 			return tokens.every((token) => haystack.includes(token));
 		})
 	);
-
-	// A search box for three models is furniture.
-	const searchable = $derived(models.length > 6);
 
 	async function choose(model: Model) {
 		if (model.id === currentModel.id) {
@@ -116,7 +128,7 @@
 
 <Modal
 	onclose={() => onclose()}
-	width="w-[90dvw] md:{s.OVERLAY_NARROW}"
+	width="w-[90dvw] md:{s.OVERLAY_PICKER}"
 	labelledBy="model-picker-title"
 >
 	<div class={s.PANEL}>
@@ -131,30 +143,29 @@
 			</p>
 		</div>
 
-		{#if searchable}
-			<div class="relative mb-4">
-				<CarbonSearch
-					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-gray-400"
-				/>
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					bind:value={query}
-					class={s.SEARCH}
-					placeholder="Search by name"
-					aria-label="Search models"
-					autofocus
-				/>
-			</div>
-		{/if}
+		<div class="relative mb-3">
+			<CarbonSearch
+				class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-gray-400"
+			/>
+			<input
+				bind:this={searchEl}
+				bind:value={query}
+				type="search"
+				class={s.SEARCH}
+				placeholder="Search by name"
+				aria-label="Search models"
+			/>
+		</div>
 
-		<div class="max-h-[50dvh] space-y-2 overflow-y-auto">
+		<div class="max-h-[50dvh] space-y-1.5 overflow-y-auto">
 			{#each shown as model (model.id)}
 				{@const active = model.id === currentModel.id}
+				{@const label = model.displayName || model.name}
 				<button
 					type="button"
 					onclick={() => choose(model)}
 					disabled={busy !== null}
-					class="{s.card(active)} {s.CARD_BODY} flex w-full items-center gap-3 text-left
+					class="{s.card(active)} flex w-full items-center gap-2.5 px-3 py-2 text-left
 							hover:border-blue-600/40 disabled:opacity-60"
 					aria-current={active ? "true" : undefined}
 				>
@@ -166,10 +177,8 @@
 						/>
 					{/if}
 					<span class="min-w-0 flex-1">
-						<span class="flex items-center gap-2">
-							<span class={s.CARD_TITLE}>{model.displayName || model.name}</span>
-						</span>
-						<span class="{s.CARD_SUBTITLE} block">{model.id}</span>
+						<span class="{s.CARD_TITLE} block">{label}</span>
+						<span class="block truncate text-xs text-gray-500 dark:text-gray-400">{model.id}</span>
 					</span>
 					{#if busy === model.id}
 						<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>
@@ -178,7 +187,14 @@
 					{/if}
 				</button>
 			{:else}
-				<p class={s.EMPTY_DETAIL}>No model matches that.</p>
+				<div class={s.EMPTY}>
+					<CarbonSearch class={s.EMPTY_ICON} />
+					<p class={s.EMPTY_TITLE}>No model matches that search.</p>
+					<p class={s.EMPTY_DETAIL}>Try a shorter search, or clear it to see everything.</p>
+					<button type="button" class={s.SECONDARY} onclick={() => (query = "")}>
+						Clear the search
+					</button>
+				</div>
 			{/each}
 		</div>
 	</div>

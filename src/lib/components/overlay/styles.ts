@@ -21,9 +21,15 @@
  * silently does nothing here.
  */
 
-/** Overlay widths: a list is wide, a form is not. */
+/** Overlay widths: a list is wide, a form is not, a picker is narrower still. */
 export const OVERLAY_WIDE = "w-[800px]";
 export const OVERLAY_NARROW = "w-[600px]";
+/**
+ * A picker lists rows, not forms: a name, one truncated meta line and a check
+ * never need more than ~340px of text, so 420px is truncation margin for the
+ * longest ids rather than the empty width a form overlay carries.
+ */
+export const OVERLAY_PICKER = "w-[420px]";
 
 export const PANEL = "p-6";
 
