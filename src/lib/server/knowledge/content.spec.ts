@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { KnowledgeError, readDocumentText, type Caller } from "./service";
@@ -91,11 +91,29 @@ describe("readDocumentText", () => {
 	});
 
 	it("refuses text over the runtime's 50 MB cap by name", async () => {
+		// A single BSON document cannot hold 50 MB (Mongo's 16 MB document cap
+		// rejects the insert itself), so the oversized answer arrives through a
+		// stubbed read: what the cap guards is what readDocumentText returns,
+		// not how the row got there.
 		const big = "x".repeat(50 * 1024 * 1024 + 1);
-		const doc = await insertDocument({ text: big });
-		await expect(
-			readDocumentText(storeId.toString(), doc.insertedId.toString(), owner)
-		).rejects.toMatchObject({ status: 413 });
+		const findOne = vi.spyOn(collections.knowledgeDocuments, "findOne").mockResolvedValue({
+			_id: new ObjectId(),
+			storeId,
+			title: "Q3 numbers",
+			status: "ready",
+			text: big,
+			chars: big.length,
+			chunkCount: 1,
+			error: "",
+			filename: null,
+		} as never);
+		try {
+			await expect(
+				readDocumentText(storeId.toString(), new ObjectId().toString(), owner)
+			).rejects.toMatchObject({ status: 413 });
+		} finally {
+			findOne.mockRestore();
+		}
 	});
 
 	it("404s a document from another store", async () => {
