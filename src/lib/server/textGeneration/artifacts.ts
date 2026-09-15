@@ -19,11 +19,11 @@ To create an artifact, emit exactly this tag structure directly in your reply. N
 </artifact>
 
 Allowed type values:
-- "html": a complete self-contained HTML page (inline CSS/JS; CDN libraries allowed). Rendered live.
+- "html": a complete self-contained HTML page (inline CSS/JS). Rendered live. Script sources from the CDNs cdn.tailwindcss.com, unpkg.com and cdn.jsdelivr.net are allowed; scripts from any other host are blocked by the preview's security policy.
 - "svg": an SVG image with an <svg> root element. Rendered live.
 - "react": a single React function component, with \`export default\`. Hooks are available without imports, Tailwind classes work, but NO other libraries. Rendered live.
 - "mermaid": a Mermaid diagram definition. Rendered live.
-- "code": code in any programming language; add language="..." to the tag. Shown with syntax highlighting, not executed.
+- "code": code in any programming language; add language="..." to the tag. Python code cells are executed automatically in the user's browser (Pyodide); other languages are shown with syntax highlighting only.
 - "markdown": a formatted document (README, essay, report, guide). Rendered as rich text.
 
 Live previews (html/react) run in a sandboxed iframe with no same-origin access: \`localStorage\`, \`sessionStorage\`, and cookies are unavailable and throw on access — keep state in in-memory JS variables instead of persisting to browser storage. The sandbox DOES allow: pointer lock (mouse-look games — request it in a click handler), fullscreen, device motion/orientation sensors (mobile tilt controls; call \`DeviceMotionEvent.requestPermission()\` from a tap where defined), gamepad input, clipboard writes, and media autoplay. Still blocked — never build features that depend on them: popups (\`window.open\` returns null), file downloads, camera, microphone, geolocation, and \`alert\`/\`confirm\`/\`prompt\` (silent no-ops — render status and confirmations with in-page UI instead).

@@ -1,4 +1,5 @@
 import { injectArtifactsPrompt } from "./artifacts";
+import { injectExecutionPrompt } from "./executionPrompt";
 import {
 	ML_ASSISTANT_BUDGET_RULES,
 	ML_ASSISTANT_PREPROMPT,
@@ -46,7 +47,10 @@ export function resolvePreprompt({
 }: PrepromptInput): string | undefined {
 	const base = mlAssistant ? ML_ASSISTANT_PREPROMPT : conversationPreprompt;
 	const artifacts = mlAssistant || (artifactsOverride ?? supportsArtifacts);
-	const resolved = artifacts ? injectArtifactsPrompt(base) : base;
+	// Execution is a client capability, so the prompt is unconditional: models
+	// must know python blocks auto-run in the browser and that they never see
+	// the output themselves.
+	const resolved = injectExecutionPrompt(artifacts ? injectArtifactsPrompt(base) : base);
 	if (!mlAssistant) return resolved;
 	// The mode is always budget-gated; a conversation without a stored budget is
 	// a zero budget, and the rules — including how to ask for a grant — must
