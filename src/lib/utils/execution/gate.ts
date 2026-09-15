@@ -1,3 +1,5 @@
+import { pyodideBasePath } from "./protocol";
+
 /**
  * Network gate for the execution worker.
  *
@@ -6,17 +8,25 @@
  * unguarded `fetch` from here would carry the user's session cookie to any
  * URL the executed code names, and `micropip` would happily pull wheels from
  * the public Pyodide index. So the gate allowlists exactly one destination —
- * same-origin paths under /pyodide/ (the vendored runtime itself, and any
- * wheels an operator drops there for micropip) — and deletes every other
- * browser-side network surface the worker global scope has.
+ * same-origin paths under the app's runtime directory `<base>/pyodide/` (the
+ * vendored runtime itself, and any wheels an operator drops there for
+ * micropip) — and deletes every other browser-side network surface the worker
+ * global scope has.
  *
  * Python-level sockets do not exist in Pyodide (there is no network syscall
  * in wasm), so the JS surface is the whole surface: urllib fails on its own,
  * and `pyfetch`/`micropip`/the `js` module all land on the wrapped `fetch`.
  */
 
-/** Paths under this prefix may be fetched; nothing else can be reached. */
-export const ALLOWED_PATH_PREFIX = "/pyodide/";
+/**
+ * What may be fetched: same-origin paths under one prefix, nothing else. The
+ * concrete prefix follows the app's base path (see {@link pyodideBasePath}):
+ * production serves the app under a base, so the runtime dist and any
+ * operator-dropped wheels live at `<base>/pyodide/…`, not `/pyodide/…`. It is
+ * the `allowedPathPrefix` default on {@link installNetworkGate} and
+ * {@link gateAllows} — there is no separate constant, so the two cannot drift
+ * apart.
+ */
 
 /** The names this gate removes from the worker global scope. */
 export const REMOVED_NETWORK_GLOBALS = [
@@ -29,7 +39,12 @@ export const REMOVED_NETWORK_GLOBALS = [
 	"navigator" /* only sendBeacon/sendBeacon-like members below */,
 ] as const;
 
-export function installNetworkGate(scope: typeof globalThis = self): void {
+export function installNetworkGate(
+	scope: typeof globalThis = self,
+	allowedPathPrefix: string = pyodideBasePath(
+		(import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL
+	)
+): void {
 	const rawFetch = scope.fetch;
 	if (typeof rawFetch === "function") {
 		scope.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -39,10 +54,10 @@ export function installNetworkGate(scope: typeof globalThis = self): void {
 			} catch {
 				return Promise.reject(new TypeError("blocked by the execution sandbox (bad URL)"));
 			}
-			if (url.origin !== scope.location.origin || !url.pathname.startsWith(ALLOWED_PATH_PREFIX)) {
+			if (url.origin !== scope.location.origin || !url.pathname.startsWith(allowedPathPrefix)) {
 				return Promise.reject(
 					new TypeError(
-						`blocked by the execution sandbox: network access is limited to ${ALLOWED_PATH_PREFIX}`
+						`blocked by the execution sandbox: network access is limited to ${allowedPathPrefix}`
 					)
 				);
 			}
@@ -76,10 +91,16 @@ export function installNetworkGate(scope: typeof globalThis = self): void {
 }
 
 /** Test helper: is this URL one the gate would let through? */
-export function gateAllows(input: string, origin: string): boolean {
+export function gateAllows(
+	input: string,
+	origin: string,
+	allowedPathPrefix: string = pyodideBasePath(
+		(import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL
+	)
+): boolean {
 	try {
 		const url = new URL(input, origin);
-		return url.origin === origin && url.pathname.startsWith(ALLOWED_PATH_PREFIX);
+		return url.origin === origin && url.pathname.startsWith(allowedPathPrefix);
 	} catch {
 		return false;
 	}
