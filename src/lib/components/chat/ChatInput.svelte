@@ -30,7 +30,13 @@
 		disableAllServers,
 	} from "$lib/stores/mcpServers";
 	import {
+		connectors,
+		connectorsFailed,
+		connectorsLoaded,
 		enabledConnectors,
+		refreshConnectors,
+		selectedConnectorIds,
+		toggleConnector,
 		totalEnabledMcpCount,
 		disableAllConnectors,
 	} from "$lib/stores/mcpConnectors";
@@ -621,8 +627,16 @@
 									</DropdownMenu.SubContent>
 								</DropdownMenu.Sub>
 
-								<!-- MCP Servers submenu -->
-								<DropdownMenu.Sub>
+								<!-- MCP Servers submenu: legacy env-configured base servers
+							     plus the person's connectors (ADR 0064) in one flyout.
+							     Connectors refresh when the submenu opens so one added
+							     moments ago is offered immediately. Signed-out visitors
+							     get a 401 ("none") and see only the base rows. -->
+								<DropdownMenu.Sub
+									onOpenChange={(open) => {
+										if (open) void refreshConnectors();
+									}}
+								>
 									<DropdownMenu.SubTrigger
 										class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
 									>
@@ -675,7 +689,106 @@
 											</DropdownMenu.CheckboxItem>
 										{/each}
 
-										{#if $allMcpServers.length > 0}
+										{#if $allMcpServers.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || $connectors.length > 0)}
+											<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
+										{/if}
+
+										{#if signedIn}
+											{#if !$connectorsLoaded}
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+													disabled
+												>
+													Loading connectors…
+												</DropdownMenu.Item>
+											{:else if $connectorsFailed}
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+													disabled
+												>
+													Could not load connectors
+												</DropdownMenu.Item>
+											{:else if $connectors.length === 0}
+												<!-- Only when there is nothing else to toggle: a
+											     deployment with base servers needs no lecture. -->
+												{#if $allMcpServers.length === 0}
+													<DropdownMenu.Item
+														class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+														disabled
+													>
+														No connectors yet. Add one from Manage MCP Servers.
+													</DropdownMenu.Item>
+												{/if}
+											{:else}
+												{#each $connectors as connector (connector.id)}
+													{#if connector.connected}
+														<DropdownMenu.CheckboxItem
+															checked={$selectedConnectorIds.has(connector.id)}
+															onCheckedChange={() => toggleConnector(connector.id)}
+															closeOnSelect={false}
+															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+														>
+															{#snippet children({ checked })}
+																<img
+																	src={getMcpServerFaviconUrl(connector.url)}
+																	alt=""
+																	class="size-4 flex-shrink-0 rounded-sm"
+																/>
+																<span class="max-w-52 truncate py-1">{connector.name}</span>
+																<div class="ml-auto flex items-center">
+																	<!-- Toggle visual -->
+																	<span
+																		class={[
+																			"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+																			checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
+																		]}
+																	>
+																		<span
+																			class={[
+																				"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+																				checked ? "translate-x-[14px]" : "translate-x-0.5",
+																			]}
+																		></span>
+																	</span>
+																</div>
+															{/snippet}
+														</DropdownMenu.CheckboxItem>
+													{:else}
+														<!-- Not connected (OAuth sign-in pending): it
+													     contributes no tools, so there is nothing to
+													     toggle. Tapping opens the manager, where the
+													     sign-in lives, instead of selecting a no-op. -->
+														<DropdownMenu.Item
+															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+															title="Sign in from Manage MCP Servers"
+															onSelect={() => (isMcpManagerOpen = true)}
+														>
+															<img
+																src={getMcpServerFaviconUrl(connector.url)}
+																alt=""
+																class="size-4 flex-shrink-0 rounded-sm"
+															/>
+															<span class="max-w-32 truncate py-1">{connector.name}</span>
+															<span class="truncate py-1 text-xs text-gray-500 dark:text-gray-400">
+																Not signed in
+															</span>
+															<div class="ml-auto flex items-center">
+																<!-- Toggle visual, visibly off -->
+																<span
+																	class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
+																>
+																	<span
+																		class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
+																	></span>
+																</span>
+															</div>
+														</DropdownMenu.Item>
+													{/if}
+												{/each}
+											{/if}
+										{/if}
+
+										{#if $allMcpServers.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && $connectors.length > 0)}
 											<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
 										{/if}
 										<DropdownMenu.Item

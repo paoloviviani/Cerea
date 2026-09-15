@@ -36,6 +36,13 @@ function loadSelected(): Set<string> {
 
 export const connectors = writable<McpConnectorView[]>([]);
 export const connectorsLoaded = writable(false);
+/**
+ * Whether the last load failed, so a picker can say so rather than
+ * pretending there is nothing. Reset on every attempt; a signed-out
+ * visitor's 401 lands here too, and callers that must degrade silently
+ * (the composer's badge) simply ignore it.
+ */
+export const connectorsFailed = writable(false);
 export const selectedConnectorIds = writable<Set<string>>(loadSelected());
 
 if (browser) {
@@ -67,6 +74,7 @@ export async function refreshConnectors(): Promise<void> {
 		if (!response.ok) throw new Error(`status ${response.status}`);
 		const { data } = (await response.json()) as { data: McpConnectorView[] };
 		connectors.set(data);
+		connectorsFailed.set(false);
 
 		// Forget a selection whose connector is gone, so removing one does not
 		// leave an id that the server would only refuse.
@@ -75,6 +83,7 @@ export async function refreshConnectors(): Promise<void> {
 	} catch (error) {
 		console.error("Failed to load MCP connectors:", error);
 		connectors.set([]);
+		connectorsFailed.set(true);
 	} finally {
 		connectorsLoaded.set(true);
 	}
