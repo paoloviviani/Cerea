@@ -962,8 +962,14 @@ export async function readDocumentText(
 	caller: Caller
 ): Promise<{ id: string; title: string; filename: string | null; text: string; chars: number }> {
 	const base = await reachableStore(storeId, caller);
+	let id: ObjectId;
+	try {
+		id = new ObjectId(documentId);
+	} catch {
+		throw new KnowledgeError(404, "No such document.");
+	}
 	const document = await collections.knowledgeDocuments.findOne({
-		_id: new ObjectId(documentId),
+		_id: id,
 		storeId: base._id,
 	});
 	if (!document) throw new KnowledgeError(404, "No such document.");
@@ -986,6 +992,88 @@ export async function readDocumentText(
 		filename: document.filename ?? null,
 		text: document.text,
 		chars: document.chars,
+	};
+}
+
+/**
+ * The Knowledge screen's preview: the document's extracted markdown, exactly
+ * as retrieval sees it.
+ *
+ * A read of `knowledge_documents.text`, never a re-extraction — `/v1/ocr` is
+ * priced per page, so reading the stored text back is free and re-reading the
+ * file would bill the same pages again. Same viewer-level gate and same shape
+ * as `readDocumentText` by construction: this is the document-facing route's
+ * name for that read, distinct from the runtime's `.../content` mount.
+ */
+export async function readDocumentPreview(
+	storeId: string,
+	documentId: string,
+	caller: Caller
+): Promise<{ id: string; title: string; filename: string | null; text: string; chars: number }> {
+	return readDocumentText(storeId, documentId, caller);
+}
+
+/**
+ * The largest original a download serves, in bytes. Every stored file arrived
+ * through `storeUpload`, which refuses anything over `MAX_UPLOAD_BYTES`, so
+ * this cap never blocks a legitimate download — it bounds the GridFS read
+ * against entries that did not arrive that way.
+ */
+export const MAX_DOWNLOAD_BYTES = MAX_UPLOAD_BYTES;
+
+/**
+ * The Knowledge screen's download: the document's original bytes from the
+ * chat's own GridFS.
+ *
+ * Viewer-level gate, like every other read — the owner and viewer shares may
+ * fetch, anyone else gets the same 404 as an unreachable store. A text-only
+ * document (a pasted note, a transcript) has no original bytes, so there is
+ * nothing to serve and the answer is 404, not an empty file. The caller
+ * serves the bytes with an attachment disposition, never inline.
+ */
+export async function readDocumentDownload(
+	storeId: string,
+	documentId: string,
+	caller: Caller
+): Promise<{ bytes: Buffer; filename: string; mime: string; size: number }> {
+	const base = await reachableStore(storeId, caller);
+	let id: ObjectId;
+	try {
+		id = new ObjectId(documentId);
+	} catch {
+		throw new KnowledgeError(404, "No such document.");
+	}
+	const document = await collections.knowledgeDocuments.findOne({
+		_id: id,
+		storeId: base._id,
+	});
+	if (!document) throw new KnowledgeError(404, "No such document.");
+	if (!document.fileId) {
+		throw new KnowledgeError(404, `"${document.title}" has no original file to download.`);
+	}
+	const stored = await bucket().find({ _id: document.fileId }).next();
+	if (!stored) throw new KnowledgeError(404, "No such document.");
+	// The declared length first: refusing before the body is read, the same
+	// boundary the upload and execution paths enforce, rather than streaming
+	// the whole file and discarding it.
+	if (stored.length > MAX_DOWNLOAD_BYTES) {
+		throw new KnowledgeError(
+			413,
+			`"${document.title}" is larger than the ${Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024))} MB download limit.`
+		);
+	}
+	const bytes = await readStoredFile(document.fileId);
+	if (bytes.length > MAX_DOWNLOAD_BYTES) {
+		throw new KnowledgeError(
+			413,
+			`"${document.title}" is larger than the ${Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024))} MB download limit.`
+		);
+	}
+	return {
+		bytes,
+		filename: document.filename ?? stored.filename ?? "document",
+		mime: (stored.metadata?.mime as string | undefined) ?? "application/octet-stream",
+		size: bytes.length,
 	};
 }
 
