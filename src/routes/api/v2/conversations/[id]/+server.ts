@@ -7,6 +7,7 @@ import { authCondition } from "$lib/server/auth";
 import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
+import { knowledgeBaseViews, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
 import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
 import { usdToMicroUsd } from "$lib/utils/mlBudget";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
@@ -53,6 +54,12 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		updatedAt: conversation.updatedAt,
 		modelId: conversation.model,
 		shared: conversation.shared,
+		// The composer's chips read this back on load. A shared view learns
+		// nothing about the owner's bases: its composer is read-only anyway,
+		// and base names are the owner's to disclose, not the share's.
+		knowledgeBases: conversation.shared
+			? undefined
+			: await knowledgeBaseViews(conversation.knowledgeBaseIds),
 		deployedSpaces: "deployedSpaces" in conversation ? conversation.deployedSpaces : undefined,
 		mlAssistant: "mlAssistant" in conversation ? conversation.mlAssistant : undefined,
 		mlBudget: "mlBudget" in conversation ? conversation.mlBudget : undefined,
@@ -111,6 +118,14 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		}
 	}
 
+	// Validated here rather than trusted from the body: shape, count and —
+	// unlike a project create — reach, because this is a live attach from a
+	// picker the client has just shown (see parseAttachedKnowledgeBaseIds).
+	const knowledgeBaseIds = await parseAttachedKnowledgeBaseIds(
+		body?.knowledgeBaseIds,
+		locals
+	);
+
 	const id = params.id ?? "";
 	if (!ObjectId.isValid(id)) {
 		error(400, "Invalid conversation ID");
@@ -127,7 +142,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		if (!matched) {
 			error(404, "Conversation not found");
 		}
-		if (title === undefined && model === undefined) {
+		if (title === undefined && model === undefined && knowledgeBaseIds === undefined) {
 			return superjsonResponse({ success: true });
 		}
 	}
@@ -136,7 +151,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	// request would replay one model's reasoning onto another.
 	const res = await applyConversationSettings(
 		{ _id: new ObjectId(id), ...authCondition(locals) },
-		{ title, model }
+		{ title, model, ...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}) }
 	);
 
 	if (typeof res.matchedCount === "number" ? res.matchedCount === 0 : res.modifiedCount === 0) {

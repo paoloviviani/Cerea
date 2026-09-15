@@ -9,6 +9,15 @@ import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 export interface ConversationSettingsUpdate {
 	title?: string;
 	model?: string;
+	/**
+	 * Knowledge bases attached to the conversation, replacing the previous
+	 * list wholesale — an empty array is a real value that clears, and only
+	 * an absent field leaves what is stored untouched. Callers validate the
+	 * ids (shape and reach) before handing them here; the update itself is a
+	 * targeted `$set` so a concurrent generation's message writes are not
+	 * clobbered by a snapshot the composer took earlier.
+	 */
+	knowledgeBaseIds?: string[];
 }
 
 /**
@@ -45,6 +54,9 @@ export async function applyConversationSettings(
 			title: values.title.replace(/<\/?think>/gi, "").trim(),
 		}),
 		...(values.model !== undefined && { model: values.model }),
+		...(values.knowledgeBaseIds !== undefined && {
+			knowledgeBaseIds: values.knowledgeBaseIds,
+		}),
 	};
 
 	if (values.model === undefined) {
