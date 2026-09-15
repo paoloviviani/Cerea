@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from "svelte";
+	import { MediaQuery } from "svelte/reactivity";
 
 	import { afterNavigate } from "$app/navigation";
 
@@ -143,6 +144,15 @@
 	let isUrlModalOpen = $state(false);
 	let isMcpManagerOpen = $state(false);
 	let isDropdownOpen = $state(false);
+
+	// Below Tailwind's md breakpoint the toolbar row scrolls horizontally and a
+	// side-opening submenu (root ~180px plus a flyout up to ~280px) cannot fit
+	// beside its parent: floating-ui's shift only corrects the placement's main
+	// axis, so for `side="right"` nothing pulls horizontal overflow back and
+	// `flip`'s bestFit just keeps the least-clipped side. Stacking the flyouts
+	// below their trigger there instead lets shift (horizontal) and flip
+	// (vertical) cover both axes; wide screens keep the side cascade as today.
+	const narrowViewport = new MediaQuery("(max-width: 767px)");
 
 	// Knowledge bases attachable to THIS conversation. The picker lists what
 	// the person can reach (`GET /api/v2/gateway/vector_stores` is already
@@ -518,24 +528,6 @@
 				"-ml-0.5 scrollbar-custom flex max-w-[calc(100%-var(--composer-actions-width,40px))] flex-wrap items-center justify-start gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 max-md:flex-nowrap max-md:overflow-x-auto max-md:mask-r-from-85% dark:text-gray-400",
 			]}
 		>
-			<!-- Web search through the gateway's own backends (ADR 0058's plan,
-			     phase 2). The toggle is the user's consent to spend; the tool
-			     itself only exists when the console has granted a search tier,
-			     so a toggle with nothing behind it costs nothing and changes
-			     nothing. -->
-			<button
-				type="button"
-				class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {$settings.webSearchEnabled
-					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-				aria-pressed={$settings.webSearchEnabled}
-				title="Search the web through this deployment's search backends"
-				onclick={() => settings.instantSet({ webSearchEnabled: !$settings.webSearchEnabled })}
-			>
-				<CarbonEarth class="size-3.5" />
-				Web search
-			</button>
-
 			{#if showFileUpload}
 				<div class="flex shrink-0 items-center">
 					<input
@@ -605,7 +597,11 @@
 									</DropdownMenu.SubTrigger>
 									<DropdownMenu.SubContent
 										class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+										side={narrowViewport.current ? "bottom" : "right"}
+										align={narrowViewport.current ? "start" : "center"}
 										sideOffset={10}
+										collisionPadding={8}
+										sticky="always"
 										trapFocus={false}
 										onCloseAutoFocus={(e) => e.preventDefault()}
 										interactOutsideBehavior="defer-otherwise-close"
@@ -650,7 +646,11 @@
 									</DropdownMenu.SubTrigger>
 									<DropdownMenu.SubContent
 										class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+										side={narrowViewport.current ? "bottom" : "right"}
+										align={narrowViewport.current ? "start" : "center"}
 										sideOffset={10}
+										collisionPadding={8}
+										sticky="always"
 										trapFocus={false}
 										onCloseAutoFocus={(e) => e.preventDefault()}
 										interactOutsideBehavior="defer-otherwise-close"
@@ -829,7 +829,11 @@
 										</DropdownMenu.SubTrigger>
 										<DropdownMenu.SubContent
 											class="z-50 scrollbar-custom max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+											side={narrowViewport.current ? "bottom" : "right"}
+											align={narrowViewport.current ? "start" : "center"}
 											sideOffset={10}
+											collisionPadding={8}
+											sticky="always"
 											trapFocus={false}
 											onCloseAutoFocus={(e) => e.preventDefault()}
 											interactOutsideBehavior="defer-otherwise-close"
@@ -945,6 +949,24 @@
 					{/if}
 				</div>
 			{/if}
+
+			<!-- Web search through the gateway's own backends (ADR 0058's plan,
+		     phase 2). The toggle is the user's consent to spend; the tool
+		     itself only exists when the console has granted a search tier,
+		     so a toggle with nothing behind it costs nothing and changes
+		     nothing. -->
+			<button
+				type="button"
+				class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {$settings.webSearchEnabled
+					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				aria-pressed={$settings.webSearchEnabled}
+				title="Search the web through this deployment's search backends"
+				onclick={() => settings.instantSet({ webSearchEnabled: !$settings.webSearchEnabled })}
+			>
+				<CarbonEarth class="size-3.5" />
+				Web search
+			</button>
 
 			{#if showMlPill}
 				<MlInternPill />
