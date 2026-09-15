@@ -61,6 +61,7 @@ is written and waits for an AVX host / CI).
   on this host (mongodb-memory-server needs AVX, mongod answers SIGILL — same for every
   mongo spec repo-wide, incl. pre-existing ones). src/lib/server/knowledge/content.spec.ts
   is among them: written per conventions, unverifiable on this host.
+- `npm run build`: green (prebuild sync hook runs; only pre-existing upstream bundle warnings).
 - Client suite (playwright container): 262 passed / 1 failed — the 1 is
   MarkdownRenderer "trailing setext heading in completed messages", which fails
   IDENTICALLY on the pristine base commit c67a3264 (verified by checking out base src/).
