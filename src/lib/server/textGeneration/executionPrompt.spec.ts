@@ -20,6 +20,21 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("no network access");
 	});
 
+	it("states the stdlib-only reality instead of promising packages", () => {
+		// The deployment's micropip index is empty by default, so naming
+		// installable packages invites exactly the ModuleNotFoundError two
+		// models walked into on the file-deliverable test.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("no package installation");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("only the Python standard library");
+		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("numpy, pandas");
+	});
+
+	it("forbids claiming files the code never wrote", () => {
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"Only ever describe files your code block actually wrote"
+		);
+	});
+
 	it("injects the convention with the prompt", () => {
 		expect(injectExecutionPrompt("Be brief.")).toContain("the file is the deliverable");
 		expect(injectExecutionPrompt(undefined)).toContain("the file is the deliverable");
