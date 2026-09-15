@@ -255,3 +255,119 @@ describe("CodeBlock execution", () => {
 		expect(Math.abs(preRect.left - containerRect.left)).toBeLessThan(1);
 	});
 });
+
+describe("CodeBlock direct-emission file blocks", () => {
+	const content = "# Report\n\nAll quiet.";
+
+	/** Captures the card's download without triggering a real browser download. */
+	function spyDownload() {
+		const blobs: Blob[] = [];
+		const createObjectURL = vi
+			.spyOn(URL, "createObjectURL")
+			.mockImplementation((blob: Blob | MediaSource) => {
+				blobs.push(blob as Blob);
+				return "blob:mock";
+			});
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		return {
+			blobs,
+			click,
+			restore: () => {
+				createObjectURL.mockRestore();
+				click.mockRestore();
+			},
+		};
+	}
+
+	it("renders a closed titled fence as a file card with name and byte size", async () => {
+		const { screen } = mount({
+			rawCode: content,
+			language: "markdown title=report.md",
+			autorun: true,
+		});
+		await tick();
+		await expect.element(screen.getByText("report.md")).toBeVisible();
+		// The size is derived from the block's own UTF-8 bytes: 20 B.
+		const bytes = new TextEncoder().encode(content).length;
+		expect(bytes).toBe(20);
+		await expect.element(screen.getByText("20 B")).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Download report.md" })).toBeVisible();
+	});
+
+	it("downloads the exact block bytes under the annotated filename", async () => {
+		const spy = spyDownload();
+		try {
+			const { screen } = mount({
+				rawCode: content,
+				language: "markdown title=report.md",
+				autorun: true,
+			});
+			await tick();
+			await screen.getByRole("button", { name: "Download report.md" }).click();
+			await vi.waitFor(() => expect(spy.click).toHaveBeenCalled());
+			const anchor = spy.click.mock.contexts[0] as HTMLAnchorElement;
+			expect(anchor.download).toBe("report.md");
+			expect(await spy.blobs[0].text()).toBe(content);
+			// Zero execution: the sandbox was never started for this download.
+			expect(sessionMock.readFile).not.toHaveBeenCalled();
+			expect(sessionMock.run).not.toHaveBeenCalled();
+		} finally {
+			spy.restore();
+		}
+	});
+
+	it("previews a previewable kind inline without the sandbox", async () => {
+		const { screen } = mount({
+			rawCode: content,
+			language: "markdown title=report.md",
+			autorun: true,
+		});
+		await tick();
+		await screen.getByRole("button", { name: "Preview report.md" }).click();
+		await expect.element(screen.getByText("# Report")).toBeVisible();
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+	});
+
+	it("streams an unclosed titled fence as an ordinary code block, box only after close", async () => {
+		const { screen } = mount({
+			rawCode: content,
+			language: "markdown title=report.md",
+			autorun: true,
+			loading: true,
+		});
+		await tick();
+		// While streaming: the code fence renders, no file card exists yet.
+		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
+		expect(screen.baseElement.querySelector('button[aria-label="Download report.md"]')).toBeNull();
+
+		await screen.rerender({ loading: false });
+		await expect.element(screen.getByText("report.md")).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Download report.md" })).toBeVisible();
+	});
+
+	it("never executes a titled python block — the file is the deliverable, not a program", async () => {
+		const { screen } = mount({
+			rawCode: "print('script')",
+			language: "python title=script.py",
+			autorun: true,
+			loading: true,
+		});
+		await screen.rerender({ loading: false });
+		await expect.element(screen.getByText("script.py")).toBeVisible();
+		await tick();
+		expect(sessionMock.run).not.toHaveBeenCalled();
+		expect(screen.baseElement.querySelector('button[aria-label="Run code"]')).toBeNull();
+	});
+
+	it("does not treat plain language tags as file blocks", async () => {
+		const { screen } = mount({
+			rawCode: "console.log('x')",
+			language: "javascript",
+			autorun: true,
+		});
+		await tick();
+		expect(screen.baseElement.querySelectorAll('button[aria-label^="Download"]').length).toBe(0);
+		// The fence itself is still there.
+		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
+	});
+});

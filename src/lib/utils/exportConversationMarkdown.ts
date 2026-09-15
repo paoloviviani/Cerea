@@ -32,6 +32,9 @@ import { isMessageToolCallUpdate } from "$lib/utils/messageUpdates";
  *   summary (the diff pairs reference content the reader cannot see without
  *   the panel). Unclosed artifact tags from a stopped run export as fenced
  *   code too — partial bytes are still what the user saw.
+ * - Direct-emission file blocks (titled fences, ```markdown title=x.md) are
+ *   ordinary message content and pass through verbatim: language and title=
+ *   annotation survive, so the file identity survives the export.
  * - Tool calls are summarized to their names only (`_Called N tool(s): …_`).
  *   Arguments and results are omitted: they can carry huge/base64 payloads
  *   and are call internals, not conversation text.

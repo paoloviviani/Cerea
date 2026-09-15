@@ -183,6 +183,42 @@ describe("completed messages render unmodified markdown", () => {
 	});
 });
 
+describe("file blocks (direct emission)", () => {
+	test("a closed titled fence becomes one code token carrying the full info string", () => {
+		const tokens = processTokensSync("```markdown title=report.md\n# Report\nBody.\n```", []);
+		const code = tokens.find((t) => t.type === "code");
+		expect(code).toMatchObject({
+			type: "code",
+			// CodeBlock detects the annotation off this string, so it must survive
+			// the pipeline whole — not truncated to the first word.
+			lang: "markdown title=report.md",
+			isClosed: true,
+		});
+		// The bytes the card will offer for download are the fence content verbatim.
+		expect(code && code.type === "code" ? code.rawCode : "").toBe("# Report\nBody.");
+	});
+
+	test("an unclosed titled fence streams as a code block (isClosed false)", () => {
+		const tokens = processTokensSync("```markdown title=report.md\n# Report\nBody still", []);
+		const code = tokens.find((t) => t.type === "code");
+		expect(code && code.type === "code" ? code.isClosed : true).toBe(false);
+	});
+
+	test("a closing fence inside the content is handled by a longer outer fence", () => {
+		const content = [
+			"````markdown title=quoting.md",
+			"Say the fence is ``` like this.",
+			"Still inside.",
+			"````",
+		].join("\n");
+		const tokens = processTokensSync(content, []);
+		expect(tokens.filter((t) => t.type === "code")).toHaveLength(1);
+		const code = tokens.find((t) => t.type === "code");
+		expect(code && code.type === "code" ? code.isClosed : false).toBe(true);
+		expect(code && code.type === "code" ? code.rawCode : "").toContain("``` like this.");
+	});
+});
+
 describe("processBlocksSync streaming behavior", () => {
 	test("regex character classes in code do not collapse the document into one block", () => {
 		const content = [

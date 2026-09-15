@@ -69,3 +69,77 @@ describe("FileCard", () => {
 		expect(screen.baseElement.querySelector('button[aria-label="Preview data.bin"]')).toBeNull();
 	});
 });
+
+describe("FileCard direct-emission mode (inline bytes)", () => {
+	/**
+	 * The inline mode backs titled file blocks: the bytes are the message's
+	 * own text and no sandbox exists in that context. Both spies must be
+	 * restored — a leaked prototype spy would swallow other tests' clicks.
+	 */
+	function spyDownload() {
+		const blobs: Blob[] = [];
+		const createObjectURL = vi
+			.spyOn(URL, "createObjectURL")
+			.mockImplementation((blob: Blob | MediaSource) => {
+				blobs.push(blob as Blob);
+				return "blob:mock";
+			});
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		return {
+			blobs,
+			click,
+			restore: () => {
+				createObjectURL.mockRestore();
+				click.mockRestore();
+			},
+		};
+	}
+
+	it("downloads the exact inline bytes without touching the sandbox", async () => {
+		const spy = spyDownload();
+		try {
+			const screen = render(FileCard, {
+				file: { path: "report.md", size: 0 },
+				inlineContent: "# Hello\n\nWorld",
+			});
+			await screen.getByRole("button", { name: "Download report.md" }).click();
+			await vi.waitFor(() => expect(spy.click).toHaveBeenCalled());
+			const anchor = spy.click.mock.contexts[0] as HTMLAnchorElement;
+			expect(anchor.download).toBe("report.md");
+			expect(await spy.blobs[0].text()).toBe("# Hello\n\nWorld");
+			// Zero execution: the runtime is never consulted for inline bytes.
+			expect(sessionMock.readFile).not.toHaveBeenCalled();
+		} finally {
+			spy.restore();
+		}
+	});
+
+	it("shows the derived byte size, not the ignored file.size", async () => {
+		const screen = render(FileCard, {
+			file: { path: "report.md", size: 0 },
+			inlineContent: "# Hello\n\nWorld",
+		});
+		// "# Hello\n\nWorld" is 14 UTF-8 bytes.
+		await expect.element(screen.getByText("14 B")).toBeVisible();
+	});
+
+	it("previews inline text in place, still without the sandbox", async () => {
+		const screen = render(FileCard, {
+			file: { path: "report.md", size: 0 },
+			inlineContent: "# Hello\n\nWorld",
+		});
+		await screen.getByRole("button", { name: "Preview report.md" }).click();
+		await expect.element(screen.getByText("# Hello")).toBeVisible();
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+	});
+
+	it("offers no docx preview for inline content (that one runs Python)", async () => {
+		const screen = render(FileCard, {
+			file: { path: "file.docx", size: 0 },
+			inlineContent: "not a zip",
+		});
+		await expect.element(screen.getByRole("button", { name: "Download file.docx" })).toBeVisible();
+		expect(screen.baseElement.querySelector('button[aria-label="Preview file.docx"]')).toBeNull();
+		expect(sessionMock.run).not.toHaveBeenCalled();
+	});
+});

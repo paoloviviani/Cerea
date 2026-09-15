@@ -70,6 +70,17 @@ describe("renderAnswerBody", () => {
 		expect(body).toBe('Here is code:\n```python\nprint("hi")\n```');
 	});
 
+	it("keeps direct-emission file blocks intact, title annotation included", () => {
+		// A titled fence is ordinary message content; the export renders fences
+		// as-is, so the language AND the title= annotation survive and the file
+		// identity is preserved in the exported transcript.
+		const body = renderAnswerBody(
+			"Here is the report:\n```markdown title=report.md\n# Report\nAll quiet.\n```\nDone."
+		);
+		expect(body).toContain("```markdown title=report.md");
+		expect(body).toContain("# Report\nAll quiet.");
+	});
+
 	it("removes <think> blocks (they belong in the reasoning section)", () => {
 		expect(renderAnswerBody("<think>trace</think>visible")).toBe("visible");
 	});
