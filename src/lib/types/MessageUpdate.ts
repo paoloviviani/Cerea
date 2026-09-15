@@ -8,6 +8,7 @@ import type {
 	ElicitationResolution,
 	ElicitationValue,
 } from "$lib/types/McpElicitation";
+import type { RunOutcome } from "$lib/utils/execution/protocol";
 
 export type MessageUpdate =
 	| MessageStatusUpdate
@@ -21,7 +22,8 @@ export type MessageUpdate =
 	| MessageElicitationUpdate
 	| MessagePlanUpdate
 	| MessageBudgetUpdate
-	| MessageTurnStateUpdate;
+	| MessageTurnStateUpdate
+	| MessageCodeExecutionUpdate;
 
 export enum MessageUpdateType {
 	Status = "status",
@@ -36,6 +38,7 @@ export enum MessageUpdateType {
 	Plan = "plan",
 	Budget = "budget",
 	TurnState = "turnState",
+	CodeExecution = "codeExecution",
 }
 
 /**
@@ -195,6 +198,39 @@ export enum MessageElicitationUpdateType {
 	Request = "request",
 	Resolved = "resolved",
 }
+
+export enum MessageCodeExecutionUpdateType {
+	Request = "request",
+	Resolved = "resolved",
+}
+
+export interface MessageCodeExecutionRequestUpdate {
+	type: MessageUpdateType.CodeExecution;
+	subtype: MessageCodeExecutionUpdateType.Request;
+	/** uuid of the parked call row the browser answers against. */
+	executionId: string;
+	/** The code the browser's ExecutionSession runs. */
+	code: string;
+	/** Epoch ms of the sweeper's backstop deadline; shown like a 2026-era prompt (no countdown). */
+	expiresAt?: number;
+}
+
+/**
+ * The run outcome the browser posted back, persisted for replay. Deliberately
+ * WITHOUT the files: the worker filesystem dies with the page load, so file
+ * cards replayed from a persisted update would be dead download links — the
+ * user sees the files live through the session-only RunsStore → RunOutput →
+ * FileCard path, exactly like a fence run.
+ */
+export interface MessageCodeExecutionResolvedUpdate {
+	type: MessageUpdateType.CodeExecution;
+	subtype: MessageCodeExecutionUpdateType.Resolved;
+	executionId: string;
+	outcome: RunOutcome;
+}
+
+export type MessageCodeExecutionUpdate =
+	MessageCodeExecutionRequestUpdate | MessageCodeExecutionResolvedUpdate;
 
 export type MessageElicitationUpdate =
 	MessageElicitationRequestUpdate | MessageElicitationResolvedUpdate;
