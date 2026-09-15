@@ -138,10 +138,6 @@
 {/snippet}
 
 <div class="flex w-full flex-col gap-4">
-	<h2 class="text-center text-lg font-semibold text-gray-800 md:text-left dark:text-gray-200">
-		Application Settings
-	</h2>
-
 	{#if OPENAI_BASE_URL !== null}
 		<div
 			class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-gray-700/80 dark:text-gray-300"
