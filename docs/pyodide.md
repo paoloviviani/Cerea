@@ -34,8 +34,9 @@ thread never executes model-written code and runaway code is killable.
 - **Wall clock**: each run gets 20 s. WebAssembly has no cooperative
   cancellation, so the stop is `Worker.terminate()`; the session is rebuilt
   lazily and queued runs land on the fresh interpreter.
-- **Network**: the worker's `fetch` is allowlisted to same-origin `/pyodide/*`
-  (the runtime's own assets), and `XMLHttpRequest`, `WebSocket`,
+- **Network**: the worker's `fetch` is allowlisted to same-origin `<base>/pyodide/*`
+  (the runtime's own assets — `/chat/pyodide/*` in production, `/pyodide/*` at
+  base `/`), and `XMLHttpRequest`, `WebSocket`,
   `EventSource`, `indexedDB`, `caches`, storage and the nested `Worker`
   constructors are deleted from the scope. Python sockets do not exist in wasm,
   so this closes the whole surface, including `pyfetch`, `micropip` and the
@@ -82,7 +83,7 @@ reserves that decision. Chat message attachments load through the existing
 
 ## Packages
 
-`micropip` is pinned to `/pyodide/wheels/` on this origin. The default index
+`micropip` is pinned to `<base>/pyodide/wheels/` on this origin. The default index
 (python.pyodide.org) is unreachable behind the network gate, so by default
 package installs fail with a clear "not found" rather than silently phoning
 home. A deployment that wants specific packages can drop their wheels into
