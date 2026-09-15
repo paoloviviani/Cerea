@@ -2,14 +2,20 @@ import type { ObjectId } from "mongodb";
 import type { Conversation } from "./Conversation";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
+import type { RunOutcome, RuntimeFile } from "$lib/utils/execution/protocol";
+
+/** Full outcome a browser run reports back, with the files it created (the sweeper names them in the tool result). */
+export type CodeExecutionOutcome = RunOutcome & { files: RuntimeFile[] };
 
 /**
- * Why a turn is parked. `timer` is the only kind today: the model asked to be
+ * Why a turn is parked. `timer` is the clock kind: the model asked to be
  * woken after a delay instead of re-polling something that will not have changed.
- * MCP tasks are the expected second kind — a call parked on a task handle rather
- * than a clock — which is why this is a discriminator and not a boolean.
+ * `code` parks on the user's browser sandbox: the code streams there, the
+ * ExecutionSession runs it, and the browser posts the outcome back — the row
+ * carries the outcome once it answers, or nothing but the deadline if the
+ * browser never answers (sweeper turns that into the unavailable fallback).
  */
-export type ParkedCallKind = "timer";
+export type ParkedCallKind = "timer" | "code";
 
 /**
  * A tool call that ended its turn and expects to be resumed.
@@ -41,6 +47,16 @@ export interface ParkedCall extends Timestamps {
 	resumeAt: Date;
 	/** Model-authored: what it is waiting for. Display text, never markup. */
 	reason: string;
+
+	/** `kind: "code"`: the code the browser sandbox runs, and the outcome the browser posted back. */
+	code?: string;
+	/**
+	 * Set by the answer endpoint once the browser posted the run outcome. Absent
+	 * means the browser never answered — the sweeper turns that into the
+	 * "execution environment unavailable" fallback the prompt teaches the model
+	 * to fall back to a fence on.
+	 */
+	outcome?: CodeExecutionOutcome;
 
 	/**
 	 * Whose turn this is. The sweeper has no request to read an identity from, so it

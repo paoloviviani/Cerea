@@ -9,11 +9,15 @@ import {
 	type MessageElicitationUpdate,
 	type MessageElicitationRequestUpdate,
 	type MessageElicitationResolvedUpdate,
+	type MessageCodeExecutionUpdate,
+	type MessageCodeExecutionRequestUpdate,
+	type MessageCodeExecutionResolvedUpdate,
 	type MessagePlanUpdate,
 	MessageUpdateType,
 	MessageUpdateStatus,
 	MessageToolUpdateType,
 	MessageElicitationUpdateType,
+	MessageCodeExecutionUpdateType,
 } from "$lib/types/MessageUpdate";
 import type { StreamingMode } from "$lib/types/Settings";
 import type { KeyValuePair } from "$lib/types/Tool";
@@ -405,6 +409,21 @@ export const isMessageElicitationResolvedUpdate = (
 	update: MessageUpdate
 ): update is MessageElicitationResolvedUpdate =>
 	isMessageElicitationUpdate(update) && update.subtype === MessageElicitationUpdateType.Resolved;
+
+export const isMessageCodeExecutionUpdate = (
+	update: MessageUpdate
+): update is MessageCodeExecutionUpdate => update.type === MessageUpdateType.CodeExecution;
+
+export const isMessageCodeExecutionRequestUpdate = (
+	update: MessageUpdate
+): update is MessageCodeExecutionRequestUpdate =>
+	isMessageCodeExecutionUpdate(update) && update.subtype === MessageCodeExecutionUpdateType.Request;
+
+export const isMessageCodeExecutionResolvedUpdate = (
+	update: MessageUpdate
+): update is MessageCodeExecutionResolvedUpdate =>
+	isMessageCodeExecutionUpdate(update) &&
+	update.subtype === MessageCodeExecutionUpdateType.Resolved;
 
 export const isMessagePlanUpdate = (update: MessageUpdate): update is MessagePlanUpdate =>
 	update.type === MessageUpdateType.Plan;

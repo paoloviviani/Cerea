@@ -10,8 +10,13 @@ import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
 import { ML_ASSISTANT_EFFORT } from "$lib/constants/mlAssistant";
 import { waitResumeResultText } from "$lib/server/textGeneration/builtinTools/waitTool";
+import {
+	codeResumeResultText,
+	EXECUTE_CODE_TOOL_NAME,
+} from "$lib/server/textGeneration/builtinTools/executeCodeTool";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
+	MessageCodeExecutionUpdateType,
 	MessageToolUpdateType,
 	MessageUpdateStatus,
 	MessageUpdateType,
@@ -289,23 +294,51 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	try {
 		apply(await turnRunning(turnKey));
 
+		if (park.kind === "code") {
+			// Settles the execution card for every subscriber and on replay: the
+			// persisted outcome carries the RunOutcome WITHOUT files (session-only,
+			// like the fence path — see MessageCodeExecutionResolvedUpdate).
+			apply({
+				type: MessageUpdateType.CodeExecution,
+				subtype: MessageCodeExecutionUpdateType.Resolved,
+				executionId: park.parkedCallId,
+				outcome: park.outcome
+					? (({ files: _files, ...outcome }) => outcome)(park.outcome)
+					: {
+							ok: false,
+							stdout: "",
+							stderr: "",
+							error: "no outcome was recorded for this execution",
+						},
+			});
+		}
 		// The result the parked call has been missing. Replay pairs it with the call
 		// by uuid, which is what puts it in the model's history for the next round.
+		// For `code` the row carries the browser's posted outcome — or nothing but
+		// the deadline when the browser never answered, which becomes the explicit
+		// "environment unavailable" fallback the prompt teaches the model to fall
+		// back from to a fence.
+		const resumeResultText =
+			park.kind === "code"
+				? codeResumeResultText(park, tokenExpired)
+				: waitResumeResultText(park) +
+					(tokenExpired
+						? " NOTE: the signed-in session expired while you waited, so Hub tools may " +
+							"be unauthenticated. If one fails that way, say so rather than retrying."
+						: "");
 		apply({
 			type: MessageUpdateType.Tool,
 			subtype: MessageToolUpdateType.Result,
 			uuid: park.toolUuid,
 			result: {
 				status: ToolResultStatus.Success,
-				call: { name: "wait", parameters: {} },
+				call: {
+					name: park.kind === "code" ? EXECUTE_CODE_TOOL_NAME : "wait",
+					parameters: {},
+				},
 				outputs: [
 					{
-						text:
-							waitResumeResultText(park) +
-							(tokenExpired
-								? " NOTE: the signed-in session expired while you waited, so Hub tools may " +
-									"be unauthenticated. If one fails that way, say so rather than retrying."
-								: ""),
+						text: resumeResultText,
 					},
 				] as unknown as Record<string, unknown>[],
 				display: true,
