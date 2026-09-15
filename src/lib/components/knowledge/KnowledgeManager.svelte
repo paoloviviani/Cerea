@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
+	import { base as appBase } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
 	import FileDrop from "$lib/components/FileDrop.svelte";
 	import {
@@ -35,6 +36,8 @@
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconShare from "~icons/carbon/share";
 	import IconDocument from "~icons/carbon/document";
+	import IconView from "~icons/carbon/view";
+	import IconDownload from "~icons/carbon/download";
 	import LucideLibrary from "~icons/lucide/library";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -285,6 +288,7 @@
 	async function openDetail(id: string) {
 		failure = null;
 		notice = null;
+		preview = null;
 		view = "detail";
 		try {
 			const [base, docs] = await Promise.all([
@@ -311,6 +315,7 @@
 		documents = [];
 		failure = null;
 		notice = null;
+		preview = null;
 		void load();
 	}
 
@@ -370,6 +375,60 @@
 		} finally {
 			busy = false;
 		}
+	}
+
+	// ---- open and download --------------------------------------------------
+	//
+	// The row's two reads. Preview is the stored extracted markdown — what
+	// retrieval actually sees — fetched as JSON and shown below the list.
+	// Download is the original bytes, served as an attachment by the route, so
+	// it goes through a plain anchor rather than the JSON helpers: the browser
+	// carries the session and handles the disposition itself.
+
+	interface DocumentPreview {
+		id: string;
+		title: string;
+		filename: string | null;
+		text: string;
+		chars: number;
+	}
+
+	let preview = $state<DocumentPreview | null>(null);
+	let previewBusy = $state(false);
+
+	/**
+	 * How much of an extract the panel shows. A base can hold megabytes of
+	 * markdown and the panel is a glance, not a reader; the count beside the
+	 * title keeps the cut honest, and the download below it has no such cut.
+	 */
+	const PREVIEW_CHARS = 50_000;
+
+	async function openPreview(id: string) {
+		if (!current) return;
+		previewBusy = true;
+		failure = null;
+		try {
+			preview = await gwGet<DocumentPreview>(`vector_stores/${current.id}/files/${id}/preview`);
+		} catch (err) {
+			failure = err instanceof GatewayError ? err.message : "Could not open it.";
+		} finally {
+			previewBusy = false;
+		}
+	}
+
+	function closePreview() {
+		preview = null;
+	}
+
+	function downloadDocument(document: KnowledgeDocument) {
+		if (!current) return;
+		const link = window.document.createElement("a");
+		link.href = `${appBase}/api/v2/gateway/vector_stores/${current.id}/files/${document.id}/download`;
+		link.download = document.filename || document.title || "document";
+		link.rel = "noopener";
+		window.document.body.appendChild(link);
+		link.click();
+		link.remove();
 	}
 
 	async function reindex() {
@@ -599,6 +658,7 @@
 					<ul class={s.TIPS_LIST}>
 						<li>• Attach a base to a project and it is searched every turn.</li>
 						<li>• Sharing a base lets somebody read it; only you can change it.</li>
+						<li>• Open a document to read the text search actually sees.</li>
 						<li>
 							• A scan with no text layer needs an OCR model; this deployment's own reader reads
 							text layers only.
@@ -777,22 +837,67 @@
 												{/if}
 											</div>
 										</div>
-										{#if canEdit}
+										<div class="flex shrink-0 items-center gap-1.5">
 											<button
-												onclick={() => removeDocument(document.id)}
-												disabled={busy}
-												class={s.CARD_DESTRUCTIVE}
+												onclick={() => openPreview(document.id)}
+												disabled={previewBusy}
+												class={s.CARD_ACTION}
+												aria-label={`Open ${document.title || document.filename || "document"}`}
 											>
-												<IconTrash class="size-3" />
-												Remove
+												<IconView class="size-3" />
+												Open
 											</button>
-										{/if}
+											{#if document.file_id}
+												<button
+													onclick={() => downloadDocument(document)}
+													class={s.CARD_ACTION}
+													aria-label={`Download ${document.title || document.filename || "document"}`}
+												>
+													<IconDownload class="size-3" />
+													Download
+												</button>
+											{/if}
+											{#if canEdit}
+												<button
+													onclick={() => removeDocument(document.id)}
+													disabled={busy}
+													class={s.CARD_DESTRUCTIVE}
+												>
+													<IconTrash class="size-3" />
+													Remove
+												</button>
+											{/if}
+										</div>
 									</div>
 								</li>
 							{/each}
 						</ul>
 					{/if}
 				</div>
+
+				{#if preview}
+					<div class={s.card(false)}>
+						<div class="flex items-center justify-between gap-3 px-4 py-2.5">
+							<div class="min-w-0">
+								<p class={s.CARD_TITLE}>{preview.title}</p>
+								<p class={s.CARD_SUBTITLE}>
+									{preview.filename ?? "pasted note"} · {preview.chars.toLocaleString()} characters —
+									what search sees
+								</p>
+							</div>
+							<div class="flex shrink-0 items-center gap-1.5">
+								<button onclick={closePreview} class={s.CARD_ACTION}>Close</button>
+							</div>
+						</div>
+						<pre
+							class="mx-4 mb-4 scrollbar-custom max-h-96 overflow-auto rounded-lg bg-gray-50 p-3 text-xs break-words whitespace-pre-wrap text-gray-800 dark:bg-gray-900 dark:text-gray-200">{preview.text.slice(
+								0,
+								PREVIEW_CHARS
+							)}{preview.text.length > PREVIEW_CHARS
+								? `\n\n… showing the first ${PREVIEW_CHARS.toLocaleString()} of ${preview.chars.toLocaleString()} characters`
+								: ""}</pre>
+					</div>
+				{/if}
 
 				{#if current.owned}
 					<div>

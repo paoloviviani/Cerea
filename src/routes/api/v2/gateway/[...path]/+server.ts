@@ -38,10 +38,12 @@ import { logger } from "$lib/server/logger";
  * searching it — handled in-process since ADR 0070. Files: upload and delete;
  * reading one back is *not* here — a knowledge base's own passages are what
  * the chat shows, and serving arbitrary uploaded bytes back through this
- * origin is a decision with its own reasons. The one carve-out is a
- * document's *indexed text* (`.../content`), which the code-execution
- * runtime mounts for analysis: it is the retrieval payload, behind the same
- * viewer check, and still never the raw upload.
+ * origin is a decision with its own reasons. The carve-outs are a document's
+ * *indexed text* (`.../content`), which the code-execution runtime mounts for
+ * analysis, the Knowledge screen's *preview* (`.../preview`), which is the
+ * same stored-text read under a document-facing name, and the *download*
+ * (`.../download`), which serves the original bytes as an attachment behind
+ * the same viewer check. Still never the raw upload served inline.
  */
 const INTERNAL = [
 	/^vector_stores$/,
@@ -52,6 +54,12 @@ const INTERNAL = [
 	// A document's *indexed text* for the code-execution runtime — the
 	// retrieval payload behind the same viewer check, never the raw upload.
 	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/content$/,
+	// The Knowledge screen's preview — the same stored-text read as above,
+	// under the name the screen offers it. Read, never re-extracted.
+	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/preview$/,
+	// The Knowledge screen's download — the original bytes as an attachment,
+	// capped, behind the same viewer check. Never served inline.
+	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/download$/,
 	/^files$/,
 	/^files\/[0-9a-f-]{24}$/,
 ];
@@ -211,9 +219,44 @@ async function handleInternal(
 			return json(await service.readDocumentText(contentMatch[1], contentMatch[2], caller));
 		}
 
+		const previewMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/preview$/.exec(
+			path
+		);
+		if (previewMatch && method === "GET") {
+			return json(await service.readDocumentPreview(previewMatch[1], previewMatch[2], caller));
+		}
+
+		const downloadMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/download$/.exec(
+			path
+		);
+		if (downloadMatch && method === "GET") {
+			const file = await service.readDocumentDownload(downloadMatch[1], downloadMatch[2], caller);
+			// Attachment, never inline: these are somebody's original bytes, and
+			// this origin must not render them as its own page.
+			// eslint-disable-next-line no-control-regex -- control bytes are valid header-injection attacks
+			const safe = file.filename.replace(/["\\\r\n\x00-\x1f]/g, "").trim() || "document";
+			return new Response(new Uint8Array(file.bytes), {
+				headers: {
+					"Content-Type": file.mime,
+					"Content-Disposition": `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+					"Content-Length": file.size.toString(),
+					"X-Content-Type-Options": "nosniff",
+					"Content-Security-Policy": "default-src 'none'; sandbox;",
+				},
+			});
+		}
+
 		error(404, "Not available through this endpoint.");
 	} catch (err) {
 		if (err && typeof err === "object" && "status" in err && "body" in err) throw err;
+		const { KnowledgeError } = await import("$lib/server/knowledge/service");
+		if (err instanceof KnowledgeError) {
+			// The service speaks HTTP already; `handled` renders the status and
+			// the message written for whoever caused it. Swallowing these into
+			// the 502 below would turn every stranger into "could not be
+			// reached" and hide the reason from whoever can act on it.
+			throw err;
+		}
 		logger.error({ err, path }, "knowledge handling failed");
 		error(502, "The knowledge store could not be reached.");
 	}
