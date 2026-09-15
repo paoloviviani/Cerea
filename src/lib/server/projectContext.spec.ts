@@ -23,8 +23,8 @@ vi.mock("$lib/server/knowledge/service", () => ({
 	reachableStores: vi.fn(),
 }));
 
-import { projectContext, DEFAULT_RETRIEVAL_LIMIT, type Project } from "$lib/server/projects";
-import type { User } from "$lib/types/User";
+import { projectContext, DEFAULT_RETRIEVAL_LIMIT } from "$lib/server/projects";
+import type { Project } from "$lib/types/Project";
 
 beforeAll(async () => {
 	const { ready } = await import("$lib/server/database");
@@ -46,7 +46,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 	const now = new Date();
 	return {
 		_id: new ObjectId(),
-		userId: new ObjectId() as unknown as User["_id"],
+		userId: new ObjectId(),
 		name: "A project",
 		description: "",
 		instructions: "",
@@ -91,7 +91,9 @@ const contextOptions = (overrides: Record<string, unknown> = {}) => ({
 
 describe("projectContext with conversation-attached bases", () => {
 	it("retrieves from a conversation's own bases when there is no project", async () => {
-		searchBaseMock.mockImplementation((baseId: string) => Promise.resolve({ data: hitsForBase(baseId) }));
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({ data: hitsForBase(baseId) })
+		);
 
 		const context = await projectContext(
 			contextOptions({ knowledgeBaseIds: ["a1a1a1a1a1a1a1a1a1a1a1a1"] })
@@ -106,20 +108,33 @@ describe("projectContext with conversation-attached bases", () => {
 	it("adds the conversation's bases to the project's, and dedupes a base named by both", async () => {
 		const projectBases = ["b1b1b1b1b1b1b1b1b1b1b1b1"];
 		const conversationBases = ["b1b1b1b1b1b1b1b1b1b1b1b1", "c1c1c1c1c1c1c1c1c1c1c1c1"];
-		searchBaseMock.mockImplementation((baseId: string) => Promise.resolve({ data: hitsForBase(baseId) }));
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({ data: hitsForBase(baseId) })
+		);
 
 		const context = await projectContext(
-			contextOptions({ project: makeProject({ knowledgeBaseIds: projectBases }), knowledgeBaseIds: conversationBases })
+			contextOptions({
+				project: makeProject({ knowledgeBaseIds: projectBases }),
+				knowledgeBaseIds: conversationBases,
+			})
 		);
 
 		// The shared base searched once, the conversation-only base added.
-		expect(searchedBases().sort()).toEqual(["b1b1b1b1b1b1b1b1b1b1b1b1", "c1c1c1c1c1c1c1c1c1c1c1c1"]);
+		expect(searchedBases().sort()).toEqual([
+			"b1b1b1b1b1b1b1b1b1b1b1b1",
+			"c1c1c1c1c1c1c1c1c1c1c1c1",
+		]);
 		expect(context).toContain("passage from c1c1c1c1c1c1c1c1c1c1c1c1");
 	});
 
 	it("keeps a project-only conversation worded and limited exactly as before", async () => {
-		const project = makeProject({ knowledgeBaseIds: ["b1b1b1b1b1b1b1b1b1b1b1b1"], retrievalLimit: 3 });
-		searchBaseMock.mockImplementation((baseId: string) => Promise.resolve({ data: hitsForBase(baseId) }));
+		const project = makeProject({
+			knowledgeBaseIds: ["b1b1b1b1b1b1b1b1b1b1b1b1"],
+			retrievalLimit: 3,
+		});
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({ data: hitsForBase(baseId) })
+		);
 
 		const context = await projectContext(contextOptions({ project }));
 
@@ -141,7 +156,9 @@ describe("projectContext with conversation-attached bases", () => {
 			indexPastChats: true,
 			memoryBaseId: "d1d1d1d1d1d1d1d1d1d1d1d1",
 		});
-		searchBaseMock.mockImplementation((baseId: string) => Promise.resolve({ data: hitsForBase(baseId) }));
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({ data: hitsForBase(baseId) })
+		);
 
 		await projectContext(
 			contextOptions({ project, knowledgeBaseIds: ["c1c1c1c1c1c1c1c1c1c1c1c1"] })
@@ -156,12 +173,18 @@ describe("projectContext with conversation-attached bases", () => {
 
 	it("bounds a project-less conversation's retrieval at the default limit", async () => {
 		const project = makeProject({ retrievalLimit: 20 });
-		searchBaseMock.mockImplementation((baseId: string) => Promise.resolve({ data: hitsForBase(baseId) }));
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({ data: hitsForBase(baseId) })
+		);
 
-		await projectContext(contextOptions({ project, knowledgeBaseIds: ["c1c1c1c1c1c1c1c1c1c1c1c1"] }));
+		await projectContext(
+			contextOptions({ project, knowledgeBaseIds: ["c1c1c1c1c1c1c1c1c1c1c1c1"] })
+		);
 		expect(searchBaseMock.mock.calls[0][3]).toMatchObject({ max_num_results: 20 });
 
 		await projectContext(contextOptions({ knowledgeBaseIds: ["c1c1c1c1c1c1c1c1c1c1c1c1"] }));
-		expect(searchBaseMock.mock.calls.at(-1)?.[3]).toMatchObject({ max_num_results: DEFAULT_RETRIEVAL_LIMIT });
+		expect(searchBaseMock.mock.calls.at(-1)?.[3]).toMatchObject({
+			max_num_results: DEFAULT_RETRIEVAL_LIMIT,
+		});
 	});
 });

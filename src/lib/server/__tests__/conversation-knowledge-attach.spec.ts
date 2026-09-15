@@ -101,7 +101,7 @@ describe("attaching knowledge bases at conversation create", () => {
 
 	it("refuses a base the sender cannot read", async () => {
 		const { user: owner } = await createTestUser();
-		const { user: sender, locals: senderLocals } = await createTestUser();
+		const { locals: senderLocals } = await createTestUser();
 		await makeBase(owner._id, FOREIGN_BASE_ID);
 
 		const response = createChat(senderLocals, {
@@ -112,7 +112,7 @@ describe("attaching knowledge bases at conversation create", () => {
 	});
 
 	it("refuses an id that is not one of this chat's store ids", async () => {
-		const { user, locals } = await createTestUser();
+		const { locals } = await createTestUser();
 		const response = createChat(locals, {
 			model: MODEL_ID,
 			knowledgeBaseIds: ["not-a-store-id"],
@@ -121,7 +121,7 @@ describe("attaching knowledge bases at conversation create", () => {
 	});
 
 	it("refuses more than twenty ids", async () => {
-		const { user, locals } = await createTestUser();
+		const { locals } = await createTestUser();
 		const ids = Array.from({ length: 21 }, (_, i) => i.toString(16).padStart(24, "0"));
 		const response = createChat(locals, { model: MODEL_ID, knowledgeBaseIds: ids });
 		await expect(response).rejects.toMatchObject({ status: 400 });
@@ -138,9 +138,7 @@ describe("attaching knowledge bases at conversation create", () => {
 	it("stores no field at all when none were attached", async () => {
 		const { locals } = await createTestUser();
 
-		const { conversationId } = await readSeed(
-			await createChat(locals, { model: MODEL_ID })
-		);
+		const { conversationId } = await readSeed(await createChat(locals, { model: MODEL_ID }));
 		const conv = await collections.conversations.findOne({
 			_id: new ObjectId(conversationId),
 		});
@@ -165,9 +163,10 @@ describe("attaching and detaching through PATCH", () => {
 			}),
 		} as never);
 		expect(attach.status).toBe(200);
-		expect(
-			(await collections.conversations.findOne({ _id: conv._id }))?.knowledgeBaseIds
-		).toEqual([OWNED_BASE_ID, FOREIGN_BASE_ID]);
+		expect((await collections.conversations.findOne({ _id: conv._id }))?.knowledgeBaseIds).toEqual([
+			OWNED_BASE_ID,
+			FOREIGN_BASE_ID,
+		]);
 
 		const detach = await patchConversation({
 			locals,
@@ -179,9 +178,9 @@ describe("attaching and detaching through PATCH", () => {
 			}),
 		} as never);
 		expect(detach.status).toBe(200);
-		expect(
-			(await collections.conversations.findOne({ _id: conv._id }))?.knowledgeBaseIds
-		).toEqual([]);
+		expect((await collections.conversations.findOne({ _id: conv._id }))?.knowledgeBaseIds).toEqual(
+			[]
+		);
 	});
 
 	it("does not touch bases when the field is absent", async () => {
@@ -199,14 +198,14 @@ describe("attaching and detaching through PATCH", () => {
 			}),
 		} as never);
 
-		expect(
-			(await collections.conversations.findOne({ _id: conv._id }))?.knowledgeBaseIds
-		).toEqual([OWNED_BASE_ID]);
+		expect((await collections.conversations.findOne({ _id: conv._id }))?.knowledgeBaseIds).toEqual([
+			OWNED_BASE_ID,
+		]);
 	});
 
 	it("rejects a base the sender cannot read, on PATCH too", async () => {
 		const { user: owner } = await createTestUser();
-		const { user: sender, locals: senderLocals } = await createTestUser();
+		const { locals: senderLocals } = await createTestUser();
 		await makeBase(owner._id, FOREIGN_BASE_ID);
 		const conv = await createTestConversation(senderLocals);
 

@@ -128,7 +128,7 @@ async function* textGenerationWithoutTitle(
 	// answer (ADR 0062).
 	if (conv.projectId || conv.knowledgeBaseIds?.length) {
 		const project = conv.projectId
-			? await collections.projects.findOne({ _id: conv.projectId })
+			? ((await collections.projects.findOne({ _id: conv.projectId })) ?? undefined)
 			: undefined;
 		if (project || conv.knowledgeBaseIds?.length) {
 			const lastUser = [...messages].reverse().find((message) => message.from === "user");

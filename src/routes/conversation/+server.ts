@@ -6,7 +6,12 @@ import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
 import { models, validateModel } from "$lib/server/models";
-import { projectAccess, viewerPrincipals, parseAttachedKnowledgeBaseIds, knowledgeBaseViews } from "$lib/server/projects";
+import {
+	projectAccess,
+	viewerPrincipals,
+	parseAttachedKnowledgeBaseIds,
+	knowledgeBaseViews,
+} from "$lib/server/projects";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
@@ -215,15 +220,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// post-create navigation (no fromShare query param): resolveConversation
 				// only reports shared=true when the viewing URL's fromShare matches.
 				shared: false,
-			deployedSpaces: undefined,
-			mlAssistant: isMlAssistant ? true : undefined,
-			mlBudget,
-			// Resolved to names so the composer's chips render without a second
-			// round trip; a base deleted between validate and this read is left
-			// out here, exactly as the GET endpoint would show it.
-			knowledgeBases: attachedKnowledgeBaseIds?.length
-				? await knowledgeBaseViews(attachedKnowledgeBaseIds)
-				: undefined,
+				deployedSpaces: undefined,
+				mlAssistant: isMlAssistant ? true : undefined,
+				mlBudget,
+				// Resolved to names so the composer's chips render without a second
+				// round trip; a base deleted between validate and this read is left
+				// out here, exactly as the GET endpoint would show it.
+				knowledgeBases: attachedKnowledgeBaseIds?.length
+					? await knowledgeBaseViews(attachedKnowledgeBaseIds)
+					: undefined,
 			}),
 		}),
 		{ headers: { "Content-Type": "application/json" } }

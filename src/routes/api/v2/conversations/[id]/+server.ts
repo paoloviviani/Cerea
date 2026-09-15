@@ -56,10 +56,12 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		shared: conversation.shared,
 		// The composer's chips read this back on load. A shared view learns
 		// nothing about the owner's bases: its composer is read-only anyway,
-		// and base names are the owner's to disclose, not the share's.
-		knowledgeBases: conversation.shared
-			? undefined
-			: await knowledgeBaseViews(conversation.knowledgeBaseIds),
+		// and base names are the owner's to disclose, not the share's. The
+		// `in` check is the sharedConversations branch, which carries no bases.
+		knowledgeBases:
+			!conversation.shared && "knowledgeBaseIds" in conversation
+				? await knowledgeBaseViews(conversation.knowledgeBaseIds)
+				: undefined,
 		deployedSpaces: "deployedSpaces" in conversation ? conversation.deployedSpaces : undefined,
 		mlAssistant: "mlAssistant" in conversation ? conversation.mlAssistant : undefined,
 		mlBudget: "mlBudget" in conversation ? conversation.mlBudget : undefined,
@@ -121,10 +123,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	// Validated here rather than trusted from the body: shape, count and —
 	// unlike a project create — reach, because this is a live attach from a
 	// picker the client has just shown (see parseAttachedKnowledgeBaseIds).
-	const knowledgeBaseIds = await parseAttachedKnowledgeBaseIds(
-		body?.knowledgeBaseIds,
-		locals
-	);
+	const knowledgeBaseIds = await parseAttachedKnowledgeBaseIds(body?.knowledgeBaseIds, locals);
 
 	const id = params.id ?? "";
 	if (!ObjectId.isValid(id)) {
