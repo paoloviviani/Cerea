@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { base } from "$app/paths";
 import { getExecutionSession } from "./runtime";
-import { RUN_TIMEOUT_MS } from "./protocol";
+import { RUN_TIMEOUT_MS, pyodideBasePath } from "./protocol";
 
 /**
  * The real thing, in a real browser: the module worker, the vendored Pyodide
@@ -45,7 +46,12 @@ describe.skipIf(await pyodideAbsent())("execution in the browser", () => {
 async function pyodideAbsent(): Promise<boolean> {
 	if (typeof window === "undefined") return true;
 	try {
-		const response = await fetch("/pyodide/pyodide.mjs", { method: "HEAD" });
+		// Probe the base-aware runtime path: production serves the app under
+		// a base (e.g. /chat), so the dist is at <base>/pyodide/, not /pyodide/.
+		const probeBase = typeof base === "string" && base ? base : import.meta.env.BASE_URL;
+		const response = await fetch(`${pyodideBasePath(probeBase)}pyodide.mjs`, {
+			method: "HEAD",
+		});
 		return !response.ok;
 	} catch {
 		return true;

@@ -6,8 +6,26 @@
  * enforce the same numbers.
  */
 
-/** Where the vendored Pyodide dist is served from (see scripts/sync_pyodide.mjs). */
+/**
+ * Where the vendored Pyodide dist is served from (see scripts/sync_pyodide.mjs),
+ * relative to the app's base path. Production serves the app under a base
+ * (e.g. ``/chat``), so the absolute path is ``${base}/pyodide/`` — the dist
+ * lands in the client build under the base directory, and ``/pyodide/`` alone
+ * is a 404 there.
+ */
 export const PYODIDE_INDEX_PATH = "/pyodide/";
+
+/**
+ * The absolute runtime path for the app's configured base. Vite bakes
+ * ``import.meta.env.BASE_URL`` to the SvelteKit base at build time, so the
+ * worker and the gate agree on it without any runtime message passing.
+ * A trailing slash is normalized away so ``"/"`` and ``""`` both yield
+ * ``/pyodide/``.
+ */
+export function pyodideBasePath(baseUrl: string | undefined): string {
+	const base = (baseUrl ?? "/").replace(/\/+$/, "");
+	return `${base}${PYODIDE_INDEX_PATH}`;
+}
 
 /** Directory inside the runtime where host-provided files are mounted. */
 export const MOUNT_ROOT = "/mnt/data";

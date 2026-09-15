@@ -16,8 +16,8 @@ Resume = read this file, then `git log --oneline -12` to see where we stopped.
   with its own reasons" and was deliberately not taken; indexed text is what
   retrieval already serves. Endpoint added:
   `GET /api/v2/gateway/vector_stores/:sid/files/:docId/content` (viewer access).
-- micropip: worker fetch is allowlisted to same-origin `/pyodide/*` only, so the
-  default CDN index is unreachable; `micropip.set_index_urls("/pyodide/wheels/")`
+- micropip: worker fetch is allowlisted to same-origin `<base>/pyodide/*` only, so the
+  default CDN index is unreachable; `micropip.set_index_urls("<base>/pyodide/wheels/")`
   is the extension point. No wheels shipped by default — known limitation,
   recorded in docs/pyodide.md.
 
@@ -42,6 +42,7 @@ Resume = read this file, then `git log --oneline -12` to see where we stopped.
 - typecheck/format fixes folded in as small commits
 
 ## Environment constraint found
+
 mongodb-memory-server CANNOT run on this host: mongod 5+ needs AVX, the CPU answers SIGILL.
 Affects ALL mongo-backed server specs repo-wide (pre-existing; verified with mcp/elicitation.spec.ts).
 Non-mongo server tests (execution/*, files.spec) pass locally. Client suite runs in the
@@ -49,9 +50,11 @@ playwright container. Report mongo-spec status as "cannot execute on this host" 
 is written and waits for an AVX host / CI).
 
 ## Remaining
+
 - (nothing — final verification done; see below for numbers)
 
 ## Verification results (final)
+
 - `npm run check` (svelte-check): 0 errors, 0 warnings.
 - `npx eslint .`: clean. Prettier: all files authored/touched by this branch clean; NOTE
   several PRE-EXISTING files on main (README.md, docs/*.md, ChatInput.svelte,
