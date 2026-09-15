@@ -115,7 +115,9 @@
 <div class="group relative my-4 rounded-lg">
 	<div class="pointer-events-none sticky top-0 w-full">
 		<div
-			class="pointer-events-auto absolute top-2 right-2 flex items-center gap-1.5 md:top-3 md:right-3"
+			class="pointer-events-auto absolute flex items-center gap-1.5 {generatedFileCount > 0
+				? 'top-px right-5'
+				: 'top-2 right-2 md:top-3 md:right-3'}"
 		>
 			{#if showPreview}
 				<button

@@ -190,19 +190,36 @@ describe("CodeBlock execution", () => {
 
 		const fence = screen.baseElement.querySelector("pre");
 		const details = screen.baseElement.querySelector("details");
+		const cluster = screen.baseElement.querySelector(".group.relative div.pointer-events-auto");
 		const runOutput = details?.nextElementSibling;
 		expect(fence).not.toBeNull();
 		expect(details).not.toBeNull();
+		expect(cluster).not.toBeNull();
 		expect(runOutput).not.toBeNull();
 
-		// One left edge for everything the block stacks: the fence's text
-		// inset. This regressed once as mx-3 against the fence's px-5, which
+		// One left edge for everything the block stacks: the fence's
+		// text inset. This regressed once as mx-3 against the fence's px-5, which
 		// pushed the run-output box 8px left of the code and the disclosure.
 		const fenceTextLeft = Number.parseFloat(getComputedStyle(fence as HTMLElement).paddingLeft);
-		const detailsLeft = (details as HTMLElement).getBoundingClientRect().left;
-		const runLeft = (runOutput as HTMLElement).getBoundingClientRect().left;
-		expect(Math.abs(detailsLeft - fenceTextLeft)).toBeLessThan(1);
-		expect(Math.abs(runLeft - fenceTextLeft)).toBeLessThan(1);
+		const detailsRect = (details as HTMLElement).getBoundingClientRect();
+		const runRect = (runOutput as HTMLElement).getBoundingClientRect();
+		expect(Math.abs(detailsRect.left - fenceTextLeft)).toBeLessThan(1);
+		expect(Math.abs(runRect.left - fenceTextLeft)).toBeLessThan(1);
+
+		// The button cluster ends where the fold box ends: the unfolded-state
+		// position (top-2/right-2, md:top-3/md:right-3) left the cluster's
+		// right edge 8px past the fold box on md+ and 12px past on small
+		// screens, straddling the box's rounded corner, while vertically it
+		// hung 6-10px below the header row. Folded, the cluster is pinned to
+		// the box's right edge and centred on its header row.
+		const clusterRect = (cluster as HTMLElement).getBoundingClientRect();
+		expect(Math.abs(clusterRect.right - detailsRect.right)).toBeLessThan(1);
+		const topGap = clusterRect.top - detailsRect.top;
+		const bottomGap = detailsRect.bottom - clusterRect.bottom;
+		expect(Math.abs(topGap - bottomGap)).toBeLessThan(1);
+
+		// And the run-output box shares the fold box's edges on the right too.
+		expect(Math.abs(detailsRect.right - runRect.right)).toBeLessThan(1);
 
 		// The FILES list is a real list: every child of its ul is an li card.
 		const filesList = runOutput?.querySelector("ul");
@@ -210,5 +227,31 @@ describe("CodeBlock execution", () => {
 		for (const child of Array.from(filesList?.children ?? [])) {
 			expect(child.tagName).toBe("LI");
 		}
+	});
+
+	it("keeps the button cluster pinned to the container corner when unfolded", async () => {
+		const { screen } = mount({ rawCode: "print('k')" });
+		await tick();
+		const container = screen.baseElement.querySelector(".group.relative");
+		const cluster = screen.baseElement.querySelector(".group.relative div.pointer-events-auto");
+		const pre = screen.baseElement.querySelector("pre");
+		expect(container).not.toBeNull();
+		expect(cluster).not.toBeNull();
+		expect(pre).not.toBeNull();
+
+		const containerRect = (container as HTMLElement).getBoundingClientRect();
+		const clusterRect = (cluster as HTMLElement).getBoundingClientRect();
+		// The tuned unfolded position, which the fold fix must not move:
+		// right-2/top-2, stepped up to 12px from 768px (md) up.
+		const wide = window.innerWidth >= 768;
+		const inset = wide ? 12 : 8;
+		expect(Math.abs(containerRect.right - clusterRect.right - inset)).toBeLessThan(1);
+		expect(Math.abs(clusterRect.top - containerRect.top - inset)).toBeLessThan(1);
+
+		// The fence it overlays is full-width and borderless, which is why the
+		// corner position is correct in this state.
+		const preRect = (pre as HTMLElement).getBoundingClientRect();
+		expect(Math.abs(preRect.right - containerRect.right)).toBeLessThan(1);
+		expect(Math.abs(preRect.left - containerRect.left)).toBeLessThan(1);
 	});
 });
