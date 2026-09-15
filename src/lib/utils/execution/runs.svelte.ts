@@ -1,5 +1,5 @@
 import { untrack } from "svelte";
-import { getExecutionSession, type ExecutionStatus } from "./runtime";
+import { getExecutionSession, type ExecutionSession, type ExecutionStatus } from "./runtime";
 import type { RunOutcome } from "./protocol";
 
 /**
@@ -22,6 +22,13 @@ export interface RunState {
 	outcome?: RunOutcome;
 	/** Sandbox-level failure (load failure, timeout, terminated) */
 	sandboxError?: string;
+	/**
+	 * Files the runtime held when this run settled — the run's outputs, for
+	 * download. Memory-only, never persisted: the worker filesystem dies with
+	 * the page load, so a listing from a previous load would name files that
+	 * no longer exist.
+	 */
+	outputFiles?: Array<{ path: string; size: number }>;
 	startedAt: number;
 	finishedAt?: number;
 }
@@ -73,12 +80,19 @@ class RunsStore {
 		session
 			.run(code)
 			.then((outcome) => {
-				this.#runs[key] = {
+				const settled: RunState = {
 					...state,
 					status: outcome.ok ? "done" : "error",
 					outcome,
 					finishedAt: Date.now(),
 				};
+				// Written synchronously: the outcome must land in the same
+				// microtask it always did. The file listing follows when it
+				// arrives and amends the same entry — outputs, not outcome.
+				this.#runs[key] = settled;
+				void collectOutputFiles(session).then((outputFiles) => {
+					if (outputFiles) this.#runs[key] = { ...settled, outputFiles };
+				});
 			})
 			.catch((error: unknown) => {
 				this.#runs[key] = {
@@ -97,6 +111,22 @@ class RunsStore {
 }
 
 let store: RunsStore | undefined;
+
+/**
+ * What the runtime holds after a run, for the output-files panel. A listing
+ * that fails is an empty panel, never a failed run — the outcome already
+ * settled, and files are a convenience on top of it.
+ */
+export async function collectOutputFiles(
+	session: ExecutionSession
+): Promise<Array<{ path: string; size: number }> | undefined> {
+	try {
+		const files = await session.listFiles();
+		return files.length > 0 ? files : undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 /** Browser-only; undefined during SSR where no code can run. */
 export function getRunsStore(): RunsStore | undefined {

@@ -151,6 +151,41 @@ export class ExecutionSession {
 		return message.path;
 	}
 
+	/**
+	 * Files the runtime currently holds in its working directory — what the
+	 * last runs generated. Best-effort by design: a listing that fails is an
+	 * empty panel, never a failed run.
+	 */
+	async listFiles(timeoutMs = this.runTimeoutMs): Promise<Array<{ path: string; size: number }>> {
+		const message = await this.enqueue(() =>
+			this.dispatch(
+				{ type: "listFiles", id: this.nextId++ },
+				timeoutMs,
+				(m): m is Extract<WorkerToHost, { type: "filesListed" }> => m.type === "filesListed"
+			)
+		);
+		return message.files;
+	}
+
+	/**
+	 * Read one runtime file back out for download. Bytes arrive as a
+	 * transferable, never through the capped text output — a .docx is not a
+	 * Result string.
+	 */
+	async readFile(path: string, timeoutMs = this.runTimeoutMs): Promise<ArrayBuffer> {
+		const message = await this.enqueue(() =>
+			this.dispatch(
+				{ type: "readFile", id: this.nextId++, path },
+				timeoutMs,
+				(m): m is Extract<WorkerToHost, { type: "fileData" }> => m.type === "fileData"
+			)
+		);
+		if (message.error || !message.data) {
+			throw new ExecutionError("worker", message.error ?? `could not read ${path}`);
+		}
+		return message.data;
+	}
+
 	private enqueue<T>(job: () => Promise<T>): Promise<T> {
 		// A failed predecessor must not poison the queue: every job runs, its
 		// result is what rejects. The tail swallows outcomes either way.
