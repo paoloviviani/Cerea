@@ -1,7 +1,15 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
-import { KnowledgeError, readDocumentText, type Caller } from "./service";
+import {
+	KnowledgeError,
+	MAX_DOWNLOAD_BYTES,
+	readDocumentDownload,
+	readDocumentPreview,
+	readDocumentText,
+	storeUpload,
+	type Caller,
+} from "./service";
 
 await ready;
 
@@ -26,6 +34,15 @@ const stranger: Caller = {
 
 let storeId: ObjectId;
 
+/** GridFS files this file stored, so the afterEach can remove them. */
+const uploadedFileIds: ObjectId[] = [];
+
+async function storeBytes(name: string, text: string, mime = "text/plain") {
+	const stored = await storeUpload({ name, bytes: Buffer.from(text, "utf8"), mime }, owner.userId);
+	uploadedFileIds.push(new ObjectId(stored.id));
+	return stored;
+}
+
 beforeEach(async () => {
 	const base = {
 		_id: new ObjectId(),
@@ -47,6 +64,9 @@ beforeEach(async () => {
 afterEach(async () => {
 	await collections.vectorStores.deleteMany({});
 	await collections.knowledgeDocuments.deleteMany({});
+	for (const id of uploadedFileIds.splice(0)) {
+		await collections.bucket.delete(id).catch(() => undefined);
+	}
 });
 
 function insertDocument(over: Partial<Record<string, unknown>>) {
@@ -142,5 +162,135 @@ describe("readDocumentText", () => {
 	it("keeps KnowledgeError shape for the forwarder's pass-through", () => {
 		const err = new KnowledgeError(404, "No such document.");
 		expect(err.status).toBe(404);
+	});
+});
+
+describe("readDocumentPreview", () => {
+	it("returns the stored markdown to the owner without re-extracting", async () => {
+		// The row already carries the text extraction wrote; the preview reads
+		// it back rather than calling the reader again (billing, not caching).
+		const doc = await insertDocument({ text: "# Q3\n\nUp 12%.\n", filename: "q3.md" });
+		const result = await readDocumentPreview(storeId.toString(), doc.insertedId.toString(), owner);
+		expect(result.text).toBe("# Q3\n\nUp 12%.\n");
+		expect(result.title).toBe("Q3 numbers");
+		expect(result.filename).toBe("q3.md");
+	});
+
+	it("serves shared viewers but not strangers", async () => {
+		const doc = await insertDocument({ text: "hello" });
+		const shared = await readDocumentPreview(storeId.toString(), doc.insertedId.toString(), viewer);
+		expect(shared.text).toBe("hello");
+		await expect(
+			readDocumentPreview(storeId.toString(), doc.insertedId.toString(), stranger)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it("refuses a document whose text has not landed yet", async () => {
+		const doc = await insertDocument({ status: "pending", text: undefined });
+		await expect(
+			readDocumentPreview(storeId.toString(), doc.insertedId.toString(), owner)
+		).rejects.toMatchObject({ status: 409 });
+	});
+
+	it("404s a malformed document id rather than throwing the driver's error", async () => {
+		await expect(readDocumentPreview(storeId.toString(), "not-an-id", owner)).rejects.toMatchObject(
+			{ status: 404 }
+		);
+	});
+});
+
+describe("readDocumentDownload", () => {
+	it("returns the original bytes to the owner", async () => {
+		const stored = await storeBytes("report.pdf", "%PDF-original-bytes", "application/pdf");
+		const doc = await insertDocument({
+			text: "# extracted\n",
+			filename: "report.pdf",
+			fileId: new ObjectId(stored.id),
+		});
+		const result = await readDocumentDownload(storeId.toString(), doc.insertedId.toString(), owner);
+		expect(result.bytes.toString("utf8")).toBe("%PDF-original-bytes");
+		expect(result.filename).toBe("report.pdf");
+		expect(result.mime).toBe("application/pdf");
+		expect(result.size).toBe(Buffer.byteLength("%PDF-original-bytes"));
+	});
+
+	it("serves shared viewers but not strangers", async () => {
+		const stored = await storeBytes("notes.txt", "shared words");
+		const doc = await insertDocument({
+			text: "shared words",
+			filename: "notes.txt",
+			fileId: new ObjectId(stored.id),
+		});
+		const shared = await readDocumentDownload(
+			storeId.toString(),
+			doc.insertedId.toString(),
+			viewer
+		);
+		expect(shared.bytes.toString("utf8")).toBe("shared words");
+		await expect(
+			readDocumentDownload(storeId.toString(), doc.insertedId.toString(), stranger)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it("404s a text-only document, which has no original bytes", async () => {
+		const doc = await insertDocument({ text: "a pasted note" });
+		await expect(
+			readDocumentDownload(storeId.toString(), doc.insertedId.toString(), owner)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it("404s when the stored bytes are gone", async () => {
+		const stored = await storeBytes("gone.txt", "vanished");
+		const doc = await insertDocument({
+			text: "vanished",
+			filename: "gone.txt",
+			fileId: new ObjectId(stored.id),
+		});
+		await collections.bucket.delete(new ObjectId(stored.id));
+		uploadedFileIds.pop();
+		await expect(
+			readDocumentDownload(storeId.toString(), doc.insertedId.toString(), owner)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it("refuses a file over the download cap before streaming it", async () => {
+		const stored = await storeBytes("big.bin", "small on disk, huge on paper");
+		const doc = await insertDocument({
+			text: "big",
+			filename: "big.bin",
+			fileId: new ObjectId(stored.id),
+		});
+		// The cap guards what the download returns, not how the bytes got
+		// there: a stubbed directory entry is enough to prove the refusal
+		// lands before the stream is opened.
+		const find = vi.spyOn(collections.bucket, "find").mockReturnValue({
+			next: async () => ({
+				length: MAX_DOWNLOAD_BYTES + 1,
+				filename: "big.bin",
+				metadata: { mime: "application/octet-stream" },
+			}),
+		} as never);
+		try {
+			await expect(
+				readDocumentDownload(storeId.toString(), doc.insertedId.toString(), owner)
+			).rejects.toMatchObject({ status: 413 });
+		} finally {
+			find.mockRestore();
+		}
+	});
+
+	it("404s a document from another store and a malformed id", async () => {
+		const stored = await storeBytes("secret.txt", "secret");
+		const doc = await insertDocument({
+			text: "secret",
+			filename: "secret.txt",
+			fileId: new ObjectId(stored.id),
+		});
+		await expect(
+			readDocumentDownload(new ObjectId().toString(), doc.insertedId.toString(), owner)
+		).rejects.toMatchObject({ status: 404 });
+		await expect(
+			readDocumentDownload(storeId.toString(), "not-an-id", owner)
+		).rejects.toMatchObject({ status: 404 });
 	});
 });
