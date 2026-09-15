@@ -6,7 +6,7 @@ import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
 import { models, validateModel } from "$lib/server/models";
-import { projectAccess, viewerPrincipals } from "$lib/server/projects";
+import { projectAccess, viewerPrincipals, parseAttachedKnowledgeBaseIds, knowledgeBaseViews } from "$lib/server/projects";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
@@ -29,6 +29,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			mlAssistant: z.boolean().optional(),
 			/** Start this conversation inside a project. */
 			projectId: z.string().optional(),
+			/**
+			 * Knowledge bases to attach to this conversation from its first
+			 * turn. Validated for shape and reach below; retrieval still
+			 * re-checks the reader every turn.
+			 */
+			knowledgeBaseIds: z.array(z.unknown()).optional(),
 			mlBudgetUsd: z.number().finite().min(0).max(10_000).optional(),
 		})
 		.safeParse(JSON.parse(body));
@@ -150,6 +156,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		projectId = access.project._id;
 	}
 
+	// Bases attached from the composer ride in with the conversation's first
+	// turn. Shape, count and reach are checked here rather than trusted from
+	// the body, and the validation needs the caller — which also settles that
+	// attaching requires a signed-in account, like starting in a project does.
+	const attachedKnowledgeBaseIds = await parseAttachedKnowledgeBaseIds(
+		values.knowledgeBaseIds,
+		locals
+	);
+
 	// Always store sanitized titles
 	const storedTitle = (title || "New Chat").replace(/<\/?think>/gi, "").trim();
 	const now = new Date();
@@ -167,6 +182,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		...(values.fromShare ? { meta: { fromShareId: values.fromShare } } : {}),
 		...(projectId ? { projectId } : {}),
+		...(attachedKnowledgeBaseIds?.length ? { knowledgeBaseIds: attachedKnowledgeBaseIds } : {}),
 		// Only builds that ship ML Assistant mode can mark a conversation with it.
 		...(isMlAssistant ? { mlAssistant: true } : {}),
 		...(isMlAssistant && mlBudget ? { mlBudget } : {}),
@@ -199,9 +215,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// post-create navigation (no fromShare query param): resolveConversation
 				// only reports shared=true when the viewing URL's fromShare matches.
 				shared: false,
-				deployedSpaces: undefined,
-				mlAssistant: isMlAssistant ? true : undefined,
-				mlBudget,
+			deployedSpaces: undefined,
+			mlAssistant: isMlAssistant ? true : undefined,
+			mlBudget,
+			// Resolved to names so the composer's chips render without a second
+			// round trip; a base deleted between validate and this read is left
+			// out here, exactly as the GET endpoint would show it.
+			knowledgeBases: attachedKnowledgeBaseIds?.length
+				? await knowledgeBaseViews(attachedKnowledgeBaseIds)
+				: undefined,
 			}),
 		}),
 		{ headers: { "Content-Type": "application/json" } }

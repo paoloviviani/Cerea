@@ -22,7 +22,7 @@ import { addChildren } from "$lib/utils/tree/addChildren.js";
 import { addSibling } from "$lib/utils/tree/addSibling.js";
 import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
-import { indexConversation } from "$lib/server/projects";
+import { indexConversation, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
 import { resolveSelection, withoutClientCredentials } from "$lib/server/mcp/selection";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
@@ -914,12 +914,21 @@ export async function DELETE({ locals, params }) {
 }
 
 export async function PATCH({ request, locals, params }) {
+	const body = await request.json();
 	const values = z
 		.object({
 			title: z.string().trim().min(1).max(100).optional(),
 			model: validModelIdSchema.optional(),
 		})
-		.parse(await request.json());
+		.parse(body);
+
+	// Validated here rather than trusted from the body: shape, count and —
+	// unlike a project create — reach, because this is a live attach from a
+	// picker the client has just shown (see parseAttachedKnowledgeBaseIds).
+	const knowledgeBaseIds = await parseAttachedKnowledgeBaseIds(
+		(body as { knowledgeBaseIds?: unknown }).knowledgeBaseIds,
+		locals
+	);
 
 	const convId = new ObjectId(params.id);
 
@@ -932,7 +941,13 @@ export async function PATCH({ request, locals, params }) {
 		error(404, "Conversation not found");
 	}
 
-	await applyConversationSettings({ _id: convId }, values);
+	await applyConversationSettings(
+		{ _id: convId },
+		{
+			...values,
+			...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}),
+		}
+	);
 
 	return new Response();
 }
