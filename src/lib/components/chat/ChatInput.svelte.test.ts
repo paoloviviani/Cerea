@@ -1,7 +1,16 @@
 import ChatInput from "./ChatInput.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
+import {
+	connectors,
+	connectorsFailed,
+	connectorsLoaded,
+	enabledConnectors,
+	selectedConnectorIds,
+} from "$lib/stores/mcpConnectors";
+import { allMcpServers } from "$lib/stores/mcpServers";
+import type { McpConnectorView } from "$lib/types/McpConnector";
 
 // The composer's MCP stores read `$env/dynamic/public` at module scope; the
 // client project runs in a real browser where no SvelteKit env exists.
@@ -35,7 +44,18 @@ const stores = [
 
 const CONV_ID = "0123456789abcdef01234567";
 
-function stubFetch(overrides: { patchStatus?: number } = {}) {
+// What the connectors endpoint answers. Opening the MCP submenu refreshes,
+// so the stub has to keep answering the seeded list or the refresh would
+// wipe what the test put in the store.
+let stubbedConnectors: McpConnectorView[] = [];
+
+function stubFetch(
+	overrides: {
+		patchStatus?: number;
+		connectorsStatus?: number;
+		connectors?: McpConnectorView[];
+	} = {}
+) {
 	const calls: Array<{ method: string; url: string; body: unknown }> = [];
 	vi.stubGlobal(
 		"fetch",
@@ -45,6 +65,13 @@ function stubFetch(overrides: { patchStatus?: number } = {}) {
 			calls.push({ method, url: href, body: init?.body ? JSON.parse(String(init.body)) : null });
 			if (href.endsWith("/api/v2/gateway/vector_stores") && method === "GET") {
 				return new Response(JSON.stringify({ data: stores }), { status: 200 });
+			}
+			if (href.endsWith("/api/v2/mcp/connectors") && method === "GET") {
+				const status = overrides.connectorsStatus ?? 200;
+				if (status !== 200) return new Response("oops", { status });
+				return new Response(JSON.stringify({ data: overrides.connectors ?? stubbedConnectors }), {
+					status: 200,
+				});
 			}
 			if (href.endsWith(`/conversation/${CONV_ID}`) && method === "PATCH") {
 				return new Response(JSON.stringify({ message: "boom" }), {
@@ -86,6 +113,15 @@ async function renderComposer(
 
 beforeEach(() => {
 	document.getElementById("app")?.remove();
+	// Connector and base-server stores persist across tests in this file;
+	// reset them so each submenu test starts from what it seeds.
+	stubbedConnectors = [];
+	connectors.set([]);
+	connectorsLoaded.set(false);
+	connectorsFailed.set(false);
+	selectedConnectorIds.set(new Set());
+	allMcpServers.set([]);
+	localStorage.removeItem("pystino:mcp:selected-connector-ids");
 });
 
 afterEach(() => {
@@ -210,5 +246,166 @@ describe("ChatInput: attaching knowledge bases", () => {
 		fireTap(find(host, 'button[aria-label="Add attachment"]'));
 		await vi.waitFor(() => expect(document.body.textContent).not.toContain("Add text file"));
 		expect(document.body.textContent).not.toContain("Knowledge bases");
+	});
+});
+
+describe("ChatInput: MCP connector toggles", () => {
+	const notionConnector: McpConnectorView = {
+		id: "conn-notion",
+		name: "Notion",
+		url: "https://mcp.notion.com/mcp",
+		auth: "oauth",
+		scope: "user",
+		manageable: true,
+		connected: true,
+		canAuthorize: true,
+		updatedAt: new Date().toISOString(),
+	};
+	const pendingConnector: McpConnectorView = {
+		id: "conn-pending",
+		name: "Pending",
+		url: "https://mcp.example.com/mcp",
+		auth: "oauth",
+		scope: "user",
+		manageable: true,
+		connected: false,
+		canAuthorize: true,
+		updatedAt: new Date().toISOString(),
+	};
+
+	function seedConnectors(list: McpConnectorView[], selected: string[] = []) {
+		stubbedConnectors = list;
+		connectors.set(list);
+		connectorsLoaded.set(true);
+		connectorsFailed.set(false);
+		selectedConnectorIds.set(new Set(selected));
+	}
+
+	const openMcpSubmenu = async () => {
+		const trigger = [...document.body.querySelectorAll("div")].find((el) =>
+			el.textContent?.trim().startsWith("MCP Servers")
+		);
+		if (!trigger) throw new Error("no MCP submenu trigger");
+		trigger.click();
+	};
+
+	const findConnectorItem = (name: string): HTMLElement => {
+		const item = [
+			...document.body.querySelectorAll<HTMLElement>(
+				'[role="menuitemcheckbox"], [role="menuitem"]'
+			),
+		].find((el) => el.textContent?.includes(name));
+		if (!item) throw new Error(`no menu item for ${name}`);
+		return item;
+	};
+
+	it("toggling a connector off removes it from the set a turn would send", async () => {
+		seedConnectors([notionConnector], ["conn-notion"]);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() =>
+			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
+		);
+		findConnectorItem("Notion").click();
+
+		await vi.waitFor(() =>
+			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
+		);
+		expect(get(selectedConnectorIds).has("conn-notion")).toBe(false);
+		// The turn posts the enabled set, so an off connector sends no tools.
+		expect(get(enabledConnectors)).toEqual([]);
+		expect(localStorage.getItem("pystino:mcp:selected-connector-ids")).toBe("[]");
+	});
+
+	it("toggling a connector on adds it to the set a turn would send", async () => {
+		seedConnectors([notionConnector], []);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() =>
+			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
+		);
+		findConnectorItem("Notion").click();
+
+		await vi.waitFor(() =>
+			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
+		);
+		expect(get(enabledConnectors).map((c) => c.id)).toEqual(["conn-notion"]);
+		expect(localStorage.getItem("pystino:mcp:selected-connector-ids")).toBe('["conn-notion"]');
+	});
+
+	it("loads the list when the submenu opens", async () => {
+		// Nothing seeded: the refresh on open is what fills the list.
+		stubbedConnectors = [notionConnector];
+		connectors.set([]);
+		connectorsLoaded.set(false);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Loading connectors…"));
+		await vi.waitFor(() =>
+			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
+		);
+	});
+
+	it("a disconnected connector offers sign-in through the manager instead of selecting", async () => {
+		seedConnectors([pendingConnector], []);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() =>
+			expect(findConnectorItem("Pending").textContent).toContain("Not signed in")
+		);
+		expect(findConnectorItem("Pending").getAttribute("role")).toBe("menuitem");
+		findConnectorItem("Pending").click();
+
+		// The manager dialog opens (where the sign-in lives)…
+		await vi.waitFor(() =>
+			expect(
+				[...document.body.querySelectorAll("h2")].some((el) =>
+					el.textContent?.includes("MCP Servers")
+				)
+			).toBe(true)
+		);
+		// …and nothing was selected: a no-op toggle would send no tools.
+		expect(get(selectedConnectorIds).size).toBe(0);
+		expect(get(enabledConnectors)).toEqual([]);
+	});
+
+	it("with no connectors the submenu says where to add one, keeping the manager row", async () => {
+		seedConnectors([], []);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() =>
+			expect(document.body.textContent).toContain(
+				"No connectors yet. Add one from Manage MCP Servers."
+			)
+		);
+		expect(document.body.textContent).toContain("Manage MCP Servers");
+	});
+
+	it("a failed load says so instead of pretending there is nothing", async () => {
+		seedConnectors([], []);
+		stubFetch({ connectorsStatus: 500 });
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() =>
+			expect(document.body.textContent).toContain("Could not load connectors")
+		);
+		expect(document.body.textContent).toContain("Manage MCP Servers");
 	});
 });
