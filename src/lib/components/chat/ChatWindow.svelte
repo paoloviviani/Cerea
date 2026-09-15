@@ -59,6 +59,12 @@
 	import { allBaseServersEnabled, mcpServersLoaded } from "$lib/stores/mcpServers";
 	import { shareModal } from "$lib/stores/shareModal";
 	import IconShare from "$lib/components/icons/IconShare.svelte";
+	import CarbonDownload from "~icons/carbon/download";
+	import {
+		downloadMarkdown,
+		exportConversationToMarkdown,
+		exportFilename,
+	} from "$lib/utils/exportConversationMarkdown";
 	import FeatureAnnouncementToast from "../FeatureAnnouncementToast.svelte";
 	import { getActiveAnnouncement } from "$lib/utils/featureAnnouncements";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
@@ -119,6 +125,8 @@
 		draft?: string;
 		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
 		knowledgeBases?: { id: string; name: string }[];
+		/** Conversation title, used for the Markdown export heading and filename. */
+		conversationTitle?: string;
 	}
 
 	let {
@@ -138,6 +146,7 @@
 		onretry,
 		onshowAlternateMsg,
 		knowledgeBases = $bindable([]),
+		conversationTitle = "",
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
@@ -152,6 +161,24 @@
 			Boolean(page.params?.id) &&
 			page.route.id?.startsWith("/conversation/")
 	);
+	let canExport = $derived(
+		Boolean(page.params?.id) && page.route.id?.startsWith("/conversation/") && messages.length > 0
+	);
+
+	// Per-conversation Markdown export, serialized client-side from the
+	// visible branch already in the page (content + reasoning are loaded),
+	// then downloaded via a blob-URL anchor. Disabled mid-generation so the
+	// file always matches the settled transcript, never a partial stream.
+	function exportConversation() {
+		const id = page.params.id ?? "";
+		const markdown = exportConversationToMarkdown({
+			title: conversationTitle,
+			conversationId: id,
+			messages,
+			model: currentModel.displayName,
+		});
+		downloadMarkdown(exportFilename(conversationTitle, id), markdown);
+	}
 
 	// Feature announcement toast: home screen only, gone as soon as a chat starts.
 	let featureAnnouncement = $derived(
@@ -882,19 +909,38 @@
 		{#if shareModalOpen}
 			<ShareConversationModal open={shareModalOpen} onclose={() => shareModal.close()} />
 		{/if}
-		{#if canShare}
+		{#if canExport || canShare}
 			<!-- Lives in the chat column (not the layout) so it stays visible when
 			     the artifact panel is open -->
-			<button
-				type="button"
-				class="hidden size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 md:absolute md:top-5 md:right-6 md:z-10 md:flex dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
-					{loading ? 'cursor-not-allowed opacity-40' : ''}"
-				onclick={() => shareModal.open()}
-				aria-label="Share conversation"
-				disabled={loading}
+			<div
+				class="pointer-events-auto hidden md:absolute md:top-5 md:right-6 md:z-10 md:flex md:items-center md:gap-2"
 			>
-				<IconShare />
-			</button>
+				{#if canExport}
+					<button
+						type="button"
+						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
+							{loading ? 'cursor-not-allowed opacity-40' : ''}"
+						onclick={exportConversation}
+						aria-label="Export conversation as Markdown"
+						title="Export conversation as Markdown"
+						disabled={loading}
+					>
+						<CarbonDownload />
+					</button>
+				{/if}
+				{#if canShare}
+					<button
+						type="button"
+						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
+							{loading ? 'cursor-not-allowed opacity-40' : ''}"
+						onclick={() => shareModal.open()}
+						aria-label="Share conversation"
+						disabled={loading}
+					>
+						<IconShare />
+					</button>
+				{/if}
+			</div>
 		{/if}
 		{#if featureAnnouncement && showFeatureAnnouncement && !mlSpotlightVisible}
 			<FeatureAnnouncementToast announcement={featureAnnouncement} />
