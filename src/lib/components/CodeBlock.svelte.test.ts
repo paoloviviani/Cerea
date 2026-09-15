@@ -177,4 +177,38 @@ describe("CodeBlock execution", () => {
 		// No files, no fold: the code-first rendering is untouched.
 		expect(screen.baseElement.querySelector("details")).toBeNull();
 	});
+
+	it("aligns the run output with the code text and the disclosure", async () => {
+		// Files plus stdout so all three stacked siblings render: the fence's
+		// code text, the disclosure box and the RunOutput box.
+		sessionMock.listFiles.mockResolvedValueOnce([{ path: "/home/pyodide/out.txt", size: 3 }]);
+		const { screen } = mount({ rawCode: "print('j')", autorun: true, loading: true });
+		await screen.rerender({ loading: false });
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		sessionMock.settleNext(outcome({ stdout: "out\n" }));
+		await vi.waitFor(() => expect(screen.baseElement.textContent ?? "").toContain("Finished"));
+
+		const fence = screen.baseElement.querySelector("pre");
+		const details = screen.baseElement.querySelector("details");
+		const runOutput = details?.nextElementSibling;
+		expect(fence).not.toBeNull();
+		expect(details).not.toBeNull();
+		expect(runOutput).not.toBeNull();
+
+		// One left edge for everything the block stacks: the fence's text
+		// inset. This regressed once as mx-3 against the fence's px-5, which
+		// pushed the run-output box 8px left of the code and the disclosure.
+		const fenceTextLeft = Number.parseFloat(getComputedStyle(fence as HTMLElement).paddingLeft);
+		const detailsLeft = (details as HTMLElement).getBoundingClientRect().left;
+		const runLeft = (runOutput as HTMLElement).getBoundingClientRect().left;
+		expect(Math.abs(detailsLeft - fenceTextLeft)).toBeLessThan(1);
+		expect(Math.abs(runLeft - fenceTextLeft)).toBeLessThan(1);
+
+		// The FILES list is a real list: every child of its ul is an li card.
+		const filesList = runOutput?.querySelector("ul");
+		expect(filesList).not.toBeNull();
+		for (const child of Array.from(filesList?.children ?? [])) {
+			expect(child.tagName).toBe("LI");
+		}
+	});
 });
