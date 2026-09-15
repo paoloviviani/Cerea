@@ -1,6 +1,7 @@
 import ChatInput from "./ChatInput.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { page } from "@vitest/browser/context";
 import { get, writable } from "svelte/store";
 import {
 	connectors,
@@ -11,6 +12,7 @@ import {
 } from "$lib/stores/mcpConnectors";
 import { allMcpServers } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
+import type { MCPServer } from "$lib/types/Tool";
 
 // The composer's MCP stores read `$env/dynamic/public` at module scope; the
 // client project runs in a real browser where no SvelteKit env exists.
@@ -407,5 +409,140 @@ describe("ChatInput: MCP connector toggles", () => {
 			expect(document.body.textContent).toContain("Could not load connectors")
 		);
 		expect(document.body.textContent).toContain("Manage MCP Servers");
+	});
+});
+
+describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
+	const pendingConnector: McpConnectorView = {
+		id: "conn-pending",
+		name: "Pending",
+		url: "https://mcp.example.com/mcp",
+		auth: "oauth",
+		scope: "user",
+		manageable: true,
+		connected: false,
+		canAuthorize: true,
+		updatedAt: new Date().toISOString(),
+	};
+
+	const baseServer: MCPServer = {
+		id: "srv-base",
+		name: "Base Server With A Long Name",
+		url: "https://mcp.base.example/mcp",
+		type: "base",
+	};
+
+	const openSubmenu = async (name: string, waitFor: string) => {
+		// Ancestor containers also start with the label (their textContent
+		// includes it), so pick the shortest match: the trigger itself, whose
+		// trimmed text is exactly the label. Clicking an ancestor is a no-op.
+		const candidates = [...document.body.querySelectorAll("div")]
+			.filter((el) => el.textContent?.trim().startsWith(name))
+			.sort((a, b) => (a.textContent?.trim().length ?? 0) - (b.textContent?.trim().length ?? 0));
+		const trigger = candidates[0];
+		if (!trigger) throw new Error(`no ${name} submenu trigger`);
+		trigger.click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain(waitFor));
+		await settlePanels();
+	};
+
+	const panelRects = (): string[] =>
+		[...document.body.querySelectorAll<HTMLElement>('[role="menu"]')].map((menu) => {
+			const r = menu.getBoundingClientRect();
+			return [r.left, r.right, r.top, r.bottom].join(",");
+		});
+
+	// floating-ui positions async; wait until every open panel stops moving so
+	// the assertions below measure the settled cascade, not a transient.
+	async function settlePanels() {
+		for (let i = 0; i < 20; i++) {
+			const before = panelRects().join("|");
+			await new Promise((resolve) => setTimeout(resolve, 40));
+			const after = panelRects().join("|");
+			if (before.length > 0 && before === after) return;
+		}
+		throw new Error("attach-menu panels never settled");
+	}
+
+	function expectPanelsInViewport() {
+		const panels = [...document.body.querySelectorAll<HTMLElement>('[role="menu"]')];
+		expect(panels.length).toBeGreaterThan(0);
+		for (const panel of panels) {
+			const r = panel.getBoundingClientRect();
+			expect(r.left, "panel past the left viewport edge").toBeGreaterThanOrEqual(0);
+			expect(r.right, "panel past the right viewport edge").toBeLessThanOrEqual(window.innerWidth);
+			expect(r.top, "panel past the top viewport edge").toBeGreaterThanOrEqual(0);
+			expect(r.bottom, "panel past the bottom viewport edge").toBeLessThanOrEqual(
+				window.innerHeight
+			);
+		}
+	}
+
+	it("puts the attach trigger before the Web search pill", async () => {
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		const attach = find(container, 'button[aria-label="Add attachment"]');
+		const webSearch = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Web search")
+		);
+		if (!webSearch) throw new Error("no Web search pill");
+		expect(
+			attach.compareDocumentPosition(webSearch) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+	});
+
+	it("at phone width, the root menu and every submenu stay inside the viewport", async () => {
+		const restoreWidth = window.innerWidth;
+		const restoreHeight = window.innerHeight;
+		await page.viewport(390, 844);
+		try {
+			// A wide MCP flyout (base server plus a "Not signed in" connector
+			// row) is what used to extend past the left edge here.
+			stubbedConnectors = [pendingConnector];
+			connectors.set([pendingConnector]);
+			connectorsLoaded.set(true);
+			stubFetch();
+			allMcpServers.set([baseServer]);
+			const { container } = await renderComposer({ id: CONV_ID });
+			await openMenu(container);
+			await settlePanels();
+			expectPanelsInViewport();
+
+			await openSubmenu("MCP Servers", "Not signed in");
+			expectPanelsInViewport();
+
+			await openSubmenu("Knowledge bases", "Specs");
+			expectPanelsInViewport();
+
+			await openSubmenu("Add text file", "Upload from device");
+			expectPanelsInViewport();
+		} finally {
+			await page.viewport(restoreWidth, restoreHeight);
+		}
+	});
+
+	it("on desktop the submenus still cascade to the right of the root menu", async () => {
+		const restoreWidth = window.innerWidth;
+		const restoreHeight = window.innerHeight;
+		await page.viewport(1280, 800);
+		try {
+			stubbedConnectors = [pendingConnector];
+			connectors.set([pendingConnector]);
+			connectorsLoaded.set(true);
+			stubFetch();
+			allMcpServers.set([baseServer]);
+			const { container } = await renderComposer({ id: CONV_ID });
+			await openMenu(container);
+			await openSubmenu("MCP Servers", "Not signed in");
+
+			const panels = [...document.body.querySelectorAll<HTMLElement>('[role="menu"]')];
+			const submenu = panels[panels.length - 1];
+			if (!submenu) throw new Error("no submenu panel");
+			expect(submenu.getAttribute("data-side")).toBe("right");
+			expect(submenu.getAttribute("data-align")).toBe("center");
+			expectPanelsInViewport();
+		} finally {
+			await page.viewport(restoreWidth, restoreHeight);
+		}
 	});
 });
