@@ -18,6 +18,12 @@ const sessionMock = vi.hoisted(() => {
 		run: vi.fn(
 			(_code: string) => new Promise((resolve, reject) => pending.push({ resolve, reject }))
 		),
+		// Mirrors the real ExecutionSession surface the stores call: run
+		// outcomes settle first, the file listing amends the entry when it
+		// lands. A mock without listFiles would leave every files assertion
+		// in this file (and any file sharing the mocked module) untestable.
+		listFiles: vi.fn(async () => [] as Array<{ path: string; size: number }>),
+		readFile: vi.fn(async (_path: string) => new ArrayBuffer(0)),
 		onStatus: vi.fn(() => () => undefined),
 		settleNext: (value: unknown) => pending.shift()?.resolve(value),
 		failNext: (error: unknown) => pending.shift()?.reject(error),
@@ -60,6 +66,7 @@ const mount = (props: Record<string, unknown>) => {
 
 beforeEach(() => {
 	sessionMock.run.mockClear();
+	sessionMock.listFiles.mockClear();
 });
 
 describe("CodeBlock execution", () => {
@@ -138,5 +145,36 @@ describe("CodeBlock execution", () => {
 		await runButton().click();
 		await tick();
 		expect(sessionMock.run).toHaveBeenCalledTimes(2);
+		// Drain the second run: the pending queue is shared within this file,
+		// and an unsettled entry would be consumed by a later test's settle.
+		sessionMock.settleNext(outcome({ stdout: "a" }));
+		await tick();
+	});
+
+	it("folds the code behind a disclosure when the run generated files", async () => {
+		sessionMock.listFiles.mockResolvedValueOnce([{ path: "/home/pyodide/out.txt", size: 3 }]);
+		const { screen } = mount({ rawCode: "print('h')", autorun: true, loading: true });
+		await screen.rerender({ loading: false });
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		sessionMock.settleNext(outcome({ stdout: "[ok]\n" }));
+
+		// File-first: the disclosure names the deliverable, the file card
+		// offers the download, and the code is folded but present.
+		await expect.element(screen.getByText(/View code/)).toBeVisible();
+		const details = screen.baseElement.querySelector("details");
+		expect(details).not.toBeNull();
+		expect(details?.hasAttribute("open")).toBe(false);
+		expect(details?.textContent).toContain("print('h')");
+		await expect.element(screen.getByRole("button", { name: "Download out.txt" })).toBeVisible();
+	});
+
+	it("leaves code expanded when the run generated no files", async () => {
+		const { screen } = mount({ rawCode: "print('i')", autorun: true, loading: true });
+		await screen.rerender({ loading: false });
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		sessionMock.settleNext(outcome({ stdout: "i\n" }));
+		await vi.waitFor(() => expect(screen.baseElement.textContent ?? "").toContain("Finished"));
+		// No files, no fold: the code-first rendering is untouched.
+		expect(screen.baseElement.querySelector("details")).toBeNull();
 	});
 });

@@ -55,6 +55,20 @@ thread never executes model-written code and runaway code is killable.
   output, and only from the working directory or `/mnt/data`. A clean
   `sys.exit(0)` at the end of a script is reported as success, not an error.
 
+## File deliverables
+
+When the user asks for a file rather than code, the file is the
+deliverable: the model writes it to the working directory and says what it
+made in one line (a system-prompt convention, so it never narrates a
+run-it-yourself ritual), and the UI presents file-first. Each generated file
+gets a card with its size, a download, and an inline preview where the type
+allows one — plain text renders, images and PDFs show from a blob URL, and
+Word documents go through a tiny in-sandbox text extraction (the standard
+library's zipfile, no new dependency). In chat blocks the code folds behind
+a disclosure when files exist; where no files were produced the code renders
+exactly as before — code is never removed, only de-emphasized, and one click
+restores it.
+
 ## What artifacts may and may not do
 
 Computation auto-runs; _rendered HTML artifacts_ do not get the network. The
