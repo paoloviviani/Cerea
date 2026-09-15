@@ -15,7 +15,6 @@ import superjson from "superjson";
 
 import { collections, ready } from "$lib/server/database";
 import {
-	cleanupTestData,
 	createTestConversation,
 	createTestLocals,
 	createTestUser,
@@ -30,17 +29,36 @@ import type { VectorStore } from "$lib/types/VectorStore";
 
 const MODEL_ID = "test-org/test-model";
 
+const OWNED_BASE_ID = "aaaaaaaaaaaaaaaaaaaaaaaa";
+const FOREIGN_BASE_ID = "bbbbbbbbbbbbbbbbbbbbbbbb";
+
+// What this file created, so its teardown deletes exactly that. The suite's
+// shared helper (`cleanupTestData`) wipes whole collections, and several spec
+// files run in parallel against the same Mongo — this file joining the
+// global-wipe club was enough to make another file's conversation vanish
+// mid-test on some schedules. Scoped teardown keeps that race out of the
+// parts this feature touches.
+const createdUserIds: ObjectId[] = [];
+const createdConvIds: ObjectId[] = [];
+const createdBaseIds = [OWNED_BASE_ID, FOREIGN_BASE_ID];
+
 beforeAll(async () => {
 	await ready;
 }, 30000);
 
 afterEach(async () => {
-	await cleanupTestData();
-	await Promise.all([collections.vectorStores.deleteMany({}), collections.projects.deleteMany({})]);
+	await Promise.all([
+		collections.conversations.deleteMany({ _id: { $in: createdConvIds } }),
+		collections.users.deleteMany({ _id: { $in: createdUserIds } }),
+		collections.sessions.deleteMany({ userId: { $in: createdUserIds } }),
+		collections.vectorStores.deleteMany({
+			_id: { $in: createdBaseIds.map((id) => new ObjectId(id)) },
+		}),
+	]);
+	createdUserIds.length = 0;
+	createdConvIds.length = 0;
 });
 
-const OWNED_BASE_ID = "aaaaaaaaaaaaaaaaaaaaaaaa";
-const FOREIGN_BASE_ID = "bbbbbbbbbbbbbbbbbbbbbbbb";
 
 async function makeBase(owner: ObjectId, id: string, name = "A base"): Promise<void> {
 	const now = new Date();
@@ -68,7 +86,23 @@ async function createChat(locals: App.Locals, body: Record<string, unknown>) {
 			body: JSON.stringify(body),
 		}),
 	} as never);
+	const { conversationId } = (await response.clone().json()) as { conversationId: string };
+	createdConvIds.push(new ObjectId(conversationId));
 	return response;
+}
+
+/** createTestUser, recorded for the scoped teardown above. */
+async function makeUser() {
+	const result = await createTestUser();
+	createdUserIds.push(result.user._id);
+	return result;
+}
+
+/** createTestConversation, recorded for the scoped teardown above. */
+async function makeConversation(...args: Parameters<typeof createTestConversation>) {
+	const conv = await createTestConversation(...args);
+	createdConvIds.push(conv._id);
+	return conv;
 }
 
 async function readSeed(response: Response) {
@@ -82,7 +116,7 @@ async function readSeed(response: Response) {
 
 describe("attaching knowledge bases at conversation create", () => {
 	it("stores an owned base and hands its name to the seed", async () => {
-		const { user, locals } = await createTestUser();
+		const { user, locals } = await makeUser();
 		await makeBase(user._id, OWNED_BASE_ID, "Specs");
 
 		const response = await createChat(locals, {
@@ -100,8 +134,8 @@ describe("attaching knowledge bases at conversation create", () => {
 	});
 
 	it("refuses a base the sender cannot read", async () => {
-		const { user: owner } = await createTestUser();
-		const { locals: senderLocals } = await createTestUser();
+		const { user: owner } = await makeUser();
+		const { locals: senderLocals } = await makeUser();
 		await makeBase(owner._id, FOREIGN_BASE_ID);
 
 		const response = createChat(senderLocals, {
@@ -112,7 +146,7 @@ describe("attaching knowledge bases at conversation create", () => {
 	});
 
 	it("refuses an id that is not one of this chat's store ids", async () => {
-		const { locals } = await createTestUser();
+		const { locals } = await makeUser();
 		const response = createChat(locals, {
 			model: MODEL_ID,
 			knowledgeBaseIds: ["not-a-store-id"],
@@ -121,7 +155,7 @@ describe("attaching knowledge bases at conversation create", () => {
 	});
 
 	it("refuses more than twenty ids", async () => {
-		const { locals } = await createTestUser();
+		const { locals } = await makeUser();
 		const ids = Array.from({ length: 21 }, (_, i) => i.toString(16).padStart(24, "0"));
 		const response = createChat(locals, { model: MODEL_ID, knowledgeBaseIds: ids });
 		await expect(response).rejects.toMatchObject({ status: 400 });
@@ -136,7 +170,7 @@ describe("attaching knowledge bases at conversation create", () => {
 	});
 
 	it("stores no field at all when none were attached", async () => {
-		const { locals } = await createTestUser();
+		const { locals } = await makeUser();
 
 		const { conversationId } = await readSeed(await createChat(locals, { model: MODEL_ID }));
 		const conv = await collections.conversations.findOne({
@@ -148,10 +182,10 @@ describe("attaching knowledge bases at conversation create", () => {
 
 describe("attaching and detaching through PATCH", () => {
 	it("replaces the list wholesale, including clearing with an empty array", async () => {
-		const { user, locals } = await createTestUser();
+		const { user, locals } = await makeUser();
 		await makeBase(user._id, OWNED_BASE_ID, "Specs");
 		await makeBase(user._id, FOREIGN_BASE_ID, "More");
-		const conv = await createTestConversation(locals);
+		const conv = await makeConversation(locals);
 
 		const attach = await patchConversation({
 			locals,
@@ -184,9 +218,9 @@ describe("attaching and detaching through PATCH", () => {
 	});
 
 	it("does not touch bases when the field is absent", async () => {
-		const { user, locals } = await createTestUser();
+		const { user, locals } = await makeUser();
 		await makeBase(user._id, OWNED_BASE_ID);
-		const conv = await createTestConversation(locals, { knowledgeBaseIds: [OWNED_BASE_ID] });
+		const conv = await makeConversation(locals, { knowledgeBaseIds: [OWNED_BASE_ID] });
 
 		await patchConversation({
 			locals,
@@ -204,10 +238,10 @@ describe("attaching and detaching through PATCH", () => {
 	});
 
 	it("rejects a base the sender cannot read, on PATCH too", async () => {
-		const { user: owner } = await createTestUser();
-		const { locals: senderLocals } = await createTestUser();
+		const { user: owner } = await makeUser();
+		const { locals: senderLocals } = await makeUser();
 		await makeBase(owner._id, FOREIGN_BASE_ID);
-		const conv = await createTestConversation(senderLocals);
+		const conv = await makeConversation(senderLocals);
 
 		await expect(
 			patchConversationV2({
@@ -225,9 +259,9 @@ describe("attaching and detaching through PATCH", () => {
 
 describe("reading attached bases back", () => {
 	it("resolves stored ids to name pairs for the owner", async () => {
-		const { user, locals } = await createTestUser();
+		const { user, locals } = await makeUser();
 		await makeBase(user._id, OWNED_BASE_ID, "Specs");
-		const conv = await createTestConversation(locals, { knowledgeBaseIds: [OWNED_BASE_ID] });
+		const conv = await makeConversation(locals, { knowledgeBaseIds: [OWNED_BASE_ID] });
 
 		const response = await getConversationV2({
 			locals,
@@ -241,9 +275,9 @@ describe("reading attached bases back", () => {
 	});
 
 	it("tells a shared view nothing about the owner's bases", async () => {
-		const { user, locals } = await createTestUser();
+		const { user, locals } = await makeUser();
 		await makeBase(user._id, OWNED_BASE_ID, "Specs");
-		const conv = await createTestConversation(locals, {
+		const conv = await makeConversation(locals, {
 			knowledgeBaseIds: [OWNED_BASE_ID],
 			meta: { fromShareId: "abc1234" },
 		});
