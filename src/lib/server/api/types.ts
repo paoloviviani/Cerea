@@ -46,4 +46,13 @@ export interface FeatureFlags {
 	taskModelId: string | null;
 	/** Models ML Intern conversations may use, in order; the first is the default. Empty when the mode is off. */
 	mlAssistantModels: string[];
+	/**
+	 * Whether the deployment allows the "install packages from PyPI" code
+	 * sandbox setting at all — false when the admin kill-switch
+	 * (`CHAT_PYODIDE_PYPI_DISABLED`) is set, regardless of what any user has
+	 * stored. The user's own `pyodidePyPiInstallEnabled` setting is the
+	 * separate opt-in; both must be true for the sandbox to actually reach
+	 * PyPI.
+	 */
+	pyodidePyPiInstallAllowed: boolean;
 }

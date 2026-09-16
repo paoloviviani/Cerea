@@ -27,6 +27,36 @@ export function pyodideBasePath(baseUrl: string | undefined): string {
 	return `${base}${PYODIDE_INDEX_PATH}`;
 }
 
+/**
+ * Where vendored pure-Python wheels are served from micropip's point of view
+ * (see scripts/sync_pyodide_wheels.mjs): one PEP 503 "simple" index page per
+ * package, named by its canonicalized name, beside the wheel files themselves.
+ * The `{package_name}` placeholder is micropip's own templating syntax
+ * (`PackageManager.set_index_urls`) — it is substituted with the
+ * already-canonicalized requirement name before the fetch.
+ */
+export function pyodideWheelsIndexTemplate(indexURL: string): string {
+	return `${indexURL}wheels/{package_name}.html`;
+}
+
+/**
+ * The public PyPI simple index (PEP 503), appended to micropip's index list
+ * only when the user has opted in to third-party installs (rung c) — see
+ * gate.ts's PYPI_ALLOWED_ORIGINS, which is what actually makes fetches to it
+ * reach the network. Listed here, not just in the gate, so the worker and the
+ * gate agree on the one string without either importing the other's home.
+ */
+export const PYPI_SIMPLE_INDEX_URL = "https://pypi.org/simple";
+
+/**
+ * Cross-origin hosts the gate additionally allows once PyPI installs are
+ * opted in: the simple index itself, and the file host it redirects wheel
+ * downloads to. Nothing else — no credentials ever accompany these (see
+ * gate.ts), so this is read access to public package metadata and wheels,
+ * never a channel back to this deployment.
+ */
+export const PYPI_ALLOWED_ORIGINS = ["https://pypi.org", "https://files.pythonhosted.org"] as const;
+
 /** Directory inside the runtime where host-provided files are mounted. */
 export const MOUNT_ROOT = "/mnt/data";
 
@@ -104,7 +134,8 @@ export type HostToWorker =
 	  }
 	| { type: "removeFile"; id: number; path: string }
 	| { type: "listFiles"; id: number }
-	| { type: "readFile"; id: number; path: string };
+	| { type: "readFile"; id: number; path: string }
+	| { type: "configure"; pypiEnabled: boolean };
 
 export type WorkerToHost =
 	| { type: "loading" }

@@ -29,7 +29,6 @@ describe("execution prompt", () => {
 		// The sandbox path keeps its contract, scoped to binary/computed files.
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("binary or computed file");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("write it to the working directory");
-		expect(EXECUTION_SYSTEM_PROMPT).toContain("standard-library code only");
 		// The superseded single-path wording is gone: a file request must not
 		// read as "always write Python that writes the file".
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain(
@@ -49,6 +48,15 @@ describe("execution prompt", () => {
 			"You do NOT see the code block's execution output yourself"
 		);
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("no network access");
+	});
+
+	it("prefers the vendored document packages over hand-built OOXML for binary files", () => {
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"using the format's proper package where one is available"
+		);
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"rather than hand-built OOXML or stdlib zipfile surgery"
+		);
 	});
 
 	it("describes the autonomous tool channel honestly", () => {
@@ -78,13 +86,28 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("use a fenced code block");
 	});
 
-	it("states the stdlib-only reality instead of promising packages", () => {
-		// The deployment's micropip index is empty by default, so naming
-		// installable packages invites exactly the ModuleNotFoundError two
-		// models walked into on the file-deliverable test.
-		expect(EXECUTION_SYSTEM_PROMPT).toContain("no package installation");
-		expect(EXECUTION_SYSTEM_PROMPT).toContain("only the Python standard library");
-		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("numpy, pandas");
+	it("states which packages are installable and which need the person's opt-in", () => {
+		// Rung (a): the vendored office packages (and anything else already in
+		// this runtime's package lock) install same-origin, unconditionally.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("micropip.install(");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("python-docx");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("openpyxl");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("pypdf");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("python-pptx");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("numpy, pandas");
+		// Rung (c): everything else on PyPI is gated on the person's own setting,
+		// never framed as something they should install themselves.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("Install packages from PyPI");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("not proof the package doesn't exist");
+		// Installing a package is not the same as reaching the network at run
+		// time — that stays impossible regardless of which packages are in.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("no sockets, no urllib, no requests to any URL");
+	});
+
+	it("teaches the self-healing doctrine: translate non-Python steps, prefer the real package", () => {
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("Self-healing");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("bash, a shell one-liner, Node");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("translate it into equivalent Python");
 	});
 
 	it("injects the convention with the prompt", () => {

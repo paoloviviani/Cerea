@@ -1,4 +1,4 @@
-import { pyodideBasePath } from "./protocol";
+import { PYPI_ALLOWED_ORIGINS, pyodideBasePath } from "./protocol";
 
 /**
  * Network gate for the execution worker.
@@ -9,13 +9,20 @@ import { pyodideBasePath } from "./protocol";
  * URL the executed code names, and `micropip` would happily pull wheels from
  * the public Pyodide index. So the gate allowlists exactly one destination —
  * same-origin paths under the app's runtime directory `<base>/pyodide/` (the
- * vendored runtime itself, and any wheels an operator drops there for
- * micropip) — and deletes every other browser-side network surface the worker
- * global scope has.
+ * vendored runtime itself, and the wheels vendored for micropip) — and
+ * deletes every other browser-side network surface the worker global scope
+ * has.
  *
  * Python-level sockets do not exist in Pyodide (there is no network syscall
  * in wasm), so the JS surface is the whole surface: urllib fails on its own,
  * and `pyfetch`/`micropip`/the `js` module all land on the wrapped `fetch`.
+ *
+ * One escape hatch exists, off by default: when the person has opted in to
+ * installing arbitrary pure-Python packages from PyPI (and the deployment has
+ * not killed that switch), `setPyPiEnabled(true)` on the controller this
+ * installer returns additionally allows `PYPI_ALLOWED_ORIGINS` — read-only
+ * package metadata and wheels, fetched with credentials forced off, never a
+ * channel back to this origin's session.
  */
 
 /**
@@ -39,12 +46,19 @@ export const REMOVED_NETWORK_GLOBALS = [
 	"navigator" /* only sendBeacon/sendBeacon-like members below */,
 ] as const;
 
+/** Controller handed back by {@link installNetworkGate} to flip the PyPI escape hatch live. */
+export interface NetworkGateController {
+	setPyPiEnabled(enabled: boolean): void;
+}
+
 export function installNetworkGate(
 	scope: typeof globalThis = self,
 	allowedPathPrefix: string = pyodideBasePath(
 		(import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL
 	)
-): void {
+): NetworkGateController {
+	let pypiEnabled = false;
+
 	const rawFetch = scope.fetch;
 	if (typeof rawFetch === "function") {
 		scope.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -54,14 +68,25 @@ export function installNetworkGate(
 			} catch {
 				return Promise.reject(new TypeError("blocked by the execution sandbox (bad URL)"));
 			}
-			if (url.origin !== scope.location.origin || !url.pathname.startsWith(allowedPathPrefix)) {
-				return Promise.reject(
-					new TypeError(
-						`blocked by the execution sandbox: network access is limited to ${allowedPathPrefix}`
-					)
-				);
+			if (url.origin === scope.location.origin && url.pathname.startsWith(allowedPathPrefix)) {
+				return rawFetch.call(scope, input, init);
 			}
-			return rawFetch.call(scope, input, init);
+			if (
+				pypiEnabled &&
+				url.protocol === "https:" &&
+				(PYPI_ALLOWED_ORIGINS as readonly string[]).includes(url.origin)
+			) {
+				// Read-only package metadata/wheels, opted in by the person. No
+				// session credentials ever accompany a cross-origin request here,
+				// regardless of what the executed code or micropip asked for.
+				return rawFetch.call(scope, input, { ...init, credentials: "omit" });
+			}
+			return Promise.reject(
+				new TypeError(
+					`blocked by the execution sandbox: network access is limited to ${allowedPathPrefix}` +
+						(pypiEnabled ? ` and ${PYPI_ALLOWED_ORIGINS.join(", ")}` : "")
+				)
+			);
 		}) as typeof fetch;
 	}
 
@@ -88,6 +113,12 @@ export function installNetworkGate(
 	for (const name of ["indexedDB", "caches", "document", "localStorage", "sessionStorage"]) {
 		delete record[name];
 	}
+
+	return {
+		setPyPiEnabled(enabled: boolean): void {
+			pypiEnabled = enabled;
+		},
+	};
 }
 
 /** Test helper: is this URL one the gate would let through? */
@@ -96,11 +127,17 @@ export function gateAllows(
 	origin: string,
 	allowedPathPrefix: string = pyodideBasePath(
 		(import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL
-	)
+	),
+	pypiEnabled = false
 ): boolean {
 	try {
 		const url = new URL(input, origin);
-		return url.origin === origin && url.pathname.startsWith(allowedPathPrefix);
+		if (url.origin === origin && url.pathname.startsWith(allowedPathPrefix)) return true;
+		return (
+			pypiEnabled &&
+			url.protocol === "https:" &&
+			(PYPI_ALLOWED_ORIGINS as readonly string[]).includes(url.origin)
+		);
 	} catch {
 		return false;
 	}

@@ -55,6 +55,18 @@ export interface Settings extends Timestamps {
 	webSearchEnabled?: boolean;
 
 	/**
+	 * User opt-in (default off) to let the code sandbox's micropip fetch
+	 * arbitrary pure-Python packages from the public PyPI index, in addition
+	 * to the vendored wheels every deployment serves same-origin. Off means
+	 * micropip never reaches beyond this origin — no third-party egress. An
+	 * admin kill-switch (`CHAT_PYODIDE_PYPI_DISABLED`) can force this off
+	 * deployment-wide regardless of the stored value; see
+	 * `FeatureFlags.pyodidePyPiInstallAllowed`, which reports whether the
+	 * switch is even available to opt into.
+	 */
+	pyodidePyPiInstallEnabled?: boolean;
+
+	/**
 	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
 	 * When set to `true`, prompt examples for that model are suppressed.
 	 */

@@ -74,7 +74,7 @@ describe("ExecutionSession", () => {
 		const session = new ExecutionSession({ spawn });
 		const promise = session.run("print('hi')");
 		await flush();
-		const sent = worker.received[0];
+		const sent = worker.received.find((m) => m.type === "run");
 		worker.emit({
 			type: "result",
 			id: sent?.id ?? -1,
@@ -97,21 +97,24 @@ describe("ExecutionSession", () => {
 		const first = session.run("a");
 		const second = session.run("b");
 		await flush();
-		// Both are queued; only the first was posted to the worker so far.
-		expect(worker.received).toHaveLength(1);
+		// A "configure" precedes the first command on every spawn; only the
+		// first run itself was posted to the worker so far.
+		expect(worker.received.filter((m) => m.type === "run")).toHaveLength(1);
+		const firstRun = worker.received.find((m) => m.type === "run");
 		worker.emit({
 			type: "result",
-			id: worker.received[0]?.id ?? -1,
+			id: firstRun?.id ?? -1,
 			ok: true,
 			stdout: "",
 			stderr: "",
 		});
 		await first;
 		await flush();
-		expect(worker.received).toHaveLength(2);
+		const runs = worker.received.filter((m) => m.type === "run");
+		expect(runs).toHaveLength(2);
 		worker.emit({
 			type: "result",
-			id: worker.received[1]?.id ?? -1,
+			id: runs[1]?.id ?? -1,
 			ok: true,
 			stdout: "",
 			stderr: "",
@@ -123,7 +126,7 @@ describe("ExecutionSession", () => {
 		const session = new ExecutionSession({ spawn, runTimeoutMs: 5_000, loadTimeoutMs: 5_000 });
 		const promise = session.run("while True: pass");
 		await flush();
-		expect(worker.received).toHaveLength(1);
+		expect(worker.received.filter((m) => m.type === "run")).toHaveLength(1);
 		await vi.advanceTimersByTimeAsync(5_001);
 		await expect(promise).rejects.toMatchObject({ kind: "timeout" });
 		expect(worker.terminated).toBe(1);
@@ -177,7 +180,7 @@ describe("ExecutionSession", () => {
 		const session = new ExecutionSession({ spawn });
 		const promise = session.loadFiles([{ name: "data.csv", data: "a,b\n1,2\n" }]);
 		await flush();
-		const sent = worker.received[0];
+		const sent = worker.received.find((m) => m.type === "loadFiles");
 		expect(sent?.type).toBe("loadFiles");
 		worker.emit({
 			type: "filesLoaded",
@@ -196,7 +199,7 @@ describe("ExecutionSession", () => {
 		worker.emit({ type: "loading" });
 		worker.emit({
 			type: "result",
-			id: worker.received[0]?.id ?? -1,
+			id: worker.received.find((m) => m.type === "run")?.id ?? -1,
 			ok: true,
 			stdout: "",
 			stderr: "",
@@ -216,7 +219,7 @@ describe("ExecutionSession", () => {
 		worker.emit({ type: "ready" });
 		worker.emit({
 			type: "result",
-			id: worker.received[0]?.id ?? -1,
+			id: worker.received.find((m) => m.type === "run")?.id ?? -1,
 			ok: true,
 			stdout: "",
 			stderr: "",
@@ -274,6 +277,27 @@ describe("ExecutionSession", () => {
 			error: "only /home/pyodide and /mnt/data files can be downloaded",
 		});
 		await expect(reading).rejects.toMatchObject({ kind: "worker" });
+	});
+
+	it("sends a configure message before the first command on every spawn", async () => {
+		const session = new ExecutionSession({ spawn });
+		session.configure(true);
+		void session.run("1");
+		await flush();
+		expect(worker.received[0]).toMatchObject({ type: "configure", pypiEnabled: true });
+		expect(worker.received[1]?.type).toBe("run");
+	});
+
+	it("re-sends configure to an already-running worker immediately", async () => {
+		const session = new ExecutionSession({ spawn });
+		void session.run("1");
+		await flush();
+		expect(worker.received[0]).toMatchObject({ type: "configure", pypiEnabled: false });
+		session.configure(true);
+		expect(worker.received[worker.received.length - 1]).toMatchObject({
+			type: "configure",
+			pypiEnabled: true,
+		});
 	});
 });
 

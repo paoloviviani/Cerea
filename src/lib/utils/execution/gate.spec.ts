@@ -68,4 +68,61 @@ describe("network gate", () => {
 		expect(gateAllows("/pyodide/pyodide.mjs", origin, prefix)).toBe(false);
 		expect(gateAllows("/chat/api/v2/user", origin, prefix)).toBe(false);
 	});
+
+	it("keeps PyPI blocked by default even for gateAllows' pypiEnabled param", () => {
+		const origin = "https://chat.example.org";
+		expect(gateAllows("https://pypi.org/simple/numpy/", origin)).toBe(false);
+		expect(gateAllows("https://files.pythonhosted.org/packages/x.whl", origin)).toBe(false);
+	});
+
+	it("gateAllows opens exactly PyPI's two hosts when pypiEnabled is true", () => {
+		const origin = "https://chat.example.org";
+		expect(gateAllows("https://pypi.org/simple/numpy/", origin, undefined, true)).toBe(true);
+		expect(
+			gateAllows("https://files.pythonhosted.org/packages/x.whl", origin, undefined, true)
+		).toBe(true);
+		// Still nothing else, even with the escape hatch open.
+		expect(gateAllows("https://evil.example/leak?d=secret", origin, undefined, true)).toBe(false);
+		// http (not https) to a PyPI host stays blocked — the fetch itself
+		// only ever proxies https for the escape hatch.
+		expect(gateAllows("http://pypi.org/simple/numpy/", origin, undefined, true)).toBe(false);
+	});
+
+	it("installNetworkGate's controller opens PyPI only once enabled, credential-free", async () => {
+		const inner = vi.fn((_input?: RequestInfo | URL, _init?: RequestInit) =>
+			Promise.resolve(new Response("ok"))
+		);
+		const scope = {
+			location: {
+				href: "https://chat.example.org/_app/immutable/worker.js",
+				origin: "https://chat.example.org",
+			},
+			fetch: inner,
+			navigator: {},
+		} as unknown as typeof globalThis;
+
+		const controller = installNetworkGate(scope);
+
+		// Off by default: PyPI is not reachable until opted in.
+		await expect(scope.fetch("https://pypi.org/simple/numpy/")).rejects.toThrow(
+			/execution sandbox/
+		);
+		expect(inner).not.toHaveBeenCalled();
+
+		controller.setPyPiEnabled(true);
+		await scope.fetch("https://pypi.org/simple/numpy/", { credentials: "include" });
+		await scope.fetch("https://files.pythonhosted.org/packages/x.whl");
+		expect(inner).toHaveBeenCalledTimes(2);
+		// Whatever the caller asked for, credentials are forced off cross-origin.
+		for (const call of inner.mock.calls) {
+			expect((call[1] as RequestInit | undefined)?.credentials).toBe("omit");
+		}
+
+		// Turning it back off closes the hatch again.
+		controller.setPyPiEnabled(false);
+		await expect(scope.fetch("https://pypi.org/simple/numpy/")).rejects.toThrow(
+			/execution sandbox/
+		);
+		expect(inner).toHaveBeenCalledTimes(2);
+	});
 });

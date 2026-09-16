@@ -55,6 +55,12 @@
 	function setWebSearchDefault(v: boolean) {
 		settings.update((s) => ({ ...s, webSearchEnabled: v }));
 	}
+	function getPyodidePyPiInstallEnabled() {
+		return $settings.pyodidePyPiInstallEnabled === true;
+	}
+	function setPyodidePyPiInstallEnabled(v: boolean) {
+		settings.update((s) => ({ ...s, pyodidePyPiInstallEnabled: v }));
+	}
 
 	const client = useAPIClient();
 
@@ -258,6 +264,28 @@
 						</p>
 					</div>
 					<Switch name="webSearchEnabled" bind:checked={getWebSearchDefault, setWebSearchDefault} />
+				</div>
+
+				<div class="flex items-start justify-between py-3">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							Install packages from PyPI in code execution
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							{#if page.data.pyodidePyPiInstallAllowed}
+								Lets code you run install any pure-Python package from the public PyPI index, not
+								just the ones this deployment vendors. Off by default: code execution runs in your
+								browser, so this is your own call to make.
+							{:else}
+								Disabled by this deployment's administrator.
+							{/if}
+						</p>
+					</div>
+					<Switch
+						name="pyodidePyPiInstallEnabled"
+						disabled={!page.data.pyodidePyPiInstallAllowed}
+						bind:checked={getPyodidePyPiInstallEnabled, setPyodidePyPiInstallEnabled}
+					/>
 				</div>
 
 				<!-- Theme selector -->
