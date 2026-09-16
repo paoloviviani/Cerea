@@ -125,6 +125,12 @@
 		draft?: string;
 		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
 		knowledgeBases?: { id: string; name: string }[];
+		/**
+		 * Web search for THIS conversation; bound through to the composer.
+		 * Per-chat state seeded by the page (conversation, then project, then
+		 * app default) — never the settings default directly.
+		 */
+		webSearch?: boolean;
 		/** Conversation title, used for the Markdown export heading and filename. */
 		conversationTitle?: string;
 	}
@@ -146,6 +152,7 @@
 		onretry,
 		onshowAlternateMsg,
 		knowledgeBases = $bindable([]),
+		webSearch = $bindable(false),
 		conversationTitle = "",
 	}: Props = $props();
 
@@ -1229,6 +1236,7 @@
 										bind:value={draft}
 										bind:files
 										bind:knowledgeBases
+										bind:webSearch
 										mimeTypes={activeMimeTypes}
 										onsubmit={handleSubmit}
 										{onPaste}

@@ -57,6 +57,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const streamingMode = resolveStreamingMode(settings ?? {});
 
 	return superjsonResponse({
+		webSearchEnabled: settings?.webSearchEnabled ?? undefined,
 		welcomeModalSeen: !!settings?.welcomeModalSeenAt,
 		welcomeModalSeenAt: settings?.welcomeModalSeenAt ?? null,
 		mlInternOnboardingSeen: !!settings?.mlInternOnboardingSeenAt,

@@ -52,6 +52,48 @@ describe("getEnabledBuiltinTools", () => {
 	});
 });
 
+describe("web search enablement: per-chat state beats the passed default", () => {
+	const searchParams = {
+		token: "caller-token",
+		searchModelIds: ["search-backend"],
+		allowedFetchUrls: new Set(["https://example.org/"]),
+	};
+
+	it("offers search tools when the caller default is on and the chat is unset", () => {
+		const tools = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId() },
+			webSearchEnabled: true,
+			...searchParams,
+		});
+		expect(tools.map((tool) => tool.name)).toContain("web_search");
+	});
+
+	it("withholds search tools when the chat explicitly opts out of a default of on", () => {
+		const tools = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId(), webSearch: false },
+			webSearchEnabled: true,
+			...searchParams,
+		});
+		expect(tools.map((tool) => tool.name)).not.toContain("web_search");
+	});
+
+	it("offers search tools when the chat opts in over a default of off", () => {
+		const tools = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId(), webSearch: true },
+			...searchParams,
+		});
+		expect(tools.map((tool) => tool.name)).toContain("web_search");
+	});
+
+	it("offers nothing when both chat and default are off", () => {
+		const tools = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId() },
+			...searchParams,
+		});
+		expect(tools.map((tool) => tool.name)).not.toContain("web_search");
+	});
+});
+
 describe("shouldSkipMcpFlow", () => {
 	it("skips only when there is neither a server nor a builtin tool", () => {
 		expect(shouldSkipMcpFlow(0, 0)).toBe(true);

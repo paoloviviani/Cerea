@@ -66,12 +66,20 @@ export function getEnabledBuiltinTools(params: {
 	tools.push(...createExecuteCodeBuiltin());
 
 	// The gateway's own search backends, metered to this caller. Two switches,
-	// both meaningful: the user's setting says they consent to web search on
-	// this conversation (the ML Assistant preset includes it by nature), and
-	// the console's search tier says the deployment permits it. The tool
+	// both meaningful: the per-chat state says they consent to web search in
+	// this conversation (inheriting project then app defaults at creation and
+	// at turn resolution — settings hold *defaults*, a chat holds *per-chat
+	// state*), the ML Assistant preset includes it by nature, and the
+	// console's search tier says the deployment permits it. The tool
 	// withholds itself when either is missing — like the GitHub tools do
 	// without a token.
-	const webAccessEnabled = params.webSearchEnabled || isMlAssistantConversation(params.conv);
+	//
+	// `conv.webSearch` wins over the passed default when set: an explicit
+	// per-chat `false` must override an app default of `true`, and vice
+	// versa. The caller (runMcpFlow) already folds the project layer into
+	// `webSearchEnabled`, so here the chain is per-chat > caller default.
+	const effectiveWebSearch = params.conv.webSearch ?? params.webSearchEnabled ?? false;
+	const webAccessEnabled = effectiveWebSearch || isMlAssistantConversation(params.conv);
 	if (webAccessEnabled && (params.searchModelIds?.length ?? 0) > 0) {
 		tools.push(
 			...createGatewaySearchBuiltins({

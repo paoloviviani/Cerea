@@ -20,6 +20,8 @@
 	import { loadAttachmentsFromUrls } from "$lib/utils/loadAttachmentsFromUrls";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
+	import { defaultConnectorIds, openConversationSelection } from "$lib/stores/mcpConnectors";
+	import { get } from "svelte/store";
 
 	let { data } = $props();
 
@@ -32,6 +34,11 @@
 	// exists yet: they ride into the create request, so the conversation is
 	// attached before its first turn is ever generated.
 	let knowledgeBases: { id: string; name: string }[] = $state([]);
+	// Per-chat web search for the chat about to be created, starting at the
+	// app default. The toggle changes only this draft; the server stores it
+	// on the new conversation, never back to the default.
+	let webSearch: boolean = $state(false);
+	let webSearchSeeded = $state(false);
 
 	const settings = useSettingsStore();
 
@@ -65,6 +72,7 @@
 				// the conversation this creates is marked with it from the start.
 				mlAssistant: mlAssistant.taskStarted,
 				knowledgeBaseIds: knowledgeBases.map((base) => base.id),
+				webSearch,
 			});
 
 			let res = await fetch(`${base}/conversation`, {
@@ -139,6 +147,9 @@
 	}
 
 	onMount(async () => {
+		// The new-chat selection starts at the workspace defaults; the first
+		// toggle then diverges without touching them.
+		openConversationSelection(null, get(defaultConnectorIds));
 		try {
 			// Check if auth is required before processing any query params
 			const hasQ = page.url.searchParams.has("q");
@@ -194,6 +205,14 @@
 	});
 
 	let currentModel = $derived(findCurrentModel(data.models, data.oldModels, $settings.activeModel));
+
+	// Seed the draft toggle from the app default. Guarded so a toggle the
+	// user already made is never overwritten by a late settings load.
+	$effect(() => {
+		if (webSearchSeeded) return;
+		webSearch = $settings.webSearchEnabled === true;
+		webSearchSeeded = true;
+	});
 </script>
 
 <svelte:head>
@@ -209,6 +228,7 @@
 		bind:files
 		bind:draft
 		bind:knowledgeBases
+		bind:webSearch
 	/>
 {:else}
 	<div class="mx-auto my-20 max-w-xl rounded-xl border p-6 text-center dark:border-gray-700">

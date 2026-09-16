@@ -31,6 +31,8 @@ const patch = z.object({
 	knowledgeBaseIds: z.array(knowledgeBaseId).max(20).optional(),
 	indexPastChats: z.boolean().optional(),
 	retrievalLimit: z.number().int().min(1).max(20).optional(),
+	defaultWebSearch: z.boolean().optional(),
+	defaultMcpConnectorIds: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
 function requireUser(locals: App.Locals) {

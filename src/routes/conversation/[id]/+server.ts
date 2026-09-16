@@ -923,6 +923,7 @@ export async function PATCH({ request, locals, params }) {
 		.object({
 			title: z.string().trim().min(1).max(100).optional(),
 			model: validModelIdSchema.optional(),
+			webSearch: z.boolean().optional(),
 		})
 		.parse(body);
 

@@ -40,6 +40,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			 * re-checks the reader every turn.
 			 */
 			knowledgeBaseIds: z.array(z.unknown()).optional(),
+			/**
+			 * Per-chat web-search state for the new conversation. When absent
+			 * the server inherits: project default, then the app default.
+			 */
+			webSearch: z.boolean().optional(),
 			mlBudgetUsd: z.number().finite().min(0).max(10_000).optional(),
 		})
 		.safeParse(JSON.parse(body));
@@ -170,6 +175,51 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		locals
 	);
 
+	// Per-chat web-search state for the new chat. Settings hold *defaults*, a
+	// chat holds *per-chat state*: an explicit body value wins, then the
+	// project's default (when created under one), then the app default, then
+	// off. Stored concretely so a later default change never rewrites an
+	// existing chat; legacy chats without the field keep resolving live at
+	// turn time.
+	const { resolveWebSearchEnabled } = await import("$lib/server/webSearchDefaults");
+	let initialWebSearch: boolean | undefined;
+	let seedProjectDefaults:
+		{ defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] } | undefined;
+	try {
+		const settingsDoc = await collections.settings.findOne(authCondition(locals));
+		const projectDoc =
+			projectId !== undefined
+				? await collections.projects.findOne(
+						{ _id: projectId },
+						{ projection: { defaultWebSearch: 1, defaultMcpConnectorIds: 1 } }
+					)
+				: null;
+		const projectDefault =
+			projectDoc && typeof projectDoc.defaultWebSearch === "boolean"
+				? projectDoc.defaultWebSearch
+				: undefined;
+		if (projectDoc) {
+			seedProjectDefaults = {
+				...(typeof projectDoc.defaultWebSearch === "boolean"
+					? { defaultWebSearch: projectDoc.defaultWebSearch }
+					: {}),
+				...(Array.isArray(projectDoc.defaultMcpConnectorIds)
+					? { defaultMcpConnectorIds: projectDoc.defaultMcpConnectorIds }
+					: {}),
+			};
+		}
+		const resolved = resolveWebSearchEnabled({
+			conversationWebSearch: values.webSearch,
+			projectDefault: typeof projectDefault === "boolean" ? projectDefault : undefined,
+			settingsEnabled: settingsDoc?.webSearchEnabled,
+		});
+		// Store only a positive inheritance or an explicit choice: absent means
+		// off, and an off-by-default chat needs no field to stay off.
+		if (values.webSearch !== undefined || resolved) initialWebSearch = resolved;
+	} catch {
+		if (values.webSearch !== undefined) initialWebSearch = values.webSearch;
+	}
+
 	// Always store sanitized titles
 	const storedTitle = (title || "New Chat").replace(/<\/?think>/gi, "").trim();
 	const now = new Date();
@@ -188,6 +238,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(values.fromShare ? { meta: { fromShareId: values.fromShare } } : {}),
 		...(projectId ? { projectId } : {}),
 		...(attachedKnowledgeBaseIds?.length ? { knowledgeBaseIds: attachedKnowledgeBaseIds } : {}),
+		...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
 		// Only builds that ship ML Assistant mode can mark a conversation with it.
 		...(isMlAssistant ? { mlAssistant: true } : {}),
 		...(isMlAssistant && mlBudget ? { mlBudget } : {}),
@@ -214,6 +265,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				preprompt: values.preprompt,
 				rootMessageId,
 				id: conversationId,
+				...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
+				...(projectId ? { projectId: projectId.toString() } : {}),
+				...(seedProjectDefaults ? { projectDefaults: seedProjectDefaults } : {}),
 				updatedAt: now,
 				modelId: values.model,
 				// Matches what GET /api/v2/conversations/[id] returns for the normal

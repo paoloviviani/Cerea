@@ -32,9 +32,9 @@
 		connectors,
 		connectorsLoaded,
 		refreshConnectors,
-		selectedConnectorIds,
-		toggleConnector,
-		selectConnector,
+		defaultConnectorIds,
+		toggleDefaultConnector,
+		selectDefaultConnector,
 	} from "$lib/stores/mcpConnectors";
 
 	// The list lives in a store rather than here, because the composer's MCP
@@ -113,14 +113,15 @@
 	load();
 
 	// Somebody who has just approved a consent screen meant to use that
-	// connector, so it is switched on rather than left for them to find. Ids
-	// are compared against the loaded list first: a stale `?mcpConnector=` in
-	// a bookmarked URL should select nothing.
+	// connector, so it is switched on in the defaults for new chats rather
+	// than left for them to find. Ids are compared against the loaded list
+	// first: a stale `?mcpConnector=` in a bookmarked URL should select
+	// nothing.
 	$effect(() => {
 		const justConnected = page.url.searchParams.get("mcpConnector");
 		if (outcome !== "connected" || !justConnected) return;
 		if ($connectors.some((c) => c.id === justConnected && c.connected)) {
-			selectConnector(justConnected);
+			selectDefaultConnector(justConnected);
 		}
 	});
 
@@ -436,18 +437,22 @@
 						</h4>
 						<p class="truncate text-sm text-gray-600 dark:text-gray-400">{connector.url}</p>
 					</div>
-					<!-- On for the next message. Disabled until it is connected,
-					     because an unauthorised connector contributes no tools and
-					     would fail the handshake mid-generation. -->
+					<!-- On by default for new chats. Disabled until it is
+					     connected, because an unauthorised connector contributes
+					     no tools and would fail the handshake mid-generation.
+					     Per-chat toggles live in the composer, not here:
+					     settings hold *defaults*, a chat holds *per-chat
+					     state*. -->
 					<div
 						class="shrink-0 pt-0.5"
-						title={connector.connected ? "Use in chat" : "Sign in first"}
+						title={connector.connected ? "On for new chats" : "Sign in first"}
 					>
 						<Switch
 							name={`use-connector-${connector.id}`}
 							disabled={!connector.connected}
 							bind:checked={
-								() => $selectedConnectorIds.has(connector.id), () => toggleConnector(connector.id)
+								() => $defaultConnectorIds.has(connector.id),
+								() => toggleDefaultConnector(connector.id)
 							}
 						/>
 					</div>

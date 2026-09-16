@@ -9,10 +9,14 @@
  * with two truths about where a secret lives, and the shape that keeps them
  * apart is what makes "the credential never reaches the browser" checkable.
  *
- * What *is* kept locally is the selection: a set of connector ids. An id is
- * not a capability — the server re-checks ownership and looks the token up by
- * `(userId, connectorId)` on every request — so this is a preference, and it
- * belongs next to the other one.
+ * What *is* kept locally is the selection, in two halves. Settings hold
+ * *defaults* (`defaultConnectorIds`, for new chats, edited only in the
+ * Workspace MCP tab); a chat holds *per-chat state* (`selectedConnectorIds`,
+ * the active conversation's set, edited by the composer badge and pickers).
+ * New chats inherit the defaults, and nothing done inside a chat ever writes
+ * back to them. An id is not a capability — the server re-checks ownership
+ * and looks the token up by `(userId, connectorId)` on every request — so
+ * both halves are preferences, and they belong next to the other one.
  */
 
 import { writable, derived, get } from "svelte/store";
@@ -21,17 +25,45 @@ import { browser } from "$app/environment";
 import { enabledServersCount } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 
-const STORAGE_KEY = "pystino:mcp:selected-connector-ids";
+export const LEGACY_STORAGE_KEY = "pystino:mcp:selected-connector-ids";
+export const DEFAULT_STORAGE_KEY = "pystino:mcp:default-connector-ids";
+/** Storage key for the per-conversation selections (page state, not defaults). */
+export const CONVERSATION_STORAGE_PREFIX = "pystino:mcp:conversation-connector-ids:";
 
-function loadSelected(): Set<string> {
-	if (!browser) return new Set();
+function readIds(key: string): Set<string> | null {
+	if (!browser) return null;
 	try {
-		const json = localStorage.getItem(STORAGE_KEY);
-		return new Set<string>(json ? JSON.parse(json) : []);
+		const json = localStorage.getItem(key);
+		if (json === null) return null;
+		return new Set<string>(JSON.parse(json));
 	} catch (error) {
-		console.error("Failed to load selected connector IDs:", error);
-		return new Set();
+		console.error("Failed to load connector IDs:", error);
+		return null;
 	}
+}
+
+/**
+ * Seed the new defaults key from the existing selected set once, so nobody's
+ * current setup silently changes on upgrade. Runs on load and is exported
+ * for tests: when the defaults key is absent but the legacy key is present,
+ * the legacy set becomes the defaults.
+ */
+export function migrateConnectorDefaults(): void {
+	if (!browser) return;
+	try {
+		if (localStorage.getItem(DEFAULT_STORAGE_KEY) !== null) return;
+		const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+		const seeded: string[] = legacy ? (JSON.parse(legacy) as string[]) : [];
+		localStorage.setItem(DEFAULT_STORAGE_KEY, JSON.stringify(seeded));
+	} catch (error) {
+		console.error("Failed to migrate connector defaults:", error);
+	}
+}
+
+function loadDefaults(): Set<string> {
+	if (!browser) return new Set();
+	migrateConnectorDefaults();
+	return readIds(DEFAULT_STORAGE_KEY) ?? new Set<string>();
 }
 
 export const connectors = writable<McpConnectorView[]>([]);
@@ -43,16 +75,92 @@ export const connectorsLoaded = writable(false);
  * (the composer's badge) simply ignore it.
  */
 export const connectorsFailed = writable(false);
-export const selectedConnectorIds = writable<Set<string>>(loadSelected());
+/**
+ * The default selection for NEW chats, edited ONLY in the Workspace MCP tab.
+ * Persisted under a new key; seeded once from the legacy selected set.
+ */
+export const defaultConnectorIds = writable<Set<string>>(loadDefaults());
+
+if (browser) {
+	defaultConnectorIds.subscribe((ids) => {
+		try {
+			localStorage.setItem(DEFAULT_STORAGE_KEY, JSON.stringify([...ids]));
+		} catch (error) {
+			console.error("Failed to save default connector IDs:", error);
+		}
+	});
+}
+
+/**
+ * The ACTIVE chat's selection: page/component state, initialized from the
+ * defaults (or the project defaults, when in a project) when a chat is
+ * created or first opened, then fully independent. The composer badge, the
+ * chat pickers and the request body all read this — never the defaults — so
+ * disabling an MCP inside a chat poisons nothing for the next chats.
+ *
+ * Keyed per conversation so two open chats never share a set; `null` is the
+ * not-yet-created chat on the home page. Persisted per conversation in
+ * localStorage (unlike the old single global), so reopening a chat finds its
+ * own selection, while a chat never opened inherits the defaults.
+ */
+const conversationSelections = new Map<string, Set<string>>();
+/** Which conversation the active selection belongs to; `null` is the new-chat page. */
+let activeConversationKey: string | null = null;
+
+function conversationKey(convId: string | null): string {
+	return convId ?? "__new__";
+}
+
+function writeActiveSelection(key: string, ids: Set<string>): void {
+	if (!browser) return;
+	try {
+		localStorage.setItem(CONVERSATION_STORAGE_PREFIX + key, JSON.stringify([...ids]));
+	} catch (error) {
+		console.error("Failed to save conversation connector IDs:", error);
+	}
+}
+
+function readActiveSelection(key: string): Set<string> | null {
+	return readIds(CONVERSATION_STORAGE_PREFIX + key);
+}
+
+export const selectedConnectorIds = writable<Set<string>>(new Set());
+
+/** True once a conversation has been opened: before that the active set is unowned. */
+let selectionReady = false;
 
 if (browser) {
 	selectedConnectorIds.subscribe((ids) => {
-		try {
-			localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
-		} catch (error) {
-			console.error("Failed to save selected connector IDs:", error);
-		}
+		if (!selectionReady) return;
+		const key = conversationKey(activeConversationKey);
+		conversationSelections.set(key, new Set(ids));
+		writeActiveSelection(key, ids);
 	});
+}
+
+/**
+ * Make the selection for `convId` active, initializing it once from `seed`
+ * (project defaults, else workspace defaults) when the chat is first opened.
+ * The active set is then fully independent: later default changes never
+ * rewrite it, and its own edits never write back to the defaults.
+ */
+export function openConversationSelection(convId: string | null, seed?: Iterable<string>): void {
+	const key = conversationKey(convId);
+	activeConversationKey = convId;
+	if (!conversationSelections.has(key)) {
+		const stored = readActiveSelection(key);
+		conversationSelections.set(key, stored ?? new Set<string>(seed ?? get(defaultConnectorIds)));
+	}
+	selectionReady = true;
+	selectedConnectorIds.set(new Set(conversationSelections.get(key)));
+}
+
+/** Forget cached per-conversation state (tests sign out between cases). */
+export function resetConversationSelections(): void {
+	conversationSelections.clear();
+	activeConversationKey = null;
+	selectionReady = false;
+	selectedConnectorIds.set(new Set());
 }
 
 /**
@@ -68,6 +176,18 @@ export const enabledConnectors = derived([connectors, selectedConnectorIds], ([$
 
 export const enabledConnectorsCount = derived(enabledConnectors, ($on) => $on.length);
 
+/**
+ * The defaults as they would actually send: same `connected`-filtering as
+ * `enabledConnectors`, which stays exactly as is. For the Workspace MCP tab,
+ * which edits and counts defaults rather than the active chat.
+ */
+export const defaultEnabledConnectors = derived(
+	[connectors, defaultConnectorIds],
+	([$all, $defaults]) => $all.filter((c) => c.connected && $defaults.has(c.id))
+);
+
+export const defaultEnabledConnectorsCount = derived(defaultEnabledConnectors, ($on) => $on.length);
+
 export async function refreshConnectors(): Promise<void> {
 	try {
 		const response = await fetch(`${base}/api/v2/mcp/connectors`);
@@ -77,8 +197,14 @@ export async function refreshConnectors(): Promise<void> {
 		connectorsFailed.set(false);
 
 		// Forget a selection whose connector is gone, so removing one does not
-		// leave an id that the server would only refuse.
+		// leave an id that the server would only refuse. Both the defaults
+		// and every cached per-conversation set: a removed connector refuses
+		// whoever names it.
 		const live = new Set(data.map((c) => c.id));
+		defaultConnectorIds.update(($ids) => new Set([...$ids].filter((id) => live.has(id))));
+		for (const [key, ids] of conversationSelections) {
+			conversationSelections.set(key, new Set([...ids].filter((id) => live.has(id))));
+		}
 		selectedConnectorIds.update(($ids) => new Set([...$ids].filter((id) => live.has(id))));
 	} catch (error) {
 		console.error("Failed to load MCP connectors:", error);
@@ -101,6 +227,17 @@ export const totalEnabledMcpCount = derived(
 	([$servers, $connectors]) => $servers + $connectors
 );
 
+/** What the Workspace MCP tab's header should say: base servers plus connector defaults. */
+export const totalDefaultMcpCount = derived(
+	[enabledServersCount, defaultEnabledConnectorsCount],
+	([$servers, $connectors]) => $servers + $connectors
+);
+
+/**
+ * Flip one connector in the ACTIVE chat's selection. Per-chat state: the
+ * defaults never move. This is what the composer badge and the chat pickers
+ * call.
+ */
 export function toggleConnector(id: string): void {
 	selectedConnectorIds.update(($ids) => {
 		const next = new Set($ids);
@@ -111,19 +248,45 @@ export function toggleConnector(id: string): void {
 }
 
 /**
- * Turn every connector off.
+ * Turn every connector off in the ACTIVE chat.
  *
  * The selection only; the connectors and their sign-ins stay. This is the
  * composer's "no tools on this message" button, not a disconnect — going
  * through the consent screen again to ask one question without Notion would be
- * an absurd price for a wrong click.
+ * an absurd price for a wrong click. Per-chat state: the defaults never move.
  */
 export function disableAllConnectors(): void {
 	selectedConnectorIds.set(new Set());
 }
 
 /**
- * Turn a connector on because somebody just signed in to it.
+ * Flip one connector in the DEFAULTS for new chats. The Workspace MCP tab —
+ * and only it — calls this.
+ */
+export function toggleDefaultConnector(id: string): void {
+	defaultConnectorIds.update(($ids) => {
+		const next = new Set($ids);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		return next;
+	});
+}
+
+/** Replace the whole defaults set (the workspace tab's bulk edits). */
+export function setDefaultConnectors(ids: Iterable<string>): void {
+	defaultConnectorIds.set(new Set(ids));
+}
+
+/** Turn a default on (a sign-in from the workspace tab means it for new chats too). */
+export function selectDefaultConnector(id: string): void {
+	if (get(defaultConnectorIds).has(id)) return;
+	defaultConnectorIds.update(($ids) => new Set([...$ids, id]));
+}
+
+/**
+ * Turn a connector on in the ACTIVE chat because somebody just signed in to
+ * it. Per-chat state: the workspace tab's sign-in path calls
+ * `selectDefaultConnector` instead.
  *
  * Signing in is the whole intent; leaving it off afterwards would make the
  * consent screen feel like it did nothing.
@@ -218,8 +381,10 @@ export async function migrateCustomServers(): Promise<number> {
 					: { authMode: "auto" as const }),
 			});
 			moved++;
-			// Carried over as it was: a server that was on stays on.
+			// Carried over as it was: a server that was on stays on, in the
+			// active chat and in the defaults for new chats alike.
 			selectConnector(created.id);
+			selectDefaultConnector(created.id);
 			if (extras.length > 0) {
 				console.warn(
 					`[mcp] "${created.name}" had extra headers that were not migrated:`,
