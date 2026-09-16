@@ -63,9 +63,28 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("execute_code");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("You see the truncated stdout");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("Run, read the output, fix, run again");
-		// The unavailable fallback: never claim results, fall back to a fence.
+		// The unavailable fallback: never claim results, fall back to a fence —
+		// specifically a plain one with no `title=`, since that renders as a
+		// downloadable file card of the source rather than a running block, and
+		// without a Run button to point the person at (there is no such control;
+		// the fence auto-runs, and unlike the tool it carries no park deadline).
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("execution environment is unavailable");
-		expect(EXECUTION_SYSTEM_PROMPT).toContain("fall back to a code block");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"fall back to a plain fenced ```python code block with no `title=`"
+		);
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("does not belong here");
+		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("Run button");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("no timeout of its own");
+	});
+
+	it("warns against putting title= on Python meant to be executed", () => {
+		// title= always names a file path regardless of language, so a
+		// ```python title=script.py block renders as a downloadable source file,
+		// never as something that runs — the same confusion the execute_code
+		// fallback above must avoid.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"Never put `title=` on a Python block you want executed"
+		);
 	});
 
 	it("pins the tool to the function-calling mechanism and away from reply markup", () => {
