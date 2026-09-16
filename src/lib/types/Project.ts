@@ -76,6 +76,23 @@ export interface Project extends Timestamps {
 	/** How many passages retrieval may put in front of the model per turn. */
 	retrievalLimit: number;
 
+	/**
+	 * Web search for new chats in this project. `undefined` means the project
+	 * leaves it unset and new chats fall back to the app default
+	 * (`Settings.webSearchEnabled`, off when absent). Part of the settled
+	 * precedence chain: per-chat state > project defaults > app settings >
+	 * off. Settings hold *defaults*, a chat holds *per-chat state*.
+	 */
+	defaultWebSearch?: boolean;
+
+	/**
+	 * MCP connector selection for new chats in this project, by connector id.
+	 * `undefined` (or empty) means the project leaves it unset and new chats
+	 * fall back to the workspace MCP defaults. The ids are names only: every
+	 * turn re-checks ownership and the credential server-side.
+	 */
+	defaultMcpConnectorIds?: string[];
+
 	shares: ProjectShare[];
 }
 
@@ -92,6 +109,10 @@ export interface ProjectView {
 	knowledgeBaseIds: string[];
 	indexPastChats: boolean;
 	retrievalLimit: number;
+	/** Web-search default for new chats here; `undefined` means "use the app default". */
+	defaultWebSearch?: boolean;
+	/** MCP connector defaults for new chats here; `undefined`/empty means "use the workspace defaults". */
+	defaultMcpConnectorIds?: string[];
 	/** Whether the viewer owns it. Editing, sharing and deleting need this. */
 	owned: boolean;
 	shares: { kind: "user" | "group"; principal: string }[];

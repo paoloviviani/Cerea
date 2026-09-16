@@ -28,6 +28,11 @@ const create = z.object({
 	knowledgeBaseIds: z.array(knowledgeBaseId).max(20).default([]),
 	indexPastChats: z.boolean().default(false),
 	retrievalLimit: z.number().int().min(1).max(20).default(6),
+	// Defaults for new chats here. Optional throughout: absent means "fall
+	// back to the app / workspace defaults". Connector ids are names only —
+	// every turn re-checks ownership server-side.
+	defaultWebSearch: z.boolean().optional(),
+	defaultMcpConnectorIds: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
 function requireUser(locals: App.Locals) {
@@ -61,6 +66,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		knowledgeBaseIds: parsed.data.knowledgeBaseIds,
 		indexPastChats: parsed.data.indexPastChats,
 		retrievalLimit: parsed.data.retrievalLimit,
+		...(parsed.data.defaultWebSearch !== undefined
+			? { defaultWebSearch: parsed.data.defaultWebSearch }
+			: {}),
+		...(parsed.data.defaultMcpConnectorIds !== undefined
+			? { defaultMcpConnectorIds: parsed.data.defaultMcpConnectorIds }
+			: {}),
 		shares: [],
 		createdAt: now,
 		updatedAt: now,

@@ -18,6 +18,13 @@ export interface ConversationSettingsUpdate {
 	 * clobbered by a snapshot the composer took earlier.
 	 */
 	knowledgeBaseIds?: string[];
+	/**
+	 * Per-chat web-search state. Replaces the previous value wholesale;
+	 * absent leaves what is stored untouched. This is the per-chat half of
+	 * the defaults-vs-state split: the composer's toggle writes here, never
+	 * to `Settings.webSearchEnabled`.
+	 */
+	webSearch?: boolean;
 }
 
 /**
@@ -57,6 +64,7 @@ export async function applyConversationSettings(
 		...(values.knowledgeBaseIds !== undefined && {
 			knowledgeBaseIds: values.knowledgeBaseIds,
 		}),
+		...(values.webSearch !== undefined && { webSearch: values.webSearch }),
 	};
 
 	if (values.model === undefined) {

@@ -13,7 +13,12 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
-import { projectAccess, listProjects, type ViewerPrincipals } from "$lib/server/projects";
+import {
+	projectAccess,
+	listProjects,
+	projectView,
+	type ViewerPrincipals,
+} from "$lib/server/projects";
 import type { Project, ProjectShare } from "$lib/types/Project";
 
 beforeAll(async () => {
@@ -184,5 +189,41 @@ describe("listProjects", () => {
 		]);
 
 		expect(await listProjects(new ObjectId(), asUser("nobody@example.org"))).toEqual([]);
+	});
+});
+
+describe("projectView defaults for new chats", () => {
+	it("carries the defaults when the project sets them", async () => {
+		const now = new Date();
+		const project: Project = {
+			_id: new ObjectId(),
+			userId: new ObjectId(),
+			name: "With defaults",
+			description: "",
+			instructions: "",
+			knowledgeBaseIds: [],
+			indexPastChats: false,
+			retrievalLimit: 6,
+			defaultWebSearch: true,
+			defaultMcpConnectorIds: ["conn-a"],
+			shares: [],
+			createdAt: now,
+			updatedAt: now,
+		};
+		await collections.projects.insertOne(project);
+
+		const view = await projectView({ project, owned: true });
+
+		expect(view.defaultWebSearch).toBe(true);
+		expect(view.defaultMcpConnectorIds).toEqual(["conn-a"]);
+	});
+
+	it("leaves the defaults unset when the project does not set them", async () => {
+		const project = await makeProject(new ObjectId());
+
+		const view = await projectView({ project, owned: true });
+
+		expect(view.defaultWebSearch).toBeUndefined();
+		expect(view.defaultMcpConnectorIds).toBeUndefined();
 	});
 });

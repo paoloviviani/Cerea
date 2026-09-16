@@ -7,7 +7,10 @@ import {
 	connectors,
 	connectorsFailed,
 	connectorsLoaded,
+	defaultConnectorIds,
 	enabledConnectors,
+	openConversationSelection,
+	resetConversationSelections,
 	selectedConnectorIds,
 } from "$lib/stores/mcpConnectors";
 import { allMcpServers } from "$lib/stores/mcpServers";
@@ -90,7 +93,8 @@ const settingsContext = new Map<string, unknown>([["settings", writable({ active
 
 async function renderComposer(
 	params: Record<string, string>,
-	attached: { id: string; name: string }[] = []
+	attached: { id: string; name: string }[] = [],
+	webSearch = false
 ) {
 	let host = document.getElementById("app");
 	if (!host) {
@@ -100,7 +104,7 @@ async function renderComposer(
 	}
 	const mounted = renderWithApp(
 		ChatInput,
-		{ knowledgeBases: attached, mimeTypes: ["text/plain", "image/png"] },
+		{ knowledgeBases: attached, mimeTypes: ["text/plain", "image/png"], webSearch },
 		{
 			page: {
 				params,
@@ -121,9 +125,12 @@ beforeEach(() => {
 	connectors.set([]);
 	connectorsLoaded.set(false);
 	connectorsFailed.set(false);
-	selectedConnectorIds.set(new Set());
+	resetConversationSelections();
 	allMcpServers.set([]);
-	localStorage.removeItem("pystino:mcp:selected-connector-ids");
+	for (let i = localStorage.length - 1; i >= 0; i--) {
+		const key = localStorage.key(i);
+		if (key?.includes(":mcp:")) localStorage.removeItem(key);
+	}
 });
 
 afterEach(() => {
@@ -280,7 +287,10 @@ describe("ChatInput: MCP connector toggles", () => {
 		connectors.set(list);
 		connectorsLoaded.set(true);
 		connectorsFailed.set(false);
-		selectedConnectorIds.set(new Set(selected));
+		// As the conversation page does on first open: the chat inherits the
+		// workspace defaults, then its selection lives independently of them.
+		defaultConnectorIds.set(new Set(selected));
+		openConversationSelection("test-chat", selected);
 	}
 
 	const openMcpSubmenu = async () => {
@@ -319,7 +329,8 @@ describe("ChatInput: MCP connector toggles", () => {
 		expect(get(selectedConnectorIds).has("conn-notion")).toBe(false);
 		// The turn posts the enabled set, so an off connector sends no tools.
 		expect(get(enabledConnectors)).toEqual([]);
-		expect(localStorage.getItem("pystino:mcp:selected-connector-ids")).toBe("[]");
+		// …but the workspace defaults the chat inherited never moved.
+		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-notion"]));
 	});
 
 	it("toggling a connector on adds it to the set a turn would send", async () => {
@@ -338,7 +349,8 @@ describe("ChatInput: MCP connector toggles", () => {
 			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
 		);
 		expect(get(enabledConnectors).map((c) => c.id)).toEqual(["conn-notion"]);
-		expect(localStorage.getItem("pystino:mcp:selected-connector-ids")).toBe('["conn-notion"]');
+		// …but the workspace defaults never moved.
+		expect(get(defaultConnectorIds)).toEqual(new Set());
 	});
 
 	it("loads the list when the submenu opens", async () => {
@@ -514,6 +526,75 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		} finally {
 			await page.viewport(restoreWidth, restoreHeight);
 		}
+	});
+
+	describe("ChatInput: web search is per-chat state", () => {
+		const findWebSearchPill = (container: HTMLElement): HTMLElement => {
+			const pill = [...container.querySelectorAll("button")].find((button) =>
+				button.textContent?.includes("Web search")
+			);
+			if (!pill) throw new Error("no Web search pill");
+			return pill as HTMLElement;
+		};
+
+		it("toggling on in a chat PATCHes the conversation, never the settings", async () => {
+			const calls = stubFetch();
+			const { container } = await renderComposer({ id: CONV_ID });
+
+			const pill = findWebSearchPill(container);
+			expect(pill.getAttribute("aria-pressed")).toBe("false");
+			pill.click();
+
+			await vi.waitFor(() =>
+				expect(calls).toContainEqual({
+					method: "PATCH",
+					url: expect.stringContaining(`/conversation/${CONV_ID}`),
+					body: { webSearch: true },
+				})
+			);
+			expect(pill.getAttribute("aria-pressed")).toBe("true");
+			// Settings hold *defaults*: the composer never POSTs them for a chat toggle.
+			expect(calls.some((call) => call.url.includes("/settings"))).toBe(false);
+		});
+
+		it("toggling off PATCHes false, so an explicit off beats a default of on", async () => {
+			const calls = stubFetch();
+			const { container } = await renderComposer({ id: CONV_ID }, [], true);
+
+			const pill = findWebSearchPill(container);
+			expect(pill.getAttribute("aria-pressed")).toBe("true");
+			pill.click();
+
+			await vi.waitFor(() =>
+				expect(calls).toContainEqual({
+					method: "PATCH",
+					url: expect.stringContaining(`/conversation/${CONV_ID}`),
+					body: { webSearch: false },
+				})
+			);
+			expect(pill.getAttribute("aria-pressed")).toBe("false");
+		});
+
+		it("a refused toggle rolls back to what the server holds", async () => {
+			stubFetch({ patchStatus: 400 });
+			const { container } = await renderComposer({ id: CONV_ID });
+
+			const pill = findWebSearchPill(container);
+			pill.click();
+
+			await vi.waitFor(() => expect(pill.getAttribute("aria-pressed")).toBe("false"));
+		});
+
+		it("before a conversation exists, toggling stays local and PATCHes nothing", async () => {
+			const calls = stubFetch();
+			const { container } = await renderComposer({});
+
+			const pill = findWebSearchPill(container);
+			pill.click();
+
+			await vi.waitFor(() => expect(pill.getAttribute("aria-pressed")).toBe("true"));
+			expect(calls.filter((call) => call.method === "PATCH")).toEqual([]);
+		});
 	});
 
 	it("on desktop the submenus still cascade to the right of the root menu", async () => {

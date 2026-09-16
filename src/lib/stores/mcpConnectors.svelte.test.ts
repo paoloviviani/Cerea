@@ -1,0 +1,150 @@
+/**
+ * MCP defaults-vs-state.
+ *
+ * Settings hold *defaults* (`defaultConnectorIds`, edited only in the
+ * Workspace MCP tab); a chat holds *per-chat state* (the active selection,
+ * edited by the composer badge and pickers). New chats inherit the defaults,
+ * and nothing done inside a chat ever writes back to them.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { get } from "svelte/store";
+import {
+	LEGACY_STORAGE_KEY,
+	DEFAULT_STORAGE_KEY,
+	CONVERSATION_STORAGE_PREFIX,
+	defaultConnectorIds,
+	selectedConnectorIds,
+	toggleConnector,
+	toggleDefaultConnector,
+	disableAllConnectors,
+	openConversationSelection,
+	resetConversationSelections,
+	migrateConnectorDefaults,
+} from "./mcpConnectors";
+
+// The stores read `$env/dynamic/public` at module scope (via mcpServers);
+// the client project runs in a real browser where no SvelteKit env exists.
+vi.mock("$env/dynamic/public", () => ({
+	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
+}));
+
+function conversationKey(convId: string | null): string {
+	return `${CONVERSATION_STORAGE_PREFIX}${convId ?? "__new__"}`;
+}
+
+beforeEach(() => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }))
+	);
+	localStorage.clear();
+	resetConversationSelections();
+	defaultConnectorIds.set(new Set());
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+	localStorage.clear();
+});
+
+describe("connector defaults migration", () => {
+	it("seeds the new defaults key from the legacy selected set once", () => {
+		localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(["conn-a", "conn-b"]));
+		localStorage.removeItem(DEFAULT_STORAGE_KEY);
+
+		migrateConnectorDefaults();
+
+		expect(JSON.parse(localStorage.getItem(DEFAULT_STORAGE_KEY) ?? "")).toEqual([
+			"conn-a",
+			"conn-b",
+		]);
+	});
+
+	it("never overwrites defaults once they exist", () => {
+		localStorage.setItem(DEFAULT_STORAGE_KEY, JSON.stringify(["conn-keep"]));
+		localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(["conn-other"]));
+
+		migrateConnectorDefaults();
+
+		expect(JSON.parse(localStorage.getItem(DEFAULT_STORAGE_KEY) ?? "")).toEqual(["conn-keep"]);
+	});
+
+	it("seeds empty defaults when there was no legacy selection", () => {
+		localStorage.removeItem(DEFAULT_STORAGE_KEY);
+		localStorage.removeItem(LEGACY_STORAGE_KEY);
+
+		migrateConnectorDefaults();
+
+		expect(JSON.parse(localStorage.getItem(DEFAULT_STORAGE_KEY) ?? "")).toEqual([]);
+	});
+});
+
+describe("defaults vs per-chat selection", () => {
+	it("a new chat inherits the defaults", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+
+		openConversationSelection("chat-new", get(defaultConnectorIds));
+
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a"]));
+	});
+
+	it("toggling in one chat does not change the defaults or other chats", () => {
+		defaultConnectorIds.set(new Set(["conn-a", "conn-b"]));
+
+		// Chat A opens and turns one connector off.
+		openConversationSelection("chat-a", get(defaultConnectorIds));
+		toggleConnector("conn-a");
+
+		// The defaults never moved…
+		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-a", "conn-b"]));
+		expect(JSON.parse(localStorage.getItem(DEFAULT_STORAGE_KEY) ?? "")).toEqual([
+			"conn-a",
+			"conn-b",
+		]);
+
+		// …and chat B still inherits the untouched defaults.
+		openConversationSelection("chat-b", get(defaultConnectorIds));
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a", "conn-b"]));
+
+		// Chat A's own edit survived the switch away and back.
+		openConversationSelection("chat-a");
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-b"]));
+	});
+
+	it("disable-all in a chat leaves the defaults on", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection("chat-a", get(defaultConnectorIds));
+
+		disableAllConnectors();
+
+		expect(get(selectedConnectorIds)).toEqual(new Set());
+		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-a"]));
+	});
+
+	it("editing the defaults never rewrites the active chat", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection("chat-a", get(defaultConnectorIds));
+
+		toggleDefaultConnector("conn-b");
+
+		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-a", "conn-b"]));
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a"]));
+	});
+
+	it("reopening a chat finds its own selection, not the current defaults", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection("chat-a", get(defaultConnectorIds));
+		toggleConnector("conn-b");
+
+		// Defaults change underneath (workspace tab, another tab, a new login).
+		defaultConnectorIds.set(new Set(["conn-z"]));
+
+		openConversationSelection("chat-b", get(defaultConnectorIds));
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-z"]));
+
+		openConversationSelection("chat-a");
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a", "conn-b"]));
+		expect(localStorage.getItem(conversationKey("chat-a"))).toContain("conn-b");
+	});
+});

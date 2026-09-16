@@ -17,6 +17,12 @@ export interface ConversationData {
 	modelId: string;
 	shared: boolean;
 	deployedSpaces?: Record<string, DeployedSpace>;
+	/** Per-chat web-search state; absent means "inherit defaults at turn time". */
+	webSearch?: boolean;
+	/** Owning project, when created under one. */
+	projectId?: string;
+	/** Project defaults for seeding per-chat state on first open. */
+	projectDefaults?: { defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] };
 	mlAssistant?: boolean;
 	mlBudget?: MlBudget;
 	plan?: PlanState;

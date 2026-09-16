@@ -25,7 +25,11 @@
 	import { v4 } from "uuid";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { enabledServers, mcpServersLoaded } from "$lib/stores/mcpServers";
-	import { enabledConnectors } from "$lib/stores/mcpConnectors";
+	import {
+		enabledConnectors,
+		defaultConnectorIds,
+		openConversationSelection,
+	} from "$lib/stores/mcpConnectors";
 	import { get } from "svelte/store";
 	import { browser } from "$app/environment";
 	import { reattachStream } from "$lib/utils/reattachStream";
@@ -92,6 +96,26 @@
 			knowledgeBasesForConv = page.params.id ?? null;
 			knowledgeBases = data.knowledgeBases ?? [];
 		}
+	});
+
+	// Web search for THIS conversation. Same seeding discipline as the bases:
+	// the stored per-chat value wins, then the project default, then the app
+	// default — and a same-conversation invalidation never clobbers a toggle
+	// this tab just made. (The app-default fallback reads the settings store
+	// declared below; the effect runs after init, so it is assigned by then.)
+	let webSearch: boolean = $state(
+		untrack(() => data.webSearch ?? data.projectDefaults?.defaultWebSearch ?? false)
+	);
+	let webSearchForConv: string | null = $state(null);
+
+	// The MCP selection for THIS conversation: initialized from the project
+	// defaults when the project names any, else the workspace defaults, then
+	// fully independent. Switching conversations preserves each chat's own
+	// set; the defaults are never rewritten from here.
+	$effect(() => {
+		const id = page.params.id ?? null;
+		const seed = data.projectDefaults?.defaultMcpConnectorIds ?? get(defaultConnectorIds);
+		untrack(() => openConversationSelection(id, seed));
 	});
 
 	function createMessagesPath<T>(messages: TreeNode<T>[], msgId?: TreeId): TreeNode<T>[] {
@@ -654,6 +678,17 @@
 	}
 
 	const settings = useSettingsStore();
+	// Runs after init (see the state declared near the top): first open seeds
+	// per-chat > project > app default; later runs only on conversation change.
+	$effect(() => {
+		if (webSearchForConv !== page.params.id) {
+			webSearchForConv = page.params.id ?? null;
+			webSearch =
+				data.webSearch ??
+				data.projectDefaults?.defaultWebSearch ??
+				$settings.webSearchEnabled === true;
+		}
+	});
 	let messages = $state(untrack(() => data.messages));
 	// Local copy of rootMessageId avoids mutating the load-data prop directly.
 	// It is set when the first message of a new conversation is created, and
@@ -777,6 +812,7 @@
 	preprompt={data.preprompt}
 	bind:files
 	bind:knowledgeBases
+	bind:webSearch
 	onmessage={onMessage}
 	onretry={onRetry}
 	onshowAlternateMsg={onShowAlternateMsg}

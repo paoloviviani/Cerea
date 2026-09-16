@@ -2,6 +2,12 @@ import NavMenu from "./NavMenu.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
+// NavMenu mounts ProjectsManager, whose MCP-defaults checklist reads the
+// connector stores: those read a deployment name off the environment at
+// module scope, and the bare name is all a test needs (same mock as the
+// ConnectorsSection suite).
+vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
+
 /**
  * The sidebar's foot, after the managers moved into the workspace and the
  * profile menu became a static footer: Workspace, Settings and (for
