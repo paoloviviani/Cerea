@@ -7,6 +7,7 @@ import { loadMcpServersOnStartup } from "$lib/server/mcp/registry";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
+import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
 import { MetricsServer } from "$lib/server/metrics";
 import { getShareThumbnailPng } from "$lib/server/shareThumbnail/shareThumbnail";
@@ -47,6 +48,8 @@ export async function initServer(): Promise<void> {
 	// Finalize generations whose pod died mid-run.
 	GenerationReaper.getInstance();
 	ParkedCallSweeper.getInstance();
+	// 30-day retention for persisted execute_code deliverables (ADR 0073's amendment).
+	DeliverableReaper.getInstance();
 
 	// Warm up the share-thumbnail renderer: the first satori render in a fresh
 	// process pays ~1s of font parsing + layout engine init, which would

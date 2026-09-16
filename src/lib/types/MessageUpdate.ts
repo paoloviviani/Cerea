@@ -9,6 +9,7 @@ import type {
 	ElicitationValue,
 } from "$lib/types/McpElicitation";
 import type { RunOutcome } from "$lib/utils/execution/protocol";
+import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 
 export type MessageUpdate =
 	| MessageStatusUpdate
@@ -216,17 +217,25 @@ export interface MessageCodeExecutionRequestUpdate {
 }
 
 /**
- * The run outcome the browser posted back, persisted for replay. Deliberately
- * WITHOUT the files: the worker filesystem dies with the page load, so file
- * cards replayed from a persisted update would be dead download links — the
- * user sees the files live through the session-only RunsStore → RunOutput →
- * FileCard path, exactly like a fence run.
+ * The run outcome the browser posted back, persisted for replay. `outcome`
+ * never carries file bytes or sandbox paths: the worker filesystem dies with
+ * the page load, so a path replayed from here would be a dead reference — the
+ * live run's own files still show through the session-only RunsStore →
+ * RunOutput → FileCard path while the tab holds them.
+ *
+ * `files`, when present, is the durable side: deliverables the browser
+ * uploaded to the server-side output store (30-day TTL, per-user, access
+ * controlled like a message attachment — see
+ * `$lib/server/execution/deliverables.ts`). A download card on replay, on
+ * reload, or from another device renders from these references, addressed by
+ * conversation + sha256, never from `outcome`.
  */
 export interface MessageCodeExecutionResolvedUpdate {
 	type: MessageUpdateType.CodeExecution;
 	subtype: MessageCodeExecutionUpdateType.Resolved;
 	executionId: string;
 	outcome: RunOutcome;
+	files?: PersistedDeliverableRef[];
 }
 
 export type MessageCodeExecutionUpdate =

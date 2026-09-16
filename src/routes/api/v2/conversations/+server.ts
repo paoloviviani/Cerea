@@ -5,6 +5,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import type { Conversation } from "$lib/types/Conversation";
 import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
+import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	requireAuth(locals);
@@ -51,10 +52,13 @@ export const DELETE: RequestHandler = async ({ locals }) => {
 	// Deletes loose/standalone conversations only. Chats that belong to a project
 	// (`projectId` is set) are part of that project's standing context and
 	// transcript, and are managed or deleted from within the project itself.
-	const res = await collections.conversations.deleteMany({
-		...authCondition(locals),
-		projectId: { $exists: false },
-	});
+	const filter = { ...authCondition(locals), projectId: { $exists: false } };
+	const ids = await collections.conversations
+		.find(filter)
+		.project<{ _id: Conversation["_id"] }>({ _id: 1 })
+		.toArray();
+	const res = await collections.conversations.deleteMany(filter);
+	await deleteConversationDeliverables(ids.map((c) => c._id));
 
 	return superjsonResponse(res.deletedCount);
 };

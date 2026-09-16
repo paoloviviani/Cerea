@@ -11,12 +11,12 @@ import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
 import { ML_ASSISTANT_EFFORT } from "$lib/constants/mlAssistant";
 import { waitResumeResultText } from "$lib/server/textGeneration/builtinTools/waitTool";
 import {
+	buildCodeExecutionResolvedUpdate,
 	codeResumeResultText,
 	EXECUTE_CODE_TOOL_NAME,
 } from "$lib/server/textGeneration/builtinTools/executeCodeTool";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
-	MessageCodeExecutionUpdateType,
 	MessageToolUpdateType,
 	MessageUpdateStatus,
 	MessageUpdateType,
@@ -296,21 +296,10 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 
 		if (park.kind === "code") {
 			// Settles the execution card for every subscriber and on replay: the
-			// persisted outcome carries the RunOutcome WITHOUT files (session-only,
-			// like the fence path — see MessageCodeExecutionResolvedUpdate).
-			apply({
-				type: MessageUpdateType.CodeExecution,
-				subtype: MessageCodeExecutionUpdateType.Resolved,
-				executionId: park.parkedCallId,
-				outcome: park.outcome
-					? (({ files: _files, ...outcome }) => outcome)(park.outcome)
-					: {
-							ok: false,
-							stdout: "",
-							stderr: "",
-							error: "no outcome was recorded for this execution",
-						},
-			});
+			// persisted outcome carries the RunOutcome WITHOUT sandbox file paths
+			// (dead on replay), plus the durable `files` references when the
+			// browser uploaded them — see buildCodeExecutionResolvedUpdate.
+			apply(buildCodeExecutionResolvedUpdate(park));
 		}
 		// The result the parked call has been missing. Replay pairs it with the call
 		// by uuid, which is what puts it in the model's history for the next round.

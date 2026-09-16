@@ -67,7 +67,7 @@
 				<span>Finished</span>
 			{/if}
 		</div>
-		{#if outputBlocks.length > 0 || runState.sandboxError || (runState.outputFiles?.length ?? 0) > 0}
+		{#if outputBlocks.length > 0 || runState.sandboxError || (runState.outputFiles?.length ?? 0) > 0 || (runState.persistedFiles?.length ?? 0) > 0}
 			<div class="space-y-2 px-3 py-2">
 				{#if runState.sandboxError}
 					<pre
@@ -96,6 +96,20 @@
 						<ul class="space-y-1">
 							{#each runState.outputFiles as file (file.path)}
 								<FileCard {file} />
+							{/each}
+						</ul>
+					</div>
+				{:else if runState.persistedFiles && runState.persistedFiles.length > 0}
+					<div class="space-y-1">
+						<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+							Files
+						</div>
+						<ul class="space-y-1">
+							{#each runState.persistedFiles as file (file.downloadUrl)}
+								<FileCard
+									file={{ path: file.name, size: file.size }}
+									downloadUrl={file.downloadUrl}
+								/>
 							{/each}
 						</ul>
 					</div>
