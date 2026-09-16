@@ -147,6 +147,36 @@ describe("resolvePreprompt", () => {
 		);
 	});
 
+	it("appends the skill context after the execution prompt it builds on", () => {
+		const skills = "## Skills\n\n- `csv-shaping`: Reshape CSV.";
+		const resolved = resolvePreprompt({
+			conversationPreprompt: "You are a pirate.",
+			mlAssistant: false,
+			skillsPreprompt: skills,
+		});
+		expect(resolved).toContain("You are a pirate.");
+		expect(resolved).toContain(skills);
+		expect(resolved?.indexOf("## Code execution") ?? -1).toBeLessThan(
+			resolved?.indexOf("## Skills") ?? Number.POSITIVE_INFINITY
+		);
+	});
+
+	it("keeps the skill context ahead of the preset's trailing budget lines", () => {
+		const skills = "## Skills\n\n- `csv-shaping`: Reshape CSV.";
+		const resolved = resolvePreprompt({
+			conversationPreprompt: undefined,
+			mlAssistant: true,
+			username: "pngwn",
+			timezone: "UTC",
+			now: new Date("2026-08-24T09:07:00Z"),
+			skillsPreprompt: skills,
+		});
+		expect(resolved).toContain(skills);
+		expect(resolved?.indexOf("## Skills") ?? -1).toBeLessThan(
+			resolved?.indexOf("# Session budget") ?? Number.POSITIVE_INFINITY
+		);
+	});
+
 	it("stamps nothing outside the preset", () => {
 		expect(
 			resolvePreprompt({

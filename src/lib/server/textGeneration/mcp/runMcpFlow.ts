@@ -205,6 +205,19 @@ export async function* runMcpFlow({
 		}),
 		allowedFetchUrls,
 	});
+	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
+	// turn has any enabled skill, so the model loads a body mid-turn through
+	// the normal tool flow. The result is prompt text the model reads next
+	// round — skill content never reaches an exec API, and Python runs only
+	// where the model puts the procedure, client-side, through the existing
+	// sandbox tools.
+	{
+		const { includeSkillLoadBuiltin } = await import("$lib/server/skills/service");
+		const skillsUserId = (
+			locals as unknown as { user?: { _id?: import("mongodb").ObjectId } } | undefined
+		)?.user?._id;
+		await includeSkillLoadBuiltin(builtinTools, skillsUserId);
+	}
 	// Read once: the preset decides the servers, the round budget and which tool
 	// doctrine is sent, and they must all agree within a run.
 	const mlAssistant = isMlAssistantConversation(conv);

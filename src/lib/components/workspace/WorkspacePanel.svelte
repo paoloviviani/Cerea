@@ -25,9 +25,11 @@
 	import ModelsManager from "$lib/components/models/ModelsManager.svelte";
 	import MCPServerManager from "$lib/components/mcp/MCPServerManager.svelte";
 	import KnowledgeManager from "$lib/components/knowledge/KnowledgeManager.svelte";
+	import SkillsManager from "$lib/components/skills/SkillsManager.svelte";
 	import LucideBoxes from "~icons/lucide/boxes";
 	import LucideLibrary from "~icons/lucide/library";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
+	import IconDocument from "~icons/carbon/document";
 
 	interface Props {
 		data: LayoutData;
@@ -37,11 +39,13 @@
 
 	// The labels are the rows this page's tabs replace — the sidebar said
 	// "Models", "MCP Servers" and "Knowledge" and nothing is gained by renaming
-	// them under a new roof.
+	// them under a new roof. "Skills" is new with this panel: the fourth
+	// manager, and the first one that needed no sidebar row to replace.
 	const TABS = [
 		{ key: "models", label: "Models" },
 		{ key: "mcp", label: "MCP Servers" },
 		{ key: "kb", label: "Knowledge" },
+		{ key: "skills", label: "Skills" },
 	] as const;
 	type TabKey = (typeof TABS)[number]["key"];
 
@@ -67,7 +71,7 @@
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Workspace</h1>
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			Models, MCP servers and knowledge bases, in one place.
+			Models, MCP servers, knowledge bases and skills, in one place.
 		</p>
 	</header>
 
@@ -88,8 +92,10 @@
 					<LucideBoxes class="size-4" />
 				{:else if t.key === "mcp"}
 					<IconMCP classNames="size-4" />
-				{:else}
+				{:else if t.key === "kb"}
 					<LucideLibrary class="size-4" />
+				{:else}
+					<IconDocument class="size-4" />
 				{/if}
 				{t.label}
 			</a>
@@ -112,8 +118,10 @@
 				/>
 			{:else if tab === "mcp"}
 				<MCPServerManager />
-			{:else}
+			{:else if tab === "kb"}
 				<KnowledgeManager initialId={initialItemId} />
+			{:else}
+				<SkillsManager initialId={initialItemId} />
 			{/if}
 		{/key}
 	</div>

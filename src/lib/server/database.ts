@@ -41,6 +41,7 @@ import { dirname, join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { findRepoRoot } from "./findRepoRoot";
 import type { ConfigKey } from "$lib/types/ConfigKey";
+import type { Skill } from "$lib/types/Skill";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
@@ -175,6 +176,9 @@ export class Database {
 		// flows (ADR 0064). Primary read preference throughout: a callback
 		// reads back the state it just wrote, and secondary lag there is an
 		// expired sign-in for something that worked.
+		// User skills, owner-only with no sharing (ADR 0072). Admin seeds live
+		// in code, not here: read-only definitions with no admin editor in v1.
+		const skills = db.collection<Skill>("skills");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
@@ -197,6 +201,7 @@ export class Database {
 		return {
 			conversations,
 			projects,
+			skills,
 			vectorStores,
 			knowledgeDocuments,
 			knowledgeConfig,
@@ -236,6 +241,7 @@ export class Database {
 		const {
 			conversations,
 			projects,
+			skills,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
@@ -304,6 +310,13 @@ export class Database {
 		projects
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for projects by userId"));
+		// One owner's skill names are unique; the listing reads newest last.
+		skills
+			.createIndex({ userId: 1, name: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for skills by userId and name"));
+		skills
+			.createIndex({ userId: 1, updatedAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for skills by userId"));
 		// Serves "which projects are shared with me", which is a query by the
 		// viewer's own email or one of their group names — both of them values
 		// inside the same array, which is why one multikey index covers it.

@@ -25,6 +25,14 @@ export interface PrepromptInput {
 	now?: Date;
 	/** The conversation's compute budget; presence turns on the budget rules. */
 	budget?: MlBudget;
+	/**
+	 * The turn's skill context (Phase 1, ADR 0072): stage-1 frontmatter for
+	 * every enabled skill plus bodies for `@name` mentions. Appended after
+	 * the execution prompt it builds on — skills are carried out through
+	 * those same sandbox channels — and before the ML budget lines, which
+	 * stay last where the namespace rule reads them.
+	 */
+	skillsPreprompt?: string;
 }
 
 /**
@@ -44,6 +52,7 @@ export function resolvePreprompt({
 	timezone,
 	now,
 	budget,
+	skillsPreprompt,
 }: PrepromptInput): string | undefined {
 	const base = mlAssistant ? ML_ASSISTANT_PREPROMPT : conversationPreprompt;
 	const artifacts = mlAssistant || (artifactsOverride ?? supportsArtifacts);
@@ -51,7 +60,11 @@ export function resolvePreprompt({
 	// must know python blocks auto-run in the browser and that they never see
 	// the output themselves.
 	const resolved = injectExecutionPrompt(artifacts ? injectArtifactsPrompt(base) : base);
-	if (!mlAssistant) return resolved;
+	// Skills ride on top of the execution contract: a skill body is a
+	// procedure the model carries out through those same channels, never
+	// execution of its own.
+	const withSkills = skillsPreprompt ? `${resolved}\n\n${skillsPreprompt}` : resolved;
+	if (!mlAssistant) return withSkills;
 	// The mode is always budget-gated; a conversation without a stored budget is
 	// a zero budget, and the rules — including how to ask for a grant — must
 	// reach the model exactly then.
@@ -59,7 +72,7 @@ export function resolvePreprompt({
 	// Stamped last, after the artifacts prompt, because the preset reads the User
 	// value back out of it — and stamped here rather than onto the tool preprompt
 	// so it still reaches the model on the plain generation path, which has none.
-	return `${resolved}\n\n${ML_ASSISTANT_BUDGET_RULES}\n\n${mlAssistantSessionContext({
+	return `${withSkills}\n\n${ML_ASSISTANT_BUDGET_RULES}\n\n${mlAssistantSessionContext({
 		username,
 		timezone,
 		now,

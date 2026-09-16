@@ -102,6 +102,24 @@ async function* textGenerationWithoutTitle(
 		}
 	}
 
+	// Skills (Phase 1, ADR 0072): stage-1 frontmatter rides every turn and
+	// `@name` mentions in the latest user message load bodies up front; the
+	// model loads further bodies mid-turn itself, through `load_skill`.
+	// Retrieval never fails a turn, like project context below: a store
+	// that cannot be read contributes no skills, not no answer.
+	let skillsPreprompt: string | undefined;
+	try {
+		const { assembleSkillsContext } = await import("$lib/server/skills/prompt");
+		const skillsUserId = (
+			ctx.locals as unknown as { user?: { _id?: import("mongodb").ObjectId } } | undefined
+		)?.user?._id;
+		const lastUserMessage = [...messages].reverse().find((message) => message.from === "user");
+		skillsPreprompt = (await assembleSkillsContext(skillsUserId, lastUserMessage?.content ?? ""))
+			.preprompt;
+	} catch (err) {
+		logger.warn({ err: String(err) }, "[skills] skill context failed; continuing without it");
+	}
+
 	let preprompt = resolvePreprompt({
 		conversationPreprompt: conv.preprompt,
 		mlAssistant,
@@ -110,6 +128,7 @@ async function* textGenerationWithoutTitle(
 		username: ctx.username,
 		timezone: (ctx.locals as unknown as { timezone?: string } | undefined)?.timezone,
 		budget: conv.mlBudget,
+		skillsPreprompt,
 	});
 
 	// A project's standing context, and whatever its knowledge bases — plus any
