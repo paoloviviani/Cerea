@@ -2,7 +2,7 @@
 	import { onDestroy, onMount, tick } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
-	import { afterNavigate } from "$app/navigation";
+	import { afterNavigate, goto } from "$app/navigation";
 
 	import { DropdownMenu } from "bits-ui";
 	import IconPlus from "~icons/lucide/plus";
@@ -17,7 +17,6 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import CarbonEarth from "~icons/carbon/earth";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
-	import MCPServerManager from "$lib/components/mcp/MCPServerManager.svelte";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
 	import MlInternPill from "./MlInternPill.svelte";
@@ -142,7 +141,6 @@
 
 	let fileInputEl: HTMLInputElement | undefined = $state();
 	let isUrlModalOpen = $state(false);
-	let isMcpManagerOpen = $state(false);
 	let isDropdownOpen = $state(false);
 
 	// Below Tailwind's md breakpoint the toolbar row scrolls horizontally and a
@@ -761,7 +759,7 @@
 														<DropdownMenu.Item
 															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
 															title="Sign in from Manage MCP Servers"
-															onSelect={() => (isMcpManagerOpen = true)}
+															onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
 														>
 															<img
 																src={getMcpServerFaviconUrl(connector.url)}
@@ -793,7 +791,7 @@
 										{/if}
 										<DropdownMenu.Item
 											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-											onSelect={() => (isMcpManagerOpen = true)}
+											onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
 										>
 											Manage MCP Servers
 										</DropdownMenu.Item>
@@ -909,11 +907,13 @@
 								? "MCP servers enabled"
 								: "Current model doesn’t support tools"}
 						>
+							<!-- The manager is a workspace tab now, not an overlay
+							     mounted here — every opener navigates to it. -->
 							<button
 								class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
 								type="button"
 								title="Manage MCP Servers"
-								onclick={() => (isMcpManagerOpen = true)}
+								onclick={() => void goto(`${base}/workspace?tab=mcp`)}
 								class:line-through={!modelSupportsTools}
 							>
 								{#if selectedServers.length}
@@ -980,10 +980,6 @@
 		acceptMimeTypes={mimeTypes}
 		onfiles={handleFetchedFiles}
 	/>
-
-	{#if isMcpManagerOpen}
-		<MCPServerManager onclose={() => (isMcpManagerOpen = false)} />
-	{/if}
 </div>
 
 <style>

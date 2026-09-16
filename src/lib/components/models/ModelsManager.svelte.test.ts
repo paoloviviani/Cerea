@@ -74,7 +74,9 @@ function mount() {
 	const { context } = settingsContext();
 	renderWithApp(
 		ModelsManager,
-		{ models: [MODEL], initialId: MODEL.id, onclose: () => {} } as never,
+		// Opened straight onto the one model, as a `?tab=models&id=…` deep link
+		// does — the capability switches live in the detail view.
+		{ models: [MODEL], initialId: MODEL.id } as never,
 		{ context }
 	);
 }

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 	import type { PageData } from "./$types";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 
 	import { base } from "$app/paths";
+	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 
 	import CarbonHelpFilled from "~icons/carbon/help-filled";
@@ -223,7 +223,12 @@
 								onclick={(e) => {
 									e.preventDefault();
 									e.stopPropagation();
-									modelsOverlay.show(model.id);
+									// The card is itself a link (to the chat-with-model
+									// route), so the gear stops it and navigates to the
+									// model's own settings in the workspace instead.
+									void goto(
+										`${base}/workspace?${new URLSearchParams({ tab: "models", id: model.id })}`
+									);
 								}}
 							>
 								<LucideSettings class="size-3 sm:size-3.5" />

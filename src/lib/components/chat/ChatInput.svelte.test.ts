@@ -1,5 +1,5 @@
 import ChatInput from "./ChatInput.svelte";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { page } from "@vitest/browser/context";
 import { get, writable } from "svelte/store";
@@ -370,14 +370,9 @@ describe("ChatInput: MCP connector toggles", () => {
 		expect(findConnectorItem("Pending").getAttribute("role")).toBe("menuitem");
 		findConnectorItem("Pending").click();
 
-		// The manager dialog opens (where the sign-in lives)…
-		await vi.waitFor(() =>
-			expect(
-				[...document.body.querySelectorAll("h2")].some((el) =>
-					el.textContent?.includes("MCP Servers")
-				)
-			).toBe(true)
-		);
+		// The manager is a workspace tab now, not a dialog: selecting a
+		// disconnected connector navigates to it, where the sign-in lives.
+		await vi.waitFor(() => expect(appNavigation().goto).toHaveBeenCalledWith("/workspace?tab=mcp"));
 		// …and nothing was selected: a no-op toggle would send no tools.
 		expect(get(selectedConnectorIds).size).toBe(0);
 		expect(get(enabledConnectors)).toEqual([]);

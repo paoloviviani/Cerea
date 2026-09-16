@@ -1,11 +1,11 @@
 <!--
-	Knowledge bases, as an overlay in this app's own dialog language.
+	Knowledge bases, in this app's own dialog language, as a workspace tab.
 
-	Three views in one dialog rather than three pages: the list, the form that
+	Three views in one screen rather than three pages: the list, the form that
 	creates a base already full of documents, and one base's contents. The MCP
-	dialog does the same thing with `currentView`, and for the same reason — a
-	person managing knowledge is doing one task, and navigating away from the
-	chat to do it loses their place in the conversation that prompted it.
+	manager does the same thing with `currentView`, and for the same reason — a
+	person managing knowledge is doing one task, and switching screens for each
+	step of it would lose their place.
 
 	The gateway owns all of this (ADR 0062): files, extraction, embedding, the
 	vector store and the sharing. Everything here is a call through
@@ -14,7 +14,6 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import { base as appBase } from "$app/paths";
-	import Modal from "$lib/components/Modal.svelte";
 	import FileDrop from "$lib/components/FileDrop.svelte";
 	import {
 		GatewayError,
@@ -44,10 +43,9 @@
 	interface Props {
 		/** Open straight onto one base, for `/knowledge/<id>`. */
 		initialId?: string;
-		onclose: () => void;
 	}
 
-	let { initialId, onclose }: Props = $props();
+	let { initialId }: Props = $props();
 
 	type View = "list" | "create" | "detail";
 	// Read once: `initialId` is the address somebody arrived on. A `$derived`
@@ -501,15 +499,11 @@
 	}
 </script>
 
-<Modal
-	width={view === "list" ? s.OVERLAY_WIDE : s.OVERLAY_NARROW}
-	{onclose}
-	closeButton
-	labelledBy="knowledge-modal-title"
->
+<!-- The workspace tab's card, where the overlay shell used to be. -->
+<div class={s.EMBEDDED}>
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
-			<h2 id="knowledge-modal-title" class={s.TITLE}>
+			<h2 id="knowledge-panel-title" class={s.TITLE}>
 				{#if view === "list"}
 					Knowledge bases
 				{:else if view === "create"}
@@ -946,4 +940,4 @@
 			</div>
 		{/if}
 	</div>
-</Modal>
+</div>

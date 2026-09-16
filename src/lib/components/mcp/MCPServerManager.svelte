@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
-	import Modal from "$lib/components/Modal.svelte";
 	import ServerCard from "./ServerCard.svelte";
 	import ConnectorsSection from "./ConnectorsSection.svelte";
 	import {
@@ -12,14 +11,9 @@
 	import { totalEnabledMcpCount } from "$lib/stores/mcpConnectors";
 	import IconRefresh from "~icons/carbon/renew";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
+	import * as s from "$lib/components/overlay/styles";
 
 	const publicConfig = usePublicConfig();
-
-	interface Props {
-		onclose: () => void;
-	}
-
-	let { onclose }: Props = $props();
 
 	let isRefreshing = $state(false);
 
@@ -40,7 +34,8 @@
 	}
 </script>
 
-<Modal width="w-[800px]" {onclose} closeButton>
+<!-- The workspace tab's card, where the overlay shell used to be. -->
+<div class={s.EMBEDDED}>
 	<div class="p-6">
 		<!-- Header -->
 		<div class="mb-6">
@@ -119,4 +114,4 @@
 			</div>
 		</div>
 	</div>
-</Modal>
+</div>

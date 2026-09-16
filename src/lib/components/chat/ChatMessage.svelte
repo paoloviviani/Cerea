@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
+	import { base } from "$app/paths";
+	import { goto } from "$app/navigation";
 	import type { Message } from "$lib/types/Message";
 	import { tick } from "svelte";
 
@@ -677,9 +678,19 @@
 							</span>
 							<span class="text-gray-500">with</span>
 							{#if publicConfig.isHuggingChat}
+								<!-- A button that navigates rather than a link: it sits
+								     inside the message's footer where a nested anchor
+								     would be invalid, and the workspace address is
+								     where a model's settings live now. -->
 								<button
 									type="button"
-									onclick={() => modelsOverlay.show(message.routerMetadata?.model)}
+									onclick={() => {
+										const model = message.routerMetadata?.model;
+										if (model)
+											void goto(
+												`${base}/workspace?${new URLSearchParams({ tab: "models", id: model })}`
+											);
+									}}
 									class="flex items-center gap-1 truncate rounded-sm bg-gray-100 px-1 font-mono hover:text-gray-500 @xl:py-px dark:bg-gray-800 dark:hover:text-gray-300"
 								>
 									{message.routerMetadata.model.split("/").pop()}
