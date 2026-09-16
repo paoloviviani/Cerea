@@ -7,13 +7,15 @@ import {
 	MAX_LISTED_FILES,
 	MOUNT_ROOT,
 	pyodideBasePath,
+	pyodideWheelsIndexTemplate,
+	PYPI_SIMPLE_INDEX_URL,
 	safeMountName,
 	type HostToWorker,
 	type RunOutcome,
 	type RuntimeFile,
 	type WorkerToHost,
 } from "./protocol";
-import { installNetworkGate } from "./gate";
+import { installNetworkGate, type NetworkGateController } from "./gate";
 
 /**
  * The one Pyodide runtime. Runs inside a dedicated module worker so runaway
@@ -55,12 +57,20 @@ export function bootstrapWorker(
 ): void {
 	// The gate first: it must be watching before anything, including the
 	// interpreter import, can move a byte.
-	installNetworkGate(scope as unknown as typeof globalThis);
+	const gateController: NetworkGateController = installNetworkGate(
+		scope as unknown as typeof globalThis
+	);
 	guardCleanExitRejection(scope);
 
 	let pyodidePromise: Promise<PyodideAPI> | null = null;
 	let stdoutBuffer: string[] = [];
 	let stderrBuffer: string[] = [];
+	// Whether the person has opted in (and the deployment has not killed the
+	// switch) to installing arbitrary pure-Python packages from PyPI, on top
+	// of the vendored wheels. Set by the host's "configure" message, which is
+	// always posted before the first "run" (see runtime.ts ensureWorker), so
+	// the very first micropip pin already sees the right value.
+	let pypiEnabled = false;
 
 	function post(message: WorkerToHost, transfer?: Transferable[]): void {
 		scope.postMessage(message, transfer ?? []);
@@ -98,6 +108,26 @@ export function bootstrapWorker(
 		return new URL(basePath, scope.location.origin).href;
 	}
 
+	/**
+	 * (Re-)point micropip at the vendored wheels, plus the public PyPI simple
+	 * index when the person has opted in. `loadPackage("micropip")` is
+	 * required first: this Pyodide build does not auto-bootstrap micropip on
+	 * a bare `import micropip` the way some earlier releases did — without
+	 * it the import raises `ModuleNotFoundError` and the pin silently never
+	 * takes effect. `loadPackage` no-ops on an already-loaded package, so
+	 * calling this again on every "configure" (a live toggle, not just boot)
+	 * is cheap.
+	 */
+	async function pinMicropipIndex(py: PyodideAPI, indexURL: string): Promise<void> {
+		await py.loadPackage("micropip");
+		const indexUrls = pypiEnabled
+			? [pyodideWheelsIndexTemplate(indexURL), PYPI_SIMPLE_INDEX_URL]
+			: [pyodideWheelsIndexTemplate(indexURL)];
+		await py.runPythonAsync(
+			["import micropip", `micropip.set_index_urls(${JSON.stringify(indexUrls)})`].join("\n")
+		);
+	}
+
 	async function getPyodide(): Promise<PyodideAPI> {
 		if (!pyodidePromise) {
 			post({ type: "loading" });
@@ -128,20 +158,7 @@ export function bootstrapWorker(
 							stderrBuffer.push(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
 						},
 					});
-					// Pin micropip to this origin: the default index (python.pyodide.org)
-					// is unreachable behind the gate, and any wheels an operator wants
-					// installable must be served under <base>/pyodide/wheels/.
-					// Derived from the resolved indexURL (already base-aware) so the
-					// micropip fetch passes the same gate the dist boot passed.
-					await py.runPythonAsync(
-						[
-							"try:",
-							"    import micropip",
-							`    micropip.set_index_urls("${indexURL}wheels/")`,
-							"except ImportError:",
-							"    pass",
-						].join("\n")
-					);
+					await pinMicropipIndex(py, indexURL);
 					post({ type: "ready" });
 					return py;
 				} catch (err) {
@@ -393,6 +410,21 @@ export function bootstrapWorker(
 		}
 	}
 
+	function configure(enabled: boolean): void {
+		pypiEnabled = enabled;
+		gateController.setPyPiEnabled(pypiEnabled);
+		// A first boot picks up pypiEnabled naturally (configure always arrives
+		// before the first "run", see runtime.ts's ensureWorker); this re-pin is
+		// for a value changed live, after the interpreter is already up.
+		if (pyodidePromise) {
+			void pyodidePromise
+				.then((py) => pinMicropipIndex(py, resolveIndexURL()))
+				.catch(() => {
+					// A load failure already posted "loadError"; nothing more to do.
+				});
+		}
+	}
+
 	scope.onmessage = (event: MessageEvent<HostToWorker>) => {
 		const data = event.data;
 		if (!data || typeof data !== "object") return;
@@ -401,6 +433,7 @@ export function bootstrapWorker(
 		if (data.type === "removeFile") void removeFile(data.id, data.path);
 		if (data.type === "listFiles") void listFiles(data.id);
 		if (data.type === "readFile") void readFile(data.id, data.path);
+		if (data.type === "configure") configure(data.pypiEnabled);
 	};
 }
 

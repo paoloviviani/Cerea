@@ -7,7 +7,7 @@
 		"predev": "npm run sync-pyodide",
 		"prebuild": "npm run sync-pyodide",
 		"prebuild:static": "npm run sync-pyodide",
-		"sync-pyodide": "node scripts/sync_pyodide.mjs",
+		"sync-pyodide": "node scripts/sync_pyodide.mjs && node scripts/sync_pyodide_wheels.mjs",
 		"dev": "vite dev",
 		"build": "vite build",
 		"build:static": "ADAPTER=static vite build",

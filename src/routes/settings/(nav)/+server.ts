@@ -12,6 +12,11 @@ const settingsSchema = z.object({
 	// Off by default and stored as absent: the field is the user's consent to
 	// web search, and the tool it enables also needs the console's search tier.
 	webSearchEnabled: z.boolean().optional(),
+	// Off by default and stored as absent: opt-in to the code sandbox's
+	// micropip reaching the public PyPI index, on top of the vendored
+	// same-origin wheels. An admin kill-switch can force this unavailable
+	// regardless of what's stored here.
+	pyodidePyPiInstallEnabled: z.boolean().optional(),
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),

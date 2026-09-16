@@ -14,6 +14,12 @@ const settingsSchema = z.object({
 		.boolean()
 		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 	webSearchEnabled: z.boolean().optional(),
+	// Off by default and stored as absent: opt-in to letting the code
+	// sandbox's micropip reach the public PyPI index, on top of the
+	// vendored same-origin wheels every deployment serves. An admin
+	// kill-switch can additionally force this unavailable regardless of
+	// what's stored (see FeatureFlags.pyodidePyPiInstallAllowed).
+	pyodidePyPiInstallEnabled: z.boolean().optional(),
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
@@ -58,6 +64,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 	return superjsonResponse({
 		webSearchEnabled: settings?.webSearchEnabled ?? undefined,
+		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
 		welcomeModalSeen: !!settings?.welcomeModalSeenAt,
 		welcomeModalSeenAt: settings?.welcomeModalSeenAt ?? null,
 		mlInternOnboardingSeen: !!settings?.mlInternOnboardingSeenAt,

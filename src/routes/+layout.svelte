@@ -11,6 +11,7 @@
 	import { createSettingsStore } from "$lib/stores/settings";
 	import { setHapticsEnabled } from "$lib/utils/haptics";
 	import { initWithServers } from "$lib/stores/mcpServers";
+	import { getExecutionSession } from "$lib/utils/execution/runtime";
 
 	import Toast from "$lib/components/Toast.svelte";
 	import NotificationToasts from "$lib/components/NotificationToasts.svelte";
@@ -138,6 +139,17 @@
 
 	$effect(() => {
 		setHapticsEnabled($settings.hapticsEnabled);
+	});
+
+	// The effective PyPI-install flag is the user's own opt-in AND the
+	// deployment not having killed it (data.pyodidePyPiInstallAllowed, from
+	// FeatureFlags — computed server-side from CHAT_PYODIDE_PYPI_DISABLED).
+	// Re-evaluated on every relevant change so toggling the setting takes
+	// effect immediately, without a page reload or a fresh sandbox session.
+	$effect(() => {
+		getExecutionSession()?.configure(
+			!!(data.pyodidePyPiInstallAllowed && $settings.pyodidePyPiInstallEnabled)
+		);
 	});
 
 	onMount(async () => {
