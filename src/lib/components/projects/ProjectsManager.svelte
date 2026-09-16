@@ -24,6 +24,7 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import Modal from "$lib/components/Modal.svelte";
+	import Switch from "$lib/components/Switch.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import {
 		connectors as mcpConnectors,
@@ -140,6 +141,7 @@
 	onMount(() =>
 		load().then(() => {
 			if (initialId) void openDetail(initialId);
+			else if (initialView === "create") openForm(null);
 		})
 	);
 
@@ -152,10 +154,11 @@
 	let attached = $state<string[]>([]);
 	let indexPastChats = $state(false);
 	let retrievalLimit = $state("6");
-	// Defaults for new chats here. `""` means "use the app default" (unset);
-	// the server stores only an explicit choice. Connector ids work the same
-	// way: empty means "use the workspace MCP defaults".
-	let defaultWebSearch = $state<"" | "on" | "off">("");
+	// Defaults for new chats here, as explicit booleans going forward. The
+	// Project field stays optional so pre-existing docs without it still read
+	// as "follow app default" server-side; the form always saves an explicit
+	// value. Connector ids: empty means "use the workspace MCP defaults".
+	let defaultWebSearch = $state(false);
 	let defaultConnectors = $state<string[]>([]);
 
 	function openForm(project: ProjectView | null) {
@@ -166,8 +169,13 @@
 		attached = [...(project?.knowledgeBaseIds ?? [])];
 		indexPastChats = project?.indexPastChats ?? false;
 		retrievalLimit = String(project?.retrievalLimit ?? 6);
+		// Explicit stored value wins; otherwise seed from the app default so a
+		// new project (or an old doc without the field) starts where new chats
+		// would anyway. Saved back as an explicit boolean.
 		defaultWebSearch =
-			project?.defaultWebSearch === true ? "on" : project?.defaultWebSearch === false ? "off" : "";
+			typeof project?.defaultWebSearch === "boolean"
+				? project.defaultWebSearch
+				: $settings.webSearchEnabled === true;
 		defaultConnectors = [...(project?.defaultMcpConnectorIds ?? [])];
 		failure = null;
 		notice = null;
@@ -197,7 +205,7 @@
 				knowledgeBaseIds: attached,
 				indexPastChats,
 				retrievalLimit: Number(retrievalLimit) || 6,
-				...(defaultWebSearch === "" ? {} : { defaultWebSearch: defaultWebSearch === "on" }),
+				defaultWebSearch,
 				defaultMcpConnectorIds: defaultConnectors,
 			};
 			const saved = editing
@@ -586,43 +594,31 @@
 
 				<div>
 					<span class={s.LABEL}>Defaults for new chats here</span>
-					<div class="flex flex-wrap items-center gap-2">
-						<label for="project-default-websearch" class="text-sm text-gray-700 dark:text-gray-300">
-							Web search
-						</label>
-						<select
-							id="project-default-websearch"
-							class={s.INPUT}
-							bind:value={defaultWebSearch}
+					<div class="flex items-center gap-2">
+						<Switch
+							name="project-default-websearch"
+							bind:checked={defaultWebSearch}
 							disabled={busy}
-						>
-							<option value="">Use the app default</option>
-							<option value="on">On</option>
-							<option value="off">Off</option>
-						</select>
+						/>
+						<span class="text-sm text-gray-700 dark:text-gray-300">Web search on by default</span>
 					</div>
-					<p class={s.HINT}>
-						A chat's own toggle still wins — this only decides what new chats start with.
-					</p>
 					<div class="mt-2">
-						<span class="text-sm text-gray-700 dark:text-gray-300">MCP connectors</span>
+						<span class="text-sm text-gray-700 dark:text-gray-300">MCPs on by default:</span>
 						{#if !$mcpConnectorsLoaded}
 							<p class={s.HINT}>Loading connectors…</p>
 						{:else if $mcpConnectors.length === 0}
-							<p class={s.HINT}>
-								No connectors yet. Add one under Workspace → MCP Servers; until then new chats use
-								the workspace defaults.
-							</p>
+							<p class={s.HINT}>No connectors yet. Add one under Workspace → MCP Servers.</p>
 						{:else}
 							<div class="max-h-40 space-y-1 overflow-y-auto">
 								{#each $mcpConnectors as connector (connector.id)}
-									<label class="flex items-start gap-2 text-sm">
-										<input
-											type="checkbox"
-											checked={defaultConnectors.includes(connector.id)}
-											onchange={() => toggleDefaultConnector(connector.id)}
+									<div class="flex items-center gap-2 text-sm">
+										<Switch
+											name={`project-default-connector-${connector.id}`}
 											disabled={busy || !connector.connected}
-											class="mt-0.5 accent-blue-600"
+											bind:checked={
+												() => defaultConnectors.includes(connector.id),
+												() => toggleDefaultConnector(connector.id)
+											}
 										/>
 										<span>
 											{connector.name}
@@ -630,13 +626,9 @@
 												<span class="text-xs text-gray-500">· not signed in</span>
 											{/if}
 										</span>
-									</label>
+									</div>
 								{/each}
 							</div>
-							<p class={s.HINT}>
-								Checked connectors start on in new chats here. None checked means the workspace MCP
-								defaults. A chat's own picker still wins afterwards.
-							</p>
 						{/if}
 					</div>
 				</div>
@@ -714,18 +706,11 @@
 				<div>
 					<h3 class={s.SECTION_TITLE}>Defaults for new chats</h3>
 					<p class="text-sm text-gray-700 dark:text-gray-300">
-						Web search: {current.defaultWebSearch === true
-							? "on"
-							: current.defaultWebSearch === false
-								? "off"
-								: "app default"}
+						Web search: {current.defaultWebSearch === true ? "on" : "off"}
 						{#if current.defaultMcpConnectorIds?.length}
-							· MCP: {current.defaultMcpConnectorIds.length} connector{current
-								.defaultMcpConnectorIds.length === 1
-								? ""
-								: "s"} on
+							· MCP: {current.defaultMcpConnectorIds.length} on
 						{:else}
-							· MCP: workspace defaults
+							· MCP off
 						{/if}
 					</p>
 				</div>
