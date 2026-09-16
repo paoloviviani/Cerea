@@ -12,10 +12,17 @@ import type { TextGenerationContext } from "./types";
 const mocks = vi.hoisted(() => ({
 	runMcpFlow: vi.fn(),
 	generate: vi.fn(),
+	assembleSkillsContext: vi.fn(async (): Promise<{ preprompt?: string; mentioned: string[] }> => ({
+		preprompt: undefined,
+		mentioned: [],
+	})),
 }));
 
 vi.mock("./mcp/runMcpFlow", () => ({ runMcpFlow: mocks.runMcpFlow }));
 vi.mock("./generate", () => ({ generate: mocks.generate }));
+vi.mock("$lib/server/skills/prompt", () => ({
+	assembleSkillsContext: mocks.assembleSkillsContext,
+}));
 // eslint-disable-next-line require-yield
 async function* noUpdates() {
 	return undefined;
@@ -57,8 +64,9 @@ function makeContext(): TextGenerationContext {
 	return {
 		model: { id: "test/model", name: "test/model" },
 		conv: { _id: new ObjectId(), preprompt: undefined },
-		messages: [],
+		messages: [{ from: "user", content: "please @csv-shaping this file" }],
 		abortController: new AbortController(),
+		locals: { user: { _id: new ObjectId() } },
 	} as unknown as TextGenerationContext;
 }
 
@@ -77,6 +85,11 @@ beforeEach(() => {
 	mocks.runMcpFlow.mockReset();
 	mocks.generate.mockReset();
 	mocks.generate.mockImplementation(noUpdates);
+	mocks.assembleSkillsContext.mockReset();
+	mocks.assembleSkillsContext.mockImplementation(async () => ({
+		preprompt: undefined,
+		mentioned: [],
+	}));
 });
 
 describe("textGeneration MCP fallback", () => {
@@ -134,7 +147,56 @@ describe("textGeneration MCP fallback", () => {
 
 		expect(mocks.generate).toHaveBeenCalledTimes(1);
 	});
+});
 
+describe("textGeneration skills", () => {
+	// Stage 1 rides the normal turn: the frontmatter list reaches the model
+	// flow inside the preprompt, which is what the model matches against —
+	// and what it loads bodies from, mid-turn, through `load_skill`.
+	it("carries the skill context into the model flow", async () => {
+		mocks.assembleSkillsContext.mockImplementation(async () => ({
+			preprompt: "## Skills\n\n- `csv-shaping`: Reshape CSV.",
+			mentioned: [],
+		}));
+		mocks.runMcpFlow.mockImplementation(mcpFlow({ result: "not_applicable" }));
+
+		await collect(makeContext());
+
+		expect(mocks.assembleSkillsContext).toHaveBeenCalledTimes(1);
+		const flowArgs = mocks.runMcpFlow.mock.calls[0]?.[0] as { preprompt?: string };
+		expect(flowArgs.preprompt).toContain("## Skills");
+	});
+
+	it("loads the mentioned body up front on an @name mention", async () => {
+		mocks.assembleSkillsContext.mockImplementation(async () => ({
+			preprompt: "## Skills\n\n## Skill: csv-shaping\n\n# CSV shaping",
+			mentioned: ["csv-shaping"],
+		}));
+		mocks.runMcpFlow.mockImplementation(mcpFlow({ result: "not_applicable" }));
+
+		const ctx = makeContext();
+		await collect(ctx);
+
+		// The mention text the person typed is what selected the body.
+		expect(mocks.assembleSkillsContext).toHaveBeenCalledWith(
+			expect.anything(),
+			"please @csv-shaping this file"
+		);
+		const flowArgs = mocks.runMcpFlow.mock.calls[0]?.[0] as { preprompt?: string };
+		expect(flowArgs.preprompt).toContain("## Skill: csv-shaping");
+	});
+
+	it("still runs the turn when skill loading fails", async () => {
+		mocks.assembleSkillsContext.mockRejectedValue(new Error("store down"));
+		mocks.runMcpFlow.mockImplementation(mcpFlow({ result: "not_applicable" }));
+
+		await collect(makeContext());
+
+		expect(mocks.generate).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("textGeneration abort", () => {
 	it("does not fall back or throw when the user aborts", async () => {
 		const ctx = makeContext();
 		ctx.abortController.abort();
