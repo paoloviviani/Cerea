@@ -2,6 +2,7 @@
 	import { base } from "$app/paths";
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import CarbonChip from "~icons/carbon/chip";
+	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import RunOutput from "./RunOutput.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
@@ -177,27 +178,67 @@
 		}
 		return resolved ? resolvedRunState : runState;
 	});
+
+	// Collapse the output the way a thinking section does (see
+	// OpenReasoningResults.svelte): open while the code is actually running so
+	// the person can watch it, then collapse once it settles — a completed run's
+	// output is reference, not the thing they are waiting on. A replayed card
+	// (`resolved`, fresh load) starts collapsed for the same reason. The header
+	// stays the toggle, so an error or a finished result is one click away.
+	let isRunning = $derived(
+		!resolved &&
+			runState != null &&
+			(runState.status === "loading" ||
+				runState.status === "running" ||
+				runState.status === "queued")
+	);
+	let isOpen = $state(false);
+	let wasRunning = $state(false);
+	let initialized = $state(false);
+	$effect(() => {
+		if (!initialized) {
+			initialized = true;
+			if (isRunning) {
+				isOpen = true;
+				wasRunning = true;
+				return;
+			}
+		}
+		if (isRunning && !wasRunning) {
+			isOpen = true;
+		} else if (!isRunning && wasRunning) {
+			isOpen = false;
+		}
+		wasRunning = isRunning;
+	});
 </script>
 
 <BlockWrapper>
 	<div
 		class="rounded-lg border border-blue-200/70 bg-blue-50/30 dark:border-blue-800/60 dark:bg-blue-950/20"
 	>
-		<div
-			class="flex items-center gap-1.5 border-b border-blue-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-blue-800/60 dark:text-gray-400"
+		<button
+			type="button"
+			onclick={() => (isOpen = !isOpen)}
+			aria-expanded={isOpen}
+			aria-label={isOpen ? "Collapse code output" : "Expand code output"}
+			class="group/header flex w-full cursor-pointer items-center gap-1.5 border-b border-blue-200/70 px-3 py-1.5 text-left text-xs text-gray-500 select-none focus:outline-hidden dark:border-blue-800/60 dark:text-gray-400"
 		>
-			{#if resolved}
-				<span>Assistant-run code</span>
-			{:else if runState && (runState.status === "loading" || runState.status === "running" || runState.status === "queued")}
+			{#if runState && (runState.status === "loading" || runState.status === "running" || runState.status === "queued") && !resolved}
 				<EosIconsLoading class="text-gray-400" />
 				<span>{runState.status === "loading" ? "Starting Python" : "Running in your browser"}</span>
 			{:else}
 				<CarbonChip class="text-gray-400" />
 				<span>Assistant-run code</span>
 			{/if}
-		</div>
-		<div class="px-3 py-2">
-			<RunOutput state={displayState} />
-		</div>
+			<CarbonChevronRight
+				class="ml-auto size-3.5 transition-transform duration-200 {isOpen ? 'rotate-90' : ''}"
+			/>
+		</button>
+		{#if isOpen}
+			<div class="px-3 py-2">
+				<RunOutput state={displayState} />
+			</div>
+		{/if}
 	</div>
 </BlockWrapper>
