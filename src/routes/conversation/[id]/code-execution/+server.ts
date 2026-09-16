@@ -20,6 +20,14 @@ const bodySchema = z.object({
 			.array(z.object({ path: z.string(), size: z.number() }))
 			.max(200)
 			.default([]),
+		// Set when the browser uploaded the run's output files to the persisted
+		// output store (see `code-execution/output/+server.ts`) before posting
+		// this outcome. Absent means nothing was persisted — the run's files
+		// still show live through `files` above, just not durably.
+		fileRefs: z
+			.array(z.object({ name: z.string(), size: z.number(), sha256: z.string() }))
+			.max(200)
+			.optional(),
 	}),
 });
 

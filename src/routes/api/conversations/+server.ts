@@ -2,6 +2,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import type { Conversation } from "$lib/types/Conversation";
 import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
+import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 
 export async function GET({ locals, url }) {
 	const p = parseInt(url.searchParams.get("p") ?? "0");
@@ -39,9 +40,14 @@ export async function GET({ locals, url }) {
 
 export async function DELETE({ locals }) {
 	if (locals.user?._id || locals.sessionId) {
+		const ids = await collections.conversations
+			.find({ ...authCondition(locals) })
+			.project<{ _id: Conversation["_id"] }>({ _id: 1 })
+			.toArray();
 		await collections.conversations.deleteMany({
 			...authCondition(locals),
 		});
+		await deleteConversationDeliverables(ids.map((c) => c._id));
 	}
 
 	return new Response();

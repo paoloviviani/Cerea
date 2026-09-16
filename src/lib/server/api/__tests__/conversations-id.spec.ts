@@ -157,6 +157,28 @@ describe.sequential("DELETE /api/v2/conversations/[id]", () => {
 		}
 	});
 
+	it("deletes the conversation's persisted execute_code deliverables too", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals, { title: "Has deliverables" });
+		await collections.codeExecutionOutputs.insertOne({
+			_id: new ObjectId(),
+			conversationId: conv._id,
+			userId: locals.user?._id,
+			sha256: "a".repeat(64),
+			name: "out.csv",
+			mime: "text/csv",
+			size: 12,
+			gridFsId: new ObjectId(),
+			createdAt: new Date(),
+		});
+
+		await DELETE({ locals, params: { id: conv._id.toString() } } as never);
+
+		expect(
+			await collections.codeExecutionOutputs.countDocuments({ conversationId: conv._id })
+		).toBe(0);
+	});
+
 	it("throws 401 for unauthenticated request", async () => {
 		const locals = createTestLocals({ sessionId: undefined, user: undefined });
 

@@ -112,7 +112,9 @@ export async function cleanupTestData() {
 		collections.migrationResults.deleteMany({}),
 		collections.tokenCaches.deleteMany({}),
 		collections.tools.deleteMany({}),
+		collections.codeExecutionOutputs.deleteMany({}),
 		cleanupGridFS(),
+		cleanupCodeOutputBucket(),
 	]);
 }
 
@@ -123,4 +125,14 @@ export async function cleanupTestData() {
 async function cleanupGridFS() {
 	const files = await collections.bucket.find({}).toArray();
 	await Promise.all(files.map((file) => collections.bucket.delete(file._id)));
+}
+
+async function cleanupCodeOutputBucket() {
+	const files = await collections.codeOutputBucket.find({}).toArray();
+	// Swallow "file not found": test files run concurrently against the same
+	// shared Mongo (TEST_MONGODB_URL), and another file's cleanup racing this
+	// one to the same bucket is a benign double-delete, not a real failure.
+	await Promise.all(
+		files.map((file) => collections.codeOutputBucket.delete(file._id).catch(() => undefined))
+	);
 }

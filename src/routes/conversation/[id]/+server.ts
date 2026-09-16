@@ -15,6 +15,7 @@ import {
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import { uploadFile } from "$lib/server/files/uploadFile";
+import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree.js";
@@ -913,6 +914,7 @@ export async function DELETE({ locals, params }) {
 	}
 
 	await collections.conversations.deleteOne({ _id: conv._id });
+	await deleteConversationDeliverables(conv._id);
 
 	return new Response();
 }

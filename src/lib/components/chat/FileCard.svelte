@@ -31,9 +31,17 @@
 		 * never touched.
 		 */
 		inlineContent?: string;
+		/**
+		 * Persisted-deliverable mode: bytes come from the server-side output
+		 * store (`/conversation/[id]/code-execution/output/[sha256]`) rather
+		 * than the worker's in-memory FS — the case on replay, after a reload,
+		 * or from another device, where no live sandbox holds this file. Docx
+		 * preview (which runs Python in the sandbox) is not offered here.
+		 */
+		downloadUrl?: string;
 	}
 
-	let { file, inlineContent }: Props = $props();
+	let { file, inlineContent, downloadUrl }: Props = $props();
 
 	const name = $derived(file.path.split("/").pop() || "download");
 	const extension = $derived(
@@ -73,7 +81,9 @@
 		return "none";
 	}
 
-	const previewKind = $derived(previewKindFor(extension, inlineContent === undefined));
+	const previewKind = $derived(
+		previewKindFor(extension, inlineContent === undefined && downloadUrl === undefined)
+	);
 
 	/** UTF-8 byte length of the inline content; only computed in direct-emission mode. */
 	const inlineSize = $derived(
@@ -113,6 +123,11 @@
 	 */
 	async function readBytes(): Promise<ArrayBuffer | Uint8Array<ArrayBuffer>> {
 		if (inlineContent !== undefined) return new TextEncoder().encode(inlineContent);
+		if (downloadUrl !== undefined) {
+			const res = await fetch(downloadUrl);
+			if (!res.ok) throw new Error("that file is no longer available");
+			return await res.arrayBuffer();
+		}
 		const session = getExecutionSession();
 		if (!session) throw new Error("the execution sandbox is not available in this context");
 		return session.readFile(file.path);
@@ -148,7 +163,7 @@
 			downloadError =
 				err instanceof Error
 					? err.message
-					: inlineContent !== undefined
+					: inlineContent !== undefined || downloadUrl !== undefined
 						? "the download failed"
 						: "that file is no longer in the runtime; run the code again to recreate it";
 		} finally {

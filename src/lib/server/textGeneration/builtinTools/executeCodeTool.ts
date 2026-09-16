@@ -5,7 +5,11 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { LOAD_TIMEOUT_MS, RUN_TIMEOUT_MS } from "$lib/utils/execution/protocol";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
-import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import {
+	MessageCodeExecutionUpdateType,
+	MessageUpdateType,
+	type MessageCodeExecutionResolvedUpdate,
+} from "$lib/types/MessageUpdate";
 import { makeTruncator } from "./nestedAgent";
 import type { BuiltinTool } from "./types";
 import type { ParkedCall } from "$lib/types/ParkedCall";
@@ -32,10 +36,18 @@ import type { ParkedCall } from "$lib/types/ParkedCall";
  * fences stay manual-run with the human seeing the output; this tool is the
  * second channel over the SAME engine, where the model reads what happened.
  *
- * **Files.** Files a run creates stay in the browser sandbox. The tool result
- * names them for the model; the user sees them through the existing
- * RunsStore → RunOutput → FileCard path. Files are session-only (the worker
- * filesystem dies with the page load) and are deliberately NOT persisted.
+ * **Files.** Files a run creates stay in the browser sandbox; the tool result
+ * names them for the model, and the user sees them live through the existing
+ * RunsStore → RunOutput → FileCard path while the tab holds them. The
+ * sandbox itself is still session-only (the worker filesystem dies with the
+ * page load) — but a run's own output files ARE its deliverables, so
+ * `CodeExecutionCard` additionally uploads their bytes to the per-user output
+ * store (`$lib/server/execution/deliverables.ts`, GridFS behind
+ * `authCondition`, 30-day TTL) once the run settles, and the resolved update
+ * carries the persisted references so a download card survives a reload and
+ * works from another device (ADR 0073's amendment). Nothing else that runs
+ * through the same RunOutput/FileCard components (a fence, an artifact cell)
+ * persists this way — only a tool run's surfaced output does.
  *
  * **No policy layer, by design.** The sandbox is stdlib-only, network-gated
  * and per-user by construction — the sandbox's own boundaries are the policy.
@@ -113,8 +125,8 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"than telling them to install it themselves.\n\n" +
 						"You see the truncated stdout, stderr and the last expression's result " +
 						"yourself, plus the names of files the run created (shown to the person " +
-						"as download cards). The files stay in the person's browser; they are " +
-						"session-only and vanish when the page reloads.\n\n" +
+						"as download cards, kept for 30 days so they still work after a " +
+						"reload or from another device).\n\n" +
 						"If the answer says the execution environment is unavailable (the " +
 						"person's browser did not answer in time), do NOT claim any execution " +
 						"result or file: fall back to presenting the code as a code block in " +
@@ -282,8 +294,8 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 	}
 	if (outcome.files?.length) {
 		parts.push(
-			"Files the run created (shown to the person as download cards; they are " +
-				"session-only and vanish when the page reloads): " +
+			"Files the run created (shown to the person as download cards, kept for " +
+				"30 days so they still work after a reload or from another device): " +
 				outcome.files.map((file) => file.path).join(", ")
 		);
 	}
@@ -295,4 +307,32 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 		);
 	}
 	return parts.join("\n\n");
+}
+
+/**
+ * The `MessageUpdateType.CodeExecution` / `Resolved` update the sweeper
+ * persists and broadcasts once a parked `execute_code` call is answered.
+ * `outcome` drops both `files` (sandbox paths, dead on replay) and
+ * `fileRefs`; the latter surfaces separately as `files` — the durable side,
+ * addressed by conversation + sha256 against the persisted output store, so
+ * a download card on replay renders from there rather than from `outcome`.
+ */
+export function buildCodeExecutionResolvedUpdate(
+	park: ParkedCall
+): MessageCodeExecutionResolvedUpdate {
+	const outcome = park.outcome;
+	return {
+		type: MessageUpdateType.CodeExecution,
+		subtype: MessageCodeExecutionUpdateType.Resolved,
+		executionId: park.parkedCallId,
+		outcome: outcome
+			? (({ files: _files, fileRefs: _fileRefs, ...rest }) => rest)(outcome)
+			: {
+					ok: false,
+					stdout: "",
+					stderr: "",
+					error: "no outcome was recorded for this execution",
+				},
+		...(outcome?.fileRefs?.length ? { files: outcome.fileRefs } : {}),
+	};
 }

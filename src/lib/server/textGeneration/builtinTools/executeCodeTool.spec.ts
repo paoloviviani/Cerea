@@ -30,6 +30,7 @@ import {
 	CODE_EXECUTION_DEADLINE_MS,
 	EXECUTE_CODE_TOOL_NAME,
 	MAX_EXECUTE_CODE_CALLS,
+	buildCodeExecutionResolvedUpdate,
 	codeResumeResultText,
 	createExecuteCodeBuiltin,
 	isExecuteCodeEnabled,
@@ -207,7 +208,7 @@ describe("the tool result a resumed code turn reads", () => {
 		expect(text).toContain("stdout:\nhello");
 		expect(text).toContain("Result: 'done'");
 		expect(text).toContain("out.csv");
-		expect(text).toContain("session-only");
+		expect(text).toContain("30 days");
 	});
 
 	it("reports a failed run as an error the model can act on", () => {
@@ -230,5 +231,60 @@ describe("the tool result a resumed code turn reads", () => {
 	it("warns about an expired session on the resumed round", () => {
 		const text = codeResumeResultText(park(), true);
 		expect(text).toContain("signed-in session expired");
+	});
+});
+
+describe("buildCodeExecutionResolvedUpdate", () => {
+	const park = (over: Record<string, unknown> = {}) =>
+		({
+			parkedCallId: "exec-1",
+			kind: "code",
+			reason: "code execution in the person's browser",
+			...over,
+		}) as never;
+
+	it("drops sandbox file paths from the outcome, dead on replay", () => {
+		const update = buildCodeExecutionResolvedUpdate(
+			park({
+				outcome: {
+					ok: true,
+					stdout: "hi",
+					stderr: "",
+					files: [{ path: "/home/pyodide/out.csv", size: 10 }],
+				},
+			})
+		);
+		expect(update.outcome).not.toHaveProperty("files");
+		expect(update.outcome.stdout).toBe("hi");
+	});
+
+	it("carries persisted deliverable references as `files` when the browser uploaded them", () => {
+		const update = buildCodeExecutionResolvedUpdate(
+			park({
+				outcome: {
+					ok: true,
+					stdout: "",
+					stderr: "",
+					files: [{ path: "/home/pyodide/out.csv", size: 10 }],
+					fileRefs: [{ name: "out.csv", size: 10, sha256: "a".repeat(64) }],
+				},
+			})
+		);
+		expect(update.files).toEqual([{ name: "out.csv", size: 10, sha256: "a".repeat(64) }]);
+		expect(update.outcome).not.toHaveProperty("fileRefs");
+	});
+
+	it("omits `files` entirely when nothing was persisted", () => {
+		const update = buildCodeExecutionResolvedUpdate(
+			park({ outcome: { ok: true, stdout: "", stderr: "", files: [] } })
+		);
+		expect(update.files).toBeUndefined();
+	});
+
+	it("falls back to the unavailable outcome when the browser never answered", () => {
+		const update = buildCodeExecutionResolvedUpdate(park({ outcome: undefined }));
+		expect(update.outcome.ok).toBe(false);
+		expect(update.outcome.error).toContain("no outcome was recorded");
+		expect(update.files).toBeUndefined();
 	});
 });

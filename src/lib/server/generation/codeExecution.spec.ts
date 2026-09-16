@@ -58,6 +58,25 @@ describe("submitting a browser code execution outcome", () => {
 		expect(stored?.resumeAt.getTime()).toBeLessThanOrEqual(Date.now());
 	});
 
+	it("records persisted deliverable references alongside the outcome", async () => {
+		const row = parkRow();
+		await collections.parkedCalls.insertOne(row as never);
+		const withRefs: CodeExecutionOutcome = {
+			...outcome,
+			fileRefs: [{ name: "out.csv", size: 120, sha256: "a".repeat(64) }],
+		};
+
+		const result = await submitCodeExecutionResult({
+			executionId: row.parkedCallId,
+			conversationId: row.conversationId,
+			outcome: withRefs,
+		});
+
+		expect(result.ok).toBe(true);
+		const stored = await collections.parkedCalls.findOne({ _id: row._id });
+		expect(stored?.outcome?.fileRefs).toEqual(withRefs.fileRefs);
+	});
+
 	it("refuses an unknown execution id", async () => {
 		const result = await submitCodeExecutionResult({
 			executionId: "22222222-2222-4222-8222-222222222222",
