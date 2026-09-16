@@ -28,5 +28,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		transcriptionEnabled: !!config.get("TRANSCRIPTION_MODEL"),
 		taskModelId,
 		mlAssistantModels: mlAssistantModelIds(),
+		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 	} satisfies FeatureFlags);
 };

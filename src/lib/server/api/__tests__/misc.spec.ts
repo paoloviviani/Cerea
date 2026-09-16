@@ -1,4 +1,28 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { vi } from "vitest";
+
+// The PyPI kill-switch is read through the config proxy; mock it the same way
+// executeCodeTool.spec.ts mocks CHAT_CODE_TOOL_ENABLED, so it's controllable
+// per test while everything else still resolves through the real config.
+const configState = vi.hoisted(() => ({ pyodidePyPiDisabled: false }));
+
+vi.mock("$lib/server/config", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$lib/server/config")>();
+	return {
+		...actual,
+		get config() {
+			return new Proxy(actual.config, {
+				get(target, prop, receiver) {
+					if (prop === "CHAT_PYODIDE_PYPI_DISABLED") {
+						return configState.pyodidePyPiDisabled ? "true" : "";
+					}
+					return Reflect.get(target, prop, receiver);
+				},
+			});
+		},
+	};
+});
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import superjson from "superjson";
 import { collections, ready } from "$lib/server/database";
 import { createTestLocals, createTestUser, cleanupTestData } from "./testHelpers";
@@ -65,6 +89,25 @@ describe("GET /api/v2/feature-flags", () => {
 		const data = await parseResponse<FeatureFlags>(res);
 
 		expect(data.isAdmin).toBe(true);
+	});
+
+	afterEach(() => {
+		configState.pyodidePyPiDisabled = false;
+	});
+
+	it("allows the PyPI opt-in setting by default", async () => {
+		const locals = createTestLocals();
+		const res = await testRequest(featureFlagsGET, { path: "/api/v2/feature-flags", locals });
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.pyodidePyPiInstallAllowed).toBe(true);
+	});
+
+	it("reports the setting unavailable when the admin kill-switch is set", async () => {
+		configState.pyodidePyPiDisabled = true;
+		const locals = createTestLocals();
+		const res = await testRequest(featureFlagsGET, { path: "/api/v2/feature-flags", locals });
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.pyodidePyPiInstallAllowed).toBe(false);
 	});
 
 	it("serves CORS headers on /api/** when the request carries no Origin", async () => {

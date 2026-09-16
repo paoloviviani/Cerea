@@ -57,6 +57,13 @@ export class ExecutionSession {
 	private pending = new Map<number, Pending>();
 	private queueTail: Promise<unknown> = Promise.resolve();
 	private statusListeners = new Set<(status: ExecutionStatus) => void>();
+	/**
+	 * Whether PyPI installs are currently allowed — the effective value
+	 * (user opt-in AND NOT admin-killed), computed by the caller. Applied to
+	 * every worker this session spawns, and re-sent live to an existing one:
+	 * a setting toggled mid-conversation must not require a page reload.
+	 */
+	private pypiEnabled = false;
 
 	status: ExecutionStatus = "unloaded";
 
@@ -75,6 +82,17 @@ export class ExecutionSession {
 		this.statusListeners.add(listener);
 		listener(this.status);
 		return () => this.statusListeners.delete(listener);
+	}
+
+	/**
+	 * Set whether PyPI installs are currently allowed. Idempotent-safe to call
+	 * on every reactive re-evaluation (e.g. a Svelte `$effect`): a live worker
+	 * is notified immediately, and a not-yet-spawned one picks the value up
+	 * from `ensureWorker` when it starts.
+	 */
+	configure(pypiEnabled: boolean): void {
+		this.pypiEnabled = pypiEnabled;
+		this.worker?.postMessage({ type: "configure", pypiEnabled });
 	}
 
 	/** Execute one snippet. Runs are serialized; `code` is model-written input. */
@@ -198,7 +216,10 @@ export class ExecutionSession {
 	}
 
 	private dispatch<Reply extends WorkerToHost>(
-		message: HostToWorker,
+		// "configure" carries no id and is never dispatched through here (it is
+		// posted directly, fire-and-forget, from ensureWorker/configure): every
+		// message that awaits a reply has one.
+		message: Exclude<HostToWorker, { type: "configure" }>,
 		timeoutMs: number,
 		matches: (message: WorkerToHost) => message is Reply
 	): Promise<Reply> {
@@ -277,6 +298,10 @@ export class ExecutionSession {
 		});
 		this.worker = worker;
 		this.setStatus("loading");
+		// Posted synchronously, before dispatch() posts the actual command below
+		// it in the same call stack: the worker processes messages in the order
+		// received, so this always lands before the first "run"/"loadFiles"/etc.
+		worker.postMessage({ type: "configure", pypiEnabled: this.pypiEnabled });
 		return worker;
 	}
 

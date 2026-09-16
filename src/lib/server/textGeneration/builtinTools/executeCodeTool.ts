@@ -102,10 +102,15 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"Invoke this tool through the function-calling mechanism, as a real " +
 						"tool call — never by writing the call into your reply as text markup, " +
 						"which runs nothing and leaves the person with broken markup. The " +
-						"engine is the same sandbox the code blocks run in: Python with the " +
-						"STANDARD LIBRARY ONLY (zipfile, csv, json, sqlite3, xml, ...), no " +
-						"network access, no pip, no third-party packages — imports beyond the " +
-						"stdlib fail with ModuleNotFoundError.\n\n" +
+						"engine is the same sandbox the code blocks run in: no network access " +
+						"at run time (no sockets, no urllib, no requests), but " +
+						'micropip.install("<package>") works for the standard library plus ' +
+						"vendored document packages (python-docx, openpyxl, pypdf, python-pptx) " +
+						"and whatever else this runtime already bundles (numpy, pandas, lxml, " +
+						"Pillow, ...) — same-origin only, never a third-party request. Any other " +
+						"PyPI package installs only if the person has turned that on in their " +
+						"settings; if it fails as not-found, say the setting controls it rather " +
+						"than telling them to install it themselves.\n\n" +
 						"You see the truncated stdout, stderr and the last expression's result " +
 						"yourself, plus the names of files the run created (shown to the person " +
 						"as download cards). The files stay in the person's browser; they are " +
