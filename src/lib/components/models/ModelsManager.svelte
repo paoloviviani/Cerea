@@ -2,11 +2,10 @@
 	Models: the whole list, and what each one can be set to.
 
 	This **is** the full list — there is no "see all" leading anywhere else.
-	Splitting a searchable list of cards across a dialog and a page meant two
-	places showing the same models with different affordances, and the dialog
-	was the one people opened.
+	Splitting a searchable list of cards across a page and a settings corner
+	meant two places showing the same models with different affordances.
 
-	Two views, as everywhere else in this app's dialogs. The list, with a card
+	Two views, as everywhere else in this app's managers. The list, with a card
 	per model; and one model, where it can be made the default and its own
 	settings changed.
 
@@ -25,7 +24,6 @@
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
-	import Modal from "$lib/components/Modal.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
@@ -72,10 +70,9 @@
 		mlAssistantModels?: string[];
 		/** Open straight onto one model's settings, from anywhere in the app. */
 		initialId?: string;
-		onclose: () => void;
 	}
 
-	let { models, mlAssistantModels = [], initialId, onclose }: Props = $props();
+	let { models, mlAssistantModels = [], initialId }: Props = $props();
 
 	const settings = useSettingsStore();
 
@@ -120,14 +117,7 @@
 		view = "detail";
 	}
 
-	/** Opened on one model, so the list is not part of this dialog. */
-	const single = untrack(() => Boolean(initialId));
-
 	function backToList() {
-		if (single) {
-			onclose();
-			return;
-		}
 		view = "list";
 		current = null;
 	}
@@ -231,15 +221,11 @@
 	);
 </script>
 
-<Modal
-	width={view === "list" ? s.OVERLAY_WIDE : s.OVERLAY_NARROW}
-	{onclose}
-	closeButton
-	labelledBy="models-modal-title"
->
+<!-- The workspace tab's card, where the overlay shell used to be. -->
+<div class={s.EMBEDDED}>
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
-			<h2 id="models-modal-title" class={s.TITLE}>
+			<h2 id="models-panel-title" class={s.TITLE}>
 				{view === "list" ? "Models" : current?.displayName || current?.id}
 			</h2>
 			<p class={s.SUBTITLE}>
@@ -411,12 +397,10 @@
 						</div>
 					</div>
 					<div class="flex gap-2">
-						{#if !single}
-							<button onclick={backToList} class={s.SECONDARY}>
-								<IconArrowLeft class="size-4" />
-								All models
-							</button>
-						{/if}
+						<button onclick={backToList} class={s.SECONDARY}>
+							<IconArrowLeft class="size-4" />
+							All models
+						</button>
 						{#if !isDefault}
 							<button onclick={() => setDefault(model)} class={s.PRIMARY}>
 								<IconCheckmark class="size-4" />
@@ -507,4 +491,4 @@
 			</div>
 		{/if}
 	</div>
-</Modal>
+</div>

@@ -33,6 +33,15 @@ export const OVERLAY_PICKER = "w-[420px]";
 
 export const PANEL = "p-6";
 
+/**
+ * The manager as a workspace tab. Models, MCP servers and knowledge moved from
+ * overlays to tabs of `/workspace`; the overlay shell (a `Modal`, a backdrop, a
+ * close button) is gone, and what used to sit inside it is carried by this
+ * card instead — the page draws the scroll, the card draws the surface.
+ */
+export const EMBEDDED =
+	"rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800";
+
 /** Title and subtitle block at the top of every overlay. */
 export const HEADER = "mb-6";
 export const TITLE = "mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200";
