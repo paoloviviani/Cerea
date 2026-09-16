@@ -131,6 +131,7 @@ export function useAPIClient({
 		},
 		"public-config": endpoint(fetcher, `${baseUrl}/public-config`),
 		"feature-flags": endpoint(fetcher, `${baseUrl}/feature-flags`),
+		usage: endpoint(fetcher, `${baseUrl}/usage`),
 		debug: {
 			config: endpoint(fetcher, `${baseUrl}/debug/config`),
 		},
