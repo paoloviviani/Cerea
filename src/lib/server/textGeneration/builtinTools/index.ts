@@ -8,7 +8,7 @@ import { createResearchTool } from "./researchTool";
 import { createSandboxTool } from "./sandboxTool";
 import { createJobCheckTool } from "./jobCheckTool";
 import { createTrackioTool } from "./createTrackioTool";
-import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
+import { createGatewaySearchBuiltins, isDuckDuckGoEnabled } from "./gatewaySearchTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import type { BuiltinTool } from "./types";
@@ -37,6 +37,12 @@ export function getEnabledBuiltinTools(params: {
 	searchModelIds?: string[];
 	/** The user's web-search setting; on, the search builtin joins any conversation. */
 	webSearchEnabled?: boolean;
+	/**
+	 * Keyless DuckDuckGo fallback when no search backend is granted. Defaults
+	 * to on unless `DDG_SEARCH_DISABLED=true`, so a deployment without a
+	 * commercial search key still searches.
+	 */
+	duckDuckGoEnabled?: boolean;
 	/** URLs from user messages; search results join this set during the run. */
 	allowedFetchUrls?: Set<string>;
 }): BuiltinTool[] {
@@ -80,12 +86,17 @@ export function getEnabledBuiltinTools(params: {
 	// `webSearchEnabled`, so here the chain is per-chat > caller default.
 	const effectiveWebSearch = params.conv.webSearch ?? params.webSearchEnabled ?? false;
 	const webAccessEnabled = effectiveWebSearch || isMlAssistantConversation(params.conv);
-	if (webAccessEnabled && (params.searchModelIds?.length ?? 0) > 0) {
+	// A granted backend or the keyless fallback: the tool withholds itself
+	// when neither exists — like the GitHub tools do without a token.
+	const duckDuckGoEnabled = isDuckDuckGoEnabled(params.duckDuckGoEnabled);
+	const hasSearch = (params.searchModelIds?.length ?? 0) > 0 || duckDuckGoEnabled;
+	if (webAccessEnabled && hasSearch) {
 		tools.push(
 			...createGatewaySearchBuiltins({
 				token: params.token,
 				searchModelIds: params.searchModelIds ?? [],
 				allowedFetchUrls: params.allowedFetchUrls,
+				duckDuckGoEnabled,
 			})
 		);
 	}
@@ -96,7 +107,7 @@ export function getEnabledBuiltinTools(params: {
 	if (
 		webAccessEnabled &&
 		params.allowedFetchUrls &&
-		(params.allowedFetchUrls.size > 0 || (params.searchModelIds?.length ?? 0) > 0)
+		(params.allowedFetchUrls.size > 0 || hasSearch)
 	) {
 		tools.push(createWebFetchBuiltin({ allowedUrls: params.allowedFetchUrls }));
 	}
