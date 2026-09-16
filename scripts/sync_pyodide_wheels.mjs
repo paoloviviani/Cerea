@@ -7,15 +7,16 @@
  * micropip resolves a requirement through two entirely different paths, and
  * this script populates both:
  *
- * - "Lock" packages — anything `pyodide-lock.json` already lists (micropip
- *   itself, and the office skills' compiled dependencies: lxml, Pillow,
- *   typing_extensions) — are fetched from the Pyodide release that matches
- *   the pinned npm package version exactly (same ABI tag), and placed beside
- *   `pyodide-lock.json`. `pyodide.loadPackage()` resolves them from the
- *   interpreter's own indexURL, the same origin the gate already allows.
- *   Without micropip's own wheel here, `import micropip` raises
- *   ModuleNotFoundError — this Pyodide release does not auto-bootstrap it —
- *   so it is vendored here too, not just the packages it goes on to install.
+ * - "Lock" packages — EVERY package `pyodide-lock.json` lists (the full built
+ *   set: numpy, pandas, scipy, scikit-learn, matplotlib, the office skills'
+ *   compiled deps lxml/Pillow, micropip itself, …) — are fetched from the
+ *   Pyodide release that matches the pinned npm package version exactly (same
+ *   ABI tag), and placed beside `pyodide-lock.json`. `pyodide.loadPackage()`
+ *   resolves them from the interpreter's own indexURL, the same origin the gate
+ *   already allows. Without micropip's own wheel here, `import micropip` raises
+ *   ModuleNotFoundError — this Pyodide release does not auto-bootstrap it — so
+ *   it too is one of the lock files vendored. This is the full ~300MB set
+ *   (ADR 0073 rung b): any lock package installs offline, same-origin.
  *
  * - The document packages themselves (python-docx, openpyxl, et-xmlfile,
  *   pypdf, python-pptx, XlsxWriter) are NOT in the lock: they are ordinary
@@ -41,14 +42,6 @@ const wheelsRoot = path.join(outRoot, "wheels");
 const pkg = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
 const lock = JSON.parse(await readFile(path.join(packageRoot, "pyodide-lock.json"), "utf8"));
 const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${pkg.version}/full/`;
-
-/**
- * Lock packages vendored beside pyodide-lock.json: filename and sha256 come
- * from the lock file itself, the authority for exactly this pinned release —
- * nothing here is hand-pinned. `micropip` first (it must exist for anything
- * else to install at all), then the office skills' compiled dependencies.
- */
-const LOCK_WHEEL_NAMES = ["micropip", "lxml", "pillow", "typing-extensions"];
 
 /**
  * Pure-Python PyPI wheels, hand-pinned (not in pyodide-lock.json). Each
@@ -142,23 +135,40 @@ async function fetchAndVerify(url, destPath, expectedSha256, label) {
 	return true;
 }
 
+/** Run `fn` over `items` with at most `limit` in flight; downloads are IO-bound. */
+async function mapLimit(items, limit, fn) {
+	let cursor = 0;
+	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (cursor < items.length) {
+			const index = cursor++;
+			await fn(items[index]);
+		}
+	});
+	await Promise.all(workers);
+}
+
 await mkdir(outRoot, { recursive: true });
 await mkdir(wheelsRoot, { recursive: true });
 
 let downloaded = 0;
 
-// Lock packages, beside pyodide-lock.json.
-for (const name of LOCK_WHEEL_NAMES) {
+// EVERY built package in the lock, beside pyodide-lock.json — the full
+// same-origin package set (ADR 0073 rung b), so any import (numpy, pandas,
+// scipy, scikit-learn, matplotlib, the office skills' compiled deps, micropip
+// itself) resolves through `loadPackage`/micropip with the gate unchanged and
+// no third-party request. file_name and sha256 come from the lock, the
+// authority for this pinned release; nothing here is hand-pinned. This is
+// ~300MB and the deliberate cost of "any lock package works offline"; the
+// sha256 short-circuit in fetchAndVerify makes a re-run with a warm
+// static/pyodide/ nearly free. Bounded concurrency keeps a cold build (357
+// files) to a few minutes rather than an hour of sequential fetches.
+const lockNames = Object.keys(lock.packages);
+await mapLimit(lockNames, 10, async (name) => {
 	const entry = lock.packages[name];
-	if (!entry) {
-		throw new Error(
-			`"${name}" is no longer in pyodide-lock.json (pyodide ${pkg.version}) — update LOCK_WHEEL_NAMES or the pyodide version pin.`
-		);
-	}
 	const url = `${PYODIDE_CDN}${entry.file_name}`;
 	const dest = path.join(outRoot, entry.file_name);
 	if (await fetchAndVerify(url, dest, entry.sha256, name)) downloaded += 1;
-}
+});
 
 // Pure PyPI wheels, under wheels/, plus one PEP 503 Simple HTML index per
 // package so `micropip.install("<name>")` (a bare name, not a URL) can find
@@ -186,17 +196,15 @@ const noticeLines = [
 	"",
 	...PYPI_WHEELS.map((e) => `${e.name} ${e.version} — ${e.license} — ${e.filename}`),
 	"",
-	"Plus, beside pyodide-lock.json (fetched from the matching Pyodide release,",
-	"https://cdn.jsdelivr.net/pyodide/):",
-	...LOCK_WHEEL_NAMES.map((name) => {
-		const entry = lock.packages[name];
-		return `${entry.name} ${entry.version} — ${entry.file_name}`;
-	}),
+	`Plus all ${lockNames.length} built packages of the pinned Pyodide release`,
+	"(https://cdn.jsdelivr.net/pyodide/), mirrored verbatim beside pyodide-lock.json.",
+	"Each carries its own upstream licence; pyodide-lock.json is the authoritative",
+	"list of names, versions and files.",
 	"",
 ];
 await writeFile(path.join(wheelsRoot, "NOTICE.txt"), noticeLines.join("\n"));
 
 console.log(
 	`[sync-pyodide-wheels] pyodide ${pkg.version}: ${downloaded} file(s) downloaded, ` +
-		`${LOCK_WHEEL_NAMES.length} lock wheel(s) + ${PYPI_WHEELS.length} PyPI wheel(s) vendored.`
+		`${lockNames.length} lock package(s) + ${PYPI_WHEELS.length} PyPI wheel(s) vendored.`
 );
