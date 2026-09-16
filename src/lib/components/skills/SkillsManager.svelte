@@ -302,10 +302,10 @@
 			</h2>
 			<p class="text-sm text-gray-600 dark:text-gray-400">
 				{#if admin}
-					Deployment procedures every account's model follows — disabling one removes it from
+					Built-in procedures every account's model follows — disabling one removes it from
 					everybody's turns, deleting one removes it for good.
 				{:else}
-					Reusable procedures the model follows — your own SKILL.md documents, plus the deployment's
+					Reusable procedures the model follows — your own SKILL.md documents, plus the built-in
 					skills beside them.
 				{/if}
 			</p>
@@ -332,7 +332,7 @@
 						<div>
 							<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
 								{adminSkills.length}
-								{adminSkills.length === 1 ? "deployment skill" : "deployment skills"}
+								{adminSkills.length === 1 ? "built-in skill" : "built-in skills"}
 							</p>
 							<p class="text-xs text-gray-600 dark:text-gray-400">
 								{deploymentEnabledCount} enabled · a change here reaches every account
@@ -341,7 +341,7 @@
 					</div>
 					<div class="flex gap-2">
 						<button onclick={openCreate} class={s.PRIMARY}>
-							<IconAddLarge class="size-4" /> New deployment skill
+							<IconAddLarge class="size-4" /> New built-in skill
 						</button>
 					</div>
 				</div>
@@ -352,10 +352,10 @@
 					{:else if adminSkills.length === 0}
 						<div class={s.EMPTY}>
 							<IconDocument class={s.EMPTY_ICON} />
-							<p class={s.EMPTY_TITLE}>No deployment skills</p>
+							<p class={s.EMPTY_TITLE}>No built-in skills</p>
 							<p class={s.EMPTY_DETAIL}>Write one as SKILL.md — frontmatter plus procedure.</p>
 							<button onclick={openCreate} class={s.PRIMARY}>
-								<IconAddLarge class="size-4" /> New deployment skill
+								<IconAddLarge class="size-4" /> New built-in skill
 							</button>
 						</div>
 					{:else}
@@ -401,7 +401,7 @@
 							<li>
 								• Disabling removes a skill from everybody's turns; deleting removes it for good
 							</li>
-							<li>• A person's own skill of the same name wins over the deployment one for them</li>
+							<li>• A person's own skill of the same name wins over the built-in one for them</li>
 							<li>• Skills run standard-library Python in the browser — never shell or packages</li>
 						</ul>
 					</div>
@@ -426,7 +426,7 @@
 								{userSkills.length === 1 ? "skill" : "skills"} of yours
 							</p>
 							<p class="text-xs text-gray-600 dark:text-gray-400">
-								{enabledCount} enabled · {adminSkills.length} deployment skills
+								{enabledCount} enabled · {adminSkills.length} built-in skills
 							</p>
 						</div>
 					</div>
@@ -494,7 +494,7 @@
 						{#if adminSkills.length > 0}
 							<div>
 								<h3 class={s.SECTION_TITLE}>
-									Deployment skills ({adminSkills.length}) — read-only
+									Built-in skills ({adminSkills.length}) — read-only
 								</h3>
 								<div class={s.GRID}>
 									{#each adminSkills as skill (skill.id)}
@@ -529,7 +529,7 @@
 								• Skills run standard-library Python in your browser — never shell or packages
 							</li>
 							<li>
-								• Deployment skills are everybody's to use and nobody's to change but an
+								• Built-in skills are everybody's to use and nobody's to change but an
 								administrator's
 							</li>
 						</ul>
@@ -545,7 +545,7 @@
 			<h3 class="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">
 				{view === "create"
 					? admin
-						? "New deployment skill"
+						? "New built-in skill"
 						: "New skill"
 					: `Edit ${editing?.name ?? "skill"}`}
 			</h3>
@@ -574,7 +574,7 @@
 						class={s.PRIMARY}
 					>
 						<IconAddLarge class="size-4" />
-						{formBusy ? "Creating…" : admin ? "Create deployment skill" : "Create skill"}
+						{formBusy ? "Creating…" : admin ? "Create built-in skill" : "Create skill"}
 					</button>
 				{:else}
 					<button
@@ -599,7 +599,7 @@
 				<div class="mb-2 flex items-center gap-2">
 					<h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{detailName}</h3>
 					{#if detailReadOnly}
-						<span class="{s.PILL} {s.PILL_TONES.neutral}">Read-only deployment skill</span>
+						<span class="{s.PILL} {s.PILL_TONES.neutral}">Read-only built-in skill</span>
 					{/if}
 				</div>
 				<p class="mb-4 text-sm text-gray-600 dark:text-gray-400">{detailDescription}</p>
