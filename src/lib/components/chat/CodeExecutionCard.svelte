@@ -10,6 +10,7 @@
 	import type { MessageCodeExecutionRequestUpdate } from "$lib/types/MessageUpdate";
 	import type { MessageCodeExecutionResolvedUpdate } from "$lib/types/MessageUpdate";
 	import type { RunState } from "$lib/utils/execution/runs.svelte";
+	import type { RunOutcome } from "$lib/utils/execution/protocol";
 	import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 
 	/**
@@ -90,14 +91,27 @@
 	// Post the outcome back exactly once per mounted card once the run settles.
 	// A re-mounted card (navigation) may re-post; the endpoint's CAS answers 409
 	// and the duplicate is silently dropped.
+	//
+	// A sandbox-level failure (worker load error, run timeout, forced restart)
+	// settles the RunsStore entry into `sandboxError` rather than `outcome` —
+	// see runs.svelte.ts. Without turning that into an outcome too, this
+	// effect had nothing to post, so a genuine load error (the worker's own
+	// `loadError` message) sat unposted until the sweeper's deadline collapsed
+	// it into the generic "browser did not answer" fallback, indistinguishable
+	// from a tab that was simply backgrounded. Posting it as a failed outcome
+	// keeps the actual reason in the model's tool result.
 	let posted = false;
 	$effect(() => {
 		const state = runState;
 		if (resolved || posted || !state) return;
 		if (state.status !== "done" && state.status !== "error") return;
-		posted = true;
-		const outcome = state.outcome;
+		const outcome: RunOutcome | undefined =
+			state.outcome ??
+			(state.sandboxError
+				? { ok: false, stdout: "", stderr: "", error: state.sandboxError }
+				: undefined);
 		if (!outcome) return;
+		posted = true;
 		void (async () => {
 			const fileRefs = await uploadDeliverables(state.outputFiles ?? []);
 			await fetch(`${base}/conversation/${conversationId}/code-execution`, {
