@@ -146,7 +146,7 @@ describe("SkillsManager in admin mode", () => {
 		expect(page.getByRole("button", { name: "Delete" }).elements()).not.toHaveLength(0);
 	});
 
-	it("disables a deployment skill through the API — a toggle, not a delete", async () => {
+	it("disables a built-in skill through the API — a toggle, not a delete", async () => {
 		await vi.waitFor(() => expect(page.getByText("csv-shaping").elements()).not.toHaveLength(0));
 		await page.getByRole("button", { name: "Disable" }).click();
 		await vi.waitFor(() =>
@@ -179,12 +179,12 @@ describe("SkillsManager in admin mode", () => {
 
 	it("creates with the deployment scope", async () => {
 		await vi.waitFor(() => expect(page.getByText("csv-shaping").elements()).not.toHaveLength(0));
-		await page.getByRole("button", { name: "New deployment skill" }).first().click();
+		await page.getByRole("button", { name: "New built-in skill" }).first().click();
 		await vi.waitFor(() => expect(document.querySelector("#skill-content")).not.toBeNull());
 		const box = document.querySelector("#skill-content") as HTMLTextAreaElement;
 		box.value = `---\nname: new-skill\ndescription: A new procedure.\n---\n\nBody.`;
 		box.dispatchEvent(new Event("input", { bubbles: true }));
-		await page.getByRole("button", { name: "Create deployment skill" }).click();
+		await page.getByRole("button", { name: "Create built-in skill" }).click();
 		await vi.waitFor(() => expect(page.getByText("new-skill").elements()).not.toHaveLength(0));
 		expect(
 			calls.some(
