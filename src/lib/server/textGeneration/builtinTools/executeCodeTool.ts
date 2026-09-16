@@ -129,8 +129,10 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"reload or from another device).\n\n" +
 						"If the answer says the execution environment is unavailable (the " +
 						"person's browser did not answer in time), do NOT claim any execution " +
-						"result or file: fall back to presenting the code as a code block in " +
-						"your reply so the person can run it themselves with the Run button.\n\n" +
+						"result or file: fall back to a plain fenced ```python code block with " +
+						"no `title=` (a `title=` block is a downloadable file, not a running " +
+						"one) — it runs automatically the moment it is complete, with no Run " +
+						"button to mention.\n\n" +
 						"Do not use this for code the person wants to read or keep — that " +
 						"belongs in a code block, which stays in the transcript and can be run " +
 						"manually. Each call spends one of this turn's few execute_code calls; " +
@@ -266,11 +268,17 @@ export async function isParkedCodeCall(
 export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): string {
 	if (!park.outcome) {
 		return (
-			"The execution environment was unavailable — the person's browser did not answer " +
-			"in time (tab closed, page left, or the sandbox did not come up). " +
-			"Do NOT claim any execution result or file. Fall back: present the code as a " +
-			"code block in your reply so the person can run it themselves with the Run " +
-			"button, and say what you intended it to show."
+			"The execution environment gave no answer before the deadline — the browser never " +
+			"posted a result at all, as distinct from posting an error. On a phone this is " +
+			"usually the OS suspending the app while Python was still starting up in the " +
+			"background (switching apps, locking the screen, the browser tab losing focus); " +
+			"it can also mean the tab or page was closed. Do NOT claim any execution result or " +
+			"file, and do not assume the code itself is at fault. Fall back: present the code " +
+			"as a plain fenced ```python code block with no `title=` (a `title=` block renders " +
+			"as a downloadable file, not a running one) and say what you intended it to show. " +
+			"Do not tell the person to click Run or similar — nothing needs pressing, the block " +
+			"runs automatically the moment it is complete, and mention that keeping the app in " +
+			"the foreground while Python starts up gives it the best chance to finish this time."
 		);
 	}
 	const outcome = park.outcome;
