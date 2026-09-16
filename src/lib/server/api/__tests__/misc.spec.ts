@@ -3,7 +3,11 @@ import { vi } from "vitest";
 // The PyPI kill-switch is read through the config proxy; mock it the same way
 // executeCodeTool.spec.ts mocks CHAT_CODE_TOOL_ENABLED, so it's controllable
 // per test while everything else still resolves through the real config.
-const configState = vi.hoisted(() => ({ pyodidePyPiDisabled: false }));
+const configState = vi.hoisted(() => ({
+	pyodidePyPiDisabled: false,
+	usageEnabled: undefined as boolean | undefined,
+	openaiBaseUrl: undefined as string | undefined,
+}));
 
 vi.mock("$lib/server/config", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("$lib/server/config")>();
@@ -14,6 +18,12 @@ vi.mock("$lib/server/config", async (importOriginal) => {
 				get(target, prop, receiver) {
 					if (prop === "CHAT_PYODIDE_PYPI_DISABLED") {
 						return configState.pyodidePyPiDisabled ? "true" : "";
+					}
+					if (prop === "CHAT_USAGE_ENABLED" && configState.usageEnabled !== undefined) {
+						return configState.usageEnabled ? "true" : "";
+					}
+					if (prop === "OPENAI_BASE_URL" && configState.openaiBaseUrl !== undefined) {
+						return configState.openaiBaseUrl;
 					}
 					return Reflect.get(target, prop, receiver);
 				},
@@ -93,6 +103,8 @@ describe("GET /api/v2/feature-flags", () => {
 
 	afterEach(() => {
 		configState.pyodidePyPiDisabled = false;
+		configState.usageEnabled = undefined;
+		configState.openaiBaseUrl = undefined;
 	});
 
 	it("allows the PyPI opt-in setting by default", async () => {
@@ -108,6 +120,39 @@ describe("GET /api/v2/feature-flags", () => {
 		const res = await testRequest(featureFlagsGET, { path: "/api/v2/feature-flags", locals });
 		const data = await parseResponse<FeatureFlags>(res);
 		expect(data.pyodidePyPiInstallAllowed).toBe(false);
+	});
+
+	it("hides the usage tab (usageEnabled: false) when CHAT_USAGE_ENABLED is unset", async () => {
+		configState.usageEnabled = false;
+		configState.openaiBaseUrl = "https://gateway.example/v1";
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.usageEnabled).toBe(false);
+	});
+
+	it("hides the usage tab even with the flag on when no gateway is configured", async () => {
+		configState.usageEnabled = true;
+		configState.openaiBaseUrl = "";
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.usageEnabled).toBe(false);
+	});
+
+	it("shows the usage tab when the flag is on and a gateway is configured", async () => {
+		configState.usageEnabled = true;
+		configState.openaiBaseUrl = "https://gateway.example/v1";
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.usageEnabled).toBe(true);
 	});
 
 	it("serves CORS headers on /api/** when the request carries no Origin", async () => {

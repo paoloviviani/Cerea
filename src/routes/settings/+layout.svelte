@@ -3,8 +3,8 @@
 
 	Deliberately mirrors `routes/admin/+layout.svelte`: a centred frame with
 	an `h1` title, a subtitle, a tab bar, and a scroll container — rather than
-	the modal overlay this used to be. There is currently one tab; more tabs
-	would be entries in `sections`, the way the admin side does it.
+	the modal overlay this used to be. More tabs are entries in `sections`,
+	the way the admin side does it.
 -->
 <script lang="ts">
 	import { page } from "$app/state";
@@ -12,6 +12,7 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import CarbonSettings from "~icons/carbon/settings";
+	import CarbonMeter from "~icons/carbon/meter";
 
 	interface Props {
 		children?: import("svelte").Snippet;
@@ -21,11 +22,18 @@
 
 	const settings = useSettingsStore();
 
-	// Only what exists. A tab leading to a 404 is
-	// worse than a tab that is not there.
-	const sections = [
+	// Only what exists. A tab leading to a 404 is worse than a tab that is
+	// not there — Usage & billing only appears once the deployment flag says
+	// there is a provider behind it.
+	const sections = $derived([
 		{ href: "/settings/application", label: "Application settings", icon: CarbonSettings },
-	];
+		// Gated on the deployment flag (FeatureFlags.usageEnabled, computed
+		// server-side from CHAT_USAGE_ENABLED and OPENAI_BASE_URL): a
+		// deployment without Pystino has no usage provider to show here.
+		...(page.data.usageEnabled
+			? [{ href: "/settings/usage", label: "Usage & billing", icon: CarbonMeter }]
+			: []),
+	]);
 
 	const current = $derived(page.url.pathname);
 </script>

@@ -66,19 +66,6 @@
 
 	let OPENAI_BASE_URL = $state<string | null>(null);
 
-	// Billing organization state
-	type BillingOrg = { sub: string; name: string; preferred_username: string };
-	let billingOrgs = $state<BillingOrg[]>([]);
-	let billingOrgsLoading = $state(false);
-	let billingOrgsError = $state<string | null>(null);
-
-	function getBillingOrganization() {
-		return $settings.billingOrganization ?? "";
-	}
-	function setBillingOrganization(v: string) {
-		settings.update((s) => ({ ...s, billingOrganization: v }));
-	}
-
 	onMount(async () => {
 		// Fetch debug config
 		try {
@@ -87,35 +74,11 @@
 		} catch (e) {
 			// ignore if debug endpoint is unavailable
 		}
-
-		// Which group pays (ADR 0061). No `isHuggingChat` gate: the gateway
-		// answers this for every deployment, and the endpoint reports an empty
-		// list when it cannot, so the section below hides itself.
-		if (page.data.user) {
-			billingOrgsLoading = true;
-			try {
-				const data = (await client.user["billing-orgs"].get().then(handleResponse)) as {
-					userCanPay: boolean;
-					organizations: BillingOrg[];
-					currentBillingOrg?: string;
-				};
-				billingOrgs = data.organizations ?? [];
-				// Update settings if current billing org was cleared by server
-				if (data.currentBillingOrg !== getBillingOrganization()) {
-					setBillingOrganization(data.currentBillingOrg ?? "");
-				}
-			} catch {
-				billingOrgsError = "Failed to load billing options";
-			} finally {
-				billingOrgsLoading = false;
-			}
-		}
 	});
 
 	let themePref = $state<ThemePreference>(browser ? getThemePreference() : "system");
 
 	const taskModelId = $derived((page.data as { taskModelId?: string | null }).taskModelId ?? null);
-	const showTaskModelInBilling = $derived(publicConfig.isHuggingChat && !!page.data.user);
 
 	let deleteAllOpen = $state(false);
 
@@ -311,56 +274,11 @@
 					</select>
 				</div>
 
-				{#if taskModelId && !showTaskModelInBilling}
+				{#if taskModelId}
 					{@render taskModelRow()}
 				{/if}
 			</div>
 		</div>
-
-		<!-- Which group pays (ADR 0061). Shown once the gateway names at least
-		     one billable group, so a deployment that does not answer shows
-		     nothing rather than an empty control. -->
-		{#if page.data.user && billingOrgs.length > 0}
-			<div
-				class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
-			>
-				<div class="divide-y divide-gray-200 dark:divide-gray-700">
-					<!-- Bill usage to -->
-					<div class="flex items-start justify-between py-3">
-						<div>
-							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								Billing group
-							</div>
-							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Which group your usage is charged to. You can only choose groups you belong to.
-							</p>
-						</div>
-						<div class="flex items-center">
-							{#if billingOrgsLoading}
-								<span class="text-xs text-gray-500 dark:text-gray-400">Loading...</span>
-							{:else if billingOrgsError}
-								<span class="text-xs text-red-500">{billingOrgsError}</span>
-							{:else}
-								<select
-									class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-									value={getBillingOrganization()}
-									onchange={(e) => setBillingOrganization(e.currentTarget.value)}
-								>
-									{#each billingOrgs as org}
-										<option value={org.preferred_username} title={org.name}
-											>{org.preferred_username}</option
-										>
-									{/each}
-								</select>
-							{/if}
-						</div>
-					</div>
-					{#if taskModelId}
-						{@render taskModelRow()}
-					{/if}
-				</div>
-			</div>
-		{/if}
 
 		<div class="mt-6 flex flex-col gap-2 self-start text-[13px]">
 			{#if publicConfig.isHuggingChat}
