@@ -29,5 +29,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 		taskModelId,
 		mlAssistantModels: mlAssistantModelIds(),
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
+		// Also requires a configured gateway (mirrored in pystinoProvider.ts's
+		// own isEnabled): a flag with no OPENAI_BASE_URL would show a tab whose
+		// only provider can never answer.
+		usageEnabled: config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL,
 	} satisfies FeatureFlags);
 };
