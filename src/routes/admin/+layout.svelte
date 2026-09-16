@@ -29,6 +29,7 @@
 		{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook },
 		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
 		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
+		{ href: "/admin/skills", label: "Skills", icon: IconDocument },
 	];
 
 	const current = $derived(page.url.pathname);
