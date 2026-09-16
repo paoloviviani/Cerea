@@ -85,6 +85,23 @@
 			finishedAt: 0,
 		};
 	});
+
+	/**
+	 * Which state RunOutput draws. Prefer the live run whenever this session
+	 * still holds it settled: its RunsStore entry carries `outputFiles` whose
+	 * bytes are still in the worker, so the FileCards actually download. The
+	 * persisted `resolved` outcome carries NO files by design (they die with the
+	 * page), and it streams back seconds after the run — still the same session —
+	 * so switching to it on arrival would drop a download card the person can
+	 * still use. Fall back to the fileless resolved state only on true replay,
+	 * when a fresh page load has left the RunsStore with no run for this code.
+	 */
+	let displayState = $derived.by((): RunState | undefined => {
+		if (runState && (runState.status === "done" || runState.status === "error")) {
+			return runState;
+		}
+		return resolved ? resolvedRunState : runState;
+	});
 </script>
 
 <BlockWrapper>
@@ -105,7 +122,7 @@
 			{/if}
 		</div>
 		<div class="px-3 py-2">
-			<RunOutput state={resolved ? resolvedRunState : runState} />
+			<RunOutput state={displayState} />
 		</div>
 	</div>
 </BlockWrapper>
