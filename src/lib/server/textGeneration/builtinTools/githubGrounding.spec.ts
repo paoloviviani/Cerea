@@ -124,8 +124,6 @@ describe("registration", () => {
 			"sandbox_task",
 			"check_job",
 			"create_trackio",
-			// No search backend granted: the keyless DuckDuckGo fallback.
-			"web_search",
 		]);
 	});
 
@@ -147,8 +145,6 @@ describe("registration", () => {
 			"sandbox_task",
 			"check_job",
 			"create_trackio",
-			// The GitHub tools withhold themselves; the keyless fallback does not.
-			"web_search",
 		]);
 	});
 });

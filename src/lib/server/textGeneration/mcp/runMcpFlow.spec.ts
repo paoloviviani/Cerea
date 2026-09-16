@@ -779,10 +779,6 @@ describe("runMcpFlow offering the question tool", () => {
 			"check_job",
 			"create_trackio",
 			"execute_code",
-			// No search backend granted: the keyless DuckDuckGo fallback, and
-			// the fetch tool its results feed.
-			"web_search",
-			"web_fetch",
 			"load_skill",
 		]);
 	});
