@@ -759,10 +759,11 @@ describe("runMcpFlow offering the question tool", () => {
 		await runFlow();
 		// execute_code rides on the deployment flag alone, outside the mode
 		// gating — which is why it is here at all with the flag forced on.
-		// load_skill rides on the seeded skills the same way (Phase 1): the
-		// frontmatter list is in every turn's system prompt, so the tool that
-		// loads a body is offered wherever the list is.
-		expect(toolNames()).toEqual(["execute_code", "load_skill", "do_thing"]);
+		// load_skill and load_skill_file ride on the seeded skills the same way
+		// (Phase 1/Stage 3): the frontmatter list is in every turn's system
+		// prompt, so the tools that load a body and its bundled files are
+		// offered wherever the list is.
+		expect(toolNames()).toEqual(["execute_code", "load_skill", "load_skill_file", "do_thing"]);
 	});
 
 	it("engages the flow with builtin tools alone when MCP listing yields nothing", async () => {
@@ -780,20 +781,21 @@ describe("runMcpFlow offering the question tool", () => {
 			"create_trackio",
 			"execute_code",
 			"load_skill",
+			"load_skill_file",
 		]);
 	});
 
 	it("engages the flow on load_skill alone when nothing else is offered", async () => {
 		// Flag off, no servers: execute_code withholds itself and there is no
 		// MCP tool — but the seeded skills are still available, so the flow
-		// engages with exactly the skill loader. "Truly nothing to offer" now
+		// engages with exactly the skill loaders. "Truly nothing to offer" now
 		// needs the kill-switch as well (covered in the skills service spec).
 		mocks.codeToolEnabled = "false";
 		mocks.servers = [];
 		scriptRounds([{ content: "the answer" }]);
 		const { result } = await runFlow();
 		expect(result).toBe("completed");
-		expect(toolNames()).toEqual(["load_skill"]);
+		expect(toolNames()).toEqual(["load_skill", "load_skill_file"]);
 	});
 });
 

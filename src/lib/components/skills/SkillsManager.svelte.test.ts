@@ -15,6 +15,7 @@ const USER_SKILL = {
 	description: "Does a useful thing.",
 	enabled: true,
 	updatedAt: new Date().toISOString(),
+	files: [] as string[],
 };
 
 const DEPLOYMENT_SKILL = {
@@ -23,24 +24,46 @@ const DEPLOYMENT_SKILL = {
 	description: "Reshape CSV data.",
 	enabled: true,
 	updatedAt: new Date().toISOString(),
+	files: [] as string[],
 };
 
 let userSkills = [USER_SKILL];
 let deploymentSkills = [DEPLOYMENT_SKILL];
 let calls: { url: string; method: string; body?: unknown }[] = [];
+let fileContents: Record<string, string> = {};
 
 function installFetch() {
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+		vi.fn(async (url: string, init?: { method?: string; body?: string | FormData }) => {
+			const method = init?.method ?? "GET";
+			const isForm = init?.body instanceof FormData;
 			calls.push({
 				url,
-				method: init?.method ?? "GET",
-				body: init?.body ? (JSON.parse(init.body) as unknown) : undefined,
+				method,
+				body: init?.body
+					? isForm
+						? init.body
+						: (JSON.parse(init.body as string) as unknown)
+					: undefined,
 			});
 			if (url.endsWith("/api/v2/skills")) {
-				if ((init?.method ?? "GET") === "POST") {
-					const parsed = JSON.parse(init?.body ?? "{}") as {
+				if (method === "POST" && isForm) {
+					const form = init?.body as FormData;
+					const scope = form.get("scope") === "deployment" ? "deployment" : "user";
+					const created = {
+						id: "694444444444444444444444",
+						name: "imported-skill",
+						description: "Imported from a zip.",
+						enabled: true,
+						updatedAt: new Date().toISOString(),
+						files: ["scripts/helper.py", "references/notes.md"],
+					};
+					(scope === "deployment" ? deploymentSkills : userSkills).push(created as never);
+					return Response.json({ data: created }, { status: 201 });
+				}
+				if (method === "POST") {
+					const parsed = JSON.parse(init?.body as string) as {
 						content?: string;
 						scope?: string;
 					};
@@ -50,23 +73,36 @@ function installFetch() {
 						description: "A new procedure.",
 						enabled: true,
 						updatedAt: new Date().toISOString(),
+						files: [] as string[],
 					};
 					(parsed.scope === "deployment" ? deploymentSkills : userSkills).push(created as never);
 					return Response.json({ data: created }, { status: 201 });
 				}
 				return Response.json({ data: { user: userSkills, admin: deploymentSkills } });
 			}
+			const fileMatch = url.match(/\/api\/v2\/skills\/([0-9a-f]{24})\/files\/(.+)$/);
+			if (fileMatch) {
+				const [, id, path] = fileMatch;
+				const all = [...userSkills, ...deploymentSkills];
+				const skill = all.find((entry) => entry.id === id);
+				if (!skill) return new Response("null", { status: 404 });
+				if (method === "DELETE") {
+					skill.files = skill.files.filter((entry) => entry !== path);
+					return Response.json({ data: skill });
+				}
+				return Response.json({ data: { path, content: fileContents[path as string] ?? "" } });
+			}
 			const match = url.match(/\/api\/v2\/skills\/([0-9a-f]{24})$/);
 			if (match) {
 				const all = [...userSkills, ...deploymentSkills];
 				const skill = all.find((entry) => entry.id === match[1]);
 				if (!skill) return new Response("null", { status: 404 });
-				if ((init?.method ?? "GET") === "PATCH") {
-					const parsed = JSON.parse(init?.body ?? "{}") as { enabled?: boolean };
+				if (method === "PATCH") {
+					const parsed = JSON.parse(init?.body as string) as { enabled?: boolean };
 					if (typeof parsed.enabled === "boolean") skill.enabled = parsed.enabled;
 					return Response.json({ data: skill });
 				}
-				if ((init?.method ?? "GET") === "DELETE") {
+				if (method === "DELETE") {
 					userSkills = userSkills.filter((entry) => entry.id !== skill.id);
 					deploymentSkills = deploymentSkills.filter((entry) => entry.id !== skill.id);
 					return new Response(null, { status: 204 });
@@ -82,9 +118,10 @@ function installFetch() {
 
 describe("SkillsManager", () => {
 	beforeEach(() => {
-		userSkills = [{ ...USER_SKILL }];
-		deploymentSkills = [{ ...DEPLOYMENT_SKILL }];
+		userSkills = [{ ...USER_SKILL, files: [] }];
+		deploymentSkills = [{ ...DEPLOYMENT_SKILL, files: [] }];
 		calls = [];
+		fileContents = {};
 		installFetch();
 		renderWithApp(SkillsManager, {});
 	});
@@ -117,13 +154,62 @@ describe("SkillsManager", () => {
 			)
 		).toBe(true);
 	});
+
+	it("imports a skill from a zip, posting multipart form data", async () => {
+		await vi.waitFor(() => expect(page.getByText("my-skill").elements()).not.toHaveLength(0));
+		await page.getByRole("button", { name: "Import zip" }).click();
+		await vi.waitFor(() => expect(document.querySelector("#skill-zip")).not.toBeNull());
+		const input = document.querySelector("#skill-zip") as HTMLInputElement;
+		const file = new File(["zip bytes"], "skill.zip", { type: "application/zip" });
+		Object.defineProperty(input, "files", { value: [file] });
+		input.dispatchEvent(new Event("change", { bubbles: true }));
+		await page.getByRole("button", { name: "Import skill" }).click();
+		await vi.waitFor(() => expect(page.getByText("imported-skill").elements()).not.toHaveLength(0));
+		const importCall = calls.find(
+			(call) => call.method === "POST" && call.body instanceof FormData
+		);
+		expect(importCall).toBeDefined();
+		expect((importCall?.body as FormData).get("file")).toBeInstanceOf(File);
+	});
+
+	it("lists a skill's bundled files and shows one's content on View", async () => {
+		(userSkills[0] ?? USER_SKILL).files = ["scripts/helper.py"];
+		fileContents["scripts/helper.py"] = "def run():\n    return 42\n";
+		await vi.waitFor(() => expect(page.getByText("my-skill").elements()).not.toHaveLength(0));
+		await page.getByRole("button", { name: "View" }).first().click();
+		await vi.waitFor(() =>
+			expect(page.getByText("Bundled files (1)").elements()).not.toHaveLength(0)
+		);
+		expect(page.getByText("scripts/helper.py").elements()).not.toHaveLength(0);
+		await page.getByRole("button", { name: "View" }).last().click();
+		await vi.waitFor(() => expect(page.getByText("def run():").elements()).not.toHaveLength(0));
+	});
+
+	it("removes a bundled file through the API", async () => {
+		(userSkills[0] ?? USER_SKILL).files = ["scripts/helper.py"];
+		await vi.waitFor(() => expect(page.getByText("my-skill").elements()).not.toHaveLength(0));
+		await page.getByRole("button", { name: "View" }).first().click();
+		await vi.waitFor(() =>
+			expect(page.getByText("Bundled files (1)").elements()).not.toHaveLength(0)
+		);
+		await page.getByRole("button", { name: "Remove" }).click();
+		await vi.waitFor(() => expect(page.getByText("scripts/helper.py").elements()).toHaveLength(0));
+		expect(
+			calls.some(
+				(call) =>
+					call.method === "DELETE" &&
+					call.url.endsWith(`/api/v2/skills/${USER_SKILL.id}/files/scripts/helper.py`)
+			)
+		).toBe(true);
+	});
 });
 
 describe("SkillsManager in admin mode", () => {
 	beforeEach(() => {
-		userSkills = [{ ...USER_SKILL }];
-		deploymentSkills = [{ ...DEPLOYMENT_SKILL }];
+		userSkills = [{ ...USER_SKILL, files: [] }];
+		deploymentSkills = [{ ...DEPLOYMENT_SKILL, files: [] }];
 		calls = [];
+		fileContents = {};
 		installFetch();
 		vi.stubGlobal(
 			"confirm",
