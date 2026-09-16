@@ -10,6 +10,11 @@
  * logged reason, never stored. Creating with `scope: "deployment"` is an
  * administrator's act and calls `requireAdmin` — the gateway's answer, never
  * a client flag — before anything is stored.
+ *
+ * A multipart `POST` (a zip of a skill folder, Stage 3) is the import path
+ * for a multi-file skill — `SKILL.md` plus `scripts/`, `references/` and
+ * `assets/` — and takes the same `scope` rule and the same admin gate,
+ * before the archive is even opened.
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
@@ -17,7 +22,9 @@ import { z } from "zod";
 import { requireAdmin } from "$lib/server/admin";
 import {
 	createDeploymentSkill,
+	createDeploymentSkillFromZip,
 	createSkill,
+	createSkillFromZip,
 	listDeploymentSkills,
 	listUserSkills,
 	skillView,
@@ -35,6 +42,14 @@ const create = z.object({
 	scope: z.enum(["user", "deployment"]).default("user"),
 });
 
+/**
+ * Upload cap for the zip itself, ahead of `parseSkillZip`'s own per-file and
+ * total-content caps: a compressed archive under this size cannot possibly
+ * unpack to more than a small multiple of it before those caps reject it,
+ * so this just keeps an oversized upload from being read into memory at all.
+ */
+const SKILL_ZIP_MAX_BYTES = 20_000_000;
+
 function requireUser(locals: App.Locals) {
 	if (!locals.user) error(401, "Login required");
 	return locals.user;
@@ -51,6 +66,29 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const user = requireUser(locals);
+	const contentType = request.headers.get("content-type") ?? "";
+	if (contentType.includes("multipart/form-data")) {
+		const form = await request.formData();
+		const scope = form.get("scope") === "deployment" ? "deployment" : "user";
+		const file = form.get("file");
+		if (!(file instanceof File)) error(400, "Attach the skill's zip as `file`.");
+		if (file.size > SKILL_ZIP_MAX_BYTES) {
+			error(400, `The zip is too large (max ${SKILL_ZIP_MAX_BYTES} bytes).`);
+		}
+		const zip = new Uint8Array(await file.arrayBuffer());
+		try {
+			if (scope === "deployment") {
+				await requireAdmin(locals);
+				const skill = await createDeploymentSkillFromZip(user._id, zip);
+				return json({ data: skillView(skill) }, { status: 201 });
+			}
+			const skill = await createSkillFromZip(user._id, zip);
+			return json({ data: skillView(skill) }, { status: 201 });
+		} catch (err) {
+			if (err instanceof SkillValidationError) error(400, err.message);
+			throw err;
+		}
+	}
 	const parsed = create.safeParse(await request.json());
 	if (!parsed.success) {
 		error(400, parsed.error.issues[0]?.message ?? "That skill is not valid.");

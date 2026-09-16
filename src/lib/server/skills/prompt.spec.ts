@@ -8,7 +8,8 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { assembleSkillsContext, buildSkillsPreprompt, parseSkillMentions } from "./prompt";
-import { createSkill } from "./service";
+import { createSkill, createSkillFromZip, LOAD_SKILL_FILE_TOOL_NAME } from "./service";
+import { zipSync, strToU8 } from "fflate";
 
 beforeAll(async () => {
 	await ready;
@@ -50,6 +51,32 @@ describe("buildSkillsPreprompt", () => {
 		expect(section).toContain("load_skill");
 		expect(section).not.toContain("# CSV shaping");
 	});
+
+	it("lists a loaded skill's bundled files, so the model knows what load_skill_file has", () => {
+		const section = buildSkillsPreprompt(
+			[{ name: "docx-ish", description: "Multi-file.", owner: "user" }],
+			[
+				{
+					name: "docx-ish",
+					description: "Multi-file.",
+					body: "# Docx-ish\n\nUse the helper.",
+					files: ["scripts/helper.py", "references/notes.md"],
+				},
+			]
+		);
+		expect(section).toContain("Bundled files");
+		expect(section).toContain("scripts/helper.py");
+		expect(section).toContain("references/notes.md");
+		expect(section).toContain(LOAD_SKILL_FILE_TOOL_NAME);
+	});
+
+	it("says nothing about bundled files for a SKILL.md-only skill", () => {
+		const section = buildSkillsPreprompt(
+			[{ name: "csv-shaping", description: "Reshape CSV.", owner: "admin" }],
+			[{ name: "csv-shaping", description: "Reshape CSV.", body: "# CSV shaping\n\nSteps." }]
+		);
+		expect(section).not.toContain("Bundled files");
+	});
 });
 
 describe("assembleSkillsContext", () => {
@@ -89,6 +116,20 @@ describe("assembleSkillsContext", () => {
 		expect(preprompt).toContain("`my-skill`: Does a useful thing.");
 		expect(mentioned).toStrictEqual(["my-skill"]);
 		expect(preprompt).toContain("# My skill");
+	});
+
+	it("lists bundled files when a multi-file skill's body loads on mention", async () => {
+		const zip = zipSync({
+			"SKILL.md": strToU8(
+				`---\nname: docx-ish\ndescription: A multi-file skill.\n---\n\n# Docx-ish\n\nUse the helper.`
+			),
+			"scripts/helper.py": strToU8("def run():\n    return 42\n"),
+		});
+		await createSkillFromZip(owner, zip);
+		const { preprompt } = await assembleSkillsContext(owner, "please @docx-ish this");
+		expect(preprompt).toContain("## Skill: docx-ish");
+		expect(preprompt).toContain("Bundled files");
+		expect(preprompt).toContain("scripts/helper.py");
 	});
 
 	it("hides a user's disabled skill from both stages", async () => {

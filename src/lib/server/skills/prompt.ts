@@ -16,6 +16,7 @@ import {
 	findSkillBody,
 	listEnabledDeploymentSkills,
 	listEnabledUserSkills,
+	describeSkillFiles,
 } from "./service";
 import { LOAD_SKILL_TOOL_NAME } from "./service";
 import type { ObjectId } from "mongodb";
@@ -47,7 +48,7 @@ export function parseSkillMentions(text: string): string[] {
  */
 export function buildSkillsPreprompt(
 	frontmatter: SkillFrontmatter[],
-	bodies: { name: string; description: string; body: string }[]
+	bodies: { name: string; description: string; body: string; files?: string[] }[]
 ): string | undefined {
 	if (frontmatter.length === 0) return undefined;
 	const lines = frontmatter.map((skill) => `- \`${skill.name}\`: ${skill.description}`);
@@ -60,7 +61,9 @@ export function buildSkillsPreprompt(
 		`channels — never shell, never packages, never network.\n` +
 		lines.join("\n");
 	for (const loaded of bodies) {
-		section += `\n\n## Skill: ${loaded.name}\n\n${loaded.description}\n\n${loaded.body}`;
+		section +=
+			`\n\n## Skill: ${loaded.name}\n\n${loaded.description}\n\n${loaded.body}` +
+			describeSkillFiles(loaded.name, loaded.files ?? []);
 	}
 	return section;
 }
@@ -104,12 +107,17 @@ export async function assembleSkillsContext(
 	// A user's own skill wins over a seed of the same name (see
 	// findSkillBody); the listing shows one row either way.
 	const mentioned: string[] = [];
-	const bodies: { name: string; description: string; body: string }[] = [];
+	const bodies: { name: string; description: string; body: string; files?: string[] }[] = [];
 	for (const name of parseSkillMentions(userText)) {
 		const resolved = await findSkillBody(userId, name);
 		if (!resolved) continue;
 		mentioned.push(resolved.name);
-		bodies.push({ name: resolved.name, description: resolved.description, body: resolved.body });
+		bodies.push({
+			name: resolved.name,
+			description: resolved.description,
+			body: resolved.body,
+			files: resolved.files,
+		});
 	}
 	return { preprompt: buildSkillsPreprompt(frontmatter, bodies), mentioned };
 }
