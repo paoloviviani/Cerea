@@ -176,20 +176,23 @@ Two consequences worth knowing:
 does tools must be reported by the _chat_ as doing tools. That is the only
 place the mismatch was ever visible.
 
-## Models: one dialog, and no per-model page
+## Models: one manager, and no per-model page
 
 `ModelsManager` is the **only** place models are managed. It lists all of them
 with a search, and opens one to set it as the default or change its settings —
 the system prompt, and reasoning and artifacts where the model supports them.
 `routes/settings/(nav)/[...model]` is **gone**; everything that pointed at it
-now opens the dialog.
+now opens the manager.
 
-That needed one small thing: a dialog has no address, so the affordances that
-were links need something to call. `stores/modelsOverlay.svelte.ts` is a
-module-level rune with `show(modelId?)` / `hide()`, and the dialog is mounted
-once in the root layout — nothing smaller encloses the composer's model name,
-the introduction's gear, a routed message's model, the models list and the
-settings nav, which are all places that open it.
+The manager is the Models tab of the **workspace** (`/workspace`), the page
+that hosts models, MCP servers and knowledge bases as tabs. The address is the
+way in from anywhere: `/workspace?tab=models` for the list,
+`/workspace?tab=models&id=<id>` straight onto one model's settings. The
+affordances that open it — a routed message's model, the models list's gear —
+navigate to that address (the composer's model name opens the per-chat
+`ModelPicker`, which is a different thing, and the introduction's gear is
+commented-out UI). The `modelsOverlay` store this once needed is deleted; an
+address needs no store.
 
 Two things worth knowing:
 
@@ -207,16 +210,22 @@ Two things worth knowing:
 
 ## The sidebar, and signing out at both ends
 
-**Two trees, then four rows, then the person.** `components/nav/` holds the
-pieces: `TreeBranch`, `TreeLeaf`, `RowMenu`, `UserMenu`, and `ProjectsBranch`
-for the one branch whose children are themselves folders.
+**Two trees, then three rows, then the footer.** `components/nav/` holds the
+pieces: `TreeBranch`, `TreeLeaf`, `RowMenu`, `ProjectsBranch` for the one
+branch whose children are themselves folders, and `NavFooter` for the foot.
 
 The split is the point, and it was arrived at by getting it wrong first: every
-top-level entry was a branch, and Models, Knowledge and MCP Servers
-were worse for it — a disclosure triangle revealing a list you then clicked to
-open the dialog anyway. Only **Projects and Chats** have contents worth
-expanding; the others are rows at the foot that open their dialog, which is
-where they were before.
+top-level entry was a branch, and a disclosure triangle revealing a list you
+then clicked to open a dialog anyway was worse. Only **Projects and Chats**
+have contents worth expanding. The rows at the foot are single addresses —
+**Workspace** (the tabbed page hosting models, MCP servers and knowledge
+bases), **Settings**, and **Admin** for administrators (gated on
+`gatewayIsAdmin`, the gateway's answer, not the chat's own flag) — and the
+**footer** is static: the user's tag and name, a theme switch, and a sign-out
+button, all inline, with no popup. (Models, Knowledge and MCP Servers were
+three more rows that each opened their own dialog; the workspace page absorbed
+them, and `UserMenu` — whose popup carried Settings, Admin, the theme switch
+and sign out — went with them.)
 
 Four rules:
 
@@ -270,19 +279,21 @@ the text.
 
 ## The dialog language, and where it comes from
 
-**Models, projects and knowledge are overlays, not pages**, and they
-are overlays in the shape the MCP dialog already had — that is this app's own
-design language and the reference implementation is still
-`src/lib/components/mcp/`. Read `MCPServerManager.svelte` and
-`ServerCard.svelte` before adding a screen.
+**Projects are overlays; models, MCP servers and knowledge are tabs of the
+workspace page** (`/workspace`), and every manager screen is drawn in the
+shape the MCP dialog gave this app — the design language's reference
+implementation is still `src/lib/components/mcp/`. Read
+`MCPServerManager.svelte` and `ServerCard.svelte` before adding a screen.
 
 What it consists of, all of it in `src/lib/components/overlay/styles.ts` as
 constants lifted verbatim from those two files:
 
-- an overlay with **per-view widths** (`w-[800px]` for a list, `w-[600px]` for
-  a form) and sub-views switching _inside_ it on a `view` variable, rather than
+- **sub-views switch inside one screen** on a `view` variable, rather than
   navigating — somebody managing knowledge is doing one task and should not
-  lose their place in the conversation that prompted it;
+  lose their place at each step of it. In the overlay era that came with
+  per-view widths (`w-[800px]` for a list, `w-[600px]` for a form); the
+  workspace managers keep the switching and lost the shell, drawing inside the
+  tab's card instead (`styles.EMBEDDED`);
 - a **tinted summary strip** under the header: a `size-10 rounded-xl
 bg-blue-500/10` icon tile, a count, a state, and the actions on the right.
   `bg-blue-50` when there is something, `bg-gray-100` and `grayscale` when
@@ -300,14 +311,14 @@ does nothing. And the MCP dialog deliberately still inlines its own classes
 rather than importing the constants — it is the definition, and moving it one
 step away from itself would be the wrong direction.
 
-**The routes are kept and render the same component.** `/knowledge`,
-`/projects` and their `/<id>` forms are thin wrappers that mount the
-manager with `initialId`, because people link to those addresses. One
-implementation and one design: a dialog for whoever arrives from the nav and a
-separate page for whoever arrives from a link is how the two drift apart. The
-one trap that caused — **a page body runs on the server**, so a manager that
-fetched in its component body answered 502 with `Failed to parse URL from
-/chat/api/v2/...`. Every manager loads in `onMount`.
+**Old manager addresses redirect into the workspace.** `/knowledge` and
+`/knowledge/<id>` redirect to `/workspace?tab=kb` (with the `id` carried over),
+because people link to those addresses. `/projects` and `/projects/<id>` still
+render `ProjectsManager` as a page — projects remain overlays, and the list
+view survives only as that page. The one trap that caused — **a page body runs
+on the server**, so a manager that fetched in its component body answered 502
+with `Failed to parse URL from /chat/api/v2/...`. Every manager loads in
+`onMount`, which the workspace tabs also rely on.
 
 ## Projects and knowledge bases
 

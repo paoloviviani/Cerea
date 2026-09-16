@@ -8,13 +8,20 @@
 </script>
 
 <!--
-	The left panel: two trees, then the rows, then the person.
+	The left panel: two trees, then three rows, then the footer.
 
 	The split is the point. **Projects and Chats are trees**, because they have
-	contents worth expanding. **Models, Knowledge and MCP Servers are
-	rows at the foot**, because each opens a dialog and has no hierarchy —
-	making all six branches was tried and was worse, a disclosure triangle that
-	revealed a list you then clicked to open the dialog anyway.
+	contents worth expanding. **Workspace, Settings and Admin are rows**, because
+	each is one address and has no hierarchy — making branches of them was tried
+	and was worse, a disclosure triangle that revealed a list you then clicked to
+	open the dialog anyway. Workspace is the one page that hosts the managers
+	(models, MCP servers, knowledge bases) as tabs; Models, Knowledge and MCP
+	Servers were three separate rows here until that page absorbed them.
+
+	**The footer is static**: who is signed in, a theme switch and a sign-out
+	button, all inline. It replaced `UserMenu`, whose every affordance opened a
+	popup; what that menu offered is either a row above (Settings, Admin) or
+	lives in `nav/NavFooter.svelte`.
 
 	Three decisions worth knowing.
 
@@ -43,28 +50,20 @@
 	import TreeBranch from "./nav/TreeBranch.svelte";
 	import TreeLeaf from "./nav/TreeLeaf.svelte";
 	import ProjectsBranch from "./nav/ProjectsBranch.svelte";
-	import UserMenu from "./nav/UserMenu.svelte";
+	import NavFooter from "./nav/NavFooter.svelte";
 	import type { LayoutData } from "../../routes/$types";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
-	import type { Model } from "$lib/types/Model";
-	import { page } from "$app/state";
 	import InfiniteScroll from "./InfiniteScroll.svelte";
 	import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import { totalEnabledMcpCount } from "$lib/stores/mcpConnectors";
-	import MCPServerManager from "./mcp/MCPServerManager.svelte";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
-	import KnowledgeManager from "./knowledge/KnowledgeManager.svelte";
 	import CarbonChat from "~icons/carbon/chat";
-	import { modelsOverlay } from "$lib/stores/modelsOverlay.svelte";
 
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
 		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700";
-	const ROW_BADGE =
-		"ml-auto rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
@@ -121,8 +120,6 @@
 		older: loose.filter(({ updatedAt }) => updatedAt.getTime() < dateRanges[2]),
 	});
 
-	const nModels = $derived((page.data.models as Model[]).filter((model) => !model.unlisted).length);
-
 	async function handleVisible() {
 		p++;
 		const newConvs = await client.conversations
@@ -150,11 +147,9 @@
 		}
 	});
 
-	// ---- the overlays a branch's `+` and its leaves open -------------------
+	// ---- the overlay a branch's `+` and its leaves open ---------------------
 
-	let showMcpModal = $state(false);
 	let showProjectsModal = $state(false);
-	let showKnowledgeModal = $state(false);
 	/** Which project the overlay opens on, and whether it opens to create one. */
 	let projectTarget = $state<string | undefined>(undefined);
 	let projectCreate = $state(false);
@@ -225,39 +220,25 @@
 <div
 	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-gray-50 dark:border-transparent md:dark:from-gray-800/30"
 >
-	<!-- Rows, not branches: each opens a dialog and contains nothing to expand.
-	     `/models/[id]` is still a real address, so the routes remain; this is
-	     only the way in. -->
-	<button onclick={() => modelsOverlay.show()} class={ROW}>
-		Models
-		<span class={ROW_BADGE}>{nModels}</span>
-	</button>
+	<!-- Rows, not branches: each is one address and contains nothing to expand.
+	     Workspace is the tabbed page that hosts the managers (models, MCP
+	     servers, knowledge bases), which are no longer dialogs opened from
+	     here. -->
+	<a href="{base}/workspace" class="{ROW} no-underline"> Workspace </a>
+	<a href="{base}/settings/application" class="{ROW} no-underline"> Settings </a>
 
-	{#if signedIn}
-		<button onclick={() => (showKnowledgeModal = true)} class={ROW}> Knowledge </button>
-		<button onclick={() => (showMcpModal = true)} class={ROW}>
-			MCP Servers
-			{#if $totalEnabledMcpCount > 0}
-				<span
-					class="ml-auto rounded-md bg-blue-600/10 px-1.5 py-0.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
-				>
-					{$totalEnabledMcpCount}
-				</span>
-			{/if}
-		</button>
+	{#if gatewayIsAdmin}
+		<!-- The chat's administration area (product decisions: which model reads
+		     a document, what fetches a URL, which connectors everybody gets). The
+		     panel's own gate re-asks the gateway; the row merely spares an
+		     administrator the URL. -->
+		<a href="{base}/admin" class="{ROW} no-underline"> Admin </a>
 	{/if}
 
 	{#if signedIn}
 		<div class="mt-1 border-t border-gray-200/60 pt-1 dark:border-gray-700/60">
-			<UserMenu {user} {gatewayIsAdmin} />
+			<NavFooter {user} />
 		</div>
-	{:else}
-		<a
-			href="{base}/settings/application"
-			class="flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-gray-500 no-underline hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			Settings
-		</a>
 	{/if}
 </div>
 
@@ -272,12 +253,4 @@
 			void projectsBranch?.reload();
 		}}
 	/>
-{/if}
-
-{#if showKnowledgeModal}
-	<KnowledgeManager onclose={() => (showKnowledgeModal = false)} />
-{/if}
-
-{#if showMcpModal}
-	<MCPServerManager onclose={() => (showMcpModal = false)} />
 {/if}

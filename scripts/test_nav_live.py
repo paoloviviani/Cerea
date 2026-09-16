@@ -2,9 +2,10 @@
 """The sidebar tree and signing out, against the running stack.
 
 What is checkable without a browser: the panel renders every branch, each
-branch row is expandable rather than a link, the person at the foot is a menu
-button, Settings has moved off the panel into that menu, and a conversation
-inside a project is listed once rather than twice.
+branch row is expandable rather than a link, the foot is a static footer (who
+is signed in, a theme switch, sign out — no popup opens there), Workspace and
+Settings are rows above it, and a conversation inside a project is listed once
+rather than twice.
 
 The half that matters most is **signing out**, because it is the half no
 in-process test can see. Clearing the local cookie is easy and was already
@@ -80,7 +81,9 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     # exactly the rows that have a badge.
     text = re.sub(r"<[^>]+>", " ", home)
     text = re.sub(r"\s+", " ", text)
-    for label in ("Models", "Projects", "Knowledge", "MCP Servers", "Chats"):
+    # Models, Knowledge and MCP Servers are not rows here any more: they are
+    # tabs of the workspace page, which is one Workspace row.
+    for label in ("Projects", "Chats", "Workspace", "Settings"):
         check(label, label in text, "not in the panel")
 
     print("\nthe row controls are actually visible:")
@@ -97,7 +100,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         "a control is hidden until hover — invisible on any touch device",
     )
 
-    print("\nthe two trees expand; the four rows do not pretend to:")
+    print("\nthe two trees expand; the rows do not pretend to:")
     # Projects and Chats are branches, and so is each project folder under
     # Projects. The rows at the foot open dialogs and have nothing to reveal.
     check(
@@ -107,10 +110,13 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     )
 
     print("\nthe person at the foot:")
+    # The footer is static: the name, a theme switch and a sign-out button,
+    # all inline. Nothing there opens a menu, so the panel must not contain
+    # the popup affordance at all.
     check(
-        "the username row is a menu button",
-        'aria-haspopup="menu"' in home,
-        "no menu button rendered",
+        "the footer opens no menu",
+        'aria-haspopup="menu"' not in home,
+        "a popup affordance survived in the panel",
     )
     check(
         "the account label is shown",
@@ -118,9 +124,14 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         "the username is not in the panel",
     )
     check(
-        "Settings is no longer a panel row",
-        home.count("/chat/settings/application") <= 1,
-        f'{home.count("/chat/settings/application")} settings links in the panel',
+        "Settings is a panel row again",
+        "/chat/settings/application" in home,
+        "no settings row in the panel",
+    )
+    check(
+        "the workspace row is a link to the workspace",
+        "/chat/workspace" in home,
+        "no workspace row in the panel",
     )
     print("\nsigning out, at both ends:")
     # A throwaway client, so the main one keeps its session for the rest.
@@ -227,9 +238,9 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         "the settings nav still links per model",
     )
 
-    print("\nthe dialog is what ships:")
-    # In the client chunks, not the HTML: `{#if modelsOverlay.open}` means none
-    # of it is rendered until somebody opens it.
+    print("\nthe manager is what ships:")
+    # The workspace page renders the models manager server-side, so the markup
+    # ships in the route's own chunks.
     for marker in ("Set as default", "Every model available to you", "is the default"):
         found = subprocess.run(
             [

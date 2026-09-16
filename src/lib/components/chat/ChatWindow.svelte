@@ -151,8 +151,8 @@
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
 
-	/** The per-conversation model picker. Not `modelsOverlay`, which is the
-	    management dialog and sets the default. */
+	/** The per-conversation model picker. Not the workspace's Models tab,
+	    which is the management surface and sets the default. */
 	let pickerOpen = $state(false);
 
 	const publicConfig = usePublicConfig();
