@@ -58,6 +58,7 @@
 	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
 	import { allBaseServersEnabled, mcpServersLoaded } from "$lib/stores/mcpServers";
 	import { shareModal } from "$lib/stores/shareModal";
+	import { exportConversation as exportConversationStore } from "$lib/stores/exportConversation";
 	import IconShare from "$lib/components/icons/IconShare.svelte";
 	import CarbonDownload from "~icons/carbon/download";
 	import {
@@ -186,6 +187,13 @@
 		});
 		downloadMarkdown(exportFilename(conversationTitle, id), markdown);
 	}
+
+	// Mirrored into the store so MobileNav (mounted in the root layout, outside
+	// this component's tree) can render its own export button off the same
+	// state, rather than duplicating the canExport derivation.
+	$effect(() => {
+		exportConversationStore.set({ canExport: Boolean(canExport), loading, run: exportConversation });
+	});
 
 	// Feature announcement toast: home screen only, gone as soon as a chat starts.
 	let featureAnnouncement = $derived(
@@ -415,6 +423,7 @@
 	onDestroy(() => {
 		unsubscribeShareModal();
 		shareModal.close();
+		exportConversationStore.reset();
 		if (routerDetailsTimeout) {
 			clearTimeout(routerDetailsTimeout);
 		}
