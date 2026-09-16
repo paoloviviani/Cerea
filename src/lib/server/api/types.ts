@@ -55,4 +55,14 @@ export interface FeatureFlags {
 	 * PyPI.
 	 */
 	pyodidePyPiInstallAllowed: boolean;
+	/**
+	 * Whether the deployment exposes the Usage & billing settings tab
+	 * (`CHAT_USAGE_ENABLED`). Off by default: a deployment without Pystino has
+	 * no gateway to read quotas or spend from, and this flag is what keeps it
+	 * from depending on one. The billing-group selector moved into that same
+	 * tab and is gated on this flag too — both are gateway concepts (ADR
+	 * 0061), so hiding one without the other would orphan a control nobody
+	 * asked for.
+	 */
+	usageEnabled: boolean;
 }
