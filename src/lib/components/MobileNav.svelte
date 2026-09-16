@@ -18,10 +18,12 @@
 	import { page } from "$app/state";
 	import IconNew from "$lib/components/icons/IconNew.svelte";
 	import IconShare from "$lib/components/icons/IconShare.svelte";
+	import CarbonDownload from "~icons/carbon/download";
 	import { NAV_EDGE_SWIPE_ZONE_PX } from "$lib/constants/gestures";
 	import IconBurger from "$lib/components/icons/IconBurger.svelte";
 	import { Spring } from "svelte/motion";
 	import { shareModal } from "$lib/stores/shareModal";
+	import { exportConversation } from "$lib/stores/exportConversation";
 	import { loading } from "$lib/stores/loading";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { tap } from "$lib/utils/haptics";
@@ -273,6 +275,20 @@
 				aria-label="Share conversation"
 			>
 				<IconShare classNames={!canShare ? "opacity-40" : ""} />
+			</button>
+		{/if}
+		{#if $exportConversation.canExport}
+			<button
+				type="button"
+				class="flex h-12 w-6 shrink-0 items-center justify-center text-lg {$exportConversation.loading
+					? 'opacity-40'
+					: ''}"
+				disabled={$exportConversation.loading}
+				onclick={() => $exportConversation.run()}
+				aria-label="Export conversation as Markdown"
+				title="Export conversation as Markdown"
+			>
+				<CarbonDownload />
 			</button>
 		{/if}
 		<a
