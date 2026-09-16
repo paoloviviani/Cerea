@@ -143,11 +143,20 @@ if (browser) {
  * (project defaults, else workspace defaults) when the chat is first opened.
  * The active set is then fully independent: later default changes never
  * rewrite it, and its own edits never write back to the defaults.
+ *
+ * The `null` (not-yet-created) chat is the exception: it has no independent
+ * state worth preserving across opens — the home-page draft does not survive
+ * navigation and `onMount` runs once per mount — so it re-seeds from
+ * `seed ?? get(defaultConnectorIds)` on every open, keeping the home comment
+ * ("starts at the workspace defaults; the first toggle then diverges") true
+ * within a mount.
  */
 export function openConversationSelection(convId: string | null, seed?: Iterable<string>): void {
 	const key = conversationKey(convId);
 	activeConversationKey = convId;
-	if (!conversationSelections.has(key)) {
+	if (convId === null) {
+		conversationSelections.set(key, new Set<string>(seed ?? get(defaultConnectorIds)));
+	} else if (!conversationSelections.has(key)) {
 		const stored = readActiveSelection(key);
 		conversationSelections.set(key, stored ?? new Set<string>(seed ?? get(defaultConnectorIds)));
 	}

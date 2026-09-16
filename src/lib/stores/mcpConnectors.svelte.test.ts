@@ -147,4 +147,46 @@ describe("defaults vs per-chat selection", () => {
 		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a", "conn-b"]));
 		expect(localStorage.getItem(conversationKey("chat-a"))).toContain("conn-b");
 	});
+
+	it("a subsequently opened new chat starts from the current defaults in both directions", () => {
+		// First visit seeds the new-chat selection empty.
+		openConversationSelection(null, get(defaultConnectorIds));
+		expect(get(selectedConnectorIds)).toEqual(new Set());
+
+		// Flipping a connector ON in the workspace tab reaches the next new chat.
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection(null, get(defaultConnectorIds));
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a"]));
+
+		// And flipping it back OFF reaches the one after that.
+		defaultConnectorIds.set(new Set());
+		openConversationSelection(null, get(defaultConnectorIds));
+		expect(get(selectedConnectorIds)).toEqual(new Set());
+	});
+
+	it("a reopened new chat re-seeds from defaults even after composer divergence", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection(null, get(defaultConnectorIds));
+
+		// The composer diverges within the mount: off, and one on that is not a default.
+		toggleConnector("conn-a");
+		toggleConnector("conn-b");
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-b"]));
+
+		// Returning home reopens the new-chat selection: the divergence is gone,
+		// the current defaults are back.
+		openConversationSelection(null, get(defaultConnectorIds));
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-a"]));
+	});
+
+	it("composer edits survive within a mount while the new chat stays open", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection(null, get(defaultConnectorIds));
+
+		toggleConnector("conn-a");
+
+		// No reopen between: the first toggle diverges without touching the defaults.
+		expect(get(selectedConnectorIds)).toEqual(new Set());
+		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-a"]));
+	});
 });
