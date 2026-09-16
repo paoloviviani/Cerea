@@ -4,8 +4,27 @@ import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
 import type { RunOutcome, RuntimeFile } from "$lib/utils/execution/protocol";
 
-/** Full outcome a browser run reports back, with the files it created (the sweeper names them in the tool result). */
-export type CodeExecutionOutcome = RunOutcome & { files: RuntimeFile[] };
+/**
+ * A deliverable persisted to the server-side output store (30-day TTL) — see
+ * `$lib/server/execution/deliverables.ts`. No `path`: the sandbox path is
+ * meaningless once the worker filesystem is gone, and the download route is
+ * addressed by conversation + sha256, exactly like a message attachment.
+ */
+export interface PersistedDeliverableRef {
+	name: string;
+	size: number;
+	sha256: string;
+}
+
+/**
+ * Full outcome a browser run reports back, with the files it created (the
+ * sweeper names them in the tool result) and, when the browser uploaded them,
+ * the persisted references the resolved update carries for replay.
+ */
+export type CodeExecutionOutcome = RunOutcome & {
+	files: RuntimeFile[];
+	fileRefs?: PersistedDeliverableRef[];
+};
 
 /**
  * Why a turn is parked. `timer` is the clock kind: the model asked to be

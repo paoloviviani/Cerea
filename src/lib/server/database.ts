@@ -31,6 +31,7 @@ import type { Report } from "$lib/types/Report";
 import type { ConversationStats } from "$lib/types/ConversationStats";
 import type { MigrationResult } from "$lib/types/MigrationResult";
 import type { Semaphore } from "$lib/types/Semaphore";
+import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
@@ -185,6 +186,12 @@ export class Database {
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
+		// Computed `execute_code` deliverables (ADR 0073's amendment): a separate
+		// bucket from message attachments so a conversation's deliverables can be
+		// listed and wiped as a unit (deletion, TTL sweep) without a collection
+		// scan over unrelated attachment bytes.
+		const codeExecutionOutputs = db.collection<CodeExecutionOutput>("codeExecutionOutputs");
+		const codeOutputBucket = new GridFSBucket(db, { bucketName: "codeOutputs" });
 
 		// Collections with secondaryPreferred - heavy reads, can tolerate slight replication lag
 		const secondaryPreferred = ReadPreference.SECONDARY_PREFERRED;
@@ -227,6 +234,8 @@ export class Database {
 			sessions,
 			messageEvents,
 			bucket,
+			codeExecutionOutputs,
+			codeOutputBucket,
 			migrationResults,
 			semaphores,
 			tokenCaches,
@@ -265,6 +274,7 @@ export class Database {
 			semaphores,
 			tokenCaches,
 			config,
+			codeExecutionOutputs,
 		} = this.getCollections();
 
 		conversations
@@ -606,6 +616,27 @@ export class Database {
 		config
 			.createIndex({ key: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for config by key"));
+
+		// Dedup + the access-checked download lookup: one row per distinct
+		// deliverable a conversation has produced.
+		codeExecutionOutputs
+			.createIndex({ conversationId: 1, sha256: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for codeExecutionOutputs by sha256"));
+		// Conversation-delete cleanup lists a conversation's rows by this alone.
+		codeExecutionOutputs
+			.createIndex({ conversationId: 1 })
+			.catch((e) =>
+				logger.error(e, "Error creating index for codeExecutionOutputs by conversationId")
+			);
+		// 30-day retention (ADR 0073's amendment). This expires the metadata row;
+		// `DeliverableReaper`'s own sweep is what actually frees the GridFS bytes
+		// (a native TTL index on `codeOutputs.files` would drop the `files` doc
+		// without its `chunks`, since GridFS deletion is not cascading) — this
+		// index is the backstop that still bounds the metadata collection even if
+		// that sweep is not running.
+		codeExecutionOutputs
+			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeExecutionOutputs"));
 	}
 }
 
