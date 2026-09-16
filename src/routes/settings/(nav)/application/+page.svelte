@@ -47,6 +47,14 @@
 	function setHapticsEnabled(v: boolean) {
 		settings.update((s) => ({ ...s, hapticsEnabled: v }));
 	}
+	// The default new chats inherit. The composer's toggle writes per-chat
+	// state instead — settings hold *defaults*, a chat holds *per-chat state*.
+	function getWebSearchDefault() {
+		return $settings.webSearchEnabled === true;
+	}
+	function setWebSearchDefault(v: boolean) {
+		settings.update((s) => ({ ...s, webSearchEnabled: v }));
+	}
 
 	const client = useAPIClient();
 
@@ -239,6 +247,18 @@
 						<Switch name="hapticsEnabled" bind:checked={getHapticsEnabled, setHapticsEnabled} />
 					</div>
 				{/if}
+
+				<div class="flex items-start justify-between py-3">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							Web search on by default
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							New chats start with web search on. Toggling it in a chat changes only that chat.
+						</p>
+					</div>
+					<Switch name="webSearchEnabled" bind:checked={getWebSearchDefault, setWebSearchDefault} />
+				</div>
 
 				<!-- Theme selector -->
 				<div class="flex items-start justify-between py-3">

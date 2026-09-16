@@ -8,7 +8,7 @@
 		refreshMcpServers,
 		healthCheckServer,
 	} from "$lib/stores/mcpServers";
-	import { totalEnabledMcpCount } from "$lib/stores/mcpConnectors";
+	import { totalDefaultMcpCount } from "$lib/stores/mcpConnectors";
 	import IconRefresh from "~icons/carbon/renew";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -18,7 +18,8 @@
 	let isRefreshing = $state(false);
 
 	const baseServers = $derived($allMcpServers.filter((s) => s.type === "base"));
-	const enabledCount = $derived($totalEnabledMcpCount);
+	// Defaults, not the active chat: this tab edits what new chats start with.
+	const enabledCount = $derived($totalDefaultMcpCount);
 
 	async function handleRefresh() {
 		if (isRefreshing) return;

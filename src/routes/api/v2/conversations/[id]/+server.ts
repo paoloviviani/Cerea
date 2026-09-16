@@ -44,10 +44,37 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 			}
 		: undefined;
 
+	// Project defaults ride along so a first-opened chat can seed its per-chat
+	// state (web search, connector selection) without a second round trip.
+	// Names only; every turn re-checks reach and credentials server-side.
+	let projectDefaults:
+		{ defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] } | undefined;
+	try {
+		if (!conversation.shared && "projectId" in conversation && conversation.projectId) {
+			const project = await collections.projects.findOne(
+				{ _id: new ObjectId(conversation.projectId) },
+				{ projection: { defaultWebSearch: 1, defaultMcpConnectorIds: 1 } }
+			);
+			if (project) {
+				projectDefaults = {
+					...(typeof project.defaultWebSearch === "boolean"
+						? { defaultWebSearch: project.defaultWebSearch }
+						: {}),
+					...(Array.isArray(project.defaultMcpConnectorIds)
+						? { defaultMcpConnectorIds: project.defaultMcpConnectorIds }
+						: {}),
+				};
+			}
+		}
+	} catch {
+		// No defaults is a valid answer; the chat falls back to app defaults.
+	}
+
 	return superjsonResponse({
 		messages: conversation.messages,
 		title: conversation.title,
 		model: conversation.model,
+		projectDefaults,
 		preprompt: conversation.preprompt,
 		rootMessageId: conversation.rootMessageId,
 		id: conversation._id.toString(),
@@ -63,6 +90,11 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 				? await knowledgeBaseViews(conversation.knowledgeBaseIds)
 				: undefined,
 		deployedSpaces: "deployedSpaces" in conversation ? conversation.deployedSpaces : undefined,
+		webSearch: "webSearch" in conversation ? conversation.webSearch : undefined,
+		projectId:
+			"projectId" in conversation && conversation.projectId
+				? conversation.projectId.toString()
+				: undefined,
 		mlAssistant: "mlAssistant" in conversation ? conversation.mlAssistant : undefined,
 		mlBudget: "mlBudget" in conversation ? conversation.mlBudget : undefined,
 		plan: "plan" in conversation ? conversation.plan : undefined,
@@ -95,6 +127,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const body = await request.json();
 	const title = body?.title as string | undefined;
 	const model = body?.model as string | undefined;
+	const webSearch = body?.webSearch as boolean | undefined;
 	const mlBudgetTotalUsd = body?.mlBudgetTotalUsd as number | undefined;
 
 	if (title !== undefined) {
@@ -105,6 +138,10 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 	if (model !== undefined && !validModelIdSchema.safeParse(model).success) {
 		error(400, "Invalid model ID");
+	}
+
+	if (webSearch !== undefined && typeof webSearch !== "boolean") {
+		error(400, "webSearch must be a boolean");
 	}
 
 	if (mlBudgetTotalUsd !== undefined) {
@@ -141,7 +178,12 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		if (!matched) {
 			error(404, "Conversation not found");
 		}
-		if (title === undefined && model === undefined && knowledgeBaseIds === undefined) {
+		if (
+			title === undefined &&
+			model === undefined &&
+			webSearch === undefined &&
+			knowledgeBaseIds === undefined
+		) {
 			return superjsonResponse({ success: true });
 		}
 	}
@@ -150,7 +192,12 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	// request would replay one model's reasoning onto another.
 	const res = await applyConversationSettings(
 		{ _id: new ObjectId(id), ...authCondition(locals) },
-		{ title, model, ...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}) }
+		{
+			title,
+			model,
+			...(webSearch !== undefined ? { webSearch } : {}),
+			...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}),
+		}
 	);
 
 	if (typeof res.matchedCount === "number" ? res.matchedCount === 0 : res.modifiedCount === 0) {

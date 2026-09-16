@@ -178,12 +178,31 @@ export async function* runMcpFlow({
 			.filter((message) => message.from === "user")
 			.flatMap((message) => urlsInUserText(message.content))
 	);
+	// Settings hold *defaults*, a chat holds *per-chat state*: per-chat state
+	// (`conv.webSearch`) wins, then this conversation's project default, then
+	// the app default (`Settings.webSearchEnabled`), then off.
+	let projectWebSearchDefault: boolean | undefined;
+	try {
+		if (conv.projectId) {
+			const project = await collections.projects.findOne({ _id: conv.projectId });
+			if (typeof project?.defaultWebSearch === "boolean") {
+				projectWebSearchDefault = project.defaultWebSearch;
+			}
+		}
+	} catch {
+		// A project that cannot be read contributes no default; the turn still runs.
+	}
+	const { resolveWebSearchEnabled } = await import("$lib/server/webSearchDefaults");
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
 		token: turnToken,
 		searchModelIds: turnToken ? await findSearchModelIds(turnToken) : [],
-		webSearchEnabled: serverSettings?.webSearchEnabled === true,
+		webSearchEnabled: resolveWebSearchEnabled({
+			conversationWebSearch: conv.webSearch,
+			projectDefault: projectWebSearchDefault,
+			settingsEnabled: serverSettings?.webSearchEnabled,
+		}),
 		allowedFetchUrls,
 	});
 	// Read once: the preset decides the servers, the round budget and which tool

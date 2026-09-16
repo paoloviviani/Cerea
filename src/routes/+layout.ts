@@ -23,6 +23,7 @@ interface UserInfo {
 }
 
 interface SettingsResponse {
+	webSearchEnabled?: boolean;
 	welcomeModalSeen: boolean;
 	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;
