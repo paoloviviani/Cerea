@@ -100,7 +100,7 @@ describe("seed bootstrap", () => {
 });
 
 describe("deployment lifecycle", () => {
-	it("creates, disables, edits, and deletes a deployment skill", async () => {
+	it("creates, disables, edits, and deletes a built-in skill", async () => {
 		const skill = await seedDeployment();
 		expect(skill.scope).toBe("deployment");
 		expect(skill.enabled).toBe(true);
@@ -131,7 +131,7 @@ describe("deployment lifecycle", () => {
 	it("rejects a duplicate deployment name", async () => {
 		await seedDeployment("admin-spec-dup");
 		await expect(seedDeployment("admin-spec-dup")).rejects.toThrow(
-			"already a deployment skill named `admin-spec-dup`"
+			"already a built-in skill named `admin-spec-dup`"
 		);
 	});
 
@@ -140,7 +140,7 @@ describe("deployment lifecycle", () => {
 		const second = await seedDeployment("admin-spec-second");
 		await expect(
 			updateDeploymentSkill(second._id, { content: doc("admin-spec-first") })
-		).rejects.toThrow("already a deployment skill named `admin-spec-first`");
+		).rejects.toThrow("already a built-in skill named `admin-spec-first`");
 	});
 });
 

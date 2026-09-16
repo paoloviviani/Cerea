@@ -218,7 +218,7 @@ export async function createDeploymentSkill(actorId: ObjectId, content: string):
 		{ scope: "deployment", name: parsed.name },
 		{ projection: { _id: 1 } }
 	);
-	if (existing) invalid(`there is already a deployment skill named \`${parsed.name}\``);
+	if (existing) invalid(`there is already a built-in skill named \`${parsed.name}\``);
 	const now = new Date();
 	const skill: Skill = {
 		_id: new ObjectId(),
@@ -235,7 +235,7 @@ export async function createDeploymentSkill(actorId: ObjectId, content: string):
 		await collections.skills.insertOne(skill);
 	} catch (err) {
 		if (err instanceof Error && /duplicate key/i.test(err.message)) {
-			invalid(`there is already a deployment skill named \`${parsed.name}\``);
+			invalid(`there is already a built-in skill named \`${parsed.name}\``);
 		}
 		throw err;
 	}
@@ -260,7 +260,7 @@ export async function updateDeploymentSkill(id: ObjectId, update: SkillUpdate): 
 				{ scope: "deployment", name: parsed.name },
 				{ projection: { _id: 1 } }
 			);
-			if (clash) invalid(`there is already a deployment skill named \`${parsed.name}\``);
+			if (clash) invalid(`there is already a built-in skill named \`${parsed.name}\``);
 			set.name = parsed.name;
 		}
 		set.description = parsed.description;
