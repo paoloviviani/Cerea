@@ -41,12 +41,14 @@
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import type { AdminSkillView, Skill, SkillView } from "$lib/types/Skill";
+import type { AdminSkillView, Skill, SkillFile, SkillView } from "$lib/types/Skill";
 import { ADMIN_SKILL_CONTENTS, adminDisabledSkillNames } from "./adminSkills";
 import { isParsedSkill, parseSkill, type ParsedSkill } from "./parse";
+import { parseSkillZip } from "./archive";
 import type { BuiltinTool } from "$lib/server/textGeneration/builtinTools/types";
 
 export const LOAD_SKILL_TOOL_NAME = "load_skill";
+export const LOAD_SKILL_FILE_TOOL_NAME = "load_skill_file";
 
 /** Thrown when a SKILL.md document fails validation. Carries the logged reason. */
 export class SkillValidationError extends Error {
@@ -63,6 +65,7 @@ export function skillView(skill: Skill): SkillView {
 		description: skill.description,
 		enabled: skill.enabled,
 		updatedAt: skill.updatedAt.toISOString(),
+		files: (skill.files ?? []).map((file) => file.path),
 	};
 }
 
@@ -242,6 +245,45 @@ export async function createDeploymentSkill(actorId: ObjectId, content: string):
 	return skill;
 }
 
+/** Same as `createDeploymentSkill`, from a zip of the skill folder (Stage 3). */
+export async function createDeploymentSkillFromZip(
+	actorId: ObjectId,
+	zip: Uint8Array
+): Promise<Skill> {
+	await ensureDeploymentSeeds();
+	const archive = parseSkillZip(zip);
+	if (!("content" in archive)) invalid(archive.reason);
+	const parsed = parseSkill(archive.content);
+	if (!isParsedSkill(parsed)) invalid(parsed.reason);
+	const existing = await collections.skills.findOne(
+		{ scope: "deployment", name: parsed.name },
+		{ projection: { _id: 1 } }
+	);
+	if (existing) invalid(`there is already a built-in skill named \`${parsed.name}\``);
+	const now = new Date();
+	const skill: Skill = {
+		_id: new ObjectId(),
+		userId: actorId,
+		scope: "deployment",
+		name: parsed.name,
+		description: parsed.description,
+		content: archive.content,
+		enabled: true,
+		createdAt: now,
+		updatedAt: now,
+		...(archive.files.length ? { files: archive.files } : {}),
+	};
+	try {
+		await collections.skills.insertOne(skill);
+	} catch (err) {
+		if (err instanceof Error && /duplicate key/i.test(err.message)) {
+			invalid(`there is already a built-in skill named \`${parsed.name}\``);
+		}
+		throw err;
+	}
+	return skill;
+}
+
 /**
  * Edit a deployment row's body and/or enabled flag — disabling is a toggle,
  * not a delete. Replacement bodies are validated like a create; a rename
@@ -324,7 +366,12 @@ export async function skillsAvailable(userId?: ObjectId): Promise<boolean> {
 	}
 }
 
-function toSkill(userId: ObjectId, parsed: ParsedSkill, content: string): Skill {
+function toSkill(
+	userId: ObjectId,
+	parsed: ParsedSkill,
+	content: string,
+	files?: SkillFile[]
+): Skill {
 	const now = new Date();
 	return {
 		_id: new ObjectId(),
@@ -335,6 +382,7 @@ function toSkill(userId: ObjectId, parsed: ParsedSkill, content: string): Skill 
 		enabled: true,
 		createdAt: now,
 		updatedAt: now,
+		...(files?.length ? { files } : {}),
 	};
 }
 
@@ -356,6 +404,27 @@ export async function createSkill(userId: ObjectId, content: string): Promise<Sk
 	);
 	if (existing) invalid(`you already have a skill named \`${parsed.name}\``);
 	const skill = toSkill(userId, parsed, content);
+	await collections.skills.insertOne(skill);
+	return skill;
+}
+
+/**
+ * Import a multi-file skill from a zip of its folder (Stage 3): `SKILL.md`
+ * plus any `scripts/`, `references/` and `assets/` files, path-validated
+ * and size-capped by `parseSkillZip`. Same name-collision rule as the
+ * single-string path — this is the same store, just with files attached.
+ */
+export async function createSkillFromZip(userId: ObjectId, zip: Uint8Array): Promise<Skill> {
+	const archive = parseSkillZip(zip);
+	if (!("content" in archive)) invalid(archive.reason);
+	const parsed = parseSkill(archive.content);
+	if (!isParsedSkill(parsed)) invalid(parsed.reason);
+	const existing = await collections.skills.findOne(
+		{ userId, name: parsed.name, ...USER_SCOPE },
+		{ projection: { _id: 1 } }
+	);
+	if (existing) invalid(`you already have a skill named \`${parsed.name}\``);
+	const skill = toSkill(userId, parsed, archive.content, archive.files);
 	await collections.skills.insertOne(skill);
 	return skill;
 }
@@ -404,12 +473,45 @@ export async function deleteSkill(userId: ObjectId, id: ObjectId): Promise<boole
 	return result.deletedCount === 1;
 }
 
+/**
+ * Drop one bundled file from a user's skill — the manage half of the
+ * workspace tab's file list. Not a re-validation of the rest: the skill's
+ * body and other files are untouched.
+ */
+export async function removeSkillFile(
+	userId: ObjectId,
+	id: ObjectId,
+	path: string
+): Promise<Skill> {
+	// Driver v5: findOneAndUpdate returns ModifyResult unless told otherwise.
+	const result = await collections.skills.findOneAndUpdate(
+		{ _id: id, userId, ...USER_SCOPE },
+		{ $pull: { files: { path } }, $set: { updatedAt: new Date() } },
+		{ returnDocument: "after" }
+	);
+	if (!result?.value) invalid("skill not found");
+	return result.value;
+}
+
+/** Same, for a deployment row — the admin panel's file management. */
+export async function removeDeploymentSkillFile(id: ObjectId, path: string): Promise<Skill> {
+	const result = await collections.skills.findOneAndUpdate(
+		{ _id: id, scope: "deployment" },
+		{ $pull: { files: { path } }, $set: { updatedAt: new Date() } },
+		{ returnDocument: "after" }
+	);
+	if (!result?.value) invalid("skill not found");
+	return result.value;
+}
+
 export interface ResolvedSkillBody {
 	/** Whose definition this came from. A user's own skill wins over a seed. */
 	owner: "user" | "admin";
 	name: string;
 	description: string;
 	body: string;
+	/** Bundled file paths, if any — so the prompt can tell the model what `load_skill_file` has. */
+	files: string[];
 }
 
 /**
@@ -435,6 +537,7 @@ export async function findSkillBody(
 					name: skill.name,
 					description: skill.description,
 					body: skillBody(skill.content) ?? skill.content,
+					files: (skill.files ?? []).map((file) => file.path),
 				};
 			}
 		} catch (err) {
@@ -454,6 +557,7 @@ export async function findSkillBody(
 				name: row.name,
 				description: row.description,
 				body: skillBody(row.content) ?? row.content,
+				files: (row.files ?? []).map((file) => file.path),
 			};
 		}
 		if (row) return undefined;
@@ -462,7 +566,57 @@ export async function findSkillBody(
 	}
 	const admin = listAdminSkills().find((seed) => seed.name === name);
 	if (admin) {
-		return { owner: "admin", name: admin.name, description: admin.description, body: admin.body };
+		return {
+			owner: "admin",
+			name: admin.name,
+			description: admin.description,
+			body: admin.body,
+			files: [],
+		};
+	}
+	return undefined;
+}
+
+/**
+ * One bundled file's content, by skill name and path — the resolution
+ * `load_skill_file` uses: the owner's enabled skill first, then the
+ * deployment rows. Code seeds carry no files, so nothing further to fall
+ * back to. Unknown skill, unknown path, disabled, or kill-switched all
+ * resolve to undefined — silently, never an error to the user.
+ */
+export async function findSkillFile(
+	userId: ObjectId | undefined,
+	skillName: string,
+	path: string
+): Promise<SkillFile | undefined> {
+	if (userId) {
+		try {
+			const skill = await collections.skills.findOne({
+				userId,
+				name: skillName,
+				enabled: true,
+				...USER_SCOPE,
+			});
+			if (skill) return skill.files?.find((file) => file.path === path);
+		} catch (err) {
+			logger.warn({ err: String(err), skillName, path }, "[skills] user skill file lookup failed");
+		}
+	}
+	try {
+		await ensureDeploymentSeeds();
+		const row = await collections.skills.findOne({
+			scope: "deployment",
+			name: skillName,
+			enabled: true,
+		});
+		if (row && !adminDisabledSkillNames().has(row.name)) {
+			return row.files?.find((file) => file.path === path);
+		}
+	} catch (err) {
+		logger.warn(
+			{ err: String(err), skillName, path },
+			"[skills] deployment skill file lookup failed"
+		);
 	}
 	return undefined;
 }
@@ -485,12 +639,30 @@ export async function includeSkillLoadBuiltin(
 ): Promise<boolean> {
 	try {
 		if (!(await skillsAvailable(userId))) return false;
-		tools.push(skillLoadBuiltin);
+		tools.push(skillLoadBuiltin, skillLoadFileBuiltin);
 		return true;
 	} catch (err) {
 		logger.warn({ err: String(err) }, "[skills] load_skill unavailable; continuing without it");
 		return false;
 	}
+}
+
+/**
+ * The bundled-files note appended wherever a skill's body reaches the
+ * model — the `load_skill` result and the preprompt's loaded-skill section
+ * alike — so the model learns what `load_skill_file` has without a second
+ * round trip. Empty for a SKILL.md-only skill.
+ */
+export function describeSkillFiles(name: string, files: string[]): string {
+	if (files.length === 0) return "";
+	const lines = files.map((path) => `- \`${path}\``);
+	return (
+		`\n\n### Bundled files\n\n` +
+		`This skill ships these files alongside its instructions. Load one's text with ` +
+		`\`${LOAD_SKILL_FILE_TOOL_NAME}\` (skill \`${name}\`, exact path as listed) before relying on ` +
+		`what it contains — do not guess a script's contents from its filename.\n` +
+		lines.join("\n")
+	);
 }
 
 /**
@@ -539,7 +711,89 @@ export const skillLoadBuiltin: BuiltinTool = {
 			};
 		}
 		return {
-			resultText: `# Skill: ${resolved.name}\n\n${resolved.description}\n\n${resolved.body}`,
+			resultText:
+				`# Skill: ${resolved.name}\n\n${resolved.description}\n\n${resolved.body}` +
+				describeSkillFiles(resolved.name, resolved.files),
 		};
+	},
+};
+
+// Same cap the sandbox's own output truncation uses (see executeCodeTool.ts):
+// tail-weighted, because a script's imports and setup are less often what a
+// follow-up question is about than the function it ends with.
+const SKILL_FILE_MAX_CHARS = 20_000;
+const SKILL_FILE_HEAD = 6_000;
+const SKILL_FILE_TAIL = 14_000;
+
+function truncateSkillFileContent(content: string): string {
+	if (content.length <= SKILL_FILE_MAX_CHARS) return content;
+	const head = content.slice(0, SKILL_FILE_HEAD);
+	const tail = content.slice(content.length - SKILL_FILE_TAIL);
+	const omitted = content.length - SKILL_FILE_HEAD - SKILL_FILE_TAIL;
+	return `${head}\n\n… (${omitted} characters omitted) …\n\n${tail}`;
+}
+
+/**
+ * The stage-3 tool: `load_skill_file`. Reads one bundled file's content —
+ * text verbatim, binary as base64 — for a skill whose body is already in
+ * context. Read-then-run: this tool never executes anything itself, it only
+ * returns text; the model is the one that composes what it reads into an
+ * `execute_code` call (a `scripts/` helper adapted to stdlib Python) or into
+ * its own reasoning (a `references/` doc). A script that shells out to a
+ * native binary (LibreOffice, pandoc) still won't run anywhere downstream —
+ * nothing browser-side provides one — but the model can still read and
+ * adapt it, which is the point of exposing the file at all.
+ */
+export const skillLoadFileBuiltin: BuiltinTool = {
+	name: LOAD_SKILL_FILE_TOOL_NAME,
+	definition: {
+		type: "function",
+		function: {
+			name: LOAD_SKILL_FILE_TOOL_NAME,
+			description:
+				"Read one bundled file from a skill you have already loaded with `load_skill` " +
+				"(a script under scripts/, a doc under references/, or an asset under assets/). " +
+				"Returns the file's text — or, for a binary asset, its base64 — for you to read " +
+				"and adapt. This tool runs nothing: a scripts/ file is not executed by calling " +
+				"this, you still carry out the work yourself, typically by translating the " +
+				"script into a standard-library `execute_code` call. A script that shells out " +
+				"to a native program (e.g. LibreOffice, pandoc) cannot run here either way — " +
+				"read it for the approach, then reimplement the parts you can in Python.",
+			parameters: {
+				type: "object",
+				properties: {
+					skill: {
+						type: "string",
+						description: "The skill's exact name, as used with load_skill.",
+					},
+					path: {
+						type: "string",
+						description:
+							"The bundled file's exact path, as listed under that skill's Bundled files.",
+					},
+				},
+				required: ["skill", "path"],
+			},
+		},
+	},
+	async execute(args, ctx) {
+		const skill = typeof args.skill === "string" ? args.skill.trim() : "";
+		const path = typeof args.path === "string" ? args.path.trim() : "";
+		if (!skill || !path) {
+			return { error: "Pass both `skill` (exact name) and `path` (exact, as listed)." };
+		}
+		const file = await findSkillFile(ctx.userId, skill, path);
+		if (!file) {
+			return {
+				error:
+					`No bundled file \`${path}\` on skill \`${skill}\`. Use \`load_skill\` first and ` +
+					"check the Bundled files list for the exact path.",
+			};
+		}
+		const header =
+			file.encoding === "base64"
+				? `# ${skill}: ${path} (binary, base64-encoded)`
+				: `# ${skill}: ${path}`;
+		return { resultText: `${header}\n\n${truncateSkillFileContent(file.content)}` };
 	},
 };
