@@ -11,7 +11,12 @@
  * for all skills are never injected, and there is nothing deeper in Phase 1.
  */
 
-import { listAdminSkills, findSkillBody, listEnabledUserSkills } from "./service";
+import {
+	listAdminSkills,
+	findSkillBody,
+	listEnabledDeploymentSkills,
+	listEnabledUserSkills,
+} from "./service";
 import { LOAD_SKILL_TOOL_NAME } from "./service";
 import type { ObjectId } from "mongodb";
 
@@ -71,11 +76,22 @@ export async function assembleSkillsContext(
 	userId: ObjectId | undefined,
 	userText: string
 ): Promise<{ preprompt?: string; mentioned: string[] }> {
-	const frontmatter: SkillFrontmatter[] = listAdminSkills().map((skill) => ({
-		name: skill.name,
-		description: skill.description,
-		owner: "admin" as const,
-	}));
+	// Deployment rows first (bootstrapped from the code seeds on first
+	// read, so no double-listing of seed + row), code seeds only for names
+	// with no row — the store being unreadable still leaves the catalogue.
+	const frontmatter: SkillFrontmatter[] = [];
+	try {
+		for (const row of await listEnabledDeploymentSkills()) {
+			frontmatter.push({ name: row.name, description: row.description, owner: "admin" });
+		}
+	} catch {
+		// listEnabledDeploymentSkills already warns; the code fallback below covers.
+	}
+	for (const skill of listAdminSkills()) {
+		if (!frontmatter.some((entry) => entry.name === skill.name)) {
+			frontmatter.push({ name: skill.name, description: skill.description, owner: "admin" });
+		}
+	}
 	if (userId) {
 		const userSkills = await listEnabledUserSkills(userId);
 		for (const skill of userSkills) {

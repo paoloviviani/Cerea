@@ -1,17 +1,33 @@
 /**
  * User skills: storage, validation, and the turn-time loading surface
- * (Phase 1, ADR 0072).
+ * (Phase 1, ADR 0072; deployment-scope management, ADR 0072 amendment).
  *
  * **Storage: Mongo, following the knowledge-base pattern of ADR 0070.**
  * Skills are per-user owned data with enable/disable state and CRUD through
  * an API — the same shape as `McpConnector` (definition beside its owner in
  * Mongo), not files: decision 5 rejected versioning, so there is no git-like
  * history to keep, and a live-read of one document per skill is exactly
- * "files = git" without a filesystem to synchronize. Admin seeds are the
- * exception: read-only shared definitions with no admin editor in v1, so
- * they live in code (`adminSkills.ts`), shaped like a `deployment`-scoped
+ * "files = git" without a filesystem to synchronize.
+ *
+ * **Scope flag, not a second system.** Admin skills live in this same
+ * `skills` collection with `scope: "deployment"` (readable by all users,
+ * writable only by an administrator — enforced server-side on every admin
+ * op, never trusted from the client), shaped like a `deployment`-scoped
  * connector whose sharing is trivially safe because a skill holds no
- * secrets.
+ * secrets. A document with no `scope` is one added before this existed and
+ * is treated as `user`, the safe direction (the alternative would silently
+ * publish somebody's personal skill to the whole deployment). User skills
+ * keep owner scope exactly as before: every owner-scoped query carries
+ * `scope: { $ne: "deployment" }`, which also matches documents with no
+ * scope field at all.
+ *
+ * **Seeds become bootstrap.** The three code definitions in `adminSkills.ts`
+ * stay the fallback source of truth, but on first read they are inserted as
+ * deployment-scope rows when absent (seed-once, idempotent, never
+ * overwriting an edited row, never duplicating); the panel manages DB rows
+ * thereafter. Turn-time resolution reads the DB rows first and falls back to
+ * code when the store cannot be read — retrieval never fails a turn — and
+ * `CHAT_SKILLS_DISABLED` filters by name regardless of source.
  *
  * **No execution here.** This module never touches the sandbox, the
  * `execute_code` tool, or any exec API: a skill body is text handed to the
@@ -90,22 +106,222 @@ export function adminSkillViews(): AdminSkillView[] {
 	}));
 }
 
+/**
+ * Scope predicate for owner-scoped queries. Matches `user` rows and rows
+ * written before `scope` existed alike: in Mongo, `$ne` also matches
+ * documents where the field is missing, so no migration is needed.
+ */
+const USER_SCOPE = { scope: { $ne: "deployment" as const } };
+
+let seedsEnsured = false;
+
+/** Test hook: run the seed-once bootstrap again next call. */
+export function resetSeedEnsured(): void {
+	seedsEnsured = false;
+}
+
+/**
+ * Seed-once bootstrap: insert the three code definitions as
+ * deployment-scope rows when absent. Idempotent — an existing row (possibly
+ * edited by an administrator) is never overwritten, and the unique
+ * `{scope, name}` index makes a raced double-insert a caught duplicate
+ * rather than a duplicate row. Runs once per process; turn-time callers
+ * that arrive before any listing still resolve through the code fallback
+ * below, so a fresh deployment answers turns correctly from boot.
+ */
+export async function ensureDeploymentSeeds(): Promise<void> {
+	if (seedsEnsured) return;
+	seedsEnsured = true;
+	for (const content of ADMIN_SKILL_CONTENTS) {
+		const parsed = parseSkill(content);
+		if (!isParsedSkill(parsed)) continue;
+		const existing = await collections.skills.findOne(
+			{ scope: "deployment", name: parsed.name },
+			{ projection: { _id: 1 } }
+		);
+		if (existing) continue;
+		const now = new Date();
+		try {
+			await collections.skills.insertOne({
+				_id: new ObjectId(),
+				userId: new ObjectId(),
+				scope: "deployment" as const,
+				name: parsed.name,
+				description: parsed.description,
+				content,
+				enabled: true,
+				createdAt: now,
+				updatedAt: now,
+			});
+		} catch (err) {
+			// A raced bootstrap inserting the same name: the row exists now,
+			// which is the outcome wanted. Anything else is real.
+			if (err instanceof Error && /duplicate key/i.test(err.message)) {
+				continue;
+			}
+			throw err;
+		}
+	}
+}
+
+/**
+ * Every deployment-scope row, bootstrapped first so the three seeds appear
+ * manageable rather than duplicated beside their code definitions — the
+ * panel manages DB rows thereafter, and code seeds stay the fallback source
+ * of truth, not a parallel catalogue. Kill-switched names are filtered by
+ * name regardless of source, exactly like the code seeds.
+ */
+export async function listDeploymentSkills(): Promise<Skill[]> {
+	await ensureDeploymentSeeds();
+	const disabled = adminDisabledSkillNames();
+	return collections.skills
+		.find({ scope: "deployment" })
+		.sort({ name: 1 })
+		.toArray()
+		.then((rows) => rows.filter((row) => !disabled.has(row.name)));
+}
+
+/** Enabled deployment rows for turn-time callers (kill-switch filtered). */
+export async function listEnabledDeploymentSkills(): Promise<Skill[]> {
+	try {
+		await ensureDeploymentSeeds();
+		const disabled = adminDisabledSkillNames();
+		const rows = await collections.skills
+			.find({ scope: "deployment", enabled: true })
+			.sort({ name: 1 })
+			.toArray();
+		return rows.filter((row) => !disabled.has(row.name));
+	} catch (err) {
+		logger.warn({ err: String(err) }, "[skills] deployment skill lookup failed");
+		return [];
+	}
+}
+
+/** One deployment row's body for the admin detail view (any signed-in user may read). */
+export async function getDeploymentSkill(id: ObjectId): Promise<Skill | null> {
+	await ensureDeploymentSeeds();
+	return collections.skills.findOne({ _id: id, scope: "deployment" });
+}
+
+/**
+ * Store one deployment-scope SKILL.md document. Same validation rules as
+ * user skills — invalid frontmatter is rejected with the logged reason,
+ * never stored. A name collision with an existing deployment row is an
+ * error naming the clash. The server's admin gate owns the permission;
+ * this function owns the scope.
+ */
+export async function createDeploymentSkill(actorId: ObjectId, content: string): Promise<Skill> {
+	await ensureDeploymentSeeds();
+	const parsed = parseSkill(content);
+	if (!isParsedSkill(parsed)) invalid(parsed.reason);
+	const existing = await collections.skills.findOne(
+		{ scope: "deployment", name: parsed.name },
+		{ projection: { _id: 1 } }
+	);
+	if (existing) invalid(`there is already a deployment skill named \`${parsed.name}\``);
+	const now = new Date();
+	const skill: Skill = {
+		_id: new ObjectId(),
+		userId: actorId,
+		scope: "deployment",
+		name: parsed.name,
+		description: parsed.description,
+		content,
+		enabled: true,
+		createdAt: now,
+		updatedAt: now,
+	};
+	try {
+		await collections.skills.insertOne(skill);
+	} catch (err) {
+		if (err instanceof Error && /duplicate key/i.test(err.message)) {
+			invalid(`there is already a deployment skill named \`${parsed.name}\``);
+		}
+		throw err;
+	}
+	return skill;
+}
+
+/**
+ * Edit a deployment row's body and/or enabled flag — disabling is a toggle,
+ * not a delete. Replacement bodies are validated like a create; a rename
+ * that collides with another deployment row is rejected like a create.
+ */
+export async function updateDeploymentSkill(id: ObjectId, update: SkillUpdate): Promise<Skill> {
+	const skill = await collections.skills.findOne({ _id: id, scope: "deployment" });
+	if (!skill) invalid("skill not found");
+	const set: Partial<Skill> = { updatedAt: new Date() };
+	if (typeof update.enabled === "boolean") set.enabled = update.enabled;
+	if (update.content !== undefined) {
+		const parsed = parseSkill(update.content);
+		if (!isParsedSkill(parsed)) invalid(parsed.reason);
+		if (parsed.name !== skill.name) {
+			const clash = await collections.skills.findOne(
+				{ scope: "deployment", name: parsed.name },
+				{ projection: { _id: 1 } }
+			);
+			if (clash) invalid(`there is already a deployment skill named \`${parsed.name}\``);
+			set.name = parsed.name;
+		}
+		set.description = parsed.description;
+		set.content = update.content;
+	}
+	await collections.skills.updateOne({ _id: id, scope: "deployment" }, { $set: set });
+	const updated = await collections.skills.findOne({ _id: id, scope: "deployment" });
+	if (!updated) invalid("skill not found");
+	return updated;
+}
+
+export async function deleteDeploymentSkill(id: ObjectId): Promise<boolean> {
+	const result = await collections.skills.deleteOne({ _id: id, scope: "deployment" });
+	return result.deletedCount === 1;
+}
+
 /** Every enabled skill this turn may see: the owner's, plus the admin seeds. */
 export async function listEnabledUserSkills(userId: ObjectId): Promise<Skill[]> {
-	return collections.skills.find({ userId, enabled: true }).sort({ name: 1 }).toArray();
+	return collections.skills
+		.find({ userId, enabled: true, ...USER_SCOPE })
+		.sort({ name: 1 })
+		.toArray();
 }
 
 /** All of one owner's skills, on or off, for the manager screen. */
 export async function listUserSkills(userId: ObjectId): Promise<Skill[]> {
-	return collections.skills.find({ userId }).sort({ name: 1 }).toArray();
+	return collections.skills
+		.find({ userId, ...USER_SCOPE })
+		.sort({ name: 1 })
+		.toArray();
 }
 
 /** Whether the turn has anything to advertise: any seed, or one enabled skill. */
 export async function skillsAvailable(userId?: ObjectId): Promise<boolean> {
 	if (listAdminSkills().length > 0) return true;
-	if (!userId) return false;
-	const count = await collections.skills.countDocuments({ userId, enabled: true }, { limit: 1 });
-	return count > 0;
+	try {
+		await ensureDeploymentSeeds();
+		const disabled = adminDisabledSkillNames();
+		const count = await collections.skills.countDocuments(
+			{
+				$or: [
+					{ scope: "deployment", enabled: true, name: { $nin: [...disabled] } },
+					...(userId ? [{ userId, enabled: true, ...USER_SCOPE }] : []),
+				],
+			},
+			{ limit: 1 }
+		);
+		return count > 0;
+	} catch {
+		if (!userId) return false;
+		try {
+			const count = await collections.skills.countDocuments(
+				{ userId, enabled: true, ...USER_SCOPE },
+				{ limit: 1 }
+			);
+			return count > 0;
+		} catch (err) {
+			logger.warn({ err: String(err) }, "[skills] availability check failed");
+			return false;
+		}
+	}
 }
 
 function toSkill(userId: ObjectId, parsed: ParsedSkill, content: string): Skill {
@@ -135,7 +351,7 @@ export async function createSkill(userId: ObjectId, content: string): Promise<Sk
 	const parsed = parseSkill(content);
 	if (!isParsedSkill(parsed)) invalid(parsed.reason);
 	const existing = await collections.skills.findOne(
-		{ userId, name: parsed.name },
+		{ userId, name: parsed.name, ...USER_SCOPE },
 		{ projection: { _id: 1 } }
 	);
 	if (existing) invalid(`you already have a skill named \`${parsed.name}\``);
@@ -159,7 +375,7 @@ export async function updateSkill(
 	id: ObjectId,
 	update: SkillUpdate
 ): Promise<Skill> {
-	const skill = await collections.skills.findOne({ _id: id, userId });
+	const skill = await collections.skills.findOne({ _id: id, userId, ...USER_SCOPE });
 	if (!skill) invalid("skill not found");
 	const set: Partial<Skill> = { updatedAt: new Date() };
 	if (typeof update.enabled === "boolean") set.enabled = update.enabled;
@@ -168,7 +384,7 @@ export async function updateSkill(
 		if (!isParsedSkill(parsed)) invalid(parsed.reason);
 		if (parsed.name !== skill.name) {
 			const clash = await collections.skills.findOne(
-				{ userId, name: parsed.name },
+				{ userId, name: parsed.name, ...USER_SCOPE },
 				{ projection: { _id: 1 } }
 			);
 			if (clash) invalid(`you already have a skill named \`${parsed.name}\``);
@@ -177,14 +393,14 @@ export async function updateSkill(
 		set.description = parsed.description;
 		set.content = update.content;
 	}
-	await collections.skills.updateOne({ _id: id, userId }, { $set: set });
-	const updated = await collections.skills.findOne({ _id: id, userId });
+	await collections.skills.updateOne({ _id: id, userId, ...USER_SCOPE }, { $set: set });
+	const updated = await collections.skills.findOne({ _id: id, userId, ...USER_SCOPE });
 	if (!updated) invalid("skill not found");
 	return updated;
 }
 
 export async function deleteSkill(userId: ObjectId, id: ObjectId): Promise<boolean> {
-	const result = await collections.skills.deleteOne({ _id: id, userId });
+	const result = await collections.skills.deleteOne({ _id: id, userId, ...USER_SCOPE });
 	return result.deletedCount === 1;
 }
 
@@ -198,8 +414,8 @@ export interface ResolvedSkillBody {
 
 /**
  * One skill's body, by name: the owner's enabled skill first, then the
- * admin seeds. Unknown or disabled names resolve to undefined — silently,
- * never an error to the user.
+ * deployment rows, then the code seeds. Unknown, disabled, or kill-switched
+ * names resolve to undefined — silently, never an error to the user.
  */
 export async function findSkillBody(
 	userId: ObjectId | undefined,
@@ -207,7 +423,12 @@ export async function findSkillBody(
 ): Promise<ResolvedSkillBody | undefined> {
 	if (userId) {
 		try {
-			const skill = await collections.skills.findOne({ userId, name, enabled: true });
+			const skill = await collections.skills.findOne({
+				userId,
+				name,
+				enabled: true,
+				...USER_SCOPE,
+			});
 			if (skill) {
 				return {
 					owner: "user",
@@ -219,6 +440,25 @@ export async function findSkillBody(
 		} catch (err) {
 			logger.warn({ err: String(err), name }, "[skills] user skill lookup failed");
 		}
+	}
+	try {
+		await ensureDeploymentSeeds();
+		const row = await collections.skills.findOne({
+			scope: "deployment",
+			name,
+			enabled: true,
+		});
+		if (row && !adminDisabledSkillNames().has(row.name)) {
+			return {
+				owner: "admin",
+				name: row.name,
+				description: row.description,
+				body: skillBody(row.content) ?? row.content,
+			};
+		}
+		if (row) return undefined;
+	} catch (err) {
+		logger.warn({ err: String(err), name }, "[skills] deployment skill lookup failed");
 	}
 	const admin = listAdminSkills().find((seed) => seed.name === name);
 	if (admin) {

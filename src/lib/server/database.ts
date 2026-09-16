@@ -176,8 +176,10 @@ export class Database {
 		// flows (ADR 0064). Primary read preference throughout: a callback
 		// reads back the state it just wrote, and secondary lag there is an
 		// expired sign-in for something that worked.
-		// User skills, owner-only with no sharing (ADR 0072). Admin seeds live
-		// in code, not here: read-only definitions with no admin editor in v1.
+		// User skills, owner-only with no sharing (ADR 0072), plus the
+		// deployment-scope rows the admin panel manages in the same collection
+		// (readable by all, writable only by an administrator): one document
+		// per skill, code seeds bootstrapped as rows on first read.
 		const skills = db.collection<Skill>("skills");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
@@ -317,6 +319,15 @@ export class Database {
 		skills
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for skills by userId"));
+		// Deployment-scope names are unique across the deployment: two
+		// administrators must not publish two different procedures under one
+		// `@name`. Partial, so the per-owner user rows above are untouched.
+		skills
+			.createIndex(
+				{ scope: 1, name: 1 },
+				{ unique: true, partialFilterExpression: { scope: "deployment" } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for deployment skills by name"));
 		// Serves "which projects are shared with me", which is a query by the
 		// viewer's own email or one of their group names — both of them values
 		// inside the same array, which is why one multikey index covers it.
