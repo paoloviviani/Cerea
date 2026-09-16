@@ -35,7 +35,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 				"default-src 'none'; script-src 'none'; style-src 'none'; sandbox;",
 			"Content-Disposition": `attachment; filename="${file.name.replace(/[\r\n"]/g, "")}"`,
 			"Content-Length": file.buffer.length.toString(),
-			"Accept-Range": "bytes",
+			"Accept-Ranges": "bytes",
 		},
 	});
 };
