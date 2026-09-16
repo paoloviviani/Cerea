@@ -221,11 +221,31 @@ describe("the tool result a resumed code turn reads", () => {
 		expect(text).not.toContain("Result:");
 	});
 
-	it("falls back to a fence when the browser never answered", () => {
+	it("falls back to a plain fence and names backgrounding when the browser never answered", () => {
 		const text = codeResumeResultText(park({ outcome: undefined }), false);
-		expect(text).toContain("The execution environment was unavailable");
+		expect(text).toContain("gave no answer before the deadline");
+		expect(text).toContain("suspending the app");
 		expect(text).toContain("Do NOT claim any execution result or file");
-		expect(text).toContain("present the code as a code block");
+		expect(text).toContain("```python code block with no `title=`");
+		expect(text).not.toContain("Run button");
+		expect(text).toContain("keeping the app in the foreground");
+	});
+
+	it("reports a genuine sandbox failure (e.g. a worker load error) distinctly from no answer", () => {
+		const text = codeResumeResultText(
+			park({
+				outcome: {
+					ok: false,
+					stdout: "",
+					stderr: "",
+					error: "the Python runtime failed to load: 404 fetching pyodide.mjs",
+				},
+			}),
+			false
+		);
+		expect(text).toContain("Execution finished with an error.");
+		expect(text).toContain("the Python runtime failed to load");
+		expect(text).not.toContain("gave no answer before the deadline");
 	});
 
 	it("warns about an expired session on the resumed round", () => {
