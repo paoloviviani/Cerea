@@ -24,6 +24,22 @@ export interface Skill extends Timestamps {
 	_id: ObjectId;
 	/** Whose skill this is. Owner-only: no sharing, no publish flow (Phase 1). */
 	userId: User["_id"];
+	/**
+	 * Whose skill this is.
+	 *
+	 * `user` — one person's, visible and editable only by them. The original
+	 * shape, and still the default: a document with no `scope` is one added
+	 * before this existed and is treated as `user`.
+	 *
+	 * `deployment` — an administrator's, readable by everybody and writable
+	 * only by an administrator (enforced server-side on every admin op, never
+	 * trusted from the client). The definition is shared, and the sharing is
+	 * trivially safe because a skill holds no secrets — it is instructions,
+	 * not credentials. `userId` then records only which administrator added
+	 * it, kept because "who put this here" is asked about something every
+	 * account reads.
+	 */
+	scope?: "user" | "deployment";
 	/** From frontmatter. Unique per owner. */
 	name: string;
 	/** From frontmatter. What the model matches against. */
