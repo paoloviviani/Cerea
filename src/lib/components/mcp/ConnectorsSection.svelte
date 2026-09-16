@@ -444,9 +444,12 @@
 					     settings hold *defaults*, a chat holds *per-chat
 					     state*. -->
 					<div
-						class="shrink-0 pt-0.5"
+						class="flex shrink-0 items-center gap-2 pt-0.5"
 						title={connector.connected ? "On for new chats" : "Sign in first"}
 					>
+						<span class="text-xs text-gray-600 dark:text-gray-400">
+							{connector.connected ? "On by default in new chats" : "Sign in first"}
+						</span>
 						<Switch
 							name={`use-connector-${connector.id}`}
 							disabled={!connector.connected}

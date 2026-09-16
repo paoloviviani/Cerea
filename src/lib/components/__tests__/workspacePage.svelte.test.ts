@@ -10,6 +10,7 @@ import WorkspacePanel from "$lib/components/workspace/WorkspacePanel.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { writable } from "svelte/store";
+import { connectors } from "$lib/stores/mcpConnectors";
 
 // The client setup mocks `$app/*` but not `$env/dynamic/*`: the MCP store the
 // tab's manager reads pulls a deployment name off the environment at module
@@ -134,5 +135,45 @@ describe("the workspace panel", () => {
 		expect(
 			screen.baseElement.querySelector('a[href="/workspace?tab=models"][aria-current]')
 		).toBeNull();
+	});
+
+	it("the MCP tab labels the per-connector new-chat default switch", async () => {
+		// The connectors store is module state shared with the cases above,
+		// which all stub an empty list: serve one connected connector here so
+		// its card (and label) renders, then put the empty list back.
+		connectors.set([]);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.includes("/api/v2/mcp/connectors")) {
+					return Response.json({
+						data: [
+							{
+								id: "conn-a",
+								name: "Notion",
+								url: "https://mcp.notion.com/mcp",
+								auth: "none",
+								scope: "user",
+								manageable: false,
+								connected: true,
+								canAuthorize: false,
+								updatedAt: new Date().toISOString(),
+							},
+						],
+					});
+				}
+				if (url.includes("/api/mcp/servers")) return Response.json([]);
+				return Response.json({ data: [] });
+			})
+		);
+		const screen = mountWorkspace("?tab=mcp");
+
+		await expect
+			.element(screen.getByText("On by default in new chats", { exact: true }))
+			.toBeInTheDocument();
+		screen.unmount();
+		document.getElementById("app")?.remove();
+		connectors.set([]);
 	});
 });
