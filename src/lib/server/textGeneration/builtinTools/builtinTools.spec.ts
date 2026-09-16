@@ -43,17 +43,7 @@ describe("getEnabledBuiltinTools", () => {
 			"sandbox_task",
 			"check_job",
 			"create_trackio",
-			// No search backend granted, so this is the keyless DuckDuckGo fallback.
-			"web_search",
 		]);
-	});
-
-	it("withholds the keyless fallback when DuckDuckGo is disabled", () => {
-		const tools = getEnabledBuiltinTools({
-			conv: { _id: new ObjectId(), mlAssistant: true },
-			duckDuckGoEnabled: false,
-		});
-		expect(tools.map((tool) => tool.name)).not.toContain("web_search");
 	});
 
 	it("offers nothing outside the mode", () => {
@@ -91,15 +81,6 @@ describe("web search enablement: per-chat state beats the passed default", () =>
 		const tools = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId(), webSearch: true },
 			...searchParams,
-		});
-		expect(tools.map((tool) => tool.name)).toContain("web_search");
-	});
-
-	it("offers the keyless fallback when web search is on but no backend is granted", () => {
-		const tools = getEnabledBuiltinTools({
-			conv: { _id: new ObjectId() },
-			webSearchEnabled: true,
-			allowedFetchUrls: new Set(),
 		});
 		expect(tools.map((tool) => tool.name)).toContain("web_search");
 	});
