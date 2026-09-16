@@ -192,7 +192,11 @@
 	// this component's tree) can render its own export button off the same
 	// state, rather than duplicating the canExport derivation.
 	$effect(() => {
-		exportConversationStore.set({ canExport: Boolean(canExport), loading, run: exportConversation });
+		exportConversationStore.set({
+			canExport: Boolean(canExport),
+			loading,
+			run: exportConversation,
+		});
 	});
 
 	// Feature announcement toast: home screen only, gone as soon as a chat starts.
