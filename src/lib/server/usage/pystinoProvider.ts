@@ -5,12 +5,13 @@
  * for the same reason `projects.ts` retrieval does: seeing anything wider
  * than what this person may see would be a leak, not a convenience).
  *
- * Three caller-scoped endpoints, no admin needed — the gateway already
- * filters each to what the token may see:
- *   - `GET /me/limits`  → one quota rule per row (ADR 0009: all must pass,
- *     so every rule renders, never a single "binding" one).
- *   - `GET /me/usage`   → the caller's own rolling spend.
- *   - `GET /me/usage/groups` → per-group spend for the caller's groups.
+ * One caller-scoped endpoint, no admin needed — the gateway filters it to what
+ * the token may see (ADR 0074): `GET /v1/pystino/usage` returns the caller's
+ * quota rules, own spend and per-group spend as a single document, so the tab
+ * costs one round trip rather than three. Bearer-authenticated and off the
+ * OpenAI-standard paths, so it works cross-origin (a token travels; a cookie
+ * would not) — the reason this is not the browser calling `/api/me/*` directly.
+ * Quota rules all render (ADR 0009: all must pass), never a single "binding" one.
  */
 
 import { config } from "$lib/server/config";
@@ -21,8 +22,11 @@ import type { UsageContext, UsageEntry, UsageProvider, UsageReport, UsageSection
 /** The Pystino console, same origin (the OAuth flow already routes through `/console/login`). */
 const CONSOLE_PATH = "/console";
 
-interface Page<T> {
-	data: T[];
+/** The single `GET /v1/pystino/usage` document (ADR 0074). */
+interface PystinoUsageBundle {
+	limits: MyLimitResponse[];
+	usage: UsageSummaryResponse;
+	groups: Record<string, UsageSummaryResponse>;
 }
 
 interface MyLimitResponse {
@@ -119,22 +123,18 @@ export const pystinoUsageProvider: UsageProvider = {
 		}
 
 		try {
-			const [limits, usage, groupUsage] = await Promise.all([
-				gateway.get<Page<MyLimitResponse>>(token, "me/limits"),
-				gateway.get<UsageSummaryResponse>(token, "me/usage"),
-				gateway.get<Record<string, UsageSummaryResponse>>(token, "me/usage/groups"),
-			]);
+			const bundle = await gateway.get<PystinoUsageBundle>(token, "pystino/usage");
 
 			const quotas: UsageSection = {
 				title: "Quotas",
-				entries: (limits.data ?? []).map(limitEntry),
+				entries: (bundle.limits ?? []).map(limitEntry),
 			};
 
 			const spend: UsageSection = {
 				title: "Spend",
 				entries: [
-					...summaryEntries("You", usage, "user"),
-					...Object.entries(groupUsage ?? {}).flatMap(([groupName, summary]) =>
+					...summaryEntries("You", bundle.usage, "user"),
+					...Object.entries(bundle.groups ?? {}).flatMap(([groupName, summary]) =>
 						summaryEntries(groupName, summary, "group")
 					),
 				],

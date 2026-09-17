@@ -24,30 +24,40 @@ vi.mock("$lib/server/config", () => ({
 
 const { pystinoUsageProvider } = await import("./pystinoProvider");
 
-const limitsPage = {
-	data: [
-		{
-			id: "limit-1",
-			name: "Monthly tokens",
-			scope: "user" as const,
-			metric: "tokens",
-			window_label: "per month",
-			limit_value: "1000.00",
-			current_value: "250.00",
-			notification_thresholds: [80],
-		},
-		{
-			id: "limit-2",
-			name: "Team requests",
-			scope: "group" as const,
-			metric: "requests",
-			window_label: "per day",
-			limit_value: "500.00",
-			current_value: null,
-			notification_thresholds: [],
-		},
-	],
+const limitsList = [
+	{
+		id: "limit-1",
+		name: "Monthly tokens",
+		scope: "user" as const,
+		metric: "tokens",
+		window_label: "per month",
+		limit_value: "1000.00",
+		current_value: "250.00",
+		notification_thresholds: [80],
+	},
+	{
+		id: "limit-2",
+		name: "Team requests",
+		scope: "group" as const,
+		metric: "requests",
+		window_label: "per day",
+		limit_value: "500.00",
+		current_value: null,
+		notification_thresholds: [],
+	},
+];
+
+/** The single `GET /v1/pystino/usage` document (ADR 0074). */
+type Bundle = {
+	limits: typeof limitsList;
+	usage: typeof usageSummary;
+	groups: Record<string, typeof usageSummary>;
 };
+const mockUsage = (bundle: Bundle) =>
+	gatewayGetMock.mockImplementation(async (_token: string, path: string) => {
+		if (path === "pystino/usage") return bundle;
+		throw new Error(`unexpected path ${path}`);
+	});
 
 const usageSummary = {
 	window_seconds: 86400,
@@ -100,13 +110,8 @@ describe("pystinoUsageProvider.getReport", () => {
 		expect(report.sections[0].error).toMatch(/OIDC session/);
 	});
 
-	it("maps /me/limits into one bar entry per rule, both scopes", async () => {
-		gatewayGetMock.mockImplementation(async (_token: string, path: string) => {
-			if (path === "me/limits") return limitsPage;
-			if (path === "me/usage") return usageSummary;
-			if (path === "me/usage/groups") return {};
-			throw new Error(`unexpected path ${path}`);
-		});
+	it("maps limits into one bar entry per rule, both scopes", async () => {
+		mockUsage({ limits: limitsList, usage: usageSummary, groups: {} });
 
 		const report = await pystinoUsageProvider.getReport({
 			locals: { token: "bearer-token" } as App.Locals,
@@ -130,12 +135,7 @@ describe("pystinoUsageProvider.getReport", () => {
 	});
 
 	it("keeps quota rules 'all must pass': every rule listed, never a single binding one", async () => {
-		gatewayGetMock.mockImplementation(async (_token: string, path: string) => {
-			if (path === "me/limits") return limitsPage;
-			if (path === "me/usage") return usageSummary;
-			if (path === "me/usage/groups") return {};
-			throw new Error(`unexpected path ${path}`);
-		});
+		mockUsage({ limits: limitsList, usage: usageSummary, groups: {} });
 
 		const report = await pystinoUsageProvider.getReport({
 			locals: { token: "bearer-token" } as App.Locals,
@@ -147,13 +147,8 @@ describe("pystinoUsageProvider.getReport", () => {
 		]);
 	});
 
-	it("maps /me/usage and /me/usage/groups into stat entries plus the console link", async () => {
-		gatewayGetMock.mockImplementation(async (_token: string, path: string) => {
-			if (path === "me/limits") return { data: [] };
-			if (path === "me/usage") return usageSummary;
-			if (path === "me/usage/groups") return groupUsage;
-			throw new Error(`unexpected path ${path}`);
-		});
+	it("maps usage and group spend into stat entries plus the console link", async () => {
+		mockUsage({ limits: [], usage: usageSummary, groups: groupUsage });
 
 		const report = await pystinoUsageProvider.getReport({
 			locals: { token: "bearer-token" } as App.Locals,
