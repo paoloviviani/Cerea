@@ -55,23 +55,21 @@ export interface Settings extends Timestamps {
 	webSearchEnabled?: boolean;
 
 	/**
-	 * How `web_fetch` treats a URL neither the user nor `web_search` supplied.
-	 * Absent (the default) keeps today's behavior: the tool refuses outright,
-	 * and the model must search first or ask the user for the link.
+	 * The one global policy for model-initiated tool calls with external
+	 * reach or side effects (ADR 0075): today that's `web_fetch` and MCP
+	 * tools. Web search carries its own explicit button; `execute_code` runs
+	 * client-side in the person's own browser. Absent (the default) is
+	 * `manual`.
 	 *
-	 * - `"ask-domain"`: park the turn and ask the user once per domain,
-	 *   either for this fetch only or for the rest of the conversation
-	 *   (`Conversation.approvedFetchDomains`).
-	 * - `"auto-verified"`: the harness silently searches for the URL and
-	 *   fetches it only if a fresh result (or a reviewed same-resource
-	 *   equivalent, e.g. a GitHub blob URL and its raw counterpart) actually
-	 *   names it — never on the model's say-so. See `fetchVerification.ts`.
+	 * - `"always-allow"`: gated calls run without asking.
+	 * - `"manual"`: every gated call parks on an approval card (accept once /
+	 *   accept for the conversation / deny the call). Conversation-lifetime
+	 *   grants accumulate per tool on `Conversation.approvedTools`.
 	 *
-	 * Either way, only user-authored or search-surfaced URLs ever start
-	 * trusted; this setting only changes what closes the gap for everything
-	 * else, and the SSRF allowlist underneath (`urlSafety.ts`) is unaffected.
+	 * Overridable per chat at the composer; per call the resolution is chat
+	 * override, else this setting, else `manual`.
 	 */
-	webFetchPolicy?: "ask-domain" | "auto-verified";
+	toolApprovalPolicy?: "always-allow" | "manual";
 
 	/**
 	 * User opt-in (default off) to let the code sandbox's micropip fetch

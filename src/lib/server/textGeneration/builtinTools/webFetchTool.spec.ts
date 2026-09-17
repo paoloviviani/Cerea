@@ -4,22 +4,12 @@ import type { BuiltinToolResult } from "./types";
 import type { BuiltinToolContext } from "./types";
 
 const fetchPage = vi.fn();
-const openFetchApprovalPrompt = vi.fn();
-const verifyUrlBySearch = vi.fn();
-const turnAwaitingInput = vi.fn();
 
 vi.mock("$lib/server/fetching", () => ({ fetchPage }));
-vi.mock("./fetchApproval", () => ({
-	openFetchApprovalPrompt,
-	FETCH_APPROVAL_SCOPE_FIELD: "scope",
-	FETCH_APPROVAL_ONCE: "once",
-	FETCH_APPROVAL_CONVERSATION: "conversation",
-}));
-vi.mock("./fetchVerification", () => ({ verifyUrlBySearch }));
-vi.mock("$lib/server/generation/turnState", () => ({ turnAwaitingInput }));
 
 const {
 	createWebFetchBuiltin,
+	webFetchNeedsApproval,
 	MAX_FETCHES_PER_TURN,
 	MAX_FETCH_RESULT_CHARS,
 	readablePageText,
@@ -29,7 +19,6 @@ const {
 describe("web_fetch builtin", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		turnAwaitingInput.mockResolvedValue({ type: "turn-state" });
 	});
 
 	it("offers a separate, explicit page-reading function", () => {
@@ -136,116 +125,73 @@ function fakeContext(overrides: Partial<BuiltinToolContext> = {}): BuiltinToolCo
 	};
 }
 
-describe("web_fetch: ask-per-domain policy", () => {
-	beforeEach(() => {
-		vi.resetAllMocks();
-		turnAwaitingInput.mockResolvedValue({ type: "turn-state" });
+describe("webFetchNeedsApproval", () => {
+	it("needs no approval for a URL already trusted by provenance", () => {
+		expect(
+			webFetchNeedsApproval(
+				{ url: "https://known.test/page" },
+				new Set(["https://known.test/page"])
+			)
+		).toBe(false);
 	});
 
-	it("parks the turn on an unapproved domain instead of refusing outright", async () => {
-		openFetchApprovalPrompt.mockResolvedValue({ opened: true });
-		const ctx = fakeContext();
-		const tool = createWebFetchBuiltin({ allowedUrls: new Set(), policy: "ask-domain" });
+	it("needs approval for a URL nobody supplied", () => {
+		expect(webFetchNeedsApproval({ url: "https://unseen.test/page" }, new Set())).toBe(true);
+	});
 
-		const result = await tool.execute({ url: "https://unseen.test/page" }, ctx);
+	it("needs approval for an unparseable URL rather than silently passing it through", () => {
+		expect(webFetchNeedsApproval({ url: "not a url" }, new Set())).toBe(true);
+	});
+});
 
-		expect(result).toEqual({ awaitingInput: true });
-		expect(openFetchApprovalPrompt).toHaveBeenCalledWith(
-			expect.objectContaining({ url: "https://unseen.test/page", toolCallId: "call-1" })
+describe("web_fetch: tool-approval gate (ADR 0075)", () => {
+	beforeEach(() => vi.resetAllMocks());
+
+	it("refuses an untrusted URL that reached execute() without being cleared by the gate", async () => {
+		// The gate (toolInvocation.ts) is what opens the approval prompt; by the
+		// time execute() runs for an untrusted URL, it must already be cleared —
+		// this is the defensive fallback for anything that reaches it otherwise.
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set() });
+		const result = await tool.execute({ url: "https://unseen.test/page" }, fakeContext());
+		expect(result).toEqual(
+			expect.objectContaining({ error: expect.stringContaining("not approved") })
 		);
-		expect(turnAwaitingInput).toHaveBeenCalledWith(
-			expect.objectContaining({ conversationId: ctx.conversationId, messageId: "message-1" })
-		);
-		expect(ctx.elicitationSink?.emit).toHaveBeenCalledWith({ type: "turn-state" });
 		expect(fetchPage).not.toHaveBeenCalled();
 	});
 
-	it("fetches without prompting once the domain is approved for the conversation", async () => {
-		const url = "https://known.test/page";
+	it("fetches an untrusted URL once the conversation has approved web_fetch", async () => {
+		const url = "https://known-later.test/page";
 		fetchPage.mockResolvedValue({
 			url,
-			title: "Known",
+			title: "Known later",
 			content: "<p>hi</p>",
 			contentType: "text/html",
 			backend: "playwright",
 		});
 		const tool = createWebFetchBuiltin({
 			allowedUrls: new Set(),
-			policy: "ask-domain",
-			approvedDomains: new Set(["known.test"]),
+			approvedTools: new Set(["web_fetch"]),
 		});
 
 		const result = await tool.execute({ url }, fakeContext());
-
 		expect(result).toEqual(expect.objectContaining({ resultText: expect.stringContaining("hi") }));
-		expect(openFetchApprovalPrompt).not.toHaveBeenCalled();
 	});
 
-	it("refuses without parking when there is no chat to ask", async () => {
-		const tool = createWebFetchBuiltin({ allowedUrls: new Set(), policy: "ask-domain" });
-		const result = await tool.execute(
-			{ url: "https://unseen.test/page" },
-			fakeContext({ elicitationSink: undefined })
-		);
-		expect(result).toEqual(expect.objectContaining({ error: expect.stringContaining("no chat") }));
-		expect(openFetchApprovalPrompt).not.toHaveBeenCalled();
-	});
-});
-
-describe("web_fetch: auto-fetch with verification policy", () => {
-	beforeEach(() => vi.resetAllMocks());
-
-	it("fetches once a fresh search verifies the URL, never on the model's say-so alone", async () => {
-		verifyUrlBySearch.mockResolvedValue({ matched: true });
-		const url = "https://unseen.test/page";
+	it("fetches an untrusted URL without a grant when the policy is always-allow", async () => {
+		const url = "https://always.test/page";
 		fetchPage.mockResolvedValue({
 			url,
-			title: "Found",
-			content: "<p>content</p>",
+			title: "Always",
+			content: "<p>hi</p>",
 			contentType: "text/html",
 			backend: "playwright",
 		});
-		const allowedUrls = new Set<string>();
 		const tool = createWebFetchBuiltin({
-			allowedUrls,
-			policy: "auto-verified",
-			verificationToken: "token",
+			allowedUrls: new Set(),
+			toolApprovalPolicy: "always-allow",
 		});
 
 		const result = await tool.execute({ url }, fakeContext());
-
-		expect(verifyUrlBySearch).toHaveBeenCalledWith({ url, token: "token" });
-		expect(result).toEqual(
-			expect.objectContaining({ resultText: expect.stringContaining("content") })
-		);
-		expect(allowedUrls.has(url)).toBe(true);
-	});
-
-	it("fails closed with the harness's evidence when verification finds no match", async () => {
-		verifyUrlBySearch.mockResolvedValue({
-			matched: false,
-			evidence: "Searched for: https://unseen.test/page\nResults:\n(no results)",
-		});
-		const tool = createWebFetchBuiltin({
-			allowedUrls: new Set(),
-			policy: "auto-verified",
-			verificationToken: "token",
-		});
-
-		const result = await tool.execute({ url: "https://unseen.test/page" }, fakeContext());
-
-		expect(result).toEqual(
-			expect.objectContaining({ error: expect.stringContaining("Searched for:") })
-		);
-		expect(fetchPage).not.toHaveBeenCalled();
-	});
-
-	it("refuses without searching when there is no verification credential", async () => {
-		const tool = createWebFetchBuiltin({ allowedUrls: new Set(), policy: "auto-verified" });
-		const result = await tool.execute({ url: "https://unseen.test/page" }, fakeContext());
-		expect(result).toEqual(
-			expect.objectContaining({ error: expect.stringContaining("no search credential") })
-		);
-		expect(verifyUrlBySearch).not.toHaveBeenCalled();
+		expect(result).toEqual(expect.objectContaining({ resultText: expect.stringContaining("hi") }));
 	});
 });

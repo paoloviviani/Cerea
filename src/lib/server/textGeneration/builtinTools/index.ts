@@ -39,10 +39,10 @@ export function getEnabledBuiltinTools(params: {
 	webSearchEnabled?: boolean;
 	/** URLs from user messages; search results join this set during the run. */
 	allowedFetchUrls?: Set<string>;
-	/** How web_fetch treats a URL nobody supplied. Absent keeps it refusing outright. */
-	webFetchPolicy?: "ask-domain" | "auto-verified";
-	/** Domains this conversation has already approved under the "ask-domain" policy. */
-	approvedFetchDomains?: Set<string>;
+	/** The global tool-approval policy (ADR 0075). Absent means `manual`. */
+	toolApprovalPolicy?: "always-allow" | "manual";
+	/** Tools this conversation has already approved (server-qualified names for MCP). */
+	approvedTools?: Set<string>;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -105,9 +105,8 @@ export function getEnabledBuiltinTools(params: {
 		tools.push(
 			createWebFetchBuiltin({
 				allowedUrls: params.allowedFetchUrls,
-				policy: params.webFetchPolicy,
-				approvedDomains: params.approvedFetchDomains,
-				verificationToken: params.token,
+				toolApprovalPolicy: params.toolApprovalPolicy,
+				approvedTools: params.approvedTools,
 			})
 		);
 	}

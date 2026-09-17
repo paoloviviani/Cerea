@@ -92,6 +92,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 				: undefined,
 		deployedSpaces: "deployedSpaces" in conversation ? conversation.deployedSpaces : undefined,
 		webSearch: "webSearch" in conversation ? conversation.webSearch : undefined,
+		toolApprovalOverride:
+			"toolApprovalOverride" in conversation ? conversation.toolApprovalOverride : undefined,
 		projectId:
 			"projectId" in conversation && conversation.projectId
 				? conversation.projectId.toString()
@@ -130,6 +132,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const title = body?.title as string | undefined;
 	const model = body?.model as string | undefined;
 	const webSearch = body?.webSearch as boolean | undefined;
+	const toolApprovalOverride = body?.toolApprovalOverride as "always-allow" | "manual" | undefined;
 	const mlBudgetTotalUsd = body?.mlBudgetTotalUsd as number | undefined;
 
 	if (title !== undefined) {
@@ -144,6 +147,14 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 	if (webSearch !== undefined && typeof webSearch !== "boolean") {
 		error(400, "webSearch must be a boolean");
+	}
+
+	if (
+		toolApprovalOverride !== undefined &&
+		toolApprovalOverride !== "always-allow" &&
+		toolApprovalOverride !== "manual"
+	) {
+		error(400, 'toolApprovalOverride must be "always-allow" or "manual"');
 	}
 
 	if (mlBudgetTotalUsd !== undefined) {
@@ -184,6 +195,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			title === undefined &&
 			model === undefined &&
 			webSearch === undefined &&
+			toolApprovalOverride === undefined &&
 			knowledgeBaseIds === undefined
 		) {
 			return superjsonResponse({ success: true });
@@ -198,6 +210,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 			title,
 			model,
 			...(webSearch !== undefined ? { webSearch } : {}),
+			...(toolApprovalOverride !== undefined ? { toolApprovalOverride } : {}),
 			...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}),
 		}
 	);

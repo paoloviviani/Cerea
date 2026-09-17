@@ -63,14 +63,22 @@ export interface Conversation extends Timestamps {
 	webSearch?: boolean;
 
 	/**
-	 * Domains the user has approved fetching from for the rest of this
-	 * conversation, under the "ask per domain" web-fetch policy
-	 * (`Settings.webFetchPolicy === "ask-domain"`). Written only from a
-	 * resolved approval prompt (`resumeParkedToolCall`), never by the model.
-	 * Domain-scoped, not URL-scoped: approving one page's domain covers every
-	 * other page on it for the rest of the conversation.
+	 * Tools the user has approved for the rest of this conversation, under
+	 * the global `manual` tool-approval policy (ADR 0075): tool names,
+	 * server-qualified for MCP calls. Written only from a resolved approval
+	 * prompt ("accept for the conversation"), never by the model. Dies with
+	 * the conversation; there is no cross-chat grant.
 	 */
-	approvedFetchDomains?: string[];
+	approvedTools?: string[];
+
+	/**
+	 * Chat-local override of `Settings.toolApprovalPolicy` (ADR 0075). Absent
+	 * means this chat follows the user's setting. Set by the composer's
+	 * toggle, in either direction — turning always-allow on for one chat
+	 * under a `manual` default, or back to manual for one chat under an
+	 * always-allow default. Settings hold the default; this is per-chat state.
+	 */
+	toolApprovalOverride?: "always-allow" | "manual";
 
 	/**
 	 * Spaces this conversation's artifacts have been deployed to, keyed by the

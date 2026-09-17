@@ -15,6 +15,7 @@
 	import LucideLibrary from "~icons/lucide/library";
 	import UrlFetchModal from "./UrlFetchModal.svelte";
 	import CarbonEarth from "~icons/carbon/earth";
+	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
@@ -73,6 +74,14 @@
 		// Settings hold *defaults*, a chat holds *per-chat state* — this never
 		// writes to `Settings.webSearchEnabled`.
 		webSearch?: boolean;
+		// Tool-approval policy override for THIS conversation (ADR 0075).
+		// Bindable per-chat state: the toggle flips it and PATCHes the
+		// conversation when one exists. `true` means gated calls (web_fetch,
+		// MCP tools) run without asking in this chat — the composer's way of
+		// overriding the user's setting in either direction; on the home page
+		// there is no conversation to override yet, so the toggle there is a
+		// no-op until one exists.
+		autoApproveTools?: boolean;
 		children?: import("svelte").Snippet;
 		onPaste?: (e: ClipboardEvent) => void;
 		focused?: boolean;
@@ -92,6 +101,7 @@
 		showMlPill = false,
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
+		autoApproveTools = $bindable(false),
 		children,
 		onPaste,
 		focused = $bindable(false),
@@ -127,6 +137,37 @@
 			// the server refused.
 			webSearch = previous;
 			errorToast.set(err instanceof Error ? err.message : "Failed to update web search");
+		}
+	}
+
+	// The tool-approval gate (ADR 0075) resolves chat override, then the
+	// user's setting, then `manual`. Not offered until a conversation exists:
+	// unlike web search, this never rides into the create payload, so
+	// toggling it earlier would silently reset once the chat is created.
+	async function toggleAutoApproveTools() {
+		if (!page.params.id) return;
+		const previous = autoApproveTools;
+		const next = !autoApproveTools;
+		autoApproveTools = next;
+
+		try {
+			const response = await fetch(`${base}/conversation/${page.params.id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ toolApprovalOverride: next ? "always-allow" : "manual" }),
+			});
+			if (!response.ok) {
+				let message = "Failed to update tool approval";
+				try {
+					message = ((await response.json()) as { message?: string }).message ?? message;
+				} catch {
+					// not JSON
+				}
+				throw new Error(message);
+			}
+		} catch (err) {
+			autoApproveTools = previous;
+			errorToast.set(err instanceof Error ? err.message : "Failed to update tool approval");
 		}
 	}
 
@@ -1001,6 +1042,26 @@
 				<CarbonEarth class="size-3.5" />
 				Web search
 			</button>
+
+			{#if page.params.id}
+				<!-- Chat-local override of the tool-approval policy (ADR 0075).
+			     Absent a conversation there is nothing to override yet — the
+			     user's setting applies until one exists. -->
+				<button
+					type="button"
+					class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
+						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+					aria-pressed={autoApproveTools}
+					title={autoApproveTools
+						? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
+						: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
+					onclick={toggleAutoApproveTools}
+				>
+					<LucideShieldCheck class="size-3.5" />
+					{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
+				</button>
+			{/if}
 
 			{#if showMlPill}
 				<MlInternPill />

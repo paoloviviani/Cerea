@@ -25,6 +25,12 @@ export interface ConversationSettingsUpdate {
 	 * to `Settings.webSearchEnabled`.
 	 */
 	webSearch?: boolean;
+	/**
+	 * Chat-local override of `Settings.toolApprovalPolicy` (ADR 0075).
+	 * Replaces the previous value wholesale; absent leaves what is stored
+	 * untouched. The composer's toggle writes here, never to the setting.
+	 */
+	toolApprovalOverride?: "always-allow" | "manual";
 }
 
 /**
@@ -65,6 +71,9 @@ export async function applyConversationSettings(
 			knowledgeBaseIds: values.knowledgeBaseIds,
 		}),
 		...(values.webSearch !== undefined && { webSearch: values.webSearch }),
+		...(values.toolApprovalOverride !== undefined && {
+			toolApprovalOverride: values.toolApprovalOverride,
+		}),
 	};
 
 	if (values.model === undefined) {

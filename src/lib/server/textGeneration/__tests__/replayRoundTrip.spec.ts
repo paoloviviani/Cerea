@@ -18,6 +18,7 @@
  * request: that IS the replayed history, exactly as a provider would receive it.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import {
 	cleanupTestData,
@@ -275,6 +276,16 @@ afterEach(async () => {
  */
 async function newConversation() {
 	const { locals } = await createTestUser();
+	// This harness is about replay, not the tool-approval gate (ADR 0075):
+	// without this every MCP call here would park under the `manual` default
+	// and the scripted upstream/tool mocks would never see a second round.
+	await collections.settings.insertOne({
+		_id: new ObjectId(),
+		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
+		toolApprovalPolicy: "always-allow",
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	} as never);
 	const rootId = crypto.randomUUID();
 	const conv = await createTestConversation(locals, {
 		model: MODEL_ID,
