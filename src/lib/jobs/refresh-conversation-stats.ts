@@ -16,6 +16,40 @@ async function shouldComputeStats(): Promise<boolean> {
 	return lastComputationTime < oneDayAgo;
 }
 
+/**
+ * Bucket a date expression to the start of its day/week/month in UTC, using
+ * only operators the deployment's MongoDB 4.4 understands. `$dateTrunc`
+ * needs 5.0+, and 5.0+ cannot start on this box (no AVX), so the pipeline
+ * spells the truncation out: midnight via a date round-trip, month via its
+ * parts, week via whole weeks since the epoch (Thursday-anchored, but
+ * consistent — and the stats collection was empty anyway, so no historical
+ * buckets to stay compatible with). All three were verified against the
+ * live 4.4 before replacing the `$dateTrunc` sites below.
+ */
+function bucketDate(
+	dateExpr: string,
+	span: ConversationStats["date"]["span"]
+): Record<string, unknown> {
+	switch (span) {
+		case "day":
+			return {
+				$dateFromString: {
+					dateString: { $dateToString: { format: "%Y-%m-%d", date: dateExpr } },
+				},
+			};
+		case "week":
+			return {
+				$toDate: {
+					$subtract: [{ $toLong: dateExpr }, { $mod: [{ $toLong: dateExpr }, 604800000] }],
+				},
+			};
+		case "month":
+			return {
+				$dateFromParts: { year: { $year: dateExpr }, month: { $month: dateExpr } },
+			};
+	}
+}
+
 export async function computeAllStats() {
 	for (const span of ["day", "week", "month"] as const) {
 		computeStats({ dateField: "updatedAt", type: "conversation", span }).catch((e) =>
@@ -117,7 +151,7 @@ async function computeStats(params: {
 					{
 						$group: {
 							_id: {
-								at: { $dateTrunc: { date: `$${dateField}`, unit: params.span } },
+								at: bucketDate("$" + dateField, params.span),
 								userId: "$userId",
 							},
 						},
@@ -150,7 +184,7 @@ async function computeStats(params: {
 					{
 						$group: {
 							_id: {
-								at: { $dateTrunc: { date: `$${dateField}`, unit: params.span } },
+								at: bucketDate("$" + dateField, params.span),
 								sessionId: "$sessionId",
 							},
 						},
@@ -178,7 +212,7 @@ async function computeStats(params: {
 					{
 						$group: {
 							_id: {
-								at: { $dateTrunc: { date: `$${dateField}`, unit: params.span } },
+								at: bucketDate("$" + dateField, params.span),
 								userOrSessionId: { $ifNull: ["$userId", "$sessionId"] },
 							},
 						},
@@ -205,7 +239,7 @@ async function computeStats(params: {
 				_id: [
 					{
 						$group: {
-							_id: { $dateTrunc: { date: `$${dateField}`, unit: params.span } },
+							_id: bucketDate("$" + dateField, params.span),
 							count: { $sum: 1 },
 						},
 					},
