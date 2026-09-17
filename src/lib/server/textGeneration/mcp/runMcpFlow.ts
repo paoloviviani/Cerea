@@ -204,6 +204,8 @@ export async function* runMcpFlow({
 			settingsEnabled: serverSettings?.webSearchEnabled,
 		}),
 		allowedFetchUrls,
+		webFetchPolicy: serverSettings?.webFetchPolicy,
+		approvedFetchDomains: new Set(conv.approvedFetchDomains ?? []),
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through

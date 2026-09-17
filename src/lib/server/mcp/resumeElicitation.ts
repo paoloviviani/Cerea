@@ -12,6 +12,16 @@ import {
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 import type { McpServerConfig } from "./httpClient";
 import { ASK_USER_QUESTION_TOOL_NAME, answerToToolResult } from "$lib/server/askUserQuestion";
+import {
+	WEB_FETCH_TOOL_NAME,
+	hostnameOf,
+	performFetch,
+} from "$lib/server/textGeneration/builtinTools/webFetchTool";
+import {
+	FETCH_APPROVAL_CONVERSATION,
+	FETCH_APPROVAL_SCOPE_FIELD,
+} from "$lib/server/textGeneration/builtinTools/fetchApproval";
+import { collections } from "$lib/server/database";
 
 /**
  * Re-issue the tool call a durable prompt parked, now that it has an answer.
@@ -86,6 +96,63 @@ export async function resumeParkedToolCall({
 				},
 			],
 		};
+	}
+
+	// The "ask per domain" web-fetch policy: unlike the model's own question
+	// above, the answer here is not the result — an accepted prompt re-issues
+	// the fetch itself, so approving costs one click rather than a second
+	// model round trip asking for the same URL again.
+	if (pending.kind === "fetch-approval") {
+		const declineMessage =
+			taken.row.action === "accept" ? undefined : "The user declined to allow fetching this URL.";
+
+		if (declineMessage) {
+			return {
+				resumed: true,
+				updates: [
+					settled,
+					{
+						type: MessageUpdateType.Tool,
+						subtype: MessageToolUpdateType.Error,
+						uuid: pending.toolUuid,
+						message: declineMessage,
+					},
+				],
+			};
+		}
+
+		const scope = taken.row.content?.[FETCH_APPROVAL_SCOPE_FIELD];
+		if (scope === FETCH_APPROVAL_CONVERSATION) {
+			const domain = hostnameOf(pending.url);
+			if (domain) {
+				await collections.conversations.updateOne(
+					{ _id: conversationId },
+					{ $addToSet: { approvedFetchDomains: domain } }
+				);
+			}
+		}
+
+		const { result } = await performFetch(pending.url);
+		const update: MessageUpdate =
+			"error" in result
+				? {
+						type: MessageUpdateType.Tool,
+						subtype: MessageToolUpdateType.Error,
+						uuid: pending.toolUuid,
+						message: result.error,
+					}
+				: {
+						type: MessageUpdateType.Tool,
+						subtype: MessageToolUpdateType.Result,
+						uuid: pending.toolUuid,
+						result: {
+							status: ToolResultStatus.Success,
+							call: { name: WEB_FETCH_TOOL_NAME, parameters: { url: pending.url } },
+							outputs: [{ text: result.resultText }] as unknown as Record<string, unknown>[],
+							display: true,
+						},
+					};
+		return { resumed: true, updates: [settled, update] };
 	}
 
 	const server = [...getMcpServers(), ...extraServers].find((s) => s.name === pending.server);

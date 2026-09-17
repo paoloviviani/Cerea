@@ -14,6 +14,9 @@ const settingsSchema = z.object({
 		.boolean()
 		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 	webSearchEnabled: z.boolean().optional(),
+	// Absent = today's strict web_fetch behavior. See the field doc in
+	// $lib/types/Settings for what each policy does.
+	webFetchPolicy: z.enum(["ask-domain", "auto-verified"]).optional(),
 	// Off by default and stored as absent: opt-in to letting the code
 	// sandbox's micropip reach the public PyPI index, on top of the
 	// vendored same-origin wheels every deployment serves. An admin
@@ -64,6 +67,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 	return superjsonResponse({
 		webSearchEnabled: settings?.webSearchEnabled ?? undefined,
+		webFetchPolicy: settings?.webFetchPolicy ?? undefined,
 		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
 		welcomeModalSeen: !!settings?.welcomeModalSeenAt,
 		welcomeModalSeenAt: settings?.welcomeModalSeenAt ?? null,

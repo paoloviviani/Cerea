@@ -430,9 +430,12 @@ export async function takeResumableElicitation(
 ): Promise<{ row: McpElicitation; inputResponses: InputResponses } | null> {
 	const row = await collections.mcpElicitations.findOne({ elicitationId, conversationId });
 	if (!row?.pending || row.status !== "resolved" || !row.action) return null;
-	// The model's own question is answered by the answer itself; there is no call to replay
-	// responses into.
-	if (row.pending.kind === "ask") return { row, inputResponses: {} };
+	// Neither the model's own question nor a fetch-domain approval replays into an MCP
+	// call: the first is answered by the answer itself, the second re-issues the fetch
+	// directly (see resumeElicitation.ts) rather than through `inputResponses`.
+	if (row.pending.kind === "ask" || row.pending.kind === "fetch-approval") {
+		return { row, inputResponses: {} };
+	}
 	return {
 		row,
 		inputResponses: {
