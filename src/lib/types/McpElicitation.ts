@@ -82,6 +82,14 @@ export interface ElicitationRequestPayload {
 	message: string;
 	fields?: ElicitationField[];
 	url?: string;
+	/**
+	 * Present only for a tool-approval prompt (ADR 0075): the dedicated
+	 * three-button card renders this instead of the generic form, naming the
+	 * tool and unfolding its exact arguments. `mode` stays `"form"` so the
+	 * ordinary scope field (once / for the conversation) still validates and
+	 * persists through the existing elicitation-answer machinery.
+	 */
+	toolApproval?: { tool: string; args: Record<string, unknown> };
 }
 
 /** In the database because the pod serving the answer need not be the one waiting on it. */
@@ -101,7 +109,7 @@ export interface McpElicitation extends Timestamps {
 }
 
 /** Where the parked run picks up. `kind` is absent on rows written before ask existed. */
-export type PendingCall = PendingMcpCall | PendingAskCall | PendingFetchApprovalCall;
+export type PendingCall = PendingMcpCall | PendingAskCall | PendingToolApprovalCall;
 
 interface PendingCallBase {
 	messageId: string;
@@ -130,13 +138,36 @@ export interface PendingAskCall extends PendingCallBase {
 }
 
 /**
- * A `web_fetch` call parked on the "ask per domain" policy
- * (`Settings.webFetchPolicy === "ask-domain"`). Unlike `PendingAskCall`, the
- * answer is not the result: an accepted prompt re-issues the fetch itself
- * (see `resumeElicitation.ts`), because a click should not cost the model a
- * second round trip to re-request the same URL.
+ * A call gated by the global tool-approval policy (ADR 0075:
+ * `Settings.toolApprovalPolicy === "manual"`), covering `web_fetch` and every
+ * MCP tool. Unlike `PendingAskCall`, the answer is not the result: an
+ * accepted prompt re-issues the call itself (see `resumeElicitation.ts`),
+ * because a click should not cost the model a second round trip.
  */
-export interface PendingFetchApprovalCall extends PendingCallBase {
-	kind: "fetch-approval";
-	url: string;
+export interface PendingToolApprovalCall extends PendingCallBase {
+	kind: "tool-approval";
+	/** Grant key: server-qualified (`"server:tool"`) for MCP, else the builtin name (`"web_fetch"`). */
+	tool: string;
+	/** Unfolded call arguments, shown on the approval card and replayed on accept. */
+	args: Record<string, unknown>;
+	/** Present for an MCP call; absent for the `web_fetch` builtin. */
+	mcp?: { server: string; toolName: string };
+	/**
+	 * Other gated calls queued behind this one in the same round (ADR 0075:
+	 * "several calls are approved one at a time" rather than the second
+	 * being refused outright). Popped one at a time as each prompt resolves.
+	 */
+	queue: QueuedApprovalCall[];
+	/** Who the turn belongs to, so the deny-timeout sweep can resume with no request to read an identity from. */
+	userId?: ObjectId;
+	sessionId?: string;
+}
+
+/** One call waiting behind the currently-shown tool-approval prompt. */
+export interface QueuedApprovalCall {
+	toolUuid: string;
+	toolCallId: string;
+	tool: string;
+	args: Record<string, unknown>;
+	mcp?: { server: string; toolName: string };
 }

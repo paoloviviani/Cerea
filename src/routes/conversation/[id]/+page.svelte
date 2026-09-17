@@ -108,6 +108,15 @@
 	);
 	let webSearchForConv: string | null = $state(null);
 
+	// Tool-approval policy for THIS conversation (ADR 0075): the chat override
+	// wins, else the user's setting, else `manual`. Same seeding discipline as
+	// `webSearch` above — the settings-store fallback is corrected once the
+	// store is available, in the effect declared near it.
+	let autoApproveTools: boolean = $state(
+		untrack(() => data.toolApprovalOverride === "always-allow")
+	);
+	let toolApprovalForConv: string | null = $state(null);
+
 	// The MCP selection for THIS conversation: initialized from the project
 	// defaults when the project names any, else the workspace defaults, then
 	// fully independent. Switching conversations preserves each chat's own
@@ -689,6 +698,13 @@
 				$settings.webSearchEnabled === true;
 		}
 	});
+	$effect(() => {
+		if (toolApprovalForConv !== page.params.id) {
+			toolApprovalForConv = page.params.id ?? null;
+			autoApproveTools =
+				(data.toolApprovalOverride ?? $settings.toolApprovalPolicy) === "always-allow";
+		}
+	});
 	let messages = $state(untrack(() => data.messages));
 	// Local copy of rootMessageId avoids mutating the load-data prop directly.
 	// It is set when the first message of a new conversation is created, and
@@ -813,6 +829,7 @@
 	bind:files
 	bind:knowledgeBases
 	bind:webSearch
+	bind:autoApproveTools
 	onmessage={onMessage}
 	onretry={onRetry}
 	onshowAlternateMsg={onShowAlternateMsg}

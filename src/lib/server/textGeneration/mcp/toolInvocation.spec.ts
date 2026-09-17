@@ -4,7 +4,7 @@ import { collections, ready } from "$lib/server/database";
 import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
 import { parseToolArguments } from "./toolArgs";
-import type { NormalizedToolCall } from "./toolInvocation";
+import type { ExecuteToolCallsParams, NormalizedToolCall } from "./toolInvocation";
 import type { BuiltinTool } from "../builtinTools/types";
 import type { McpToolTextResponse } from "$lib/server/mcp/httpClient";
 import type { ChatCompletionToolMessageParam } from "openai/resources/chat/completions";
@@ -43,7 +43,8 @@ async function drain(
 	calls: NormalizedToolCall[],
 	elicitation?: { conversationId: ObjectId; generationId?: string; messageId?: string },
 	builtinTools?: BuiltinTool[],
-	guard?: import("./toolGuard").ToolCallGuard
+	guard?: import("./toolGuard").ToolCallGuard,
+	toolApproval?: ExecuteToolCallsParams["toolApproval"]
 ) {
 	const events = [];
 	for await (const event of executeToolCalls({
@@ -56,6 +57,7 @@ async function drain(
 		...(elicitation ? { elicitation } : {}),
 		...(builtinTools ? { builtinTools } : {}),
 		...(guard ? { guard } : {}),
+		...(toolApproval ? { toolApproval } : {}),
 	})) {
 		events.push(event);
 	}
@@ -535,5 +537,85 @@ describe("executeToolCalls with a guard", () => {
 			(e) => e.type === "update" && e.update.type === MessageUpdateType.Budget
 		);
 		expect(budgets).toHaveLength(2);
+	});
+});
+
+describe("executeToolCalls tool-approval gate (ADR 0075)", () => {
+	function elicitationRequestOf(events: Events) {
+		return events.flatMap((e) =>
+			e.type === "update" &&
+			e.update.type === MessageUpdateType.Elicitation &&
+			e.update.subtype === "request"
+				? [e.update]
+				: []
+		)[0];
+	}
+
+	it("parks the first gated call and queues the rest instead of refusing them outright", async () => {
+		await ready;
+		const conversationId = new ObjectId();
+		const calls: NormalizedToolCall[] = [
+			{ id: "call_1", name: "do_thing", arguments: '{"a":1}' },
+			{ id: "call_2", name: "do_thing", arguments: '{"a":2}' },
+		];
+
+		const events = await drain(
+			calls,
+			{ conversationId, generationId: "gen-1", messageId: "m1" },
+			undefined,
+			undefined,
+			{ policy: "manual", approvedTools: new Set(), webFetchAllowedUrls: new Set() }
+		);
+
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBe(true);
+
+		// The old refusal is gone: a second gated call in the round is queued,
+		// not reported as an error.
+		const errors = toolUpdatesOf(events).filter((u) => u.subtype === MessageToolUpdateType.Error);
+		expect(errors).toHaveLength(0);
+
+		const request = elicitationRequestOf(events);
+		expect(request?.request.toolApproval).toMatchObject({ tool: "hf:do_thing" });
+
+		const stored = await collections.mcpElicitations.findOne({
+			elicitationId: request?.request.elicitationId,
+		});
+		expect(stored?.pending).toMatchObject({ kind: "tool-approval", tool: "hf:do_thing" });
+		expect(stored?.pending?.kind === "tool-approval" ? stored.pending.queue : []).toMatchObject([
+			{ tool: "hf:do_thing", toolCallId: "call_2", mcp: { server: "hf", toolName: "do_thing" } },
+		]);
+	});
+
+	it("dispatches an already-approved tool straight through, ungated", async () => {
+		const events = await drain([CALL], undefined, undefined, undefined, {
+			policy: "manual",
+			approvedTools: new Set(["hf:do_thing"]),
+			webFetchAllowedUrls: new Set(),
+		});
+
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+	});
+
+	it("dispatches every call straight through under always-allow", async () => {
+		const events = await drain(
+			[CALL, { id: "call_2", name: "do_thing", arguments: '{"a":2}' }],
+			undefined,
+			undefined,
+			undefined,
+			{ policy: "always-allow", approvedTools: new Set(), webFetchAllowedUrls: new Set() }
+		);
+
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(2);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+	});
+
+	it("never gates a tool the caller did not opt into gating", async () => {
+		// No `toolApproval` at all: every existing caller that doesn't wire ADR
+		// 0075 must keep dispatching exactly as before.
+		const events = await drain([CALL]);
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
 	});
 });

@@ -7,8 +7,9 @@ import { POST as legacySettingsPOST } from "./+server";
 /**
  * The client settings store saves through THIS route (`POST /settings`),
  * not the v2 API. A field added only to the v2 schema is silently stripped
- * here by zod and never persists — which is how `webFetchPolicy` shipped
- * without ever reaching Mongo. This pins the save path it actually takes.
+ * here by zod and never persists — which is how the previous fetch policy
+ * shipped without ever reaching Mongo. This pins the save path it actually
+ * takes.
  */
 beforeAll(async () => {
 	await ready;
@@ -19,20 +20,20 @@ describe("POST /settings (legacy save path)", () => {
 		await cleanupTestData();
 	}, 20000);
 
-	it("persists webFetchPolicy instead of stripping it", async () => {
+	it("persists toolApprovalPolicy instead of stripping it", async () => {
 		const { user, locals } = await createTestUser();
 
 		const res = await testRequest(legacySettingsPOST, {
 			path: "/settings",
 			locals,
 			method: "POST",
-			body: JSON.stringify({ activeModel: "test-model", webFetchPolicy: "ask-domain" }),
+			body: JSON.stringify({ activeModel: "test-model", toolApprovalPolicy: "always-allow" }),
 			headers: { "Content-Type": "application/json" },
 		});
 		expect(res.status).toBe(200);
 
 		const stored = await collections.settings.findOne({ userId: user._id });
-		expect(stored?.webFetchPolicy).toBe("ask-domain");
+		expect(stored?.toolApprovalPolicy).toBe("always-allow");
 	});
 
 	it("rejects an unknown policy value", async () => {
@@ -43,7 +44,7 @@ describe("POST /settings (legacy save path)", () => {
 				path: "/settings",
 				locals,
 				method: "POST",
-				body: JSON.stringify({ activeModel: "test-model", webFetchPolicy: "prove-it-later" }),
+				body: JSON.stringify({ activeModel: "test-model", toolApprovalPolicy: "prove-it-later" }),
 				headers: { "Content-Type": "application/json" },
 			})
 		).rejects.toThrow();

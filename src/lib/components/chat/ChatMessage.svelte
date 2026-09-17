@@ -28,6 +28,7 @@
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
 	import ElicitationForm from "./ElicitationForm.svelte";
+	import ToolApprovalCard from "./ToolApprovalCard.svelte";
 	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import {
@@ -552,12 +553,21 @@
 							<ArtifactCard op={block.op} messageId={message.id} opIndex={block.opIndex} />
 						{:else if block.type === "elicitation"}
 							<div data-exclude-from-copy>
-								<ElicitationForm
-									conversationId={page.params.id ?? ""}
-									request={block.request}
-									expiresAt={block.expiresAt}
-									resolved={block.resolved}
-								/>
+								{#if block.request.toolApproval}
+									<ToolApprovalCard
+										conversationId={page.params.id ?? ""}
+										request={block.request}
+										expiresAt={block.expiresAt}
+										resolved={block.resolved}
+									/>
+								{:else}
+									<ElicitationForm
+										conversationId={page.params.id ?? ""}
+										request={block.request}
+										expiresAt={block.expiresAt}
+										resolved={block.resolved}
+									/>
+								{/if}
 							</div>
 						{:else if block.type === "codeExecution"}
 							<div data-exclude-from-copy>
@@ -609,12 +619,21 @@
 							<ArtifactCard op={unit.op} messageId={message.id} opIndex={unit.opIndex} />
 						{:else if unit.kind === "elicitation"}
 							<div data-exclude-from-copy>
-								<ElicitationForm
-									conversationId={page.params.id ?? ""}
-									request={unit.request}
-									expiresAt={unit.expiresAt}
-									resolved={unit.resolved}
-								/>
+								{#if unit.request.toolApproval}
+									<ToolApprovalCard
+										conversationId={page.params.id ?? ""}
+										request={unit.request}
+										expiresAt={unit.expiresAt}
+										resolved={unit.resolved}
+									/>
+								{:else}
+									<ElicitationForm
+										conversationId={page.params.id ?? ""}
+										request={unit.request}
+										expiresAt={unit.expiresAt}
+										resolved={unit.resolved}
+									/>
+								{/if}
 							</div>
 						{:else if unit.kind === "codeExecution"}
 							<div data-exclude-from-copy>

@@ -53,6 +53,7 @@ import {
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
+import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
 
 export type RunMcpFlowContext = Pick<
 	TextGenerationContext,
@@ -193,6 +194,11 @@ export async function* runMcpFlow({
 		// A project that cannot be read contributes no default; the turn still runs.
 	}
 	const { resolveWebSearchEnabled } = await import("$lib/server/webSearchDefaults");
+	// Chat override, then the user's setting, then `manual` (ADR 0075) — the
+	// same defaults-vs-state split `webSearch` already uses. Resolved once so
+	// the builtin's gate and the MCP pre-call checkpoint below agree.
+	const toolApprovalPolicy = resolveToolApprovalPolicy(conv, serverSettings);
+	const approvedTools = new Set(conv.approvedTools ?? []);
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
@@ -204,8 +210,8 @@ export async function* runMcpFlow({
 			settingsEnabled: serverSettings?.webSearchEnabled,
 		}),
 		allowedFetchUrls,
-		webFetchPolicy: serverSettings?.webFetchPolicy,
-		approvedFetchDomains: new Set(conv.approvedFetchDomains ?? []),
+		toolApprovalPolicy,
+		approvedTools,
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through
@@ -1195,6 +1201,13 @@ export async function* runMcpFlow({
 					// So a server operator can tell autonomous, job-shaped mode traffic
 					// from ordinary chat: the name is sent once, at initialize.
 					...(mlAssistant ? { clientKind: "intern" as const } : {}),
+					// The pre-call checkpoint (ADR 0075): every MCP call is gated the
+					// same way `web_fetch` already is, under the policy resolved above.
+					toolApproval: {
+						policy: toolApprovalPolicy,
+						approvedTools,
+						webFetchAllowedUrls: allowedFetchUrls,
+					},
 				});
 				let toolMsgCount = 0;
 				let toolRunCount = 0;

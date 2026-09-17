@@ -5,6 +5,7 @@ import {
 	isMessageElicitationRequestUpdate,
 	isMessageElicitationResolvedUpdate,
 } from "$lib/utils/messageUpdates";
+import type { QueuedApprovalCall } from "$lib/types/McpElicitation";
 
 /**
  * The tool call is stubbed rather than served over a socket: what is under test is which
@@ -343,7 +344,7 @@ describe("which turn a parked call belongs to", () => {
 	});
 });
 
-describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
+describe("resuming a tool-approval prompt (ADR 0075)", () => {
 	async function seedConversation(conversationId: ObjectId) {
 		await collections.conversations.insertOne({
 			_id: conversationId,
@@ -357,11 +358,17 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 		} as never);
 	}
 
-	async function parkFetchApproval(
+	async function parkToolApproval(
 		conversationId: ObjectId,
 		action: "accept" | "decline",
-		url: string,
-		scope?: "once" | "conversation"
+		params: {
+			tool: string;
+			args: Record<string, unknown>;
+			mcp?: { server: string; toolName: string };
+			scope?: "once" | "conversation";
+			queue?: QueuedApprovalCall[];
+			toolUuid?: string;
+		}
 	) {
 		const elicitationId = crypto.randomUUID();
 		await collections.mcpElicitations.insertOne({
@@ -370,30 +377,37 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 			conversationId,
 			status: "resolved",
 			action,
-			...(scope ? { content: { scope } } : {}),
+			...(params.scope ? { content: { scope: params.scope } } : {}),
 			request: {
 				elicitationId,
-				server: "web_fetch",
+				server: params.tool,
 				mode: "form",
-				message: `Read ${url}?`,
+				message: `Call ${params.tool}?`,
 				fields: [
 					{
 						kind: "select",
 						name: "scope",
-						title: "Allow this fetch?",
+						title: "Allow this call?",
 						required: true,
 						multiple: false,
 						options: [
-							{ value: "once", label: "Allow this one fetch" },
-							{
-								value: "conversation",
-								label: "Allow this domain for the rest of the conversation",
-							},
+							{ value: "once", label: "Allow this one call" },
+							{ value: "conversation", label: "Allow this tool for the rest of the conversation" },
 						],
 					},
 				],
+				toolApproval: { tool: params.tool, args: params.args },
 			},
-			pending: { kind: "fetch-approval", url, messageId: "m1", toolCallId: "c1", toolUuid: "u1" },
+			pending: {
+				kind: "tool-approval",
+				tool: params.tool,
+				args: params.args,
+				...(params.mcp ? { mcp: params.mcp } : {}),
+				queue: params.queue ?? [],
+				messageId: "m1",
+				toolCallId: "c1",
+				toolUuid: params.toolUuid ?? "u1",
+			},
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		});
@@ -402,9 +416,11 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 
 	beforeEach(() => {
 		fetchPageMock.mockReset();
+		calls.queue.length = 0;
+		calls.seen.length = 0;
 	});
 
-	it("performs the fetch itself once approved for a single request, without touching the conversation's approvals", async () => {
+	it("performs the web_fetch call itself once approved, without granting the tool for the conversation", async () => {
 		const conversationId = new ObjectId();
 		await seedConversation(conversationId);
 		const url = "https://unseen.test/page";
@@ -415,7 +431,11 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 			contentType: "text/html",
 			backend: "playwright",
 		});
-		const id = await parkFetchApproval(conversationId, "accept", url, "once");
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "web_fetch",
+			args: { url },
+			scope: "once",
+		});
 
 		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
 
@@ -426,10 +446,10 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 		expect(result?.result.outputs[0]?.text).toContain("hello");
 
 		const conv = await collections.conversations.findOne({ _id: conversationId });
-		expect(conv?.approvedFetchDomains ?? []).toEqual([]);
+		expect(conv?.approvedTools ?? []).toEqual([]);
 	});
 
-	it("persists the domain to the conversation when approved for the rest of it", async () => {
+	it("grants the tool for the rest of the conversation and reports it to the caller", async () => {
 		const conversationId = new ObjectId();
 		await seedConversation(conversationId);
 		const url = "https://known-later.test/page";
@@ -440,19 +460,27 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 			contentType: "text/html",
 			backend: "playwright",
 		});
-		const id = await parkFetchApproval(conversationId, "accept", url, "conversation");
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "web_fetch",
+			args: { url },
+			scope: "conversation",
+		});
 
-		await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
 
+		expect(outcome.grantedTools).toEqual(["web_fetch"]);
 		const conv = await collections.conversations.findOne({ _id: conversationId });
-		expect(conv?.approvedFetchDomains).toEqual(["known-later.test"]);
+		expect(conv?.approvedTools).toEqual(["web_fetch"]);
 	});
 
-	it("fetches nothing and records no approval when the user declines", async () => {
+	it("runs nothing and grants nothing when the user declines, feeding the refusal back to the model", async () => {
 		const conversationId = new ObjectId();
 		await seedConversation(conversationId);
 		const url = "https://unseen.test/declined";
-		const id = await parkFetchApproval(conversationId, "decline", url);
+		const id = await parkToolApproval(conversationId, "decline", {
+			tool: "web_fetch",
+			args: { url },
+		});
 
 		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
 
@@ -461,6 +489,120 @@ describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
 			message: expect.stringContaining("declined"),
 		});
 		const conv = await collections.conversations.findOne({ _id: conversationId });
-		expect(conv?.approvedFetchDomains ?? []).toEqual([]);
+		expect(conv?.approvedTools ?? []).toEqual([]);
+	});
+
+	it("re-issues an approved MCP call directly, not through inputResponses", async () => {
+		calls.queue.push({ text: "search results", isError: false });
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "Mock:search",
+			args: { q: "cats" },
+			mcp: { server: "Mock", toolName: "search" },
+			scope: "once",
+		});
+
+		const outcome = await resumeParkedToolCall({
+			conversationId,
+			elicitationId: id,
+			extraServers: SERVERS,
+		});
+
+		expect(calls.seen).toEqual([{ tool: "search", args: { q: "cats" }, resume: undefined }]);
+		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result") as
+			undefined | { result: { outputs: { text?: string }[] } };
+		expect(result?.result.outputs[0]?.text).toBe("search results");
+	});
+
+	it("drains a queued call behind the resolved one when it shares the just-granted tool", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		fetchPageMock
+			.mockResolvedValueOnce({
+				url: "https://a.test/1",
+				title: "A",
+				content: "<p>first page</p>",
+				contentType: "text/html",
+				backend: "playwright",
+			})
+			.mockResolvedValueOnce({
+				url: "https://a.test/2",
+				title: "B",
+				content: "<p>second page</p>",
+				contentType: "text/html",
+				backend: "playwright",
+			});
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "web_fetch",
+			args: { url: "https://a.test/1" },
+			scope: "conversation",
+			toolUuid: "u1",
+			queue: [
+				{
+					toolUuid: "u2",
+					toolCallId: "c2",
+					tool: "web_fetch",
+					args: { url: "https://a.test/2" },
+				},
+			],
+		});
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		// Both calls ran: the queued one was auto-cleared by the conversation-scope
+		// grant the first click just made, with no second prompt in between.
+		expect(outcome.parkedAgain).toBeUndefined();
+		const results = outcome.updates.filter((u) => "subtype" in u && u.subtype === "result") as {
+			uuid: string;
+			result: { outputs: { text?: string }[] };
+		}[];
+		expect(results.map((r) => r.uuid)).toEqual(["u1", "u2"]);
+		expect(results[1].result.outputs[0]?.text).toContain("second page");
+		expect(outcome.updates.some((u) => "subtype" in u && u.subtype === "request")).toBe(false);
+	});
+
+	it("opens a fresh prompt for a queued call needing its own approval, and parks again", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		fetchPageMock.mockResolvedValueOnce({
+			url: "https://a.test/1",
+			title: "A",
+			content: "<p>first page</p>",
+			contentType: "text/html",
+			backend: "playwright",
+		});
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "web_fetch",
+			args: { url: "https://a.test/1" },
+			scope: "once",
+			toolUuid: "u1",
+			queue: [
+				{
+					toolUuid: "u2",
+					toolCallId: "c2",
+					tool: "Mock:search",
+					args: { q: "dogs" },
+					mcp: { server: "Mock", toolName: "search" },
+				},
+			],
+		});
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		expect(outcome.parkedAgain).toBe(true);
+		expect(calls.seen).toHaveLength(0);
+		const prompt = outcome.updates.find(isMessageElicitationRequestUpdate);
+		expect(prompt?.toolUuid).toBe("u2");
+		expect(prompt?.request.toolApproval).toMatchObject({ tool: "Mock:search" });
+
+		const stored = await collections.mcpElicitations.findOne({
+			elicitationId: prompt?.request.elicitationId,
+		});
+		expect(stored?.pending).toMatchObject({
+			kind: "tool-approval",
+			tool: "Mock:search",
+			queue: [],
+		});
 	});
 });

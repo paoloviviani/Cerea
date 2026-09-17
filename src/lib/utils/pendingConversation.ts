@@ -19,6 +19,8 @@ export interface ConversationData {
 	deployedSpaces?: Record<string, DeployedSpace>;
 	/** Per-chat web-search state; absent means "inherit defaults at turn time". */
 	webSearch?: boolean;
+	/** Chat-local override of the tool-approval policy (ADR 0075); absent means "inherit the setting". */
+	toolApprovalOverride?: "always-allow" | "manual";
 	/** Owning project, when created under one. */
 	projectId?: string;
 	/** Project defaults for seeding per-chat state on first open. */
