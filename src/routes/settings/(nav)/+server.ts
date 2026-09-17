@@ -4,6 +4,7 @@ import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
+import type { RequestHandler } from "@sveltejs/kit";
 
 const settingsSchema = z.object({
 	shareConversationsWithModelAuthors: z
@@ -12,6 +13,11 @@ const settingsSchema = z.object({
 	// Off by default and stored as absent: the field is the user's consent to
 	// web search, and the tool it enables also needs the console's search tier.
 	webSearchEnabled: z.boolean().optional(),
+	// Absent keeps the strict refusal: untrusted URLs are refused outright.
+	// The v2 settings endpoint (`api/v2/user/settings`) carries this same
+	// field — the client store saves through THIS route, so a field added
+	// only there is silently stripped here and never persists.
+	webFetchPolicy: z.enum(["ask-domain", "auto-verified"]).optional(),
 	// Off by default and stored as absent: opt-in to the code sandbox's
 	// micropip reaching the public PyPI index, on top of the vendored
 	// same-origin wheels. An admin kill-switch can force this unavailable
@@ -35,7 +41,7 @@ const settingsSchema = z.object({
 	billingOrganization: z.string().optional(),
 });
 
-export async function POST({ request, locals }) {
+export const POST: RequestHandler = async ({ request, locals }) => {
 	const body = await request.json();
 
 	const { welcomeModalSeen, mlInternOnboardingSeen, ...parsedSettings } =
@@ -72,4 +78,4 @@ export async function POST({ request, locals }) {
 	);
 	// return ok response
 	return new Response();
-}
+};
