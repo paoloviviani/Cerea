@@ -32,6 +32,15 @@ export interface RunState {
 	 */
 	outputFiles?: Array<{ path: string; size: number }>;
 	/**
+	 * Set once the async file listing for a settled run has finished (even
+	 * when it found nothing). The outcome settles synchronously for fence
+	 * consumers, but the `execute_code` tool's one-shot outcome POST must
+	 * wait for this flag — otherwise it posts before `outputFiles` lands,
+	 * wins the server-side CAS with `files: []`, and the later upload's
+	 * `fileRefs` are dropped as a duplicate (orphaning the stored bytes).
+	 */
+	outputsCollected?: boolean;
+	/**
 	 * Deliverables persisted server-side, rendered instead of `outputFiles` on
 	 * true replay (no live run holds the bytes). Set only by
 	 * CodeExecutionCard's resolved-state fallback, never by a live run.
@@ -97,9 +106,11 @@ class RunsStore {
 				// Written synchronously: the outcome must land in the same
 				// microtask it always did. The file listing follows when it
 				// arrives and amends the same entry — outputs, not outcome.
+				// `outputsCollected` always flips (even when empty; the listing
+				// never rejects), so a waiter on the flag can never hang.
 				this.#runs[key] = settled;
 				void collectOutputFiles(session).then((outputFiles) => {
-					if (outputFiles) this.#runs[key] = { ...settled, outputFiles };
+					this.#runs[key] = { ...settled, outputFiles: outputFiles ?? [], outputsCollected: true };
 				});
 			})
 			.catch((error: unknown) => {
@@ -111,6 +122,8 @@ class RunsStore {
 							? error.message
 							: "the execution sandbox could not run this code",
 					finishedAt: Date.now(),
+					// No files to wait for on a sandbox-level failure.
+					outputsCollected: true,
 				};
 			});
 
