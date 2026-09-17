@@ -39,6 +39,10 @@ export function getEnabledBuiltinTools(params: {
 	webSearchEnabled?: boolean;
 	/** URLs from user messages; search results join this set during the run. */
 	allowedFetchUrls?: Set<string>;
+	/** How web_fetch treats a URL nobody supplied. Absent keeps it refusing outright. */
+	webFetchPolicy?: "ask-domain" | "auto-verified";
+	/** Domains this conversation has already approved under the "ask-domain" policy. */
+	approvedFetchDomains?: Set<string>;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -98,7 +102,14 @@ export function getEnabledBuiltinTools(params: {
 		params.allowedFetchUrls &&
 		(params.allowedFetchUrls.size > 0 || (params.searchModelIds?.length ?? 0) > 0)
 	) {
-		tools.push(createWebFetchBuiltin({ allowedUrls: params.allowedFetchUrls }));
+		tools.push(
+			createWebFetchBuiltin({
+				allowedUrls: params.allowedFetchUrls,
+				policy: params.webFetchPolicy,
+				approvedDomains: params.approvedFetchDomains,
+				verificationToken: params.token,
+			})
+		);
 	}
 
 	return tools;

@@ -101,7 +101,7 @@ export interface McpElicitation extends Timestamps {
 }
 
 /** Where the parked run picks up. `kind` is absent on rows written before ask existed. */
-export type PendingCall = PendingMcpCall | PendingAskCall;
+export type PendingCall = PendingMcpCall | PendingAskCall | PendingFetchApprovalCall;
 
 interface PendingCallBase {
 	messageId: string;
@@ -127,4 +127,16 @@ export interface PendingMcpCall extends PendingCallBase {
 /** Nothing to re-issue: the answer itself is the tool result. */
 export interface PendingAskCall extends PendingCallBase {
 	kind: "ask";
+}
+
+/**
+ * A `web_fetch` call parked on the "ask per domain" policy
+ * (`Settings.webFetchPolicy === "ask-domain"`). Unlike `PendingAskCall`, the
+ * answer is not the result: an accepted prompt re-issues the fetch itself
+ * (see `resumeElicitation.ts`), because a click should not cost the model a
+ * second round trip to re-request the same URL.
+ */
+export interface PendingFetchApprovalCall extends PendingCallBase {
+	kind: "fetch-approval";
+	url: string;
 }

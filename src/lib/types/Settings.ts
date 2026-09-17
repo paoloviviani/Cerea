@@ -55,6 +55,25 @@ export interface Settings extends Timestamps {
 	webSearchEnabled?: boolean;
 
 	/**
+	 * How `web_fetch` treats a URL neither the user nor `web_search` supplied.
+	 * Absent (the default) keeps today's behavior: the tool refuses outright,
+	 * and the model must search first or ask the user for the link.
+	 *
+	 * - `"ask-domain"`: park the turn and ask the user once per domain,
+	 *   either for this fetch only or for the rest of the conversation
+	 *   (`Conversation.approvedFetchDomains`).
+	 * - `"auto-verified"`: the harness silently searches for the URL and
+	 *   fetches it only if a fresh result (or a reviewed same-resource
+	 *   equivalent, e.g. a GitHub blob URL and its raw counterpart) actually
+	 *   names it — never on the model's say-so. See `fetchVerification.ts`.
+	 *
+	 * Either way, only user-authored or search-surfaced URLs ever start
+	 * trusted; this setting only changes what closes the gap for everything
+	 * else, and the SSRF allowlist underneath (`urlSafety.ts`) is unaffected.
+	 */
+	webFetchPolicy?: "ask-domain" | "auto-verified";
+
+	/**
 	 * User opt-in (default off) to let the code sandbox's micropip fetch
 	 * arbitrary pure-Python packages from the public PyPI index, in addition
 	 * to the vendored wheels every deployment serves same-origin. Off means

@@ -1,9 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ObjectId } from "mongodb";
 import type { BuiltinToolResult } from "./types";
+import type { BuiltinToolContext } from "./types";
 
 const fetchPage = vi.fn();
+const openFetchApprovalPrompt = vi.fn();
+const verifyUrlBySearch = vi.fn();
+const turnAwaitingInput = vi.fn();
 
 vi.mock("$lib/server/fetching", () => ({ fetchPage }));
+vi.mock("./fetchApproval", () => ({
+	openFetchApprovalPrompt,
+	FETCH_APPROVAL_SCOPE_FIELD: "scope",
+	FETCH_APPROVAL_ONCE: "once",
+	FETCH_APPROVAL_CONVERSATION: "conversation",
+}));
+vi.mock("./fetchVerification", () => ({ verifyUrlBySearch }));
+vi.mock("$lib/server/generation/turnState", () => ({ turnAwaitingInput }));
 
 const {
 	createWebFetchBuiltin,
@@ -14,7 +27,10 @@ const {
 } = await import("./webFetchTool");
 
 describe("web_fetch builtin", () => {
-	beforeEach(() => vi.resetAllMocks());
+	beforeEach(() => {
+		vi.resetAllMocks();
+		turnAwaitingInput.mockResolvedValue({ type: "turn-state" });
+	});
 
 	it("offers a separate, explicit page-reading function", () => {
 		const tool = createWebFetchBuiltin({ allowedUrls: new Set() });
@@ -105,5 +121,131 @@ describe("web_fetch builtin", () => {
 
 	it("removes scripts and markup from rendered pages", () => {
 		expect(readablePageText("<main>one &amp; two<script>three</script></main>")).toBe("one & two");
+	});
+});
+
+function fakeContext(overrides: Partial<BuiltinToolContext> = {}): BuiltinToolContext {
+	return {
+		uuid: "call-uuid",
+		toolCallId: "call-1",
+		conversationId: new ObjectId(),
+		messageId: "message-1",
+		generationId: "gen-1",
+		elicitationSink: { conversationId: new ObjectId(), emit: vi.fn() },
+		...overrides,
+	};
+}
+
+describe("web_fetch: ask-per-domain policy", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		turnAwaitingInput.mockResolvedValue({ type: "turn-state" });
+	});
+
+	it("parks the turn on an unapproved domain instead of refusing outright", async () => {
+		openFetchApprovalPrompt.mockResolvedValue({ opened: true });
+		const ctx = fakeContext();
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set(), policy: "ask-domain" });
+
+		const result = await tool.execute({ url: "https://unseen.test/page" }, ctx);
+
+		expect(result).toEqual({ awaitingInput: true });
+		expect(openFetchApprovalPrompt).toHaveBeenCalledWith(
+			expect.objectContaining({ url: "https://unseen.test/page", toolCallId: "call-1" })
+		);
+		expect(turnAwaitingInput).toHaveBeenCalledWith(
+			expect.objectContaining({ conversationId: ctx.conversationId, messageId: "message-1" })
+		);
+		expect(ctx.elicitationSink?.emit).toHaveBeenCalledWith({ type: "turn-state" });
+		expect(fetchPage).not.toHaveBeenCalled();
+	});
+
+	it("fetches without prompting once the domain is approved for the conversation", async () => {
+		const url = "https://known.test/page";
+		fetchPage.mockResolvedValue({
+			url,
+			title: "Known",
+			content: "<p>hi</p>",
+			contentType: "text/html",
+			backend: "playwright",
+		});
+		const tool = createWebFetchBuiltin({
+			allowedUrls: new Set(),
+			policy: "ask-domain",
+			approvedDomains: new Set(["known.test"]),
+		});
+
+		const result = await tool.execute({ url }, fakeContext());
+
+		expect(result).toEqual(expect.objectContaining({ resultText: expect.stringContaining("hi") }));
+		expect(openFetchApprovalPrompt).not.toHaveBeenCalled();
+	});
+
+	it("refuses without parking when there is no chat to ask", async () => {
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set(), policy: "ask-domain" });
+		const result = await tool.execute(
+			{ url: "https://unseen.test/page" },
+			fakeContext({ elicitationSink: undefined })
+		);
+		expect(result).toEqual(expect.objectContaining({ error: expect.stringContaining("no chat") }));
+		expect(openFetchApprovalPrompt).not.toHaveBeenCalled();
+	});
+});
+
+describe("web_fetch: auto-fetch with verification policy", () => {
+	beforeEach(() => vi.resetAllMocks());
+
+	it("fetches once a fresh search verifies the URL, never on the model's say-so alone", async () => {
+		verifyUrlBySearch.mockResolvedValue({ matched: true });
+		const url = "https://unseen.test/page";
+		fetchPage.mockResolvedValue({
+			url,
+			title: "Found",
+			content: "<p>content</p>",
+			contentType: "text/html",
+			backend: "playwright",
+		});
+		const allowedUrls = new Set<string>();
+		const tool = createWebFetchBuiltin({
+			allowedUrls,
+			policy: "auto-verified",
+			verificationToken: "token",
+		});
+
+		const result = await tool.execute({ url }, fakeContext());
+
+		expect(verifyUrlBySearch).toHaveBeenCalledWith({ url, token: "token" });
+		expect(result).toEqual(
+			expect.objectContaining({ resultText: expect.stringContaining("content") })
+		);
+		expect(allowedUrls.has(url)).toBe(true);
+	});
+
+	it("fails closed with the harness's evidence when verification finds no match", async () => {
+		verifyUrlBySearch.mockResolvedValue({
+			matched: false,
+			evidence: "Searched for: https://unseen.test/page\nResults:\n(no results)",
+		});
+		const tool = createWebFetchBuiltin({
+			allowedUrls: new Set(),
+			policy: "auto-verified",
+			verificationToken: "token",
+		});
+
+		const result = await tool.execute({ url: "https://unseen.test/page" }, fakeContext());
+
+		expect(result).toEqual(
+			expect.objectContaining({ error: expect.stringContaining("Searched for:") })
+		);
+		expect(fetchPage).not.toHaveBeenCalled();
+	});
+
+	it("refuses without searching when there is no verification credential", async () => {
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set(), policy: "auto-verified" });
+		const result = await tool.execute({ url: "https://unseen.test/page" }, fakeContext());
+		expect(result).toEqual(
+			expect.objectContaining({ error: expect.stringContaining("no search credential") })
+		);
+		expect(verifyUrlBySearch).not.toHaveBeenCalled();
 	});
 });
