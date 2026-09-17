@@ -61,9 +61,19 @@ User: "请解释Transformer是如何工作的" -> Transformer 工作原理
 User: "tell me more about you" -> About the assistant
 Return only the title text.`,
 			generateSettings: {
-				max_tokens: 24,
+				// 64 tokens: a reasoning model needs room to finish thinking
+				// AND emit the title (24 starved it — see reasoningEffort).
+				max_tokens: 64,
 				temperature: 0,
 			},
+			// Titles are generated on the conversation's own model, which may
+			// be a reasoning model. Unthrottled it spends the whole token
+			// budget thinking, returns no content, and the title falls back
+			// to the user's raw first five words — typos included. `low`
+			// keeps the thinking short enough that the title still completes
+			// (verified live against the gateway); non-reasoning models
+			// ignore the parameter.
+			reasoningEffort: "low",
 			modelId,
 			locals,
 		})
