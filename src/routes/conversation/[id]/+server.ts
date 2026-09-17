@@ -701,6 +701,14 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					);
 					for (const event of outcome.updates) await update(event);
 					parkedAgain = outcome.parkedAgain === true;
+					// The grant just landed in the database; `conv` here was read before
+					// that write, and a continuation further down this same turn (another
+					// tool round) reads gating off THIS object, not a fresh one.
+					if (outcome.grantedTools?.length) {
+						conv.approvedTools = [
+							...new Set([...(conv.approvedTools ?? []), ...outcome.grantedTools]),
+						];
+					}
 				}
 
 				const ctx: TextGenerationContext = {
@@ -926,6 +934,7 @@ export async function PATCH({ request, locals, params }) {
 			title: z.string().trim().min(1).max(100).optional(),
 			model: validModelIdSchema.optional(),
 			webSearch: z.boolean().optional(),
+			toolApprovalOverride: z.enum(["always-allow", "manual"]).optional(),
 		})
 		.parse(body);
 

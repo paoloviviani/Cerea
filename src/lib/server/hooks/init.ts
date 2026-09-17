@@ -7,6 +7,7 @@ import { loadMcpServersOnStartup } from "$lib/server/mcp/registry";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
+import { ToolApprovalSweeper } from "$lib/server/generation/toolApprovalSweeper";
 import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
 import { MetricsServer } from "$lib/server/metrics";
@@ -48,6 +49,9 @@ export async function initServer(): Promise<void> {
 	// Finalize generations whose pod died mid-run.
 	GenerationReaper.getInstance();
 	ParkedCallSweeper.getInstance();
+	// Deny-timeout for the tool-approval gate (ADR 0075): fails closed when
+	// nobody answers, rather than parking the turn forever.
+	ToolApprovalSweeper.getInstance();
 	// 30-day retention for persisted execute_code deliverables (ADR 0073's amendment).
 	DeliverableReaper.getInstance();
 

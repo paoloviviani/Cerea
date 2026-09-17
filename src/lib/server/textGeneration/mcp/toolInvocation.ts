@@ -20,6 +20,9 @@ import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
 import type { ToolCallGuard } from "./toolGuard";
 import type { Client } from "@modelcontextprotocol/client";
 import type { ObjectId } from "mongodb";
+import { openToolApprovalPrompt } from "../builtinTools/toolApproval";
+import { WEB_FETCH_TOOL_NAME, webFetchNeedsApproval } from "../builtinTools/webFetchTool";
+import type { QueuedApprovalCall } from "$lib/types/McpElicitation";
 
 export type Primitive = string | number | boolean;
 
@@ -63,7 +66,30 @@ export interface ExecuteToolCallsParams {
 	guard?: ToolCallGuard;
 	/** Identity these calls introduce themselves to the server with. */
 	clientKind?: McpClientKind;
+	/**
+	 * The global tool-approval gate (ADR 0075), covering `web_fetch` and every
+	 * MCP tool. Absent behaves like today: nothing is gated — only the real
+	 * caller (`runMcpFlow.ts`) wires this, so every other caller (tests
+	 * included) keeps dispatching straight through unless it opts in.
+	 */
+	toolApproval?: {
+		policy: "always-allow" | "manual";
+		approvedTools: ReadonlySet<string>;
+		/**
+		 * The same set `web_fetch`'s own execute() reads and grows — passing the
+		 * identical reference means a URL fetched (or approved) once during this
+		 * round is trusted for the rest of it, exactly as it already was.
+		 */
+		webFetchAllowedUrls: Set<string>;
+	};
 }
+
+/** Where a gated call dispatches: an MCP server, or the `web_fetch` builtin. */
+type ApprovalTarget = {
+	/** Grant key: server-qualified (`"server:tool"`) for MCP, else `"web_fetch"`. */
+	qualifiedName: string;
+	mcp?: { server: string; toolName: string };
+};
 
 export interface ToolCallExecutionResult {
 	toolMessages: ChatCompletionMessageParam[];
@@ -122,6 +148,7 @@ export async function* executeToolCalls({
 	builtinTools,
 	guard,
 	clientKind,
+	toolApproval,
 }: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
 	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
 	const toolMessages: ChatCompletionMessageParam[] = [];
@@ -253,6 +280,48 @@ export async function* executeToolCalls({
 	// on a race between concurrent tasks.
 	const parkingCalls = prepared.filter((p) => builtinByName.get(p.call.name)?.mayPark);
 
+	/**
+	 * What a call would dispatch as, for gating purposes — an MCP tool (always
+	 * gated), or the `web_fetch` builtin (gated only for a URL neither the user
+	 * nor `web_search` supplied). Everything else (ask/wait/execute_code/...)
+	 * is outside ADR 0075's gated set and returns `null` here regardless of
+	 * `mayPark`, which governs a separate, unrelated refusal above.
+	 */
+	function approvalTargetFor(p: (typeof prepared)[number]): ApprovalTarget | null {
+		if (p.argsObj === null) return null;
+		const mappingEntry = mapping[p.call.name];
+		if (mappingEntry) {
+			return {
+				qualifiedName: `${mappingEntry.server}:${mappingEntry.tool}`,
+				mcp: { server: mappingEntry.server, toolName: mappingEntry.tool },
+			};
+		}
+		if (
+			p.call.name === WEB_FETCH_TOOL_NAME &&
+			builtinByName.has(WEB_FETCH_TOOL_NAME) &&
+			toolApproval &&
+			webFetchNeedsApproval(p.argsObj, toolApproval.webFetchAllowedUrls)
+		) {
+			return { qualifiedName: WEB_FETCH_TOOL_NAME };
+		}
+		return null;
+	}
+
+	// Every gated call not yet approved queues up, in call order; only the
+	// first opens a prompt this round (ADR 0075: "several calls are approved
+	// one at a time" — the old one-park refusal for a second gated call is
+	// gone). Precomputed up front, like `parkingCalls` above, so which call is
+	// "first" cannot depend on a race between concurrent tasks.
+	const approvalQueue: Array<{ p: (typeof prepared)[number]; target: ApprovalTarget }> =
+		toolApproval?.policy === "manual"
+			? prepared.flatMap((p) => {
+					const target = approvalTargetFor(p);
+					return target && !toolApproval.approvedTools.has(target.qualifiedName)
+						? [{ p, target }]
+						: [];
+				})
+			: [];
+
 	const tasks = prepared.map(async (p, index) => {
 		// Check abort before starting each tool call
 		if (abortSignal?.aborted) {
@@ -291,6 +360,68 @@ export async function* executeToolCalls({
 				uuid: p.uuid,
 				message,
 			});
+			return;
+		}
+
+		const approvalIndex = approvalQueue.findIndex((c) => c.p === p);
+		if (approvalIndex > 0) {
+			// Queued behind another gated call parking this round: not dispatched
+			// yet — it becomes part of that call's pending queue and is popped
+			// (run or re-prompted) once that one resolves. See resumeElicitation.ts.
+			results.push({ index, awaiting: true, uuid: p.uuid, paramsClean: p.paramsClean });
+			return;
+		}
+		if (approvalIndex === 0) {
+			const { target } = approvalQueue[0];
+			const queue: QueuedApprovalCall[] = approvalQueue
+				.slice(1)
+				.map(({ p: queued, target: t }) => ({
+					toolUuid: queued.uuid,
+					toolCallId: queued.call.id,
+					tool: t.qualifiedName,
+					args: queued.argsObj ?? {},
+					...(t.mcp ? { mcp: t.mcp } : {}),
+				}));
+
+			const opened = elicitationSink
+				? await openToolApprovalPrompt({
+						sink: elicitationSink,
+						toolUuid: p.uuid,
+						toolCallId: p.call.id,
+						messageId: elicitation?.messageId ?? "",
+						tool: target.qualifiedName,
+						args: argsObj,
+						...(target.mcp ? { mcp: target.mcp } : {}),
+						queue,
+						userId: owner?.userId,
+						sessionId: owner?.sessionId,
+					})
+				: { opened: false as const, reason: "no chat to ask" };
+
+			if (!opened.opened) {
+				const message = `Tool approval could not be shown (${opened.reason}).`;
+				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+				updatesQueue.push({
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: p.uuid,
+					message,
+				});
+				return;
+			}
+
+			if (elicitation?.conversationId && elicitation.messageId) {
+				const stateUpdate = await turnAwaitingInput({
+					conversationId: elicitation.conversationId,
+					messageId: elicitation.messageId,
+					producerId: elicitation.generationId ?? "",
+					...(owner?.userId ? { userId: owner.userId } : {}),
+					...(owner?.sessionId ? { sessionId: owner.sessionId } : {}),
+				});
+				elicitationSink?.emit(stateUpdate);
+			}
+			awaitingInput = true;
+			results.push({ index, awaiting: true, uuid: p.uuid, paramsClean: p.paramsClean });
 			return;
 		}
 

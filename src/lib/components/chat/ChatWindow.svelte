@@ -132,6 +132,13 @@
 		 * app default) — never the settings default directly.
 		 */
 		webSearch?: boolean;
+		/**
+		 * Tool-approval policy override for THIS conversation (ADR 0075); bound
+		 * through to the composer. `true` means gated calls (web_fetch, MCP
+		 * tools) run without asking in this chat, overriding the user's
+		 * setting in either direction.
+		 */
+		autoApproveTools?: boolean;
 		/** Conversation title, used for the Markdown export heading and filename. */
 		conversationTitle?: string;
 	}
@@ -154,6 +161,7 @@
 		onshowAlternateMsg,
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
+		autoApproveTools = $bindable(false),
 		conversationTitle = "",
 	}: Props = $props();
 
@@ -1250,6 +1258,7 @@
 										bind:files
 										bind:knowledgeBases
 										bind:webSearch
+										bind:autoApproveTools
 										mimeTypes={activeMimeTypes}
 										onsubmit={handleSubmit}
 										{onPaste}

@@ -61,13 +61,13 @@
 	function setPyodidePyPiInstallEnabled(v: boolean) {
 		settings.update((s) => ({ ...s, pyodidePyPiInstallEnabled: v }));
 	}
-	function getWebFetchPolicy() {
-		return $settings.webFetchPolicy ?? "";
+	function getToolApprovalPolicy() {
+		return $settings.toolApprovalPolicy ?? "manual";
 	}
-	function setWebFetchPolicy(v: string) {
+	function setToolApprovalPolicy(v: string) {
 		settings.update((s) => ({
 			...s,
-			webFetchPolicy: v === "ask-domain" || v === "auto-verified" ? v : undefined,
+			toolApprovalPolicy: v === "always-allow" ? "always-allow" : undefined,
 		}));
 	}
 
@@ -241,21 +241,21 @@
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Fetching a page nobody linked
+							Tool approvals
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							What web_fetch does when the assistant wants a page that neither you nor a search
-							result supplied. Off by default: such a page is refused.
+							Whether the assistant may call web_fetch and MCP tools on its own, or asks you first —
+							once per call, with the option to allow a tool for the rest of the conversation.
+							Overridable per chat at the composer.
 						</p>
 					</div>
 					<select
 						class="max-w-full self-start rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 sm:self-auto dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-						value={getWebFetchPolicy()}
-						onchange={(e) => setWebFetchPolicy(e.currentTarget.value)}
+						value={getToolApprovalPolicy()}
+						onchange={(e) => setToolApprovalPolicy(e.currentTarget.value)}
 					>
-						<option value="">Refuse (default)</option>
-						<option value="ask-domain">Ask me, per domain</option>
-						<option value="auto-verified">Auto-fetch once verified by search</option>
+						<option value="manual">Ask per call (default)</option>
+						<option value="always-allow">Always allow</option>
 					</select>
 				</div>
 
