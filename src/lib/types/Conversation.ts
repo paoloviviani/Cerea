@@ -63,6 +63,16 @@ export interface Conversation extends Timestamps {
 	webSearch?: boolean;
 
 	/**
+	 * Domains the user has approved fetching from for the rest of this
+	 * conversation, under the "ask per domain" web-fetch policy
+	 * (`Settings.webFetchPolicy === "ask-domain"`). Written only from a
+	 * resolved approval prompt (`resumeParkedToolCall`), never by the model.
+	 * Domain-scoped, not URL-scoped: approving one page's domain covers every
+	 * other page on it for the rest of the conversation.
+	 */
+	approvedFetchDomains?: string[];
+
+	/**
 	 * Spaces this conversation's artifacts have been deployed to, keyed by the
 	 * stable artifact `identifier`. Lets a re-deploy push a new commit to the same
 	 * Space instead of creating a new one. Only Spaces created through this app's

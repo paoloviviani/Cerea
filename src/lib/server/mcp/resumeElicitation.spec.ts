@@ -25,6 +25,9 @@ vi.mock("./httpClient", () => ({
 	},
 }));
 
+const fetchPageMock = vi.fn();
+vi.mock("$lib/server/fetching", () => ({ fetchPage: fetchPageMock }));
+
 await ready;
 
 const SERVERS = [{ name: "Mock", url: "http://mock.invalid/mcp" }];
@@ -337,5 +340,127 @@ describe("which turn a parked call belongs to", () => {
 		expect(await parkedMessageId(conversationId, elicitationId)).toBe("parked-message");
 		// Another conversation holding the id is not entitled to the answer.
 		expect(await parkedMessageId(new ObjectId(), elicitationId)).toBeUndefined();
+	});
+});
+
+describe("resuming a web_fetch domain approval (ask-domain policy)", () => {
+	async function seedConversation(conversationId: ObjectId) {
+		await collections.conversations.insertOne({
+			_id: conversationId,
+			sessionId: "s",
+			model: "test-org/test-model",
+			title: "a conversation",
+			rootMessageId: "u1",
+			messages: [],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+	}
+
+	async function parkFetchApproval(
+		conversationId: ObjectId,
+		action: "accept" | "decline",
+		url: string,
+		scope?: "once" | "conversation"
+	) {
+		const elicitationId = crypto.randomUUID();
+		await collections.mcpElicitations.insertOne({
+			_id: new ObjectId(),
+			elicitationId,
+			conversationId,
+			status: "resolved",
+			action,
+			...(scope ? { content: { scope } } : {}),
+			request: {
+				elicitationId,
+				server: "web_fetch",
+				mode: "form",
+				message: `Read ${url}?`,
+				fields: [
+					{
+						kind: "select",
+						name: "scope",
+						title: "Allow this fetch?",
+						required: true,
+						multiple: false,
+						options: [
+							{ value: "once", label: "Allow this one fetch" },
+							{
+								value: "conversation",
+								label: "Allow this domain for the rest of the conversation",
+							},
+						],
+					},
+				],
+			},
+			pending: { kind: "fetch-approval", url, messageId: "m1", toolCallId: "c1", toolUuid: "u1" },
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		return elicitationId;
+	}
+
+	beforeEach(() => {
+		fetchPageMock.mockReset();
+	});
+
+	it("performs the fetch itself once approved for a single request, without touching the conversation's approvals", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const url = "https://unseen.test/page";
+		fetchPageMock.mockResolvedValueOnce({
+			url,
+			title: "Unseen",
+			content: "<p>hello</p>",
+			contentType: "text/html",
+			backend: "playwright",
+		});
+		const id = await parkFetchApproval(conversationId, "accept", url, "once");
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		expect(outcome.resumed).toBe(true);
+		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result") as
+			undefined | { result: { call: { name: string }; outputs: { text?: string }[] } };
+		expect(result?.result.call.name).toBe("web_fetch");
+		expect(result?.result.outputs[0]?.text).toContain("hello");
+
+		const conv = await collections.conversations.findOne({ _id: conversationId });
+		expect(conv?.approvedFetchDomains ?? []).toEqual([]);
+	});
+
+	it("persists the domain to the conversation when approved for the rest of it", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const url = "https://known-later.test/page";
+		fetchPageMock.mockResolvedValueOnce({
+			url,
+			title: "Known later",
+			content: "<p>hi again</p>",
+			contentType: "text/html",
+			backend: "playwright",
+		});
+		const id = await parkFetchApproval(conversationId, "accept", url, "conversation");
+
+		await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		const conv = await collections.conversations.findOne({ _id: conversationId });
+		expect(conv?.approvedFetchDomains).toEqual(["known-later.test"]);
+	});
+
+	it("fetches nothing and records no approval when the user declines", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const url = "https://unseen.test/declined";
+		const id = await parkFetchApproval(conversationId, "decline", url);
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		expect(fetchPageMock).not.toHaveBeenCalled();
+		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
+			message: expect.stringContaining("declined"),
+		});
+		const conv = await collections.conversations.findOne({ _id: conversationId });
+		expect(conv?.approvedFetchDomains ?? []).toEqual([]);
 	});
 });
