@@ -107,6 +107,13 @@
 		const state = runState;
 		if (resolved || posted || !state) return;
 		if (state.status !== "done" && state.status !== "error") return;
+		// Wait for the async file listing before the one-shot POST: posting
+		// on `status` alone races the listing, uploads nothing, and wins the
+		// endpoint's CAS with `files: []` — the later upload's bytes then land
+		// orphaned (no `fileRefs` on the recorded outcome). The flag always
+		// flips (even when empty; sandbox failures set it immediately), so
+		// this cannot hang the post past the park deadline.
+		if (!state.outputsCollected) return;
 		const outcome: RunOutcome | undefined =
 			state.outcome ??
 			(state.sandboxError
