@@ -60,10 +60,24 @@ describe("generateTitleForConversation", () => {
 	});
 
 	it("does not use truncated reasoning as the title when the budget is spent thinking", async () => {
-		// max_tokens is 24, so a reasoning model can burn the whole budget before
-		// emitting any title, leaving an unterminated <think> block and no content.
+		// Even throttled, a reasoning model can occasionally burn the whole
+		// budget before emitting any title, leaving an unterminated <think>
+		// block and no content.
 		const title = await titleFor("<think>We need to produce a title. The user is asking");
 		expect(title).not.toContain("We need to produce a title");
 		expect(title).toBe("how do I reverse a");
+	});
+
+	it("throttles reasoning and budgets room for the title", async () => {
+		await titleFor("Python string reversal");
+		const args = mocks.generateFromDefaultEndpoint.mock.calls[0]?.[0] as {
+			generateSettings?: { max_tokens?: number };
+			reasoningEffort?: string;
+		};
+		// Unthrottled, a reasoning conversation model spends the token budget
+		// thinking, returns no content, and the title degrades to the user's
+		// raw first five words — typos included.
+		expect(args.reasoningEffort).toBe("low");
+		expect(args.generateSettings?.max_tokens).toBe(64);
 	});
 });
