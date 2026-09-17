@@ -5,6 +5,7 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import RunOutput from "./RunOutput.svelte";
+	import FileCard from "./FileCard.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
 	import { chatRunKey } from "$lib/utils/execution/keys";
@@ -179,6 +180,16 @@
 		return resolved ? resolvedRunState : runState;
 	});
 
+	// Files a run produced are the deliverable, not a log line, so they live
+	// OUTSIDE the collapse: the code output folds away once the run settles, but
+	// the file stays in its own box below (`showFiles={false}` on RunOutput keeps
+	// it from also drawing them inside). Live-session bytes (`outputFiles`) win
+	// over the persisted references (`persistedFiles`, used on replay), the same
+	// precedence RunOutput uses.
+	let outputFiles = $derived(displayState?.outputFiles ?? []);
+	let persistedFiles = $derived(displayState?.persistedFiles ?? []);
+	let hasFiles = $derived(outputFiles.length > 0 || persistedFiles.length > 0);
+
 	// Collapse the output the way a thinking section does (see
 	// OpenReasoningResults.svelte): open while the code is actually running so
 	// the person can watch it, then collapse once it settles — a completed run's
@@ -237,8 +248,24 @@
 		</button>
 		{#if isOpen}
 			<div class="px-3 py-2">
-				<RunOutput state={displayState} />
+				<RunOutput state={displayState} showFiles={false} />
 			</div>
+		{/if}
+		{#if hasFiles}
+			<!-- Deliverables, never collapsed: a file the person asked for stays in
+			     its own box below the (foldable) code output. Each FileCard already
+			     carries a document icon, size, preview and download. -->
+			<ul class="space-y-1 border-t border-blue-200/70 px-3 py-2 dark:border-blue-800/60">
+				{#if outputFiles.length > 0}
+					{#each outputFiles as file (file.path)}
+						<FileCard {file} />
+					{/each}
+				{:else}
+					{#each persistedFiles as file (file.downloadUrl)}
+						<FileCard file={{ path: file.name, size: file.size }} downloadUrl={file.downloadUrl} />
+					{/each}
+				{/if}
+			</ul>
 		{/if}
 	</div>
 </BlockWrapper>
