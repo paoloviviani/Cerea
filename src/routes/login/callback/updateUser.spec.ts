@@ -1,4 +1,5 @@
 import { assert, it, describe, afterEach, beforeAll, vi, expect } from "vitest";
+import { z } from "zod";
 import type { Cookies } from "@sveltejs/kit";
 import { collections, ready } from "$lib/server/database";
 import { updateUser } from "./updateUser";
@@ -159,4 +160,111 @@ afterEach(async () => {
 	locals.userId = "1234567890";
 	locals.sessionId = "1234567890";
 	vi.clearAllMocks();
+});
+
+/**
+ * What the house IdP sends for a local account without a display name
+ * (verified live: `GET /chat/login/callback` answered 500 with a ZodError on
+ * `name` and on `email` for exactly this shape). OpenID Connect leaves `name`
+ * optional, and an issuer-local address legitimately has no dotted domain —
+ * so a relying party that throws on either is wrong on its own terms, not
+ * merely unkind to one provider.
+ */
+describe("login without a name claim", () => {
+	const localSub = "house-idp-local-admin";
+	const localsFor = () => ({ ...locals });
+
+	async function cleanup() {
+		await collections.users.deleteMany({ hfUserId: localSub });
+	}
+
+	it("falls back to preferred_username when the provider sends no name", async () => {
+		await updateUser({
+			userData: {
+				preferred_username: "somebody",
+				sub: localSub,
+				email: "somebody@example.org",
+			},
+			locals: localsFor(),
+			cookies: cookiesMock,
+			token,
+		});
+
+		const user = await collections.users.findOne({ hfUserId: localSub });
+		assert.equal(user?.name, "somebody");
+		await cleanup();
+	});
+
+	it("accepts an issuer-local address like admin@local", async () => {
+		await updateUser({
+			userData: { name: "Admin", sub: localSub, email: "admin@local" },
+			locals: localsFor(),
+			cookies: cookiesMock,
+			token,
+		});
+
+		const user = await collections.users.findOne({ hfUserId: localSub });
+		assert.equal(user?.email, "admin@local");
+		await cleanup();
+	});
+
+	it("accepts both missing together, falling back to the email local part", async () => {
+		await updateUser({
+			userData: { sub: localSub, email: "admin@local" },
+			locals: localsFor(),
+			cookies: cookiesMock,
+			token,
+		});
+
+		const user = await collections.users.findOne({ hfUserId: localSub });
+		assert.equal(user?.name, "admin");
+		await cleanup();
+	});
+
+	it("still refuses a response with nothing human-readable to seed from", async () => {
+		// sub alone identifies but never names: the panel footer and the
+		// account label would have nothing to show. This must keep failing,
+		// and for this reason — assert the ZodError itself, not just any
+		// throw, so the test cannot pass on an unrelated failure.
+		await expect(
+			updateUser({
+				userData: { sub: localSub },
+				locals: localsFor(),
+				cookies: cookiesMock,
+				token,
+			})
+		).rejects.toThrowError(z.ZodError);
+		await cleanup();
+	});
+
+	it("reads the display name from a non-default name claim", async () => {
+		await updateUser({
+			userData: { username: "usernamed-person", sub: localSub, email: "u@example.org" },
+			locals: localsFor(),
+			cookies: cookiesMock,
+			token,
+			nameClaim: "username",
+		});
+
+		const user = await collections.users.findOne({ hfUserId: localSub });
+		assert.equal(user?.name, "usernamed-person");
+		await cleanup();
+	});
+
+	it("stores an ordinary address verbatim, for the allowlists", async () => {
+		// ALLOWED_USER_EMAILS/DOMAINS compare exact strings and a split
+		// domain in +server.ts. Any normalisation here would silently loosen
+		// those admission checks, so the stored value must equal the claim.
+		await updateUser({
+			userData: { name: "Person", sub: localSub, email: "Admin@Example.ORG" },
+			locals: localsFor(),
+			cookies: cookiesMock,
+			token,
+		});
+
+		const user = await collections.users.findOne({ hfUserId: localSub });
+		assert.equal(user?.email, "Admin@Example.ORG");
+		assert.equal(user?.name, "Person");
+		await cleanup();
+	});
 });

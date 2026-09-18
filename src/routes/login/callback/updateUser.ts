@@ -67,14 +67,38 @@ export async function updateUser(params: {
 	cookies: Cookies;
 	userAgent?: string;
 	ip?: string;
+	/** Which claim carries the display name. Defaults to the deployment's
+	 * OPENID_NAME_CLAIM ("name", or "username" for providers that do not
+	 * provide name); exposed so the fallback below is testable without
+	 * re-importing the module under a different environment. */
+	nameClaim?: string;
 }) {
 	const { userData, token, locals, cookies, userAgent, ip } = params;
+	const nameClaim = params.nameClaim ?? OIDConfig.NAME_CLAIM;
 
 	// Microsoft Entra v1 tokens do not provide preferred_username, instead the username is provided in the upn
 	// claim. See https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference
 	if (!userData.preferred_username && userData.upn) {
 		userData.preferred_username = userData.upn as string;
 	}
+
+	// What counts as an email address here mirrors the issuer's own rule
+	// (the gateway's LocalLoginRequest): exactly one "@" with a non-empty
+	// local part, 3 to 320 characters. Deliberately not z.string().email(),
+	// which insists on a dotted domain — and an issuer-local address like
+	// `admin@local` legitimately has none. The chat receives what the
+	// gateway issued, so the gateway's acceptance rule is the principled
+	// one; anything it would refuse never arrives. The stored value keeps
+	// its shape verbatim either way: ALLOWED_USER_EMAILS/DOMAINS compare
+	// exact strings and a split domain downstream, and any normalisation
+	// here would silently loosen those admission checks.
+	const emailSchema = z
+		.string()
+		.min(3)
+		.max(320)
+		.refine((value) => value.split("@").length === 2 && value.split("@")[0] !== "", {
+			message: "Invalid email",
+		});
 
 	const {
 		preferred_username: username,
@@ -86,10 +110,18 @@ export async function updateUser(params: {
 	} = z
 		.object({
 			preferred_username: z.string().optional(),
-			name: z.string(),
+			// Optional where it used to be required: OpenID Connect leaves
+			// `name` optional, and a relying party that throws when a
+			// provider omits it is wrong on its own terms. This schema came
+			// from upstream chat-ui, where the provider was always Hugging
+			// Face and always sent one; against our own IdP that assumption
+			// does not hold (a local account without a display name sends
+			// none). The effective name resolves below, from the configured
+			// claim first and then down a fallback chain.
+			name: z.string().optional(),
 			picture: z.string().optional(),
 			sub: z.string(),
-			email: z.string().email().optional(),
+			email: emailSchema.optional(),
 			orgs: z
 				.array(
 					z.object({
@@ -102,13 +134,36 @@ export async function updateUser(params: {
 				)
 				.optional(),
 		})
-		.setKey(OIDConfig.NAME_CLAIM, z.string())
-		.refine((data) => data.preferred_username || data.email, {
-			message: "Either preferred_username or email must be provided by the provider.",
-		})
+		// The deployment's display-name claim, which may or may not be
+		// "name": when it is, this overwrites the optional base key with an
+		// equally optional one (same constraint, no double jeopardy); when
+		// it is "username" it adds that key instead. Either way the base
+		// `name` above no longer throws for a provider that omits it, which
+		// is the whole point — the transform below is what names the user.
+		.setKey(nameClaim, z.string().optional())
+		.refine(
+			(data) =>
+				Boolean(
+					(data as Record<string, unknown>)[nameClaim] || data.preferred_username || data.email
+				),
+			{
+				// `sub` alone is deliberately not enough: it identifies but
+				// never names, and the panel footer and the account label
+				// would have nothing to show. One human-readable seed is the
+				// minimum for a user row.
+				message:
+					"Either the name claim, preferred_username or email must be provided by the provider.",
+			}
+		)
 		.transform((data) => ({
 			...data,
-			name: data[OIDConfig.NAME_CLAIM],
+			// `||`, not `??`: an empty claim is no better than an absent one,
+			// and the refine above guarantees at least one non-empty seed, so
+			// this always lands on a real string.
+			name:
+				((data as Record<string, unknown>)[nameClaim] as string | undefined) ||
+				(data.preferred_username as string | undefined) ||
+				((data.email as string | undefined) ?? "").split("@")[0],
 		}))
 		.parse(userData) as {
 		preferred_username?: string;
@@ -125,8 +180,10 @@ export async function updateUser(params: {
 		}>;
 	} & Record<string, string>;
 
-	// Dynamically access user data based on NAME_CLAIM from environment
-	// This approach allows us to adapt to different OIDC providers flexibly.
+	// The display name resolves from the deployment's name claim first, then
+	// down the fallback chain in the transform above — which keeps working
+	// for a deployment that sets the claim to something else, because the
+	// chain reads whichever key the claim names rather than a fixed one.
 
 	logger.info(
 		{
