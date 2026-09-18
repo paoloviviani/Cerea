@@ -21,11 +21,12 @@ Three things this found that no unit test could:
 * a first user message still needs its parent message id — the conversation is
   created with a system message at its root.
 
-Run it with the deployment's own variables sourced, so it reaches the same
-origin the session cookie is scoped to:
+Run it against the live deployment (the file is parsed, never sourced —
+sourcing would mangle the CHAT_OPENID_CONFIG JSON bash quote removal
+destroys; PYSTINO_ENV names a different file when the checkout is elsewhere):
 
-    set -a; . deploy/.env; set +a
-    ./scripts/test_projects_live.py
+    PYSTINO_ENV=/home/ubuntu/workspace/Pystino/deploy/.env \
+      /home/ubuntu/workspace/Pystino/.venv/bin/python scripts/test_projects_live.py
 """
 
 import os
@@ -36,7 +37,9 @@ from json import dumps as json_dumps
 
 import httpx
 
-ENV_PATH = os.environ.get("PYSTINO_ENV", "/home/ubuntu/pystino/deploy/.env")
+ENV_PATH = os.environ.get("PYSTINO_ENV", "/home/ubuntu/workspace/Pystino/deploy/.env")
+if not os.path.exists(ENV_PATH):
+    sys.exit(f"no env file at {ENV_PATH} — set PYSTINO_ENV to the Pystino deploy/.env")
 
 env = {}
 for line in open(ENV_PATH):
@@ -45,8 +48,19 @@ for line in open(ENV_PATH):
         k, v = line.split("=", 1)
         env[k] = v.strip().strip('"').strip("'")
 
-BASE = f"https://{env['PUBLIC_HOST']}:{env['HTTPS_PORT']}"
+if not env.get("PUBLIC_ORIGIN"):
+    sys.exit(f"PUBLIC_ORIGIN is not set in {ENV_PATH}")
+BASE = env["PUBLIC_ORIGIN"].rstrip("/")
 CHAT = f"{BASE}/chat"
+
+ADMIN_EMAIL = env.get("GATEWAY_LOCAL_ADMIN_EMAIL") or "admin@local"
+ADMIN_PASSWORD = env.get("GATEWAY_LOCAL_ADMIN_PASSWORD") or ""
+if not ADMIN_PASSWORD:
+    sys.exit(
+        f"GATEWAY_LOCAL_ADMIN_PASSWORD is not set in {ENV_PATH} — "
+        "the scripts sign in through the gateway's local door (ADR 0043), "
+        "whose password lives there, never in this repository."
+    )
 
 ok = 0
 fail = 0
@@ -63,25 +77,27 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 
 def login(client: httpx.Client) -> None:
-    r = client.get(f"{CHAT}/projects")
-    m = re.search(r'action="([^"]+)"', r.text)
-    if not m:
-        sys.exit(f"no Keycloak login form at {CHAT}/projects (status {r.status_code})")
+    """Sign in through the house IdP (ADR 0068) with the local door (ADR 0043).
+
+    No login form exists to post — the console login is a JavaScript SPA. The
+    credentials go as JSON to the gateway's local-login endpoint, which sets
+    the management session cookie; the chat's authorize round trip then mints
+    a code for that session and the callback exchanges it. One client jar
+    holds both cookies because it is one origin.
+    """
     r = client.post(
-        m.group(1).replace("&amp;", "&"),
-        data={
-            "username": env["KEYCLOAK_TEST_USER"],
-            "password": env["KEYCLOAK_TEST_PASSWORD"],
-            "credentialId": "",
-        },
+        f"{BASE}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
     )
+    if r.status_code != 200:
+        sys.exit(f"local login as {ADMIN_EMAIL} failed ({r.status_code}): {r.text[:200]}")
+    r = client.get(f"{CHAT}/projects", follow_redirects=True)
     if "/chat/projects" not in str(r.url):
-        sys.exit(f"login did not land on the projects page: {r.url}")
+        sys.exit(f"login did not land on the projects page: {r.url} ({r.status_code})")
 
 
-with httpx.Client(verify=False, follow_redirects=True, timeout=120) as c:
+with httpx.Client(follow_redirects=True, timeout=120) as c:
     login(c)
-    print("signed in as", env["KEYCLOAK_TEST_USER"])
+    print("signed in as", ADMIN_EMAIL)
 
     # -- a knowledge base with one distinctive fact -----------------------
     print("\nknowledge base")
