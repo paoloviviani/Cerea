@@ -67,6 +67,15 @@
 
 	const settings = useSettingsStore();
 
+	// The deployment switch for the knowledge pipeline (FeatureFlags,
+	// computed server-side from CHAT_KNOWLEDGE_ENABLED): off hides the
+	// knowledge checklist, the past-chats toggle and the passage limit below,
+	// and the detail strip's base counts — a deployment without the chat's
+	// Postgres has no store behind any of them.
+	const knowledgeOn = $derived(
+		(page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false
+	);
+
 	// The same choice the home page makes: this person's active model if it is
 	// still one of the deployment's, the first otherwise.
 	const catalogue = $derived((page.data.models ?? []) as { id: string }[]);
@@ -460,7 +469,7 @@
 												<IconChat class="size-3" />
 												{project.conversationCount}
 											</span>
-											{#if project.knowledgeBaseIds.length > 0}
+											{#if knowledgeOn && project.knowledgeBaseIds.length > 0}
 												<span class="text-xs text-gray-600 dark:text-gray-400">
 													{project.knowledgeBaseIds.length} base{project.knowledgeBaseIds.length ===
 													1
@@ -468,7 +477,7 @@
 														: "s"}
 												</span>
 											{/if}
-											{#if project.indexPastChats}
+											{#if knowledgeOn && project.indexPastChats}
 												<span class="{s.PILL} {s.PILL_TONES.good}">past chats</span>
 											{/if}
 											{#if !project.owned}
@@ -530,67 +539,69 @@
 					<p class={s.HINT}>Added to the system prompt of every conversation here.</p>
 				</div>
 
-				<div>
-					<span class={s.LABEL}>
-						Knowledge bases <span class="font-normal text-gray-500">(optional)</span>
-					</span>
-					{#if stores.length === 0}
-						<p class={s.HINT}>You have none yet. Create one under Knowledge.</p>
-					{:else}
-						<div class="max-h-40 space-y-1 overflow-y-auto">
-							{#each stores as store (store.id)}
-								<label class="flex items-start gap-2 text-sm">
-									<input
-										type="checkbox"
-										checked={attached.includes(store.id)}
-										onchange={() => toggle(store.id)}
-										disabled={busy}
-										class="mt-0.5 accent-blue-600"
-									/>
-									<span>
-										{store.name}
-										<span class="text-xs text-gray-500">
-											· {store.file_counts.completed} indexed{#if !store.owned}, shared with you{/if}
-										</span>
-									</span>
-								</label>
-							{/each}
-						</div>
-					{/if}
-					<p class={s.HINT}>
-						Sharing this project does <strong>not</strong> share these.
-					</p>
-				</div>
-
-				<label class="flex items-start gap-2 text-sm">
-					<input
-						type="checkbox"
-						bind:checked={indexPastChats}
-						disabled={busy}
-						class="mt-0.5 accent-blue-600"
-					/>
-					<span>
-						Search this project's own past conversations
-						<span class="block text-xs text-gray-500 dark:text-gray-400">
-							Finished exchanges go into a knowledge base of their own — it appears under Knowledge,
-							and you can empty or delete it like any other. Off by default, because it copies what
-							was said into a searchable store.
+				{#if knowledgeOn}
+					<div>
+						<span class={s.LABEL}>
+							Knowledge bases <span class="font-normal text-gray-500">(optional)</span>
 						</span>
-					</span>
-				</label>
+						{#if stores.length === 0}
+							<p class={s.HINT}>You have none yet. Create one under Knowledge.</p>
+						{:else}
+							<div class="max-h-40 space-y-1 overflow-y-auto">
+								{#each stores as store (store.id)}
+									<label class="flex items-start gap-2 text-sm">
+										<input
+											type="checkbox"
+											checked={attached.includes(store.id)}
+											onchange={() => toggle(store.id)}
+											disabled={busy}
+											class="mt-0.5 accent-blue-600"
+										/>
+										<span>
+											{store.name}
+											<span class="text-xs text-gray-500">
+												· {store.file_counts.completed} indexed{#if !store.owned}, shared with you{/if}
+											</span>
+										</span>
+									</label>
+								{/each}
+							</div>
+						{/if}
+						<p class={s.HINT}>
+							Sharing this project does <strong>not</strong> share these.
+						</p>
+					</div>
 
-				<div>
-					<label for="project-limit" class={s.LABEL}>Passages per answer</label>
-					<input
-						id="project-limit"
-						type="number"
-						min="1"
-						max="20"
-						class="{s.INPUT} w-32"
-						bind:value={retrievalLimit}
-						disabled={busy}
-					/>
-				</div>
+					<label class="flex items-start gap-2 text-sm">
+						<input
+							type="checkbox"
+							bind:checked={indexPastChats}
+							disabled={busy}
+							class="mt-0.5 accent-blue-600"
+						/>
+						<span>
+							Search this project's own past conversations
+							<span class="block text-xs text-gray-500 dark:text-gray-400">
+								Finished exchanges go into a knowledge base of their own — it appears under
+								Knowledge, and you can empty or delete it like any other. Off by default, because it
+								copies what was said into a searchable store.
+							</span>
+						</span>
+					</label>
+
+					<div>
+						<label for="project-limit" class={s.LABEL}>Passages per answer</label>
+						<input
+							id="project-limit"
+							type="number"
+							min="1"
+							max="20"
+							class="{s.INPUT} w-32"
+							bind:value={retrievalLimit}
+							disabled={busy}
+						/>
+					</div>
+				{/if}
 
 				<div>
 					<span class={s.LABEL}>Defaults for new chats here</span>
@@ -659,8 +670,10 @@
 								{current.conversationCount} conversation{current.conversationCount === 1 ? "" : "s"}
 							</p>
 							<p class={s.STRIP_DETAIL}>
-								{attachedNames.length} knowledge base{attachedNames.length === 1 ? "" : "s"}
-								{#if current.indexPastChats}· past chats searchable{/if}
+								{#if knowledgeOn}
+									{attachedNames.length} knowledge base{attachedNames.length === 1 ? "" : "s"}
+									{#if current.indexPastChats}· past chats searchable{/if}
+								{/if}
 								{#if !current.owned}· shared with you{/if}
 							</p>
 						</div>
@@ -694,14 +707,16 @@
 					{/if}
 				</div>
 
-				<div>
-					<h3 class={s.SECTION_TITLE}>Knowledge</h3>
-					{#if attachedNames.length === 0}
-						<p class={s.SUBTITLE}>No knowledge bases attached.</p>
-					{:else}
-						<p class="text-sm text-gray-700 dark:text-gray-300">{attachedNames.join(", ")}</p>
-					{/if}
-				</div>
+				{#if knowledgeOn}
+					<div>
+						<h3 class={s.SECTION_TITLE}>Knowledge</h3>
+						{#if attachedNames.length === 0}
+							<p class={s.SUBTITLE}>No knowledge bases attached.</p>
+						{:else}
+							<p class="text-sm text-gray-700 dark:text-gray-300">{attachedNames.join(", ")}</p>
+						{/if}
+					</div>
+				{/if}
 
 				<div>
 					<h3 class={s.SECTION_TITLE}>Defaults for new chats</h3>

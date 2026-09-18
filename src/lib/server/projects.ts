@@ -34,6 +34,7 @@ import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
+import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import {
 	callerFrom,
 	reachableStores,
@@ -219,7 +220,7 @@ export async function projectContext(options: {
 	// not be searched twice — its passages would crowd the budget with copies.
 	const uniqueBases = [...new Set(bases)];
 
-	if (token && uniqueBases.length > 0 && question.trim()) {
+	if (token && uniqueBases.length > 0 && question.trim() && knowledgeEnabled()) {
 		// The caller is the reader: reach checks run against this person, and
 		// the query's embedding is metered to their token. No signed-in user
 		// means nothing to check against and nothing to bill — no retrieval.
@@ -308,7 +309,9 @@ export async function indexConversation(options: {
 	locals: App.Locals | undefined;
 }): Promise<void> {
 	const { project, conversation, messages, token, locals } = options;
-	if (!project.indexPastChats || !token) return;
+	// No pipeline, no memory: with the deployment switch off there is no store
+	// to write to, and answering the turn never depended on this anyway.
+	if (!project.indexPastChats || !token || !knowledgeEnabled()) return;
 
 	if (!locals?.user) return;
 	try {
@@ -383,7 +386,14 @@ export async function parseAttachedKnowledgeBaseIds(
 		error(400, parsed.error.issues[0]?.message ?? "Those knowledge bases are not valid.");
 	}
 	if (!parsed.data) return undefined;
-	if (parsed.data.length === 0) return parsed.data;
+	if (!parsed.data.length) return parsed.data;
+	// The UI hides attaching when the pipeline is off, so a non-empty list
+	// here names bases a deployment without a store cannot check — refuse
+	// rather than storing ids every later turn would silently skip. 404, not
+	// 400: the feature does not exist in this deployment.
+	if (!knowledgeEnabled()) {
+		error(404, "Knowledge bases are not enabled in this deployment.");
+	}
 	if (!locals.user) {
 		error(401, "Knowledge bases need a signed-in account.");
 	}

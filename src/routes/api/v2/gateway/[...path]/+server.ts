@@ -29,6 +29,7 @@
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
+import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { logger } from "$lib/server/logger";
 
 /**
@@ -269,6 +270,12 @@ async function forward(
 ): Promise<Response> {
 	const path = event.params.path ?? "";
 	const isInternal = INTERNAL.some((pattern) => pattern.test(path));
+	if (isInternal && !knowledgeEnabled()) {
+		// The chat's own store, switched off at the deployment level: the
+		// screens hide themselves, so this is a backstop, not a message —
+		// 404, like any other path this endpoint does not offer.
+		error(404, "Knowledge bases are not enabled in this deployment.");
+	}
 	if (isInternal) {
 		return handleInternal(path, method, event);
 	}

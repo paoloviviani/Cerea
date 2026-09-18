@@ -704,7 +704,7 @@
 					</div>
 					<!-- Floating so toggling them on/off never reflows the header tab switcher -->
 					<div class="absolute top-2 right-3 z-10 flex items-center gap-1">
-						{#if pythonCell}
+						{#if pythonCell && (page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false}
 							<ExecutionFiles />
 							<button
 								type="button"
