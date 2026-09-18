@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """MCP connectors and their OAuth, against the running stack (ADR 0064).
 
-    set -a; . deploy/.env; set +a
-    ./scripts/test_connectors_live.py
+Run it against the live deployment (the file is parsed, never sourced —
+sourcing would mangle the CHAT_OPENID_CONFIG JSON bash quote removal
+destroys; PYSTINO_ENV names a different file when the checkout is elsewhere):
+
+    PYSTINO_ENV=/home/ubuntu/workspace/Pystino/deploy/.env \\
+      /home/ubuntu/workspace/Pystino/.venv/bin/python scripts/test_connectors_live.py
 
 Adds Notion's remote MCP server as a connector and drives the flow as far as a
 machine can: discovery finds its authorization server, dynamic client
@@ -16,7 +20,6 @@ the browser.** The connector listing carries `connected` and never a token.
 """
 
 import os
-import re
 import sys
 
 import httpx
@@ -40,37 +43,53 @@ def ca_bundle() -> str | bool:
     return path if os.path.exists(path) else True
 
 
-def base_url() -> str:
-    host = os.environ.get("PUBLIC_HOST")
-    if not host:
-        sys.exit("source deploy/.env first — PUBLIC_HOST is not set")
-    return f"https://{host}:{os.environ.get('HTTPS_PORT', '443')}"
+ENV_PATH = os.environ.get("PYSTINO_ENV", "/home/ubuntu/workspace/Pystino/deploy/.env")
+if not os.path.exists(ENV_PATH):
+    sys.exit(f"no env file at {ENV_PATH} — set PYSTINO_ENV to the Pystino deploy/.env")
 
+env = {}
+for line in open(ENV_PATH):
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        k, v = line.split("=", 1)
+        env[k] = v.strip().strip('"').strip("'")
+
+if not env.get("PUBLIC_ORIGIN"):
+    sys.exit(f"PUBLIC_ORIGIN is not set in {ENV_PATH}")
+BASE = env["PUBLIC_ORIGIN"].rstrip("/")
+CHAT = f"{BASE}/chat"
+
+ADMIN_EMAIL = env.get("GATEWAY_LOCAL_ADMIN_EMAIL") or "admin@local"
+ADMIN_PASSWORD = env.get("GATEWAY_LOCAL_ADMIN_PASSWORD") or ""
+if not ADMIN_PASSWORD:
+    sys.exit(
+        f"GATEWAY_LOCAL_ADMIN_PASSWORD is not set in {ENV_PATH} — "
+        "the scripts sign in through the gateway's local door (ADR 0043), "
+        "whose password lives there, never in this repository."
+    )
 
 NOTION = "https://mcp.notion.com/mcp"
-BASE = base_url()
-CHAT = f"{BASE}/chat"
 
 
 def sign_in(client: httpx.Client) -> None:
-    r = client.get(f"{CHAT}/")
-    form = re.search(r'action="([^"]+)"', r.text)
-    if not form:
-        sys.exit(f"no login form at {CHAT}/ (status {r.status_code})")
-    client.post(
-        form.group(1).replace("&amp;", "&"),
-        data={
-            "username": os.environ["KEYCLOAK_TEST_USER"],
-            "password": os.environ["KEYCLOAK_TEST_PASSWORD"],
-            "credentialId": "",
-        },
+    """House IdP (ADR 0068) plus local door (ADR 0043): JSON credentials to
+    the gateway, then the chat's authorize round trip on the same jar."""
+    r = client.post(
+        f"{BASE}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
     )
+    if r.status_code != 200:
+        sys.exit(f"local login as {ADMIN_EMAIL} failed ({r.status_code}): {r.text[:200]}")
+    home = client.get(f"{CHAT}/", follow_redirects=True)
+    if "login" in str(home.url).lower() or home.status_code != 200:
+        sys.exit(
+            f"the authorize round trip did not land in the chat: {home.url} ({home.status_code})"
+        )
 
 
 def main() -> int:
     with httpx.Client(verify=ca_bundle(), follow_redirects=True, timeout=120) as c:
         sign_in(c)
-        print("signed in as", os.environ["KEYCLOAK_TEST_USER"])
+        print("signed in as", ADMIN_EMAIL)
 
         api = f"{CHAT}/api/v2/mcp/connectors"
 
