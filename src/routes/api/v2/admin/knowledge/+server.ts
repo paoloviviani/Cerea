@@ -21,17 +21,24 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 
 import { requireAdmin } from "$lib/server/admin";
+import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { logger } from "$lib/server/logger";
 import type { KnowledgeConfig } from "$lib/types/VectorStore";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	await requireAdmin(locals);
+	if (!knowledgeEnabled()) {
+		error(404, "Knowledge bases are not enabled in this deployment.");
+	}
 	const { adminStatus } = await import("$lib/server/knowledge/service");
 	return json(await adminStatus(locals.token));
 };
 
 export const PUT: RequestHandler = async ({ locals, request }) => {
 	const identity = await requireAdmin(locals);
+	if (!knowledgeEnabled()) {
+		error(404, "Knowledge bases are not enabled in this deployment.");
+	}
 	const body = (await request.json()) as {
 		enabled?: boolean;
 		embedding_model?: string | null;

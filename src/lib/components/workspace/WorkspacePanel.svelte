@@ -41,13 +41,23 @@
 	// "Models", "MCP Servers" and "Knowledge" and nothing is gained by renaming
 	// them under a new roof. "Skills" is new with this panel: the fourth
 	// manager, and the first one that needed no sidebar row to replace.
-	const TABS = [
+	//
+	// The Knowledge tab hides when the deployment switch says the pipeline is
+	// off (FeatureFlags.knowledgeEnabled, on unless explicitly "false"): a
+	// deployment without the chat's Postgres has no store behind it, and a tab
+	// that only errors is worse than none. Anything else in the query — a bare
+	// `/workspace`, a mistyped `?tab=...`, or `?tab=kb` while hidden — lands on
+	// Models.
+	const ALL_TABS = [
 		{ key: "models", label: "Models" },
 		{ key: "mcp", label: "MCP Servers" },
 		{ key: "kb", label: "Knowledge" },
 		{ key: "skills", label: "Skills" },
 	] as const;
-	type TabKey = (typeof TABS)[number]["key"];
+	const TABS = $derived(
+		data.knowledgeEnabled !== false ? ALL_TABS : ALL_TABS.filter((t) => t.key !== "kb")
+	);
+	type TabKey = (typeof ALL_TABS)[number]["key"];
 
 	// Anything else in the query means the default tab, so a bare `/workspace`
 	// and a mistyped `?tab=...` both land on Models.
@@ -71,7 +81,9 @@
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Workspace</h1>
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			Models, MCP servers, knowledge bases and skills, in one place.
+			{data.knowledgeEnabled !== false
+				? "Models, MCP servers, knowledge bases and skills, in one place."
+				: "Models, MCP servers and skills, in one place."}
 		</p>
 	</header>
 

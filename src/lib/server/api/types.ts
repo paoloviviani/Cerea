@@ -65,4 +65,12 @@ export interface FeatureFlags {
 	 * asked for.
 	 */
 	usageEnabled: boolean;
+	/**
+	 * Whether the deployment runs the knowledge pipeline
+	 * (`CHAT_KNOWLEDGE_ENABLED`, on unless explicitly `"false"`). Off hides
+	 * the Knowledge workspace tab, the project and composer affordances, and
+	 * the admin section — a deployment without the chat's Postgres has no
+	 * store behind them, and a tab that only errors is worse than none.
+	 */
+	knowledgeEnabled: boolean;
 }

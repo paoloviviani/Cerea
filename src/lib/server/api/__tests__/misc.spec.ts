@@ -6,6 +6,7 @@ import { vi } from "vitest";
 const configState = vi.hoisted(() => ({
 	pyodidePyPiDisabled: false,
 	usageEnabled: undefined as boolean | undefined,
+	knowledgeEnabled: undefined as boolean | undefined,
 	openaiBaseUrl: undefined as string | undefined,
 }));
 
@@ -21,6 +22,9 @@ vi.mock("$lib/server/config", async (importOriginal) => {
 					}
 					if (prop === "CHAT_USAGE_ENABLED" && configState.usageEnabled !== undefined) {
 						return configState.usageEnabled ? "true" : "";
+					}
+					if (prop === "CHAT_KNOWLEDGE_ENABLED" && configState.knowledgeEnabled !== undefined) {
+						return configState.knowledgeEnabled ? "true" : "false";
 					}
 					if (prop === "OPENAI_BASE_URL" && configState.openaiBaseUrl !== undefined) {
 						return configState.openaiBaseUrl;
@@ -62,6 +66,7 @@ describe("GET /api/v2/feature-flags", () => {
 		expect(data).toHaveProperty("isAdmin");
 		expect(data).toHaveProperty("transcriptionEnabled");
 		expect(data).toHaveProperty("taskModelId");
+		expect(data).toHaveProperty("knowledgeEnabled");
 		expect(typeof data.enableAssistants).toBe("boolean");
 		expect(typeof data.loginEnabled).toBe("boolean");
 		expect(typeof data.isAdmin).toBe("boolean");
@@ -104,6 +109,7 @@ describe("GET /api/v2/feature-flags", () => {
 	afterEach(() => {
 		configState.pyodidePyPiDisabled = false;
 		configState.usageEnabled = undefined;
+		configState.knowledgeEnabled = undefined;
 		configState.openaiBaseUrl = undefined;
 	});
 
@@ -153,6 +159,25 @@ describe("GET /api/v2/feature-flags", () => {
 		});
 		const data = await parseResponse<FeatureFlags>(res);
 		expect(data.usageEnabled).toBe(true);
+	});
+
+	it("shows the knowledge surface by default (CHAT_KNOWLEDGE_ENABLED unset)", async () => {
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.knowledgeEnabled).toBe(true);
+	});
+
+	it("hides the knowledge surface when CHAT_KNOWLEDGE_ENABLED is false", async () => {
+		configState.knowledgeEnabled = false;
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.knowledgeEnabled).toBe(false);
 	});
 
 	it("serves CORS headers on /api/** when the request carries no Origin", async () => {
