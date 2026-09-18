@@ -16,15 +16,21 @@ gone, provider end-session, back to the app — and asserts they are still signe
 out at the end of it.
 
 Two things it learned the hard way, both recorded so they are not rediscovered:
-Keycloak answers **400** when `post_logout_redirect_uri` is not registered
-(and `post.logout.redirect.uris = +` registers only the *login* callback, not
-the app root); and landing on a login prompt at the end is the *proof* of a
-working sign-out, not a failure.
+the house IdP ends the session unconditionally and never answers 400 — an
+unregistered `post_logout_redirect_uri` falls back to `/` rather than
+refusing (there is no Keycloak here anymore; ADR 0044 removed it and ADR 0068
+is what signs people in). The chat always sends its own home, which is
+same-origin and so honoured, meaning the browser comes back to `/chat/`,
+which is unauthenticated by then and bounces to the login prompt. Landing on
+a login prompt at the end is the *proof* of a working sign-out, not a
+failure.
 
-Run it with the deployment's variables sourced:
+Run it against the live deployment (the file is parsed, never sourced —
+sourcing would mangle the CHAT_OPENID_CONFIG JSON bash quote removal
+destroys; PYSTINO_ENV names a different file when the checkout is elsewhere):
 
-    set -a; . deploy/.env; set +a
-    ./scripts/test_nav_live.py
+    PYSTINO_ENV=/home/ubuntu/workspace/Pystino/deploy/.env \
+      /home/ubuntu/workspace/Pystino/.venv/bin/python scripts/test_nav_live.py
 """
 
 import os
@@ -34,7 +40,9 @@ import sys
 
 import httpx
 
-ENV_PATH = os.environ.get("PYSTINO_ENV", "/home/ubuntu/pystino/deploy/.env")
+ENV_PATH = os.environ.get("PYSTINO_ENV", "/home/ubuntu/workspace/Pystino/deploy/.env")
+if not os.path.exists(ENV_PATH):
+    sys.exit(f"no env file at {ENV_PATH} — set PYSTINO_ENV to the Pystino deploy/.env")
 env = {}
 for line in open(ENV_PATH):
     line = line.strip()
@@ -42,8 +50,19 @@ for line in open(ENV_PATH):
         k, v = line.split("=", 1)
         env[k] = v.strip().strip('"').strip("'")
 
-BASE = f"https://{env['PUBLIC_HOST']}:{env['HTTPS_PORT']}"
+if not env.get("PUBLIC_ORIGIN"):
+    sys.exit(f"PUBLIC_ORIGIN is not set in {ENV_PATH}")
+BASE = env["PUBLIC_ORIGIN"].rstrip("/")
 CHAT = f"{BASE}/chat"
+
+ADMIN_EMAIL = env.get("GATEWAY_LOCAL_ADMIN_EMAIL") or "admin@local"
+ADMIN_PASSWORD = env.get("GATEWAY_LOCAL_ADMIN_PASSWORD") or ""
+if not ADMIN_PASSWORD:
+    sys.exit(
+        f"GATEWAY_LOCAL_ADMIN_PASSWORD is not set in {ENV_PATH} — "
+        "the scripts sign in through the gateway's local door (ADR 0043), "
+        "whose password lives there, never in this repository."
+    )
 
 ok = 0
 fail = 0
@@ -59,21 +78,31 @@ def check(name, condition, detail=""):
         print(f"  FAIL {name}" + (f" — {detail}" if detail else ""))
 
 
-with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
-    r = c.get(f"{CHAT}/")
-    m = re.search(r'action="([^"]+)"', r.text)
-    if not m:
-        sys.exit(f"no login form at {CHAT}/ (status {r.status_code})")
-    c.post(
-        m.group(1).replace("&amp;", "&"),
-        data={
-            "username": env["KEYCLOAK_TEST_USER"],
-            "password": env["KEYCLOAK_TEST_PASSWORD"],
-            "credentialId": "",
-        },
-    )
+def sign_in(client: httpx.Client, email: str, password: str) -> None:
+    """Sign in through the house IdP (ADR 0068) with the local door (ADR 0043).
+
+    There is no login form to post anymore — the console's login is a
+    JavaScript SPA. Instead: POST the credentials as JSON to the gateway's
+    local-login endpoint, which sets the management session cookie, then walk
+    the chat's authorize round trip the cookie unlocks (chat 302s to
+    /oauth/authorize with PKCE, the gateway mints a code for the session, the
+    chat's callback exchanges it). One client jar holds both cookies because
+    it is one origin.
+    """
+    r = client.post(f"{BASE}/auth/login", json={"email": email, "password": password})
+    if r.status_code != 200:
+        sys.exit(f"local login as {email} failed ({r.status_code}): {r.text[:200]}")
+    # Per-request redirect following: the throwaway client below runs with
+    # follow_redirects=False and this must not depend on the client's default.
+    home = client.get(f"{CHAT}/", follow_redirects=True)
+    if "login" in str(home.url).lower() or home.status_code != 200:
+        sys.exit(f"the authorize round trip did not land in the chat: {home.url} ({home.status_code})")
+
+
+with httpx.Client(follow_redirects=True, timeout=90) as c:
+    sign_in(c, ADMIN_EMAIL, ADMIN_PASSWORD)
+    print("signed in as", ADMIN_EMAIL)
     home = c.get(f"{CHAT}/").text
-    print("signed in as", env["KEYCLOAK_TEST_USER"])
 
     print("\neverything is in the panel:")
     # Against the rendered text rather than the markup: a row with a count has
@@ -120,7 +149,7 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     )
     check(
         "the account label is shown",
-        env["KEYCLOAK_TEST_USER"] in home,
+        ADMIN_EMAIL in home,
         "the username is not in the panel",
     )
     check(
@@ -135,18 +164,8 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
     )
     print("\nsigning out, at both ends:")
     # A throwaway client, so the main one keeps its session for the rest.
-    with httpx.Client(verify=False, follow_redirects=False, timeout=60) as d:
-        r = d.get(f"{CHAT}/", follow_redirects=True)
-        m2 = re.search(r'action="([^"]+)"', r.text)
-        d.post(
-            m2.group(1).replace("&amp;", "&"),
-            data={
-                "username": env["KEYCLOAK_TEST_USER"],
-                "password": env["KEYCLOAK_TEST_PASSWORD"],
-                "credentialId": "",
-            },
-            follow_redirects=True,
-        )
+    with httpx.Client(follow_redirects=False, timeout=60) as d:
+        sign_in(d, ADMIN_EMAIL, ADMIN_PASSWORD)
         check(
             "signed in, the projects API answers",
             d.get(f"{CHAT}/api/v2/projects").status_code == 200,
@@ -156,9 +175,9 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
         check("POST /logout redirects", out.status_code == 302, str(out.status_code))
         target = out.headers.get("location", "")
         check(
-            "it redirects to the provider's end-session endpoint",
-            "/protocol/openid-connect/logout" in target,
-            f"went to {target[:120]} — the directory session would survive",
+            "it redirects to the house IdP's end-session endpoint",
+            "/oauth/end_session" in target,
+            f"went to {target[:120]} — the provider session would survive",
         )
         check(
             "the local cookie is cleared on the way",
@@ -166,27 +185,28 @@ with httpx.Client(verify=False, follow_redirects=True, timeout=90) as c:
             str(out.headers.get_list("set-cookie")),
         )
 
-        # Follow the provider logout, as a browser would. It comes back to
-        # `/chat/`, which is unauthenticated by then and bounces to the login
-        # prompt — so a login page at the end is the *proof*, not a fault.
+        # Follow the provider logout, as a browser would. It ends the gateway
+        # session and comes back to `/chat/`, which is unauthenticated by then
+        # and bounces to the login prompt — so a login page at the end is the
+        # *proof*, not a fault.
         if target:
             hop = d.get(target, follow_redirects=True)
             landed = str(hop.url)
             check(
                 "the provider hands the browser back, and it lands on a login prompt",
-                landed.rstrip("/").endswith("/chat") or "openid-connect/auth" in landed,
+                "login" in landed,
                 f"landed on {landed[:120]}",
             )
 
         # And now the real question: is the person signed out, including at the
-        # directory? A still-live provider session would sign them back in
-        # here without a prompt.
+        # provider? A still-live session would sign them back in here without
+        # a prompt.
         back = d.get(f"{CHAT}/api/v2/projects", follow_redirects=True)
         signed_out = back.status_code != 200 or "login" in str(back.url).lower()
         check(
             "they are signed out, and stay signed out",
             signed_out,
-            f"{back.status_code} at {back.url} — the directory signed them back in",
+            f"{back.status_code} at {back.url} — the provider signed them back in",
         )
 
     print("\na project's chat is listed once, under its project:")
