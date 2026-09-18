@@ -39,6 +39,15 @@
 	// on the new conversation, never back to the default.
 	let webSearch: boolean = $state(false);
 	let webSearchSeeded = $state(false);
+	// Deciding up front: the composer pill for the chat about to be created,
+	// starting at the app default. Only an explicit toggle rides into the
+	// create request (tracked separately below) — untouched, the new chat
+	// simply inherits the setting live, so a later default change still
+	// applies to it. The toggle changes only this draft, never the default.
+	let autoApproveTools: boolean = $state(false);
+	let toolApprovalSeeded = $state(false);
+	let toolApprovalBaseline = $state(false);
+	let toolApprovalTouched = $state(false);
 
 	const settings = useSettingsStore();
 
@@ -73,6 +82,11 @@
 				mlAssistant: mlAssistant.taskStarted,
 				knowledgeBaseIds: knowledgeBases.map((base) => base.id),
 				webSearch,
+				// An explicit up-front choice becomes the new chat's override;
+				// untouched, the field stays absent and the chat inherits.
+				...(toolApprovalTouched
+					? { toolApprovalOverride: autoApproveTools ? "always-allow" : "manual" }
+					: {}),
 			});
 
 			let res = await fetch(`${base}/conversation`, {
@@ -213,6 +227,19 @@
 		webSearch = $settings.webSearchEnabled === true;
 		webSearchSeeded = true;
 	});
+	// Same guard for the tool-approval pill: it starts at the setting, and
+	// the baseline remembers what "untouched" looked like so toggling twice
+	// back counts as untouched again.
+	$effect(() => {
+		if (toolApprovalSeeded) return;
+		autoApproveTools = $settings.toolApprovalPolicy === "always-allow";
+		toolApprovalBaseline = autoApproveTools;
+		toolApprovalSeeded = true;
+	});
+	$effect(() => {
+		if (!toolApprovalSeeded) return;
+		toolApprovalTouched = autoApproveTools !== toolApprovalBaseline;
+	});
 </script>
 
 <svelte:head>
@@ -229,6 +256,7 @@
 		bind:draft
 		bind:knowledgeBases
 		bind:webSearch
+		bind:autoApproveTools
 	/>
 {:else}
 	<div class="mx-auto my-20 max-w-xl rounded-xl border p-6 text-center dark:border-gray-700">
