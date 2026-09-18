@@ -24,13 +24,18 @@
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
 
 	// Only what exists. A tab leading to a 404 is
-	// worse than a tab that is not there.
-	const sections = [
-		{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook },
+	// worse than a tab that is not there. The Knowledge section hides when the
+	// deployment switch says the pipeline is off (FeatureFlags.knowledgeEnabled,
+	// on unless explicitly "false") — /admin itself redirects to the first
+	// section that exists, so nothing lands on the missing one.
+	const sections = $derived([
+		...((page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false
+			? [{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook }]
+			: []),
 		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
 		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
 		{ href: "/admin/skills", label: "Skills", icon: IconDocument },
-	];
+	]);
 
 	const current = $derived(page.url.pathname);
 </script>

@@ -15,10 +15,14 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 
 import { requireAdmin } from "$lib/server/admin";
+import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { KnowledgeError } from "$lib/server/knowledge/service";
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	await requireAdmin(locals);
+	if (!knowledgeEnabled()) {
+		error(404, "Knowledge bases are not enabled in this deployment.");
+	}
 	// The embeddings carry the acting administrator's own token; without one
 	// there is nobody to bill the re-embedding to.
 	if (!locals.token) {

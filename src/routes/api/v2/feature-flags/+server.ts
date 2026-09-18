@@ -2,6 +2,7 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { loginEnabled } from "$lib/server/auth";
 import { config } from "$lib/server/config";
+import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 
@@ -33,5 +34,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// own isEnabled): a flag with no OPENAI_BASE_URL would show a tab whose
 		// only provider can never answer.
 		usageEnabled: config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL,
+		knowledgeEnabled: knowledgeEnabled(),
 	} satisfies FeatureFlags);
 };

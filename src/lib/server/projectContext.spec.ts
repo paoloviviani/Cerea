@@ -12,15 +12,23 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { ObjectId } from "mongodb";
 
-const { searchBaseMock, callerFromMock } = vi.hoisted(() => ({
+const { searchBaseMock, callerFromMock, knowledgeSwitch } = vi.hoisted(() => ({
 	searchBaseMock: vi.fn(),
 	callerFromMock: vi.fn(),
+	knowledgeSwitch: { on: true },
 }));
 
 vi.mock("$lib/server/knowledge/service", () => ({
 	searchBase: searchBaseMock,
 	callerFrom: callerFromMock,
 	reachableStores: vi.fn(),
+}));
+
+// The deployment switch, controllable per test while everything else resolves
+// through the real helper. On by default, matching an unset
+// CHAT_KNOWLEDGE_ENABLED.
+vi.mock("$lib/server/knowledgeEnabled", () => ({
+	knowledgeEnabled: () => knowledgeSwitch.on,
 }));
 
 import { projectContext, DEFAULT_RETRIEVAL_LIMIT } from "$lib/server/projects";
@@ -34,6 +42,7 @@ beforeAll(async () => {
 beforeEach(() => {
 	searchBaseMock.mockReset();
 	callerFromMock.mockReset();
+	knowledgeSwitch.on = true;
 	callerFromMock.mockResolvedValue({
 		userId: new ObjectId(),
 		email: "reader@example.org",
@@ -148,6 +157,26 @@ describe("projectContext with conversation-attached bases", () => {
 
 		expect(searchBaseMock).not.toHaveBeenCalled();
 		expect(context).toBeUndefined();
+	});
+
+	it("skips retrieval but keeps instructions when the deployment switch is off", async () => {
+		knowledgeSwitch.on = false;
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({ data: hitsForBase(baseId) })
+		);
+		const project = makeProject({
+			instructions: "Answer in British English.",
+			knowledgeBaseIds: ["b1b1b1b1b1b1b1b1b1b1b1b1"],
+		});
+
+		// A disabled pipeline is a reason for a worse answer, never for none:
+		// no store is touched and the turn keeps its standing instructions.
+		const context = await projectContext(
+			contextOptions({ project, knowledgeBaseIds: ["c1c1c1c1c1c1c1c1c1c1c1c1"] })
+		);
+
+		expect(searchBaseMock).not.toHaveBeenCalled();
+		expect(context).toBe("Answer in British English.");
 	});
 
 	it("still indexes past chats into the search alongside attached bases", async () => {

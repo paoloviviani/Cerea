@@ -876,9 +876,10 @@
 								</DropdownMenu.Sub>
 
 								<!-- Knowledge bases submenu: attach to THIS conversation, in
-								     addition to any bases its project carries. Signed-in only,
-								     since retrieval runs as the reader. -->
-								{#if signedIn}
+							     addition to any bases its project carries. Signed-in only,
+							     since retrieval runs as the reader — and hidden entirely
+							     when the deployment switch says the pipeline is off. -->
+								{#if signedIn && page.data.knowledgeEnabled !== false}
 									<DropdownMenu.Sub
 										onOpenChange={(open) => {
 											if (open) void loadKnowledgeStores();
