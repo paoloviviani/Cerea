@@ -45,6 +45,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			 * the server inherits: project default, then the app default.
 			 */
 			webSearch: z.boolean().optional(),
+			/**
+			 * Chat-local tool-approval override for the new conversation,
+			 * decided up front at the composer. Absent means no override:
+			 * the chat inherits the setting live, so a later default change
+			 * still applies to it.
+			 */
+			toolApprovalOverride: z.enum(["always-allow", "manual"]).optional(),
 			mlBudgetUsd: z.number().finite().min(0).max(10_000).optional(),
 		})
 		.safeParse(JSON.parse(body));
@@ -239,6 +246,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(projectId ? { projectId } : {}),
 		...(attachedKnowledgeBaseIds?.length ? { knowledgeBaseIds: attachedKnowledgeBaseIds } : {}),
 		...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
+		// An explicit up-front choice only; absent inherits the setting.
+		...(values.toolApprovalOverride !== undefined
+			? { toolApprovalOverride: values.toolApprovalOverride }
+			: {}),
 		// Only builds that ship ML Assistant mode can mark a conversation with it.
 		...(isMlAssistant ? { mlAssistant: true } : {}),
 		...(isMlAssistant && mlBudget ? { mlBudget } : {}),
@@ -266,6 +277,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				rootMessageId,
 				id: conversationId,
 				...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
+				// An explicit up-front choice only; absent inherits the setting.
+				...(values.toolApprovalOverride !== undefined
+					? { toolApprovalOverride: values.toolApprovalOverride }
+					: {}),
 				...(projectId ? { projectId: projectId.toString() } : {}),
 				...(seedProjectDefaults ? { projectDefaults: seedProjectDefaults } : {}),
 				updatedAt: now,
