@@ -28,6 +28,14 @@
 #                       host, so a path that differs inside the container
 #                       names a directory the daemon cannot see.
 #
+# The image is node:24-bookworm, not -slim, and the difference is not taste:
+# slim carries neither `git` — which the installer uses to clone the Pystino
+# checkout when the operator does not have one — nor `openssl`, whose absence
+# is survivable (the IdP signing key falls back to node's own P-256) but whose
+# presence keeps the generated key identical to the command .env.example
+# documents. Slim was tried first and would have failed exactly one step, the
+# one an operator with no checkout hits first.
+#
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -79,5 +87,5 @@ exec docker run --rm "${tty_flags[@]}" \
 	"${mounts[@]}" \
 	-w "$here" \
 	-e HOME=/tmp \
-	node:24-bookworm-slim \
+	node:24-bookworm \
 	node "$entry" "$@"
