@@ -96,7 +96,7 @@ for gateway-first operators.
 Taking it back down again is here too, since this is where it was put up:
 
 ```sh
-./installer/teardown.sh [--backup] [--images] [--yes]
+./installer/teardown.sh [--backup] [--images] [--env] [--yes]
 ```
 
 Containers, named volumes and networks of the `llm-platform` project. Shell
@@ -110,6 +110,10 @@ is the one implementation.
 first; **`deploy/.env` is gitignored and exists nowhere else**, and the
 `CHAT_SECRET_KEY` in it decrypts the stored connector credentials, so a
 database restored without it is a database with unreadable connectors in it.
+`--env` deletes that file as well, for a next install that starts from
+nothing — it leaves `deploy/profiles/*.env` alone, because those are what the
+installer builds a new `.env` *from* and they are gitignored too, so removing
+them would leave a checkout the installer refuses to run against.
 
 ## What this fork adds
 
