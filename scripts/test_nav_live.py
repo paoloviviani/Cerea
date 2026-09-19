@@ -140,11 +140,22 @@ with httpx.Client(follow_redirects=True, timeout=90) as c:
 
     print("\nthe person at the foot:")
     # The footer is static: the name, a theme switch and a sign-out button,
-    # all inline. Nothing there opens a menu, so the panel must not contain
-    # the popup affordance at all.
+    # all inline. Nothing there opens a menu — but the page as a whole has
+    # legitimate ones elsewhere (the project rows' "Manage" menu, the
+    # composer's attachment and effort dropdowns), so the assertion is
+    # scoped to the panel itself: the desktop <nav>, minus the row menus.
+    # (RowMenu is always drawn so touch screens get Edit/Delete; the
+    # composer's bits-ui triggers are outside the panel entirely. Note the
+    # scoping has to name the desktop panel's own <nav> (*:w-[260px]): the
+    # page carries a top bar nav and a mobile drawer nav too — the drawer
+    # even shares max-h-dvh — and a first-match scope would pass vacuously
+    # against one of those instead of the panel.)
+    nav = re.search(r"<nav\b[^>]*260px[^>]*>.*?</nav>", home, re.S)
+    check("the panel is present", nav is not None, "no panel nav element on the page")
+    panel = re.sub(r'<button[^>]*aria-label="Manage [^"]*"[^>]*>', "", nav.group(0)) if nav else ""
     check(
         "the footer opens no menu",
-        'aria-haspopup="menu"' not in home,
+        nav is not None and 'aria-haspopup="menu"' not in panel,
         "a popup affordance survived in the panel",
     )
     check(
