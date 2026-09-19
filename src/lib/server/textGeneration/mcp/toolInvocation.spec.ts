@@ -619,3 +619,100 @@ describe("executeToolCalls tool-approval gate (ADR 0075)", () => {
 		expect(summaryOf(events).awaitingInput).toBeUndefined();
 	});
 });
+
+describe("executeToolCalls tool-approval gate over web_fetch_structured (ADR 0079)", () => {
+	const structuredExecute = vi.fn<BuiltinTool["execute"]>(async () => ({
+		resultText: "structure read",
+	}));
+	const structuredBuiltin: BuiltinTool = {
+		name: "web_fetch_structured",
+		definition: { type: "function", function: { name: "web_fetch_structured" } },
+		execute: structuredExecute,
+	};
+	const STRUCTURED_CALL: NormalizedToolCall = {
+		id: "call_structured",
+		name: "web_fetch_structured",
+		arguments: '{"url":"https://example.test/"}',
+	};
+
+	beforeEach(() => {
+		structuredExecute.mockClear();
+	});
+
+	function elicitationRequestOf(events: Events) {
+		return events.flatMap((e) =>
+			e.type === "update" &&
+			e.update.type === MessageUpdateType.Elicitation &&
+			e.update.subtype === "request"
+				? [e.update]
+				: []
+		)[0];
+	}
+
+	it("parks a web_fetch_structured call under manual policy, unfolding the url on the card", async () => {
+		await ready;
+		const conversationId = new ObjectId();
+		const events = await drain(
+			[STRUCTURED_CALL],
+			{ conversationId, generationId: "gen-1", messageId: "m1" },
+			[structuredBuiltin],
+			undefined,
+			{ policy: "manual", approvedTools: new Set(), webFetchAllowedUrls: new Set() }
+		);
+
+		expect(structuredExecute).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBe(true);
+		const request = elicitationRequestOf(events);
+		expect(request?.request.toolApproval).toMatchObject({
+			tool: "web_fetch_structured",
+			args: { url: "https://example.test/" },
+		});
+	});
+
+	it("dispatches web_fetch_structured straight through under always-allow", async () => {
+		const events = await drain([STRUCTURED_CALL], undefined, [structuredBuiltin], undefined, {
+			policy: "always-allow",
+			approvedTools: new Set(),
+			webFetchAllowedUrls: new Set(),
+		});
+		expect(structuredExecute).toHaveBeenCalledTimes(1);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+	});
+
+	it("dispatches straight through once the conversation has granted exactly this tool name", async () => {
+		const events = await drain([STRUCTURED_CALL], undefined, [structuredBuiltin], undefined, {
+			policy: "manual",
+			approvedTools: new Set(["web_fetch_structured"]),
+			webFetchAllowedUrls: new Set(),
+		});
+		expect(structuredExecute).toHaveBeenCalledTimes(1);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+	});
+
+	// A grant on web_fetch_structured must not also clear an MCP tool, or
+	// web_fetch — ADR 0075's per-tool-name grant granularity, unaffected by
+	// there now being only one non-MCP browser tool to check it against.
+	it("a conversation grant on web_fetch_structured does not clear an MCP tool", async () => {
+		await ready;
+		const conversationId = new ObjectId();
+		const events = await drain(
+			[STRUCTURED_CALL, CALL],
+			{ conversationId, generationId: "gen-1", messageId: "m1" },
+			[structuredBuiltin],
+			undefined,
+			{
+				policy: "manual",
+				approvedTools: new Set(["web_fetch_structured"]),
+				webFetchAllowedUrls: new Set(),
+			}
+		);
+
+		// web_fetch_structured ran straight through (already granted); the MCP
+		// call parked.
+		expect(structuredExecute).toHaveBeenCalledTimes(1);
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBe(true);
+		const request = elicitationRequestOf(events);
+		expect(request?.request.toolApproval).toMatchObject({ tool: "hf:do_thing" });
+	});
+});

@@ -22,8 +22,12 @@ vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const configuredBackend = vi.fn(() => "direct" as string);
+vi.mock("$lib/server/fetching", () => ({ configuredBackend }));
+
 const { getEnabledBuiltinTools, shouldSkipMcpFlow } = await import("./index");
 const { askUserQuestionBuiltin } = await import("./askUserQuestion");
+const { WEB_FETCH_STRUCTURED_TOOL_NAME } = await import("./webFetchStructuredTool");
 
 const toolNames = (conv: Parameters<typeof getEnabledBuiltinTools>[0]["conv"]) =>
 	getEnabledBuiltinTools({ conv }).map((tool) => tool.name);
@@ -31,6 +35,8 @@ const toolNames = (conv: Parameters<typeof getEnabledBuiltinTools>[0]["conv"]) =
 beforeEach(() => {
 	mocks.openAskPrompt.mockReset();
 	mocks.openAskPrompt.mockResolvedValue({ opened: true });
+	configuredBackend.mockReset();
+	configuredBackend.mockReturnValue("direct");
 });
 
 describe("getEnabledBuiltinTools", () => {
@@ -91,6 +97,88 @@ describe("web search enablement: per-chat state beats the passed default", () =>
 			...searchParams,
 		});
 		expect(tools.map((tool) => tool.name)).not.toContain("web_search");
+	});
+});
+
+describe("web_fetch_structured enablement (ADR 0079): needs the playwright backend AND a reachable renderer", () => {
+	// The happy-path baseline: web access consented to, a URL to act on, the
+	// backend selected, and the renderer answering. Individual tests knock
+	// out exactly one of these to prove it is actually required.
+	const webAccessParams = {
+		conv: { _id: new ObjectId(), webSearch: true },
+		allowedFetchUrls: new Set(["https://example.org/"]),
+		playwrightReachable: true,
+	};
+
+	// Negative case first: `page.ariaSnapshot()` only exists because a real
+	// browser rendered the page, so a deployment configured for `direct` (no
+	// browser at all) or `pystino` (a deliberate stub) must not advertise a
+	// tool that will always fail the moment it is called.
+	it("withholds the tool on the direct backend", () => {
+		configuredBackend.mockReturnValue("direct");
+		const tools = getEnabledBuiltinTools(webAccessParams).map((tool) => tool.name);
+		expect(tools).not.toContain(WEB_FETCH_STRUCTURED_TOOL_NAME);
+	});
+
+	it("withholds the tool on the pystino backend", () => {
+		configuredBackend.mockReturnValue("pystino");
+		const tools = getEnabledBuiltinTools(webAccessParams).map((tool) => tool.name);
+		expect(tools).not.toContain(WEB_FETCH_STRUCTURED_TOOL_NAME);
+	});
+
+	// The second negative case, and the point of this change: selecting
+	// `playwright` is a configuration a deployment can hold before the
+	// overlay is even deployed (the admin panel deliberately still allows
+	// that — see its own route/component), so the backend being *configured*
+	// is not evidence it currently *works*. An unreachable renderer must
+	// withhold the tool exactly as a wrong backend would, or the model pays
+	// for a call that cannot succeed.
+	it("withholds the tool when playwright is configured but the renderer is not reachable", () => {
+		configuredBackend.mockReturnValue("playwright");
+		const tools = getEnabledBuiltinTools({
+			...webAccessParams,
+			playwrightReachable: false,
+		}).map((tool) => tool.name);
+		expect(tools).not.toContain(WEB_FETCH_STRUCTURED_TOOL_NAME);
+	});
+
+	it("also withholds the tool when the caller never resolved a reachability probe", () => {
+		configuredBackend.mockReturnValue("playwright");
+		const tools = getEnabledBuiltinTools({
+			conv: webAccessParams.conv,
+			allowedFetchUrls: webAccessParams.allowedFetchUrls,
+		}).map((tool) => tool.name);
+		expect(tools).not.toContain(WEB_FETCH_STRUCTURED_TOOL_NAME);
+	});
+
+	it("offers the tool once the backend is playwright and the renderer answers", () => {
+		configuredBackend.mockReturnValue("playwright");
+		const tools = getEnabledBuiltinTools(webAccessParams).map((tool) => tool.name);
+		expect(tools).toContain(WEB_FETCH_STRUCTURED_TOOL_NAME);
+	});
+
+	it("still withholds the tool on a reachable playwright without the same web-access consent web_fetch needs", () => {
+		configuredBackend.mockReturnValue("playwright");
+		const tools = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId() },
+			allowedFetchUrls: new Set(["https://example.org/"]),
+			playwrightReachable: true,
+		}).map((tool) => tool.name);
+		expect(tools).not.toContain(WEB_FETCH_STRUCTURED_TOOL_NAME);
+	});
+
+	// `FETCH_BACKEND` is runtime-editable through the admin panel, and the
+	// tool list is rebuilt once per turn — so the check must read the current
+	// value each call rather than a value cached at module load.
+	it("re-reads the backend on every call rather than caching it", () => {
+		configuredBackend.mockReturnValue("direct");
+		expect(getEnabledBuiltinTools(webAccessParams).map((tool) => tool.name)).not.toContain(
+			WEB_FETCH_STRUCTURED_TOOL_NAME
+		);
+		configuredBackend.mockReturnValue("playwright");
+		expect(getEnabledBuiltinTools(webAccessParams).map((tool) => tool.name)).toContain(
+			WEB_FETCH_STRUCTURED_TOOL_NAME
+		);
 	});
 });
 

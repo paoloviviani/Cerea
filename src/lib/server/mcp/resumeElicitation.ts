@@ -17,6 +17,11 @@ import {
 	performFetch,
 } from "$lib/server/textGeneration/builtinTools/webFetchTool";
 import {
+	WEB_FETCH_STRUCTURED_TOOL_NAME,
+	performAccessibilitySnapshot,
+	type FetchOutcome,
+} from "$lib/server/textGeneration/builtinTools/webFetchStructuredTool";
+import {
 	openToolApprovalPrompt,
 	TOOL_APPROVAL_CONVERSATION,
 	TOOL_APPROVAL_SCOPE_FIELD,
@@ -26,6 +31,31 @@ import { collections } from "$lib/server/database";
 
 /** One queued (or originally parked) tool-approval call, ready to run or to be denied. */
 type ApprovableCall = Pick<QueuedApprovalCall, "tool" | "args" | "mcp">;
+
+/**
+ * Every non-MCP gated builtin (ADR 0075's `web_fetch`, ADR 0079's
+ * `web_fetch_structured`), keyed by the same name the approval grant uses.
+ * Re-issuing one of these is calling the same standalone function
+ * `execute()` calls, not going through the builtin-dispatch machinery —
+ * there is no `execute()` to call back into here, only the underlying
+ * operation and an outcome shaped like `performFetch`'s.
+ *
+ * This table used to carry two more entries, `screenshot` and `page_to_pdf`
+ * — both removed before shipping (ADR 0079), so their `performX` functions
+ * and the deliverable-owner plumbing they needed here (`conversationId`,
+ * `userId`) went with them. The name-keyed dispatch itself predates and
+ * outlives both: it replaced `runApprovedCall`'s old `if (!call.mcp)`
+ * branch, which assumed `web_fetch` unconditionally and would have
+ * mis-dispatched any other approved non-MCP builtin — a latent bug in ADR
+ * 0075's framework that only a second gated builtin could expose.
+ */
+const NON_MCP_GATED_TOOLS: Record<
+	string,
+	(url: string) => Promise<{ result: FetchOutcome; finalUrl?: string }>
+> = {
+	[WEB_FETCH_TOOL_NAME]: performFetch,
+	[WEB_FETCH_STRUCTURED_TOOL_NAME]: performAccessibilitySnapshot,
+};
 
 /** Refusal fed back to the model exactly like OpenWebUI's deny behavior. */
 function toolApprovalDenied(toolUuid: string, tool: string): MessageUpdate {
@@ -40,11 +70,11 @@ function toolApprovalDenied(toolUuid: string, tool: string): MessageUpdate {
 /**
  * Runs a call the tool-approval gate has already cleared — accepted just now,
  * or auto-cleared because an earlier item in the same queue granted this
- * exact tool "for the conversation". `web_fetch` re-issues through
- * `performFetch` (no builtin dispatch machinery involved, same as before);
- * an MCP call re-issues through `callMcpTool` directly. Never throws: every
- * failure becomes a Tool Error update, which the model reads and can recover
- * from.
+ * exact tool "for the conversation". A non-MCP gated tool re-issues through
+ * its standalone `performX` function (`NON_MCP_GATED_TOOLS`; no builtin
+ * dispatch machinery involved, same as `web_fetch` always worked); an MCP
+ * call re-issues through `callMcpTool` directly. Never throws: every failure
+ * becomes a Tool Error update, which the model reads and can recover from.
  */
 async function runApprovedCall(
 	call: ApprovableCall,
@@ -54,7 +84,16 @@ async function runApprovedCall(
 ): Promise<MessageUpdate> {
 	if (!call.mcp) {
 		const url = typeof call.args.url === "string" ? call.args.url : "";
-		const { result } = await performFetch(url);
+		const runner = NON_MCP_GATED_TOOLS[call.tool];
+		if (!runner) {
+			return {
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: toolUuid,
+				message: `Unknown tool: ${call.tool}`,
+			};
+		}
+		const { result } = await runner(url);
 		return "error" in result
 			? {
 					type: MessageUpdateType.Tool,
@@ -68,7 +107,7 @@ async function runApprovedCall(
 					uuid: toolUuid,
 					result: {
 						status: ToolResultStatus.Success,
-						call: { name: WEB_FETCH_TOOL_NAME, parameters: { url } },
+						call: { name: call.tool, parameters: { url } },
 						outputs: [{ text: result.resultText }] as unknown as Record<string, unknown>[],
 						display: true,
 					},

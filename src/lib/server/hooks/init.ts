@@ -1,6 +1,7 @@
 import { config, ready } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { initExitHandler } from "$lib/server/exitHandler";
+import { configuredBackend } from "$lib/server/fetching";
 import { checkAndRunMigrations } from "$lib/migrations/migrations";
 import { refreshConversationStats } from "$lib/jobs/refresh-conversation-stats";
 import { loadMcpServersOnStartup } from "$lib/server/mcp/registry";
@@ -54,6 +55,26 @@ export async function initServer(): Promise<void> {
 	ToolApprovalSweeper.getInstance();
 	// 30-day retention for persisted execute_code deliverables (ADR 0073's amendment).
 	DeliverableReaper.getInstance();
+
+	// Diagnostic only — logged once, never cached or trusted as a gate. The
+	// renderer's own container healthcheck has a 60-second start period, so
+	// this chat routinely finishes booting before it is ready; treating this
+	// boot-time read as durable would report a healthy stack as broken until
+	// a restart (ADR 0079). Whether `web_fetch_structured` is offered is
+	// decided per-turn instead, against a short-lived cache
+	// (`probePlaywrightHealth`), never against this snapshot. Not awaited:
+	// a slow or absent renderer must not hold up the rest of boot.
+	if (configuredBackend() === "playwright") {
+		import("$lib/server/fetching/playwright")
+			.then((m) => m.probePlaywrightHealth())
+			.then((health) =>
+				logger.info(
+					{ reachable: health.reachable, reason: health.reason },
+					"playwright_renderer_boot_check"
+				)
+			)
+			.catch((err) => logger.warn({ err }, "playwright_renderer_boot_check_failed"));
+	}
 
 	// Warm up the share-thumbnail renderer: the first satori render in a fresh
 	// process pays ~1s of font parsing + layout engine init, which would

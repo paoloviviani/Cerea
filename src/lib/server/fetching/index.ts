@@ -39,6 +39,13 @@ export interface FetchedPage {
 	contentType: string;
 	/** Which backend produced this, for the caller to log or show. */
 	backend: FetchBackend;
+	/**
+	 * Whether `content` is a main-content extraction rather than the page
+	 * (or response body) as delivered. `false` for every backend that does not
+	 * attempt extraction — that is not a failure, just a thing that was never
+	 * tried.
+	 */
+	extracted: boolean;
 }
 
 /** The configured backend, defaulting to what this app has always done. */

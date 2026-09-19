@@ -53,6 +53,7 @@ import {
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
+import { configuredBackend } from "$lib/server/fetching";
 import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
 
 export type RunMcpFlowContext = Pick<
@@ -199,6 +200,16 @@ export async function* runMcpFlow({
 	// the builtin's gate and the MCP pre-call checkpoint below agree.
 	const toolApprovalPolicy = resolveToolApprovalPolicy(conv, serverSettings);
 	const approvedTools = new Set(conv.approvedTools ?? []);
+	// Resolved here, not inside getEnabledBuiltinTools: an async network probe
+	// has no business in that otherwise-synchronous decision function, the
+	// same reason searchModelIds is resolved by this caller too. Only probed
+	// when the backend is actually playwright — a probe against a `direct` or
+	// `pystino` deployment would just be a wasted request to nothing.
+	let playwrightReachable = false;
+	if (configuredBackend() === "playwright") {
+		const { probePlaywrightHealth } = await import("$lib/server/fetching/playwright");
+		playwrightReachable = (await probePlaywrightHealth()).reachable;
+	}
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
@@ -210,6 +221,7 @@ export async function* runMcpFlow({
 			settingsEnabled: serverSettings?.webSearchEnabled,
 		}),
 		allowedFetchUrls,
+		playwrightReachable,
 		toolApprovalPolicy,
 		approvedTools,
 	});

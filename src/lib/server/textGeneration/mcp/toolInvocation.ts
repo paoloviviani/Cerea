@@ -22,6 +22,7 @@ import type { Client } from "@modelcontextprotocol/client";
 import type { ObjectId } from "mongodb";
 import { openToolApprovalPrompt } from "../builtinTools/toolApproval";
 import { WEB_FETCH_TOOL_NAME, webFetchNeedsApproval } from "../builtinTools/webFetchTool";
+import { WEB_FETCH_STRUCTURED_TOOL_NAME } from "../builtinTools/webFetchStructuredTool";
 import type { QueuedApprovalCall } from "$lib/types/McpElicitation";
 
 export type Primitive = string | number | boolean;
@@ -282,10 +283,14 @@ export async function* executeToolCalls({
 
 	/**
 	 * What a call would dispatch as, for gating purposes — an MCP tool (always
-	 * gated), or the `web_fetch` builtin (gated only for a URL neither the user
-	 * nor `web_search` supplied). Everything else (ask/wait/execute_code/...)
-	 * is outside ADR 0075's gated set and returns `null` here regardless of
-	 * `mayPark`, which governs a separate, unrelated refusal above.
+	 * gated), the `web_fetch` builtin (gated only for a URL neither the user
+	 * nor `web_search` supplied), or `web_fetch_structured` (ADR 0079,
+	 * extending ADR 0075's gated set: always gated, with no trusted-URL
+	 * exemption — unlike `web_fetch` it never had a legacy auto-run behavior
+	 * to preserve). Everything else (ask/wait/execute_code/load_skill/...) is
+	 * outside the gated set by deliberate decision, not oversight, and
+	 * returns `null` here regardless of `mayPark`, which governs a separate,
+	 * unrelated refusal above.
 	 */
 	function approvalTargetFor(p: (typeof prepared)[number]): ApprovalTarget | null {
 		if (p.argsObj === null) return null;
@@ -303,6 +308,13 @@ export async function* executeToolCalls({
 			webFetchNeedsApproval(p.argsObj, toolApproval.webFetchAllowedUrls)
 		) {
 			return { qualifiedName: WEB_FETCH_TOOL_NAME };
+		}
+		if (
+			p.call.name === WEB_FETCH_STRUCTURED_TOOL_NAME &&
+			builtinByName.has(WEB_FETCH_STRUCTURED_TOOL_NAME) &&
+			toolApproval
+		) {
+			return { qualifiedName: WEB_FETCH_STRUCTURED_TOOL_NAME };
 		}
 		return null;
 	}
