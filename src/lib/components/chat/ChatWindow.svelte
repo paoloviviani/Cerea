@@ -61,7 +61,7 @@
 	import { shareModal } from "$lib/stores/shareModal";
 	import { exportConversation as exportConversationStore } from "$lib/stores/exportConversation";
 	import IconShare from "$lib/components/icons/IconShare.svelte";
-	import CarbonMenu from "~icons/carbon/menu";
+	import CarbonSidePanelOpen from "~icons/carbon/side-panel-open";
 	import {
 		downloadMarkdown,
 		exportConversationToMarkdown,
@@ -953,7 +953,7 @@
 						aria-label="Open artifacts panel"
 						title="Artifacts and chat export"
 					>
-						<CarbonMenu />
+						<CarbonSidePanelOpen />
 					</button>
 				{/if}
 				{#if canShare}
