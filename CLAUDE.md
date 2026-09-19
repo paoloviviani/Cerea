@@ -385,7 +385,14 @@ it. The two things to know:
   person watching sees their file in the transcript.
 
 Which model extracts is the Knowledge screen's choice, else `CHAT_OCR_MODEL`,
-else the first `kind: ocr` model the caller may use. The deployment's own
+else the first `kind: ocr` model the caller may use. **A deployment with no
+gateway at all skips that chain**: `CHAT_OCR_BASE_URL` (with
+`CHAT_OCR_API_KEY` and a required `CHAT_OCR_MODEL`) makes extraction post to
+`{base}/ocr` directly, which works because Pystino, Mistral and Cortecs serve
+one shape (ADR 0083). Set, it overrides the gateway path rather than falling
+back to it, reads PDFs only, and caps a document at 10 MB — the base64 body of
+a 20 MB PDF is ~27 MB and no vendor's limit for it is known. Unset, nothing
+about the above changes. The deployment's own
 extractor is not a special case — it is an ordinary model row on the gateway
 whose provider is the local extractor service, and it shows up in the
 catalogue like any other reader. There is no value that means "extract

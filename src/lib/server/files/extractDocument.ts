@@ -2,9 +2,25 @@
  * Turning an attached document into text, once.
  *
  * A PDF or a `.docx` attached to a message is bytes the model cannot read.
- * `POST /v1/ocr` in the gateway turns it into markdown — metered by the page,
- * with either this deployment's own extractor or an upstream OCR model
- * depending on which model is named (ADR 0055).
+ * `POST /v1/ocr` turns it into markdown — metered by the page, with either
+ * this deployment's own extractor or an upstream OCR model depending on which
+ * model is named (ADR 0055) — normally through the gateway, as the calling
+ * user.
+ *
+ * **A deployment with no gateway at all reads documents by calling an OCR
+ * endpoint directly instead** (`CHAT_OCR_BASE_URL`, `CHAT_OCR_API_KEY`,
+ * `CHAT_OCR_MODEL`) — the "generic" profile's one functional gap otherwise,
+ * since `/v1/ocr` is the one Pystino-specific limb in the whole document
+ * path. The wire shape is unchanged either way (Mistral's and Cortecs' `/ocr`
+ * already matches what the gateway forwards), so this is a routing and
+ * configuration decision, not a protocol one: `CHAT_OCR_BASE_URL` set means
+ * go direct, with `CHAT_OCR_MODEL` naming the model to send — there is no
+ * catalogue to discover one from without a gateway, so it is required
+ * whenever a base URL is set, checked at boot (`assertOcrConfigValid`) rather
+ * than on somebody's first upload. Set deliberately, a direct endpoint
+ * **overrides** the gateway path even where one would otherwise resolve: an
+ * operator who names an endpoint means it, rather than "try this only when
+ * nothing else works."
  *
  * **It runs at upload and its result is stored.** That is the whole design
  * decision here, and it is a billing decision rather than a performance one:
@@ -12,15 +28,16 @@
  * for the same twelve-page PDF again on the second question about it, and
  * again on the third. Once per file, kept beside the file.
  *
- * Which model does it, in order: the Knowledge screen's choice, then
- * `CHAT_OCR_MODEL` when the screen has not named one, then the first model the
- * caller may use whose `kind` is `ocr`. The deployment's own extractor is not
- * a special case here — it is an ordinary model row on the gateway, whose
- * provider is the local extractor service, and it shows up in the catalogue
- * like any other reader. There is deliberately no stored value that means
- * "extract nothing": an unset choice is the deployment default, so a save that
- * never touched extraction can never turn it off, and with no reader anywhere
- * the reason comes back spelled out rather than as a silent absence of text.
+ * Which model does it, in order: a configured direct endpoint (see above),
+ * else the Knowledge screen's choice, then `CHAT_OCR_MODEL` when the screen
+ * has not named one, then the first model the caller may use whose `kind` is
+ * `ocr`. The deployment's own extractor is not a special case here — it is an
+ * ordinary model row on the gateway, whose provider is the local extractor
+ * service, and it shows up in the catalogue like any other reader. There is
+ * deliberately no stored value that means "extract nothing": an unset choice
+ * is the deployment default, so a save that never touched extraction can
+ * never turn it off, and with no reader anywhere the reason comes back
+ * spelled out rather than as a silent absence of text.
  */
 
 import { config } from "$lib/server/config";
@@ -47,6 +64,39 @@ export function isExtractableDocument(mime: string): boolean {
 	return (DOCUMENT_MIME_ALLOWLIST as readonly string[]).includes(mime);
 }
 
+/**
+ * What a direct endpoint (no gateway in front of it) is known to read.
+ *
+ * Narrower than the gateway allowlist above, deliberately: Mistral's and
+ * Cortecs' published OCR schemas document PDF and image inputs, not Office
+ * formats, and OpenWebUI — which ships this same direct-to-vendor route —
+ * sends only `.pdf` to Mistral's OCR API and routes every other format
+ * through its own built-in loaders (unstructured/tika/docling), which this
+ * deployment does not have. There is no evidence either vendor reads
+ * `.docx`/`.xlsx`/`.pptx`/`.odt`/`.epub`, and no way to call either service
+ * here to find out, so direct mode does not attempt them — an unsupported
+ * type gets the spelled-out reason below rather than a raw provider error.
+ */
+const DIRECT_OCR_MIME_ALLOWLIST = ["application/pdf"] as const;
+
+/**
+ * A base64 `data:` URI of the document goes in the request body's JSON, and
+ * nobody has size-tested that against Mistral's or Cortecs' actual limits —
+ * OpenWebUI avoids the question by uploading the file first, which this
+ * deployment deliberately does not implement (a much bigger job: Mistral's
+ * `/v1/files` plus signed URLs, not part of the shared `/ocr` shape). Chat
+ * attachments are already capped at 10 MB before reaching here
+ * (`routes/conversation/[id]/+server.ts`), but a knowledge-base upload allows
+ * up to `MAX_UPLOAD_BYTES` (20 MB) — base64 inflates that to a ~27 MB JSON
+ * body, well past what many API gateways and load balancers accept without
+ * special configuration. Capping direct mode at the same 10 MB this app
+ * already treats as its safe raw-attachment ceiling keeps the encoded body
+ * under ~13.3 MB, comfortably inside the common range, and turns an
+ * oversized document into this module's own actionable message instead of an
+ * opaque 413 from a third party.
+ */
+const DIRECT_OCR_MAX_BYTES = 10 * 1024 * 1024;
+
 interface OcrPage {
 	markdown?: string;
 }
@@ -64,6 +114,35 @@ interface ModelCard {
 export interface Extracted {
 	text: string;
 	pages: number;
+}
+
+/** The direct endpoint's base URL, trimmed, or undefined when unset — the one switch between routes. */
+function directOcrBaseUrl(): string | undefined {
+	return config.CHAT_OCR_BASE_URL?.trim() || undefined;
+}
+
+/**
+ * Fails at boot, not at somebody's first upload: a direct endpoint has no
+ * catalogue to discover a reader model from, so a missing `CHAT_OCR_MODEL`
+ * would otherwise surface as a 503 on the first attachment instead of at
+ * startup, where a misconfiguration belongs. Called once from `initServer`.
+ */
+export function assertOcrConfigValid(): void {
+	if (directOcrBaseUrl() && !config.CHAT_OCR_MODEL?.trim()) {
+		throw new Error(
+			'CHAT_OCR_BASE_URL is set but CHAT_OCR_MODEL is not. A direct OCR endpoint has no catalogue to discover a reader model from — set CHAT_OCR_MODEL to the model name it expects (e.g. "mistral-ocr-latest").'
+		);
+	}
+}
+
+/** The text of an OCR response, or null when it carries none. Shared by both routes. */
+function textFromOcrResponse(answer: OcrResponse): Extracted | null {
+	const text = (answer.pages ?? [])
+		.map((page) => page.markdown ?? "")
+		.filter((page) => page.trim())
+		.join("\n\n");
+	if (!text.trim()) return null;
+	return { text, pages: answer.usage_info?.pages_processed ?? (answer.pages ?? []).length };
 }
 
 /**
@@ -86,6 +165,13 @@ export type Extraction = ({ ok: true } & Extracted) | { ok: false; reason: strin
  * document row, so the refusal lands before anything half-exists.
  */
 export async function resolveExtractorModel(token: string): Promise<string | null> {
+	// A configured direct endpoint overrides everything below it: an operator
+	// who names `CHAT_OCR_BASE_URL` means it, not "try this only when the
+	// gateway has nothing." `assertOcrConfigValid` guarantees `CHAT_OCR_MODEL`
+	// is set whenever this is reached; the `|| null` is only for callers that
+	// reach this function without going through that boot-time check (tests).
+	if (directOcrBaseUrl()) return config.CHAT_OCR_MODEL?.trim() || null;
+
 	// The Knowledge screen's choice, when it has made one. Only a named model
 	// is a choice: an unset field and a stored null are both "Automatic", and
 	// mean the deployment default below. There is no third value that means
@@ -149,6 +235,9 @@ export async function extractDocument(options: {
 		return NO_READER;
 	}
 
+	const baseUrl = directOcrBaseUrl();
+	if (baseUrl) return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
+
 	// A `data:` URI rather than a URL, deliberately: the other form has the
 	// provider fetch the document, which means this deployment never holds it
 	// and cannot redact it. Sending the bytes is what keeps the document inside
@@ -164,11 +253,8 @@ export async function extractDocument(options: {
 			// without it (`document.type: Field required`).
 			document: { type: "document_url", document_url: uri },
 		});
-		const text = (answer.pages ?? [])
-			.map((page) => page.markdown ?? "")
-			.filter((page) => page.trim())
-			.join("\n\n");
-		if (!text.trim()) {
+		const extracted = textFromOcrResponse(answer);
+		if (!extracted) {
 			logger.info(
 				{ filename, model },
 				"document_extraction_empty: no text layer — a scan needs an OCR model"
@@ -180,11 +266,7 @@ export async function extractDocument(options: {
 					"This document has no readable text. A scan needs an OCR model — this deployment's own reader reads text layers only.",
 			};
 		}
-		return {
-			ok: true,
-			text,
-			pages: answer.usage_info?.pages_processed ?? (answer.pages ?? []).length,
-		};
+		return { ok: true, ...extracted };
 	} catch (err) {
 		const status = err instanceof GatewayCallFailed ? err.status : 502;
 		// The gateway's own refusals are written to be acted on ("this document
@@ -205,4 +287,132 @@ export async function extractDocument(options: {
 		);
 		return { ok: false, status, reason };
 	}
+}
+
+/**
+ * The gateway path above, but called directly against an OCR endpoint with no
+ * gateway in front of it — a shared deployment key rather than the caller's
+ * own credential, since there is no per-user accounting to preserve without
+ * one.
+ *
+ * Bytes rather than a URL for the same reason as the gateway path: the
+ * alternative has the *provider* fetch the document. The property that
+ * preserves is different here, though, worth being honest about in this
+ * comment rather than just copying the one above — in direct mode the bytes
+ * go to a third party either way, gateway or not. What is preserved is that
+ * *this deployment* decides what is sent, not that the document stays local.
+ */
+async function extractDocumentDirect(options: {
+	bytes: ArrayBuffer;
+	mime: string;
+	filename: string;
+	baseUrl: string;
+	model: string;
+}): Promise<Extraction> {
+	const { bytes, mime, filename, baseUrl, model } = options;
+
+	if (!(DIRECT_OCR_MIME_ALLOWLIST as readonly string[]).includes(mime)) {
+		return {
+			ok: false,
+			status: 422,
+			reason: `This deployment's OCR endpoint reads PDFs only; "${filename}" is ${
+				mime || "not a recognized document type"
+			}, which needs a gateway reader instead.`,
+		};
+	}
+
+	if (bytes.byteLength > DIRECT_OCR_MAX_BYTES) {
+		return {
+			ok: false,
+			status: 413,
+			reason: `This document is too large to send directly to the configured OCR endpoint (limit ${Math.floor(
+				DIRECT_OCR_MAX_BYTES / (1024 * 1024)
+			)} MB). Use a smaller file, or ask an administrator to configure a gateway reader instead.`,
+		};
+	}
+
+	const uri = `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+	const apiKey = config.CHAT_OCR_API_KEY?.trim();
+
+	let response: Response;
+	try {
+		response = await fetch(`${baseUrl.replace(/\/$/, "")}/ocr`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+			},
+			body: JSON.stringify({
+				model,
+				document: { type: "document_url", document_url: uri },
+			}),
+		});
+	} catch (err) {
+		logger.warn(
+			{ filename, model, baseUrl, err },
+			"document_extraction_failed: the direct OCR endpoint could not be reached"
+		);
+		return {
+			ok: false,
+			status: 502,
+			reason: "The document reader could not be reached, so the file was stored without text.",
+		};
+	}
+
+	if (!response.ok) {
+		// Mistral's and Cortecs' published schemas document only 200 responses —
+		// their error envelopes are undocumented, and Cortecs' OCR is labelled
+		// BETA with no versioning policy — so this is read defensively and never
+		// trusted to have any particular shape.
+		let detail: string | undefined;
+		try {
+			const parsed = (await response.json()) as {
+				error?: { message?: string };
+				message?: string;
+			};
+			detail = parsed?.error?.message ?? parsed?.message;
+		} catch {
+			/* not JSON, or not the shape hoped for — the status is all there is */
+		}
+		logger.warn(
+			{ filename, model, baseUrl, status: response.status, detail },
+			"document_extraction_failed: the direct OCR endpoint refused"
+		);
+		return {
+			ok: false,
+			status: response.status,
+			reason:
+				detail ?? "The document reader could not be reached, so the file was stored without text.",
+		};
+	}
+
+	let answer: OcrResponse;
+	try {
+		answer = (await response.json()) as OcrResponse;
+	} catch (err) {
+		logger.warn(
+			{ filename, model, baseUrl, err },
+			"document_extraction_failed: the direct OCR endpoint returned an unreadable response"
+		);
+		return {
+			ok: false,
+			status: 502,
+			reason: "The document reader could not be reached, so the file was stored without text.",
+		};
+	}
+
+	const extracted = textFromOcrResponse(answer);
+	if (!extracted) {
+		logger.info(
+			{ filename, model },
+			"document_extraction_empty: the configured OCR endpoint returned no text"
+		);
+		return {
+			ok: false,
+			status: 422,
+			reason:
+				"The configured OCR endpoint returned no text for this document — it may be blank, corrupted, or a file the endpoint could not parse.",
+		};
+	}
+	return { ok: true, ...extracted };
 }
