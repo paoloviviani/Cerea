@@ -70,6 +70,22 @@ Two operational consequences worth knowing before deploying this:
   first provider through `GATEWAY_OIDC__*` env seeding; the console owns every
   provider after that (ADR 0051).
 
+## Deploying (the installer is the entry point)
+
+```bash
+npm run setup
+# or: node installer/install.mjs [--pystino <path>] [--phase2]
+```
+
+The terminal installer proposes the three deployment profiles (`homelab`,
+`team`, `enterprise` — see Pystino's `deploy/profiles/`), lets you toggle
+components within the chosen one, generates every secret locally, writes
+Pystino's `deploy/.env`, and brings the stack up in two phases (database and
+gateway first, because the catalogue key, the admin password and the chat
+database cannot exist before they run). It needs only node — no `npm install`
+first — and a Pystino checkout, which it validates or offers to clone. Pystino
+itself ships a simpler `install.sh` for gateway-first operators.
+
 ## What this fork adds
 
 Beyond upstream, and the reason it is Pystino-specific rather than a generic
