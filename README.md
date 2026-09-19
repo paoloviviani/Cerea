@@ -73,9 +73,26 @@ Two operational consequences worth knowing before deploying this:
 ## Deploying (the installer is the entry point)
 
 ```bash
-npm run setup
-# or: node installer/install.mjs [--pystino <path>] [--phase2]
+./installer/install.sh [--pystino <path>] [--phase2]
+# or, with node already on the host:
+#   npm run setup
+#   node installer/install.mjs [--pystino <path>] [--phase2]
 ```
+
+**The host needs docker, and does not need node.** `install.sh` execs the
+installer directly when node is on the PATH and otherwise runs it in a node
+container — mounting the docker socket, the host's docker CLI and compose
+plugin, and the checkouts *at their own absolute paths*, because compose build
+contexts are resolved by the daemon on the host and a path that differs inside
+the container names a directory the daemon cannot see. Note what the socket
+mount means: root-equivalent access to the host, which is already true of
+anyone who can run this, but worth knowing rather than discovering.
+
+The installer itself stays node. What it does is generate secrets, hold a JSON
+client registry, round-trip an env file whose IdP signing key is a multi-line
+PEM, and drive a TUI; bash does the first well with openssl and the rest
+badly, so rewriting it would trade a runtime nobody needs at run time for a
+class of quoting bug nobody can see.
 
 The terminal installer proposes five deployment profiles (see Pystino's
 `deploy/profiles/`): three full stacks with a local gateway — `homelab`,
