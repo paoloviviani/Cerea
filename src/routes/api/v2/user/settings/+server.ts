@@ -22,6 +22,10 @@ const settingsSchema = z.object({
 	// kill-switch can additionally force this unavailable regardless of
 	// what's stored (see FeatureFlags.pyodidePyPiInstallAllowed).
 	pyodidePyPiInstallEnabled: z.boolean().optional(),
+	// Off by default and stored as absent: the person's opt-in to keeping
+	// standing facts about themselves. The deployment flag
+	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
+	memoryEnabled: z.boolean().optional(),
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
@@ -68,6 +72,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		webSearchEnabled: settings?.webSearchEnabled ?? undefined,
 		toolApprovalPolicy: settings?.toolApprovalPolicy ?? undefined,
 		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
+		memoryEnabled: settings?.memoryEnabled ?? undefined,
 		welcomeModalSeen: !!settings?.welcomeModalSeenAt,
 		welcomeModalSeenAt: settings?.welcomeModalSeenAt ?? null,
 		mlInternOnboardingSeen: !!settings?.mlInternOnboardingSeenAt,

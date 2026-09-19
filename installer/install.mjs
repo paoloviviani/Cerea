@@ -255,6 +255,7 @@ const PROFILES = {
 			codeTool: true,
 			usage: false,
 			knowledge: true,
+			memory: true,
 		},
 	},
 	team: {
@@ -269,6 +270,7 @@ const PROFILES = {
 			codeTool: true,
 			usage: true,
 			knowledge: true,
+			memory: true,
 		},
 	},
 	enterprise: {
@@ -283,6 +285,7 @@ const PROFILES = {
 			codeTool: true,
 			usage: true,
 			knowledge: true,
+			memory: true,
 		},
 	},
 };
@@ -656,6 +659,12 @@ async function toggleComponents(io, profileKey) {
 				detail:
 					"free: its Postgres is a second database on the gateway's instance, not a container — off hides the surface instead of erroring",
 			},
+			{
+				key: "memory",
+				label: `User memory: ${state.memory ? "on" : "off"}`,
+				detail:
+					"free: a handful of short facts per person in Mongo — and each person still has to opt in, so leaving it on stores nothing by itself",
+			},
 		];
 		console.log("\nCurrent selection:");
 		rows.forEach((row, i) =>
@@ -922,6 +931,7 @@ async function collectValues(io, profileKey, state, exposure, existing) {
 	values.CHAT_CODE_TOOL_ENABLED = state.codeTool ? "true" : "";
 	values.CHAT_USAGE_ENABLED = state.usage ? "true" : "";
 	values.CHAT_KNOWLEDGE_ENABLED = state.knowledge ? "true" : "false";
+	values.CHAT_MEMORY_ENABLED = state.memory ? "true" : "false";
 	if (state.redaction !== "off") {
 		values.SPACY_MODELS = state.redaction === "ner" ? "en_core_web_lg" : "";
 		values.REDACTION_NLP_ENGINE = state.redaction === "ner" ? "spacy" : "disabled";
@@ -1132,6 +1142,7 @@ async function main() {
 			codeTool: existing.get("CHAT_CODE_TOOL_ENABLED") === "true",
 			usage: (existing.get("CHAT_USAGE_ENABLED") ?? "") !== "",
 			knowledge: existing.get("CHAT_KNOWLEDGE_ENABLED") !== "false",
+			memory: existing.get("CHAT_MEMORY_ENABLED") !== "false",
 		};
 		note(
 			`Inferred toggles: redaction=${state.redaction} fetch=${state.fetch} metering=${state.metering}. Re-run the full flow to change them.`

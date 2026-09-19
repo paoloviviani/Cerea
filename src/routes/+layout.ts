@@ -25,6 +25,7 @@ interface UserInfo {
 interface SettingsResponse {
 	webSearchEnabled?: boolean;
 	pyodidePyPiInstallEnabled?: boolean;
+	memoryEnabled?: boolean;
 	welcomeModalSeen: boolean;
 	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;

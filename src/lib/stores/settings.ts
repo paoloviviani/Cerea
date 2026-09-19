@@ -9,6 +9,7 @@ type SettingsStore = {
 	webSearchEnabled?: boolean;
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;
+	memoryEnabled?: boolean;
 	welcomeModalSeen: boolean;
 	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;

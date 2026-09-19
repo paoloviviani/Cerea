@@ -73,4 +73,13 @@ export interface FeatureFlags {
 	 * store behind them, and a tab that only errors is worse than none.
 	 */
 	knowledgeEnabled: boolean;
+	/**
+	 * Whether the deployment keeps standing personal facts
+	 * (`CHAT_MEMORY_ENABLED`, on unless explicitly `"false"`). Off hides the
+	 * Memory workspace tab and refuses its routes, and the `remember`/`forget`
+	 * tools are never offered. Each person's own `Settings.memoryEnabled` is
+	 * the separate opt-in, and defaults off — both must be true before
+	 * anything is stored or injected.
+	 */
+	memoryEnabled: boolean;
 }
