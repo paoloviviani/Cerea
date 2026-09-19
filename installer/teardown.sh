@@ -2,7 +2,7 @@
 #
 # Tear down what installer/install.mjs brought up.
 #
-#   ./installer/teardown.sh [--pystino <path>] [--backup] [--images] [--yes]
+#   ./installer/teardown.sh [--pystino <path>] [--backup] [--images] [--env] [--yes]
 #
 # The installer is in this repository, so an operator here has never had reason
 # to learn that the compose files — and the script that removes them — live in
