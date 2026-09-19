@@ -103,6 +103,23 @@ class SidePaneStore {
 	}
 
 	/**
+	 * What the button in the chat header does. A control that only ever opens
+	 * is a control you cannot undo: the way back out was the pane's own close,
+	 * which is a different target from the one just pressed.
+	 *
+	 * Only the library view toggles shut — pressing it while an artifact or a
+	 * dashboard is showing switches to the library, because the press means
+	 * "show me the files", not "close whatever that was".
+	 */
+	toggleLibrary() {
+		if (this.open && this.view === "library") {
+			this.close();
+			return;
+		}
+		this.openLibrary();
+	}
+
+	/**
 	 * Open a dashboard the first time it appears, once per URL — a dashboard is
 	 * live for the whole run, so re-opening it on every log poll would fight the
 	 * user closing the pane to read the chat.

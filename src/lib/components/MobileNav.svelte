@@ -290,7 +290,7 @@
 			<button
 				type="button"
 				class="flex h-12 w-6 shrink-0 items-center justify-center text-lg"
-				onclick={() => sidePane.openLibrary()}
+				onclick={() => sidePane.toggleLibrary()}
 				aria-label="Open artifacts panel"
 				title="Artifacts and chat export"
 			>

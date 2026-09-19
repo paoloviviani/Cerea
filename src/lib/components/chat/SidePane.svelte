@@ -99,9 +99,14 @@
 	     can also animate on the way out. Matching the motion matters more than
 	     matching the mechanism. Not carried over: the nav's drag-to-close
 	     gesture, which is bound to its own edge zone. -->
+	<!-- `pointer-events-auto` is load-bearing and was missing: the chat column
+	     this renders inside is `pointer-events-none` (it sits under the
+	     composer's stacking context), so without it every tap on the backdrop
+	     went straight through to the page and the drawer could only be closed
+	     from its own header — the one thing a backdrop exists to fix. -->
 	<button
 		type="button"
-		class="fixed inset-0 z-20 cursor-default bg-black/30"
+		class="pointer-events-auto fixed inset-0 z-20 cursor-default bg-black/30"
 		transition:fade|local={{ easing: cubicOut, duration: 300 }}
 		onclick={() => sidePane.close()}
 		aria-label="Close {label}"
