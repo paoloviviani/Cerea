@@ -14,13 +14,12 @@ import { testRequest } from "$lib/server/__tests__/testRequest";
  *
  * Note what these cases deliberately do NOT cover: `admin@local` itself as a
  * *configured* entry. `allowedUserEmails`/`allowedUserDomains` are parsed
- * with `z.string().email()` / a dotted-domain regex at module load, and
- * `admin@local` (and bare `local`) fail both — a deployment that tried to
- * list it in either variable would 500 on load, for every login, not just
- * the admin's. That is a pre-existing gap in this file, untouched by the
- * fix this suite guards, and out of scope here since this deployment leaves
- * both variables empty (`Cerea/.env`); it does not affect the fix, only a
- * configuration nobody has set.
+ * with the issuer's own shape rule (shared with `updateUser.ts` as
+ * `issuerEmailSchema`), and `admin@local` (and bare `local`) pass it — the
+ * cases below pin that. A deployment that tried to list something shaped
+ * nothing the issuer could produce (no "@", or an "@" inside a domain)
+ * fails fast at module load, for every login, which is where a config typo
+ * belongs rather than in a silent admission of nobody.
  *
  * The gate is read once at module load (`allowedUserEmails`/
  * `allowedUserDomains` are top-level consts), so each scenario needs its own
@@ -42,7 +41,12 @@ vi.mock("$lib/server/auth", async (importOriginal) => {
 	};
 });
 
-vi.mock("./updateUser.js", () => ({ updateUser: vi.fn() }));
+vi.mock("./updateUser.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./updateUser.js")>();
+	// The handler under test, not the user writer: keep every other export
+	// (notably issuerEmailSchema, which the allowlist parsing shares) real.
+	return { ...actual, updateUser: vi.fn() };
+});
 
 const csrfState = Buffer.from("test-csrf-payload").toString("base64");
 
@@ -145,5 +149,37 @@ describe("login callback: ALLOWED_USER_EMAILS / ALLOWED_USER_DOMAINS gate", () =
 			{ emails: JSON.stringify(["person@example.org"]) }
 		);
 		expect(res.status).toBe(302);
+	});
+
+	it("admits admin@local when it is the configured email entry", async () => {
+		const res = await callCallback(
+			{ sub: "1", email: "admin@local" },
+			{ emails: JSON.stringify(["admin@local"]) }
+		);
+		expect(res.status).toBe(302);
+	});
+
+	it("admits admin@local when bare local is the configured domain entry", async () => {
+		const res = await callCallback(
+			{ sub: "1", email: "admin@local" },
+			{ domains: JSON.stringify(["local"]) }
+		);
+		expect(res.status).toBe(302);
+	});
+
+	it("still admits dotted domains after the single-label relaxation", async () => {
+		const res = await callCallback(
+			{ sub: "1", email: "person@example.org" },
+			{ domains: JSON.stringify(["example.org"]) }
+		);
+		expect(res.status).toBe(302);
+	});
+
+	it("fails fast at load on an email entry shaped nothing the issuer could produce", async () => {
+		await expect(loadHandler({ emails: JSON.stringify(["not-an-email"]) })).rejects.toThrow();
+	});
+
+	it("fails fast at load on a domain entry containing an @", async () => {
+		await expect(loadHandler({ domains: JSON.stringify(["a@b"]) })).rejects.toThrow();
 	});
 });
