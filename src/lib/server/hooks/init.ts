@@ -1,6 +1,7 @@
 import { config, ready } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { initExitHandler } from "$lib/server/exitHandler";
+import { assertOcrConfigValid } from "$lib/server/files/extractDocument";
 import { configuredBackend } from "$lib/server/fetching";
 import { checkAndRunMigrations } from "$lib/migrations/migrations";
 import { refreshConversationStats } from "$lib/jobs/refresh-conversation-stats";
@@ -17,6 +18,10 @@ import { getShareThumbnailPng } from "$lib/server/shareThumbnail/shareThumbnail"
 export async function initServer(): Promise<void> {
 	// Wait for config to be fully loaded
 	await ready;
+
+	// A direct OCR endpoint with no model named would otherwise surface as a
+	// 503 on somebody's first attachment; this fails the boot instead.
+	assertOcrConfigValid();
 
 	// Ensure legacy env expected by some libs: map OPENAI_API_KEY -> HF_TOKEN if absent
 	const canonicalToken = config.OPENAI_API_KEY || config.HF_TOKEN;
