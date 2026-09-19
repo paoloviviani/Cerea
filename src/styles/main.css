@@ -2,12 +2,50 @@
 
 @import "tailwindcss";
 
+/*
+ * The vendored design tokens (a byte copy of the console's `tokens.css` —
+ * see `tokens.drift.test.ts`, which fails naming the lines when the two
+ * diverge). Imported through the *CSS* import graph rather than a JS import
+ * so its `@theme inline` mapping and `@custom-variant` are visible to the
+ * Tailwind compiler; from JS alone Vite hands the file straight to
+ * lightningcss, the at-rules come out "unknown", and no utility is generated
+ * against the tokens. Order matters: tokens after preflight in the cascade.
+ * The relative `./fonts/` URLs inside resolve beside the vendored file.
+ */
+@import "./tokens.css";
+
+/*
+ * tokens.css's own reset resets form controls with the `font`/`color`
+ * shorthands, and that reset is *unlayered* plain CSS — so, per the Cascade
+ * Layers spec, it beats every Tailwind utility class regardless of source
+ * order or specificity, including one written directly on a `<button>` or
+ * `<input>`. That is invisible in the console, whose `Button` sets
+ * `text-base font-medium` (the console's own defaults, so the override is a
+ * no-op), but this app's buttons carry their own size, weight and colour
+ * utilities straight on the element — `overlay/styles.ts`'s `PRIMARY` sets
+ * `text-sm font-medium text-white` on the `<button>` itself — and every one
+ * of those was silently discarded: found by a computed-style assertion
+ * returning `rgb(10, 10, 10)` (the page's own ink) instead of white on a
+ * blue-600 fill. `revert-layer` un-does exactly the sub-properties tokens.css
+ * touches, falling through to whatever the (correctly layered) utility
+ * classes say, while leaving its `font-family: inherit` intent — the one
+ * part Tailwind's own preflight already agrees with — untouched.
+ */
+input,
+button,
+textarea,
+select {
+	font-size: revert-layer;
+	font-weight: revert-layer;
+	font-style: revert-layer;
+	line-height: revert-layer;
+	color: revert-layer;
+}
+
 @plugin "tailwind-scrollbar" {
 	nocompatible: true;
 }
 @plugin "@tailwindcss/typography";
-
-@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
 	--color-gray-50: #fafafa;
@@ -21,9 +59,74 @@
 	--color-gray-800: #1a1a1a;
 	--color-gray-900: #0a0a0a;
 	--color-gray-950: #000000;
+}
 
-	--text-xxs: 0.625rem;
-	--text-smd: 0.94rem;
+/*
+ * The chat's consumption of the vendored tokens: `@theme inline` generates
+ * utilities (`bg-surface`, `text-ink-muted`, `rounded-md`, …) that reference
+ * the custom properties instead of copying their values — which is why the
+ * `.dark` block in `tokens.css` alone re-themes every utility, with no
+ * `dark:` variant needed on token-backed classes. The values live in
+ * `tokens.css` (owned by the console, drift-tested); this block owns which
+ * namespaces the chat exposes, so a stale name here fails loudly at build
+ * time rather than rendering unstyled.
+ */
+@theme inline {
+	--color-page: var(--colour-bg);
+	--color-surface: var(--colour-surface);
+	--color-raised: var(--colour-surface-raised);
+	--color-sunken: var(--colour-surface-sunken);
+
+	--color-line: var(--colour-border);
+	--color-line-strong: var(--colour-border-strong);
+	--color-line-quiet: var(--colour-border-quiet);
+
+	--color-ink: var(--colour-text);
+	--color-ink-muted: var(--colour-text-muted);
+	--color-ink-faint: var(--colour-text-faint);
+	--color-ink-inverse: var(--colour-text-inverse);
+
+	--color-accent: var(--colour-accent);
+	--color-accent-hover: var(--colour-accent-hover);
+	--color-accent-subtle: var(--colour-accent-subtle);
+	--color-accent-solid: var(--colour-accent-solid);
+	--color-accent-solid-hover: var(--colour-accent-solid-hover);
+
+	--color-ok: var(--colour-ok);
+	--color-ok-subtle: var(--colour-ok-subtle);
+	--color-warn: var(--colour-warn);
+	--color-warn-subtle: var(--colour-warn-subtle);
+	--color-danger: var(--colour-danger);
+	--color-danger-subtle: var(--colour-danger-subtle);
+
+	--color-red: var(--colour-red);
+	--color-blue: var(--colour-blue);
+	--color-yellow: var(--colour-yellow);
+
+	--font-sans: var(--font-sans);
+	--font-mono: var(--font-mono);
+
+	--text-xs: var(--text-xs);
+	--text-sm: var(--text-sm);
+	--text-base: var(--text-base);
+	--text-md: var(--text-md);
+	--text-lg: var(--text-lg);
+	--text-xl: var(--text-xl);
+	--text-xxs: var(--text-xxs);
+	--text-smd: var(--text-smd);
+	--text-sm--line-height: var(--leading-normal);
+	--text-base--line-height: var(--leading-normal);
+	--text-md--line-height: var(--leading-tight);
+	--text-lg--line-height: var(--leading-tight);
+	--text-xl--line-height: var(--leading-tight);
+
+	--radius-sm: var(--radius-sm);
+	--radius-md: var(--radius-md);
+	--radius-lg: var(--radius-lg);
+
+	--shadow-sm: var(--shadow-sm);
+	--shadow-md: var(--shadow-md);
+	--shadow-focus: var(--focus-ring);
 }
 
 /*

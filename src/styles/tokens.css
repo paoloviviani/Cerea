@@ -1,0 +1,416 @@
+/*
+ * Design tokens — the single file that owns the look (ADR 0047).
+ *
+ * Two facts about this file, and both are load-bearing:
+ *
+ * 1. **Every value is a plain CSS custom property.** `:root` and `.dark` are
+ *    ordinary CSS. A consumer that runs no Tailwind can import this file and
+ *    get the whole palette, type scale and geometry — the property 0023/0042
+ *    paid for with CSS Modules and which ADR 0047 deliberately preserves even
+ *    though the components themselves now ship Tailwind classes.
+ *
+ * 2. **The Tailwind mapping is derived, not separate.** The `@theme inline`
+ *    block near the bottom points Tailwind's namespaces at these custom
+ *    properties, so a utility like `bg-surface` resolves to
+ *    `var(--colour-surface)` at runtime. That `inline` is the whole dark-mode
+ *    trick: the utility does not bake in a light value, it reads the property,
+ *    and the property changes under `.dark`. Nothing but the `.dark` block
+ *    below is needed to theme the entire console.
+ *
+ * **The design language is a neutral greyscale with one blue accent**, in
+ * the contemporary product-console idiom (requested 2026-09-01, ADR 0047,
+ * replacing the Material Design 3 pass of ADR 0042; reconciled with the chat's
+ * values in ADR 0077, which partly reverses 0047's no-decoration stance). What
+ * carried over from it are the *requirements*, not the palette:
+ * sentence-case labels, tabular figures under numbers, soft ink past the
+ * 4.5:1 floor, green/red as the ok/danger pair. The accent is the chat's
+ * blue-600 family and the greys are its pure-neutral ramp; the mechanism —
+ * this file plus `@theme inline` — is unchanged, and the chat now shares it
+ * rather than the console losing it.
+ */
+
+/* Tailwind v4: `dark:` means "inside .dark", not "the OS said so". The reader's
+ * choice is a class on <html>, set by the console and remembered; an OS
+ * preference is only the default. Declared here rather than beside the
+ * components because it is part of how the look works, not how a component is
+ * built. Without Tailwind this line is an unknown at-rule and does nothing. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Roboto, under the Apache License 2.0 — see `fonts/roboto-LICENSE.txt`,
+ * fetched from the upstream repository and checked rather than assumed (ground
+ * rules 1 and 2).
+ *
+ * **Self-hosted, and variable.** One file per subset covers every weight from
+ * 100 to 900, and no external request, which keeps the console's CSP and the
+ * no-CDN rule untouched. Two subsets rather than one: Latin carries Italian's
+ * accented vowels, and Latin Extended-A carries the names that Latin does not.
+ *
+ * `swap` rather than `block`: the font is on the same origin and will almost
+ * always be cached, and on the one cold load a readable page in the fallback
+ * beats an invisible one.
+ */
+@font-face {
+  font-family: "Roboto";
+  /* `format("woff2")`, not `format("woff2-variations")`: the latter is the
+   * older syntax and Safari refuses it. The `font-weight` range below is what
+   * tells the browser this face is variable. */
+  src: url("./fonts/roboto-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Roboto";
+  src: url("./fonts/roboto-latin-ext.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  /* -- surfaces -------------------------------------------------------------
+   * A tonal system: the page is a step away from the card, a recessed area a
+   * step further. That few percent of luminance is what separates regions, in
+   * place of rules around everything.
+   *
+   * The inversion 0042 chose — tinted page, white card — is kept in the light
+   * theme, for the reason it gave: this console is mostly tables of figures,
+   * and figures read best on the cleanest ground on the page.
+   */
+  --colour-bg: #fafafa;
+  --colour-surface: #ffffff;
+  --colour-surface-raised: #ffffff;
+  --colour-surface-sunken: #f5f5f5;
+
+  /* Borders separate; they do not draw. 1px and a light grey, with a `strong`
+   * step for the rare border that must be found (a focused control's edge, a
+   * dragged handle). */
+  --colour-border: #e5e5e5;
+  --colour-border-strong: #a3a3a3;
+  --colour-border-quiet: #f5f5f5;
+
+  /* Ink, never #000. Gray-900 on white is ~19:1 — far past the 4.5:1 floor,
+   * without the glare pure black brings to a long column of figures. Muted and
+   * faint are the chat's gray-600/500 steps (9.6:1 and 4.7:1 on white). */
+  --colour-text: #0a0a0a;
+  --colour-text-muted: #454545;
+  --colour-text-faint: #737373;
+  --colour-text-inverse: #ffffff;
+
+  /* -- accent ---------------------------------------------------------------
+   * One hue, blue, used where something is interactive or selected and
+   * nowhere else — an accent that appears decoratively is an accent that no
+   * longer means "you can press this". The text step is held at 700 rather
+   * than the chat's 600: blue-600 on the subtle fill is 4.2:1, under the
+   * floor the console's figures require, while blue-700 on it is 5.5:1 and
+   * on white higher still. The *fill* step stays blue-600 — that is the
+   * chat's signature button, white on it is 5.2:1, and it is pinned rather
+   * than themed (see `--colour-accent-solid`): the chat's primary button is
+   * the same blue in both themes.
+   */
+  --colour-accent: #1d4ed8;
+  --colour-accent-hover: #1e40af;
+  --colour-accent-subtle: #dbeafe;
+
+  /* A fill that carries white text and must not move between themes. Buttons
+   * and other solid accents use this, never `--colour-accent`: the dark theme
+   * lifts the text step toward blue-400 for legibility on dark grounds, and a
+   * fill that followed it would drop white text under 3:1. */
+  --colour-accent-solid: #2563eb;
+  --colour-accent-solid-hover: #1d4ed8;
+
+  /* Kept because components ask for them by name, and because a brand mark
+   * wants a colour rather than a state. */
+  --colour-red: #dc2626;
+  --colour-blue: #2563eb;
+  --colour-yellow: #facc15;
+
+  /* -- semantic -------------------------------------------------------------
+   * Green/red is the pair every reader already knows, and 0042 was right to
+   * bring green back. Text tones sit at the 700 step so they clear 4.5:1 on
+   * their subtle fills (green-600 on green-100 is 3.0:1, green-700 is 4.6:1;
+   * red-600 on red-100 is 4.0:1, red-700 is 5.3:1) — the chat's pills use the
+   * 600 step and are lifted to this one where they are expressed through
+   * tokens. Both halves are re-derived for the dark theme below.
+   */
+  --colour-ok: #15803d;
+  --colour-ok-subtle: #dcfce7;
+  --colour-warn: #b45309;
+  --colour-warn-subtle: #fef3c7;
+  --colour-danger: #b91c1c;
+  --colour-danger-subtle: #fee2e2;
+
+  /* -- typography -----------------------------------------------------------
+   * Roboto, then the platform's own UI face. The fallbacks are the faces each
+   * system already uses for its own interface, so a reader who blocks webfonts
+   * gets the thing their OS considers most readable rather than Times.
+   *
+   * Money and identifiers stay on the mono stack: digits that line up down a
+   * column is a functional requirement, not a style.
+   */
+  --font-sans:
+    "Roboto", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace;
+
+  /* 1rem base — what a browser's default assumes a reader wants. The top of
+   * the scale stays down: a page title is a heading, not a shape on a poster.
+   * `xxs` and `smd` are the chat's two extra steps, folded in so both apps
+   * share one scale rather than each extending it privately. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.375rem;
+  --text-xl: 1.75rem;
+  --text-xxs: 0.625rem;
+  --text-smd: 0.94rem;
+
+  /* A variable font, so these are real instances rather than a synthetic bold.
+   * Medium is the workhorse: headings and labels sit at 500, which reads as
+   * emphasis without the weight jump that 700 makes on a screen of small text. */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.55;
+
+  /* Labels are sentence case. Tracked uppercase is measurably slower to read,
+   * and weight and the muted ink tell a label from a value without it. */
+  --label-transform: none;
+  --label-tracking: 0.01em;
+  --label-weight: 500;
+
+  /* -- space ----------------------------------------------------------------
+   * A 4px scale, named by step rather than by size so "space-3" stays correct
+   * if the scale is ever retuned.
+   */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* -- geometry -------------------------------------------------------------
+   * Rounded: a rounded container reads as one object, where a square one reads
+   * as a region of a grid. Buttons are pills — it makes a button unmistakably
+   * a button on a page otherwise made of rectangles.
+   */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* Two small steps, used to lift something *off* the page — a menu, a dialog —
+   * and not to decorate what is on it. In the light theme a hairline border
+   * carries most separation; the shadow keeps floating things from looking
+   * glued on. */
+  --shadow-sm: 0 1px 2px rgb(24 24 27 / 0.05), 0 1px 3px rgb(24 24 27 / 0.06);
+  --shadow-md: 0 2px 6px rgb(24 24 27 / 0.08), 0 4px 16px rgb(24 24 27 / 0.10);
+
+  --border-width: 1px;
+  --border-width-quiet: 1px;
+
+  /* One focus token, used by every interactive element, because an indicator
+   * that varies by component is one that will be missing somewhere. The ring
+   * sits outside a surface-coloured halo so it survives on any ground. */
+  --focus-ring: 0 0 0 2px var(--colour-surface), 0 0 0 4px var(--colour-accent);
+
+  --layout-max-width: 76rem;
+  --layout-sidebar-width: 14rem;
+
+  color-scheme: light;
+}
+
+/*
+ * The dark theme is exactly one block of overrides — the promise tokens.css
+ * made when it declined a dark theme, now kept (ADR 0047). Nothing outside
+ * this block knows a dark theme exists.
+ *
+ * The tonal inversion flips on its own logic: a dark page is *darkest* and a
+ * card is raised toward the reader, which is the same rule as the light
+ * theme's "figures on the cleanest ground" read from the other side.
+ *
+ * Contrast floors re-derived, not assumed: the accent text step is blue-400
+ * because blue-700 sinks under 4.5:1 on near-black, the solid fill stays
+ * pinned to blue-600 in both themes (white on it is 5.2:1 either way), and
+ * every semantic pair moves to its 400-weight text over a near-black subtle
+ * fill. Surfaces and borders follow the chat's neutral ramp: page and cards
+ * match its dark grounds exactly, so the two apps agree ground for ground.
+ */
+.dark {
+  --colour-bg: #0a0a0a;
+  --colour-surface: #1a1a1a;
+  --colour-surface-raised: #2e2e2e;
+  --colour-surface-sunken: #0a0a0a;
+
+  --colour-border: #2e2e2e;
+  --colour-border-strong: #454545;
+  /* A midpoint, not a ramp step: hairlines on a card need a value between the
+   * card and the structural border, and the ramp has nothing between gray-800
+   * and gray-700. */
+  --colour-border-quiet: #262626;
+
+  --colour-text: #f5f5f5;
+  --colour-text-muted: #a3a3a3;
+  --colour-text-faint: #737373;
+  --colour-text-inverse: #18181b;
+
+  --colour-accent: #60a5fa;
+  --colour-accent-hover: #93c5fd;
+  --colour-accent-subtle: #172554;
+  --colour-accent-solid: #2563eb;
+  --colour-accent-solid-hover: #1d4ed8;
+
+  --colour-red: #f87171;
+  --colour-blue: #60a5fa;
+  --colour-yellow: #fde047;
+
+  --colour-ok: #4ade80;
+  --colour-ok-subtle: #052e16;
+  --colour-warn: #fbbf24;
+  --colour-warn-subtle: #3a2503;
+  --colour-danger: #f87171;
+  --colour-danger-subtle: #3f0a0a;
+
+  /* Shadows barely read on a dark ground; the border above and the raised
+   * surface do the work shadows do in the light theme. Slightly deepened so a
+   * floating menu still separates from a card of the same tone. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 2px 6px rgb(0 0 0 / 0.5), 0 4px 16px rgb(0 0 0 / 0.45);
+
+  --focus-ring: 0 0 0 2px var(--colour-bg), 0 0 0 4px var(--colour-accent);
+
+  color-scheme: dark;
+}
+
+/*
+ * -- Tailwind theme mapping -------------------------------------------------
+ *
+ * `@theme inline` generates utilities (`bg-surface`, `text-ink-muted`,
+ * `rounded-md`, …) that reference the custom properties instead of copying
+ * their values — which is why the `.dark` block alone re-themes every utility.
+ * Namespace names are chosen for how they read in markup: `bg-page`,
+ * `border-line`, `text-ink-faint`.
+ *
+ * A consumer running no Tailwind never sees this block do anything: these are
+ * unknown at-rules to a plain parser, and the `:root`/`.dark` definitions
+ * above still apply in full.
+ */
+@theme inline {
+  --color-page: var(--colour-bg);
+  --color-surface: var(--colour-surface);
+  --color-raised: var(--colour-surface-raised);
+  --color-sunken: var(--colour-surface-sunken);
+
+  --color-line: var(--colour-border);
+  --color-line-strong: var(--colour-border-strong);
+  --color-line-quiet: var(--colour-border-quiet);
+
+  --color-ink: var(--colour-text);
+  --color-ink-muted: var(--colour-text-muted);
+  --color-ink-faint: var(--colour-text-faint);
+  --color-ink-inverse: var(--colour-text-inverse);
+
+  --color-accent: var(--colour-accent);
+  --color-accent-hover: var(--colour-accent-hover);
+  --color-accent-subtle: var(--colour-accent-subtle);
+  --color-accent-solid: var(--colour-accent-solid);
+  --color-accent-solid-hover: var(--colour-accent-solid-hover);
+
+  --color-ok: var(--colour-ok);
+  --color-ok-subtle: var(--colour-ok-subtle);
+  --color-warn: var(--colour-warn);
+  --color-warn-subtle: var(--colour-warn-subtle);
+  --color-danger: var(--colour-danger);
+  --color-danger-subtle: var(--colour-danger-subtle);
+
+  --color-red: var(--colour-red);
+  --color-blue: var(--colour-blue);
+  --color-yellow: var(--colour-yellow);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-base: var(--text-base);
+  --text-md: var(--text-md);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+  --text-xxs: var(--text-xxs);
+  --text-smd: var(--text-smd);
+  --text-sm--line-height: var(--leading-normal);
+  --text-base--line-height: var(--leading-normal);
+  --text-md--line-height: var(--leading-tight);
+  --text-lg--line-height: var(--leading-tight);
+  --text-xl--line-height: var(--leading-tight);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-focus: var(--focus-ring);
+}
+
+/*
+ * Reset, kept to the handful of rules that matter beyond Tailwind's preflight:
+ * form controls inherit the page font (preflight does most of this; these keep
+ * the file honest when imported alone), and the html element carries the
+ * family so the fallback path needs no other file.
+ */
+html {
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--colour-bg);
+  color: var(--colour-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+img,
+picture,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Honour a reader who has asked the operating system for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
