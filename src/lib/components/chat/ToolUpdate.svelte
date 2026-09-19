@@ -11,6 +11,7 @@
 	import { page } from "$app/state";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideTriangleAlert from "~icons/lucide/triangle-alert";
+	import LucideWrench from "~icons/lucide/wrench";
 	import BlockWrapper from "./BlockWrapper.svelte";
 
 	interface Props {
@@ -118,8 +119,18 @@
 				<!-- Errors here are often recoverable (the model retries or works around
 				     them), so the header stays in the same muted gray as every other
 				     state; the amber icon is the only signal until the row is expanded. -->
+				<!-- One leading glyph, which says either what the row is or what
+				     happened to it: a wrench for an ordinary call, the amber
+				     triangle when it failed. Not both — the text beside it already
+				     reads "Error calling tool", so nothing is lost by the swap, and
+				     a second icon in a row that also carries a label, a name and a
+				     chevron is where this stops being scannable. -->
 				{#if toolError}
 					<LucideTriangleAlert class="size-3.5 shrink-0 text-amber-500 dark:text-amber-400" />
+				{:else}
+					<LucideWrench
+						class="size-3.5 shrink-0 text-gray-400 transition-colors group-hover/header:text-gray-600 dark:text-gray-500 dark:group-hover/header:text-gray-300"
+					/>
 				{/if}
 				<span
 					class="shrink-0 text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
