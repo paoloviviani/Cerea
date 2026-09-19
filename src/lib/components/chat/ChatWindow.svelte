@@ -949,7 +949,7 @@
 					<button
 						type="button"
 						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
-						onclick={() => sidePane.openLibrary()}
+						onclick={() => sidePane.toggleLibrary()}
 						aria-label="Open artifacts panel"
 						title="Artifacts and chat export"
 					>
