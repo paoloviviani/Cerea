@@ -37,6 +37,7 @@ export async function fetchDirect(url: string): Promise<FetchedPage> {
 		content,
 		contentType,
 		backend: "direct",
+		extracted: false,
 	};
 }
 

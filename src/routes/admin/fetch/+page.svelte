@@ -31,6 +31,11 @@
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 	let note = $state<string | null>(null);
+	// A live probe of the renderer, shown next to the option but never used to
+	// disable it: selecting playwright before its overlay is deployed is a
+	// legitimate order of operations, and a transient probe failure must not
+	// lock the setting rather than just warn about it (ADR 0079).
+	let playwrightHealth = $state<{ reachable: boolean; reason?: string } | null>(null);
 
 	const dirty = $derived(backend !== saved);
 
@@ -45,6 +50,7 @@
 			backend = data.backend;
 			saved = data.backend;
 			configurable = data.configurable;
+			playwrightHealth = data.playwright ?? null;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not read the setting.";
 		} finally {
@@ -132,8 +138,32 @@
 						disabled={!configurable || busy}
 					/>
 					<span class="flex flex-col gap-0.5">
-						<span class="text-sm font-medium">{meta.title}</span>
+						<span class="flex items-center gap-2">
+							<span class="text-sm font-medium">{meta.title}</span>
+							{#if value === "playwright" && playwrightHealth}
+								{#if playwrightHealth.reachable}
+									<span
+										class="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
+									>
+										Reachable
+									</span>
+								{:else}
+									<span
+										class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+										title={playwrightHealth.reason}
+									>
+										Unreachable{playwrightHealth.reason ? `: ${playwrightHealth.reason}` : ""}
+									</span>
+								{/if}
+							{/if}
+						</span>
 						<span class="text-xs text-gray-600 dark:text-gray-400">{meta.detail}</span>
+						{#if value === "playwright" && playwrightHealth && !playwrightHealth.reachable}
+							<span class="text-xs text-amber-700 dark:text-amber-400">
+								You can still select and save this — it may just not be deployed yet, or be starting
+								up.
+							</span>
+						{/if}
 					</span>
 				</label>
 			{/each}

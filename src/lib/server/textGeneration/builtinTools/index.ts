@@ -11,6 +11,8 @@ import { createTrackioTool } from "./createTrackioTool";
 import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
+import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
+import { configuredBackend } from "$lib/server/fetching";
 import type { BuiltinTool } from "./types";
 
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
@@ -43,6 +45,18 @@ export function getEnabledBuiltinTools(params: {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	/** Tools this conversation has already approved (server-qualified names for MCP). */
 	approvedTools?: Set<string>;
+	/**
+	 * Whether a recent liveness probe of the configured Playwright renderer
+	 * succeeded (`probePlaywrightHealth` in `$lib/server/fetching/playwright`,
+	 * cached ~30s). The caller resolves this — an async network probe has no
+	 * business inside this otherwise-synchronous decision function, the same
+	 * reason `searchModelIds` is resolved by the caller rather than fetched
+	 * here. Absent or `false` withholds `web_fetch_structured` exactly as an
+	 * unreachable renderer would; see that tool's own condition below for why
+	 * this is strict where the admin panel (a different consumer of the same
+	 * probe) is deliberately not.
+	 */
+	playwrightReachable?: boolean;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -105,6 +119,44 @@ export function getEnabledBuiltinTools(params: {
 		tools.push(
 			createWebFetchBuiltin({
 				allowedUrls: params.allowedFetchUrls,
+				toolApprovalPolicy: params.toolApprovalPolicy,
+				approvedTools: params.approvedTools,
+			})
+		);
+	}
+
+	// `web_fetch_structured` needs a real, answering browser (it returns
+	// `page.ariaSnapshot()`, which only exists because a page was actually
+	// rendered) — two separate conditions, both required:
+	//
+	// 1. The configured fetch backend is specifically `playwright`. `direct`
+	//    has no browser at all, and `pystino` is a deliberate stub that
+	//    refuses with a message rather than working. `web_fetch` itself needs
+	//    no such check: `direct` is a perfectly good way to read a static
+	//    page, so it stays offered on every backend (the condition just above
+	//    this one). Read fresh on every call rather than cached: `FETCH_BACKEND`
+	//    is the one config key the admin panel writes at runtime
+	//    (Administration → Fetching), and the tool list is rebuilt once per
+	//    turn, so a live switch to `direct` must stop advertising a tool that
+	//    would immediately fail — not leave it offered until a restart.
+	// 2. `playwrightReachable`, the caller's recent liveness probe. Selecting
+	//    `playwright` is a configuration a deployment can hold before the
+	//    overlay is even deployed — a legitimate order of operations, and one
+	//    the admin panel deliberately still allows (see its own route) — so
+	//    the backend being *configured* is not evidence it currently *works*.
+	//    Advertising the tool anyway costs the model a wasted round on a call
+	//    that cannot succeed; `renderWithPlaywright`'s own "may not be
+	//    deployed" error is the backstop for a renderer that dies between
+	//    this check and the call, not a substitute for making the check.
+	if (
+		webAccessEnabled &&
+		configuredBackend() === "playwright" &&
+		params.playwrightReachable &&
+		params.allowedFetchUrls &&
+		(params.allowedFetchUrls.size > 0 || (params.searchModelIds?.length ?? 0) > 0)
+	) {
+		tools.push(
+			createWebFetchStructuredBuiltin({
 				toolApprovalPolicy: params.toolApprovalPolicy,
 				approvedTools: params.approvedTools,
 			})

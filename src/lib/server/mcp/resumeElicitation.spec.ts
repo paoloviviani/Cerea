@@ -29,6 +29,9 @@ vi.mock("./httpClient", () => ({
 const fetchPageMock = vi.fn();
 vi.mock("$lib/server/fetching", () => ({ fetchPage: fetchPageMock }));
 
+const accessibilitySnapshotWithPlaywright = vi.fn();
+vi.mock("$lib/server/fetching/playwright", () => ({ accessibilitySnapshotWithPlaywright }));
+
 await ready;
 
 const SERVERS = [{ name: "Mock", url: "http://mock.invalid/mcp" }];
@@ -416,6 +419,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 
 	beforeEach(() => {
 		fetchPageMock.mockReset();
+		accessibilitySnapshotWithPlaywright.mockReset();
 		calls.queue.length = 0;
 		calls.seen.length = 0;
 	});
@@ -604,5 +608,54 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			tool: "Mock:search",
 			queue: [],
 		});
+	});
+
+	// ADR 0079: `runApprovedCall`'s non-MCP branch used to assume `web_fetch`
+	// unconditionally for any call with no `mcp` field. Written first against
+	// the unfixed dispatch and confirmed it failed for the right reason
+	// (`fetchPageMock` was called with the structured call's args, and the
+	// result named the call "web_fetch") before the name-keyed table made it
+	// pass. This regression stands regardless of which second gated builtin
+	// exposed it — the bug was in the dispatch, not in any one tool.
+	it("re-issues an approved web_fetch_structured call through its own renderer, not web_fetch", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const url = "https://unseen.test/structured";
+		accessibilitySnapshotWithPlaywright.mockResolvedValue({
+			url,
+			title: "A page",
+			snapshot: "- generic [ref=e1]: hello",
+		});
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "web_fetch_structured",
+			args: { url },
+			scope: "once",
+		});
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		expect(fetchPageMock).not.toHaveBeenCalled();
+		expect(accessibilitySnapshotWithPlaywright).toHaveBeenCalledWith(url);
+		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result") as
+			undefined | { result: { call: { name: string }; outputs: { text?: string }[] } };
+		expect(result?.result.call.name).toBe("web_fetch_structured");
+		expect(result?.result.outputs[0]?.text).toContain("ref=e1");
+	});
+
+	it("denies an approval-queue tool name nothing recognizes, rather than mis-dispatching it", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "not_a_real_tool",
+			args: { url: "https://unseen.test/x" },
+			scope: "once",
+		});
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		expect(fetchPageMock).not.toHaveBeenCalled();
+		const error = outcome.updates.find((u) => "subtype" in u && u.subtype === "error") as
+			undefined | { message: string };
+		expect(error?.message).toContain("Unknown tool");
 	});
 });
