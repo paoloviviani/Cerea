@@ -25,7 +25,7 @@
 		"populate": "vite-node --options.transformMode.ssr='/.*/' scripts/populate.ts",
 		"config": "vite-node --options.transformMode.ssr='/.*/' scripts/config.ts",
 		"probe-model": "vite-node --options.transformMode.ssr='/.*/' scripts/probe-model.ts --",
-		"setup": "node installer/install.mjs",
+		"setup": "./installer/install.sh",
 		"prepare": "husky"
 	},
 	"devDependencies": {
