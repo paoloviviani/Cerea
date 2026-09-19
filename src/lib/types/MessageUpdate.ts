@@ -22,6 +22,7 @@ export type MessageUpdate =
 	| MessageRouterMetadataUpdate
 	| MessageElicitationUpdate
 	| MessagePlanUpdate
+	| MessageMemoryUpdate
 	| MessageBudgetUpdate
 	| MessageTurnStateUpdate
 	| MessageCodeExecutionUpdate;
@@ -37,6 +38,7 @@ export enum MessageUpdateType {
 	RouterMetadata = "routerMetadata",
 	Elicitation = "elicitation",
 	Plan = "plan",
+	Memory = "memory",
 	Budget = "budget",
 	TurnState = "turnState",
 	CodeExecution = "codeExecution",
@@ -282,6 +284,36 @@ export interface MessagePlanUpdate {
 	/** Model-authored one-line changelog for this update. */
 	explanation?: string;
 	version: number;
+}
+
+/**
+ * A `remember` or `forget` call that changed what is stored about the person.
+ *
+ * Emitted so the write is **visible where it happened**. Memory is the one
+ * tool here that edits something outside the conversation and outlives it,
+ * and it is deliberately not behind the approval gate (ADR 0075) — a card
+ * asking permission for every fact would train people to click through, and
+ * the call has no external reach and costs nothing. Showing the write
+ * afterwards, with a way to undo it, is the safeguard instead of asking
+ * first.
+ *
+ * `memoryId` is what makes the undo possible: it is the row to delete for a
+ * `remembered`. A `forgot` carries no id — the row is gone — so undoing one
+ * re-creates the fact from `text`, which is why the text is carried in full
+ * rather than referenced.
+ *
+ * Plain JSON only (no Date): it travels the JSONL stream and is persisted
+ * verbatim in `Message.updates`.
+ */
+export interface MessageMemoryUpdate {
+	type: MessageUpdateType.Memory;
+	/** uuid of the remember/forget tool call that produced this. */
+	uuid: string;
+	action: "remembered" | "forgot";
+	/** The fact, as stored or as removed. */
+	text: string;
+	/** The stored row, present only for `remembered`. */
+	memoryId?: string;
 }
 
 /**

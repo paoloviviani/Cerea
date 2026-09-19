@@ -84,6 +84,26 @@ export interface Settings extends Timestamps {
 	pyodidePyPiInstallEnabled?: boolean;
 
 	/**
+	 * Whether standing personal facts are kept and carried into every
+	 * conversation (see `$lib/types/Memory`). Off by default and stored as
+	 * absent, the same judgement `Project.indexPastChats` makes: memory
+	 * writes things somebody said into a store that outlives the
+	 * conversation, and that is a decision worth making rather than
+	 * discovering.
+	 *
+	 * Governs both halves at once — with it off nothing is injected into the
+	 * prompt and the `remember`/`forget` tools are not offered — so turning
+	 * it off is a full stop rather than a pause with a tool still writing.
+	 * Stored facts survive it, because a switch that deleted them would make
+	 * "let me try this off for a week" an irreversible act; the Memory screen
+	 * is where deleting happens.
+	 *
+	 * The deployment's `CHAT_MEMORY_ENABLED` can withdraw the feature
+	 * entirely regardless of this value (`FeatureFlags.memoryEnabled`).
+	 */
+	memoryEnabled?: boolean;
+
+	/**
 	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
 	 * When set to `true`, prompt examples for that model are suppressed.
 	 */

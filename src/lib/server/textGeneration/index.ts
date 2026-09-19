@@ -131,6 +131,37 @@ async function* textGenerationWithoutTitle(
 		skillsPreprompt,
 	});
 
+	// Standing facts about this person, carried in from earlier conversations
+	// (see `$lib/types/Memory`). Appended after `resolvePreprompt` for the
+	// reason the project block below is, and *before* it: the conversation's
+	// own prompt keeps precedence over both, and a fact about the person is
+	// more general than passages retrieved for this one question, so it reads
+	// in the order a person would write it.
+	//
+	// Gated twice, exactly like the `remember`/`forget` tools: the operator's
+	// deployment flag and this person's own opt-in, which defaults off. An
+	// anonymous turn has no memory at all — there is nowhere durable to keep
+	// a fact without a user. The whole block is a try/catch that logs and
+	// continues, the same posture as the skills assembly above and
+	// `projectContext` below: a store that cannot be read is a reason for a
+	// worse answer, never for none.
+	try {
+		const memoryUserId = ctx.locals?.user?._id;
+		if (memoryUserId) {
+			const { memoryEnabled } = await import("$lib/server/memoryEnabled");
+			if (memoryEnabled()) {
+				const settings = await collections.settings.findOne({ userId: memoryUserId as never });
+				if (settings?.memoryEnabled === true) {
+					const { memoryContext } = await import("$lib/server/memory/service");
+					const block = await memoryContext(memoryUserId);
+					if (block) preprompt = preprompt ? `${preprompt}\n\n${block}` : block;
+				}
+			}
+		}
+	} catch (err) {
+		logger.warn({ err: String(err) }, "[memory] memory context failed; continuing without it");
+	}
+
 	// A project's standing context, and whatever its knowledge bases — plus any
 	// bases attached to this conversation from the composer — offer for this
 	// question. Appended to the system prompt rather than mixed into
