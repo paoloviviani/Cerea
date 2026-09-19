@@ -96,7 +96,7 @@ for gateway-first operators.
 Taking it back down again is here too, since this is where it was put up:
 
 ```sh
-./installer/teardown.sh [--backup] [--images] [--all] [--yes]
+./installer/teardown.sh [--backup] [--images] [--yes]
 ```
 
 Containers, named volumes and networks of the `llm-platform` project. Shell
