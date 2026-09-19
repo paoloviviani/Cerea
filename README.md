@@ -96,13 +96,16 @@ for gateway-first operators.
 Taking it back down again is here too, since this is where it was put up:
 
 ```sh
-node installer/teardown.mjs [--backup] [--images] [--all] [--yes]
+./installer/teardown.sh [--backup] [--images] [--all] [--yes]
 ```
 
-Containers, named volumes and networks of the `llm-platform` project. It finds
-the Pystino checkout by asking Docker where the running deployment's compose
-files came from — `--pystino <path>` if nothing is running — and then hands
-over to that checkout's `deploy/teardown.sh`, which is the one implementation.
+Containers, named volumes and networks of the `llm-platform` project. Shell
+rather than node, unlike its sibling: the installer needs a runtime because it
+is a TUI that runs before `npm install`, and removing containers needs nothing
+but Docker. It finds the Pystino checkout by asking Docker where the running
+deployment's compose files came from — `--pystino <path>` if nothing is
+running — and then hands over to that checkout's `deploy/teardown.sh`, which
+is the one implementation.
 `--backup` saves `deploy/.env`, the profile fragments and database dumps
 first; **`deploy/.env` is gitignored and exists nowhere else**, and the
 `CHAT_SECRET_KEY` in it decrypts the stored connector credentials, so a
