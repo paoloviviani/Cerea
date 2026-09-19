@@ -13,6 +13,7 @@ import {
 	type MessageCodeExecutionRequestUpdate,
 	type MessageCodeExecutionResolvedUpdate,
 	type MessagePlanUpdate,
+	type MessageMemoryUpdate,
 	MessageUpdateType,
 	MessageUpdateStatus,
 	MessageToolUpdateType,
@@ -427,6 +428,9 @@ export const isMessageCodeExecutionResolvedUpdate = (
 
 export const isMessagePlanUpdate = (update: MessageUpdate): update is MessagePlanUpdate =>
 	update.type === MessageUpdateType.Plan;
+
+export const isMessageMemoryUpdate = (update: MessageUpdate): update is MessageMemoryUpdate =>
+	update.type === MessageUpdateType.Memory;
 
 const defaultSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));

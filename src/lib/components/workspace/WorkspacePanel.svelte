@@ -26,10 +26,12 @@
 	import MCPServerManager from "$lib/components/mcp/MCPServerManager.svelte";
 	import KnowledgeManager from "$lib/components/knowledge/KnowledgeManager.svelte";
 	import SkillsManager from "$lib/components/skills/SkillsManager.svelte";
+	import MemoryManager from "$lib/components/memory/MemoryManager.svelte";
 	import LucideBoxes from "~icons/lucide/boxes";
 	import LucideLibrary from "~icons/lucide/library";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import IconDocument from "~icons/carbon/document";
+	import LucideBrain from "~icons/lucide/brain";
 
 	interface Props {
 		data: LayoutData;
@@ -53,11 +55,35 @@
 		{ key: "mcp", label: "MCP Servers" },
 		{ key: "kb", label: "Knowledge" },
 		{ key: "skills", label: "Skills" },
+		{ key: "memory", label: "Memory" },
 	] as const;
+	// Memory hides on the same terms as Knowledge, for the same reason: with
+	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only
+	// ever show an error. Its per-user switch is a different thing and lives
+	// inside the tab — an operator withdrawing the feature is not the same
+	// decision as a person declining it.
 	const TABS = $derived(
-		data.knowledgeEnabled !== false ? ALL_TABS : ALL_TABS.filter((t) => t.key !== "kb")
+		ALL_TABS.filter(
+			(t) =>
+				(t.key !== "kb" || data.knowledgeEnabled !== false) &&
+				(t.key !== "memory" || data.memoryEnabled !== false)
+		)
 	);
 	type TabKey = (typeof ALL_TABS)[number]["key"];
+
+	// Written out rather than joined from the tab labels: the labels are
+	// title-case nav rows ("MCP Servers"), and a sentence assembled from them
+	// reads like a menu. Two optional clauses, so it stays one sentence
+	// whichever of the two switches a deployment has turned off.
+	const subtitle = $derived(
+		[
+			"Models, MCP servers",
+			data.knowledgeEnabled !== false ? ", knowledge bases" : "",
+			" and skills",
+			data.memoryEnabled !== false ? ", plus what the assistant remembers about you" : "",
+			".",
+		].join("")
+	);
 
 	// Anything else in the query means the default tab, so a bare `/workspace`
 	// and a mistyped `?tab=...` both land on Models.
@@ -81,9 +107,7 @@
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Workspace</h1>
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			{data.knowledgeEnabled !== false
-				? "Models, MCP servers, knowledge bases and skills, in one place."
-				: "Models, MCP servers and skills, in one place."}
+			{subtitle}
 		</p>
 	</header>
 
@@ -106,6 +130,8 @@
 					<IconMCP classNames="size-4" />
 				{:else if t.key === "kb"}
 					<LucideLibrary class="size-4" />
+				{:else if t.key === "memory"}
+					<LucideBrain class="size-4" />
 				{:else}
 					<IconDocument class="size-4" />
 				{/if}
@@ -132,6 +158,8 @@
 				<MCPServerManager />
 			{:else if tab === "kb"}
 				<KnowledgeManager initialId={initialItemId} />
+			{:else if tab === "memory"}
+				<MemoryManager />
 			{:else}
 				<SkillsManager initialId={initialItemId} />
 			{/if}

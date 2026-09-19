@@ -43,6 +43,7 @@ import { existsSync, mkdirSync } from "fs";
 import { findRepoRoot } from "./findRepoRoot";
 import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
+import type { Memory } from "$lib/types/Memory";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
@@ -182,6 +183,11 @@ export class Database {
 		// (readable by all, writable only by an administrator): one document
 		// per skill, code seeds bootstrapped as rows on first read.
 		const skills = db.collection<Skill>("skills");
+		// Standing personal facts, owner-only with no sharing at all. Read on
+		// every turn and tiny per user, so it stays on the primary: a stale
+		// read here would drop a fact somebody just saved out of the very next
+		// prompt, which reads as the feature not working.
+		const memories = db.collection<Memory>("memories");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
@@ -211,6 +217,7 @@ export class Database {
 			conversations,
 			projects,
 			skills,
+			memories,
 			vectorStores,
 			knowledgeDocuments,
 			knowledgeConfig,
@@ -253,6 +260,7 @@ export class Database {
 			conversations,
 			projects,
 			skills,
+			memories,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
@@ -329,6 +337,13 @@ export class Database {
 		skills
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for skills by userId"));
+		// Memory is read whole, per user, on every turn, and written rarely —
+		// so one compound index serves both the prompt build and the screen.
+		// The sort is ascending because oldest-first is the order the block
+		// renders in and the end the budget drops from (see memory/service).
+		memories
+			.createIndex({ userId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for memories by userId"));
 		// Deployment-scope names are unique across the deployment: two
 		// administrators must not publish two different procedures under one
 		// `@name`. Partial, so the per-owner user rows above are untouched.

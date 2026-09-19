@@ -12,6 +12,7 @@ import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
+import { createMemoryBuiltins } from "./memoryTool";
 import { configuredBackend } from "$lib/server/fetching";
 import type { BuiltinTool } from "./types";
 
@@ -21,6 +22,7 @@ export { RESEARCH_TOOL_NAME, isResearchTool } from "./researchTool";
 export { SANDBOX_TOOL_NAME, isSandboxTool } from "./sandboxTool";
 export { JOB_CHECK_TOOL_NAME, isJobCheckTool } from "./jobCheckTool";
 export { CREATE_TRACKIO_TOOL_NAME } from "./createTrackioTool";
+export { REMEMBER_TOOL_NAME, FORGET_TOOL_NAME } from "./memoryTool";
 export { isNestedAgentTool } from "./nestedAgent";
 
 /**
@@ -45,6 +47,16 @@ export function getEnabledBuiltinTools(params: {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	/** Tools this conversation has already approved (server-qualified names for MCP). */
 	approvedTools?: Set<string>;
+	/**
+	 * Whether this turn may read and write the person's standing facts: the
+	 * deployment flag (`CHAT_MEMORY_ENABLED`) and their own opt-in, resolved
+	 * together by the caller. Two reads — a config key and a settings
+	 * document — so it arrives here already decided, like `searchModelIds`.
+	 * Absent or `false` withholds `remember` and `forget` entirely, which is
+	 * also what an anonymous session gets: memory belongs to a user, and
+	 * there is nowhere durable to put a fact without one.
+	 */
+	memoryEnabled?: boolean;
 	/**
 	 * Whether a recent liveness probe of the configured Playwright renderer
 	 * succeeded (`probePlaywrightHealth` in `$lib/server/fetching/playwright`,
@@ -82,6 +94,12 @@ export function getEnabledBuiltinTools(params: {
 	// Gated on the deployment-level flag alone: absent flag = fences only,
 	// exactly today's behavior. The tool withholds itself when the flag is off.
 	tools.push(...createExecuteCodeBuiltin());
+
+	// Memory joins every conversation, not just the ML Assistant preset: a
+	// standing fact about somebody is as relevant to an ordinary chat as to a
+	// mode one, and the whole point is that it survives across them. Both
+	// switches are already folded into the one flag by the caller.
+	tools.push(...createMemoryBuiltins({ enabled: params.memoryEnabled === true }));
 
 	// The gateway's own search backends, metered to this caller. Two switches,
 	// both meaningful: the per-chat state says they consent to web search in

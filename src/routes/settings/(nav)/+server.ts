@@ -23,6 +23,10 @@ const settingsSchema = z.object({
 	// same-origin wheels. An admin kill-switch can force this unavailable
 	// regardless of what's stored here.
 	pyodidePyPiInstallEnabled: z.boolean().optional(),
+	// Off by default and stored as absent: the person's opt-in to keeping
+	// standing facts about themselves. The deployment flag
+	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
+	memoryEnabled: z.boolean().optional(),
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),

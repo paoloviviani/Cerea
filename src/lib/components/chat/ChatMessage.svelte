@@ -31,6 +31,7 @@
 	import ToolApprovalCard from "./ToolApprovalCard.svelte";
 	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
+	import MemoryCard from "./MemoryCard.svelte";
 	import {
 		isMessageToolUpdate,
 		isMessageToolResultUpdate,
@@ -40,6 +41,7 @@
 		isMessageCodeExecutionRequestUpdate,
 		isMessageCodeExecutionResolvedUpdate,
 		isMessagePlanUpdate,
+		isMessageMemoryUpdate,
 	} from "$lib/utils/messageUpdates";
 	import {
 		MessageUpdateType,
@@ -48,6 +50,7 @@
 		type MessageCodeExecutionRequestUpdate,
 		type MessageCodeExecutionResolvedUpdate,
 		type MessagePlanUpdate,
+		type MessageMemoryUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import { page } from "$app/state";
@@ -181,7 +184,8 @@
 		| { type: "artifact"; op: ArtifactOperation; opIndex: number }
 		| ElicitationBlock
 		| CodeExecutionBlock
-		| { type: "plan"; update: MessagePlanUpdate };
+		| { type: "plan"; update: MessagePlanUpdate }
+		| { type: "memory"; update: MessageMemoryUpdate };
 
 	type ToolBlock = Extract<Block, { type: "tool" }>;
 	type ProcessBlock = Extract<Block, { type: "think" } | { type: "tool" }>;
@@ -192,7 +196,8 @@
 		| { kind: "artifact"; op: ArtifactOperation; opIndex: number }
 		| ({ kind: "elicitation" } & Omit<ElicitationBlock, "type">)
 		| ({ kind: "codeExecution" } & Omit<CodeExecutionBlock, "type">)
-		| { kind: "plan"; update: MessagePlanUpdate };
+		| { kind: "plan"; update: MessagePlanUpdate }
+		| { kind: "memory"; update: MessageMemoryUpdate };
 
 	// Expand any text block containing <think>…</think> into dedicated think blocks
 	// so reasoning can be grouped/collapsed separately from the answer text.
@@ -348,6 +353,14 @@
 				const planIdx = res.findIndex((b) => b.type === "plan");
 				if (planIdx !== -1) res.splice(planIdx, 1);
 				res.push({ type: "plan", update });
+			} else if (isMessageMemoryUpdate(update)) {
+				// Unlike a plan, memory writes accumulate: two facts remembered in
+				// one turn are two things that happened and two things to undo,
+				// so each keeps its own card. The generic tool card for the same
+				// call gives way to it, exactly as the plan's does.
+				const memoryToolIdx = res.findIndex((b) => b.type === "tool" && b.uuid === update.uuid);
+				if (memoryToolIdx !== -1) res.splice(memoryToolIdx, 1);
+				res.push({ type: "memory", update });
 			} else if (update.type === MessageUpdateType.FinalAnswer) {
 				sawFinalAnswer = true;
 				const finalText = update.text ?? "";
@@ -431,6 +444,12 @@
 				// Never folded into the collapsible summary: the plan stays visible.
 				flush();
 				units.push({ kind: "plan", update: block.update });
+			} else if (block.type === "memory") {
+				// Never folded either: a write to something that outlives the
+				// conversation must not end up behind a "3 steps" disclosure, or
+				// the undo is only found by people who go looking for it.
+				flush();
+				units.push({ kind: "memory", update: block.update });
 			} else {
 				flush();
 				units.push({ kind: "text", content: block.content });
@@ -465,7 +484,8 @@
 				block.type === "think" ||
 				block.type === "tool" ||
 				block.type === "elicitation" ||
-				block.type === "plan"
+				block.type === "plan" ||
+				block.type === "memory"
 		);
 	});
 
@@ -581,6 +601,10 @@
 							<div data-exclude-from-copy>
 								<PlanCard update={block.update} />
 							</div>
+						{:else if block.type === "memory"}
+							<div data-exclude-from-copy>
+								<MemoryCard update={block.update} />
+							</div>
 						{:else}
 							<div data-exclude-from-copy class="not-last:mb-1 has-[+.prose]:mb-2! [.prose+&]:mt-3">
 								{#if block.type === "think"}
@@ -646,6 +670,10 @@
 						{:else if unit.kind === "plan"}
 							<div data-exclude-from-copy>
 								<PlanCard update={unit.update} />
+							</div>
+						{:else if unit.kind === "memory"}
+							<div data-exclude-from-copy>
+								<MemoryCard update={unit.update} />
 							</div>
 						{:else if unit.kind === "group"}
 							<div data-exclude-from-copy class="not-last:mb-1 has-[+.prose]:mb-2! [.prose+&]:mt-3">

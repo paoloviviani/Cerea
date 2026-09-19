@@ -3,6 +3,7 @@ import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { loginEnabled } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
+import { memoryEnabled } from "$lib/server/memoryEnabled";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 
@@ -35,5 +36,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// only provider can never answer.
 		usageEnabled: config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL,
 		knowledgeEnabled: knowledgeEnabled(),
+		memoryEnabled: memoryEnabled(),
 	} satisfies FeatureFlags);
 };

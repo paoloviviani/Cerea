@@ -210,8 +210,15 @@ export async function* runMcpFlow({
 		const { probePlaywrightHealth } = await import("$lib/server/fetching/playwright");
 		playwrightReachable = (await probePlaywrightHealth()).reachable;
 	}
+	// Both halves of the memory gate, resolved together: the operator's
+	// deployment flag and this person's own opt-in, which defaults off. An
+	// anonymous turn has no settings document and therefore no memory, which
+	// is the right answer anyway — there is nowhere durable to write a fact.
+	const { memoryEnabled } = await import("$lib/server/memoryEnabled");
+	const memoryAllowed = memoryEnabled() && serverSettings?.memoryEnabled === true;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
+		memoryEnabled: memoryAllowed,
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
 		token: turnToken,
 		searchModelIds: turnToken ? await findSearchModelIds(turnToken) : [],
