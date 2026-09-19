@@ -8,12 +8,23 @@
  *   node installer/install.mjs [--pystino <path>] [--phase2]
  *
  * What it does, in order: validates (or clones) the Pystino checkout, proposes
- * the three deployment profiles, lets the operator toggle components within
- * the chosen profile, generates every secret locally, writes Pystino's
- * deploy/.env from the matching profile fragment, then brings the stack up in
- * two phases (postgres + gateway first, because the catalogue key, the admin
- * password and the chat database cannot exist before it runs; everything else
- * second). `--phase2` resumes against an existing deploy/.env.
+ * the five deployment profiles, lets the operator toggle components within
+ * the chosen gateway profile, generates every secret locally, writes Pystino's
+ * deploy/.env from the matching profile fragment, then brings the stack up.
+ * Gateway profiles (homelab, team, enterprise) come up in two phases
+ * (postgres + gateway first, because the admin password and the
+ * chat database cannot exist before it runs; everything else second).
+ * Standalone profiles (satellite, generic) hold no gateway: phase 1 is the
+ * databases only, and no password or catalogue step ever runs — users live
+ * on the central deployment or the third party, not here.
+ * `--phase2` resumes against an existing deploy/.env.
+ *
+ * Nothing mints the chat a key. Cerea boots anonymously against Pystino — its
+ * model catalogue fetch reads the gateway's public `GET /v1/models` (ADR
+ * 0081), and every real inference call after that carries the signed-in
+ * person's own access token (`USE_USER_TOKEN=true`, ADR 0040). Earlier this
+ * flow minted a spend-capable `gwk_` key at the end of phase 1 for the sole
+ * purpose of that boot fetch; that step is gone, not merely optional.
  *
  * Three rules this file never breaks, each learned the hard way upstream:
  *
@@ -288,7 +299,74 @@ const PROFILES = {
 			memory: true,
 		},
 	},
+	satellite: {
+		fragment: "satellite.env",
+		name: "satellite",
+		standalone: true,
+		blurb:
+			"Chat against a central Pystino: users and ledger live there, this box holds chat + databases only.",
+		footprint: "~400 MB RSS, ~2.5 GB disk, 1 vCPU (estimate — not yet weighed on a live host)",
+		defaults: {
+			redaction: "off",
+			fetch: "direct",
+			metering: false,
+			codeTool: true,
+			usage: true,
+			knowledge: true,
+			memory: true,
+		},
+	},
+	generic: {
+		fragment: "generic.env",
+		name: "generic",
+		standalone: true,
+		blurb: "Chat against any OpenAI-compatible third party: shared key, no user tokens, no ledger.",
+		footprint: "~400 MB RSS, ~2.5 GB disk, 1 vCPU (estimate — not yet weighed on a live host)",
+		defaults: {
+			redaction: "off",
+			fetch: "direct",
+			metering: false,
+			codeTool: true,
+			usage: false,
+			knowledge: true,
+			memory: true,
+		},
+	},
 };
+
+function isStandaloneProfile(profileKey) {
+	return PROFILES[profileKey]?.standalone === true;
+}
+
+/* Standalone profiles (satellite, generic) hold no gateway, so overlays.sh —
+ * the canonical derivation for gateway profiles — knows nothing about them
+ * yet. This is the installer's own derivation until profile_overlays gains
+ * the matching entries (satellite → (edge|proxy, off, direct), generic →
+ * (edge|proxy, off, direct), with the gateway/valkey/migrate/redaction
+ * services excluded). The -f list reuses the same files; the exclusion
+ * happens by starting services by name (see standaloneServices and the
+ * standalone phases), so redaction, smoke, migrate, valkey and the gateway
+ * never start. */
+function standaloneOverlayFlags(exposure) {
+	if (exposure !== "edge" && exposure !== "proxy") {
+		throw new Error(`exposure must be 'edge' or 'proxy' (got '${exposure}')`);
+	}
+	return [
+		"-f",
+		"deploy/compose/docker-compose.yml",
+		"-f",
+		"deploy/compose/docker-compose.chat.yml",
+		"-f",
+		`deploy/compose/docker-compose.${exposure}.yml`,
+	];
+}
+
+/* The whole standalone service set, in start order: databases first (phase
+ * 1), chat and the proxy second (phase 2). What is absent is the point — no
+ * gateway, no valkey, no migrate, no redaction, no smoke. */
+function standaloneServices() {
+	return ["postgres", "chat-mongo", "chat", "proxy"];
+}
 
 /* Every secret the installer manages. `generate` matches the generation
  * command deploy/.env.example documents for the same variable. `durability`
@@ -611,7 +689,7 @@ async function chooseProfile(io) {
 	const keys = Object.keys(PROFILES);
 	const idx = await choose(
 		io,
-		"One stack, three sizes. Exposure (edge or proxy) is chosen separately afterwards.",
+		"Three full stacks (gateway + chat), two chat-only deployments against a backend elsewhere. Exposure (edge or proxy) is chosen separately afterwards.",
 		keys.map((k) => ({
 			label: `${paint(k, "cyan")} — ${PROFILES[k].blurb}`,
 			detail: `Footprint: ${PROFILES[k].footprint}`,
@@ -718,12 +796,34 @@ function requiredKeysFor(profileKey, state, exposure) {
 	 * written or started: every name here must be non-empty in the final
 	 * .env, or the installer stops with the list instead of a compose error
 	 * three layers down. */
+	if (isStandaloneProfile(profileKey)) {
+		/* No gateway on these profiles, so no gateway keys: the chat, its
+		 * backend, its OIDC client and the exposure. CHAT_IDP_CLIENT_SECRET
+		 * is minted anyway — the chat overlay's OPENID_CLIENT_SECRET default
+		 * chain names it, and a missing name fails compose parsing whether
+		 * or not the branch is taken. */
+		const keys = [
+			"POSTGRES_PASSWORD",
+			"OPENAI_BASE_URL",
+			"CHAT_PG_URL",
+			"CHAT_IDP_CLIENT_SECRET",
+			"CHAT_SECRET_KEY",
+			"CHAT_OIDC_PROVIDER_URL",
+			"CHAT_OIDC_CLIENT_ID",
+			"CHAT_OIDC_CLIENT_SECRET",
+			"CHAT_REPO",
+			"PUBLIC_HOST",
+			"PUBLIC_ORIGIN",
+		];
+		if (profileKey === "generic") keys.push("OPENAI_API_KEY");
+		if (exposure === "proxy") keys.push("ACME_EMAIL");
+		return keys;
+	}
 	const keys = [
 		"POSTGRES_PASSWORD",
 		"GATEWAY_SECRET_KEY",
 		"GATEWAY_SESSION_SECRET",
 		"GATEWAY_UPSTREAM__API_KEY",
-		"CHAT_CATALOGUE_KEY",
 		"CHAT_PG_URL",
 		"CHAT_IDP_CLIENT_SECRET",
 		"CHAT_SECRET_KEY",
@@ -766,7 +866,13 @@ async function collectValues(io, profileKey, state, exposure, existing) {
 
 	title("Secrets — generated locally, never fetched");
 	const generatedNotes = [];
+	const standalone = isStandaloneProfile(profileKey);
 	for (const spec of SECRET_SPECS.filter((s) => !s.internal)) {
+		/* Standalone profiles hold no gateway: only the database password
+		 * and the chat's own secrets are minted. (CHAT_IDP_CLIENT_SECRET is
+		 * minted too — see requiredKeysFor for why the unused name stays.) */
+		if (standalone && (spec.key.startsWith("GATEWAY_") || spec.key === "REDACTION_PLACEHOLDER_KEY"))
+			continue;
 		if (spec.key === "REDACTION_PLACEHOLDER_KEY" && state.redaction === "off") continue;
 		if (spec.key.startsWith("GATEWAY_IDP__") && profileKey === "enterprise") continue;
 		const result = secret(spec);
@@ -787,18 +893,168 @@ async function collectValues(io, profileKey, state, exposure, existing) {
 
 	/* Operator-supplied values. */
 	title("Deployment values");
-	values.GATEWAY_UPSTREAM__BASE_URL = await ask(
-		io,
-		"Upstream OpenAI-compatible base URL",
-		existing?.get("GATEWAY_UPSTREAM__BASE_URL") || "https://api.cortecs.ai/v1"
-	);
-	values.GATEWAY_UPSTREAM__API_KEY = await askHidden(
-		io,
-		"Upstream API key (your provider account — cannot be generated)"
-	);
-	while (values.GATEWAY_UPSTREAM__API_KEY === "") {
-		console.log(paint("The gateway serves nothing without an upstream key.", "yellow"));
-		values.GATEWAY_UPSTREAM__API_KEY = await askHidden(io, "Upstream API key");
+	if (standalone) {
+		/* The chat's Postgres identity on this box: the only database role
+		 * this installer creates here. It matches the satellite/generic
+		 * fragments (POSTGRES_USER=chat); the gateway profiles never set
+		 * these keys and keep the fragment's gateway identity instead. */
+		values.POSTGRES_USER = "chat";
+		values.POSTGRES_DB = "chat";
+		if (profileKey === "satellite") {
+			title("Central Pystino");
+			const centralDefault = (keep("OPENAI_BASE_URL") || "").replace(/\/v1\/?$/, "");
+			const central = (
+				await askRequired(
+					io,
+					"Central Pystino public origin (e.g. https://central.example)",
+					centralDefault
+				)
+			).replace(/\/+$/, "");
+			if (!isAbsoluteUrl(central)) fail("The central origin must be an absolute http(s) URL.");
+			values.OPENAI_BASE_URL = `${central}/v1`;
+			/* Nothing is minted and nothing is stored: the catalogue fetch
+			 * reads central's public GET /v1/models (ADR 0081), and every
+			 * real call carries the signed-in person's own token. */
+			delete values.OPENAI_API_KEY;
+			values.USE_USER_TOKEN = "true";
+			values.CHAT_USAGE_ENABLED = "true";
+			values.FETCH_BACKEND = "direct";
+			title("Central identity provider");
+			note(
+				"The chat is its own client at the central provider — register <this deployment's origin>/chat/login/callback there. All three are mandatory: without them nobody can sign in."
+			);
+			values.CHAT_OIDC_PROVIDER_URL = await askRequired(
+				io,
+				"OIDC issuer (defaults to the central origin)",
+				keep("CHAT_OIDC_PROVIDER_URL") || central
+			);
+			values.CHAT_OIDC_CLIENT_ID = await askRequired(
+				io,
+				"Chat client id at the provider",
+				keep("CHAT_OIDC_CLIENT_ID") || "cerea"
+			);
+			values.CHAT_OIDC_CLIENT_SECRET = await askHidden(io, "Chat client secret");
+			while (values.CHAT_OIDC_CLIENT_SECRET === "") {
+				console.log(paint("The chat cannot sign anyone in without its client secret.", "yellow"));
+				values.CHAT_OIDC_CLIENT_SECRET = await askHidden(io, "Chat client secret");
+			}
+			values.CHAT_OIDC_SCOPES = await ask(
+				io,
+				"Chat OIDC scopes",
+				keep("CHAT_OIDC_SCOPES") || "openid profile email"
+			);
+		} else {
+			title("Third-party backend");
+			values.OPENAI_BASE_URL = await askRequired(
+				io,
+				"Backend base URL (OpenAI-compatible, e.g. https://api.example.com/v1)",
+				keep("OPENAI_BASE_URL")
+			);
+			if (!isAbsoluteUrl(values.OPENAI_BASE_URL))
+				fail("The backend base URL must be an absolute http(s) URL.");
+			values.OPENAI_API_KEY = await askHidden(
+				io,
+				"Shared API key (pays for every call — cannot be generated)"
+			);
+			while (values.OPENAI_API_KEY === "") {
+				console.log(
+					paint(
+						"This deployment pays with the shared key — there is no other credential.",
+						"yellow"
+					)
+				);
+				values.OPENAI_API_KEY = await askHidden(io, "Shared API key");
+			}
+			/* SAFETY, enforced not defaulted: user-token mode would send the
+			 * signed-in person's IdP access token out as a Bearer to the
+			 * third party — a credential leak, since that token also unlocks
+			 * their identity account. No toggle exists for this profile, and
+			 * a file setting it true is refused in validateFinal. */
+			values.USE_USER_TOKEN = "false";
+			values.CHAT_USAGE_ENABLED = "false";
+			values.FETCH_BACKEND = "direct";
+			/* Reading documents, on a profile that has no gateway to read them
+			 * (ADR 0083). `/v1/ocr` does not exist here, so without an endpoint
+			 * named an attached PDF arrives with no text at all. Offered rather
+			 * than assumed: it is a second vendor and a second bill, and a
+			 * deployment nobody attaches documents to needs none. Asked here
+			 * rather than left to the .env so the operator meets the choice
+			 * while the consequence is on screen. */
+			title("Document reading (optional)");
+			note(
+				"No gateway means no /v1/ocr: without a reader, attached PDFs arrive with no text and knowledge ingestion cannot read them. Mistral and Cortecs both serve the shape the chat sends (POST {base}/ocr). Leave empty to skip — direct mode reads PDFs only."
+			);
+			values.CHAT_OCR_BASE_URL = await ask(
+				io,
+				"OCR base URL (empty to skip, e.g. https://api.mistral.ai/v1)",
+				keep("CHAT_OCR_BASE_URL")
+			);
+			if (values.CHAT_OCR_BASE_URL.trim() === "") {
+				/* Written empty rather than omitted: the compose overlay names
+				 * all three, and a name it cannot resolve fails parsing. */
+				values.CHAT_OCR_BASE_URL = "";
+				values.CHAT_OCR_MODEL = "";
+				values.CHAT_OCR_API_KEY = "";
+			} else {
+				if (!isAbsoluteUrl(values.CHAT_OCR_BASE_URL))
+					fail("The OCR base URL must be an absolute http(s) URL.");
+				/* Required once a URL is named: there is no catalogue to
+				 * discover a reader from, and the chat refuses to start with
+				 * one set without the other. Better to fail here than at boot. */
+				values.CHAT_OCR_MODEL = await askRequired(
+					io,
+					"OCR model name",
+					keep("CHAT_OCR_MODEL") || "mistral-ocr-latest"
+				);
+				values.CHAT_OCR_API_KEY = await askHidden(io, "OCR API key (empty if unauthenticated)");
+			}
+			title("Identity provider");
+			note(
+				"Sign-in still needs a provider — an anonymous deployment answers nobody. All three are mandatory."
+			);
+			values.CHAT_OIDC_PROVIDER_URL = await askRequired(
+				io,
+				"OIDC issuer",
+				keep("CHAT_OIDC_PROVIDER_URL")
+			);
+			values.CHAT_OIDC_CLIENT_ID = await askRequired(
+				io,
+				"Chat client id at the provider",
+				keep("CHAT_OIDC_CLIENT_ID") || "cerea"
+			);
+			values.CHAT_OIDC_CLIENT_SECRET = await askHidden(io, "Chat client secret");
+			while (values.CHAT_OIDC_CLIENT_SECRET === "") {
+				console.log(paint("The chat cannot sign anyone in without its client secret.", "yellow"));
+				values.CHAT_OIDC_CLIENT_SECRET = await askHidden(io, "Chat client secret");
+			}
+			values.CHAT_OIDC_SCOPES = await ask(
+				io,
+				"Chat OIDC scopes",
+				keep("CHAT_OIDC_SCOPES") || "openid profile email"
+			);
+			values.ADMIN_USERNAMES = await ask(
+				io,
+				"Admin usernames (comma-separated, optional)",
+				keep("ADMIN_USERNAMES") || ""
+			);
+			note(
+				"No OCR endpoint on this profile: PDFs and Office files cannot be read — attachments go in blind, ingestion is text-only."
+			);
+		}
+	} else {
+		values.GATEWAY_UPSTREAM__BASE_URL = await ask(
+			io,
+			"Upstream OpenAI-compatible base URL",
+			existing?.get("GATEWAY_UPSTREAM__BASE_URL") || "https://api.cortecs.ai/v1"
+		);
+		values.GATEWAY_UPSTREAM__API_KEY = await askHidden(
+			io,
+			"Upstream API key (your provider account — cannot be generated)"
+		);
+		while (values.GATEWAY_UPSTREAM__API_KEY === "") {
+			console.log(paint("The gateway serves nothing without an upstream key.", "yellow"));
+			values.GATEWAY_UPSTREAM__API_KEY = await askHidden(io, "Upstream API key");
+		}
 	}
 
 	if (exposure === "edge") {
@@ -911,7 +1167,7 @@ async function collectValues(io, profileKey, state, exposure, existing) {
 			"Chat OIDC scopes",
 			keep("CHAT_OIDC_SCOPES") || "openid profile email"
 		);
-	} else {
+	} else if (!standalone) {
 		values.GATEWAY_OIDC__ENABLED = "false";
 		values.GATEWAY_IDP__ENABLED = "true";
 		values.GATEWAY_IDP__ISSUER = values.PUBLIC_ORIGIN;
@@ -919,6 +1175,24 @@ async function collectValues(io, profileKey, state, exposure, existing) {
 	}
 
 	/* Chat Postgres credentials: generated here, role created in phase 1. */
+	if (standalone) {
+		/* One Postgres identity on this box: POSTGRES_USER is the initdb
+		 * superuser and the chat connects as that same role, so both
+		 * passwords are one value. A separately generated chat password
+		 * would be ALTERed over the superuser's by the role block in phase
+		 * 1 — two secrets where one is silently clobbered. */
+		values.CHAT_PG_PASSWORD = values.POSTGRES_PASSWORD;
+		values.CHAT_PG_URL = `postgresql://chat:${values.POSTGRES_PASSWORD}@postgres:5432/chat`;
+		/* Fixed component set — these profiles hold no gateway, so there is
+		 * nothing to meter with and no redaction engine to select. Usage and
+		 * the user-token mode were set per profile above (satellite reads
+		 * central's ledger with the user's token; generic has no ledger and
+		 * must never send a user token out). */
+		values.CHAT_CODE_TOOL_ENABLED = state.codeTool ? "true" : "";
+		values.CHAT_KNOWLEDGE_ENABLED = state.knowledge ? "true" : "false";
+		values.CHAT_MEMORY_ENABLED = state.memory ? "true" : "false";
+		return values;
+	}
 	const chatPgPassword = keep("CHAT_PG_PASSWORD") || tokenUrlSafe(24);
 	values.CHAT_PG_PASSWORD = chatPgPassword;
 	values.CHAT_PG_URL = `postgresql://chat:${chatPgPassword}@postgres:5432/chat`;
@@ -954,32 +1228,73 @@ async function collectValues(io, profileKey, state, exposure, existing) {
 	return values;
 }
 
-function validateFinal(required, values) {
+function validateFinal(profileKey, required, values) {
 	const missing = required.filter((k) => (values[k] ?? "").trim() === "");
 	if (missing.length > 0)
 		fail(`refusing to continue with empty required values: ${missing.join(", ")}`);
 	if (!isAbsoluteUrl(values.GATEWAY_IDP__ISSUER ?? "") && values.GATEWAY_IDP__ENABLED === "true") {
 		fail("GATEWAY_IDP__ISSUER must be an absolute http(s) URL when the house IdP is on.");
 	}
+	if (!isStandaloneProfile(profileKey)) return;
+	if (!isAbsoluteUrl(values.OPENAI_BASE_URL ?? "")) {
+		fail("OPENAI_BASE_URL must be an absolute http(s) URL.");
+	}
+	if (profileKey === "satellite" && (values.OPENAI_API_KEY ?? "").trim() !== "") {
+		fail(
+			"satellite sets no OPENAI_API_KEY: the catalogue fetch is public (ADR 0081) and every real call carries the user's own token — a stored key would bill every user to one account."
+		);
+	}
+	if (profileKey === "generic" && (values.USE_USER_TOKEN ?? "") === "true") {
+		fail(
+			"generic forces USE_USER_TOKEN=false: user-token mode would send the signed-in person's IdP access token out as a Bearer to the third party."
+		);
+	}
 }
 
-async function phaseOne(io, pystinoRoot, envFile, managedKeys, values) {
-	title("Phase 1 — database, gateway, first credentials");
-	const baseFlags = ["-f", "deploy/compose/docker-compose.yml"];
-	console.log("Starting postgres, valkey, migrations and the gateway (base overlay only) ...");
-	await runCompose(pystinoRoot, envFile, managedKeys, baseFlags, ["up", "-d", "--build"]);
-	await waitForGateway(values.GATEWAY_PORT || "8000");
+async function waitForPostgres(
+	pystinoRoot,
+	envFile,
+	managedKeys,
+	flags,
+	pgUser,
+	timeoutMs = 120000
+) {
+	/* The gateway profiles wait on the gateway's /healthz, which only turns
+	 * green once Postgres is usable. Standalone profiles have no gateway, so
+	 * they wait on the database directly before creating the chat role. */
+	const deadline = Date.now() + timeoutMs;
+	process.stdout.write("Waiting for postgres");
+	for (;;) {
+		const probe = spawnSync(
+			"docker",
+			composeArgs(pystinoRoot, envFile, flags, [
+				"exec",
+				"-T",
+				"postgres",
+				"pg_isready",
+				"-U",
+				pgUser,
+			]),
+			{ cwd: pystinoRoot, env: cleanEnv(managedKeys), stdio: "ignore" }
+		);
+		if (probe.status === 0) {
+			console.log(" — ready.");
+			return;
+		}
+		if (Date.now() > deadline)
+			fail("postgres did not become ready in time. Inspect with: docker compose logs postgres");
+		process.stdout.write(".");
+		await new Promise((r) => setTimeout(r, 2000));
+	}
+}
 
-	console.log("\nCreate the first administrator. The password is prompted for here —");
-	console.log("it never lands in shell history or in any file.");
-	await runCompose(pystinoRoot, envFile, managedKeys, baseFlags, [
-		"exec",
-		"gateway",
-		"gateway",
-		"passwd",
-		"admin@local",
-	]);
-
+async function ensureChatDatabase(pystinoRoot, envFile, managedKeys, values, flags) {
+	/* Creates the chat's Postgres role and database. flags is the overlay
+	 * set the postgres service comes from (base-only for gateway profiles,
+	 * the standalone set for satellite/generic). Connects to the stock
+	 * postgres maintenance database, which exists from initdb on — unlike a
+	 * named POSTGRES_DB, which may itself be the database being created. */
+	const pgUser = values.POSTGRES_USER ?? "gateway";
 	console.log("\nCreating the chat's Postgres role and database ...");
 	const sql = `DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'chat') THEN
@@ -997,8 +1312,8 @@ GRANT ALL PRIVILEGES ON DATABASE chat TO chat;
 			pystinoRoot,
 			envFile,
 			managedKeys,
-			baseFlags,
-			["exec", "-T", "postgres", "psql", "-U", "gateway", "-d", "gateway", "-v", "ON_ERROR_STOP=1"],
+			flags,
+			["exec", "-T", "postgres", "psql", "-U", pgUser, "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
 			{ input: sql }
 		);
 	} catch (err) {
@@ -1010,15 +1325,15 @@ GRANT ALL PRIVILEGES ON DATABASE chat TO chat;
 		const check = await new Promise((resolve) => {
 			const child = spawn(
 				"docker",
-				composeArgs(pystinoRoot, envFile, baseFlags, [
+				composeArgs(pystinoRoot, envFile, flags, [
 					"exec",
 					"-T",
 					"postgres",
 					"psql",
 					"-U",
-					"gateway",
+					pgUser,
 					"-d",
-					"gateway",
+					"postgres",
 					"-tAc",
 					"SELECT 1 FROM pg_database WHERE datname='chat'",
 				]),
@@ -1038,27 +1353,32 @@ GRANT ALL PRIVILEGES ON DATABASE chat TO chat;
 			);
 		note("Chat database already present — continuing.");
 	}
+}
+
+async function phaseOne(pystinoRoot, envFile, managedKeys, values) {
+	title("Phase 1 — database, gateway, first credentials");
+	const baseFlags = ["-f", "deploy/compose/docker-compose.yml"];
+	console.log("Starting postgres, valkey, migrations and the gateway (base overlay only) ...");
+	await runCompose(pystinoRoot, envFile, managedKeys, baseFlags, ["up", "-d", "--build"]);
+	await waitForGateway(values.GATEWAY_PORT || "8000");
+
+	console.log("\nCreate the first administrator. The password is prompted for here —");
+	console.log("it never lands in shell history or in any file.");
+	await runCompose(pystinoRoot, envFile, managedKeys, baseFlags, [
+		"exec",
+		"gateway",
+		"gateway",
+		"passwd",
+		"admin@local",
+	]);
+
+	await ensureChatDatabase(pystinoRoot, envFile, managedKeys, values, baseFlags);
 
 	const port = values.GATEWAY_PORT || "8000";
 	console.log(
-		`\nPhase 1 is up. Open ${paint(`http://localhost:${port}/console`, "cyan")} and create an API key`
+		`\nPhase 1 is up (${paint(`http://localhost:${port}/console`, "cyan")}). Nothing left to mint —` +
+			" the chat boots anonymously against it (ADR 0081)."
 	);
-	console.log("for the chat catalogue (a key whose user sees every model), then paste it here.");
-	console.log("Listing models bills nothing, so the key spends nothing.");
-	let catalogue = "";
-	for (;;) {
-		catalogue = await askHidden(io, "Catalogue gwk_ key");
-		if (catalogue === "") {
-			console.log(paint("The chat cannot build its model list without this key.", "yellow"));
-			continue;
-		}
-		if (!catalogue.startsWith("gwk_")) {
-			warn("That does not look like a gateway key (expected gwk_ prefix).");
-			if (!(await confirm(io, "Use it anyway?", false))) continue;
-		}
-		break;
-	}
-	values.CHAT_CATALOGUE_KEY = catalogue;
 }
 
 async function phaseTwo(pystinoRoot, envFile, managedKeys, overlayMode, overlayArgs, values) {
@@ -1091,15 +1411,72 @@ async function phaseTwo(pystinoRoot, envFile, managedKeys, overlayMode, overlayA
 	);
 }
 
+async function phaseOneStandalone(pystinoRoot, envFile, managedKeys, values, flags) {
+	/* Databases only: no gateway to wait for and no `gateway passwd` step —
+	 * users live on the central deployment or the third party, not here. */
+	title("Phase 1 — databases only (no gateway on this profile)");
+	console.log("Starting postgres and chat-mongo ...");
+	await runCompose(pystinoRoot, envFile, managedKeys, flags, [
+		"up",
+		"-d",
+		"--build",
+		"postgres",
+		"chat-mongo",
+	]);
+	await waitForPostgres(pystinoRoot, envFile, managedKeys, flags, values.POSTGRES_USER ?? "chat");
+	await ensureChatDatabase(pystinoRoot, envFile, managedKeys, values, flags);
+	console.log(
+		`\nPhase 1 is up. ${paint("No gateway, no admin password, nothing to mint", "cyan")} — ` +
+			"sign-in and models live upstream of this box."
+	);
+}
+
+async function phaseTwoStandalone(pystinoRoot, envFile, managedKeys, profileKey, flags, values) {
+	/* Chat and the proxy, started by name: the gateway, Valkey, migrations,
+	 * redaction and smoke never start on this profile. (The exposure
+	 * overlays still name the gateway as a dependency — dropping that is a
+	 * Pystino-side follow-up; until then the named set above is what runs.) */
+	title("Phase 2 — chat and proxy (no gateway services)");
+	console.log(`Overlay set: ${flags.filter((f) => f !== "-f").join(" ")}`);
+	console.log(`Service set: chat chat-mongo postgres proxy — databases already run from phase 1.`);
+	console.log("Building images (first run downloads) and starting ...");
+	await runCompose(pystinoRoot, envFile, managedKeys, flags, [
+		"up",
+		"-d",
+		"--build",
+		"chat",
+		"proxy",
+	]);
+	console.log(`\n${paint("Up.", "green")} Next steps:`);
+	console.log(`  - Chat:      ${values.PUBLIC_ORIGIN}/chat`);
+	if (profileKey === "satellite") {
+		console.log(
+			`  - Models:    managed on central (${values.OPENAI_BASE_URL}) — nothing answers here until central serves them.`
+		);
+		console.log("  - Users:     managed centrally too — this box creates no accounts.");
+		console.log(
+			"  - Usage:     the tab reads central's ledger with each signed-in person's own token."
+		);
+	} else {
+		console.log(
+			`  - Models:    served by the third party (${values.OPENAI_BASE_URL}) — every call bills the shared key.`
+		);
+		console.log(
+			"  - Ledger:    none on this profile. There is no per-user spend to show, which is why the Usage tab stays hidden."
+		);
+	}
+	console.log(
+		`\n${paint("Back up POSTGRES_PASSWORD and CHAT_SECRET_KEY with the database now,", "yellow")} not when you need it.`
+	);
+}
+
 async function main() {
 	const argv = process.argv.slice(2);
 	const cliPystino = argv[argv.indexOf("--pystino") + 1] ?? null;
 	const phase2Only = argv.includes("--phase2");
 	if (argv.includes("--help") || argv.includes("-h")) {
 		console.log("Usage: node installer/install.mjs [--pystino <path>] [--phase2]");
-		console.log(
-			"  --phase2   resume against an existing deploy/.env (catalogue key prompt + full bring-up)"
-		);
+		console.log("  --phase2   resume against an existing deploy/.env (full bring-up)");
 		process.exit(0);
 	}
 
@@ -1123,33 +1500,61 @@ async function main() {
 		note(`Resuming with ${envFile} — existing secrets are kept, none regenerated.`);
 		profileKey = await ask(
 			io,
-			"Profile this .env was built from (homelab|team|enterprise)",
+			"Profile this .env was built from (homelab|team|enterprise|satellite|generic)",
 			"homelab"
 		);
 		if (!PROFILES[profileKey]) fail(`unknown profile '${profileKey}'.`);
 		exposure = (await ask(io, "Exposure (edge|proxy)", "edge")).trim();
 		if (!["edge", "proxy"].includes(exposure)) fail("exposure must be edge or proxy.");
-		const eng = existing.get("GATEWAY_REDACTION__ENGINE") || "noop";
-		state = {
-			redaction:
-				eng === "http"
-					? (existing.get("SPACY_MODELS") ?? "").trim() === ""
-						? "pattern"
-						: "ner"
-					: "off",
-			fetch: existing.get("FETCH_BACKEND") || "direct",
-			metering: existing.get("GATEWAY_ACCOUNTING__ENABLED") !== "false",
-			codeTool: existing.get("CHAT_CODE_TOOL_ENABLED") === "true",
-			usage: (existing.get("CHAT_USAGE_ENABLED") ?? "") !== "",
-			knowledge: existing.get("CHAT_KNOWLEDGE_ENABLED") !== "false",
-			memory: existing.get("CHAT_MEMORY_ENABLED") !== "false",
-		};
-		note(
-			`Inferred toggles: redaction=${state.redaction} fetch=${state.fetch} metering=${state.metering}. Re-run the full flow to change them.`
-		);
+		if (isStandaloneProfile(profileKey)) {
+			/* Fixed component set — nothing to infer beyond what the file
+			 * says. usage is an exact match here (generic writes "false",
+			 * which the gateway inference below would misread as shown). */
+			state = {
+				redaction: "off",
+				fetch: existing.get("FETCH_BACKEND") || "direct",
+				metering: false,
+				codeTool: existing.get("CHAT_CODE_TOOL_ENABLED") === "true",
+				usage: existing.get("CHAT_USAGE_ENABLED") === "true",
+				knowledge: existing.get("CHAT_KNOWLEDGE_ENABLED") !== "false",
+				memory: existing.get("CHAT_MEMORY_ENABLED") !== "false",
+			};
+			note(
+				`Standalone profile: fixed component set (no gateway toggles). Re-run the full flow to change values.`
+			);
+		} else {
+			const eng = existing.get("GATEWAY_REDACTION__ENGINE") || "noop";
+			state = {
+				redaction:
+					eng === "http"
+						? (existing.get("SPACY_MODELS") ?? "").trim() === ""
+							? "pattern"
+							: "ner"
+						: "off",
+				fetch: existing.get("FETCH_BACKEND") || "direct",
+				metering: existing.get("GATEWAY_ACCOUNTING__ENABLED") !== "false",
+				codeTool: existing.get("CHAT_CODE_TOOL_ENABLED") === "true",
+				usage: (existing.get("CHAT_USAGE_ENABLED") ?? "") !== "",
+				knowledge: existing.get("CHAT_KNOWLEDGE_ENABLED") !== "false",
+				memory: existing.get("CHAT_MEMORY_ENABLED") !== "false",
+			};
+			note(
+				`Inferred toggles: redaction=${state.redaction} fetch=${state.fetch} metering=${state.metering}. Re-run the full flow to change them.`
+			);
+		}
 	} else {
 		profileKey = await chooseProfile(io);
-		state = await toggleComponents(io, profileKey);
+		if (isStandaloneProfile(profileKey)) {
+			/* No component toggles: without a gateway there is no redaction
+			 * engine, ledger or fetch backend to choose between — the set is
+			 * the profile. */
+			state = { ...PROFILES[profileKey].defaults };
+			note(
+				`${profileKey}: fixed component set (chat + databases + proxy, direct fetch, no redaction, no local ledger) — no toggles to offer.`
+			);
+		} else {
+			state = await toggleComponents(io, profileKey);
+		}
 		exposure = await chooseExposure(io);
 	}
 	const profile = PROFILES[profileKey];
@@ -1162,17 +1567,19 @@ async function main() {
 	if (!phase2Only) {
 		const overlayMode = "custom_overlays";
 		const overlayArgs = [exposure, state.redaction, state.fetch];
-		/* The catalogue key arrives in phase 1 (it is minted against the
-		 * running gateway), so it is excluded from the pre-write check and
-		 * validated with everything else before phase 2. */
-		validateFinal(
-			requiredKeysFor(profileKey, state, exposure).filter((k) => k !== "CHAT_CATALOGUE_KEY"),
-			values
-		);
+		validateFinal(profileKey, requiredKeysFor(profileKey, state, exposure), values);
 
 		/* Review: keys with provenance, values masked. */
 		title("Review");
 		const secretKeys = new Set(SECRET_SPECS.map((s) => s.key));
+		/* Asked-for secrets that no SECRET_SPEC generates: pasted, never
+		 * shown back — the same rule as the generated ones. */
+		const pastedSecrets = new Set([
+			"GATEWAY_UPSTREAM__API_KEY",
+			"GATEWAY_OIDC__CLIENT_SECRET",
+			"OPENAI_API_KEY",
+			"CHAT_OIDC_CLIENT_SECRET",
+		]);
 		for (const [key, value] of Object.entries(values)) {
 			let shown;
 			if (key === "CHAT_PG_URL") {
@@ -1180,7 +1587,7 @@ async function main() {
 				 * other secret rather than leaking it beside the masked
 				 * CHAT_PG_PASSWORD row above. */
 				shown = value.replace(/:\/\/[^:]+:[^@]+@/, "://chat:(hidden)@");
-			} else if (secretKeys.has(key)) shown = "(generated secret, hidden)";
+			} else if (secretKeys.has(key) || pastedSecrets.has(key)) shown = "(secret, hidden)";
 			else shown = value === "" ? "(empty)" : value;
 			console.log(`  ${key}=${shown}`);
 		}
@@ -1210,36 +1617,36 @@ async function main() {
 		console.log(`Wrote ${envFile} (mode 600).`);
 
 		const managedKeys = new Set([...Object.keys(values), "GATEWAY_PORT"]);
-		await phaseOne(io, pystinoRoot, envFile, managedKeys, values);
-		/* The catalogue key arrived in phase 1 — persist it, then validate
-		 * the complete file before phase 2. */
-		validateFinal(requiredKeysFor(profileKey, state, exposure), values);
-		const rewritten = buildEnvLines(fragmentPath, values, {});
-		fs.writeFileSync(envFile, rewritten.endsWith("\n") ? rewritten : rewritten + "\n", {
-			mode: 0o600,
-		});
-		await phaseTwo(pystinoRoot, envFile, managedKeys, overlayMode, overlayArgs, values);
+		if (isStandaloneProfile(profileKey)) {
+			const flags = standaloneOverlayFlags(exposure);
+			await phaseOneStandalone(pystinoRoot, envFile, managedKeys, values, flags);
+			await phaseTwoStandalone(pystinoRoot, envFile, managedKeys, profileKey, flags, values);
+		} else {
+			await phaseOne(pystinoRoot, envFile, managedKeys, values);
+			await phaseTwo(pystinoRoot, envFile, managedKeys, overlayMode, overlayArgs, values);
+		}
 	} else {
 		const managedKeys = new Set([...Object.keys(values), "GATEWAY_PORT"]);
-		if ((values.CHAT_CATALOGUE_KEY ?? "") === "") {
-			console.log("\nNo catalogue key in the file yet — create one in the console and paste it.");
-			values.CHAT_CATALOGUE_KEY = await askHidden(io, "Catalogue gwk_ key");
-			const fragmentPath = path.join(pystinoRoot, "deploy", "profiles", profile.fragment);
-			const rewritten = buildEnvLines(fragmentPath, values, {});
-			fs.writeFileSync(envFile, rewritten.endsWith("\n") ? rewritten : rewritten + "\n", {
-				mode: 0o600,
-			});
-			console.log(`Updated ${envFile}.`);
+		validateFinal(profileKey, requiredKeysFor(profileKey, state, exposure), values);
+		if (isStandaloneProfile(profileKey)) {
+			await phaseTwoStandalone(
+				pystinoRoot,
+				envFile,
+				managedKeys,
+				profileKey,
+				standaloneOverlayFlags(exposure),
+				values
+			);
+		} else {
+			await phaseTwo(
+				pystinoRoot,
+				envFile,
+				managedKeys,
+				"custom_overlays",
+				[exposure, state.redaction, state.fetch],
+				values
+			);
 		}
-		validateFinal(requiredKeysFor(profileKey, state, exposure), values);
-		await phaseTwo(
-			pystinoRoot,
-			envFile,
-			managedKeys,
-			"custom_overlays",
-			[exposure, state.redaction, state.fetch],
-			values
-		);
 	}
 	inputFinished = true;
 	io.close();
@@ -1256,4 +1663,14 @@ if (
 	});
 }
 
-export { buildEnvLines, parseEnvFile, tokenUrlSafe, requiredKeysFor, PROFILES, FOOTPRINTS };
+export {
+	buildEnvLines,
+	parseEnvFile,
+	tokenUrlSafe,
+	requiredKeysFor,
+	isStandaloneProfile,
+	standaloneOverlayFlags,
+	standaloneServices,
+	PROFILES,
+	FOOTPRINTS,
+};
