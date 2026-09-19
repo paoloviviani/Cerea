@@ -93,6 +93,21 @@ It needs only node — no `npm install` first — and a Pystino checkout, which
 it validates or offers to clone. Pystino itself ships a simpler `install.sh`
 for gateway-first operators.
 
+Taking it back down again is here too, since this is where it was put up:
+
+```sh
+node installer/teardown.mjs [--backup] [--images] [--all] [--yes]
+```
+
+Containers, named volumes and networks of the `llm-platform` project. It finds
+the Pystino checkout by asking Docker where the running deployment's compose
+files came from — `--pystino <path>` if nothing is running — and then hands
+over to that checkout's `deploy/teardown.sh`, which is the one implementation.
+`--backup` saves `deploy/.env`, the profile fragments and database dumps
+first; **`deploy/.env` is gitignored and exists nowhere else**, and the
+`CHAT_SECRET_KEY` in it decrypts the stored connector credentials, so a
+database restored without it is a database with unreadable connectors in it.
+
 ## What this fork adds
 
 Beyond upstream, and the reason it is Pystino-specific rather than a generic
