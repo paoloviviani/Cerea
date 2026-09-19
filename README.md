@@ -77,14 +77,21 @@ npm run setup
 # or: node installer/install.mjs [--pystino <path>] [--phase2]
 ```
 
-The terminal installer proposes the three deployment profiles (`homelab`,
-`team`, `enterprise` — see Pystino's `deploy/profiles/`), lets you toggle
-components within the chosen one, generates every secret locally, writes
-Pystino's `deploy/.env`, and brings the stack up in two phases (database and
-gateway first, because the catalogue key, the admin password and the chat
-database cannot exist before they run). It needs only node — no `npm install`
-first — and a Pystino checkout, which it validates or offers to clone. Pystino
-itself ships a simpler `install.sh` for gateway-first operators.
+The terminal installer proposes five deployment profiles (see Pystino's
+`deploy/profiles/`): three full stacks with a local gateway — `homelab`,
+`team`, `enterprise` — plus two standalone chat-only profiles with no gateway
+on the box, `satellite` (against a central Pystino, no stored key — every
+call carries the signed-in person's own token) and `generic` (against any
+OpenAI-compatible third party, a shared key, user-token mode forced off). For
+a gateway profile, it lets you toggle components within the chosen one,
+generates every secret locally, writes Pystino's `deploy/.env`, and brings
+the stack up in two phases (database and gateway first, because the admin
+password and the chat database cannot exist before they run); nothing is
+minted for the chat to boot with — it reads Pystino's public model list with
+no key (ADR 0081). The standalone profiles skip the gateway phase entirely.
+It needs only node — no `npm install` first — and a Pystino checkout, which
+it validates or offers to clone. Pystino itself ships a simpler `install.sh`
+for gateway-first operators.
 
 ## What this fork adds
 
