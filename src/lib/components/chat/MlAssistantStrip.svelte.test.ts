@@ -157,7 +157,11 @@ describe("MlAssistantStrip", () => {
 			const { container } = mountAt(width, { budget: BUDGET, dashboard: DASHBOARD });
 			const px = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().width) : 0);
 			return {
-				connectors: [...container.querySelectorAll('[aria-hidden="true"]')].filter(
+				// `:not(svg)` matters here: the dashboard button's decorative icon is
+				// also `aria-hidden`, and at some widths its rendered box rounds to the
+				// same 12px the connector spans use, which double-counted it as a fourth
+				// connector.
+				connectors: [...container.querySelectorAll('[aria-hidden="true"]:not(svg)')].filter(
 					(el) => px(el) === 12
 				).length,
 				status: style(find(container, ".ml-status")).display,

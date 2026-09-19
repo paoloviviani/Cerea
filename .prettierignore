@@ -12,3 +12,9 @@ node_modules
 pnpm-lock.yaml
 package-lock.json
 yarn.lock
+
+# Vendored byte copy of the console's tokens.css plus its fonts: byte-identity
+# with Pystino is enforced by src/styles/tokens.drift.test.ts, and formatting
+# this copy would break it. Never format here — change the console's file.
+src/styles/tokens.css
+src/styles/fonts/

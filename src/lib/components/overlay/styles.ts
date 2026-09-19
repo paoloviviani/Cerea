@@ -1,12 +1,20 @@
 /**
  * The chat's own dialog language, in one place.
  *
- * These strings are lifted **verbatim** from `mcp/MCPServerManager.svelte` and
- * `mcp/ServerCard.svelte`, which is the design this app already had: an
+ * These strings were lifted **verbatim** from `mcp/MCPServerManager.svelte`
+ * and `mcp/ServerCard.svelte`, which is the design this app already had: an
  * overlay rather than a page, blue-600 as the single accent, gradient cards
  * that tint blue when active, rounded-full status pills, dashed empty states.
  * Knowledge, projects and models were built as prose pages with black
  * buttons and no accent, which is why they looked like a different product.
+ *
+ * Since ADR 0077 they are expressed through the vendored design tokens
+ * (`src/styles/tokens.css`, a byte copy of the console's file) instead of
+ * literal Tailwind colours: `bg-accent` reads `var(--colour-accent)` at
+ * runtime, so the `.dark` block in that file re-themes every constant here
+ * with no `dark:` variant. A palette change lands as a change to that one
+ * file — the property that let the console be restyled three times at that
+ * price, now shared rather than reimplemented.
  *
  * Kept as constants rather than copied into each screen for the obvious
  * reason: four screens repeating a class list is four screens that drift. The
@@ -15,10 +23,13 @@
  * step away from the thing that defines it. If it is ever touched, it should
  * adopt these.
  *
- * Two conventions worth knowing before adding to this file. `btn` is a project
- * class, not a Tailwind one. And the gradient cards use `bg-linear-to-br`,
+ * Three conventions worth knowing before adding to this file. `btn` is a
+ * project class, not a Tailwind one. The gradient cards use `bg-linear-to-br`,
  * which is Tailwind 4's spelling of `bg-gradient-to-br` — the older name
- * silently does nothing here.
+ * silently does nothing here. And fills that carry white text use
+ * `bg-accent-solid`, the pinned blue-600 step, never `bg-accent`: the text
+ * step lifts toward blue-400 in the dark theme for legibility on dark
+ * grounds, and a fill that followed it would drop white text under 3:1.
  */
 
 /** Overlay widths: a list is wide, a form is not, a picker is narrower still. */
@@ -39,82 +50,101 @@ export const PANEL = "p-6";
  * close button) is gone, and what used to sit inside it is carried by this
  * card instead — the page draws the scroll, the card draws the surface.
  */
-export const EMBEDDED =
-	"rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800";
+export const EMBEDDED = "rounded-2xl border border-line bg-surface";
 
 /** Title and subtitle block at the top of every overlay. */
 export const HEADER = "mb-6";
-export const TITLE = "mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200";
-export const SUBTITLE = "text-sm text-gray-600 dark:text-gray-400";
+export const TITLE = "mb-1 text-xl font-semibold text-ink";
+export const SUBTITLE = "text-sm text-ink-muted";
 
 /** The tinted strip under the header: a count, a state, and the actions. */
 export const STRIP =
 	"mb-6 flex justify-between rounded-lg p-4 max-sm:flex-col max-sm:gap-4 sm:items-center";
-export const STRIP_ACTIVE = "bg-blue-50 dark:bg-blue-900/10";
-export const STRIP_IDLE = "bg-gray-100 dark:bg-white/5";
-export const STRIP_TILE = "flex size-10 items-center justify-center rounded-xl bg-blue-500/10";
-export const STRIP_HEADLINE = "text-sm font-semibold text-gray-900 dark:text-gray-100";
-export const STRIP_DETAIL = "text-xs text-gray-600 dark:text-gray-400";
+export const STRIP_ACTIVE = "bg-accent-subtle";
+export const STRIP_IDLE = "bg-sunken";
+/**
+ * The icon tile keeps a translucent accent wash rather than the subtle fill,
+ * so it still reads as a tile when the strip behind it is the same subtle
+ * fill. Callers add `grayscale` when the strip is idle.
+ */
+export const STRIP_TILE = "flex size-10 items-center justify-center rounded-xl bg-accent/15";
+export const STRIP_HEADLINE = "text-sm font-semibold text-ink";
+export const STRIP_DETAIL = "text-xs text-ink-muted";
 
-/** Buttons. `PRIMARY` is the only place blue is a fill rather than a tint. */
+/**
+ * Buttons. `PRIMARY` is the only place blue is a fill rather than a tint, and
+ * the fill is the pinned solid step — the chat's blue-600 button is the same
+ * blue in both themes.
+ */
 export const PRIMARY =
-	"btn flex items-center gap-1.5 rounded-lg bg-blue-600 py-1.5 pr-3 pl-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50";
+	"btn flex items-center gap-1.5 rounded-lg bg-accent-solid py-1.5 pr-3 pl-2 text-sm font-medium text-white hover:bg-accent-solid-hover disabled:opacity-50";
 export const SECONDARY =
-	"btn gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700";
+	"btn gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-sunken disabled:opacity-50";
 /** The smaller pair, for actions inside a card. */
 export const CARD_ACTION =
-	"flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600";
+	"flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-[.29rem] text-xs font-medium text-ink hover:bg-sunken disabled:opacity-50";
+/**
+ * Destructive actions borrow the danger text tone rather than a red fill, so
+ * the hover can deepen the border — a second background step would need a
+ * token the palette does not have.
+ */
 export const CARD_DESTRUCTIVE =
-	"flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-[.29rem] text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50";
+	"flex items-center gap-1.5 rounded-lg border border-danger/25 bg-danger-subtle px-2.5 py-[.29rem] text-xs font-medium text-danger hover:border-danger/50 disabled:opacity-50";
 
 /** A section of cards, with its count in the heading. */
-export const SECTION_TITLE = "mb-3 text-sm font-medium text-gray-700 dark:text-gray-300";
+export const SECTION_TITLE = "mb-3 text-sm font-medium text-ink-muted";
 export const GRID = "grid grid-cols-1 gap-3 md:grid-cols-2";
 export const STACK = "space-y-5";
 
 /**
  * A card. `active` is the blue-tinted state — the selected server, the model
- * this chat runs on, a knowledge base attached to what is being edited.
+ * this chat runs on, a knowledge base attached to what is being edited. The
+ * gradient washes use opacity modifiers on the tokens, so they follow the
+ * theme the same way the grounds do.
  */
 export function card(active: boolean): string {
 	return active
-		? "rounded-lg border bg-linear-to-br transition-colors border-blue-600/20 bg-blue-50 from-blue-500/5 to-transparent dark:border-blue-700/60 dark:bg-blue-900/10 dark:from-blue-900/20"
-		: "rounded-lg border bg-linear-to-br transition-colors border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5";
+		? "rounded-lg border bg-linear-to-br transition-colors border-accent/20 bg-accent-subtle from-accent/5 to-transparent"
+		: "rounded-lg border bg-linear-to-br transition-colors border-line bg-surface from-ink/5 to-transparent";
 }
 export const CARD_BODY = "px-4 py-3.5";
-export const CARD_TITLE = "truncate font-semibold text-gray-900 dark:text-gray-100";
-export const CARD_SUBTITLE = "truncate text-sm text-gray-600 dark:text-gray-400";
+export const CARD_TITLE = "truncate font-semibold text-ink";
+export const CARD_SUBTITLE = "truncate text-sm text-ink-muted";
 
-/** Status pills. The tone names are the states this app actually shows. */
+/**
+ * Status pills. The tone names are the states this app actually shows. Text
+ * tones sit at the 700 step, not the chat's old 600: blue-600 on blue-100 is
+ * 4.2:1 and green-600 on green-100 is 3.0:1, both under the 4.5:1 floor the
+ * shared palette holds; the 700 steps clear it on the same fills.
+ */
 export const PILL =
 	"inline-flex items-center gap-1 rounded-full py-0.5 pr-2 pl-1.5 text-xs font-medium";
 export const PILL_TONES = {
-	good: "bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-400",
-	busy: "bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400",
-	bad: "bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400",
-	neutral: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
+	good: "bg-ok-subtle text-ok",
+	busy: "bg-accent-subtle text-accent",
+	bad: "bg-danger-subtle text-danger",
+	neutral: "bg-sunken text-ink-muted",
 } as const;
 export type PillTone = keyof typeof PILL_TONES;
 
 export const EMPTY =
-	"flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 p-8 dark:border-gray-700";
-export const EMPTY_ICON = "mb-3 size-12 text-gray-400";
-export const EMPTY_TITLE = "mb-1 text-sm font-medium text-gray-900 dark:text-gray-100";
-export const EMPTY_DETAIL = "mb-4 text-xs text-gray-600 dark:text-gray-400";
+	"flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-line-strong p-8";
+export const EMPTY_ICON = "mb-3 size-12 text-ink-faint";
+export const EMPTY_TITLE = "mb-1 text-sm font-medium text-ink";
+export const EMPTY_DETAIL = "mb-4 text-xs text-ink-muted";
 
 /** The closing note every MCP view ends on. */
-export const TIPS = "rounded-lg bg-gray-50 p-4 dark:bg-gray-700";
-export const TIPS_TITLE = "mb-2 text-sm font-medium text-gray-900 dark:text-gray-100";
-export const TIPS_LIST = "space-y-1 text-xs text-gray-600 dark:text-gray-400";
+export const TIPS = "rounded-lg bg-sunken p-4";
+export const TIPS_TITLE = "mb-2 text-sm font-medium text-ink";
+export const TIPS_LIST = "space-y-1 text-xs text-ink-muted";
 
 /** Form controls, in the same idiom as the add-server form. */
-export const LABEL = "mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300";
+export const LABEL = "mb-1.5 block text-sm font-medium text-ink";
 export const INPUT =
-	"w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden disabled:opacity-60 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100";
-export const HINT = "mt-1 text-xs text-gray-500 dark:text-gray-400";
+	"w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:ring-1 focus:ring-accent focus:outline-hidden disabled:opacity-60";
+export const HINT = "mt-1 text-xs text-ink-faint";
 export const SEARCH =
-	"w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900";
+	"w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:ring-1 focus:ring-accent focus:outline-hidden";
 export const ERROR =
-	"rounded-lg border border-red-500/15 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/25 dark:bg-red-900/20 dark:text-red-300";
-export const NOTICE =
-	"rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-900/10 dark:text-blue-300";
+	"rounded-lg border border-danger/25 bg-danger-subtle px-3 py-2 text-sm text-danger";
+export const NOTICE = "rounded-lg bg-accent-subtle px-3 py-2 text-xs text-accent";
