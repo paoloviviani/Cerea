@@ -142,6 +142,42 @@ describe.sequential("DELETE /api/v2/conversations/[id]", () => {
 		expect(found).toBeNull();
 	});
 
+	it("takes the conversation's attachments with it", async () => {
+		// The route used to delete the conversation and its deliverables and
+		// leave every uploaded document in GridFS forever — the bytes and the
+		// markdown extracted from them both. This asserts the wiring, not the
+		// helper: the helper has its own spec, and what broke here was that
+		// nothing called it.
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals, { title: "With a PDF" });
+
+		for (const [name, mime] of [
+			[`${conv._id}-bytes`, "application/pdf"],
+			[`${conv._id}-text`, "text/markdown"],
+		]) {
+			const upload = collections.bucket.openUploadStream(name, {
+				metadata: { conversation: conv._id.toString(), mime },
+			});
+			await new Promise<void>((resolve, reject) => {
+				upload.on("error", reject);
+				upload.on("finish", () => resolve());
+				upload.end(Buffer.from("payload"));
+			});
+		}
+
+		const before = await collections.bucket
+			.find({ "metadata.conversation": conv._id.toString() })
+			.toArray();
+		expect(before).toHaveLength(2);
+
+		await DELETE({ locals, params: { id: conv._id.toString() } } as never);
+
+		const after = await collections.bucket
+			.find({ "metadata.conversation": conv._id.toString() })
+			.toArray();
+		expect(after).toHaveLength(0);
+	});
+
 	it("throws 404 for non-existent conversation", async () => {
 		const { locals } = await createTestUser();
 		const fakeId = new ObjectId().toString();
