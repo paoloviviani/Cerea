@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Tear down what installer/install.mjs brought up.
+# Tear down what installer/install.sh brought up.
 #
 #   ./installer/teardown.sh [--pystino <path>] [--backup] [--images] [--env] [--yes]
 #
@@ -8,10 +8,10 @@
 # to learn that the compose files — and the script that removes them — live in
 # the other one. This is that door.
 #
-# Shell, not node: the installer needs a node runtime because it is a TUI that
-# has to run against a fresh clone before `npm install`, and a teardown needs
-# neither. Everything here is docker plus a handover, so requiring a language
-# runtime to delete containers would be a dependency bought for nothing.
+# Shell, not a language runtime: installing needs a TUI, and a teardown needs
+# neither TUI nor runtime — everything here is docker plus a handover, so
+# requiring node or python to delete containers would be a dependency bought
+# for nothing.
 #
 # It reimplements none of the work. Pystino's deploy/teardown.sh is the single
 # implementation and this hands straight over, flags and all — two copies of

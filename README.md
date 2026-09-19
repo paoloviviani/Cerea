@@ -9,13 +9,13 @@ merged with its history intact.
 Building a frontend from scratch was tried and abandoned. Of the candidates
 assessed — LibreChat, Thunderbird's Thunderbolt, Open WebUI frozen at its last
 BSD-licensed release, llms.py — chat-ui won on one measurement rather than on
-features: how much of it *duplicates the gateway*.
+features: how much of it _duplicates the gateway_.
 
-| | code | auth files | accounting | model config |
-|---|---|---|---|---|
-| **chat-ui** | 2.5 MB / 533 files | **9** | **2** | **7** |
-| LibreChat | 35.7 MB / 3,829 files | 263 | 57 | 379 |
-| Thunderbolt | 5.3 MB / 1,121 files | 119 | 17 | 35 |
+|             | code                  | auth files | accounting | model config |
+| ----------- | --------------------- | ---------- | ---------- | ------------ |
+| **chat-ui** | 2.5 MB / 533 files    | **9**      | **2**      | **7**        |
+| LibreChat   | 35.7 MB / 3,829 files | 263        | 57         | 379          |
+| Thunderbolt | 5.3 MB / 1,121 files  | 119        | 17         | 35           |
 
 Those three columns are the argument. Pystino owns identity, accounting and
 model access; a fork that ships its own must either be gutted or run in
@@ -42,7 +42,7 @@ something `/v1` does not expose, the fix is a gateway feature with an ADR, not
 an import.
 
 That rule is why upstream's history is merged here rather than snapshotted: the
-whole case for forking *this* project was staying close to it, and that is only
+whole case for forking _this_ project was staying close to it, and that is only
 true while `git fetch upstream && git merge` keeps working.
 
 ## Authentication
@@ -55,7 +55,7 @@ leave it off.
 chat-ui authenticates against `/v1` with an **OIDC access token**, not an API
 key. `_bearer_principal` resolves it, picks the provider by the unverified
 `iss` claim, verifies against that provider's keys, and produces a principal
-*indistinguishable from a key-authenticated one* — quotas, model access,
+_indistinguishable from a key-authenticated one_ — quotas, model access,
 redaction scoping and the ledger all read the user and the group, and none of
 them cares which credential arrived (ADR 0040, ADR 0051).
 
@@ -73,26 +73,28 @@ Two operational consequences worth knowing before deploying this:
 ## Deploying (the installer is the entry point)
 
 ```bash
-./installer/install.sh [--pystino <path>] [--phase2]
-# or, with node already on the host:
+./installer/install.sh [--pystino <path>] [--phase2] [--dry-run]
+# or, through npm (the same script):
 #   npm run setup
-#   node installer/install.mjs [--pystino <path>] [--phase2]
 ```
 
-**The host needs docker, and does not need node.** `install.sh` execs the
-installer directly when node is on the PATH and otherwise runs it in a node
-container — mounting the docker socket, the host's docker CLI and compose
-plugin, and the checkouts *at their own absolute paths*, because compose build
-contexts are resolved by the daemon on the host and a path that differs inside
-the container names a directory the daemon cannot see. Note what the socket
-mount means: root-equivalent access to the host, which is already true of
-anyone who can run this, but worth knowing rather than discovering.
+**The host needs docker, and does not need node.** The installer is bash:
+its only dependencies beyond a POSIX userland are `openssl` (secret
+generation), `git` (the clone offer) and `docker compose` — no runtime,
+no auxiliary container, no `npm install`. Everything it decides can be
+inspected before anything is run: `--dry-run` resolves the whole flow,
+writes the `.env` it would write (and a sample IdP signing key) to a temp
+directory, prints the exact `docker compose` command lines it would run,
+validates the file against compose's own parser, and exits.
 
-The installer itself stays node. What it does is generate secrets, hold a JSON
-client registry, round-trip an env file whose IdP signing key is a multi-line
-PEM, and drive a TUI; bash does the first well with openssl and the rest
-badly, so rewriting it would trade a runtime nobody needs at run time for a
-class of quoting bug nobody can see.
+The IdP signing key is a **file**, not an env value: the installer generates
+a P-256 PEM at `<pystino>/deploy/idp-signing-key.pem` (mode 600) and writes
+two single-line variables — `IDP_SIGNING_KEY_HOST_PATH` for the host path the
+base compose file mounts read-only into the gateway, and
+`GATEWAY_IDP__SIGNING_KEY_FILE` for the path inside the container. It never
+writes `GATEWAY_IDP__SIGNING_KEY`: an inline key and a key file together are
+refused at gateway startup. Every value in `deploy/.env` is single-line,
+which is what makes the file round-trippable in bash at all.
 
 The terminal installer proposes five deployment profiles (see Pystino's
 `deploy/profiles/`): three full stacks with a local gateway — `homelab`,
@@ -106,9 +108,15 @@ the stack up in two phases (database and gateway first, because the admin
 password and the chat database cannot exist before they run); nothing is
 minted for the chat to boot with — it reads Pystino's public model list with
 no key (ADR 0081). The standalone profiles skip the gateway phase entirely.
-It needs only node — no `npm install` first — and a Pystino checkout, which
-it validates or offers to clone. Pystino itself ships a simpler `install.sh`
-for gateway-first operators.
+It needs a Pystino checkout, which it validates or offers to clone. Pystino
+itself ships a simpler `install.sh` for gateway-first operators.
+
+Two safety guards are code, not documentation, and both run against the
+final `.env` — fresh or resumed: `satellite` refuses a file that carries an
+`OPENAI_API_KEY` (a stored key would bill an entire site to one account),
+and `generic` forces `USE_USER_TOKEN=false` and refuses a file that sets it
+true (user-token mode would send the signed-in person's IdP access token out
+as a Bearer to the third party — a credential leak).
 
 Taking it back down again is here too, since this is where it was put up:
 
@@ -116,11 +124,10 @@ Taking it back down again is here too, since this is where it was put up:
 ./installer/teardown.sh [--backup] [--images] [--env] [--yes]
 ```
 
-Containers, named volumes and networks of the `llm-platform` project. Shell
-rather than node, unlike its sibling: the installer needs a runtime because it
-is a TUI that runs before `npm install`, and removing containers needs nothing
-but Docker. It finds the Pystino checkout by asking Docker where the running
-deployment's compose files came from — `--pystino <path>` if nothing is
+Containers, named volumes and networks of the `llm-platform` project. Shell,
+like its sibling: removing containers needs nothing but Docker, and neither
+does installing them. It finds the Pystino checkout by asking Docker where the
+running deployment's compose files came from — `--pystino <path>` if nothing is
 running — and then hands over to that checkout's `deploy/teardown.sh`, which
 is the one implementation.
 `--backup` saves `deploy/.env`, the profile fragments and database dumps
@@ -129,7 +136,7 @@ first; **`deploy/.env` is gitignored and exists nowhere else**, and the
 database restored without it is a database with unreadable connectors in it.
 `--env` deletes that file as well, for a next install that starts from
 nothing — it leaves `deploy/profiles/*.env` alone, because those are what the
-installer builds a new `.env` *from* and they are gitignored too, so removing
+installer builds a new `.env` _from_ and they are gitignored too, so removing
 them would leave a checkout the installer refuses to run against.
 
 ## What this fork adds
@@ -156,7 +163,7 @@ The EUPL's compatibility matrix lists Apache-2.0 as upstream-compatible, so a
 combined work may be distributed under the EUPL; keeping both files records
 which half is which rather than asserting one answer over the whole tree.
 Apache-2.0 is OSI-approved, carries no CLA and is not open core, so it clears
-ADR 0001's gate — but the *combination* is the one licensing question in this
+ADR 0001's gate — but the _combination_ is the one licensing question in this
 fork that has not been signed off.
 
 ## Not carried over
@@ -178,6 +185,6 @@ Upstream's own documentation is under [docs/source](docs/source).
 
 ## The name
 
-**Cerea** — a Turinese *modo di dire*: a historic, affectionate greeting that
-means both *buongiorno* and *arrivederci*. The gateway keeps the name Pystino;
+**Cerea** — a Turinese _modo di dire_: a historic, affectionate greeting that
+means both _buongiorno_ and _arrivederci_. The gateway keeps the name Pystino;
 this app now has its own.
