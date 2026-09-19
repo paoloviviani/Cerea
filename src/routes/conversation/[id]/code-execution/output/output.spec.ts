@@ -7,7 +7,7 @@ import {
 	cleanupTestData,
 } from "$lib/server/api/__tests__/testHelpers";
 
-import { POST } from "./+server";
+import { GET as listDeliverables, POST } from "./+server";
 import { GET } from "./[sha256]/+server";
 
 function uploadRequest(files: Array<{ name: string; content: string; type?: string }>): Request {
@@ -100,6 +100,72 @@ describe.sequential("POST /conversation/[id]/code-execution/output", () => {
 		expect(
 			await collections.codeExecutionOutputs.countDocuments({ conversationId: conv._id })
 		).toBe(1);
+	});
+});
+
+describe.sequential("GET /conversation/[id]/code-execution/output", () => {
+	afterEach(async () => {
+		await cleanupTestData();
+	});
+
+	it("lists nothing for a conversation with no deliverables", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals);
+
+		const res = await listDeliverables({ params: { id: conv._id.toString() }, locals } as never);
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { files: unknown[] };
+		expect(body.files).toEqual([]);
+	});
+
+	it("lists uploaded deliverables newest first, with metadata for the panel", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals);
+		await POST({
+			params: { id: conv._id.toString() },
+			locals,
+			request: uploadRequest([{ name: "first.txt", content: "one", type: "text/plain" }]),
+		} as never);
+		await POST({
+			params: { id: conv._id.toString() },
+			locals,
+			request: uploadRequest([{ name: "second.csv", content: "a,b", type: "text/csv" }]),
+		} as never);
+
+		const res = await listDeliverables({ params: { id: conv._id.toString() }, locals } as never);
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			files: Array<{ name: string; mime: string; size: number; sha256: string; createdAt: string }>;
+		};
+		expect(body.files).toHaveLength(2);
+		expect(body.files.map((f) => f.name)).toEqual(["second.csv", "first.txt"]);
+		expect(body.files[0].mime).toBe("text/csv");
+		expect(body.files[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+		expect(() => new Date(body.files[0].createdAt).toISOString()).not.toThrow();
+	});
+
+	it("refuses a stranger's conversation with 404, not 403", async () => {
+		const { locals: owner } = await createTestUser();
+		const conv = await createTestConversation(owner);
+		const { locals: stranger } = await createTestUser();
+
+		await expect(
+			listDeliverables({ params: { id: conv._id.toString() }, locals: stranger } as never)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it("refuses an unauthenticated request", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals);
+
+		await expect(
+			listDeliverables({
+				params: { id: conv._id.toString() },
+				locals: createTestLocals({ sessionId: undefined }),
+			} as never)
+		).rejects.toMatchObject({ status: 401 });
 	});
 });
 

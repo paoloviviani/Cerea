@@ -4,6 +4,7 @@
 
 	import ArtifactPanel from "./ArtifactPanel.svelte";
 	import TrackioPane from "./TrackioPane.svelte";
+	import DeliverablesPanel from "./DeliverablesPanel.svelte";
 	import { collectArtifacts } from "$lib/utils/artifacts";
 	import { setArtifactsContext } from "$lib/utils/artifactsContext";
 	import { collectTrackioDashboards } from "$lib/utils/trackio";
@@ -60,7 +61,7 @@
 	import { shareModal } from "$lib/stores/shareModal";
 	import { exportConversation as exportConversationStore } from "$lib/stores/exportConversation";
 	import IconShare from "$lib/components/icons/IconShare.svelte";
-	import CarbonDownload from "~icons/carbon/download";
+	import CarbonMenu from "~icons/carbon/menu";
 	import {
 		downloadMarkdown,
 		exportConversationToMarkdown,
@@ -939,21 +940,20 @@
 		{/if}
 		{#if canExport || canShare}
 			<!-- Lives in the chat column (not the layout) so it stays visible when
-			     the artifact panel is open -->
+			     the artifact panel is open. The export button used to sit here;
+			     it moved into the artifacts pane and this menu button opens it. -->
 			<div
 				class="pointer-events-auto hidden md:absolute md:top-5 md:right-6 md:z-10 md:flex md:items-center md:gap-2"
 			>
 				{#if canExport}
 					<button
 						type="button"
-						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
-							{loading ? 'cursor-not-allowed opacity-40' : ''}"
-						onclick={exportConversation}
-						aria-label="Export conversation as Markdown"
-						title="Export conversation as Markdown"
-						disabled={loading}
+						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
+						onclick={() => sidePane.openLibrary()}
+						aria-label="Open artifacts panel"
+						title="Artifacts and chat export"
 					>
-						<CarbonDownload />
+						<CarbonMenu />
 					</button>
 				{/if}
 				{#if canShare}
@@ -1437,6 +1437,7 @@
 		onsend={canSendFix ? sendFixRequest : undefined}
 	/>
 	<TrackioPane items={paneItems} />
+	<DeliverablesPanel />
 </div>
 
 <!-- Outside the composer's wrapper on purpose: that subtree is
