@@ -60,6 +60,28 @@ async function announceToGateway(accessToken: string | undefined): Promise<void>
 	}
 }
 
+// What counts as an email address here mirrors the issuer's own rule
+// (the gateway's LocalLoginRequest): exactly one "@" with a non-empty
+// local part, 3 to 320 characters. Deliberately not z.string().email(),
+// which insists on a dotted domain — and an issuer-local address like
+// `admin@local` legitimately has none. The chat receives what the
+// gateway issued, so the gateway's acceptance rule is the principled
+// one; anything it would refuse never arrives. The stored value keeps
+// its shape verbatim either way: ALLOWED_USER_EMAILS/DOMAINS compare
+// exact strings and a split domain downstream, and any normalisation
+// here would silently loosen those admission checks.
+//
+// Shared with +server.ts, which parses the allowlist entries with the
+// same rule: an entry shaped nothing the issuer could ever produce is a
+// config error, and failing it at load beats admitting nobody.
+export const issuerEmailSchema = z
+	.string()
+	.min(3)
+	.max(320)
+	.refine((value) => value.split("@").length === 2 && value.split("@")[0] !== "", {
+		message: "Invalid email",
+	});
+
 export async function updateUser(params: {
 	userData: UserinfoResponse;
 	token: TokenSet;
@@ -82,23 +104,8 @@ export async function updateUser(params: {
 		userData.preferred_username = userData.upn as string;
 	}
 
-	// What counts as an email address here mirrors the issuer's own rule
-	// (the gateway's LocalLoginRequest): exactly one "@" with a non-empty
-	// local part, 3 to 320 characters. Deliberately not z.string().email(),
-	// which insists on a dotted domain — and an issuer-local address like
-	// `admin@local` legitimately has none. The chat receives what the
-	// gateway issued, so the gateway's acceptance rule is the principled
-	// one; anything it would refuse never arrives. The stored value keeps
-	// its shape verbatim either way: ALLOWED_USER_EMAILS/DOMAINS compare
-	// exact strings and a split domain downstream, and any normalisation
-	// here would silently loosen those admission checks.
-	const emailSchema = z
-		.string()
-		.min(3)
-		.max(320)
-		.refine((value) => value.split("@").length === 2 && value.split("@")[0] !== "", {
-			message: "Invalid email",
-		});
+	// What counts as an email address is the issuer's own rule, shared above
+	// (see issuerEmailSchema): exactly one "@" with a non-empty local part.
 
 	const {
 		preferred_username: username,
@@ -121,7 +128,7 @@ export async function updateUser(params: {
 			name: z.string().optional(),
 			picture: z.string().optional(),
 			sub: z.string(),
-			email: emailSchema.optional(),
+			email: issuerEmailSchema.optional(),
 			orgs: z
 				.array(
 					z.object({

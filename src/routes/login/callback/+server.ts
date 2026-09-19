@@ -11,7 +11,7 @@ import { z } from "zod";
 import { base } from "$app/paths";
 import { config } from "$lib/server/config";
 import JSON5 from "json5";
-import { updateUser } from "./updateUser.js";
+import { updateUser, issuerEmailSchema } from "./updateUser.js";
 
 const sanitizeJSONEnv = (val: string, fallback: string) => {
 	const raw = (val ?? "").trim();
@@ -20,13 +20,25 @@ const sanitizeJSONEnv = (val: string, fallback: string) => {
 };
 
 const allowedUserEmails = z
-	.array(z.string().email())
+	.array(issuerEmailSchema)
 	.optional()
 	.default([])
 	.parse(JSON5.parse(sanitizeJSONEnv(config.ALLOWED_USER_EMAILS, "[]")));
 
 const allowedUserDomains = z
-	.array(z.string().regex(/\.\w+$/)) // Contains at least a dot
+	.array(
+		// The part after the "@", compared verbatim — and a bare `local` is
+		// a legitimate domain here, so this is deliberately not a
+		// dotted-domain regex. Anything with an "@" or whitespace cannot be
+		// a domain and fails at load, which is where a config typo belongs.
+		z
+			.string()
+			.min(1)
+			.max(255)
+			.refine((value) => !value.includes("@") && !/\s/.test(value), {
+				message: "Invalid domain",
+			})
+	)
 	.optional()
 	.default([])
 	.parse(JSON5.parse(sanitizeJSONEnv(config.ALLOWED_USER_DOMAINS, "[]")));
