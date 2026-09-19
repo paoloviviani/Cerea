@@ -54,3 +54,41 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 
 	return json({ files: refs });
 };
+
+/**
+ * Lists this conversation's persisted deliverables — the metadata rows behind
+ * the download cards (`codeExecutionOutputs`), newest first. Same
+ * conversation-ownership check as the POST above and the per-file download
+ * route; the bytes themselves stay behind `[sha256]`.
+ *
+ * Conversation-scoped by construction: the store keys rows by conversationId
+ * (no cross-conversation index exists), so the panel shows this chat's files,
+ * persistent across reloads and devices for the 30-day retention window.
+ */
+export const GET: RequestHandler = async ({ params, locals }) => {
+	if (!locals.user && !locals.sessionId) error(401, "Unauthorized");
+	if (!ObjectId.isValid(params.id)) error(404, "Conversation not found");
+	const conversationId = new ObjectId(params.id);
+
+	const conversation = await collections.conversations.findOne(
+		{ _id: conversationId, ...authCondition(locals) },
+		{ projection: { _id: 1 } }
+	);
+	if (!conversation) error(404, "Conversation not found");
+
+	const files = await collections.codeExecutionOutputs
+		.find({ conversationId })
+		.project({ name: 1, mime: 1, size: 1, sha256: 1, createdAt: 1 })
+		.sort({ createdAt: -1 })
+		.toArray();
+
+	return json({
+		files: files.map((file) => ({
+			name: file.name,
+			mime: file.mime,
+			size: file.size,
+			sha256: file.sha256,
+			createdAt: file.createdAt.toISOString(),
+		})),
+	});
+};

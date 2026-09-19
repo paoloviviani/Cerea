@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { writable } from "svelte/store";
 import { page as browserPage } from "@vitest/browser/context";
 import { CONVERSATIONS_CONTEXT_KEY } from "$lib/stores/conversations.svelte";
+import { sidePane } from "$lib/stores/sidePane.svelte";
 import { exportFilename } from "$lib/utils/exportConversationMarkdown";
 
 // ChatWindow reaches the MCP stores, which read `$env/dynamic/public` and
@@ -63,8 +64,14 @@ vi.mock("$lib/stores/mcpConnectors", async () => {
 	};
 });
 
-beforeEach(() => vi.stubGlobal("fetch", async () => new Response("{}", { status: 200 })));
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+	sidePane.reset();
+	vi.stubGlobal("fetch", async () => new Response("{}", { status: 200 }));
+});
+afterEach(() => {
+	vi.unstubAllGlobals();
+	sidePane.reset();
+});
 
 const model = { id: "deepseek-r1", displayName: "DeepSeek-R1", isRouter: false } as never;
 
@@ -107,15 +114,19 @@ const mountConversation = async () => {
 };
 
 describe("conversation Markdown export", () => {
-	it("shows an export button on the conversation", async () => {
+	it("shows a menu button opening the artifacts pane, not an export button", async () => {
 		const screen = await mountConversation();
 		await expect
-			.element(screen.getByRole("button", { name: "Export conversation as Markdown" }))
+			.element(screen.getByRole("button", { name: "Open artifacts panel" }))
 			.toBeVisible();
+		const buttons = await screen
+			.getByRole("button", { name: "Export conversation as Markdown" })
+			.elements();
+		expect(buttons).toHaveLength(0);
 		screen.unmount();
 	});
 
-	it("hides the export button outside conversations", async () => {
+	it("hides the menu button outside conversations", async () => {
 		const screen = renderWithApp(
 			ChatWindow,
 			{ messages: [], models: [model], currentModel: model },
@@ -127,14 +138,12 @@ describe("conversation Markdown export", () => {
 				]),
 			}
 		);
-		const buttons = await screen
-			.getByRole("button", { name: "Export conversation as Markdown" })
-			.elements();
+		const buttons = await screen.getByRole("button", { name: "Open artifacts panel" }).elements();
 		expect(buttons).toHaveLength(0);
 		screen.unmount();
 	});
 
-	it("downloads the visible branch with reasoning as <slug>-<shortid>.md", async () => {
+	it("exports from the artifacts pane with reasoning as <slug>-<shortid>.md", async () => {
 		const blobs: Blob[] = [];
 		const clickedAnchors: HTMLAnchorElement[] = [];
 		vi.spyOn(URL, "createObjectURL").mockImplementation(((blob: Blob) => {
@@ -149,11 +158,18 @@ describe("conversation Markdown export", () => {
 		});
 
 		const screen = await mountConversation();
-		// A direct click: Playwright's actionability retry loop never settles on
-		// this page because the scroll controller continuously re-measures layout.
-		const exportButton = screen
-			.getByRole("button", { name: "Export conversation as Markdown" })
-			.element() as HTMLButtonElement;
+		// The export moved into the pane: open it through the menu button, then
+		// run the same action from its new home. Direct clicks: Playwright's
+		// actionability retry loop never settles on this page because the scroll
+		// controller continuously re-measures layout.
+		(
+			screen.getByRole("button", { name: "Open artifacts panel" }).element() as HTMLButtonElement
+		).click();
+		const exportButtonLocator = screen.getByRole("button", {
+			name: "Export conversation as Markdown",
+		});
+		await expect.element(exportButtonLocator).toBeVisible();
+		const exportButton = exportButtonLocator.element() as HTMLButtonElement;
 		exportButton.click();
 
 		expect(blobs).toHaveLength(1);

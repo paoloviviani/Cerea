@@ -9,7 +9,7 @@ export const SIDE_PANE_MAX_WIDTH = 2400;
 export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
-export type SidePaneView = "artifact" | "trackio";
+export type SidePaneView = "artifact" | "trackio" | "library";
 
 /**
  * UI state for the side pane. Its content is always derived from the
@@ -86,6 +86,18 @@ class SidePaneStore {
 	openTrackio(url: string, label: string) {
 		this.view = "trackio";
 		this.trackio = { url, label };
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/**
+	 * The conversation's persisted deliverables plus the chat export. Unlike
+	 * the artifact/trackio views this one is not part of the pane-item axis
+	 * (it lists stored files, not message-derived views), so it carries no
+	 * selection of its own.
+	 */
+	openLibrary() {
+		this.view = "library";
 		this.open = true;
 		this.revealNonce += 1;
 	}
