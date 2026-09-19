@@ -11,7 +11,7 @@ import { knowledgeBaseViews, parseAttachedKnowledgeBaseIds } from "$lib/server/p
 import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
 import { usdToMicroUsd } from "$lib/utils/mlBudget";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
-import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
+import { deleteConversationStorage } from "$lib/server/conversationStorage";
 
 export const GET: RequestHandler = async ({ locals, params, url }) => {
 	requireAuth(locals);
@@ -120,7 +120,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (res.deletedCount === 0) {
 		error(404, "Conversation not found");
 	}
-	await deleteConversationDeliverables(new ObjectId(id));
+	await deleteConversationStorage(new ObjectId(id));
 
 	return superjsonResponse({ success: true });
 };
