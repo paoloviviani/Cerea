@@ -1054,6 +1054,15 @@ collect_values() { # collect_values <profile>
 		set_value GATEWAY_OIDC__ENABLED "false"
 		set_house_idp_values
 	fi
+	if [ "$standalone" = "0" ] && [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" != "true" ] && [ -z "${VALUES[GATEWAY_IDP__CLIENTS]+x}" ]; then
+		# No house IdP, no registry — but the name must still parse: the
+		# compose file passes it through as an empty string when unset,
+		# and an empty string is not a valid list, which crashes gateway
+		# startup (found live, never reachable from dry-run). `[]` parses
+		# to no clients, and the at-least-one-client rule only fires when
+		# the IdP is enabled.
+		set_value GATEWAY_IDP__CLIENTS "[]"
+	fi
 
 	# Chat Postgres credentials: generated here, role created in phase 1.
 	if [ "$standalone" = "1" ]; then
