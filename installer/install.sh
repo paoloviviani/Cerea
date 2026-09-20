@@ -1563,22 +1563,36 @@ ensure_edge_idp_route() {
 		snippet_src="$PYSTINO_ROOT/deploy/idp/10-idp-keycloak.caddy"
 	fi
 	[ -f "$snippet_src" ] || fail "missing $snippet_src (generate the IdP files first)."
+	# Snippets are defined BEFORE the sites that import them: Caddy adapts
+	# top-down, and an import whose snippet appears later in the file is
+	# 'File to import not found' — the proxy crash-loop appending-at-the-end
+	# once produced on a fresh install, the moment phase 1 started it. The
+	# insertion point is the first site block's opener (the ':8443 {'
+	# line): everything above it is the file's fixed prefix — globals, the
+	# auto_https block, the (origin-routes) snippet — so the snippet lands
+	# after its sibling and before the sites that import both.
+	local site_line
+	site_line="$(grep -nE '^[a-z0-9.:-]+ \{$' "$netbird" | head -1 | cut -d: -f1)"
+	[ -n "$site_line" ] || fail "Caddyfile.netbird no longer matches the shape this installer knows (no site block opener to insert the (idp-routes) snippet before). Add it by hand above the sites, then re-run with --phase2."
+	local tmp_nb="$netbird.new.$$"
 	{
+		sed -n "1,$((site_line - 1))p" "$netbird"
 		printf '\n%s\n' "$marker"
 		printf '(idp-routes) {\n'
 		cat "$snippet_src"
 		printf '}\n'
-	} >>"$netbird"
+		sed -n "${site_line},\$p" "$netbird"
+	} >"$tmp_nb"
 	# Both sites import origin-routes; teach them the new snippet too. The
 	# match is exact-indentation on purpose: anything else means the file
 	# moved on, and a blind append would write a route nobody imports.
-	if ! grep -q $'^\timport origin-routes$' "$netbird"; then
+	if ! grep -q $'^\timport origin-routes$' "$tmp_nb"; then
+		rm -f "$tmp_nb"
 		fail "Caddyfile.netbird no longer matches the shape this installer knows (no '<tab>import origin-routes' lines). Add the (idp-routes) snippet's import to both sites by hand, then re-run with --phase2."
 	fi
-	local tmp_nb="$netbird.new.$$"
-	sed 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import idp-routes|' "$netbird" >"$tmp_nb"
+	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import idp-routes|' "$tmp_nb"
 	mv -f "$tmp_nb" "$netbird"
-	note "Bundled $kind route appended to Caddyfile.netbird (both sites)."
+	note "Bundled $kind route inserted above the sites in Caddyfile.netbird (both sites import it)."
 }
 
 # Escape a value for the sed replacement half (delimiter |): backslashes,
