@@ -137,10 +137,12 @@ AUTH_MODE=""
 . "$CEREA_ROOT/installer/lib/compose-flags.sh"
 . "$CEREA_ROOT/installer/lib/flags.sh"
 
-# Ctrl+C is a full stop: the handler replaces the default SIGINT death, so
-# without an explicit exit the script would print the message and *resume*
-# where it was interrupted — a half-aborted install that keeps running is
-# worse than either ending. 130 is the conventional SIGINT status.
+# Ctrl+C is a full stop, twice over. The handler replaces the default
+# SIGINT death, so without an explicit exit the script would print the
+# message and *resume* where it was interrupted — a half-aborted install
+# that keeps running is worse than either ending. `trap - INT` then re-
+# raising keeps the exit status honest (130, the conventional SIGINT
+# status, seen by callers as a signal death, not a clean run).
 trap 'printf "\nAborted. Nothing was changed beyond what the transcript above says.\n" >&2; trap - INT; kill -INT $$' INT
 
 input_ended() {
