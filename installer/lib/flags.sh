@@ -103,6 +103,13 @@ usage() {
 	echo "                      (partial lists keep the profile defaults; never valid"
 	echo "                      for the standalone profiles, whose set is fixed)"
 	echo "  --admin-email <e>   the bundled-Authelia first human's email"
+	echo "  --public-host <h>   the public hostname browsers use (PUBLIC_HOST)"
+	echo "  --https-port <p>    the edge/proxy HTTPS port (HTTPS_PORT, default 8443)"
+	echo "  --acme-email <e>    certificate expiry notices (ACME_EMAIL, proxy shape)"
+	echo "  --central <url>     point at a central Pystino: fills the backend"
+	echo "                      base URL and the OIDC issuer (satellite/generic);"
+	echo "                      --set CHAT_OIDC_PROVIDER_URL after it overrides"
+	echo "                      the issuer when it genuinely differs"
 	echo "  --chat-repo <path>  the Cerea checkout the chat image builds from"
 	echo "                      (default: this checkout; never switches the mode)"
 	echo "  --set KEY=VALUE     a deploy/.env value the prompts would otherwise ask"
@@ -244,12 +251,51 @@ parse_install_flags() { # parse_install_flags <args...>
 				esac
 				shift 2
 				;;
-			--admin-email)
-				[ $# -ge 2 ] || { echo "--admin-email needs a value" >&2; exit 2; }
-				[ -n "$2" ] || fail "--admin-email must not be empty."
-				FLAG_ADMIN_EMAIL="$2"
-				shift 2
-				;;
+		--admin-email)
+			[ $# -ge 2 ] || { echo "--admin-email needs a value" >&2; exit 2; }
+			[ -n "$2" ] || fail "--admin-email must not be empty."
+			FLAG_ADMIN_EMAIL="$2"
+			shift 2
+			;;
+		--public-host)
+			# The one decision every edge/proxy install asks first; it
+			# deserved better than --set PUBLIC_HOST=... on every CI line.
+			# Injected into PENDING at parse time so the ask site consumes it
+			# with its own validation and post-processing, exactly like --set.
+			[ $# -ge 2 ] || { echo "--public-host needs a value" >&2; exit 2; }
+			[ -n "$2" ] || fail "--public-host must not be empty."
+			set_pending PUBLIC_HOST "$2"
+			shift 2
+			;;
+		--https-port)
+			[ $# -ge 2 ] || { echo "--https-port needs a value" >&2; exit 2; }
+			case "$2" in
+				'' | *[!0-9]*) fail "--https-port '$2' is not a port number." ;;
+			esac
+			set_pending HTTPS_PORT "$2"
+			shift 2
+			;;
+		--acme-email)
+			[ $# -ge 2 ] || { echo "--acme-email needs a value" >&2; exit 2; }
+			[ -n "$2" ] || fail "--acme-email must not be empty."
+			set_pending ACME_EMAIL "$2"
+			shift 2
+			;;
+		--central)
+			# Satellite/generic's coherent decision is "point at the central
+			# Pystino": the backend base URL and the OIDC issuer both derive
+			# from it. One flag fills both — the issuer stays separately
+			# --set-able when it genuinely differs, and PENDING's
+			# last-write-wins order means an explicit CHAT_OIDC_PROVIDER_URL
+			# --set after --central still overrides. The client id/secret stay
+			# separate decisions: a shared secret on argv is a leak, and the
+			# missing-list names them anyway.
+			[ $# -ge 2 ] || { echo "--central needs a URL" >&2; exit 2; }
+			[ -n "$2" ] || fail "--central must not be empty."
+			set_pending OPENAI_BASE_URL "$2"
+			set_pending CHAT_OIDC_PROVIDER_URL "$2"
+			shift 2
+			;;
 			--chat-repo)
 				[ $# -ge 2 ] || { echo "--chat-repo needs a path" >&2; exit 2; }
 				FLAG_CHAT_REPO="$2"
