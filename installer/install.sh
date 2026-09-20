@@ -404,17 +404,29 @@ resolve_pystino_root() { # -> PYSTINO_ROOT
 	title "Pystino checkout"
 	note "The compose files and deploy/.env live in Pystino; this installer writes into that checkout."
 	# Best guess first: a Pystino beside this checkout covers the standard
-	# workspace layout, so the common case is one Enter.
+	# workspace layout, so the common case is one Enter. Only a checkout
+	# found *beside this Cerea* is the guess, though: a valid Pystino under
+	# $HOME/workspace is a checkout of a different working copy, and the
+	# operator who chose 'clone' (nothing beside this one) must not have a
+	# stranger's checkout silently preselected as the clone destination —
+	# the one-beside-this-checkout path is both the guess and the clone
+	# fallback, whichever menu entry the operator takes.
 	local guess=""
-	for guess in "$CEREA_ROOT/../Pystino" "$HOME/workspace/Pystino"; do
-		guess="$(cd "$guess" 2>/dev/null && pwd)" || guess=""
-		if [ -n "$guess" ]; then
-			validate_pystino_root "$guess"
-			if [ -z "$MISSING_LIST" ]; then break; else guess=""; fi
-		fi
-	done
+	guess="$(cd "$CEREA_ROOT/../Pystino" 2>/dev/null && pwd)" || guess=""
+	if [ -n "$guess" ]; then
+		validate_pystino_root "$guess"
+		[ -n "$MISSING_LIST" ] && guess=""
+	fi
+	# The clone needs a destination even when no existing checkout produced
+	# a guess: an empty default makes Enter submit nothing, and the bracket
+	# hint prints as '[]' — a prompt that assumes the operator knows
+	# something the installer never said. The fallback is a name beside this
+	# checkout, the one place a clone is guaranteed writable (the Cerea
+	# checkout's parent already is, by definition).
+	local clone_default="$guess"
+	[ -n "$clone_default" ] || clone_default="$CEREA_ROOT/../Pystino"
 	if [ "$NON_INTERACTIVE" = "1" ]; then
-		# No --pystino and no prompts: the first valid best guess is the
+		# No --pystino and no prompts: the checkout beside this one is the
 		# answer Enter would produce on the default menu; without one there
 		# is no decision to default to.
 		if [ -n "$guess" ]; then
@@ -422,7 +434,7 @@ resolve_pystino_root() { # -> PYSTINO_ROOT
 			note "Pystino checkout: $PYSTINO_ROOT (best guess)"
 			return
 		fi
-		fail "no Pystino checkout found beside $CEREA_ROOT or under $HOME/workspace — pass --pystino <path>."
+		fail "No Pystino checkout found beside $CEREA_ROOT — pass --pystino <path>."
 	fi
 	while :; do
 		printf '\n  %s1)%s Use an existing checkout\n' "$CYAN" "$R"
@@ -431,14 +443,6 @@ resolve_pystino_root() { # -> PYSTINO_ROOT
 		case "$REPLY_VAL" in
 		2)
 			local dest="" url="" resolved
-			# The clone needs a destination even when no existing checkout
-			# produced a guess: an empty default makes Enter submit nothing,
-			# and the bracket hint prints as '[]' — a prompt that assumes
-			# the operator knows something the installer never said. Fall
-			# back to a name beside this checkout, the one place a clone is
-			# guaranteed writable (the Cerea checkout's parent already is).
-			local clone_default="$guess"
-			[ -n "$clone_default" ] || clone_default="$CEREA_ROOT/../Pystino"
 			ask "Directory to clone into" "$clone_default"
 			dest="$REPLY_VAL"
 			dest="${dest/#\~/$HOME}"
