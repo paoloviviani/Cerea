@@ -64,6 +64,11 @@ INTERNAL_FORK="https://github.com/paoloviviani/Pystino.git"
 DRY_RUN=0
 PHASE2_ONLY=0
 CLI_PYSTINO=""
+# Enterprise sign-in shape: house (gateway's own issuer, no external
+# provider), external (one provider for gateway console and chat), custom
+# (each side configured separately, or left for later). Set during collect,
+# inferred from the file on --phase2.
+AUTH_MODE=""
 
 # ------------------------------------------------------------------ #
 # small terminal kit: ANSI colors, prompts, messages                  #
@@ -397,13 +402,28 @@ required_keys_for() { # required_keys_for <profile> <exposure>  -> REQUIRED[]
 		return
 	fi
 	REQUIRED+=(POSTGRES_PASSWORD GATEWAY_SECRET_KEY GATEWAY_SESSION_SECRET
-		GATEWAY_UPSTREAM__API_KEY CHAT_PG_URL CHAT_IDP_CLIENT_SECRET
+		CHAT_PG_URL CHAT_IDP_CLIENT_SECRET
 		CHAT_SECRET_KEY CHAT_REPO PUBLIC_HOST PUBLIC_ORIGIN)
+	# GATEWAY_UPSTREAM__BASE_URL and __API_KEY are deliberately absent: an
+	# empty key is a supported shape (providers come from the console
+	# later), and an empty base URL falls back to the compose default.
 	if [ "${REDACTION_STATE}" != "off" ]; then REQUIRED+=(REDACTION_PLACEHOLDER_KEY); fi
 	if [ "$profile" = "enterprise" ]; then
-		REQUIRED+=(GATEWAY_OIDC__ISSUER GATEWAY_OIDC__CLIENT_ID
-			GATEWAY_OIDC__CLIENT_SECRET CHAT_OIDC_PROVIDER_URL CHAT_OIDC_CLIENT_ID
-			CHAT_OIDC_CLIENT_SECRET)
+		# What must be non-empty depends on the sign-in shape the operator
+		# picked: external names both OIDC clients, house names the house
+		# IdP's two values, custom requires nothing (each side was asked
+		# optionally, and whatever stayed empty is console work later).
+		case "${AUTH_MODE:-external}" in
+			house)
+				REQUIRED+=(GATEWAY_IDP__ISSUER GATEWAY_IDP__INTERNAL_TOKEN)
+				;;
+			custom) ;;
+			*)
+				REQUIRED+=(GATEWAY_OIDC__ISSUER GATEWAY_OIDC__CLIENT_ID
+					GATEWAY_OIDC__CLIENT_SECRET CHAT_OIDC_PROVIDER_URL CHAT_OIDC_CLIENT_ID
+					CHAT_OIDC_CLIENT_SECRET)
+				;;
+		esac
 	else
 		# The signing key is deliberately absent from this list: it arrives as
 		# a file (fresh installs) or inline (legacy resumes), and
@@ -442,6 +462,12 @@ validate_values() { # validate_values <profile> <values-name>
 		if [ -z "$inline" ] && { [ -z "$host_path" ] || [ -z "$file_var" ]; }; then
 			fail "the house IdP needs a signing key: GATEWAY_IDP__SIGNING_KEY inline (legacy) or IDP_SIGNING_KEY_HOST_PATH + GATEWAY_IDP__SIGNING_KEY_FILE (this installer)."
 		fi
+	fi
+	# An external OIDC issuer, when one is named, must be absolute: the
+	# gateway discovers against it at boot, and a relative value fails
+	# there instead of here.
+	if [ "${vals[GATEWAY_OIDC__ENABLED]:-}" = "true" ] && [ -n "${vals[GATEWAY_OIDC__ISSUER]:-}" ] && ! is_absolute_url "${vals[GATEWAY_OIDC__ISSUER]}"; then
+		fail "GATEWAY_OIDC__ISSUER must be an absolute http(s) URL."
 	fi
 	is_standalone_profile "$profile" || return 0
 	if ! is_absolute_url "${vals[OPENAI_BASE_URL]:-}"; then
@@ -482,8 +508,17 @@ check_docker() {
 
 resolve_pystino_root() { # -> PYSTINO_ROOT
 	if [ -n "$CLI_PYSTINO" ]; then
-		PYSTINO_ROOT="$(cd "$CLI_PYSTINO" 2>/dev/null && pwd)" ||
-			fail "no such directory: $CLI_PYSTINO"
+		local try="${CLI_PYSTINO/#\~/$HOME}"
+		if [ ! -e "$try" ]; then
+			confirm "No such directory: $try. Clone the internal fork there?" 1
+			if [ "$CONFIRM_VAL" = "0" ]; then fail "no such directory: $try"; fi
+			ask "Repository URL" "$INTERNAL_FORK"
+			echo "Cloning $REPLY_VAL ..."
+			git clone "$REPLY_VAL" "$try" ||
+				fail "Clone failed. Check the URL and your access."
+		fi
+		PYSTINO_ROOT="$(cd "$try" 2>/dev/null && pwd)" ||
+			fail "no such directory: $try"
 		validate_pystino_root "$PYSTINO_ROOT"
 		if [ -n "$MISSING_LIST" ]; then
 			fail "not a Pystino checkout: $PYSTINO_ROOT (missing $MISSING_LIST)"
@@ -492,8 +527,18 @@ resolve_pystino_root() { # -> PYSTINO_ROOT
 	fi
 	title "Pystino checkout"
 	note "The compose files and deploy/.env live in Pystino; this installer writes into that checkout."
+	# Best guess first: a Pystino beside this checkout covers the standard
+	# workspace layout, so the common case is one Enter.
+	local guess=""
+	for guess in "$CEREA_ROOT/../Pystino" "$HOME/workspace/Pystino"; do
+		guess="$(cd "$guess" 2>/dev/null && pwd)" || guess=""
+		if [ -n "$guess" ]; then
+			validate_pystino_root "$guess"
+			if [ -z "$MISSING_LIST" ]; then break; else guess=""; fi
+		fi
+	done
 	while :; do
-		ask_required "Path to the Pystino checkout"
+		ask "Path to the Pystino checkout" "$guess"
 		local answer="$REPLY_VAL" resolved
 		answer="${answer/#\~/$HOME}"
 		resolved="$(cd "$answer" 2>/dev/null && pwd)" || resolved=""
@@ -661,6 +706,38 @@ choose_exposure() { # -> EXPOSURE
 			*) printf '%sEnter a number between 1 and 2.%s\n' "$YELLOW" "$R" ;;
 		esac
 	done
+}
+
+# House IdP values, shared by team/homelab and enterprise-house: the issuer
+# is this deployment's own origin, the internal base keeps token exchanges
+# on the compose network, and the client registry carries the minted chat
+# secret (the fragment ships it empty; the fragment's own contract says the
+# two must match). The signing key itself arrives as a file — main writes
+# the two path variables plus the PEM after confirm. Callers mint
+# GATEWAY_IDP__INTERNAL_TOKEN themselves, beside their other secrets, and
+# own the GATEWAY_OIDC__ENABLED flag: team and enterprise-house turn the
+# console's external door off, but a custom split may keep both doors open.
+set_house_idp_values() {
+	set_value GATEWAY_IDP__ENABLED "true"
+	set_value GATEWAY_IDP__ISSUER "${VALUES[PUBLIC_ORIGIN]}"
+	set_value GATEWAY_IDP__INTERNAL_BASE_URL "http://gateway:8000"
+	set_value GATEWAY_IDP__CLIENTS "[{\"client_id\":\"cerea\",\"redirect_path\":\"/chat/login/callback\",\"secret\":\"${VALUES[CHAT_IDP_CLIENT_SECRET]}\"}]"
+}
+
+# The audience prompt, shared by the external and custom paths: leaving it
+# empty is valid (API keys stay the /v1 credential) but breaks the chat's
+# per-user calls, so an empty answer costs a confirm, defaulting to no.
+ask_access_token_audience() {
+	ask "Access-token audience for /v1"
+	set_value GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE "$REPLY_VAL"
+	if [ -z "$REPLY_VAL" ]; then
+		warn "No audience means API keys only on /v1: the chat's per-user calls (USE_USER_TOKEN) will fail. This is only correct for a key-driven deployment."
+		confirm "Proceed without an audience?" 0
+		if [ "$CONFIRM_VAL" = "0" ]; then
+			ask_required "Access-token audience for /v1"
+			set_value GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE "$REPLY_VAL"
+		fi
+	fi
 }
 
 # Fresh installs generate everything generatable; the asked-for values come
@@ -833,14 +910,13 @@ collect_values() { # collect_values <profile>
 			set_value ADMIN_USERNAMES "$REPLY_VAL"
 		fi
 	else
-		ask "Upstream OpenAI-compatible base URL" "${PARSED[GATEWAY_UPSTREAM__BASE_URL]:-https://api.cortecs.ai/v1}"
-		set_value GATEWAY_UPSTREAM__BASE_URL "$REPLY_VAL"
-		ask_hidden "Upstream API key (your provider account — cannot be generated)"
-		while [ -z "$REPLY_VAL" ]; do
-			printf '%sThe gateway serves nothing without an upstream key.%s\n' "$YELLOW" "$R"
-			ask_hidden "Upstream API key"
-		done
-		set_value GATEWAY_UPSTREAM__API_KEY "$REPLY_VAL"
+	ask "Upstream OpenAI-compatible base URL" "${PARSED[GATEWAY_UPSTREAM__BASE_URL]:-https://api.cortecs.ai/v1}"
+	set_value GATEWAY_UPSTREAM__BASE_URL "$REPLY_VAL"
+	ask_hidden "Upstream API key (empty to skip — providers are added in the console later)"
+	set_value GATEWAY_UPSTREAM__API_KEY "$REPLY_VAL"
+	if [ -z "$REPLY_VAL" ]; then
+		note "No upstream key: the gateway boots fine but answers nothing until a provider is configured in the console."
+	fi
 	fi
 
 	if [ "$EXPOSURE" = "edge" ]; then
@@ -889,7 +965,66 @@ collect_values() { # collect_values <profile>
 	set_value PUBLIC_ORIGIN "$REPLY_VAL"
 
 	if [ "$profile" = "enterprise" ]; then
-		title "External identity provider"
+		title "Sign-in architecture"
+		note "Gateway console and chat are two separate OIDC clients, and /v1 accepts the chat's user tokens only when both sides agree on one issuer plus an audience (docs/oidc-generic-provider.md). A split signs in fine on both sides but breaks per-user /v1 calls; local passwords always stay on as the bootstrap door."
+		printf '  %s1)%s Single external IdP for gateway and chat\n' "$CYAN" "$R"
+		printf '  %s2)%s House IdP for both — no external provider\n' "$CYAN" "$R"
+		printf '  %s3)%s Custom — each side separately, now or later\n' "$CYAN" "$R"
+		ask "Choose [1-3]" "1"
+		case "$REPLY_VAL" in
+			2) AUTH_MODE="house" ;;
+			3) AUTH_MODE="custom" ;;
+			*) AUTH_MODE="external" ;;
+		esac
+		if [ "$AUTH_MODE" = "house" ]; then
+			note "House IdP with enterprise components: same sign-in as team, plus NER, browser fetch and the ledger."
+			set_value GATEWAY_OIDC__ENABLED "false"
+			set_house_idp_values
+			token_url_safe 48
+			set_value GATEWAY_IDP__INTERNAL_TOKEN "$TOKEN_VAL"
+			# Chat OIDC stays unset: the overlay falls back to the house IdP.
+		elif [ "$AUTH_MODE" = "custom" ]; then
+			note "Each side optional; whatever stays empty is console/docs work later."
+			confirm "External OIDC for the gateway console now?" 1
+			if [ "$CONFIRM_VAL" = "1" ]; then
+				set_value GATEWAY_OIDC__ENABLED "true"
+				ask_required "OIDC issuer"
+				set_value GATEWAY_OIDC__ISSUER "$REPLY_VAL"
+				ask_required "Client id (gateway console)"
+				set_value GATEWAY_OIDC__CLIENT_ID "$REPLY_VAL"
+				ask_hidden "Client secret (gateway console, empty for a public client)"
+				set_value GATEWAY_OIDC__CLIENT_SECRET "$REPLY_VAL"
+				ask "Groups claim" "groups"
+				set_value GATEWAY_OIDC__GROUPS_CLAIM "$REPLY_VAL"
+				ask_access_token_audience
+			else
+				set_value GATEWAY_OIDC__ENABLED "false"
+			fi
+			confirm "House IdP on (covers the chat while its own provider is unset)?" 1
+			if [ "$CONFIRM_VAL" = "1" ]; then
+				set_house_idp_values
+				token_url_safe 48
+				set_value GATEWAY_IDP__INTERNAL_TOKEN "$TOKEN_VAL"
+			else
+				set_value GATEWAY_IDP__ENABLED "false"
+			fi
+			ask "Chat OIDC provider URL (empty leaves the chat on the house IdP when it is on)"
+			set_value CHAT_OIDC_PROVIDER_URL "$REPLY_VAL"
+			if [ -n "$REPLY_VAL" ]; then
+				ask "Chat client id at the provider" "cerea"
+				set_value CHAT_OIDC_CLIENT_ID "$REPLY_VAL"
+				ask_hidden "Chat client secret (empty for a public client)"
+				set_value CHAT_OIDC_CLIENT_SECRET "$REPLY_VAL"
+				ask "Chat OIDC scopes" "openid profile email"
+				set_value CHAT_OIDC_SCOPES "$REPLY_VAL"
+			elif [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" != "true" ]; then
+				warn "No provider anywhere: the chat cannot sign anyone in until CHAT_OIDC_* is set. Local passwords still open the console."
+			fi
+			if [ -n "${VALUES[CHAT_OIDC_PROVIDER_URL]:-}" ] && [ "${VALUES[CHAT_OIDC_PROVIDER_URL]}" != "${VALUES[GATEWAY_OIDC__ISSUER]:-}" ] && [ "${VALUES[GATEWAY_OIDC__ENABLED]:-}" = "true" ]; then
+				warn "Split issuers: the chat's tokens come from a provider the gateway's /v1 does not trust, so per-user /v1 calls will fail until the issuers agree. API keys keep working."
+			fi
+		else
+			title "External identity provider"
 		note "docs/oidc-generic-provider.md has the per-provider checklist. The audience is what accepts the provider's tokens on /v1 — the chat calls the gateway as the user, so leaving it empty breaks signed-in inference."
 		set_value GATEWAY_OIDC__ENABLED "true"
 		ask_required "OIDC issuer"
@@ -900,16 +1035,7 @@ collect_values() { # collect_values <profile>
 		set_value GATEWAY_OIDC__CLIENT_SECRET "$REPLY_VAL"
 		ask "Groups claim" "groups"
 		set_value GATEWAY_OIDC__GROUPS_CLAIM "$REPLY_VAL"
-		ask "Access-token audience for /v1"
-		set_value GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE "$REPLY_VAL"
-		if [ -z "$REPLY_VAL" ]; then
-			warn "No audience means API keys only on /v1: the chat's per-user calls (USE_USER_TOKEN) will fail. This is only correct for a key-driven deployment."
-			confirm "Proceed without an audience?" 0
-			if [ "$CONFIRM_VAL" = "0" ]; then
-				ask_required "Access-token audience for /v1"
-				set_value GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE "$REPLY_VAL"
-			fi
-		fi
+		ask_access_token_audience
 		set_value GATEWAY_IDP__ENABLED "false"
 		ask "Chat OIDC provider URL" "${VALUES[GATEWAY_OIDC__ISSUER]}"
 		set_value CHAT_OIDC_PROVIDER_URL "$REPLY_VAL"
@@ -919,17 +1045,10 @@ collect_values() { # collect_values <profile>
 		set_value CHAT_OIDC_CLIENT_SECRET "$REPLY_VAL"
 		ask "Chat OIDC scopes" "openid profile email"
 		set_value CHAT_OIDC_SCOPES "$REPLY_VAL"
+		fi
 	elif [ "$standalone" = "0" ]; then
 		set_value GATEWAY_OIDC__ENABLED "false"
-		set_value GATEWAY_IDP__ENABLED "true"
-		set_value GATEWAY_IDP__ISSUER "${VALUES[PUBLIC_ORIGIN]}"
-		set_value GATEWAY_IDP__INTERNAL_BASE_URL "http://gateway:8000"
-		# The house IdP's client registry: the fragment ships the cerea client
-		# with an empty secret, which the gateway treats as a PKCE-only
-		# public client — but the fragment's own contract (and the chat's
-		# compose default chain) says the registry secret must match
-		# CHAT_IDP_CLIENT_SECRET. One minted value, written in both places.
-		set_value GATEWAY_IDP__CLIENTS "[{\"client_id\":\"cerea\",\"redirect_path\":\"/chat/login/callback\",\"secret\":\"${VALUES[CHAT_IDP_CLIENT_SECRET]}\"}]"
+		set_house_idp_values
 	fi
 
 	# Chat Postgres credentials: generated here, role created in phase 1.
@@ -1376,6 +1495,18 @@ main() {
 			[ "${PARSED[CHAT_KNOWLEDGE_ENABLED]:-}" != "false" ] && ST_KNOWLEDGE=1 || ST_KNOWLEDGE=0
 			[ "${PARSED[CHAT_MEMORY_ENABLED]:-}" != "false" ] && ST_MEMORY=1 || ST_MEMORY=0
 			note "Inferred toggles: redaction=$REDACTION_STATE fetch=$ST_FETCH metering=$ST_METERING. Re-run the full flow to change them."
+			# The enterprise sign-in shape is inferred the same way: external
+			# console OIDC means external, house IdP on means house, neither
+			# means a custom split someone assembled by hand.
+			if [ "$PROFILE" = "enterprise" ]; then
+				if [ "${PARSED[GATEWAY_OIDC__ENABLED]:-}" = "true" ]; then
+					AUTH_MODE="external"
+				elif [ "${PARSED[GATEWAY_IDP__ENABLED]:-}" = "true" ]; then
+					AUTH_MODE="house"
+				else
+					AUTH_MODE="custom"
+				fi
+			fi
 		fi
 		# Resume keeps every parsed value; CHAT_REPO is re-confirmed below
 		# and nothing is regenerated.
@@ -1426,7 +1557,11 @@ main() {
 			IDP_KEY_PATH="$PYSTINO_ROOT/deploy/idp-signing-key.pem"
 			ENV_OUT="$ENV_FILE"
 		fi
-		if [ "$PROFILE" != "enterprise" ] && ! is_standalone_profile "$PROFILE"; then
+		# The file pair the house IdP boots from, wherever it is on. The
+		# validator below reads these; external-only enterprise and the
+		# standalone profiles skip them — no house IdP, no key, nothing
+		# to mount (the compose file mounts /dev/null in that case).
+		if [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" = "true" ] && ! is_standalone_profile "$PROFILE"; then
 			set_value IDP_SIGNING_KEY_HOST_PATH "$IDP_KEY_PATH"
 			set_value GATEWAY_IDP__SIGNING_KEY_FILE "/run/idp/signing-key.pem"
 		fi
@@ -1486,8 +1621,10 @@ main() {
 		fi
 	fi
 
-	# The signing key is written before the .env that points at it.
-	if [ "$PROFILE" != "enterprise" ] && ! is_standalone_profile "$PROFILE"; then
+	# The signing key is written before the .env that points at it — wherever
+	# the house IdP is on (homelab, team, enterprise-house). Standalone
+	# profiles and external-only enterprise have no house IdP, so no key.
+	if [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" = "true" ] && ! is_standalone_profile "$PROFILE"; then
 		gen_signing_key "$IDP_KEY_PATH"
 		if [ "$DRY_RUN" = "1" ]; then
 			note "[dry-run] a throwaway signing key is at $IDP_KEY_PATH — a real run writes it to $PYSTINO_ROOT/deploy/idp-signing-key.pem (chmod 600)"
