@@ -22,6 +22,11 @@ export async function* generateFromDefaultEndpoint({
 	try {
 		// Choose endpoint based on provided modelId, else fall back to taskModel
 		const model = modelId ? (models.find((m) => m.id === modelId) ?? taskModel) : taskModel;
+		// No catalogue means there is nothing to generate with: the empty-
+		// catalogue boot state (operator has not added a provider yet). The
+		// catch below returns "" — callers already treat that as "no
+		// summary/title available", which is the honest answer here.
+		if (!model) return "";
 		const endpoint = await model.getEndpoint();
 		const tokenStream = await endpoint({
 			messages,
