@@ -191,9 +191,9 @@ P_BLURB[homelab]="Single box. No ledger, no redaction, local sign-in + house IdP
 P_FOOTPRINT[homelab]="~625 MB RSS, ~3.8 GB disk, 2 vCPU"
 P_BLURB[team]="Homelab plus accountability: ledger, quotas, pattern-only redaction."
 P_FOOTPRINT[team]="homelab +~300 MB RSS (pattern-only redaction + local extractor)"
-P_BLURB[enterprise]="Everything: NER redaction, browser fetch, external OIDC, per-group billing."
+P_BLURB[enterprise]="Everything: NER redaction, browser fetch, external or bundled OIDC, per-group billing."
 P_FOOTPRINT[enterprise]="team +~750 MB RSS (NER), +3.45 GB disk for the browser"
-P_BLURB[satellite]="Chat against a central Pystino: users and ledger live there, this box holds chat + databases only."
+P_BLURB[satellite]="Chat against a central Pystino: users and ledger live there, this box holds chat + databases only. Sign-in against central, or a bundled local Authelia."
 P_FOOTPRINT[satellite]="~400 MB RSS, ~2.5 GB disk, 1 vCPU (estimate — not yet weighed on a live host)"
 P_BLURB[generic]="Chat against any OpenAI-compatible third party: shared key, no user tokens, no ledger."
 P_FOOTPRINT[generic]="~400 MB RSS, ~2.5 GB disk, 1 vCPU (estimate — not yet weighed on a live host)"
@@ -397,7 +397,12 @@ required_keys_for() { # required_keys_for <profile> <exposure>  -> REQUIRED[]
 			OPENAI_BASE_URL CHAT_PG_URL CHAT_IDP_CLIENT_SECRET CHAT_SECRET_KEY
 			CHAT_OIDC_PROVIDER_URL CHAT_OIDC_CLIENT_ID CHAT_OIDC_CLIENT_SECRET
 			CHAT_REPO PUBLIC_HOST PUBLIC_ORIGIN)
+		# Shared-key mode needs its key: generic always, satellite only with
+		# a local IdP (central mode bills the signer's own token instead).
 		if [ "$profile" = "generic" ]; then REQUIRED+=(OPENAI_API_KEY); fi
+		if [ "$profile" = "satellite" ] && [ "${IDP_BUNDLED:-}" = "authelia" ]; then
+			REQUIRED+=(OPENAI_API_KEY)
+		fi
 		if [ "$exposure" = "proxy" ]; then REQUIRED+=(ACME_EMAIL); fi
 		return
 	fi
@@ -410,9 +415,10 @@ required_keys_for() { # required_keys_for <profile> <exposure>  -> REQUIRED[]
 	if [ "${REDACTION_STATE}" != "off" ]; then REQUIRED+=(REDACTION_PLACEHOLDER_KEY); fi
 	if [ "$profile" = "enterprise" ]; then
 		# What must be non-empty depends on the sign-in shape the operator
-		# picked: external names both OIDC clients, house names the house
-		# IdP's two values, custom requires nothing (each side was asked
-		# optionally, and whatever stayed empty is console work later).
+		# picked: external and bundled both name OIDC clients on the two
+		# sides, house names the house IdP's two values, custom requires
+		# nothing (each side was asked optionally, and whatever stayed
+		# empty is console work later).
 		case "${AUTH_MODE:-external}" in
 			house)
 				REQUIRED+=(GATEWAY_IDP__ISSUER GATEWAY_IDP__INTERNAL_TOKEN)
@@ -425,10 +431,18 @@ required_keys_for() { # required_keys_for <profile> <exposure>  -> REQUIRED[]
 				;;
 		esac
 	else
-		# The signing key is deliberately absent from this list: it arrives as
-		# a file (fresh installs) or inline (legacy resumes), and
-		# validate_values checks the two shapes below rather than a name.
-		REQUIRED+=(GATEWAY_IDP__ISSUER GATEWAY_IDP__INTERNAL_TOKEN)
+		# Team-bundled names OIDC clients like enterprise-external; the
+		# house shapes name the house IdP instead.
+		if [ -n "${IDP_BUNDLED:-}" ]; then
+			REQUIRED+=(GATEWAY_OIDC__ISSUER GATEWAY_OIDC__CLIENT_ID
+				GATEWAY_OIDC__CLIENT_SECRET CHAT_OIDC_PROVIDER_URL CHAT_OIDC_CLIENT_ID
+				CHAT_OIDC_CLIENT_SECRET)
+		else
+			# The signing key is deliberately absent from this list: it arrives as
+			# a file (fresh installs) or inline (legacy resumes), and
+			# validate_values checks the two shapes below rather than a name.
+			REQUIRED+=(GATEWAY_IDP__ISSUER GATEWAY_IDP__INTERNAL_TOKEN)
+		fi
 	fi
 	if [ "$exposure" = "proxy" ]; then REQUIRED+=(ACME_EMAIL); fi
 }
@@ -469,6 +483,13 @@ validate_values() { # validate_values <profile> <values-name>
 	if [ "${vals[GATEWAY_OIDC__ENABLED]:-}" = "true" ] && [ -n "${vals[GATEWAY_OIDC__ISSUER]:-}" ] && ! is_absolute_url "${vals[GATEWAY_OIDC__ISSUER]}"; then
 		fail "GATEWAY_OIDC__ISSUER must be an absolute http(s) URL."
 	fi
+	# Bundled Authelia on a bare IP refuses: browsers will not hold a Domain
+	# cookie on an IP, so the login session never sticks (the generator
+	# enforces a dotted domain for the same reason). Keycloak has no such
+	# constraint. Point a name at this box and re-run.
+	if [ "${vals[IDP_BUNDLED]:-}" = "authelia" ] && [[ "${vals[PUBLIC_HOST]:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+		fail "bundled Authelia needs a name, not ${vals[PUBLIC_HOST]}: browsers refuse a Domain cookie holding a bare IP, so nobody could stay signed in."
+	fi
 	is_standalone_profile "$profile" || return 0
 	if ! is_absolute_url "${vals[OPENAI_BASE_URL]:-}"; then
 		fail "OPENAI_BASE_URL must be an absolute http(s) URL."
@@ -480,7 +501,20 @@ validate_values() { # validate_values <profile> <values-name>
 	# in the file, fresh or resumed.
 	if [ "$profile" = "satellite" ]; then
 		trim "${vals[OPENAI_API_KEY]:-}"
-		if [ -n "$REPLY_VAL" ]; then
+		if [ -n "${vals[IDP_BUNDLED]:-}" ]; then
+			if [ "${vals[IDP_BUNDLED]:-}" != "authelia" ]; then
+				fail "satellite supports only the bundled Authelia (got '${vals[IDP_BUNDLED]}')."
+			fi
+			# Shared-key mode, the only coherent pairing: central's /v1
+			# never accepts a local-IdP token (wrong iss), so inference
+			# bills the stored central key and no user token may flow.
+			if [ -z "$REPLY_VAL" ]; then
+				fail "satellite with a local IdP sets OPENAI_API_KEY: central's /v1 never accepts the local IdP's tokens, so a stored central key pays for every call."
+			fi
+			if [ "${vals[USE_USER_TOKEN]:-}" != "false" ]; then
+				fail "satellite with a local IdP forces USE_USER_TOKEN=false: the local token unlocks nothing on central, and sending it out would leak a credential that does unlock this box's accounts."
+			fi
+		elif [ -n "$REPLY_VAL" ]; then
 			fail "satellite sets no OPENAI_API_KEY: the catalogue fetch is public (ADR 0081) and every real call carries the user's own token — a stored key would bill every user to one account."
 		fi
 	fi
@@ -746,11 +780,121 @@ ask_access_token_audience() {
 	fi
 }
 
+# Bundled providers (Authelia/Keycloak), shared by team, enterprise and the
+# satellite-local shape: the audience is fixed by the overlays (`pystino-api`
+# on both clients, implicitly granted), so it is written, never prompted;
+# the issuer is the public origin plus the provider's prefix. The house IdP
+# stays off on these shapes — the `[]` fallback in collect covers the client
+# registry. The first-human password is asked, never minted (shell variables
+# IDP_ADMIN_* / IDP_FIRST_PASSWORD, never VALUES, so it never lands in
+# deploy/.env); everything generatable is minted here.
+ask_bundled_credentials() { # ask_bundled_credentials <authelia|keycloak>
+	local kind="$1" pw=""
+	if [ "$kind" = "authelia" ]; then
+		note "The first human in the local directory (signs in daily — memorable beats random here)."
+		ask "Local admin login name" "admin"
+		IDP_ADMIN_USER="$REPLY_VAL"
+		ask_required "Local admin email (must look real — the chat refuses .local)"
+		IDP_ADMIN_EMAIL="$REPLY_VAL"
+		ask "Display name" "$IDP_ADMIN_USER"
+		IDP_ADMIN_NAME="$REPLY_VAL"
+		ask_hidden "Local admin password (typed daily)"
+		pw="$REPLY_VAL"
+	else
+		note "The first human is owner@example.org (fixed by the realm template); only its password is chosen here — memorable, typed daily."
+		ask_hidden "First-user password"
+		pw="$REPLY_VAL"
+	fi
+	while [ -z "$pw" ]; do
+		printf '%sNobody can sign in without it.%s\n' "$YELLOW" "$R"
+		ask_hidden "Password"
+		pw="$REPLY_VAL"
+	done
+	case "$pw" in
+		*$'\n'* | *$'\r'*)
+			fail "the password must be a single line."
+			;;
+	esac
+	if [ "$kind" = "authelia" ]; then
+		IDP_ADMIN_PASSWORD="$pw"
+	else
+		IDP_FIRST_PASSWORD="$pw"
+	fi
+}
+
+set_bundled_idp_values() { # set_bundled_idp_values <authelia|keycloak> [chat-secret]
+	local kind="$1" chat_secret="${2:-}" issuer chat_id
+	if [ "$kind" = "authelia" ]; then
+		issuer="${VALUES[PUBLIC_ORIGIN]}/authelia"
+		chat_id="cerea"
+	else
+		issuer="${VALUES[PUBLIC_ORIGIN]}/idp/realms/pystino"
+		chat_id="pystino-chat"
+	fi
+	set_value IDP_BUNDLED "$kind"
+	set_value GATEWAY_IDP__ENABLED "false"
+	set_value GATEWAY_OIDC__ENABLED "true"
+	set_value GATEWAY_OIDC__ISSUER "$issuer"
+	set_value GATEWAY_OIDC__CLIENT_ID "pystino-console"
+	token_url_safe 48
+	set_value GATEWAY_OIDC__CLIENT_SECRET "$TOKEN_VAL"
+	set_value GATEWAY_OIDC__GROUPS_CLAIM "groups"
+	# Fixed by the overlays, never prompted: both clients are granted
+	# `pystino-api` implicitly, so no IdP API call is needed to learn it.
+	set_value GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE "pystino-api"
+	set_value CHAT_OIDC_PROVIDER_URL "$issuer"
+	set_value CHAT_OIDC_CLIENT_ID "$chat_id"
+	if [ -n "$chat_secret" ]; then
+		set_value CHAT_OIDC_CLIENT_SECRET "$chat_secret"
+	else
+		token_url_safe 48
+		set_value CHAT_OIDC_CLIENT_SECRET "$TOKEN_VAL"
+	fi
+	# Tokens validate locally with no userinfo round trip — without `groups`
+	# in the token, billing sees nobody.
+	set_value CHAT_OIDC_SCOPES "openid profile email groups"
+	if [ "$kind" = "authelia" ]; then
+		# Authelia-internal secrets, baked into deploy/idp/ at generation.
+		# Stored (not derived) so a deliberate regeneration reuses them.
+		set_value IDP_SESSION_SECRET "$(openssl rand -hex 32)"
+		set_value IDP_HMAC_SECRET "$(openssl rand -hex 32)"
+		set_value IDP_STORAGE_KEY "$(openssl rand -hex 32)"
+	else
+		# The master-realm bootstrap admin (the overlay maps these onto
+		# Keycloak 26's KC_BOOTSTRAP_ADMIN_* names). Minted, shown once at
+		# the end of the install, resettable in the Admin Console after.
+		set_value KEYCLOAK_ADMIN "admin"
+		token_url_safe 24
+		set_value KEYCLOAK_ADMIN_PASSWORD "$TOKEN_VAL"
+	fi
+}
+
 # Fresh installs generate everything generatable; the asked-for values come
 # after, so the operator meets each one while the consequence is on screen.
 collect_values() { # collect_values <profile>
 	local profile="$1" standalone=0
 	is_standalone_profile "$profile" && standalone=1
+	IDP_BUNDLED=""
+	IDP_ADMIN_USER=""; IDP_ADMIN_EMAIL=""; IDP_ADMIN_NAME=""; IDP_ADMIN_PASSWORD=""; IDP_FIRST_PASSWORD=""
+
+	if [ "$profile" = "team" ]; then
+		title "Sign-in"
+		note "House IdP by default (same as homelab); or deploy a bundled provider alongside the gateway — a real OIDC server with password login, no external directory needed. The audience (pystino-api) is automatic on both."
+		printf '  %s1)%s House IdP — no external provider\n' "$CYAN" "$R"
+		printf '  %s2)%s Bundled Authelia — lean (tens of MB), password login today, TOTP/WebAuthn path later\n' "$CYAN" "$R"
+		printf '  %s3)%s Bundled Keycloak — full directory (~730 MB RSS, ~80 s first boot)\n' "$CYAN" "$R"
+		ask "Choose [1-3]" "1"
+		case "$REPLY_VAL" in
+			2)
+				IDP_BUNDLED="authelia"
+				ask_bundled_credentials authelia
+				;;
+			3)
+				IDP_BUNDLED="keycloak"
+				ask_bundled_credentials keycloak
+				;;
+		esac
+	fi
 
 	title "Secrets — generated locally, never fetched"
 	local generated_notes="" durability
@@ -785,11 +929,12 @@ collect_values() { # collect_values <profile>
 			printf '\n%sDurability warning — REDACTION_PLACEHOLDER_KEY:%s\n%s\n' "$YELLOW" "$R" "$durability"
 			generated_notes="$generated_notes, REDACTION_PLACEHOLDER_KEY"
 		fi
-		if [ "$profile" != "enterprise" ]; then
+		if [ "$profile" != "enterprise" ] && [ -z "$IDP_BUNDLED" ]; then
 			# The signing key: a PEM at <pystino>/deploy/idp-signing-key.pem,
 			# written once the operator confirms the write (a dry run keeps a
 			# throwaway sample beside its temp .env). Two single-line names,
-			# never an inline PEM.
+			# never an inline PEM. Bundled shapes skip this: the house IdP
+			# stays off, so there is nothing to sign with.
 			token_url_safe 48
 			set_value GATEWAY_IDP__INTERNAL_TOKEN "$TOKEN_VAL"
 			generated_notes="$generated_notes, GATEWAY_IDP__INTERNAL_TOKEN"
@@ -826,13 +971,42 @@ collect_values() { # collect_values <profile>
 				fail "The central origin must be an absolute http(s) URL."
 			fi
 			set_value OPENAI_BASE_URL "$central/v1"
+			set_value FETCH_BACKEND "direct"
+			title "Sign-in"
+			note "Central (today's shape: the chat signs in against the central provider and every call carries the signer's own token) or a bundled Authelia on this box (sign-in stays local; inference bills one stored central key, because central's /v1 never accepts local tokens)."
+			printf '  %s1)%s Central provider — per-user billing\n' "$CYAN" "$R"
+			printf '  %s2)%s Bundled Authelia on this box — shared-key billing\n' "$CYAN" "$R"
+			ask "Choose [1-2]" "1"
+			if [ "$REPLY_VAL" = "2" ]; then
+				IDP_BUNDLED="authelia"
+				# Shared-key mode, enforced not defaulted: central's /v1
+				# will never accept a local-Authelia token (wrong iss), so
+				# this box bills one stored central key and never sends a
+				# user token out. The Usage tab goes dark with it: it reads
+				# central's ledger with the signer's own token, which no
+				# longer exists here.
+				ask_hidden "Central API key (pays for every call — mint one on central, paste it here)"
+				while [ -z "$REPLY_VAL" ]; do
+					printf '%sShared-key mode has no other credential.%s\n' "$YELLOW" "$R"
+					ask_hidden "Central API key"
+				done
+				set_value OPENAI_API_KEY "$REPLY_VAL"
+				set_value USE_USER_TOKEN "false"
+				set_value CHAT_USAGE_ENABLED "false"
+				# A spare console secret: the generator requires one, and no
+				# console runs on this profile. Stored, documented, unused.
+				token_url_safe 48
+				set_value IDP_CONSOLE_CLIENT_SECRET "$TOKEN_VAL"
+				note "Spare console secret minted (IDP_CONSOLE_CLIENT_SECRET) — no console runs here; the local Authelia simply requires the client to exist."
+				ask_bundled_credentials authelia
+				note "Provider URL and chat client land on the public origin once it is known (below) — redirect is <origin>/chat/login/callback exactly."
+			else
 			# Nothing is minted and nothing is stored: the catalogue fetch
 			# reads central's public GET /v1/models (ADR 0081), and every
 			# real call carries the signed-in person's own token.
 			unset 'VALUES[OPENAI_API_KEY]'
 			set_value USE_USER_TOKEN "true"
 			set_value CHAT_USAGE_ENABLED "true"
-			set_value FETCH_BACKEND "direct"
 			title "Central identity provider"
 			note "The chat is its own client at the central provider — register <this deployment's origin>/chat/login/callback there. All three are mandatory: without them nobody can sign in."
 			ask_required "OIDC issuer (defaults to the central origin)" "$central"
@@ -847,6 +1021,7 @@ collect_values() { # collect_values <profile>
 			set_value CHAT_OIDC_CLIENT_SECRET "$REPLY_VAL"
 			ask "Chat OIDC scopes" "openid profile email"
 			set_value CHAT_OIDC_SCOPES "$REPLY_VAL"
+			fi
 		else
 			title "Third-party backend"
 			ask_required "Backend base URL (OpenAI-compatible, e.g. https://api.example.com/v1)"
@@ -970,17 +1145,26 @@ collect_values() { # collect_values <profile>
 
 	if [ "$profile" = "enterprise" ]; then
 		title "Sign-in architecture"
-		note "Gateway console and chat are two separate OIDC clients, and /v1 accepts the chat's user tokens only when both sides agree on one issuer plus an audience (docs/oidc-generic-provider.md). A split signs in fine on both sides but breaks per-user /v1 calls; local passwords always stay on as the bootstrap door."
+		note "Gateway console and chat are two separate OIDC clients, and /v1 accepts the chat's user tokens only when both sides agree on one issuer plus an audience (docs/oidc-generic-provider.md). A split signs in fine on both sides but breaks per-user /v1 calls; local passwords always stay on as the bootstrap door. Bundled providers deploy the directory on this box — the audience (pystino-api) is automatic, never prompted."
 		printf '  %s1)%s Single external IdP for gateway and chat\n' "$CYAN" "$R"
 		printf '  %s2)%s House IdP for both — no external provider\n' "$CYAN" "$R"
 		printf '  %s3)%s Custom — each side separately, now or later\n' "$CYAN" "$R"
-		ask "Choose [1-3]" "1"
+		printf '  %s4)%s Bundled Authelia — lean (tens of MB), password login today\n' "$CYAN" "$R"
+		printf '  %s5)%s Bundled Keycloak — full directory (~730 MB RSS, ~80 s first boot)\n' "$CYAN" "$R"
+		ask "Choose [1-5]" "1"
 		case "$REPLY_VAL" in
 			2) AUTH_MODE="house" ;;
 			3) AUTH_MODE="custom" ;;
+			4) AUTH_MODE="bundled-authelia" ;;
+			5) AUTH_MODE="bundled-keycloak" ;;
 			*) AUTH_MODE="external" ;;
 		esac
-		if [ "$AUTH_MODE" = "house" ]; then
+		if [ "$AUTH_MODE" = "bundled-authelia" ] || [ "$AUTH_MODE" = "bundled-keycloak" ]; then
+			IDP_BUNDLED="${AUTH_MODE#bundled-}"
+			note "Bundled $IDP_BUNDLED with enterprise components: same per-user billing as the external shape, plus NER, browser fetch and the ledger — minus the external directory."
+			ask_bundled_credentials "$IDP_BUNDLED"
+			note "Issuer, clients and audience derive from the public origin already given — no prompting for any of them."
+		elif [ "$AUTH_MODE" = "house" ]; then
 			note "House IdP with enterprise components: same sign-in as team, plus NER, browser fetch and the ledger."
 			set_value GATEWAY_OIDC__ENABLED "false"
 			set_house_idp_values
@@ -1050,9 +1234,34 @@ collect_values() { # collect_values <profile>
 		ask "Chat OIDC scopes" "openid profile email"
 		set_value CHAT_OIDC_SCOPES "$REPLY_VAL"
 		fi
-	elif [ "$standalone" = "0" ]; then
-		set_value GATEWAY_OIDC__ENABLED "false"
-		set_house_idp_values
+ 	elif [ "$standalone" = "0" ]; then
+		# Team-house and homelab. Team-bundled skips this: the fixup below
+		# writes the bundled values instead, and a house client registry
+		# beside a disabled house IdP would only confuse.
+		if [ -z "$IDP_BUNDLED" ]; then
+			set_value GATEWAY_OIDC__ENABLED "false"
+			set_house_idp_values
+		fi
+	fi
+	# Bundled issuers need the public origin, which is only known here: the
+	# team and satellite menus ran before it, enterprise inline above (same
+	# call, kept in one place so the three shapes cannot drift).
+	if [ -n "$IDP_BUNDLED" ]; then
+		case "$profile" in
+			team | enterprise) set_bundled_idp_values "$IDP_BUNDLED" ;;
+			satellite)
+				if [ "$IDP_BUNDLED" != "authelia" ]; then
+					fail "satellite supports only the bundled Authelia (got '$IDP_BUNDLED')."
+				fi
+				# One secret serves both halves, house-style: the chat's
+				# Authelia client reuses the minted fallback the overlay
+				# requires, so the two names cannot disagree.
+				set_bundled_idp_values authelia "${VALUES[CHAT_IDP_CLIENT_SECRET]}"
+				;;
+			*)
+				fail "bundled IdP on profile '$profile' is not wired."
+				;;
+		esac
 	fi
 	if [ "$standalone" = "0" ] && [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" != "true" ] && [ -z "${VALUES[GATEWAY_IDP__CLIENTS]+x}" ]; then
 		# No house IdP, no registry — but the name must still parse: the
@@ -1141,7 +1350,7 @@ show_review() {
 					shown="$value"
 				fi
 				;;
-			POSTGRES_PASSWORD | GATEWAY_SECRET_KEY | GATEWAY_SESSION_SECRET | REDACTION_PLACEHOLDER_KEY | GATEWAY_IDP__INTERNAL_TOKEN | GATEWAY_IDP__SIGNING_KEY | CHAT_IDP_CLIENT_SECRET | CHAT_SECRET_KEY | CHAT_PG_PASSWORD | GATEWAY_UPSTREAM__API_KEY | GATEWAY_OIDC__CLIENT_SECRET | OPENAI_API_KEY | CHAT_OIDC_CLIENT_SECRET) shown="(secret, hidden)" ;;
+			POSTGRES_PASSWORD | GATEWAY_SECRET_KEY | GATEWAY_SESSION_SECRET | REDACTION_PLACEHOLDER_KEY | GATEWAY_IDP__INTERNAL_TOKEN | GATEWAY_IDP__SIGNING_KEY | CHAT_IDP_CLIENT_SECRET | CHAT_SECRET_KEY | CHAT_PG_PASSWORD | GATEWAY_UPSTREAM__API_KEY | GATEWAY_OIDC__CLIENT_SECRET | OPENAI_API_KEY | CHAT_OIDC_CLIENT_SECRET | KEYCLOAK_ADMIN_PASSWORD | IDP_SESSION_SECRET | IDP_HMAC_SECRET | IDP_STORAGE_KEY | IDP_CONSOLE_CLIENT_SECRET) shown="(secret, hidden)" ;;
 			*) [ -z "$value" ] && shown="(empty)" || shown="$value" ;;
 		esac
 		printf '  %s=%s\n' "$key" "$shown"
@@ -1181,7 +1390,11 @@ dry_print_cmd() {
 }
 
 # Try a compose command, returning its status (for probes and steps whose
-# failure is a decision point, not the end).
+# failure is a decision point, not the end). `exec` gains -T when stdin is
+# not a TTY: a scripted run (answers piped in) has no terminal to allocate,
+# and without -T the container sees EOF at the first prompt — the phase-1
+# `gateway passwd` step then dies mid-password. With -T the prompt reads
+# stdin, echoing it with the same warning ask_hidden gives.
 try_compose() { # try_compose <env-file> <args...>
 	local envfile="$1"
 	shift
@@ -1189,7 +1402,24 @@ try_compose() { # try_compose <env-file> <args...>
 		dry_print_cmd docker compose --env-file "$envfile" "$@"
 		return 0
 	fi
-	(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" "$@")
+	# The command is the first token that is neither an option nor an
+	# option's value (the overlay lists are all -f pairs). exec gains -T
+	# when stdin is not a TTY: a scripted run (answers piped in) has no
+	# terminal to allocate, and without -T the container sees EOF at the
+	# first prompt — the phase-1 `gateway passwd` step then dies mid-password.
+	# With -T the prompt reads stdin, echoing it with the warning ask_hidden
+	# already gives for non-TTY secrets.
+	local -a compose_args=()
+	local seen_exec=0 arg
+	for arg in "$@"; do
+		if [ "$seen_exec" = "0" ] && [ "$arg" = "exec" ]; then
+			compose_args+=(exec -T)
+			seen_exec=1
+		else
+			compose_args+=("$arg")
+		fi
+	done
+	(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" "${compose_args[@]}")
 }
 
 # A compose command whose failure stops the installer.
@@ -1227,9 +1457,11 @@ overlay_flags() { # overlay_flags <mode> <args...>
 # The whole standalone overlay set: base + chat + exposure, the same files
 # the gateway profiles use — the gateway, valkey, migrate and redaction
 # services are excluded by starting services by name, not by a different
-# file list.
-standalone_overlay_flags() { # standalone_overlay_flags <exposure>
-	local exposure="$1"
+# file list. Satellite-local adds the Authelia overlay (the only bundle a
+# standalone profile ships: no gateway means no console client, and Keycloak
+# was scoped to team/enterprise).
+standalone_overlay_flags() { # standalone_overlay_flags <exposure> [idp]
+	local exposure="$1" idp="${2:-}"
 	case "$exposure" in
 		edge | proxy) ;;
 		*) fail "exposure must be 'edge' or 'proxy' (got '$exposure')" ;;
@@ -1237,6 +1469,225 @@ standalone_overlay_flags() { # standalone_overlay_flags <exposure>
 	OVERLAY_FLAGS=(-f deploy/compose/docker-compose.yml
 		-f deploy/compose/docker-compose.chat.yml
 		-f "deploy/compose/docker-compose.${exposure}.yml")
+	if [ -n "$idp" ]; then
+		case "$idp" in
+			authelia) OVERLAY_FLAGS+=(-f deploy/compose/docker-compose.idp-authelia.yml) ;;
+			*) fail "standalone profiles ship only the Authelia bundle (got '$idp')" ;;
+		esac
+	fi
+}
+
+# The bundled-IdP overlay for this install, if any: the file the IdP streams
+# added (read-only; the installer only selects it). Empty when no provider
+# ships with this deployment.
+idp_overlay_file() {
+	case "${VALUES[IDP_BUNDLED]:-}" in
+		authelia) echo "deploy/compose/docker-compose.idp-authelia.yml" ;;
+		keycloak) echo "deploy/compose/docker-compose.idp-keycloak.yml" ;;
+		*) echo "" ;;
+	esac
+}
+
+# Append the bundled overlay to OVERLAY_FLAGS when one is selected. Called
+# after every derivation (phase-two sets and the dry-run parse check), so no
+# derivation has to know about the bundles.
+append_idp_overlay() {
+	local f
+	f="$(idp_overlay_file)"
+	if [ -n "$f" ]; then OVERLAY_FLAGS+=(-f "$f"); fi
+}
+
+# The bundled issuer answers through the proxy at its public URL — exactly
+# what the gateway and the chat fetch at startup, so the probe uses the
+# public origin, not the loopback (Caddy serves the certificate by SNI, and
+# a loopback probe does not carry the hostname). wget lives in the proxy
+# image, so the host needs nothing new; the certificate is deliberately not
+# checked here (trust is the CA dance's job, next). Deadline is generous:
+# Keycloak's first boot imports the realm and takes ~80 s before discovery
+# answers. Edge shape probes the local plain-HTTP listener instead.
+wait_for_idp() { # wait_for_idp <env-file> <flags...>
+	local envfile="$1"
+	shift
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would wait for the bundled issuer's discovery (proxy wget, 300s deadline)"
+		return
+	fi
+	local path="/authelia/.well-known/openid-configuration"
+	if [ "${VALUES[IDP_BUNDLED]:-}" = "keycloak" ]; then
+		path="/idp/realms/pystino/.well-known/openid-configuration"
+	fi
+	local url="${VALUES[PUBLIC_ORIGIN]}${path}"
+	if [ "${EXPOSURE:-proxy}" = "edge" ]; then
+		url="http://127.0.0.1:${VALUES[HTTPS_PORT]:-8443}${path}"
+	fi
+	local deadline=$((SECONDS + 300))
+	printf 'Waiting for the bundled issuer'
+	while :; do
+		if try_compose "$envfile" "$@" exec -T proxy wget -q -O /dev/null --no-check-certificate "$url" 2>/dev/null; then
+			printf ' — answering.\n'
+			return
+		fi
+		if [ "$SECONDS" -gt "$deadline" ]; then
+			printf '\n'
+			fail "the bundled issuer did not answer $path in time. Inspect with: docker compose logs ${VALUES[IDP_BUNDLED]} proxy"
+		fi
+		printf '.'
+		sleep 5
+	done
+}
+
+# Proxy shape only: make the gateway (and, in phase 2, the chat) trust the
+# proxy's internal CA. The bundle is the public roots plus Caddy's local
+# authority, de-duplicated — SSL_CERT_FILE *replaces* the trust store, so a
+# bundle of only the local root would blind the gateway to its upstream
+# provider. Edge shape skips this (plain HTTP behind the edge: no CA to
+# trust, and nothing to verify against).
+idp_ca_dance() { # idp_ca_dance <env-file> <flags...>
+	local envfile="$1"
+	shift
+	if [ -z "${VALUES[IDP_BUNDLED]:-}" ]; then return; fi
+	if [ "${EXPOSURE:-proxy}" != "proxy" ]; then
+		note "Edge shape: no CA dance (plain HTTP behind the edge)."
+		return
+	fi
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would append the proxy's local CA root to deploy/tls/caddy-root.crt (public roots first, de-duplicated) and restart the gateway"
+		return
+	fi
+	local tls_dir="$PYSTINO_ROOT/deploy/tls"
+	local bundle="$tls_dir/caddy-root.crt"
+	mkdir -p "$tls_dir"
+	echo "Trusting the proxy's local CA ..."
+	local proxy_root public_roots tmp_bundle
+	if ! proxy_root="$(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" "$@" exec -T proxy cat /data/caddy/pki/authorities/local/root.crt 2>/dev/null)"; then
+		fail "could not read the proxy's local CA root (is the proxy up? docker compose logs proxy)."
+	fi
+	case "$proxy_root" in
+		*"BEGIN CERTIFICATE"*) ;;
+		*) fail "the proxy's CA root did not look like a certificate." ;;
+	esac
+	if ! public_roots="$(docker run --rm caddy:2.11-alpine cat /etc/ssl/certs/ca-certificates.crt 2>/dev/null)"; then
+		fail "could not read the public roots (docker run caddy:2.11-alpine failed)."
+	fi
+	tmp_bundle="$bundle.new.$$"
+	{
+		[ -f "$bundle" ] && cat "$bundle"
+		printf '%s\n' "$public_roots"
+		printf '%s\n' "$proxy_root"
+	} | awk '/BEGIN CERTIFICATE/{p=""} {p=p $0 "\n"} /END CERTIFICATE/{if (!seen[p]++) printf "%s", p}' >"$tmp_bundle"
+	mv -f "$tmp_bundle" "$bundle"
+	chmod 644 "$bundle"
+	note "Trust bundle refreshed: $(grep -c 'BEGIN CERTIFICATE' "$bundle") certificates in deploy/tls/caddy-root.crt."
+}
+
+# Edge shape: Caddyfile.netbird has no conf.d import, so the bundled route
+# is appended once to a shared snippet both sites import. Proxy shape needs
+# nothing (the overlay mounts into conf.d). Idempotent behind a marker; if
+# the sites no longer match the shape below, stop with manual instructions
+# rather than writing a file Caddy refuses.
+ensure_edge_idp_route() {
+	if [ -z "${VALUES[IDP_BUNDLED]:-}" ]; then return; fi
+	if [ "${EXPOSURE:-}" != "edge" ]; then return; fi
+	local kind="${VALUES[IDP_BUNDLED]}"
+	local netbird="$PYSTINO_ROOT/deploy/caddy/Caddyfile.netbird"
+	local marker="# installer: bundled $kind route (deploy/compose/docker-compose.idp-$kind.yml)"
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would append the bundled $kind route to deploy/caddy/Caddyfile.netbird (shared snippet, both sites)"
+		return
+	fi
+	if grep -q "installer: bundled .* route" "$netbird" 2>/dev/null; then
+		note "Bundled route already present in Caddyfile.netbird."
+		return
+	fi
+	local snippet_src=""
+	if [ "$kind" = "authelia" ]; then
+		snippet_src="$PYSTINO_ROOT/deploy/caddy/conf.d-authelia/20-authelia.caddy"
+	else
+		snippet_src="$PYSTINO_ROOT/deploy/idp/10-idp-keycloak.caddy"
+	fi
+	[ -f "$snippet_src" ] || fail "missing $snippet_src (generate the IdP files first)."
+	{
+		printf '\n%s\n' "$marker"
+		printf '(idp-routes) {\n'
+		cat "$snippet_src"
+		printf '}\n'
+	} >>"$netbird"
+	# Both sites import origin-routes; teach them the new snippet too. The
+	# match is exact-indentation on purpose: anything else means the file
+	# moved on, and a blind append would write a route nobody imports.
+	if ! grep -q $'^\timport origin-routes$' "$netbird"; then
+		fail "Caddyfile.netbird no longer matches the shape this installer knows (no '<tab>import origin-routes' lines). Add the (idp-routes) snippet's import to both sites by hand, then re-run with --phase2."
+	fi
+	local tmp_nb="$netbird.new.$$"
+	sed 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import idp-routes|' "$netbird" >"$tmp_nb"
+	mv -f "$tmp_nb" "$netbird"
+	note "Bundled $kind route appended to Caddyfile.netbird (both sites)."
+}
+
+# Escape a value for the sed replacement half (delimiter |): backslashes,
+# ampersands and the delimiter arrive quoted. Values are single-line by
+# construction (asserted in main), so no newline handling is needed.
+esc_sed() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
+
+# The bundled provider's generated files: the realm JSON plus the verbatim
+# Caddy snippet for Keycloak (rendered from the template with minted values),
+# the Authelia trio via its generator (bash+openssl only). Refuses to
+# overwrite a previous install — a re-import wipes every user created since,
+# so regeneration is a deliberate delete, never an accident.
+generate_idp_files() { # generate_idp_files <out-dir>
+	local out="$1" kind="${VALUES[IDP_BUNDLED]:-}"
+	[ -z "$kind" ] && return 0
+	mkdir -p "$out"
+	if [ "$kind" = "keycloak" ]; then
+		local f
+		for f in keycloak-realm.json 10-idp-keycloak.caddy; do
+			if [ -e "$out/$f" ]; then
+				fail "refusing: $out/$f exists (delete it deliberately to regenerate — a re-import wipes every user created since)."
+			fi
+		done
+		sed -e "s|__PUBLIC_ORIGIN__|$(esc_sed "${VALUES[PUBLIC_ORIGIN]}")|g" \
+			-e "s|__GATEWAY_CLIENT_SECRET__|$(esc_sed "${VALUES[GATEWAY_OIDC__CLIENT_SECRET]}")|g" \
+			-e "s|__CHAT_CLIENT_SECRET__|$(esc_sed "${VALUES[CHAT_OIDC_CLIENT_SECRET]}")|g" \
+			-e "s|__FIRST_USER_PASSWORD__|$(esc_sed "$IDP_FIRST_PASSWORD")|g" \
+			"$PYSTINO_ROOT/deploy/idp/keycloak-realm.json.template" >"$out/keycloak-realm.json"
+		chmod 600 "$out/keycloak-realm.json"
+		cp "$PYSTINO_ROOT/deploy/idp/10-idp-keycloak.caddy.template" "$out/10-idp-keycloak.caddy"
+		note "Rendered $out/keycloak-realm.json + $out/10-idp-keycloak.caddy."
+	else
+		if [ -e "$out/authelia-configuration.yml" ] || [ -e "$out/users_database.yml" ] || [ -e "$out/authelia-jwks-rsa.pem" ]; then
+			fail "refusing: $out already holds generated Authelia files (delete them deliberately to regenerate — rotating the key re-provisions every user)."
+		fi
+		IDP_OUT_DIR="$out" \
+			IDP_PUBLIC_ORIGIN="${VALUES[PUBLIC_ORIGIN]}" \
+			IDP_COOKIE_DOMAIN="${VALUES[PUBLIC_HOST]}" \
+			IDP_SESSION_SECRET="${VALUES[IDP_SESSION_SECRET]}" \
+			IDP_HMAC_SECRET="${VALUES[IDP_HMAC_SECRET]}" \
+			IDP_STORAGE_KEY="${VALUES[IDP_STORAGE_KEY]}" \
+			IDP_CONSOLE_CLIENT_SECRET="${VALUES[GATEWAY_OIDC__CLIENT_SECRET]}" \
+			IDP_CHAT_CLIENT_SECRET="${VALUES[CHAT_OIDC_CLIENT_SECRET]}" \
+			IDP_ADMIN_USER="$IDP_ADMIN_USER" \
+			IDP_ADMIN_EMAIL="$IDP_ADMIN_EMAIL" \
+			IDP_ADMIN_NAME="$IDP_ADMIN_NAME" \
+			IDP_ADMIN_PASSWORD="$IDP_ADMIN_PASSWORD" \
+			bash "$PYSTINO_ROOT/deploy/idp/generate-authelia-config.sh"
+	fi
+}
+
+# Resume guard: the files must already exist (first boot imports them, and
+# the passwords that rendered them are not recoverable from deploy/.env).
+check_idp_files() {
+	local kind="${VALUES[IDP_BUNDLED]:-}"
+	[ -z "$kind" ] && return 0
+	local dir="$PYSTINO_ROOT/deploy/idp" f
+	if [ "$kind" = "keycloak" ]; then
+		for f in keycloak-realm.json 10-idp-keycloak.caddy; do
+			[ -f "$dir/$f" ] || fail "--phase2 with a bundled Keycloak needs $dir/$f (re-run the full flow to generate it)."
+		done
+	else
+		for f in authelia-configuration.yml users_database.yml; do
+			[ -f "$dir/$f" ] || fail "--phase2 with a bundled Authelia needs $dir/$f (re-run the full flow to generate it)."
+		done
+	fi
 }
 
 # The gateway profiles wait on the gateway's /healthz, which only turns
@@ -1338,10 +1789,47 @@ ensure_chat_database() { # ensure_chat_database <env-file> <flags...>
 phase_one() { # phase_one <env-file>
 	local envfile="$1"
 	title "Phase 1 — database, gateway, first credentials"
-	BASE_FLAGS=(-f deploy/compose/docker-compose.yml)
-	echo "Starting postgres, valkey, migrations and the gateway (base overlay only) ..."
-	run_compose "$envfile" "${BASE_FLAGS[@]}" up -d --build
-	wait_for_gateway "$envfile" "${BASE_FLAGS[@]}"
+	local idp_file
+	idp_file="$(idp_overlay_file)"
+	if [ -n "$idp_file" ]; then
+		# The IdP ships in phase 1: the gateway reads OIDC discovery once at
+		# startup, so the issuer must already answer before the restart the
+		# CA dance ends with. The exposure overlay joins the set so the proxy
+		# service — which the IdP overlay extends with its route — has its
+		# image (without it the set does not parse). Services start by name:
+		# the rest of the phase-2 set (chat, redaction, browser) waits.
+		BASE_FLAGS=(-f deploy/compose/docker-compose.yml
+			-f "deploy/compose/docker-compose.${EXPOSURE}.yml"
+			-f "$idp_file")
+	else
+		BASE_FLAGS=(-f deploy/compose/docker-compose.yml)
+	fi
+	# The gateway refuses engine=http without an endpoint, and only the
+	# redaction overlay names one — a fresh pattern/NER install dies in
+	# phase 1 without it (found live: the crash reads
+	# "redaction.endpoint is required"). Services still start by name
+	# below, so the overlay joins the set for its variables, never its
+	# containers.
+	if [ "${REDACTION_STATE:-off}" != "off" ]; then
+		BASE_FLAGS+=(-f deploy/compose/docker-compose.redaction.yml)
+	fi
+	if [ -n "$idp_file" ]; then
+		echo "Starting postgres, valkey, migrations, the gateway, the proxy and the bundled ${VALUES[IDP_BUNDLED]} ..."
+		run_compose "$envfile" "${BASE_FLAGS[@]}" up -d --build postgres valkey migrate gateway "${VALUES[IDP_BUNDLED]}" ca-bundle proxy
+		wait_for_gateway "$envfile" "${BASE_FLAGS[@]}"
+		wait_for_idp "$envfile" "${BASE_FLAGS[@]}"
+		idp_ca_dance "$envfile" "${BASE_FLAGS[@]}"
+		# Discovery is read once at startup — before the trust bundle and
+		# the issuer both existed. The restart every bundled install needs
+		# anyway picks up both; then the install proceeds as usual.
+		echo "Restarting the gateway against the bundled issuer ..."
+		run_compose "$envfile" "${BASE_FLAGS[@]}" restart gateway
+		wait_for_gateway "$envfile" "${BASE_FLAGS[@]}"
+	else
+		echo "Starting postgres, valkey, migrations and the gateway ..."
+		run_compose "$envfile" "${BASE_FLAGS[@]}" up -d --build
+		wait_for_gateway "$envfile" "${BASE_FLAGS[@]}"
+	fi
 
 	echo ""
 	echo "Create the first administrator. The password is prompted for here —"
@@ -1358,6 +1846,7 @@ phase_two() { # phase_two <env-file>
 	local envfile="$1"
 	title "Phase 2 — full stack"
 	overlay_flags custom_overlays "$EXPOSURE" "$REDACTION_STATE" "$ST_FETCH"
+	append_idp_overlay
 	local file_list="${OVERLAY_FLAGS[*]}"
 	file_list="${file_list//-f /}"
 	echo "Overlay set: $file_list"
@@ -1368,6 +1857,14 @@ phase_two() { # phase_two <env-file>
 	echo "  - Console:   ${VALUES[PUBLIC_ORIGIN]}/console (or http://localhost:${VALUES[GATEWAY_PORT]:-8000}/console over SSH)"
 	if [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" = "true" ]; then
 		echo "  - Sign in:   console with the admin account from phase 1 (admin@local unless you added your own); the chat signs in against the house IdP on the same session — no separate chat account exists."
+	elif [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+		local issuer="${VALUES[GATEWAY_OIDC__ISSUER]}"
+		echo "  - Sign in:   console and chat both against the bundled ${VALUES[IDP_BUNDLED]} ($issuer) — same session either way, per-user /v1 billing with audience pystino-api."
+		if [ "${VALUES[IDP_BUNDLED]}" = "keycloak" ]; then
+			printf '  - Directory admin: %s / %s (bootstrap password shown once — store it now; later resets go through the Admin Console at %s/idp/admin/)\n' "${VALUES[KEYCLOAK_ADMIN]}" "${VALUES[KEYCLOAK_ADMIN_PASSWORD]}" "${VALUES[PUBLIC_ORIGIN]}"
+		else
+			echo "  - Directory admin: ${IDP_ADMIN_USER:-the local admin asked at install} — password asked at install, stored nowhere; later users append to deploy/idp/users_database.yml."
+		fi
 	else
 		echo "  - Sign in:   console with the admin account from phase 1, or the SSO door; the chat signs in against ${VALUES[CHAT_OIDC_PROVIDER_URL]:-its provider, once CHAT_OIDC_* is set}."
 	fi
@@ -1392,6 +1889,21 @@ phase_two() { # phase_two <env-file>
 phase_one_standalone() { # phase_one_standalone <env-file>
 	local envfile="$1"
 	title "Phase 1 — databases only (no gateway on this profile)"
+	if [ "${VALUES[IDP_BUNDLED]:-}" = "authelia" ]; then
+		# Plus the local directory: Authelia needs no database role, but the
+		# proxy must run so the issuer answers (wait_for_idp) and its CA can
+		# be trusted (the dance). --no-deps on the proxy: its gateway
+		# dependency never runs on this profile.
+		echo "Starting postgres, chat-mongo, the bundled Authelia and the proxy ..."
+		run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d --build postgres chat-mongo authelia ca-bundle
+		run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d --build --no-deps proxy
+		wait_for_postgres "$envfile" "${VALUES[POSTGRES_USER]:-chat}" "${OVERLAY_FLAGS[@]}"
+		wait_for_idp "$envfile" "${OVERLAY_FLAGS[@]}"
+		idp_ca_dance "$envfile" "${OVERLAY_FLAGS[@]}"
+		printf 'Chat database: %s (created by initdb as POSTGRES_DB; no role step on this profile)%s\n' "${VALUES[POSTGRES_DB]:-chat}" "$DIM"
+		printf '\nPhase 1 is up. %sNo gateway, no admin password%s — sign-in is local (Authelia), models bill the stored central key.\n' "$CYAN" "$R"
+		return
+	fi
 	echo "Starting postgres and chat-mongo ..."
 	run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d --build postgres chat-mongo
 	wait_for_postgres "$envfile" "${VALUES[POSTGRES_USER]:-chat}" "${OVERLAY_FLAGS[@]}"
@@ -1416,16 +1928,28 @@ phase_two_standalone() { # phase_two_standalone <env-file>
 	local file_list="${OVERLAY_FLAGS[*]}"
 	file_list="${file_list//-f /}"
 	echo "Overlay set: $file_list"
-	echo "Service set: chat chat-mongo postgres proxy — databases already run from phase 1."
+	local services=(chat proxy)
+	if [ "${VALUES[IDP_BUNDLED]:-}" = "authelia" ]; then
+		services+=(authelia)
+		echo "Service set: chat chat-mongo postgres proxy authelia — databases and the directory already run from phase 1."
+	else
+		echo "Service set: chat chat-mongo postgres proxy — databases already run from phase 1."
+	fi
 	echo "Building images (first run downloads) and starting ..."
-	run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d --build --no-deps chat proxy
+	run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d --build --no-deps "${services[@]}"
 	printf '\n%sUp.%s Next steps:\n' "$GREEN" "$R"
 	echo "  - Chat:      ${VALUES[PUBLIC_ORIGIN]}/chat"
 	if [ "$PROFILE" = "satellite" ]; then
 		echo "  - Models:    managed on central (${VALUES[OPENAI_BASE_URL]}) — nothing answers here until central serves them."
-		echo "  - Users:     managed centrally too — this box creates no accounts."
-		echo "  - Sign in:   the chat signs in against central; the session it gets is what the Usage tab reads the ledger with."
-		echo "  - Usage:     the tab reads central's ledger with each signed-in person's own token."
+		if [ "${VALUES[IDP_BUNDLED]:-}" = "authelia" ]; then
+			echo "  - Users:     local — the bundled Authelia on this box holds the accounts, not central."
+			echo "  - Sign in:   the chat signs in against the local Authelia; every call bills the stored central key."
+			echo "  - Usage:     hidden — the tab reads central's ledger with the signer's own token, which no longer exists here."
+		else
+			echo "  - Users:     managed centrally too — this box creates no accounts."
+			echo "  - Sign in:   the chat signs in against central; the session it gets is what the Usage tab reads the ledger with."
+			echo "  - Usage:     the tab reads central's ledger with each signed-in person's own token."
+		fi
 	else
 		echo "  - Models:    served by the third party (${VALUES[OPENAI_BASE_URL]}) — every call bills the shared key."
 		echo "  - Sign in:   the chat signs in against ${VALUES[CHAT_OIDC_PROVIDER_URL]}; nobody signs in anywhere else on this box."
@@ -1522,12 +2046,17 @@ main() {
 			[ "${PARSED[CHAT_KNOWLEDGE_ENABLED]:-}" != "false" ] && ST_KNOWLEDGE=1 || ST_KNOWLEDGE=0
 			[ "${PARSED[CHAT_MEMORY_ENABLED]:-}" != "false" ] && ST_MEMORY=1 || ST_MEMORY=0
 			note "Inferred toggles: redaction=$REDACTION_STATE fetch=$ST_FETCH metering=$ST_METERING. Re-run the full flow to change them."
-			# The enterprise sign-in shape is inferred the same way: external
-			# console OIDC means external, house IdP on means house, neither
-			# means a custom split someone assembled by hand.
+			# The enterprise sign-in shape is inferred the same way: a bundled
+			# provider means its shape, external console OIDC means external,
+			# house IdP on means house, neither means a custom split someone
+			# assembled by hand.
 			if [ "$PROFILE" = "enterprise" ]; then
 				if [ "${PARSED[GATEWAY_OIDC__ENABLED]:-}" = "true" ]; then
-					AUTH_MODE="external"
+					case "${PARSED[IDP_BUNDLED]:-}" in
+						authelia) AUTH_MODE="bundled-authelia" ;;
+						keycloak) AUTH_MODE="bundled-keycloak" ;;
+						*) AUTH_MODE="external" ;;
+					esac
 				elif [ "${PARSED[GATEWAY_IDP__ENABLED]:-}" = "true" ]; then
 					AUTH_MODE="house"
 				else
@@ -1536,7 +2065,10 @@ main() {
 			fi
 		fi
 		# Resume keeps every parsed value; CHAT_REPO is re-confirmed below
-		# and nothing is regenerated.
+		# and nothing is regenerated. The bundled shape travels in the file
+		# (IDP_BUNDLED); the global mirrors it so required_keys_for sees the
+		# same shape as a fresh run.
+		IDP_BUNDLED="${PARSED[IDP_BUNDLED]:-}"
 		local key
 		for key in "${PARSED_ORDER[@]}"; do
 			set_value "$key" "${PARSED[$key]}"
@@ -1599,8 +2131,9 @@ main() {
 
 	if [ "$PHASE2_ONLY" = "1" ]; then
 		build_scrub "$ENV_FILE"
+		check_idp_files
 		if is_standalone_profile "$PROFILE"; then
-			standalone_overlay_flags "$EXPOSURE"
+			standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
 			phase_two_standalone "$ENV_FILE"
 		else
 			phase_two "$ENV_FILE"
@@ -1624,6 +2157,15 @@ main() {
 					;;
 			esac
 		done
+		# Bundled-only mints, printed only when set (external shapes paste
+		# these instead, and pasted secrets are never shown back).
+		if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+			for key in GATEWAY_OIDC__CLIENT_SECRET CHAT_OIDC_CLIENT_SECRET IDP_SESSION_SECRET IDP_HMAC_SECRET IDP_STORAGE_KEY IDP_CONSOLE_CLIENT_SECRET KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD; do
+				if [ -n "${VALUES[$key]:-}" ]; then
+					printf '  %s=%s\n' "$key" "${VALUES[$key]}"
+				fi
+			done
+		fi
 	else
 		confirm "Show generated secret values once (they live in deploy/.env afterwards)?" 0
 		if [ "$CONFIRM_VAL" = "1" ]; then
@@ -1635,6 +2177,13 @@ main() {
 						;;
 				esac
 			done
+			if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+				for key in GATEWAY_OIDC__CLIENT_SECRET CHAT_OIDC_CLIENT_SECRET IDP_SESSION_SECRET IDP_HMAC_SECRET IDP_STORAGE_KEY IDP_CONSOLE_CLIENT_SECRET KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD; do
+					if [ -n "${VALUES[$key]:-}" ]; then
+						printf '  %s=%s\n' "$key" "${VALUES[$key]}"
+					fi
+				done
+			fi
 			printf '  CHAT_PG_URL=%s\n' "${VALUES[CHAT_PG_URL]}"
 		fi
 		confirm "Write $ENV_FILE?" 1
@@ -1655,6 +2204,18 @@ main() {
 		gen_signing_key "$IDP_KEY_PATH"
 		if [ "$DRY_RUN" = "1" ]; then
 			note "[dry-run] a throwaway signing key is at $IDP_KEY_PATH — a real run writes it to $PYSTINO_ROOT/deploy/idp-signing-key.pem (chmod 600)"
+		fi
+	fi
+
+	# The bundled provider's files, before the .env that names them —
+	# Keycloak imports the realm at first boot only, so the JSON must exist
+	# before phase 1 starts anything.
+	if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+		if [ "$DRY_RUN" = "1" ]; then
+			generate_idp_files "$TMP_DIR/idp"
+			note "[dry-run] throwaway IdP files are under $TMP_DIR/idp — a real run writes them to $PYSTINO_ROOT/deploy/idp/ (mode 600, never committed)"
+		else
+			generate_idp_files "$PYSTINO_ROOT/deploy/idp"
 		fi
 	fi
 
@@ -1689,9 +2250,10 @@ main() {
 	# skipped when docker is absent rather than failing the dry run on it.
 	if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
 		if is_standalone_profile "$PROFILE"; then
-			standalone_overlay_flags "$EXPOSURE"
+			standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
 		else
 			overlay_flags custom_overlays "$EXPOSURE" "$REDACTION_STATE" "$ST_FETCH"
+			append_idp_overlay
 		fi
 		# The derivation needed CHAT_REPO for the playwright overlay; the
 		# scrub for the parse check must keep it (it is re-supplied as an
@@ -1713,10 +2275,30 @@ main() {
 		if [ "$DRY_RUN" = "1" ]; then
 			note "[dry-run] docker compose config --quiet accepted the generated .env against the overlay set."
 		fi
+		# Bundled gateway profiles bring up a smaller set in phase 1 (base +
+		# exposure + IdP, plus redaction for its variables when the engine
+		# is not noop); prove that set parses too, not just the full one.
+		if [ -n "${VALUES[IDP_BUNDLED]:-}" ] && ! is_standalone_profile "$PROFILE"; then
+			local -a phase1_check=(-f deploy/compose/docker-compose.yml
+				-f "deploy/compose/docker-compose.${EXPOSURE}.yml"
+				-f "$(idp_overlay_file)")
+			if [ "${REDACTION_STATE:-off}" != "off" ]; then
+				phase1_check+=(-f deploy/compose/docker-compose.redaction.yml)
+			fi
+			if ! (cd "$PYSTINO_ROOT" && "${check_cmd[@]}" compose --env-file "$ENV_FILE" "${phase1_check[@]}" config --quiet); then
+				fail "docker compose refuses the phase-1 set (see the message above)."
+			fi
+			if [ "$DRY_RUN" = "1" ]; then
+				note "[dry-run] docker compose config --quiet accepted the phase-1 set (base + exposure + bundled ${VALUES[IDP_BUNDLED]})."
+			fi
+		fi
 	fi
 
+	if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+		ensure_edge_idp_route
+	fi
 	if is_standalone_profile "$PROFILE"; then
-		standalone_overlay_flags "$EXPOSURE"
+		standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
 		phase_one_standalone "$ENV_FILE"
 		phase_two_standalone "$ENV_FILE"
 	else
