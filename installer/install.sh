@@ -137,7 +137,11 @@ AUTH_MODE=""
 . "$CEREA_ROOT/installer/lib/compose-flags.sh"
 . "$CEREA_ROOT/installer/lib/flags.sh"
 
-trap 'printf "\nAborted. Nothing was changed beyond what the transcript above says.\n" >&2' INT
+# Ctrl+C is a full stop: the handler replaces the default SIGINT death, so
+# without an explicit exit the script would print the message and *resume*
+# where it was interrupted — a half-aborted install that keeps running is
+# worse than either ending. 130 is the conventional SIGINT status.
+trap 'printf "\nAborted. Nothing was changed beyond what the transcript above says.\n" >&2; trap - INT; kill -INT $$' INT
 
 input_ended() {
 	fail "input ended unexpectedly. Re-run interactively; nothing was written unless the transcript above says so."
@@ -1457,13 +1461,23 @@ wait_for_idp() { # wait_for_idp <env-file> <flags...>
 		path="/idp/realms/pystino/.well-known/openid-configuration"
 	fi
 	local url="${VALUES[PUBLIC_ORIGIN]}${path}"
+	local host_header=""
 	if [ "${EXPOSURE:-proxy}" = "edge" ]; then
+		# The edge listener is loopback plain-HTTP, but the vhost behind it
+		# is chosen by Host — a bare 127.0.0.1:8443 request has no vhost, so
+		# Caddy's default site answers... and for OIDC discovery that is
+		# fatal BEFORE any routing: the issuer is *derived from the request
+		# URL*, and Authelia refuses a request whose host matches none of
+		# its session-cookie URLs ('no session cookie configuration matches
+		# url https://127.0.0.1:8443/authelia', HTTP 400). The probe must
+		# look like the real client the edge serves: the public name.
 		url="http://127.0.0.1:${VALUES[HTTPS_PORT]:-8443}${path}"
+		host_header="--header Host: ${VALUES[PUBLIC_HOST]}"
 	fi
 	local deadline=$((SECONDS + 300))
 	printf 'Waiting for the bundled issuer'
 	while :; do
-		if try_compose "$envfile" "$@" exec -T proxy wget -q -O /dev/null --no-check-certificate "$url" 2>/dev/null; then
+		if try_compose "$envfile" "$@" exec -T proxy wget -q -O /dev/null --no-check-certificate $host_header "$url" 2>/dev/null; then
 			printf ' — answering.\n'
 			return
 		fi
