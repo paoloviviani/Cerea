@@ -912,8 +912,6 @@ collect_values() { # collect_values <profile>
 			set_value CHAT_OIDC_CLIENT_SECRET "$REPLY_VAL"
 			ask "Chat OIDC scopes" "openid profile email"
 			set_value CHAT_OIDC_SCOPES "$REPLY_VAL"
-			ask "Admin usernames (comma-separated, optional)"
-			set_value ADMIN_USERNAMES "$REPLY_VAL"
 		fi
 	else
 	ask "Upstream OpenAI-compatible base URL" "${PARSED[GATEWAY_UPSTREAM__BASE_URL]:-https://api.cortecs.ai/v1}"
@@ -1359,7 +1357,19 @@ phase_two() { # phase_two <env-file>
 	printf '\n%sUp.%s Next steps:\n' "$GREEN" "$R"
 	echo "  - Chat:      ${VALUES[PUBLIC_ORIGIN]}/chat"
 	echo "  - Console:   ${VALUES[PUBLIC_ORIGIN]}/console (or http://localhost:${VALUES[GATEWAY_PORT]:-8000}/console over SSH)"
-	echo "  - Providers: add real models in the console — no profile ships a provider, so nothing answers until then."
+	if [ "${VALUES[GATEWAY_IDP__ENABLED]:-}" = "true" ]; then
+		echo "  - Sign in:   console with the admin account from phase 1 (admin@local unless you added your own); the chat signs in against the house IdP on the same session — no separate chat account exists."
+	else
+		echo "  - Sign in:   console with the admin account from phase 1, or the SSO door; the chat signs in against ${VALUES[CHAT_OIDC_PROVIDER_URL]:-its provider, once CHAT_OIDC_* is set}."
+	fi
+	if [ -z "${VALUES[GATEWAY_UPSTREAM__API_KEY]:-}" ]; then
+		echo "  - Providers: no upstream key was given, so nothing answers until providers are added in the console."
+	else
+		echo "  - Providers: add real models in the console — no profile ships a provider, so nothing answers until then."
+	fi
+	if [ "${VALUES[GATEWAY_OIDC__ENABLED]:-}" = "true" ] && [ -z "${VALUES[GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE]:-}" ]; then
+		echo "  - Audience:  /v1 takes API keys only until an access-token audience is set (deploy/.env + gateway restart); the chat's per-user calls wait on it."
+	fi
 	if [ "${VALUES[GATEWAY_ACCOUNTING__ENABLED]:-}" = "true" ]; then
 		echo "  - Quotas: define quota rules in the console; the demo cap pattern is EUR 1/hour."
 	else
@@ -1405,9 +1415,11 @@ phase_two_standalone() { # phase_two_standalone <env-file>
 	if [ "$PROFILE" = "satellite" ]; then
 		echo "  - Models:    managed on central (${VALUES[OPENAI_BASE_URL]}) — nothing answers here until central serves them."
 		echo "  - Users:     managed centrally too — this box creates no accounts."
+		echo "  - Sign in:   the chat signs in against central; the session it gets is what the Usage tab reads the ledger with."
 		echo "  - Usage:     the tab reads central's ledger with each signed-in person's own token."
 	else
 		echo "  - Models:    served by the third party (${VALUES[OPENAI_BASE_URL]}) — every call bills the shared key."
+		echo "  - Sign in:   the chat signs in against ${VALUES[CHAT_OIDC_PROVIDER_URL]}; nobody signs in anywhere else on this box."
 		echo "  - Ledger:    none on this profile. There is no per-user spend to show, which is why the Usage tab stays hidden."
 	fi
 	printf '\n%sBack up POSTGRES_PASSWORD and CHAT_SECRET_KEY with the database now,%s not when you need it.\n' "$YELLOW" "$R"
