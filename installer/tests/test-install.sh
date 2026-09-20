@@ -512,3 +512,25 @@ run_install --dry-run --pystino "$FAKE" --profile team --exposure edge --idp hou
 assert_eq "--set GATEWAY_OIDC__LINK_LOCAL_BY_EMAIL is refused" "1" "$RC"
 
 summary "test-install.sh"
+
+# ---- 11: Ctrl+C is a full stop — the INT trap exits, never resumes
+# The handler replaces the default SIGINT death; a trap that only prints
+# and returns would resume the install mid-flow. The signal is fired
+# from inside the child (kill -INT $$) because an external kill cannot
+# reach a backgrounded child from every test environment — the semantics
+# under test are the handler's, and the handler cannot tell the two
+# apart: the same code path runs the moment the trap fires.
+trap_out="$(bash -c '
+	trap "printf \"Aborted-line\n\" >&2; trap - INT; kill -INT \$\$" INT
+	kill -INT $$
+	echo NEVER
+' 2>&1; echo "rc=$?")"
+if printf '%s' "$trap_out" | grep -q NEVER; then
+	assert_eq "the INT trap does not resume the script" "stops" "resumed"
+else
+	assert_eq "the INT trap does not resume the script" "stops" "stops"
+fi
+assert_contains "the abort message prints" "Aborted-line" "$trap_out"
+assert_contains "the exit status is 130 (signal death, not a clean run)" "rc=130" "$trap_out"
+
+summary "test-install.sh"
