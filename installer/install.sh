@@ -572,34 +572,83 @@ resolve_pystino_root() { # -> PYSTINO_ROOT
 		fi
 	done
 	while :; do
-		ask "Path to the Pystino checkout" "$guess"
-		local answer="$REPLY_VAL" resolved
-		answer="${answer/#\~/$HOME}"
-		resolved="$(cd "$answer" 2>/dev/null && pwd)" || resolved=""
-		if [ -z "$resolved" ]; then
-			confirm "That path does not exist. Clone the internal fork there?" 1
-			if [ "$CONFIRM_VAL" = "0" ]; then continue; fi
+		printf '\n  %s1)%s Use an existing checkout\n' "$CYAN" "$R"
+		printf '  %s2)%s Clone it now\n' "$CYAN" "$R"
+		ask "Point at an existing Pystino checkout, or clone it? [1-2]" "1"
+		case "$REPLY_VAL" in
+		2)
+			local dest="" url="" resolved
+			ask "Directory to clone into" "$guess"
+			dest="$REPLY_VAL"
+			dest="${dest/#\~/$HOME}"
+			if [ -e "$dest" ]; then
+				resolved="$(cd "$dest" 2>/dev/null && pwd)" || resolved=""
+				if [ -n "$resolved" ]; then
+					validate_pystino_root "$resolved"
+					if [ -z "$MISSING_LIST" ]; then
+						case "$resolved" in
+							*" "*)
+								fail "The Pystino path contains a space, which the overlay derivation cannot quote. Move the checkout and re-run."
+								;;
+						esac
+						PYSTINO_ROOT="$resolved"
+						note "Already a Pystino checkout — using it in place."
+						return
+					fi
+					warn "That directory is missing $MISSING_LIST — not a usable checkout."
+					continue
+				fi
+				warn "Exists but not a directory: $dest"
+				continue
+			fi
 			ask "Repository URL" "$INTERNAL_FORK"
-			local url="$REPLY_VAL"
+			url="$REPLY_VAL"
 			echo "Cloning $url ..."
-			if ! git clone "$url" "$answer"; then
+			if ! git clone "$url" "$dest"; then
 				warn "Clone failed. Check the URL and your access, then try again."
 				continue
 			fi
-			resolved="$(cd "$answer" && pwd)"
-		fi
-		validate_pystino_root "$resolved"
-		if [ -n "$MISSING_LIST" ]; then
-			warn "That directory is missing $MISSING_LIST. Pick another, or clone the fork."
-			continue
-		fi
-		case "$resolved" in
-			*" "*)
-				fail "The Pystino path contains a space, which the overlay derivation cannot quote. Move the checkout and re-run."
-				;;
+			resolved="$(cd "$dest" && pwd)"
+			validate_pystino_root "$resolved"
+			if [ -n "$MISSING_LIST" ]; then
+				warn "The clone is missing $MISSING_LIST — wrong repository?"
+				continue
+			fi
+			case "$resolved" in
+				*" "*)
+					fail "The Pystino path contains a space, which the overlay derivation cannot quote. Move the checkout and re-run."
+					;;
+			esac
+			PYSTINO_ROOT="$resolved"
+			return
+			;;
+		1)
+			local answer resolved
+			ask "Path to the Pystino checkout" "$guess"
+			answer="$REPLY_VAL"
+			answer="${answer/#\~/$HOME}"
+			resolved="$(cd "$answer" 2>/dev/null && pwd)" || resolved=""
+			if [ -z "$resolved" ]; then
+				warn "No such directory: $answer. Pick another, or choose clone above."
+				continue
+			fi
+			validate_pystino_root "$resolved"
+			if [ -n "$MISSING_LIST" ]; then
+				warn "That directory is missing $MISSING_LIST. Pick another, or clone the fork."
+				continue
+			fi
+			case "$resolved" in
+				*" "*)
+					fail "The Pystino path contains a space, which the overlay derivation cannot quote. Move the checkout and re-run."
+					;;
+			esac
+			PYSTINO_ROOT="$resolved"
+			return
+			;;
+		*)
+			printf '%sEnter 1 or 2.%s\n' "$YELLOW" "$R"
+			;;
 		esac
-		PYSTINO_ROOT="$resolved"
-		return
 	done
 }
 
@@ -1089,13 +1138,10 @@ collect_values() { # collect_values <profile>
 			set_value CHAT_OIDC_SCOPES "$REPLY_VAL"
 		fi
 	else
-	ask "Upstream OpenAI-compatible base URL" "${PARSED[GATEWAY_UPSTREAM__BASE_URL]:-https://api.cortecs.ai/v1}"
-	set_value GATEWAY_UPSTREAM__BASE_URL "$REPLY_VAL"
-	ask_hidden "Upstream API key (empty to skip — providers are added in the console later)"
-	set_value GATEWAY_UPSTREAM__API_KEY "$REPLY_VAL"
-	if [ -z "$REPLY_VAL" ]; then
-		note "No upstream key: the gateway boots fine but answers nothing until a provider is configured in the console."
-	fi
+	# Providers are console-only on every gateway profile: no upstream
+	# endpoint or key is asked or written here, and the compose defaults
+	# (empty key, default base URL) carry that shape.
+	note "Providers are added in the console after install — nothing answers until then."
 	fi
 
 	if [ "$EXPOSURE" = "edge" ]; then
