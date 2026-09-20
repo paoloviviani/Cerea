@@ -215,21 +215,32 @@ const getModelOverrides = (): ModelOverride[] => {
 export type ProcessedModel = InternalProcessedModel;
 
 export let models: ProcessedModel[] = [];
-export let defaultModel!: ProcessedModel;
-export let taskModel!: ProcessedModel;
+export let defaultModel: ProcessedModel | undefined = undefined;
+export let taskModel: ProcessedModel | undefined = undefined;
 export let validModelIdSchema: z.ZodType<string> = z.string();
 
 const createValidModelIdSchema = (modelList: ProcessedModel[]): z.ZodType<string> => {
+	// Empty catalogue: accept any string rather than reject everything. With
+	// no ids to validate against, a refine() would refuse the model a
+	// conversation is already on — but there are no conversations to serve
+	// yet either, and the point of this state is to *boot* while the operator
+	// has not added a provider. The first successful publish rebuilds the
+	// schema into a real membership check.
 	if (modelList.length === 0) {
-		throw new Error("No models available to build validation schema");
+		return z.string();
 	}
 	const ids = new Set(modelList.map((m) => m.id));
 	return z.string().refine((value) => ids.has(value), "Invalid model id");
 };
 
-const resolveTaskModel = (modelList: ProcessedModel[]) => {
+const resolveTaskModel = (modelList: ProcessedModel[]): ProcessedModel | undefined => {
+	// Undefined, not a throw: a deployment whose gateway holds no chat model
+	// yet still boots (the operator adds one through the console, and the
+	// TTL refresh picks it up). A caller reaching for taskModel with no
+	// catalogue has nothing to generate with and reports that — which is the
+	// honest answer, not a boot failure.
 	if (modelList.length === 0) {
-		throw new Error("No models available to select task model");
+		return undefined;
 	}
 
 	if (config.TASK_MODEL) {
@@ -493,10 +504,15 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 const publishModels = async (): Promise<void> => {
 	const startedAt = Date.now();
 	const newModels = await buildModels();
-	if (newModels.length === 0) {
-		throw new Error("Failed to load any models from upstream");
-	}
 
+	// An empty catalogue is published, not thrown: the operator's own
+	// provider decision ("providers are console-only") means a fresh
+	// install legitimately answers zero chat models, and the chat dying in
+	// a crash loop until someone opens the console takes the sign-in page
+	// down with it — the console is the way to fix it. The TTL refresh
+	// picks the catalogue up the moment a model appears. Unchanged: a
+	// *fetch failure* still throws, here and at startup — an unreachable
+	// gateway is a real outage, and this state must not swallow it.
 	models = newModels;
 	setMlAssistantCatalog(() => models.map((model) => ({ id: model.id, isRouter: model.isRouter })));
 	defaultModel = models[0];
@@ -559,21 +575,36 @@ export const ensureModelsFresh = async (): Promise<ProcessedModel[]> => {
 // Skip the initial fetch during `vite build`: SvelteKit's analyse phase imports this
 // module, and hitting the live router from CI builds fails on rate limits (429).
 //
-// The startup build still throws on failure, unlike a later refresh: a worker
-// that has never had a catalogue has nothing to fall back on, and coming up
-// with an empty model list would be a silent outage rather than a loud one.
+// The startup build still throws when the gateway is unreachable (a worker
+// that cannot talk to its backend is down, loudly), but an empty catalogue is
+// not that: it publishes empty and the TTL refresh heals it the minute the
+// operator adds a provider through the console — the console the chat must be
+// up to serve.
 if (!building) {
 	await publishModels();
 }
 
 export const validateModel = (_models: BackendModel[]) => {
+	// Empty catalogue: same rule as `createValidModelIdSchema` above — accept
+	// any string rather than crash building the enum (`z.enum` needs at least
+	// one value, and `_models[0]` doesn't exist to give it one).
+	if (_models.length === 0) {
+		return z.string();
+	}
 	// Zod enum function requires 2 parameters
 	return z.enum([_models[0].id, ..._models.slice(1).map((m) => m.id)]);
 };
 
 // if `TASK_MODEL` is string & name of a model in `MODELS`, then we use `MODELS[TASK_MODEL]`, else we try to parse `TASK_MODEL` as a model config itself
 
+// Built from `ProcessedModel` directly, not `typeof defaultModel`: this
+// describes the shape of an actual model object (what a route gets back after
+// finding/asserting one), not the "maybe nothing yet" state of the
+// `defaultModel` binding — deriving it from that union fed `Optional`'s
+// `Pick`/`Omit` a `T` TypeScript couldn't resolve, and every consumer of
+// `BackendModel` (buildPrompt, endpoints, the conversation routes) saw
+// `{}`/`never` instead of real fields once `defaultModel` gained `| undefined`.
 export type BackendModel = Optional<
-	typeof defaultModel,
+	ProcessedModel,
 	"preprompt" | "parameters" | "multimodal" | "unlisted" | "hasInferenceAPI"
 >;
