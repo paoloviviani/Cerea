@@ -7,6 +7,11 @@ const updateAssistantsModels: Migration = {
 	name: "Update deprecated models in assistants with the default model",
 	up: async () => {
 		const models = (await import("$lib/server/models")).models;
+		// The catalogue can legitimately be empty now (a fresh install has
+		// no chat models until the operator adds a provider): there is no
+		// default to transfer assistants to, and modelIds being empty would
+		// otherwise flag every assistant for a rewrite to undefined.
+		if (models.length === 0) return true;
 		//@ts-expect-error the property doesn't exist anymore, keeping the script for reference
 		const oldModels = (await import("$lib/server/models")).oldModels;
 		const { assistants } = collections;

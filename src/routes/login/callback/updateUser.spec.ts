@@ -55,12 +55,18 @@ const insertRandomUser = async () => {
 };
 
 const insertRandomConversations = async (count: number) => {
+	// The shared fixture catalogue (scripts/setups/vitest-setup-server.ts)
+	// always publishes at least one model, so this holds in every suite that
+	// imports it; asserted rather than `!` because a real empty-catalogue run
+	// (see models.empty-boot.spec.ts) would otherwise fail this silently.
+	assert(defaultModel, "expected the fixture catalogue to publish a default model");
+	const modelId = defaultModel.id;
 	const res = await collections.conversations.insertMany(
 		new Array(count).fill(0).map(() => ({
 			_id: new ObjectId(),
 			title: "random title",
 			messages: [],
-			model: defaultModel.id,
+			model: modelId,
 			// embedding model removed in this build
 			createdAt: new Date(),
 			updatedAt: new Date(),

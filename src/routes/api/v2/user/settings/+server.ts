@@ -48,7 +48,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 	requireAuth(locals);
 	const settings = await collections.settings.findOne(authCondition(locals));
 
-	if (settings && !validateModel(models).safeParse(settings?.activeModel).success) {
+	// Empty catalogue: `validateModel`/`defaultModel` degrade (see models.ts),
+	// so there's no id to fall back to yet — leave the stored value alone
+	// until the operator adds a model and the TTL refresh picks it up.
+	if (defaultModel && settings && !validateModel(models).safeParse(settings?.activeModel).success) {
 		settings.activeModel = defaultModel.id;
 		await collections.settings.updateOne(authCondition(locals), {
 			$set: { activeModel: defaultModel.id },
@@ -57,6 +60,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 	// if the model is unlisted, set the active model to the default model
 	if (
+		defaultModel &&
 		settings?.activeModel &&
 		models.find((m) => m.id === settings?.activeModel)?.unlisted === true
 	) {
