@@ -1463,7 +1463,7 @@ wait_for_idp() { # wait_for_idp <env-file> <flags...>
 		path="/idp/realms/pystino/.well-known/openid-configuration"
 	fi
 	local url="${VALUES[PUBLIC_ORIGIN]}${path}"
-	local host_header=""
+	local -a host_header=()
 	if [ "${EXPOSURE:-proxy}" = "edge" ]; then
 		# The edge listener is loopback plain-HTTP, but the vhost behind it
 		# is chosen by Host — a bare 127.0.0.1:8443 request has no vhost, so
@@ -1473,13 +1473,21 @@ wait_for_idp() { # wait_for_idp <env-file> <flags...>
 		# its session-cookie URLs ('no session cookie configuration matches
 		# url https://127.0.0.1:8443/authelia', HTTP 400). The probe must
 		# look like the real client the edge serves: the public name.
+		#
+		# An array, not a string: '--header Host: name' carries a space, and
+		# an unquoted string expansion splits there — busybox wget then
+		# takes 'Host:' as a value-less header and the public name for a
+		# second URL, and the real request leaves without its Host. The
+		# failure is the exact 400 this header exists to prevent, from a
+		# probe that looked correct in a shell and never worked in the
+		# installer.
 		url="http://127.0.0.1:${VALUES[HTTPS_PORT]:-8443}${path}"
-		host_header="--header Host: ${VALUES[PUBLIC_HOST]}"
+		host_header=(--header "Host: ${VALUES[PUBLIC_HOST]}")
 	fi
 	local deadline=$((SECONDS + 300))
 	printf 'Waiting for the bundled issuer'
 	while :; do
-		if try_compose "$envfile" "$@" exec -T proxy wget -q -O /dev/null --no-check-certificate $host_header "$url" 2>/dev/null; then
+		if try_compose "$envfile" "$@" exec -T proxy wget -q -O /dev/null --no-check-certificate "${host_header[@]}" "$url" 2>/dev/null; then
 			printf ' — answering.\n'
 			return
 		fi
