@@ -431,7 +431,15 @@ resolve_pystino_root() { # -> PYSTINO_ROOT
 		case "$REPLY_VAL" in
 		2)
 			local dest="" url="" resolved
-			ask "Directory to clone into" "$guess"
+			# The clone needs a destination even when no existing checkout
+			# produced a guess: an empty default makes Enter submit nothing,
+			# and the bracket hint prints as '[]' — a prompt that assumes
+			# the operator knows something the installer never said. Fall
+			# back to a name beside this checkout, the one place a clone is
+			# guaranteed writable (the Cerea checkout's parent already is).
+			local clone_default="$guess"
+			[ -n "$clone_default" ] || clone_default="$CEREA_ROOT/../Pystino"
+			ask "Directory to clone into" "$clone_default"
 			dest="$REPLY_VAL"
 			dest="${dest/#\~/$HOME}"
 			if [ -e "$dest" ]; then
