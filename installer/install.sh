@@ -727,7 +727,13 @@ set_house_idp_values() {
 # The audience prompt, shared by the external and custom paths: leaving it
 # empty is valid (API keys stay the /v1 credential) but breaks the chat's
 # per-user calls, so an empty answer costs a confirm, defaulting to no.
+# The value itself is defined provider-side — this only repeats the string:
+# the per-provider shapes are printed with the question because nobody
+# remembers where their IdP hides the audience.
 ask_access_token_audience() {
+	note "What your provider puts in the access token's aud claim for the chat's client:"
+	note "  Keycloak: the client ID, or your audience-mapper value · Entra ID: the Application ID URI (api://…) · Auth0: the API identifier"
+	note "  GitLab and providers with no audience concept: leave empty (/v1 stays on API keys) · anything else: decode one token (jwt.io) and read aud"
 	ask "Access-token audience for /v1"
 	set_value GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE "$REPLY_VAL"
 	if [ -z "$REPLY_VAL" ]; then
