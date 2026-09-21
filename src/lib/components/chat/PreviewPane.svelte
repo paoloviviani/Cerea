@@ -53,7 +53,11 @@
 		}
 	});
 
-	let srcdoc = $derived(payload ? buildArtifactSrcdoc(payload.kind, payload.content, channel) : "");
+	let srcdoc = $derived(
+		payload && payload.kind !== "pdf"
+			? buildArtifactSrcdoc(payload.kind, payload.content, channel)
+			: ""
+	);
 
 	type PreviewMessage = {
 		type: string;
@@ -116,16 +120,35 @@
 					</button>
 				</div>
 				<div class="relative min-h-0 flex-1">
-					<iframe
-						bind:this={iframeEl}
-						title={`Preview of ${payload.title}`}
-						class="h-full w-full bg-white dark:bg-gray-900 {resizing ? 'pointer-events-none' : ''}"
-						sandbox={PREVIEW_SANDBOX}
-						allow={PREVIEW_ALLOW}
-						allowfullscreen
-						referrerpolicy="no-referrer"
-						{srcdoc}
-					></iframe>
+					{#if payload.kind === "pdf"}
+						<!-- A document the browser renders natively: the payload
+						     content IS the data: URL, framed directly instead of
+						     through a srcdoc builder (there is no HTML to build). -->
+						<iframe
+							title={`Preview of ${payload.title}`}
+							class="h-full w-full bg-white dark:bg-gray-900 {resizing
+								? 'pointer-events-none'
+								: ''}"
+							sandbox={PREVIEW_SANDBOX}
+							allow={PREVIEW_ALLOW}
+							allowfullscreen
+							referrerpolicy="no-referrer"
+							src={payload.content}
+						></iframe>
+					{:else}
+						<iframe
+							bind:this={iframeEl}
+							title={`Preview of ${payload.title}`}
+							class="h-full w-full bg-white dark:bg-gray-900 {resizing
+								? 'pointer-events-none'
+								: ''}"
+							sandbox={PREVIEW_SANDBOX}
+							allow={PREVIEW_ALLOW}
+							allowfullscreen
+							referrerpolicy="no-referrer"
+							{srcdoc}
+						></iframe>
+					{/if}
 					{#if errors.length > 0 && onsend}
 						<button
 							class="absolute right-4 bottom-4 z-10 btn flex items-center gap-2 rounded-full border-2 border-red-500/60 bg-red-800/90 px-4 py-1.5 text-sm text-white shadow-lg"

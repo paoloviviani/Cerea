@@ -242,26 +242,30 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 			.toBeVisible();
 	});
 
-	it("types the pdf preview blob so the viewer renders instead of downloading", async () => {
-		// Chrome's PDF viewer only engages for application/pdf: a typeless
-		// blob navigated in the preview iframe downloads and leaves a blank
-		// frame — the exact failure this pins.
-		const blobs: Blob[] = [];
-		const createObjectURL = vi
-			.spyOn(URL, "createObjectURL")
-			.mockImplementation((blob: Blob | MediaSource) => {
-				blobs.push(blob as Blob);
-				return "blob:mock";
-			});
-		try {
-			const screen = render(FileCard, { file: { path: "/home/pyodide/report.pdf", size: 1024 } });
-			await screen.getByRole("button", { name: "Preview report.pdf" }).click();
-			await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0));
-			expect(blobs[0].type).toBe("application/pdf");
-			const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
-			expect(iframe?.getAttribute("src")).toBe("blob:mock");
-		} finally {
-			createObjectURL.mockRestore();
-		}
+	it("opens a pdf in the side panel as a typed data URL, never inline", async () => {
+		// The bytes travel whole (the viewer needs every byte) and typed:
+		// a typeless blob navigated in a frame downloads instead of
+		// rendering, which was the blank-frame-plus-download failure.
+		const screen = render(FileCard, { file: { path: "/home/pyodide/report.pdf", size: 1024 } });
+		await screen.getByRole("button", { name: "Preview report.pdf" }).click();
+		await vi.waitFor(() => expect(sidePane.open).toBe(true));
+		expect(sidePane.view).toBe("preview");
+		expect(sidePane.preview).toMatchObject({ kind: "pdf", title: "report.pdf" });
+		expect(sidePane.preview?.content.startsWith("data:application/pdf;base64,")).toBe(true);
+		// No inline expander opens for a document preview — the panel owns it.
+		expect(screen.baseElement.querySelector("iframe")).toBeNull();
+		expect(sessionMock.run).not.toHaveBeenCalled();
+	});
+
+	it("refuses an oversized pdf with the download left working", async () => {
+		const big = new Uint8Array(8 * 1024 * 1024 + 1);
+		sessionMock.readFile.mockResolvedValue(big.buffer as ArrayBuffer);
+		const screen = render(FileCard, {
+			file: { path: "/home/pyodide/report.pdf", size: big.length },
+		});
+		await screen.getByRole("button", { name: "Preview report.pdf" }).click();
+		await expect.element(screen.getByText("too large to preview", { exact: false })).toBeVisible();
+		expect(sidePane.open).toBe(false);
+		await expect.element(screen.getByRole("button", { name: "Download report.pdf" })).toBeVisible();
 	});
 });
