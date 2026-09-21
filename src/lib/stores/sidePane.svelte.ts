@@ -9,7 +9,24 @@ export const SIDE_PANE_MAX_WIDTH = 2400;
 export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
-export type SidePaneView = "artifact" | "trackio" | "library";
+export type SidePaneView = "artifact" | "trackio" | "library" | "preview";
+
+import type { ArtifactKind } from "$lib/utils/artifacts";
+
+/**
+ * A one-shot rendered view of a single fence or file: no registry entry, no
+ * versions, no persistence. The content lives in the message that produced
+ * the Preview button, so the store only holds what is showing right now —
+ * like the library view, this one is outside the pane-item nav axis.
+ */
+export interface FencePreview {
+	/** Rendered through buildArtifactSrcdoc, same builders as artifact previews. */
+	kind: Extract<ArtifactKind, "html" | "svg" | "mermaid">;
+	/** Shown in the pane header: the annotated filename, or a generic label. */
+	title: string;
+	/** The fence's raw source, rendered verbatim. */
+	content: string;
+}
 
 /**
  * UI state for the side pane. Its content is always derived from the
@@ -26,6 +43,13 @@ class SidePaneStore {
 	view = $state<SidePaneView>("artifact");
 	/** The framed Trackio dashboard, when `view` is "trackio". */
 	trackio = $state<{ url: string; label: string } | null>(null);
+	/**
+	 * The transient fence/file preview, when `view` is "preview". Deliberately
+	 * not derived from the messages (unlike artifacts and dashboards): the
+	 * content is already in the message, and re-deriving it would promote a
+	 * one-shot view into pane state that must survive branch switches.
+	 */
+	preview = $state<FencePreview | null>(null);
 	identifier = $state<string | null>(null);
 	/** 1-based version to display; null follows the latest version (including streaming growth) */
 	version = $state<number | null>(null);
@@ -86,6 +110,18 @@ class SidePaneStore {
 	openTrackio(url: string, label: string) {
 		this.view = "trackio";
 		this.trackio = { url, label };
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/**
+	 * Open a one-shot rendered view of a fence or file. Every explicit open
+	 * re-anchors (same revealNonce contract as artifacts) so pressing Preview
+	 * on the same block twice still brings the pane back.
+	 */
+	openPreview(preview: FencePreview) {
+		this.view = "preview";
+		this.preview = preview;
 		this.open = true;
 		this.revealNonce += 1;
 	}
@@ -154,6 +190,7 @@ class SidePaneStore {
 		this.open = false;
 		this.view = "artifact";
 		this.trackio = null;
+		this.preview = null;
 		this.identifier = null;
 		this.version = null;
 		this.tab = "preview";

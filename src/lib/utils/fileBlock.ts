@@ -44,3 +44,39 @@ export function parseFileBlockInfo(infoString: string | undefined | null): FileB
 	if (!filename) return null;
 	return { language: infoString.slice(0, match.index).trim(), filename };
 }
+
+/**
+ * UTF-8 byte length of a directly-emitted block's content: the card shows the
+ * size the download will have, and the only bytes that exist are this text.
+ */
+export function fileBlockByteSize(content: string): number {
+	return new TextEncoder().encode(content).length;
+}
+
+/** Human size for the file row; mirrors FileCard so the two cards agree. */
+export function formatFileSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Hand a directly-emitted block's text to the browser as a download under its
+ * annotated filename. Same blob-anchor dance as FileCard's sandbox download,
+ * but the bytes are already here — no worker filesystem to read from, which
+ * is also why this download (unlike a sandbox file's) cannot go stale.
+ */
+export function downloadTextAsFile(filename: string, content: string): void {
+	const url = URL.createObjectURL(new Blob([new TextEncoder().encode(content)]));
+	try {
+		const link = window.document.createElement("a");
+		link.href = url;
+		link.download = filename;
+		link.rel = "noopener";
+		window.document.body.appendChild(link);
+		link.click();
+		link.remove();
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+}
