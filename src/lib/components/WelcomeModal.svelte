@@ -28,7 +28,7 @@
 			<!-- <h2
 				class="flex translate-y-1 items-center text-3xl font-semibold text-gray-900 dark:text-gray-100"
 			>
-				<Logo classNames="mr-2 h-12 w-auto" />
+				<Logo classNames="mr-2 h-10 w-auto" />
 				{publicConfig.PUBLIC_APP_NAME}
 			</h2> -->
 			{#if ML_ASSISTANT_MODE && publicConfig.isHuggingChat}
