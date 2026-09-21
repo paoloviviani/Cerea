@@ -11,25 +11,26 @@
 </script>
 
 <!--
-	The mark is the mountain silhouette over Turin — a wide 326×104 drawing,
-	not a square badge, so callers size it by height and let the width
-	follow. Two files, one per theme: the black ridge on a light background,
-	the white one on a dark one, switched by the same class-based dark
-	variant every color token uses (no `invert` filter — that would land the
-	white variant at #e1e1e1, not the white it was drawn in). Both load as
-	<img>, so filter/gradient ids stay inside their own documents. The
-	outline predecessors of this mark stay archived under brand/.
+	The mark is the mountain ridge over Turin — a wide 337×112 outline
+	drawing, not a square badge, so callers size it by height and let the
+	width follow. Two files, one per theme: the black ridge on a light
+	background, the white one on a dark one, switched by the same
+	class-based dark variant every color token uses (no `invert` filter —
+	that would land the white variant at #e1e1e1, not the white it was
+	drawn in). Both load as <img>, so the `thicken` filter id each file
+	defines stays inside its own document. The filled-silhouette detour and
+	the longer first outline stay archived under brand/ and in git history.
 -->
 <img
-	width="326"
-	height="104"
+	width="337"
+	height="112"
 	class="{classNames} dark:hidden"
 	alt="{publicConfig.PUBLIC_APP_NAME} logo"
 	src="{publicConfig.assetPath}/logo.svg"
 />
 <img
-	width="326"
-	height="104"
+	width="337"
+	height="112"
 	class="{classNames} hidden dark:block"
 	alt=""
 	aria-hidden="true"
