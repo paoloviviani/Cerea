@@ -11,8 +11,6 @@ export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
 export type SidePaneView = "artifact" | "trackio" | "library" | "preview";
 
-import type { ArtifactKind } from "$lib/utils/artifacts";
-
 /**
  * A one-shot rendered view of a single fence or file: no registry entry, no
  * versions, no persistence. The content lives in the message that produced
@@ -20,11 +18,19 @@ import type { ArtifactKind } from "$lib/utils/artifacts";
  * like the library view, this one is outside the pane-item nav axis.
  */
 export interface FencePreview {
-	/** Rendered through buildArtifactSrcdoc, same builders as artifact previews. */
-	kind: Extract<ArtifactKind, "html" | "svg" | "mermaid">;
+	/**
+	 * Rendered through buildArtifactSrcdoc, same builders as artifact
+	 * previews — except "pdf", which is not an ArtifactKind: a document the
+	 * browser renders natively, carried as a data: URL and framed directly.
+	 */
+	kind: "html" | "svg" | "mermaid" | "pdf";
 	/** Shown in the pane header: the annotated filename, or a generic label. */
 	title: string;
-	/** The fence's raw source, rendered verbatim. */
+	/**
+	 * The fence's raw source, rendered verbatim — or, for "pdf", the whole
+	 * document as a data: URL (bytes travel with the payload, so no blob
+	 * lifetime to manage across panel open/close).
+	 */
 	content: string;
 }
 
