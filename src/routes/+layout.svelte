@@ -299,6 +299,7 @@
 			conversations={convsStore.list}
 			user={data.user}
 			gatewayIsAdmin={data.gatewayIsAdmin}
+			codeAgentsEnabled={data.codeAgentsEnabled}
 			ondeleteConversation={(id) => deleteConversation(id)}
 			oneditConversationTitle={(payload) => editConversationTitle(payload.id, payload.title)}
 		/>
@@ -310,6 +311,7 @@
 			conversations={convsStore.list}
 			user={data.user}
 			gatewayIsAdmin={data.gatewayIsAdmin}
+			codeAgentsEnabled={data.codeAgentsEnabled}
 			ondeleteConversation={(id) => deleteConversation(id)}
 			oneditConversationTitle={(payload) => editConversationTitle(payload.id, payload.title)}
 		/>
