@@ -535,3 +535,27 @@ assert_contains "the abort message prints" "Aborted-line" "$trap_out"
 assert_contains "the exit status is 130 (signal death, not a clean run)" "rc=130" "$trap_out"
 
 summary "test-install.sh"
+
+# ---- 12: trust is re-asserted AFTER phase 2's up (the stale-root hole)
+# The live failure: phase 1's CA dance bundled that moment's root; phase
+# 2's `up` recreated the proxy (fresh caddy-data volume ⇒ new root) and
+# every OIDC discovery died on CERTIFICATE_VERIFY_FAILED. Both phase-2
+# variants must now carry the post-up assertion, and the dry-run note
+# states the restart-on-rebundle-only contract.
+rm -f "$FAKE/deploy/.env"
+run_capture env IDP_ADMIN_PASSWORD=daily-pw TMPDIR="$TMPD" \
+	bash "$CEREA_UNDER_TEST/installer/install.sh" --dry-run --pystino "$FAKE" \
+	--profile team --exposure edge --idp authelia --admin-email op@example.org \
+	--set PUBLIC_HOST=cerea.test --chat-repo "$CEREA_UNDER_TEST"
+assert_contains "the gateway phase-2 re-asserts trust after its up" \
+	"would re-assert the proxy's root is trusted after bring-up" "$OUT"
+# The standalone case needs the bundled IdP: central has no proxy root to
+# trust and the assertion correctly stays silent for it.
+satellite_env
+sed -i 's/^INSTALLER_IDP=central$/INSTALLER_IDP=authelia/; s/^INSTALLER_AUTH_MODE=central$/INSTALLER_AUTH_MODE=bundled-authelia/' "$FAKE/deploy/.env"
+printf 'IDP_BUNDLED=authelia\nOPENAI_API_KEY=central-key-for-local-idp\nUSE_USER_TOKEN=false\n' >>"$FAKE/deploy/.env"
+run_install --dry-run --pystino "$FAKE" --phase2 --non-interactive
+assert_contains "the standalone phase-2 re-asserts trust after its up" \
+	"would re-assert the proxy's root is trusted after bring-up" "$OUT"
+
+summary "test-install.sh"

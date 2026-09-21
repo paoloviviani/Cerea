@@ -1529,6 +1529,7 @@ bundle_contains_cert() { # bundle_contains_cert <bundle-file> <pem> -> exit 0 wh
 }
 
 idp_ca_dance() { # idp_ca_dance <env-file> <flags...>
+	CA_DANCE_REBUNDLED=0
 	local envfile="$1"
 	shift
 	if [ -z "${VALUES[IDP_BUNDLED]:-}" ]; then return; fi
@@ -1571,6 +1572,47 @@ idp_ca_dance() { # idp_ca_dance <env-file> <flags...>
 	mv -f "$tmp_bundle" "$bundle"
 	chmod 644 "$bundle"
 	note "Trust bundle refreshed: $(grep -c 'BEGIN CERTIFICATE' "$bundle") certificates in deploy/tls/caddy-root.crt."
+	CA_DANCE_REBUNDLED=1
+}
+
+# The post-bring-up trust assertion: run AFTER the last `up` of a phase,
+# when no further container recreation can mint a new Caddy root behind
+# the bundle's back. Delegates to idp_ca_dance (health-gated: an intact
+# stack is told "already trusted, skipping" and nothing is rewritten) and
+# restarts the gateway ONLY when a rebundle actually happened — the
+# mounted bundle is read at process start, so the gateway must boot again
+# to see the new root. This is the seam that made phase 2 unfunctional
+# live: the phase-1 dance bundled that moment's root correctly, phase 2's
+# `up` then recreated the proxy (new caddy-data volume ⇒ a NEW root), and
+# every OIDC discovery died on CERTIFICATE_VERIFY_FAILED — 'the identity
+# provider is unavailable' from a stack that was up.
+ensure_idp_trust() { # ensure_idp_trust <env-file> <flags...>
+	local envfile="$1"
+	shift
+	[ -n "${VALUES[IDP_BUNDLED]:-}" ] || return 0
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would re-assert the proxy's root is trusted after bring-up (skips when already in the bundle; restarts the gateway only on a rebundle)"
+		return
+	fi
+	CA_DANCE_REBUNDLED=0
+	idp_ca_dance "$envfile" "$@"
+	if [ "$CA_DANCE_REBUNDLED" = "1" ]; then
+		# The bundle file is bind-mounted, but read at process start: the
+		# gateway's ssl defaults AND the chat's NODE_EXTRA_CA_CERTS were
+		# loaded before the rebundle, so both consumers of the refreshed
+		# bundle must boot again to see the new root — a chat left on the
+		# old bundle answered 500 on every page (UNABLE_TO_GET_ISSUER_
+		# CERT_LOCALLY against the new Caddy root) on a stack that was
+		# otherwise up. The standalone shape has no gateway; its consumer
+		# is the chat alone.
+		if is_standalone_profile "$PROFILE"; then
+			echo "Restarting the chat to pick up the refreshed trust bundle ..."
+			run_compose "$envfile" "$@" restart chat
+		else
+			echo "Restarting the gateway and chat to pick up the refreshed trust bundle ..."
+			run_compose "$envfile" "$@" restart gateway chat
+		fi
+	fi
 }
 
 # Edge shape: Caddyfile.netbird has no conf.d import, so the bundled route
@@ -2035,6 +2077,12 @@ phase_two() { # phase_two <env-file>
 		echo "Starting (first run builds any missing image; the browser image is 3.45 GB — pass --build to force a rebuild) ..."
 	fi
 	run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d "${BUILD_FLAG[@]}"
+	# Trust is asserted AFTER the last up: a proxy recreation this `up`
+	# performed mints a new Caddy root on a fresh caddy-data volume, and
+	# the phase-1 bundle predates it — the exact live failure ('the
+	# identity provider is unavailable', CERTIFICATE_VERIFY_FAILED on
+	# every discovery). No-op when nothing changed.
+	ensure_idp_trust "$envfile" "${OVERLAY_FLAGS[@]}"
 	# The health-gated re-seed (see ensure_bundled_admin): bundled shapes
 	# re-check the admin row now that the stack is up, and heal it when the
 	# database lost it. Every other shape passes through untouched.
@@ -2136,6 +2184,12 @@ phase_two_standalone() { # phase_two_standalone <env-file>
 		echo "Starting (first run builds any missing image; pass --build to force a rebuild) ..."
 	fi
 	run_compose "$envfile" "${OVERLAY_FLAGS[@]}" up -d "${BUILD_FLAG[@]}" "${services[@]}"
+	# Same post-up trust assertion as the gateway shape's phase 2: the
+	# proxy this up may have recreated minted a new root after phase 1's
+	# dance bundled the old one. No gateway to restart here (standalone),
+	# so the assertion is bundle-only — the chat carries NODE_EXTRA_CA_CERTS
+	# from the bundle file, and its container mounts the file, not a copy.
+	ensure_idp_trust "$envfile" "${OVERLAY_FLAGS[@]}"
 	printf '\n%sUp.%s Next steps:\n' "$GREEN" "$R"
 	echo "  - Chat:      ${VALUES[PUBLIC_ORIGIN]}/chat"
 	if [ "$PROFILE" = "satellite" ]; then
