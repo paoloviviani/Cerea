@@ -27,12 +27,12 @@
 	 *
 	 * Previews are fetched lazily on first expand and kept for the session:
 	 * text decodes in-page, images and PDFs render from a blob URL. Word
-	 * documents render as formatted HTML in the side panel (mammoth, vendored
-	 * and loaded on demand): a text extraction was the previous preview and it
-	 * answered "what words" while looking nothing like the document — the panel
-	 * shows headings, lists, tables and emphasis, on bytes from any source, so
-	 * the preview survives reloads. Anything else is metadata plus the download,
-	 * which is always available.
+	 * documents render as formatted HTML in the side panel (docx-preview,
+	 * vendored and loaded on demand): a text extraction was the previous
+	 * preview and it answered "what words" while looking nothing like the
+	 * document — the panel shows the real layout, sections, tables and images,
+	 * on bytes from any source, so the preview survives reloads. Anything else
+	 * is metadata plus the download, which is always available.
 	 */
 	interface Props {
 		file: { path: string; size: number };
@@ -87,7 +87,7 @@
 		if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"].includes(extension))
 			return "image";
 		if (extension === "pdf") return "pdf";
-		// Word documents render through mammoth from fetched bytes, so every
+		// Word documents render through docx-preview from fetched bytes, so every
 		// byte source qualifies — live sandbox, persisted store, replay. Only
 		// direct-emission blocks are excluded, and those cannot be a docx
 		// anyway: inline content is text, not a zip.
@@ -216,9 +216,13 @@
 
 	/**
 	 * Rendered-document preview for a Word file: bytes from any source (live
-	 * sandbox, persisted store, replay) through mammoth to semantic HTML,
-	 * sanitized, shown in the side panel. Loaded on demand so the converter
-	 * never enters the bundle of a conversation without a docx in it.
+	 * sandbox, persisted store, replay) through docx-preview to the document's
+	 * real layout, sanitized, shown in the side panel. Loaded on demand so the
+	 * renderer never enters the bundle of a conversation without a docx in it.
+	 *
+	 * docx-preview renders into a live element, so this runs offscreen in a
+	 * detached container and the wrapper's HTML is what travels to the panel —
+	 * the renderer's DOM is a means, not the destination.
 	 */
 	const DOCX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
 	// A pdf travels whole (the viewer needs every byte) as a data: URL, so
@@ -270,25 +274,48 @@
 			if (bytes.byteLength > DOCX_PREVIEW_MAX_BYTES) {
 				throw new Error("too large to preview — download it to read the whole document");
 			}
-			const mammoth = await import("mammoth");
+			const { renderAsync } = await import("docx-preview");
 			// slice() copies exactly the viewed range: bytes.buffer may overhang
-			// it (transferable slices), and mammoth would parse the slack too.
-			const { value } = await mammoth.convertToHtml({ arrayBuffer: bytes.slice().buffer });
-			// Mammoth emits an unstyled fragment; the wrapper gives it readable
-			// typography inside the preview frame (inline <style> is allowed by
-			// the preview CSP). Sanitized like every other model-authored HTML
-			// before it reaches the panel — the sandboxed iframe is the second
-			// layer, not the only one.
-			const document = `<style>
-				.docx-preview{font:14px/1.6 system-ui,sans-serif;color:#111;max-width:65ch;margin:0 auto;padding:24px}
-				.docx-preview table{border-collapse:collapse;margin:12px 0}
-				.docx-preview th,.docx-preview td{border:1px solid #ccc;padding:4px 8px;text-align:left}
-				.docx-preview img{max-width:100%}
-			</style><div class="docx-preview">${value}</div>`;
+			// it (transferable slices), and the zip reader would parse the slack
+			// too. A Blob rather than a bare buffer because docx-preview's jszip
+			// layer reads it through the File API.
+			const blob = new Blob([bytes.slice()], {
+				type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			});
+			const container = window.document.createElement("div");
+			await renderAsync(blob, container, undefined, {
+				// The docx carries its own fonts, sizes and page geometry —
+				// rendering those is the point of the swap; the previous
+				// converter emitted a bare semantic fragment that had to be
+				// styled by hand instead.
+				inWrapper: true,
+				ignoreWidth: false,
+				ignoreHeight: false,
+				ignoreFonts: false,
+				breakPages: true,
+				// Off by name, not by default: these are 0.x experimental surface,
+				// and a throw inside them would lose the whole preview.
+				renderHeaders: false,
+				renderFooters: false,
+				renderFootnotes: false,
+				renderEndnotes: false,
+				renderChanges: false,
+				renderComments: false,
+				// Images inline as data: URLs — the preview CSP allows exactly
+				// data:/blob: for img-src, and this keeps the document self-contained
+				useBase64URL: true,
+			});
+			if (!container.innerHTML.trim()) {
+				throw new Error("the document rendered empty — download it to read the whole file");
+			}
+			// The renderer emits a <style> block (page geometry, fonts) plus the
+			// section markup — both are allowed by the preview CSP. Sanitized
+			// like every other model-authored HTML before it reaches the panel —
+			// the sandboxed iframe is the second layer, not the only one.
 			sidePane.openPreview({
 				kind: "html",
 				title: name,
-				content: DOMPurify.sanitize(document),
+				content: DOMPurify.sanitize(container.innerHTML),
 			});
 		} catch (err) {
 			previewError =
