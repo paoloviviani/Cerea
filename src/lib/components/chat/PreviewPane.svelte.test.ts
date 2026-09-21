@@ -1,11 +1,17 @@
 import PreviewPane from "./PreviewPane.svelte";
 import { render } from "vitest-browser-svelte";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { tick } from "svelte";
 import { sidePane } from "$lib/stores/sidePane.svelte";
+import { __resetPdfInFrameCacheForTests } from "$lib/utils/previewSrcdoc";
 
 beforeEach(() => {
 	sidePane.reset();
+	__resetPdfInFrameCacheForTests();
+});
+
+afterEach(() => {
+	__resetPdfInFrameCacheForTests();
 });
 
 const iframeSrcdoc = (base: HTMLElement): string | null =>
@@ -64,6 +70,53 @@ describe("PreviewPane", () => {
 		const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
 		expect(iframe?.getAttribute("src")).toBe("data:application/pdf;base64,AAA");
 		expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+	});
+
+	it("gives a mobile browser a working pop-out instead of the dead iframe placeholder", async () => {
+		// Mobile engines draw no PDF in an iframe; Chrome Android's placeholder
+		// "Open" is dead under the preview sandbox. The pane must offer the
+		// working version of that button: a new tab on the payload.
+		const uaGetter = vi
+			.spyOn(navigator, "userAgent", "get")
+			.mockReturnValue(
+				"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+			);
+		const maxTouch = vi
+			.spyOn(navigator, "maxTouchPoints", "get")
+			.mockReturnValue(5) as unknown as () => void;
+		const open = vi.spyOn(window, "open").mockReturnValue(null);
+		const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-pdf");
+		const fetch_ = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(new Uint8Array([1, 2, 3]).buffer));
+		try {
+			sidePane.openPreview({
+				kind: "pdf",
+				title: "report.pdf",
+				content: "data:application/pdf;base64,AAA",
+			});
+			const screen = render(PreviewPane, {});
+			await tick();
+			// No iframe to hold the dead placeholder — the pop-out replaces it.
+			expect(screen.baseElement.querySelector("iframe")).toBeNull();
+			const button = await screen.getByRole("button", { name: "Open in a new tab" });
+			await button.click();
+			await vi.waitFor(() => expect(open).toHaveBeenCalled());
+			// data: URL converted to a blob URL: Chrome refuses top-level
+			// data: navigations, so the unconverted form would be as dead as
+			// the placeholder it replaces.
+			expect(fetch_).toHaveBeenCalledWith("data:application/pdf;base64,AAA");
+			expect(createObjectURL).toHaveBeenCalled();
+			const [url, target] = open.mock.calls[0] as unknown as [string, string];
+			expect(url).toBe("blob:mock-pdf");
+			expect(target).toBe("_blank");
+		} finally {
+			uaGetter.mockRestore();
+			(maxTouch as unknown as { mockRestore: () => void }).mockRestore();
+			open.mockRestore();
+			createObjectURL.mockRestore();
+			fetch_.mockRestore();
+		}
 	});
 
 	it("closes the pane from its close button", async () => {
