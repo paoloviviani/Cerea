@@ -73,6 +73,8 @@
 		user: LayoutData["user"];
 		/** The gateway's own answer — the chat's user flag means nothing here. */
 		gatewayIsAdmin: LayoutData["gatewayIsAdmin"];
+		/** Deployment flag for the `/code` remote-agent panel (off unless deployed). */
+		codeAgentsEnabled?: boolean;
 		p?: number;
 		ondeleteConversation?: (id: string) => void;
 		oneditConversationTitle?: (payload: { id: string; title: string }) => void;
@@ -82,6 +84,7 @@
 		conversations = $bindable(),
 		user,
 		gatewayIsAdmin,
+		codeAgentsEnabled = false,
 		p = $bindable(0),
 		ondeleteConversation,
 		oneditConversationTitle,
@@ -225,6 +228,12 @@
 	     servers, knowledge bases), which are no longer dialogs opened from
 	     here. -->
 	<a href="{base}/workspace" class="{ROW} no-underline"> Workspace </a>
+	{#if codeAgentsEnabled}
+		<!-- The remote-agent panel: a top-level route, not a chat mode (a mode
+		     is conversation-bound; this surface has none). Hidden unless the
+		     paseo overlay is deployed (CODE_AGENTS_ENABLED). -->
+		<a href="{base}/code" class="{ROW} no-underline"> Code Agents </a>
+	{/if}
 	<a href="{base}/settings/application" class="{ROW} no-underline"> Settings </a>
 
 	{#if gatewayIsAdmin}
