@@ -1755,6 +1755,78 @@ wait_for_postgres() { # wait_for_postgres <env-file> <pg-user> <flags...>
 	done
 }
 
+# The first-administrator step: `gateway passwd` with the password asked
+# on the HOST, not inside the container. The container-side getpass reads
+# /dev/tty, and whether compose's exec allocates a working TTY for it is
+# exactly what failed live ('Warning: Password input may be echoed' — the
+# fallback path, with the password in cleartext on the terminal): getpass
+# falls back to echoing input whenever /dev/tty cannot be controlled. The
+# host's own terminal is the one thing that provably works (the operator
+# is typing there), so the prompts live here and only the finished
+# password travels — piped on stdin to `exec -T`, which never allocates a
+# TTY at all. The policy is stated BEFORE the prompts: the 10-character
+# minimum is the deployment's own setting (GATEWAY_LOCAL_AUTH__MIN_
+# PASSWORD_LENGTH, default 10), knowable at install time, and a refused
+# password mid-install was an abort over a rule nobody had stated. The
+# password is refused-and-retried here for the same reason: exit 1 from
+# the step aborts a whole install phase. Two prompts on the host replace
+# the container's own pair (getpass reads its pair from the piped stdin
+# sequentially; a here-string of 'pw\npw' answers both).
+gateway_passwd_step() { # gateway_passwd_step <env-file> <flags...> -> PASSWD_EMAIL_VAL
+	local envfile="$1"
+	shift
+	local email="${1:-}" kind="${VALUES[IDP_BUNDLED]:-}"
+	if [ -n "$kind" ]; then
+		# Bundled-IdP shapes seed the admin as the operator's own identity,
+		# never admin@local: the first IdP login with this exact email
+		# adopts the row (verified claim), so one account is both the SSO
+		# admin and the break-glass local password login.
+		operator_email_for "$kind"
+		email="$ADMIN_EMAIL_VAL"
+		if [ -z "$email" ]; then
+			fail "the bundled $kind shape needs its first human's email to seed the gateway admin (--admin-email for Authelia)."
+		fi
+	else
+		email="admin@local"
+	fi
+	PASSWD_EMAIL_VAL="$email"
+	local min_len="${VALUES[GATEWAY_LOCAL_AUTH__MIN_PASSWORD_LENGTH]:-10}"
+	echo "Password policy: at least $min_len characters (length only — the gateway's own setting, GATEWAY_LOCAL_AUTH__MIN_PASSWORD_LENGTH)."
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would prompt for the '$email' administrator password on the host and pipe it to 'gateway passwd $email --admin' (exec -T, no container TTY)"
+		return
+	fi
+	local pw="" pw2=""
+	while :; do
+		ask_hidden "Password for $email"
+		pw="$REPLY_VAL"
+		ask_hidden "Again"
+		pw2="$REPLY_VAL"
+		if [ "$pw" != "$pw2" ]; then
+			echo "The two passwords do not match."
+			continue
+		fi
+		if [ "${#pw}" -lt "$min_len" ]; then
+			# Stated up front, refused here: the gateway would refuse it
+			# too, and an install that aborts mid-step over a length rule
+			# is worse than one that asks again.
+			echo "Refused: password must be at least $min_len characters. Try again (Ctrl+C to abort)."
+			continue
+		fi
+		break
+	done
+	# The password never touches argv or the environment: it leaves the
+	# host's memory only as stdin of the compose exec. Two lines answer
+	# getpass's two reads (the host already verified the pair matches, so
+	# the container's own mismatch-retry never fires).
+	compose_exec_t exec -T gateway gateway passwd "$email" --admin
+	if ! printf '%s\n%s\n' "$pw" "$pw" |
+		(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" "${COMPOSE_ARGS[@]}"); then
+		fail "gateway passwd $email exited non-zero."
+	fi
+	unset pw pw2
+}
+
 # Creates the chat's Postgres role and database. flags is the overlay set
 # the postgres service comes from (base-only for gateway profiles, the
 # standalone set for satellite/generic). Connects to the stock postgres
@@ -1854,7 +1926,10 @@ ensure_bundled_admin() { # ensure_bundled_admin <env-file> <flags...>
 	trim "$count"
 	if [ "$REPLY_VAL" = "0" ]; then
 		echo "No admin row in the gateway's database (a recreated volume wipes them) — re-seeding the break-glass admin ..."
-		run_compose "$envfile" "$@" exec gateway gateway passwd "$email" --admin
+		# Same host-side prompts as phase 1 (see gateway_passwd_step): the
+		# password is asked where the terminal provably works and piped to
+		# an exec -T, never through a container TTY that may echo it.
+		gateway_passwd_step "$envfile" "$@"
 	else
 		note "Admin row present (count=$REPLY_VAL) — re-seed skipped."
 	fi
@@ -1921,19 +1996,8 @@ phase_one() { # phase_one <env-file>
 	echo ""
 	echo "Create the first administrator. The password is prompted for here —"
 	echo "it never lands in shell history or in any file."
-	if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
-		# Bundled-IdP shapes seed the admin as the operator's own identity,
-		# never admin@local: the first IdP login with this exact email
-		# adopts the row (verified claim), so one account is both the SSO
-		# admin and the break-glass local login.
-		operator_email_for "${VALUES[IDP_BUNDLED]}"
-		if [ -z "$ADMIN_EMAIL_VAL" ]; then
-			fail "the bundled ${VALUES[IDP_BUNDLED]} shape needs its first human's email to seed the gateway admin (--admin-email for Authelia)."
-		fi
-		run_compose "$envfile" "${BASE_FLAGS[@]}" exec gateway gateway passwd "$ADMIN_EMAIL_VAL" --admin
-	else
-		run_compose "$envfile" "${BASE_FLAGS[@]}" exec gateway gateway passwd admin@local
-	fi
+	gateway_passwd_step "$envfile" "${BASE_FLAGS[@]}"
+	ADMIN_EMAIL_VAL="${PASSWD_EMAIL_VAL:-}" # bundled shapes read it back for the next steps
 
 	ensure_chat_database "$envfile" "${BASE_FLAGS[@]}"
 
