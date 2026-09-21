@@ -1772,10 +1772,16 @@ wait_for_postgres() { # wait_for_postgres <env-file> <pg-user> <flags...>
 # the step aborts a whole install phase. Two prompts on the host replace
 # the container's own pair (getpass reads its pair from the piped stdin
 # sequentially; a here-string of 'pw\npw' answers both).
-gateway_passwd_step() { # gateway_passwd_step <env-file> <flags...> -> PASSWD_EMAIL_VAL
+gateway_passwd_step() { # gateway_passwd_step <env-file> <overlay-flags...> -> PASSWD_EMAIL_VAL
 	local envfile="$1"
 	shift
-	local email="${1:-}" kind="${VALUES[IDP_BUNDLED]:-}"
+	# "$@" is now the overlay flag list (-f ...): every compose call below
+	# must carry it, or compose resolves no configuration — the exact
+	# 'no configuration file provided' a live run hit when this step once
+	# dropped it. It is never an email; the email comes from the IdP shape
+	# (operator_email_for / admin@local), never from the flag list.
+	local kind="${VALUES[IDP_BUNDLED]:-}"
+	local email=""
 	if [ -n "$kind" ]; then
 		# Bundled-IdP shapes seed the admin as the operator's own identity,
 		# never admin@local: the first IdP login with this exact email
@@ -1818,8 +1824,10 @@ gateway_passwd_step() { # gateway_passwd_step <env-file> <flags...> -> PASSWD_EM
 	# The password never touches argv or the environment: it leaves the
 	# host's memory only as stdin of the compose exec. Two lines answer
 	# getpass's two reads (the host already verified the pair matches, so
-	# the container's own mismatch-retry never fires).
-	compose_exec_t exec -T gateway gateway passwd "$email" --admin
+	# the container's own mismatch-retry never fires). The overlay flags
+	# ("$@") ride along — compose_exec_t rewrites the first bare exec and
+	# keeps every -f.
+	compose_exec_t "$@" exec -T gateway gateway passwd "$email" --admin
 	if ! printf '%s\n%s\n' "$pw" "$pw" |
 		(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" "${COMPOSE_ARGS[@]}"); then
 		fail "gateway passwd $email exited non-zero."
