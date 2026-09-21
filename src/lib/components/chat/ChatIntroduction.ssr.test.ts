@@ -35,7 +35,7 @@ const manager = getConfigManager({
 const context = new Map<unknown, unknown>([["publicConfig", manager]]);
 
 describe("ChatIntroduction SSR", () => {
-	it("renders the plain name and no phrase — the pick is client-only", () => {
+	it("renders the name in the logo slot — the pick is client-only", () => {
 		const { body } = render(ChatIntroduction, {
 			props: { currentModel: model },
 			context,
@@ -46,15 +46,17 @@ describe("ChatIntroduction SSR", () => {
 		}
 	});
 
-	it("renders no phrase slot markup the client would flash empty", () => {
+	it("renders the name alone — no phrase slot the client would swap after paint", () => {
 		const { body } = render(ChatIntroduction, {
 			props: { currentModel: model },
 			context,
 		});
-		// The phrase span is inside {#if phrase} — with the state starting
-		// empty, the server markup cannot contain the slot at all, so the
-		// hydrated client slides the phrase in without a layout shift from
-		// an empty placeholder.
-		expect(body).not.toContain("gray-400");
+		// The slot is {#if phrase}/{:else}name: with the state starting empty
+		// the server markup carries only the name, and the hydrated client
+		// swaps the text in place — same node, same type, no layout shift.
+		expect(body).toContain("chat-ui");
+		for (const phrase of PHRASES) {
+			expect(body).not.toContain(phrase);
+		}
 	});
 });

@@ -21,11 +21,12 @@
 	});
 
 	/**
-	 * Rotating phrases beside the app name on the new-chat screen — Turin
-	 * dialect greetings, one per page load (PUBLIC_TURIN_PHRASES, "false" or
-	 * empty restores the plain name). The parse tolerates the ways an env
-	 * value can arrive: a quoted comma-separated list, a JSON array, or a
-	 * single phrase with no separators at all.
+	 * Rotating phrases printed in place of the app name on the new-chat
+	 * screen — Turin dialect greetings, one per page load
+	 * (PUBLIC_TURIN_PHRASES, "false" or empty restores the plain name
+	 * every time). The parse tolerates the ways an env value can arrive: a
+	 * quoted comma-separated list, a JSON array, or a single phrase with no
+	 * separators at all.
 	 */
 	const phrases: string[] = (() => {
 		const raw = publicConfig.PUBLIC_TURIN_PHRASES?.trim();
@@ -53,12 +54,13 @@
 	// SSR payload and (usually) another after hydration — a mismatch warning
 	// on every load. onMount is client-only, so the first paint carries the
 	// plain name and the phrase lands right after; every refresh (a full
-	// page load remounts) gets a new one.
+	// page load remounts) gets a new one. The name itself leads the
+	// rotation: it is one of the things the logo says, not a bystander, and
+	// it keeps the slot rendered even for a deployment with phrases off.
 	let phrase = $state("");
 	onMount(() => {
-		if (phrases.length > 0) {
-			phrase = phrases[Math.floor(Math.random() * phrases.length)] ?? "";
-		}
+		const rotation = [publicConfig.PUBLIC_APP_NAME, ...phrases];
+		phrase = rotation[Math.floor(Math.random() * rotation.length)] ?? "";
 	});
 </script>
 
@@ -69,13 +71,14 @@
 		class="flex items-center justify-center rounded-xl text-[1.6rem] font-semibold select-none md:text-[2.55rem]"
 	>
 		<Logo classNames="size-[2.55rem] md:size-[4.25rem] dark:invert mr-0.5" />
-		{publicConfig.PUBLIC_APP_NAME}
+		<!-- The picked phrase REPLACES the name, in the name's own type: it
+		     says Cerea, Com'è?, Va bin — not a name with a whisper beside
+		     it. Empty until onMount picks, so the SSR payload (pinned by
+		     the SSR test) carries the name only. -->
 		{#if phrase}
-			<!-- Deliberately quieter than the name: smaller, gray, no weight — a
-			     spoken aside, not a second title. -->
-			<span class="ml-3 text-base font-normal text-gray-400 md:text-xl dark:text-gray-500">
-				{phrase}
-			</span>
+			{phrase}
+		{:else}
+			{publicConfig.PUBLIC_APP_NAME}
 		{/if}
 	</div>
 	{@render children?.()}
