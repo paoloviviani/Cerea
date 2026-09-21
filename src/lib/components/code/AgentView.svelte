@@ -1,20 +1,20 @@
 <!--
-	One coding session: its transcript and its changes, side by side as tabs.
+	One coding session: its transcript and its changes, side by side as tabs,
+	with the composer pinned under them.
 
 	The tabs are local state, not the address — the address names the agent
 	(`?device=&ws=&agent=`), and everything under it is this agent's. The
 	`{#key}` in `CodePanel` remounts this whole view on a new address, so both
-	tabs fetch in `onMount` and never see a stale agent.
-
-	Phase 3 adds the composer and the blocking `PermissionCard` here, under
-	the transcript: this is where a follow-up is written and where a waiting
-	approval blocks.
+	tabs fetch in `onMount` and never see a stale agent. A waiting approval
+	blocks inside the transcript as a `PermissionCard`; follow-ups carry the
+	composer's posture, plan by default.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
 	import IconCode from "~icons/carbon/code";
 	import AgentTimeline from "./AgentTimeline.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
+	import AgentComposer from "./AgentComposer.svelte";
 	import { getAgent } from "$lib/codeApi";
 	import type { CodeAgentSession } from "$lib/types/CodeAgent";
 	import * as s from "$lib/components/overlay/styles";
@@ -85,4 +85,6 @@
 			<AgentDiff {agentId} />
 		{/if}
 	</div>
+
+	<AgentComposer {agentId} />
 </div>
