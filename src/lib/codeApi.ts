@@ -103,3 +103,54 @@ export async function getAgent(agentId: string): Promise<{ agent: CodeAgentSessi
 export async function getAgentDiff(agentId: string): Promise<{ files: CodeFileChange[] }> {
 	return unwrap(await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}/diff`));
 }
+
+// -- control: follow-ups and approvals (Phase 3) ----------------------------
+
+/** How much licence a follow-up carries. Sent with every message; the daemon enforces it. */
+export type AgentPosture = "plan" | "write";
+
+export interface FollowUpOptions {
+	/** Which runner answers. opencode-first; the daemon may run others later. */
+	provider?: string;
+	/** Defaults to "plan": propose, never write, until the person opts into writes. */
+	posture?: AgentPosture;
+}
+
+/** Send a follow-up to a running session. The reply arrives on the timeline stream. */
+export async function sendFollowUp(
+	agentId: string,
+	text: string,
+	options: FollowUpOptions = {}
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}/messages`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				text,
+				provider: options.provider || "opencode",
+				posture: options.posture ?? "plan",
+			}),
+		})
+	);
+}
+
+export type PermissionDecision = "approve" | "deny";
+
+/** Answer a waiting permission request. Blocking: the agent holds until this lands. */
+export async function respondPermission(
+	agentId: string,
+	requestId: string,
+	decision: PermissionDecision
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ decision }),
+			}
+		)
+	);
+}
