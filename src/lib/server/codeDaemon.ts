@@ -74,6 +74,22 @@ class DeviceDaemonLink {
 
 	constructor(private readonly identity: DeviceIdentity) {}
 
+	/**
+	 * One daemon operation, with the connection and its failure mode
+	 * handled here: a relay hiccup or a dropped daemon is this deployment's
+	 * 502, never an unhandled 500.
+	 */
+	private async operate<T>(fn: (client: DaemonClient) => Promise<T>): Promise<T> {
+		const client = await this.ensureReady();
+		try {
+			return await fn(client);
+		} catch (err) {
+			if (err && typeof err === "object" && "status" in err) throw err;
+			logger.error({ err, deviceId: this.identity.deviceId }, "paseo daemon call failed");
+			error(502, "The coding-agent daemon could not be reached through the relay.");
+		}
+	}
+
 	async ensureReady(): Promise<DaemonClient> {
 		if (this.client && this.statusOk) return this.client;
 		if (!this.connecting) {
@@ -148,15 +164,13 @@ class DeviceDaemonLink {
 
 	/** The agent's cwd, needed by the diff surface, from one fetch. */
 	async agentCwd(agentId: string): Promise<string> {
-		const client = await this.ensureReady();
-		const result = await client.fetchAgent(agentId);
+		const result = await this.operate((client) => client.fetchAgent(agentId));
 		if (!result) error(404, "No such agent on this daemon.");
 		return result.agent.cwd;
 	}
 
 	async listWorkspaces(): Promise<CodeWorkspace[]> {
-		const client = await this.ensureReady();
-		const result = await client.fetchWorkspaces();
+		const result = await this.operate((client) => client.fetchWorkspaces());
 		return result.entries.map(toWorkspace);
 	}
 
@@ -168,15 +182,13 @@ class DeviceDaemonLink {
 	}
 
 	async listAgents(workspaceId?: string): Promise<CodeAgentSession[]> {
-		const client = await this.ensureReady();
-		const result = await client.fetchAgents();
+		const result = await this.operate((client) => client.fetchAgents());
 		const mapped = result.entries.map((entry) => toSession(entry.agent));
 		return workspaceId ? mapped.filter((agent) => agent.workspaceId === workspaceId) : mapped;
 	}
 
 	async getAgent(agentId: string): Promise<CodeAgentSession> {
-		const client = await this.ensureReady();
-		const result = await client.fetchAgent(agentId);
+		const result = await this.operate((client) => client.fetchAgent(agentId));
 		if (!result) error(404, "No such agent on this daemon.");
 		return toSession(result.agent);
 	}
@@ -187,26 +199,27 @@ class DeviceDaemonLink {
 		posture: "plan" | "write";
 		title?: string;
 	}): Promise<CodeAgentSession> {
-		const client = await this.ensureReady();
-		const agent = await client.createAgent({
-			provider: input.provider,
-			cwd: input.cwd,
-			modeId: input.posture === "write" ? "build" : "plan",
-			title: input.title ?? null,
-		});
+		const agent = await this.operate((client) =>
+			client.createAgent({
+				provider: input.provider,
+				cwd: input.cwd,
+				modeId: input.posture === "write" ? "build" : "plan",
+				title: input.title ?? null,
+			})
+		);
 		return toSession(agent);
 	}
 
 	async deleteAgent(agentId: string): Promise<void> {
-		const client = await this.ensureReady();
-		await client.deleteAgent(agentId);
+		await this.operate((client) => client.deleteAgent(agentId));
 	}
 
 	async sendAgentMessage(agentId: string, text: string, posture: "plan" | "write"): Promise<void> {
-		const client = await this.ensureReady();
-		// Posture is the daemon's own mode switch: plan proposes, build writes.
-		await client.setAgentMode(agentId, posture === "write" ? "build" : "plan");
-		await client.sendAgentMessage(agentId, text);
+		await this.operate(async (client) => {
+			// Posture is the daemon's own mode switch: plan proposes, build writes.
+			await client.setAgentMode(agentId, posture === "write" ? "build" : "plan");
+			await client.sendAgentMessage(agentId, text);
+		});
 	}
 
 	async respondPermission(
@@ -214,21 +227,22 @@ class DeviceDaemonLink {
 		requestId: string,
 		decision: "approve" | "deny"
 	): Promise<void> {
-		const client = await this.ensureReady();
-		await client.respondToPermission(agentId, requestId, {
-			behavior: decision === "approve" ? "allow" : "deny",
-		});
+		await this.operate((client) =>
+			client.respondToPermission(agentId, requestId, {
+				behavior: decision === "approve" ? "allow" : "deny",
+			})
+		);
 	}
 
 	async fetchTimeline(agentId: string): Promise<FetchAgentTimelinePayload> {
-		const client = await this.ensureReady();
-		return client.fetchAgentTimeline(agentId, { direction: "tail", limit: 500 });
+		return this.operate((client) =>
+			client.fetchAgentTimeline(agentId, { direction: "tail", limit: 500 })
+		);
 	}
 
 	async fetchDiff(agentId: string): Promise<CheckoutDiffPayload> {
-		const client = await this.ensureReady();
 		const cwd = await this.agentCwd(agentId);
-		return client.getCheckoutDiff(cwd, { mode: "uncommitted" });
+		return this.operate((client) => client.getCheckoutDiff(cwd, { mode: "uncommitted" }));
 	}
 
 	close(): void {
