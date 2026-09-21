@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import Logo from "$lib/components/icons/Logo.svelte";
 	import type { Model } from "$lib/types/Model";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
@@ -18,6 +19,47 @@
 		void _currentModel;
 		void onmessage;
 	});
+
+	/**
+	 * Rotating phrases beside the app name on the new-chat screen — Turin
+	 * dialect greetings, one per page load (PUBLIC_TURIN_PHRASES, "false" or
+	 * empty restores the plain name). The parse tolerates the ways an env
+	 * value can arrive: a quoted comma-separated list, a JSON array, or a
+	 * single phrase with no separators at all.
+	 */
+	const phrases: string[] = (() => {
+		const raw = publicConfig.PUBLIC_TURIN_PHRASES?.trim();
+		if (!raw || raw.toLowerCase() === "false") return [];
+		const list = raw.startsWith("[")
+			? // JSON form: invalid JSON here means the deployment misconfigured
+				// the variable, and the plain name is the right degradation.
+				(() => {
+					try {
+						return JSON.parse(raw) as unknown;
+					} catch {
+						return [];
+					}
+				})()
+			: raw.split(",");
+		if (!Array.isArray(list)) return [];
+		const trimmed = list
+			.map((phrase) => (typeof phrase === "string" ? phrase.trim() : ""))
+			.filter(Boolean);
+		return trimmed;
+	})();
+
+	// Picked after hydration, not in the script body: the script runs on the
+	// server too, and a Math.random() there would render one phrase in the
+	// SSR payload and (usually) another after hydration — a mismatch warning
+	// on every load. onMount is client-only, so the first paint carries the
+	// plain name and the phrase lands right after; every refresh (a full
+	// page load remounts) gets a new one.
+	let phrase = $state("");
+	onMount(() => {
+		if (phrases.length > 0) {
+			phrase = phrases[Math.floor(Math.random() * phrases.length)] ?? "";
+		}
+	});
 </script>
 
 <div
@@ -28,6 +70,13 @@
 	>
 		<Logo classNames="size-[2.55rem] md:size-[4.25rem] dark:invert mr-0.5" />
 		{publicConfig.PUBLIC_APP_NAME}
+		{#if phrase}
+			<!-- Deliberately quieter than the name: smaller, gray, no weight — a
+			     spoken aside, not a second title. -->
+			<span class="ml-3 text-base font-normal text-gray-400 md:text-xl dark:text-gray-500">
+				{phrase}
+			</span>
+		{/if}
 	</div>
 	{@render children?.()}
 	<!-- <div class="lg:col-span-1">
