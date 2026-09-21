@@ -1,7 +1,7 @@
 import FileCard from "./FileCard.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { convertToHtml } from "mammoth";
+import { renderAsync } from "docx-preview";
 import { sidePane } from "$lib/stores/sidePane.svelte";
 
 /**
@@ -17,11 +17,14 @@ vi.mock("$lib/utils/execution/runtime", () => ({
 	getExecutionSession: () => sessionMock,
 }));
 
-// The converter is a real dependency with its own upstream tests; what is
+// The renderer is a real dependency with its own upstream tests; what is
 // under test here is the wiring — bytes in, sanitized panel payload out —
-// so the module boundary is mocked, not the zip format.
-vi.mock("mammoth", () => ({
-	convertToHtml: vi.fn(async () => ({ value: "<h1>Hi</h1>", messages: [] })),
+// so the module boundary is mocked, not the zip format. The real renderer
+// fills a live element; the mock plays that part minimally.
+vi.mock("docx-preview", () => ({
+	renderAsync: vi.fn(async (_data: Blob, container: HTMLElement) => {
+		container.innerHTML = '<section class="docx-wrapper"><h1>Hi</h1></section>';
+	}),
 }));
 
 const textBytes = (text: string) => new TextEncoder().encode(text).buffer as ArrayBuffer;
@@ -32,8 +35,10 @@ beforeEach(() => {
 	sessionMock.readFile.mockImplementation(
 		async () => new Uint8Array([104, 105]).buffer as ArrayBuffer
 	);
-	vi.mocked(convertToHtml).mockClear();
-	vi.mocked(convertToHtml).mockResolvedValue({ value: "<h1>Hi</h1>", messages: [] });
+	vi.mocked(renderAsync).mockClear();
+	vi.mocked(renderAsync).mockImplementation(async (_data: Blob, container: HTMLElement) => {
+		container.innerHTML = '<section class="docx-wrapper"><h1>Hi</h1></section>';
+	});
 	// sidePane is a module singleton: a preview left open by one test would
 	// leak into the next one's assertions.
 	sidePane.reset();
@@ -186,17 +191,16 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 			await screen.getByRole("button", { name: "Preview report.docx" }).click();
 			await vi.waitFor(() => expect(sidePane.open).toBe(true));
 			expect(fetch).toHaveBeenCalledWith("/conversation/abc/code-execution/output/sha256");
-			expect(vi.mocked(convertToHtml)).toHaveBeenCalled();
+			expect(vi.mocked(renderAsync)).toHaveBeenCalled();
 			expect(sidePane.preview).toMatchObject({ kind: "html", title: "report.docx" });
 		} finally {
 			vi.stubGlobal("fetch", realFetch);
 		}
 	});
 
-	it("sanitizes the converted document before paneling it", async () => {
-		vi.mocked(convertToHtml).mockResolvedValue({
-			value: '<h1>Hi</h1><script>alert("x")</script>',
-			messages: [],
+	it("sanitizes the rendered document before paneling it", async () => {
+		vi.mocked(renderAsync).mockImplementation(async (_data: Blob, container: HTMLElement) => {
+			container.innerHTML = '<h1>Hi</h1><script>alert("x")</script>';
 		});
 		const screen = render(FileCard, { file: { path: "/home/pyodide/report.docx", size: 2916 } });
 		await screen.getByRole("button", { name: "Preview report.docx" }).click();
@@ -222,7 +226,7 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 				.element(screen.getByText("too large to preview", { exact: false }))
 				.toBeVisible();
 			expect(sidePane.open).toBe(false);
-			expect(vi.mocked(convertToHtml)).not.toHaveBeenCalled();
+			expect(vi.mocked(renderAsync)).not.toHaveBeenCalled();
 			await expect
 				.element(screen.getByRole("button", { name: "Download report.docx" }))
 				.toBeVisible();
@@ -231,8 +235,8 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 		}
 	});
 
-	it("shows a conversion failure inline with the download intact", async () => {
-		vi.mocked(convertToHtml).mockRejectedValue(new Error("not a zip"));
+	it("shows a rendering failure inline with the download intact", async () => {
+		vi.mocked(renderAsync).mockRejectedValue(new Error("not a zip"));
 		const screen = render(FileCard, { file: { path: "/home/pyodide/report.docx", size: 2916 } });
 		await screen.getByRole("button", { name: "Preview report.docx" }).click();
 		await expect.element(screen.getByText("not a zip")).toBeVisible();
