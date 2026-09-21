@@ -7,18 +7,18 @@
 	into the open message; tool, plan and permission frames upsert by id, so a
 	replayed log converges on the same transcript as a live one.
 
-	Permission frames render read-only here — what was asked, and whether it
-	is still waiting. The blocking approve/deny card that answers them is
-	Phase 3's `PermissionCard`, mounted in this same list.
+	A waiting approval renders as the blocking `PermissionCard` inline — the
+	agent holds until it is answered, so the card sits where the hold
+	happened rather than in a separate approvals tray.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
 	import IconTool from "~icons/carbon/tool-kit";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
-	import IconWarning from "~icons/carbon/warning-filled";
 	import IconPending from "~icons/carbon/pending-filled";
 	import IconDocument from "~icons/carbon/document";
 	import IconRenew from "~icons/carbon/renew";
+	import PermissionCard from "./PermissionCard.svelte";
 	import {
 		CodeAgentUpdateType,
 		type CodeAgentUpdate,
@@ -206,23 +206,7 @@
 				{entry.state}{entry.detail ? ` — ${entry.detail}` : ""}
 			</p>
 		{:else if entry.kind === "permission"}
-			<div class="{s.card(entry.update.pending)} {s.CARD_BODY}">
-				<div class="flex items-center gap-2 text-sm font-medium text-ink">
-					{#if entry.update.pending}
-						<IconWarning class="size-4 shrink-0 text-amber-700" />
-						Waiting for approval
-					{:else}
-						<IconCheckmark class="size-4 shrink-0 text-ink-muted" />
-						{entry.update.resolution === "approved" ? "Approved" : "Denied"}
-					{/if}
-				</div>
-				<p class="mt-1 text-sm text-ink-muted">{entry.update.description}</p>
-				{#if entry.update.command}
-					<pre
-						class="mt-2 scrollbar-custom overflow-auto rounded bg-sunken p-2 font-mono text-xs text-ink">{entry
-							.update.command}</pre>
-				{/if}
-			</div>
+			<PermissionCard {agentId} request={entry.update} />
 		{:else if entry.kind === "diff"}
 			<p class="text-center text-xs text-ink-faint">
 				<IconDocument class="mr-1 inline size-3" />
