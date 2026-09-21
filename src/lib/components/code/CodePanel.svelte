@@ -27,6 +27,7 @@
 	import IconLaptop from "~icons/carbon/laptop";
 	import DeviceTree from "./DeviceTree.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
+	import AgentView from "./AgentView.svelte";
 	import { listDevices, revokeDevice, type CodeDeviceView } from "$lib/codeApi";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -106,6 +107,8 @@
 					{loading}
 					{failure}
 					selectedId={selectedDeviceId}
+					{selectedWorkspaceId}
+					{selectedAgentId}
 					onpair={() => (pairingOpen = true)}
 					onrevoke={(id) => void handleRevoke(id)}
 					onretry={() => {
@@ -115,54 +118,47 @@
 				/>
 			</aside>
 
-			<div class="scrollbar-custom min-h-0 overflow-y-auto">
+			<div class="flex min-h-0 flex-col">
 				{#key `${selectedDeviceId ?? ""}:${selectedWorkspaceId ?? ""}:${selectedAgentId ?? ""}`}
 					{#if loading}
-						<div class={s.EMPTY}>
+						<div class="{s.EMPTY} scrollbar-custom min-h-0 overflow-y-auto">
 							<IconLaptop class={s.EMPTY_ICON} />
 							<p class={s.EMPTY_TITLE}>Loading…</p>
 						</div>
 					{:else if selectedAgentId}
-						<!-- Phase 2: the live agent view (timeline, diff, composer,
-						     permissions) mounts here, read from the daemon through
-						     the forwarder and the SSE bridge. -->
-						<div class={s.EMPTY}>
-							<IconCode class={s.EMPTY_ICON} />
-							<p class={s.EMPTY_TITLE}>Agent view is on its way</p>
-							<p class={s.EMPTY_DETAIL}>
-								Live transcripts, diffs and approvals land with the daemon connection.
-							</p>
-						</div>
+						<AgentView agentId={selectedAgentId} />
 					{:else if selected}
-						<div class={s.EMBEDDED}>
-							<div class="p-6">
-								<div class={s.HEADER}>
-									<h2 class={s.TITLE}>{selected.name}</h2>
-									<p class={s.SUBTITLE}>
-										{selected.status === "paired"
-											? "Paired. Its workspaces and agents will list here once the daemon is connected."
-											: "Pairing is not finished: approve the code on the device, or revoke it and start over."}
-									</p>
-								</div>
-								{#if selected.status === "pending" && selected.pairingCode}
-									<div class="mb-4 rounded-lg bg-sunken p-4 text-center">
-										<p class="text-xs text-ink-muted">On {selected.name}, run</p>
-										<p class="mt-1 font-mono text-lg font-semibold tracking-widest text-ink">
-											paseo pair {selected.pairingCode}
+						<div class="scrollbar-custom min-h-0 overflow-y-auto">
+							<div class={s.EMBEDDED}>
+								<div class="p-6">
+									<div class={s.HEADER}>
+										<h2 class={s.TITLE}>{selected.name}</h2>
+										<p class={s.SUBTITLE}>
+											{selected.status === "paired"
+												? "Paired. Its workspaces and agents will list here once the daemon is connected."
+												: "Pairing is not finished: approve the code on the device, or revoke it and start over."}
 										</p>
 									</div>
-								{/if}
-								<div class={s.TIPS}>
-									<h4 class={s.TIPS_TITLE}>Quick Tips</h4>
-									<ul class={s.TIPS_LIST}>
-										<li>• Live agent state stays on the daemon; Cerea keeps only the pairing.</li>
-										<li>• Revoking removes the pairing — nothing on the machine is touched.</li>
-									</ul>
+									{#if selected.status === "pending" && selected.pairingCode}
+										<div class="mb-4 rounded-lg bg-sunken p-4 text-center">
+											<p class="text-xs text-ink-muted">On {selected.name}, run</p>
+											<p class="mt-1 font-mono text-lg font-semibold tracking-widest text-ink">
+												paseo pair {selected.pairingCode}
+											</p>
+										</div>
+									{/if}
+									<div class={s.TIPS}>
+										<h4 class={s.TIPS_TITLE}>Quick Tips</h4>
+										<ul class={s.TIPS_LIST}>
+											<li>• Live agent state stays on the daemon; Cerea keeps only the pairing.</li>
+											<li>• Revoking removes the pairing — nothing on the machine is touched.</li>
+										</ul>
+									</div>
 								</div>
 							</div>
 						</div>
 					{:else}
-						<div class={s.EMPTY}>
+						<div class="{s.EMPTY} scrollbar-custom min-h-0 overflow-y-auto">
 							<IconLaptop class={s.EMPTY_ICON} />
 							<p class={s.EMPTY_TITLE}>
 								{devices.length === 0 ? "No device selected" : "Select a device"}

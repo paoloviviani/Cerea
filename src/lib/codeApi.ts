@@ -15,6 +15,7 @@
 import superjson from "superjson";
 import { base } from "$app/paths";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
+import type { CodeAgentSession, CodeFileChange, CodeWorkspace } from "$lib/types/CodeAgent";
 
 export type { CodeDeviceView };
 
@@ -73,4 +74,32 @@ export async function revokeDevice(id: string): Promise<{ revoked: boolean }> {
 	return unwrap(
 		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, { method: "DELETE" })
 	);
+}
+
+// -- live daemon state, through the allowlisted forwarder --------------------
+//
+// These 404 when the path is not offered and 502 when no daemon is behind
+// them. Callers treat both as "the daemon is not connected" rather than a
+// failure: the panel reads cleanly on a flag-on/daemon-off deployment.
+
+/** Working directories the daemon serves agents from. */
+export async function listWorkspaces(): Promise<{ workspaces: CodeWorkspace[] }> {
+	return unwrap(await fetch(`${root()}/v1/workspaces`));
+}
+
+/** Coding sessions in one workspace. Live on the daemon; never cached here. */
+export async function listWorkspaceAgents(
+	workspaceId: string
+): Promise<{ agents: CodeAgentSession[] }> {
+	return unwrap(await fetch(`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/agents`));
+}
+
+/** One agent's current record (title, provider, state). */
+export async function getAgent(agentId: string): Promise<{ agent: CodeAgentSession }> {
+	return unwrap(await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}`));
+}
+
+/** The files one agent has changed, as before/after pairs for the diff viewer. */
+export async function getAgentDiff(agentId: string): Promise<{ files: CodeFileChange[] }> {
+	return unwrap(await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}/diff`));
 }
