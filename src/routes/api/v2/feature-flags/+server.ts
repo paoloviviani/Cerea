@@ -37,5 +37,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 		usageEnabled: config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL,
 		knowledgeEnabled: knowledgeEnabled(),
 		memoryEnabled: memoryEnabled(),
+		// A deployment fact, not a product toggle: the gateway profiles
+		// serve /console on this origin and the admin panel may link to it;
+		// the standalone profiles do not (satellite's console is central's,
+		// generic has none).
+		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true",
 	} satisfies FeatureFlags);
 };

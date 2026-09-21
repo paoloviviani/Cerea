@@ -334,6 +334,7 @@ assert_contains "the overridden shape is what the block records" \
 	"INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=on,usage=hidden,code-tool=on,knowledge=on,memory=on" \
 	"$(cat "$env_path")"
 assert_contains "the overridden engine is what the .env records" "GATEWAY_REDACTION__ENGINE=noop" "$(cat "$env_path")"
+assert_contains "a gateway profile serves /console, so the flag is on" "CHAT_CONSOLE_ENABLED=true" "$(cat "$env_path")"
 
 # ---- 8: the standalone metadata block resumes verbatim (the shape the
 # old heuristics mis-inferred live: CHAT_USAGE_ENABLED=false on satellite)
@@ -408,6 +409,14 @@ assert_eq "the satellite-central fresh dry-run succeeds" "0" "$RC"
 env_path="$(printf '%s\n' "$OUT" | sed -n 's/^The .env that would have been written: \(.*\) (mode 600)$/\1/p')"
 assert_contains "the standalone .env carries COMPOSE_PROFILES=chat" "COMPOSE_PROFILES=chat" "$(cat "$env_path")"
 assert_not_contains "the standalone .env carries no local-link flag" "GATEWAY_OIDC__LINK_LOCAL_BY_EMAIL" "$(cat "$env_path")"
+# The console flag's empty value means "no /console on this origin" — an
+# empty line, so the check is grep-anchored (assert_contains is substring
+# and cannot express "the line is exactly this").
+if printf '%s\n' "$(cat "$env_path")" | grep -qx 'CHAT_CONSOLE_ENABLED='; then
+	pass "the standalone .env leaves the console flag empty (no /console on this origin)"
+else
+	flunk "the standalone .env does not carry an empty CHAT_CONSOLE_ENABLED line"
+fi
 assert_not_contains "no --no-deps in the standalone lines" "--no-deps" "$OUT"
 assert_contains "the standalone phase-2 line names its services" "up -d chat proxy" "$OUT"
 wrapper_out="$(printf '%s\n' "$OUT" | sed -n '/^#!/,/^esac$/p')"

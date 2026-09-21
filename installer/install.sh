@@ -1306,6 +1306,11 @@ collect_values() { # collect_values <profile>
 		if [ "$ST_CODETOOL" = "1" ]; then set_value CHAT_CODE_TOOL_ENABLED "true"; else set_value CHAT_CODE_TOOL_ENABLED ""; fi
 		if [ "$ST_KNOWLEDGE" = "1" ]; then set_value CHAT_KNOWLEDGE_ENABLED "true"; else set_value CHAT_KNOWLEDGE_ENABLED "false"; fi
 		if [ "$ST_MEMORY" = "1" ]; then set_value CHAT_MEMORY_ENABLED "true"; else set_value CHAT_MEMORY_ENABLED "false"; fi
+		# No console on this origin: satellite's Pystino is central's and
+		# its console lives at central's origin, generic has no Pystino at
+		# all — the chat's admin panel must not link to a /console this box
+		# does not serve.
+		set_value CHAT_CONSOLE_ENABLED ""
 		return
 	fi
 	token_url_safe 24
@@ -1339,6 +1344,10 @@ collect_values() { # collect_values <profile>
 	if [ "$ST_USAGE" = "1" ]; then set_value CHAT_USAGE_ENABLED "true"; else set_value CHAT_USAGE_ENABLED ""; fi
 	if [ "$ST_KNOWLEDGE" = "1" ]; then set_value CHAT_KNOWLEDGE_ENABLED "true"; else set_value CHAT_KNOWLEDGE_ENABLED "false"; fi
 	if [ "$ST_MEMORY" = "1" ]; then set_value CHAT_MEMORY_ENABLED "true"; else set_value CHAT_MEMORY_ENABLED "false"; fi
+	# Gateway profiles serve the console on this origin's proxy, so the
+	# chat's admin panel may link to it (satellite/generic leave it empty —
+	# see the standalone branch above).
+	set_value CHAT_CONSOLE_ENABLED "true"
 	# GATEWAY_SESSION_COOKIE_SECURE is deliberately not set here: it stays
 	# whatever the fragment says (false for homelab/team loopback shapes,
 	# true for enterprise), and the proxy overlay forces true at the

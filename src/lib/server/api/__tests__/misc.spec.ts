@@ -8,6 +8,7 @@ const configState = vi.hoisted(() => ({
 	usageEnabled: undefined as boolean | undefined,
 	knowledgeEnabled: undefined as boolean | undefined,
 	openaiBaseUrl: undefined as string | undefined,
+	consoleEnabled: undefined as boolean | undefined,
 }));
 
 vi.mock("$lib/server/config", async (importOriginal) => {
@@ -28,6 +29,9 @@ vi.mock("$lib/server/config", async (importOriginal) => {
 					}
 					if (prop === "OPENAI_BASE_URL" && configState.openaiBaseUrl !== undefined) {
 						return configState.openaiBaseUrl;
+					}
+					if (prop === "CHAT_CONSOLE_ENABLED" && configState.consoleEnabled !== undefined) {
+						return configState.consoleEnabled ? "true" : "";
 					}
 					return Reflect.get(target, prop, receiver);
 				},
@@ -111,6 +115,7 @@ describe("GET /api/v2/feature-flags", () => {
 		configState.usageEnabled = undefined;
 		configState.knowledgeEnabled = undefined;
 		configState.openaiBaseUrl = undefined;
+		configState.consoleEnabled = undefined;
 	});
 
 	it("allows the PyPI opt-in setting by default", async () => {
@@ -178,6 +183,26 @@ describe("GET /api/v2/feature-flags", () => {
 		});
 		const data = await parseResponse<FeatureFlags>(res);
 		expect(data.knowledgeEnabled).toBe(false);
+	});
+
+	it("links the console when CHAT_CONSOLE_ENABLED is true (gateway profiles)", async () => {
+		configState.consoleEnabled = true;
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.consoleEnabled).toBe(true);
+	});
+
+	it("shows no console link when CHAT_CONSOLE_ENABLED is unset (standalone profiles)", async () => {
+		configState.consoleEnabled = false;
+		const res = await testRequest(featureFlagsGET, {
+			path: "/api/v2/feature-flags",
+			locals: createTestLocals(),
+		});
+		const data = await parseResponse<FeatureFlags>(res);
+		expect(data.consoleEnabled).toBe(false);
 	});
 
 	it("serves CORS headers on /api/** when the request carries no Origin", async () => {

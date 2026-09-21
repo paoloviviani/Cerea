@@ -155,10 +155,6 @@ assert_contains "usage names --non-interactive" "--non-interactive" "$OUT"
 assert_contains "usage names --public-host" "--public-host <h>" "$OUT"
 assert_contains "usage names --central" "--central <url>" "$OUT"
 
-
-
-summary "test-flags.sh"
-
 # ---- the decision shortcuts: they inject into PENDING, so the ask sites'
 # validation sees them; the shapes that never ask still fail unconsumed
 reset_flags
@@ -169,9 +165,13 @@ assert_eq "--public-host fills PUBLIC_HOST" "cerea.example" "${PENDING[PUBLIC_HO
 reset_flags
 parse_install_flags --https-port 9443
 assert_eq "--https-port fills HTTPS_PORT" "9443" "${PENDING[HTTPS_PORT]:-}"
-# fail() exits, so a rejection is proven in a subshell with its exit code
-( parse_install_flags --https-port abc ) 2>/dev/null
-assert_eq "--https-port rejects a non-numeric port" "1" "$?"
+# fail() exits, so a rejection is proven in a subshell with its exit code.
+# The rc is captured in one line because `|| true` (needed so set -e does
+# not read the deliberate failure as ours — the block once lived below
+# summary, and the file's exit code lied about having passed) would
+# otherwise clobber $? before the assert reads it.
+( parse_install_flags --https-port abc ) 2>/dev/null || rc=$?
+assert_eq "--https-port rejects a non-numeric port" "1" "${rc:-0}"
 
 reset_flags
 parse_install_flags --acme-email ops@example.org
@@ -183,4 +183,6 @@ assert_eq "--central fills the backend base URL" "https://central.example" "${PE
 assert_eq "--central fills the OIDC issuer" "https://central.example" "${PENDING[CHAT_OIDC_PROVIDER_URL]:-}"
 parse_install_flags --central https://central.example --set CHAT_OIDC_PROVIDER_URL=https://other.example
 assert_eq "an explicit --set after --central overrides the issuer" "https://other.example" "${PENDING[CHAT_OIDC_PROVIDER_URL]:-}"
+
+summary "test-flags.sh"
 
