@@ -13,6 +13,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
+import { dropLink } from "$lib/server/codeDaemon";
 import { listDevices, ownerFilter, requireCodeAgents } from "$lib/server/codeDevices";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -33,11 +34,14 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 	}
 
 	// Scoped to the caller's rows: revoking somebody else's id is a 404
-	// rather than a refusal, so ids stay unguessable either way.
+	// rather than a refusal, so ids stay unguessable either way. The relay
+	// link dies with the row — without the pairing, the daemon is
+	// unreachable from here, which is all the revocation needs to do.
 	const result = await collections.codeDevices.deleteOne({
 		_id: objectId,
 		...ownerFilter(locals),
 	});
 	if (result.deletedCount === 0) error(404, "No such paired device.");
+	dropLink(id.data);
 	return json({ revoked: true });
 };

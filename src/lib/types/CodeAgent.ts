@@ -114,13 +114,23 @@ export interface CodeDevice {
 	name: string;
 	status: CodeDeviceStatus;
 	/**
-	 * The short code shown at pairing time; the person types it into their
-	 * daemon (`paseo pair <code>`), or confirms it here until the daemon
-	 * calls back. Cleared once paired — it is single-use by design.
+	 * The short code shown at pairing time. The person runs `paseo daemon
+	 * pair` on their machine and pastes the pairing link it prints back into
+	 * the panel; the code alone proves the person saw this row, and the pasted
+	 * offer carries the daemon's relay identity. Cleared once paired — it is
+	 * single-use by design.
 	 */
 	pairingCode?: string;
 	/** Daemon-reported device id, recorded when the pairing completes. */
 	daemonId?: string;
+	/**
+	 * The daemon's Curve25519 public key, from the pairing offer the person
+	 * pasted at claim time. This is half of the E2EE channel key material:
+	 * the offer as a whole is the bearer capability for the daemon (paseo
+	 * treats its QR code like a password), so it is stored with the same
+	 * care as a credential and never leaves the server.
+	 */
+	daemonPublicKey?: string;
 	/**
 	 * When an unclaimed pairing stops existing. Set only while `pending` —
 	 * a paired row carries no expiry, so the TTL index below can never

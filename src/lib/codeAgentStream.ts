@@ -24,15 +24,16 @@ function isAgentUpdate(value: unknown): value is CodeAgentUpdate {
 	return typeof type === "string" && KNOWN_TYPES.has(type);
 }
 
-export function agentStreamUrl(agentId: string): string {
-	return `${base}/api/v2/code/agents/${encodeURIComponent(agentId)}/stream`;
+export function agentStreamUrl(deviceId: string, agentId: string): string {
+	return `${base}/api/v2/code/agents/${encodeURIComponent(agentId)}/stream?device=${encodeURIComponent(deviceId)}`;
 }
 
 export async function* codeAgentStream(
+	deviceId: string,
 	agentId: string,
 	signal: AbortSignal
 ): AsyncGenerator<CodeAgentUpdate> {
-	const source = new EventSource(agentStreamUrl(agentId));
+	const source = new EventSource(agentStreamUrl(deviceId, agentId));
 	const queue: CodeAgentUpdate[] = [];
 	let done = false;
 	let wake: (() => void) | null = null;

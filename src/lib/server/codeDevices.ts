@@ -75,3 +75,24 @@ export async function listDevices(locals: App.Locals): Promise<CodeDeviceView[]>
 		.toArray();
 	return devices.map(deviceView);
 }
+
+/**
+ * One of the caller's own paired devices, for routing daemon traffic. A
+ * device id that is not the caller's is a 404 — ids stay unguessable, and a
+ * mismatched owner must be indistinguishable from a nonexistent device.
+ */
+export async function getPairedDevice(locals: App.Locals, deviceId: string) {
+	let objectId: ObjectId;
+	try {
+		objectId = new ObjectId(deviceId);
+	} catch {
+		error(400, "Not a valid device id.");
+	}
+	const device = await collections.codeDevices.findOne({
+		_id: objectId,
+		...ownerFilter(locals),
+	});
+	if (!device) error(404, "No such paired device.");
+	if (device.status !== "paired") error(409, "That device is not paired yet.");
+	return device;
+}

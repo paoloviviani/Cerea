@@ -60,12 +60,15 @@ export async function startPairing(name: string): Promise<{ device: CodeDeviceVi
 	);
 }
 
-export async function claimPairing(code: string): Promise<{ device: CodeDeviceView }> {
+export async function claimPairing(
+	code: string,
+	offer: string
+): Promise<{ device: CodeDeviceView }> {
 	return unwrap(
 		await fetch(`${root()}/enroll`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ action: "claim", code }),
+			body: JSON.stringify({ action: "claim", code, offer }),
 		})
 	);
 }
@@ -76,32 +79,54 @@ export async function revokeDevice(id: string): Promise<{ revoked: boolean }> {
 	);
 }
 
-// -- live daemon state, through the allowlisted forwarder --------------------
+// -- live daemon state, through the relay, per paired device -----------------
 //
-// These 404 when the path is not offered and 502 when no daemon is behind
-// them. Callers treat both as "the daemon is not connected" rather than a
-// failure: the panel reads cleanly on a flag-on/daemon-off deployment.
+// Every call names its device (`?device=`); the server checks the row
+// belongs to the caller, then reaches that machine through the relay. These
+// 404 when the device is unknown, and 502 when the daemon behind it cannot
+// be reached. Callers treat both as "the daemon is not connected" rather
+// than a failure: the panel reads cleanly on a flag-on/daemon-off
+// deployment.
 
 /** Working directories the daemon serves agents from. */
-export async function listWorkspaces(): Promise<{ workspaces: CodeWorkspace[] }> {
-	return unwrap(await fetch(`${root()}/v1/workspaces`));
+export async function listWorkspaces(deviceId: string): Promise<{ workspaces: CodeWorkspace[] }> {
+	return unwrap(await fetch(`${root()}/v1/workspaces?device=${encodeURIComponent(deviceId)}`));
 }
 
 /** Coding sessions in one workspace. Live on the daemon; never cached here. */
 export async function listWorkspaceAgents(
+	deviceId: string,
 	workspaceId: string
 ): Promise<{ agents: CodeAgentSession[] }> {
-	return unwrap(await fetch(`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/agents`));
+	return unwrap(
+		await fetch(
+			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/agents?device=${encodeURIComponent(deviceId)}`
+		)
+	);
 }
 
 /** One agent's current record (title, provider, state). */
-export async function getAgent(agentId: string): Promise<{ agent: CodeAgentSession }> {
-	return unwrap(await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}`));
+export async function getAgent(
+	deviceId: string,
+	agentId: string
+): Promise<{ agent: CodeAgentSession }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}?device=${encodeURIComponent(deviceId)}`
+		)
+	);
 }
 
 /** The files one agent has changed, as before/after pairs for the diff viewer. */
-export async function getAgentDiff(agentId: string): Promise<{ files: CodeFileChange[] }> {
-	return unwrap(await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}/diff`));
+export async function getAgentDiff(
+	deviceId: string,
+	agentId: string
+): Promise<{ files: CodeFileChange[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/diff?device=${encodeURIComponent(deviceId)}`
+		)
+	);
 }
 
 // -- control: follow-ups and approvals (Phase 3) ----------------------------
@@ -118,20 +143,24 @@ export interface FollowUpOptions {
 
 /** Send a follow-up to a running session. The reply arrives on the timeline stream. */
 export async function sendFollowUp(
+	deviceId: string,
 	agentId: string,
 	text: string,
 	options: FollowUpOptions = {}
 ): Promise<{ ok: boolean }> {
 	return unwrap(
-		await fetch(`${root()}/v1/agents/${encodeURIComponent(agentId)}/messages`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				text,
-				provider: options.provider || "opencode",
-				posture: options.posture ?? "plan",
-			}),
-		})
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/messages?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					text,
+					provider: options.provider || "opencode",
+					posture: options.posture ?? "plan",
+				}),
+			}
+		)
 	);
 }
 
@@ -139,13 +168,14 @@ export type PermissionDecision = "approve" | "deny";
 
 /** Answer a waiting permission request. Blocking: the agent holds until this lands. */
 export async function respondPermission(
+	deviceId: string,
 	agentId: string,
 	requestId: string,
 	decision: PermissionDecision
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
-			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}`,
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}?device=${encodeURIComponent(deviceId)}`,
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },

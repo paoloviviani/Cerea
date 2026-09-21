@@ -30,10 +30,11 @@
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
+		deviceId: string;
 		agentId: string;
 	}
 
-	let { agentId }: Props = $props();
+	let { deviceId, agentId }: Props = $props();
 
 	type Entry =
 		| { kind: "message"; role: "agent" | "user"; text: string; open: boolean }
@@ -114,7 +115,7 @@
 		const abort = new AbortController();
 		(async () => {
 			try {
-				for await (const update of codeAgentStream(agentId, abort.signal)) {
+				for await (const update of codeAgentStream(deviceId, agentId, abort.signal)) {
 					applyUpdate(update);
 				}
 			} catch (err) {
@@ -206,7 +207,7 @@
 				{entry.state}{entry.detail ? ` — ${entry.detail}` : ""}
 			</p>
 		{:else if entry.kind === "permission"}
-			<PermissionCard {agentId} request={entry.update} />
+			<PermissionCard {deviceId} {agentId} request={entry.update} />
 		{:else if entry.kind === "diff"}
 			<p class="text-center text-xs text-ink-faint">
 				<IconDocument class="mr-1 inline size-3" />

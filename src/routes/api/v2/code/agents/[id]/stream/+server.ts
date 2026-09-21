@@ -1,130 +1,161 @@
 /**
- * The agent timeline as server-sent events, re-emitted from the daemon.
+ * The agent timeline as server-sent events, translated live from the daemon.
  *
  * The browser holds one `EventSource` on this endpoint; the server holds the
- * one subscription to the daemon (`GET {daemon}/v1/agents/{id}/timeline/stream`)
- * the forwarder deliberately does not offer the browser. Frames are
- * re-emitted, not relayed byte-for-byte: each `update` frame's data must
- * parse as JSON with a known agent-update `type`, or it is dropped rather
- * than forwarded — a malformed frame must not tear down the transcript.
+ * one subscription to the daemon — through the caller's relay link
+ * (`codeDaemon.ts`), never a browser-reachable URL. Frames are translated,
+ * not relayed: daemon timeline items and stream events go through
+ * `codeTimeline.ts`, and anything without a panel representation is dropped
+ * rather than invented into one.
+ *
+ * History then live: the daemon's timeline is fetched (a bounded tail) and
+ * mapped first; the subscription — opened before the fetch, buffering — is
+ * drained afterwards, with frames the history already delivered dropped by
+ * their stable keys. The seam between the two sources therefore cannot
+ * double-render a frame in either direction.
  *
  * SSE: `event: update` carries one `CodeAgentUpdate`, tagged `id: <seq>` so
- * EventSource resumes via Last-Event-ID on reconnect; `event: end {status}`
- * is terminal and the client closes; a plain close (lifetime cap, transient)
- * means reconnect. A fresh mount connects with `fromSeq=0`, and the daemon
- * replays its log before tailing — so no separate history fetch is needed,
- * and reload is lossless by construction.
- *
- * Coded against the daemon shape `id: <seq> / event: update|end / data: {...}`
- * with `: heartbeat` comments; a daemon that never heartbeats gets ours when
- * the line has been quiet for 15s. No live daemon was available to verify
- * against — see the panel summary for exactly what needs one.
+ * EventSource resumes via Last-Event-ID on reconnect. The seq counts a
+ * deterministic replay (the daemon's timeline is the same list on every
+ * fetch), so a resumed connection skips exactly the frames the browser
+ * already has and continues the count from there; frames the old connection
+ * saw live but that history has not absorbed yet are re-derived — permission
+ * requests come from the agent's snapshot, which is upsert-safe in the
+ * transcript, and turn-state markers are cosmetic. `event: end` never fires
+ * from here: the bridge's lifetime cap and aborts close the stream plainly,
+ * which is the client's reconnect signal.
  */
 
 import { error, type RequestHandler } from "@sveltejs/kit";
-import { daemonBaseUrl, daemonHeaders, PASEO_API_VERSION } from "$lib/server/codeDaemon";
+import { linkForDevice } from "$lib/server/codeDaemon";
+import { streamEventToUpdate, timelineEntryToUpdate } from "$lib/server/codeTimeline";
 import { requireCodeAgents } from "$lib/server/codeDevices";
-import { CodeAgentUpdateType } from "$lib/types/CodeAgent";
+import { CodeAgentUpdateType, type CodeAgentUpdate } from "$lib/types/CodeAgent";
 import { logger } from "$lib/server/logger";
 
-const ID_PATTERN = /^[A-Za-z0-9_.:~-]+$/;
 const MAX_LIFETIME_MS = 5 * 60_000;
 const HEARTBEAT_AFTER_MS = 15_000;
 
-const KNOWN_TYPES = new Set<string>(Object.values(CodeAgentUpdateType));
-
-interface ParsedFrame {
-	id?: string;
-	event: string;
-	data: string;
-}
-
-/** Split a buffered SSE byte-chunk into complete frames, keeping the remainder. */
-function splitFrames(buffer: string): { frames: ParsedFrame[]; rest: string } {
-	const frames: ParsedFrame[] = [];
-	const parts = buffer.split("\n\n");
-	const rest = parts.pop() ?? "";
-	for (const part of parts) {
-		const lines = part.split("\n");
-		let id: string | undefined;
-		let event = "message";
-		const data: string[] = [];
-		for (const line of lines) {
-			if (line.startsWith(":")) continue;
-			if (line.startsWith("id:")) id = line.slice(3).trim();
-			else if (line.startsWith("event:")) event = line.slice(6).trim();
-			else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
-		}
-		if (data.length > 0) frames.push({ id, event, data: data.join("\n") });
-	}
-	return { frames, rest };
-}
-
-function isAgentUpdate(data: string): boolean {
-	try {
-		const parsed = JSON.parse(data) as { type?: unknown };
-		return typeof parsed.type === "string" && KNOWN_TYPES.has(parsed.type);
-	} catch {
-		return false;
+/** A frame's identity for seam de-duplication: the same item never twice. */
+function frameKey(update: CodeAgentUpdate): string | null {
+	switch (update.type) {
+		case CodeAgentUpdateType.AgentMessage:
+			return `m:${update.role}:${update.text}`;
+		case CodeAgentUpdateType.ToolCall:
+			return `t:${update.id}`;
+		case CodeAgentUpdateType.Plan:
+			return `p:${update.steps.map((step) => step.title).join("|")}`;
+		default:
+			return null;
 	}
 }
 
 export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	requireCodeAgents(locals);
 	const agentId = params.id ?? "";
-	if (!ID_PATTERN.test(agentId)) error(400, "Not a valid agent id.");
+	if (!/^[A-Za-z0-9_.:~-]+$/.test(agentId)) error(400, "Not a valid agent id.");
+	const link = await linkForDevice(locals, url.searchParams.get("device"));
+	const client = await link.ensureReady();
+
+	// Subscribe first and buffer, so events fired while history is being
+	// fetched are queued rather than lost at the seam.
+	const buffered: CodeAgentUpdate[] = [];
+	let wake: (() => void) | null = null;
+	const notify = () => {
+		wake?.();
+		wake = null;
+	};
+	const unsubscribe = client.subscribeAgentTimeline(agentId, (message) => {
+		if (message.type !== "agent_stream") return;
+		const event = (message as { event?: unknown }).event;
+		if (!event) return;
+		try {
+			const update = streamEventToUpdate(event as Parameters<typeof streamEventToUpdate>[0]);
+			if (update) {
+				buffered.push(update);
+				notify();
+			}
+		} catch (err) {
+			logger.warn({ err, agentId }, "dropping an unmappable agent stream event");
+		}
+	});
+
+	const agent = await client.fetchAgent(agentId).catch(() => null);
+	if (!agent) {
+		unsubscribe();
+		error(404, "No such agent on this daemon.");
+	}
+
+	let history: CodeAgentUpdate[] = [];
+	try {
+		const timeline = await link.fetchTimeline(agentId);
+		history = timeline.entries
+			.map(timelineEntryToUpdate)
+			.filter((update): update is CodeAgentUpdate => update !== null);
+	} catch (err) {
+		logger.warn({ err, agentId }, "timeline history fetch failed; streaming live only");
+	}
+
+	// Drain the buffer, dropping what history already delivered.
+	const seen = new Set<string>();
+	for (const update of history) {
+		const key = frameKey(update);
+		if (key) seen.add(key);
+	}
+	const drained: CodeAgentUpdate[] = [];
+	for (const update of buffered) {
+		const key = frameKey(update);
+		if (key && seen.has(key)) continue;
+		if (key) seen.add(key);
+		drained.push(update);
+	}
+	buffered.length = 0;
+
+	// Permissions live outside the timeline: surface whatever is still
+	// pending so a fresh mount shows the blocking card. The transcript
+	// upserts these by request id, so a replay of a resolution overtakes
+	// them safely.
+	const pending = (agent.agent.pendingPermissions ?? [])
+		.map((request) =>
+			streamEventToUpdate({
+				type: "permission_requested",
+				provider: request.provider,
+				request,
+			} as Parameters<typeof streamEventToUpdate>[0])
+		)
+		.filter((update): update is CodeAgentUpdate => update !== null);
+
+	const initial: CodeAgentUpdate[] = [...history, ...pending, ...drained];
 
 	const lastEventId = request.headers.get("last-event-id");
-	const fromSeq = lastEventId ?? url.searchParams.get("fromSeq") ?? "0";
-
-	const daemonUrl =
-		`${daemonBaseUrl()}/v1/agents/${encodeURIComponent(agentId)}` +
-		`/timeline/stream?fromSeq=${encodeURIComponent(fromSeq)}`;
-
-	let upstream: Response;
-	try {
-		upstream = await fetch(daemonUrl, { headers: daemonHeaders(), signal: request.signal });
-	} catch (err) {
-		logger.error({ err, agentId }, "paseo daemon stream could not be opened");
-		error(502, "The coding-agent daemon could not be reached.");
-	}
-	if (!upstream.ok || !upstream.body) {
-		const status = upstream.status;
-		logger.error({ agentId, status }, "paseo daemon stream refused");
-		error(502, "The coding-agent daemon refused the timeline subscription.");
-	}
-	const advertised = upstream.headers.get("x-paseo-version");
-	if (advertised && advertised !== PASEO_API_VERSION) {
-		logger.error({ agentId, advertised }, "paseo daemon version mismatch");
-		error(502, "The coding-agent daemon speaks an unsupported API version.");
-	}
+	const resumeFrom =
+		Number.parseInt(lastEventId ?? url.searchParams.get("fromSeq") ?? "0", 10) || 0;
 
 	const encoder = new TextEncoder();
-	const decoder = new TextDecoder();
-	const reader = upstream.body.getReader();
 	let seq = 0;
 
 	const stream = new ReadableStream({
 		async start(controller) {
 			const signal = request.signal;
-			let buffer = "";
-			let lastEmit = Date.now();
 			let closed = false;
+			let lastEmit = Date.now();
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
+			const emit = (update: CodeAgentUpdate) => {
+				seq += 1;
+				enc(`id: ${seq}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
+				lastEmit = Date.now();
+			};
 
 			// Idempotent teardown, called exactly once per connection no
-			// matter which of abort, deadline, `end` or error wins the race.
+			// matter which of abort, deadline or error wins the race.
 			const finish = () => {
 				if (closed) return;
 				closed = true;
 				clearInterval(heartbeat);
 				clearTimeout(lifetime);
 				signal.removeEventListener("abort", onAbort);
-				// A cancelled reader resolves its pending read as done, so
-				// the loop below always wakes up to exit — no dangling read.
-				void reader.cancel().catch(() => {
-					// already closed
-				});
+				unsubscribe();
+				notify();
 				try {
 					controller.close();
 				} catch {
@@ -132,21 +163,14 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				}
 			};
 			const onAbort = () => finish();
-			// Registered once, not per tick: the read loop below awaits one
-			// `reader.read()` at a time and is never raced against a timer,
-			// so neither pending reads nor abort listeners can accumulate
-			// while the daemon is quiet.
 			signal.addEventListener("abort", onAbort, { once: true });
 			// The 5-minute cap as an exact timer rather than a per-tick
-			// check: a silent daemon holds the read below forever, and a
+			// check: a silent daemon holds the pump below forever, and a
 			// check that only runs when data flows would never fire.
 			const lifetime = setTimeout(finish, MAX_LIFETIME_MS);
-
-			// The heartbeat is a separate timer, not a race against the read:
-			// it fires only when the line has been quiet for
-			// HEARTBEAT_AFTER_MS, and data writes reset `lastEmit`, so the
-			// two never emit back-to-back. Single-threaded writes through one
-			// controller cannot interleave mid-frame.
+			// The heartbeat is a separate timer, not a race against the
+			// pump: it fires only when the line has been quiet for
+			// HEARTBEAT_AFTER_MS, and writes reset `lastEmit`.
 			const heartbeat = setInterval(() => {
 				if (closed) return;
 				if (Date.now() - lastEmit >= HEARTBEAT_AFTER_MS) {
@@ -160,32 +184,30 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			}, 1000);
 
 			try {
-				for (;;) {
-					if (signal.aborted || closed) break;
-					const { done, value } = await reader.read();
-					if (done || closed) break;
-					buffer += decoder.decode(value, { stream: true });
-					const { frames, rest } = splitFrames(buffer);
-					buffer = rest;
-					for (const frame of frames) {
-						if (frame.event === "end") {
-							enc(`event: end\ndata: ${frame.data}\n\n`);
-							finish();
-							return;
-						}
-						if (frame.event !== "update") continue;
-						if (!isAgentUpdate(frame.data)) {
-							logger.warn({ agentId }, "dropping a malformed agent timeline frame");
-							continue;
-						}
-						seq += 1;
-						enc(`id: ${frame.id ?? seq}\nevent: update\ndata: ${frame.data}\n\n`);
-						lastEmit = Date.now();
-					}
+				for (const update of initial) {
+					if (closed) return;
+					// Deterministic replay: the browser has everything up to
+					// its last event id, so skip exactly that prefix.
+					if (seq + 1 > resumeFrom) emit(update);
+					else seq += 1;
 				}
-			} catch {
+				// From here the subscription is the only source: every
+				// mapped frame continues the same count.
+				for (;;) {
+					if (closed) return;
+					const next = buffered.shift();
+					if (next !== undefined) {
+						emit(next);
+						continue;
+					}
+					await new Promise<void>((resolve) => {
+						wake = resolve;
+					});
+				}
+			} catch (err) {
 				// Transient — fall through to a plain close so the client
 				// reconnects with its Last-Event-ID.
+				logger.warn({ err, agentId }, "agent timeline bridge ended");
 			}
 			finish();
 		},

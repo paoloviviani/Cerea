@@ -125,8 +125,8 @@
 							<IconLaptop class={s.EMPTY_ICON} />
 							<p class={s.EMPTY_TITLE}>Loading…</p>
 						</div>
-					{:else if selectedAgentId}
-						<AgentView agentId={selectedAgentId} />
+					{:else if selectedAgentId && selected}
+						<AgentView deviceId={selected.id} agentId={selectedAgentId} />
 					{:else if selected}
 						<div class="scrollbar-custom min-h-0 overflow-y-auto">
 							<div class={s.EMBEDDED}>
@@ -140,10 +140,15 @@
 										</p>
 									</div>
 									{#if selected.status === "pending" && selected.pairingCode}
-										<div class="mb-4 rounded-lg bg-sunken p-4 text-center">
-											<p class="text-xs text-ink-muted">On {selected.name}, run</p>
-											<p class="mt-1 font-mono text-lg font-semibold tracking-widest text-ink">
-												paseo pair {selected.pairingCode}
+										<div class="mb-4 rounded-lg bg-sunken p-4">
+											<p class="text-center text-xs text-ink-muted">
+												On {selected.name}, run
+												<span
+													class="mt-1 block font-mono text-lg font-semibold tracking-widest text-ink"
+												>
+													paseo daemon pair
+												</span>
+												and paste the link under "Pair" to finish.
 											</p>
 										</div>
 									{/if}
