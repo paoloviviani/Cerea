@@ -363,8 +363,8 @@ env_path="$(printf '%s\n' "$OUT" | sed -n 's/^The .env that would have been writ
 assert_contains "the .env carries COMPOSE_PROFILES for team+authelia" "COMPOSE_PROFILES=chat,authelia" "$(cat "$env_path")"
 assert_contains "the .env carries the local-link flag (bundled shapes only)" "GATEWAY_OIDC__LINK_LOCAL_BY_EMAIL=true" "$(cat "$env_path")"
 assert_contains "the .env records the operator email (the resume re-seed reads it)" "IDP_ADMIN_EMAIL=op@example.org" "$(cat "$env_path")"
-assert_contains "the phase-1 admin step prompts on the host for the operator email" "gateway passwd op@example.org --admin' (exec -T, no container TTY)" "$OUT"
-assert_contains "the password policy is stated before the prompts" "Password policy: at least 10 characters" "$OUT"
+assert_contains "the phase-1 admin step mints for the operator email" "gateway passwd op@example.org --admin' (exec -T, no container TTY)" "$OUT"
+assert_contains "the minted step is named in the dry-run note" "would mint the 'op@example.org' break-glass password" "$OUT"
 assert_not_contains "a bundled shape never seeds admin@local" "passwd admin@local" "$OUT"
 assert_contains "the profile-activated set is verified via config --services" \
 	"config --services shows the profile-activated set: chat chat-mongo authelia ca-bundle" "$OUT"
@@ -397,7 +397,7 @@ env_path="$(printf '%s\n' "$OUT" | sed -n 's/^The .env that would have been writ
 assert_contains "the house .env carries COMPOSE_PROFILES=chat" "COMPOSE_PROFILES=chat" "$(cat "$env_path")"
 assert_not_contains "the house .env carries no local-link flag" "GATEWAY_OIDC__LINK_LOCAL_BY_EMAIL" "$(cat "$env_path")"
 assert_not_contains "the house .env records no operator email" "IDP_ADMIN_EMAIL" "$(cat "$env_path")"
-assert_contains "the house phase-1 admin step prompts for admin@local" "gateway passwd admin@local --admin' (exec -T, no container TTY)" "$OUT"
+assert_contains "the house phase-1 admin step mints for admin@local" "gateway passwd admin@local --admin' (exec -T, no container TTY)" "$OUT"
 
 # ---- 10c: standalone — no --no-deps, named service sets, wrapper names them
 run_install --dry-run --pystino "$FAKE" --profile satellite --exposure edge \
@@ -499,7 +499,7 @@ assert_eq "the keycloak fresh dry-run succeeds" "0" "$RC"
 env_path="$(printf '%s\n' "$OUT" | sed -n 's/^The .env that would have been written: \(.*\) (mode 600)$/\1/p')"
 assert_contains "keycloak .env carries COMPOSE_PROFILES=chat,keycloak" "COMPOSE_PROFILES=chat,keycloak" "$(cat "$env_path")"
 assert_contains "keycloak .env records the realm template's first human" "IDP_ADMIN_EMAIL=owner@example.org" "$(cat "$env_path")"
-assert_contains "keycloak phase-1 admin step prompts for the template email" \
+assert_contains "keycloak phase-1 admin step mints for the template email" \
 	"gateway passwd owner@example.org --admin' (exec -T, no container TTY)" "$OUT"
 assert_contains "keycloak .env carries the local-link flag" "GATEWAY_OIDC__LINK_LOCAL_BY_EMAIL=true" "$(cat "$env_path")"
 
