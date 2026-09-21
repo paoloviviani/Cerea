@@ -137,6 +137,14 @@ derive_compose_profiles() { # derive_compose_profiles -> COMPOSE_PROFILES_VALUE
 	case "${VALUES[IDP_BUNDLED]:-}" in
 		authelia | keycloak) parts+=("${VALUES[IDP_BUNDLED]}") ;;
 	esac
+	# The /code panel's relay (ADR 0085): profile-gated like the IdP bundles,
+	# and like them it joins only when the operator answered for it — the
+	# panel toggle (ST_CODEPANEL / code-panel=on) is what set
+	# CODE_AGENTS_ENABLED, and that flag is what the chat reads to show or
+	# hide the surface.
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+		parts+=(code-relay)
+	fi
 	local IFS=,
 	COMPOSE_PROFILES_VALUE="${parts[*]}"
 }
@@ -270,6 +278,16 @@ append_idp_overlay() {
 	local f
 	f="$(idp_overlay_file)"
 	if [ -n "$f" ]; then OVERLAY_FLAGS+=(-f "$f"); fi
+}
+
+# The /code panel's relay overlay (ADR 0085). Appended on the same call sites
+# as append_idp_overlay: the chat's CODE_* plumbing rides the chat overlay,
+# and this file contributes the relay service itself — profile-gated
+# (`code-relay`), so including the file without the profile deploys nothing.
+append_code_relay_overlay() {
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+		OVERLAY_FLAGS+=(-f deploy/compose/docker-compose.code-relay.yml)
+	fi
 }
 
 # The phase-1 compose set, shared by phase_one and main's parse check (the

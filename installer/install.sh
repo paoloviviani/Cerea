@@ -605,13 +605,13 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 	local profile="$1"
 	case "$profile" in
 		homelab)
-			ST_REDACTION="off" ST_FETCH="direct" ST_METERING=0 ST_CODETOOL=1 ST_USAGE=0 ST_KNOWLEDGE=1 ST_MEMORY=1
+			ST_REDACTION="off" ST_FETCH="direct" ST_METERING=0 ST_CODETOOL=1 ST_USAGE=0 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 			;;
 		team)
-			ST_REDACTION="pattern" ST_FETCH="direct" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1
+			ST_REDACTION="pattern" ST_FETCH="direct" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 			;;
 		enterprise)
-			ST_REDACTION="ner" ST_FETCH="playwright" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1
+			ST_REDACTION="ner" ST_FETCH="playwright" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 			;;
 	esac
 	if [ -n "$COMPONENTS_SPEC" ]; then
@@ -634,10 +634,11 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 		local metering_label="off" usage_label="hidden"
 		[ "$ST_METERING" = "1" ] && metering_label="on"
 		[ "$ST_USAGE" = "1" ] && usage_label="shown"
-		local code_label="off" knowledge_label="off" memory_label="off" fetch_label="$ST_FETCH"
+		local code_label="off" knowledge_label="off" memory_label="off" fetch_label="$ST_FETCH" codepanel_label="off"
 		[ "$ST_CODETOOL" = "1" ] && code_label="on"
 		[ "$ST_KNOWLEDGE" = "1" ] && knowledge_label="on"
 		[ "$ST_MEMORY" = "1" ] && memory_label="on"
+		[ "$ST_CODEPANEL" = "1" ] && codepanel_label="on"
 		printf '\nCurrent selection:\n'
 		printf '  %s1)%s Redaction: %s\n' "$CYAN" "$R" "$redaction_label"
 		note "     off: nothing (+0) · pattern: +~300 MB RSS, +~1.9 GB image (pattern-only redaction + local extractor) · NER: +~750 MB RSS (NER redaction) — needs a rebuild to change later (SPACY_MODELS is a build argument)"
@@ -653,11 +654,13 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 		note "     free: its Postgres is a second database on the gateway's instance, not a container — off hides the surface instead of erroring"
 		printf '  %s7)%s User memory: %s\n' "$CYAN" "$R" "$memory_label"
 		note "     free: a handful of short facts per person in Mongo — and each person still has to opt in, so leaving it on stores nothing by itself"
-		printf '  %s8)%s Done — continue with this selection\n' "$CYAN" "$R"
-		ask "Toggle [1-8]" "8"
-		if [ "$REPLY_VAL" = "8" ]; then return; fi
-		if ! [[ "$REPLY_VAL" =~ ^[1-7]$ ]]; then
-			printf '%sEnter a number between 1 and 8.%s\n' "$YELLOW" "$R"
+		printf '  %s8)%s /code remote-agent panel: %s\n' "$CYAN" "$R" "$codepanel_label"
+		note "     hosts the paseo-relay (one container, one published port — the one service daemons outside dial; ADR 0085). Off hides the /code panel in the chat"
+		printf '  %s9)%s Done — continue with this selection\n' "$CYAN" "$R"
+		ask "Toggle [1-9]" "9"
+		if [ "$REPLY_VAL" = "9" ]; then return; fi
+		if ! [[ "$REPLY_VAL" =~ ^[1-8]$ ]]; then
+			printf '%sEnter a number between 1 and 9.%s\n' "$YELLOW" "$R"
 			continue
 		fi
 		case "$REPLY_VAL" in
@@ -682,6 +685,7 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 			5) if [ "$ST_CODETOOL" = "1" ]; then ST_CODETOOL=0; else ST_CODETOOL=1; fi ;;
 			6) if [ "$ST_KNOWLEDGE" = "1" ]; then ST_KNOWLEDGE=0; else ST_KNOWLEDGE=1; fi ;;
 			7) if [ "$ST_MEMORY" = "1" ]; then ST_MEMORY=0; else ST_MEMORY=1; fi ;;
+			8) if [ "$ST_CODEPANEL" = "1" ]; then ST_CODEPANEL=0; else ST_CODEPANEL=1; fi ;;
 		esac
 	done
 }
@@ -1348,6 +1352,22 @@ collect_values() { # collect_values <profile>
 	# chat's admin panel may link to it (satellite/generic leave it empty —
 	# see the standalone branch above).
 	set_value CHAT_CONSOLE_ENABLED "true"
+	# The /code remote-agent panel (ADR 0085): on only where the operator
+	# toggled it, because it deploys a relay container and publishes a port
+	# (the one service in this stack that is meant to be dialled from
+	# outside). The relay endpoint Cerea dials is the compose-internal one;
+	# daemons outside dial <PUBLIC_HOST>:<RELAY_PORT> and the pairing offer
+	# they paste into the panel records that public endpoint. The enrollment
+	# axis (opencode -> /v1 through the serve shim) is untouched by this
+	# toggle and never touches the relay.
+	if [ "$ST_CODEPANEL" = "1" ]; then
+		set_value CODE_AGENTS_ENABLED "true"
+		set_value CODE_RELAY_URL "relay:4000"
+		set_value RELAY_PORT "4000"
+	else
+		set_value CODE_AGENTS_ENABLED ""
+		set_value CODE_RELAY_URL ""
+	fi
 	# GATEWAY_SESSION_COOKIE_SECURE is deliberately not set here: it stays
 	# whatever the fragment says (false for homelab/team loopback shapes,
 	# true for enterprise), and the proxy overlay forces true at the
@@ -2077,9 +2097,17 @@ phase_two() { # phase_two <env-file>
 	title "Phase 2 — full stack"
 	overlay_flags custom_overlays "$EXPOSURE" "$REDACTION_STATE" "$ST_FETCH"
 	append_idp_overlay
+	append_code_relay_overlay
 	local file_list="${OVERLAY_FLAGS[*]}"
 	file_list="${file_list//-f /}"
 	echo "Overlay set: $file_list"
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+		# The relay image builds from the pinned source checkout the fetch
+		# script maintains (no published image exists; ADR 0085). Before
+		# the up, because the up builds it.
+		"$PYSTINO_ROOT/deploy/code-relay/fetch.sh" ||
+			fail "fetching the relay source failed (network?)."
+	fi
 	if [ "$BUILD" = "1" ]; then
 		echo "Rebuilding images and starting (--build) ..."
 	else
@@ -2588,6 +2616,7 @@ main() {
 		else
 			overlay_flags custom_overlays "$EXPOSURE" "$REDACTION_STATE" "$ST_FETCH"
 			append_idp_overlay
+			append_code_relay_overlay
 		fi
 		# The derivation needed CHAT_REPO for the playwright overlay; the
 		# scrub for the parse check must keep it (it is re-supplied as an
@@ -2614,6 +2643,7 @@ main() {
 					chat) need+=(chat chat-mongo) ;;
 					authelia) need+=(authelia ca-bundle) ;;
 					keycloak) need+=(keycloak ca-bundle) ;;
+					code-relay) need+=(relay) ;;
 				esac
 			done
 			local services_out
