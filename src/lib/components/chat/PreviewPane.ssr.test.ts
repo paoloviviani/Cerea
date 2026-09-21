@@ -30,4 +30,19 @@ describe("PreviewPane SSR", () => {
 		expect(body).toContain("iframe");
 		expect(body).toContain("index.html");
 	});
+
+	it("renders an open pdf preview without the mobile check or window", () => {
+		// The pdf branch consults the UA lazily, but server rendering must
+		// not evaluate it at all — no navigator exists there — and a pdf
+		// renders the frame without touching window either way.
+		sidePane.openPreview({
+			kind: "pdf",
+			title: "report.pdf",
+			content: "data:application/pdf;base64,AAA",
+		});
+		const { body } = render(PreviewPane, {});
+		expect(body).toContain("iframe");
+		expect(body).toContain("report.pdf");
+		expect(body).not.toContain("navigator");
+	});
 });
