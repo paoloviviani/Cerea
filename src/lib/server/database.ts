@@ -255,7 +255,7 @@ export class Database {
 	 * Init database once connected: Index creation
 	 * @private
 	 */
-	private initDatabase() {
+	private async initDatabase() {
 		const {
 			conversations,
 			projects,
@@ -337,15 +337,25 @@ export class Database {
 		// errors. The previous {userId, name} key could not express that: a
 		// deployment row stores its creating admin's userId, so an admin
 		// importing a deployment skill named like one of their own user
-		// skills hit a duplicate key. Created before the old key is dropped
-		// so a failure here keeps the old guard rather than leaving none.
-		skills
+		// skills hit a duplicate key.
+		//
+		// Awaited — unlike every other index op in this function, which floats:
+		// a migration has ordering requirements (writes after `ready` must see
+		// the new key and never the old one), while a missing secondary index
+		// elsewhere merely costs a query plan until its build lands.
+		await skills
 			.createIndex({ scope: 1, userId: 1, name: 1 }, { unique: true })
+			.then(() =>
+				// The retired key, dropped only after its replacement exists —
+				// sequencing matters, not just ordering: firing the drop while
+				// the create's hybrid build is still running on this collection
+				// fails the drop, and a failure here must keep the old guard
+				// rather than leaving none. Absent on fresh databases (nothing
+				// to migrate) and already gone on re-runs — either way not an
+				// error worth logging.
+				skills.dropIndex("userId_1_name_1").catch(() => undefined)
+			)
 			.catch((e) => logger.error(e, "Error creating index for skills by scope, userId and name"));
-		// The retired key, dropped after its replacement exists. Absent on
-		// fresh databases (nothing to migrate) and already gone on re-runs —
-		// either way not an error worth logging.
-		skills.dropIndex("userId_1_name_1").catch(() => undefined);
 		skills
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for skills by userId"));
