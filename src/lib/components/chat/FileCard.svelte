@@ -3,8 +3,15 @@
 	import DOMPurify from "isomorphic-dompurify";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
+	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import {
+		CODE_CARD_SURFACE,
+		CODE_PILL_BUTTON,
+		CODE_ICON_BUTTON,
+		CODE_ICON_SIZE,
+	} from "../codeChrome";
 
 	/**
 	 * One file a run generated, as a deliverable rather than a log line: name
@@ -267,7 +274,7 @@
 	}
 </script>
 
-<li class="rounded-lg bg-gray-100 px-2 py-1.5 text-xs dark:bg-gray-800/70">
+<li class={CODE_CARD_SURFACE + " px-2 py-1.5 text-xs"}>
 	<div class="flex items-center gap-2">
 		<CarbonDocument class="size-3.5 shrink-0 text-gray-400" />
 		<span class="min-w-0 flex-1 truncate font-mono" title={file.path}>
@@ -277,21 +284,26 @@
 		{#if previewKind !== "none"}
 			<button
 				onclick={togglePreview}
-				class="shrink-0 rounded-md px-1.5 py-0.5 text-blue-600 hover:bg-blue-500/10 dark:text-blue-400"
+				class={CODE_PILL_BUTTON}
 				aria-expanded={previewOpen}
 				aria-label={previewOpen ? `Hide preview of ${name}` : `Preview ${name}`}
 			>
-				{previewBusy ? "…" : previewOpen ? "Hide" : "Preview"}
+				{#if previewBusy}
+					…
+				{:else}
+					<PlayFilledAlt class="size-3.5" />
+					{previewOpen ? "Hide" : "Preview"}
+				{/if}
 			</button>
 		{/if}
 		<button
 			onclick={downloadFile}
 			disabled={downloading}
-			class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-blue-600 hover:bg-blue-500/10 disabled:opacity-50 dark:text-blue-400"
+			class={CODE_ICON_BUTTON}
+			title={`Download ${name}`}
 			aria-label={`Download ${name}`}
 		>
-			<CarbonDownload class="size-3.5" />
-			{downloading ? "…" : "Download"}
+			<CarbonDownload class={CODE_ICON_SIZE} />
 		</button>
 	</div>
 	{#if downloadError}
@@ -317,7 +329,7 @@
 				></iframe>
 			{:else if previewText !== null}
 				<pre
-					class="scrollbar-custom max-h-60 overflow-y-auto rounded-lg bg-gray-50 p-2 font-mono text-xs break-words whitespace-pre-wrap text-gray-800 dark:bg-gray-900 dark:text-gray-200">{previewText}</pre>
+					class="scrollbar-custom max-h-60 overflow-y-auto rounded-lg border-[0.5px] border-gray-200/70 bg-white p-2 font-mono text-xs break-words whitespace-pre-wrap text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">{previewText}</pre>
 			{/if}
 		</div>
 	{/if}

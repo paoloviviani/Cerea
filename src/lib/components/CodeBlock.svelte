@@ -13,6 +13,7 @@
 		formatFileSize,
 	} from "$lib/utils/fileBlock";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import { CODE_PILL_BUTTON, CODE_ICON_BUTTON } from "./codeChrome";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
 
@@ -199,7 +200,7 @@
 		>
 			{#if showPreview}
 				<button
-					class="btn h-7 gap-1 rounded-lg border px-2 text-xs shadow-xs backdrop-blur-sm transition-none hover:border-gray-500 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-80 dark:border-gray-600 dark:bg-gray-600/50 dark:hover:border-gray-500"
+					class={CODE_PILL_BUTTON}
 					disabled={loading}
 					onclick={openPreview}
 					title={isMermaid ? "Preview diagram" : "Preview HTML"}
@@ -215,7 +216,7 @@
 			{/if}
 			{#if runnable}
 				<button
-					class="btn h-7 gap-1 rounded-lg border px-2 text-xs shadow-xs backdrop-blur-sm transition-none hover:border-gray-500 active:shadow-inner disabled:cursor-not-allowed disabled:opacity-80 dark:border-gray-600 dark:bg-gray-600/50 dark:hover:border-gray-500"
+					class={CODE_PILL_BUTTON}
 					disabled={loading || runSpinner}
 					onclick={manualRun}
 					title="Run this code in the browser sandbox"
@@ -229,11 +230,7 @@
 					Run
 				</button>
 			{/if}
-			<CopyToClipBoardBtn
-				iconClassNames="size-3"
-				classNames="btn transition-none rounded-lg border size-7 text-sm shadow-xs dark:bg-gray-600/50 backdrop-blur-sm dark:hover:border-gray-500  active:shadow-inner dark:border-gray-600  hover:border-gray-500"
-				value={rawCode}
-			/>
+			<CopyToClipBoardBtn iconClassNames="size-3" classNames={CODE_ICON_BUTTON} value={rawCode} />
 		</div>
 	</div>
 	{#snippet codeFence()}
