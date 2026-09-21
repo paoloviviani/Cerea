@@ -2,11 +2,13 @@
 	import { browser } from "$app/environment";
 	import { onMount, onDestroy } from "svelte";
 	import CarbonClose from "~icons/carbon/close";
+	import CarbonDocument from "~icons/carbon/document";
 	import SidePane from "./SidePane.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import {
 		buildArtifactSrcdoc,
+		browserRendersPdfInFrame,
 		capturePreviewError,
 		composeFixRequest,
 		normalizePreviewError,
@@ -58,6 +60,27 @@
 			? buildArtifactSrcdoc(payload.kind, payload.content, channel)
 			: ""
 	);
+
+	// Mobile engines draw no PDF in an iframe — see
+	// browserRendersPdfInFrame. The pop-out converts the payload's data:
+	// URL to a blob URL because Chrome refuses top-level data:
+	// navigations (a throw that would make the chip as dead as the
+	// placeholder it replaces), while a same-origin blob URL opens in the
+	// browser's own viewer, which every mobile browser has. The object
+	// URL outlives the click by design: the new tab keeps loading from it
+	// after this pane closes, so revoking it eagerly would race the
+	// navigation. It is reclaimed when the document unloads regardless —
+	// a few MB held for a tab's lifetime, only on this incapable path.
+	async function openPdfInNewTab(): Promise<void> {
+		if (!payload || payload.kind !== "pdf") return;
+		try {
+			const res = await fetch(payload.content);
+			const blob = await res.blob();
+			window.open(URL.createObjectURL(blob), "_blank", "noopener,noreferrer");
+		} catch {
+			// The panel stays useful as-is; the close button is the exit.
+		}
+	}
 
 	type PreviewMessage = {
 		type: string;
@@ -120,7 +143,7 @@
 					</button>
 				</div>
 				<div class="relative min-h-0 flex-1">
-					{#if payload.kind === "pdf"}
+					{#if payload.kind === "pdf" && browserRendersPdfInFrame()}
 						<!-- A document the browser renders natively: the payload
 						     content IS the data: URL, framed directly instead of
 						     through a srcdoc builder (there is no HTML to build). -->
@@ -135,6 +158,24 @@
 							referrerpolicy="no-referrer"
 							src={payload.content}
 						></iframe>
+					{:else if payload.kind === "pdf"}
+						<!-- A mobile browser: no in-frame viewer exists, and its
+						     placeholder's "Open" is dead under this sandbox — the
+						     pop-out chip is the working version of that button. -->
+						<div
+							class="flex h-full flex-col items-center justify-center gap-3 bg-gray-50 px-6 text-center dark:bg-gray-900"
+						>
+							<CarbonDocument class="size-10 text-gray-400" />
+							<p class="text-sm text-gray-600 dark:text-gray-300">
+								{payload.title} opens in the browser's PDF viewer
+							</p>
+							<button
+								class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+								onclick={openPdfInNewTab}
+							>
+								Open in a new tab
+							</button>
+						</div>
 					{:else}
 						<iframe
 							bind:this={iframeEl}
