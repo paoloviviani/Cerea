@@ -53,6 +53,19 @@ describe("PreviewPane", () => {
 		expect(srcdoc).toContain("flowchart LR");
 	});
 
+	it("frames a pdf payload by URL instead of building a srcdoc", async () => {
+		sidePane.openPreview({
+			kind: "pdf",
+			title: "report.pdf",
+			content: "data:application/pdf;base64,AAA",
+		});
+		const screen = render(PreviewPane, {});
+		await tick();
+		const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
+		expect(iframe?.getAttribute("src")).toBe("data:application/pdf;base64,AAA");
+		expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+	});
+
 	it("closes the pane from its close button", async () => {
 		sidePane.openPreview({ kind: "html", title: "index.html", content: "<h1>Hi</h1>" });
 		const screen = render(PreviewPane, {});

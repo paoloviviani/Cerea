@@ -221,6 +221,46 @@
 	 * never enters the bundle of a conversation without a docx in it.
 	 */
 	const DOCX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+	// A pdf travels whole (the viewer needs every byte) as a data: URL, so
+	// the same cap applies: base64 inflates a third on top.
+	const PDF_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+
+	/**
+	 * Rendered-document preview for a PDF: bytes from any source, framed in
+	 * the side panel like every other rendered view. A data: URL rather than
+	 * a blob URL so there is no object lifetime to manage across panel
+	 * open/close — and typed application/pdf, because a typeless blob
+	 * navigated in a frame downloads instead of rendering.
+	 */
+	async function openPdfPreview(): Promise<void> {
+		previewBusy = true;
+		previewError = null;
+		try {
+			const data = await readBytes();
+			const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+			if (bytes.byteLength > PDF_PREVIEW_MAX_BYTES) {
+				throw new Error("too large to preview — download it to read the whole document");
+			}
+			const dataUrl: string = await new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result as string);
+				reader.onerror = () =>
+					reject(reader.error ?? new Error("the preview is unavailable; the download still works"));
+				reader.readAsDataURL(
+					new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], {
+						type: "application/pdf",
+					})
+				);
+			});
+			sidePane.openPreview({ kind: "pdf", title: name, content: dataUrl });
+		} catch (err) {
+			previewError =
+				err instanceof Error ? err.message : "the preview is unavailable; the download still works";
+			previewOpen = true;
+		} finally {
+			previewBusy = false;
+		}
+	}
 	async function openDocxPreview(): Promise<void> {
 		previewBusy = true;
 		previewError = null;
@@ -276,6 +316,10 @@
 			await openDocxPreview();
 			return;
 		}
+		if (previewKind === "pdf") {
+			await openPdfPreview();
+			return;
+		}
 		previewOpen = true;
 		if (previewText !== null || previewUrl !== null || previewBusy) return;
 		previewBusy = true;
@@ -291,7 +335,7 @@
 					text.length > PREVIEW_TEXT_CHARS
 						? `${text.slice(0, PREVIEW_TEXT_CHARS)}\n\n… showing the first ${(PREVIEW_TEXT_CHARS / 1000).toFixed(0)}k of ${formatSize(size)}`
 						: text;
-			} else if (previewKind === "image" || previewKind === "pdf") {
+			} else if (previewKind === "image") {
 				const data = await readBytes();
 				revokePreviewUrl();
 				previewUrl = URL.createObjectURL(new Blob([data], { type: previewMimeType(extension) }));
@@ -352,12 +396,6 @@
 					alt={`Preview of ${name}`}
 					class="scrollbar-custom max-h-80 overflow-auto rounded-lg"
 				/>
-			{:else if previewKind === "pdf" && previewUrl}
-				<iframe
-					src={previewUrl}
-					title={`Preview of ${name}`}
-					class="h-80 w-full rounded-lg bg-white"
-				></iframe>
 			{:else if previewText !== null}
 				<pre
 					class="scrollbar-custom max-h-60 overflow-y-auto rounded-lg border-[0.5px] border-gray-200/70 bg-white p-2 font-mono text-xs break-words whitespace-pre-wrap text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">{previewText}</pre>
