@@ -117,6 +117,44 @@ export function previewCspMeta(channel: string): string {
 export const PREVIEW_ALLOW =
 	"fullscreen *; pointer-lock *; accelerometer *; gyroscope *; magnetometer *; gamepad *; autoplay *; clipboard-write *";
 
+/**
+ * Whether this browser can draw a PDF inside an iframe. Desktop engines ship
+ * an in-frame viewer (PDFium, pdf.js); mobile ones do not — Chrome Android
+ * and Mobile Safari render a placeholder whose only way out is a top-level
+ * navigation, which the preview sandbox withholds (and Chrome blocks for
+ * data: URLs regardless), leaving a dead "Open" button as the entire
+ * preview. There is no capability probe for this, so the platform is read
+ * from the user agent: a coarse, standard signal (Chromium and WebKit both
+ * publish the mobile tokens on their mobile builds and not on their desktop
+ * ones), and the fallback on a wrong read is graceful — a desktop that
+ * tests as mobile gets an Open-in-new-tab chip it did not strictly need,
+ * not a broken preview.
+ *
+ * Evaluated lazily (not at module load) so SSR never touches `navigator`,
+ * and cached because the answer cannot change within a page session.
+ */
+let canRenderPdfInFrame: boolean | null = null;
+export function browserRendersPdfInFrame(): boolean {
+	if (canRenderPdfInFrame === null) {
+		const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+		const isMobileUa = /android|iphone|ipad|ipod|mobile/i.test(ua);
+		// iPadOS 13+ masquerades as desktop Safari; the touch-pointing Mac is
+		// the tell (Apple documents this exact combination).
+		const isIpadOs = navigator.maxTouchPoints > 1 && /macintosh/i.test(ua);
+		canRenderPdfInFrame = !(isMobileUa || isIpadOs);
+	}
+	return canRenderPdfInFrame;
+}
+
+/**
+ * Test seam only: the cached answer is derived from the real navigator and
+ * cannot change in production, but tests need to pretend platforms. Calling
+ * this from app code would defeat the cache on the happy path too.
+ */
+export function __resetPdfInFrameCacheForTests(): void {
+	canRenderPdfInFrame = null;
+}
+
 /** An uncaught error forwarded from a preview iframe via the postMessage hook. */
 export interface PreviewError {
 	message: string;
