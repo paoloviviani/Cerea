@@ -1797,34 +1797,33 @@ gateway_passwd_step() { # gateway_passwd_step <env-file> <overlay-flags...> -> P
 	fi
 	PASSWD_EMAIL_VAL="$email"
 	local min_len="${VALUES[GATEWAY_LOCAL_AUTH__MIN_PASSWORD_LENGTH]:-10}"
-	echo "Password policy: at least $min_len characters (length only — the gateway's own setting, GATEWAY_LOCAL_AUTH__MIN_PASSWORD_LENGTH)."
 	if [ "$DRY_RUN" = "1" ]; then
-		note "[dry-run] would prompt for the '$email' administrator password on the host and pipe it to 'gateway passwd $email --admin' (exec -T, no container TTY)"
+		note "[dry-run] would mint the '$email' break-glass password locally and pipe it to 'gateway passwd $email --admin' (exec -T, no container TTY)"
 		return
 	fi
-	local pw="" pw2=""
-	while :; do
-		ask_hidden "Password for $email"
-		pw="$REPLY_VAL"
-		ask_hidden "Again"
-		pw2="$REPLY_VAL"
-		if [ "$pw" != "$pw2" ]; then
-			echo "The two passwords do not match."
-			continue
-		fi
-		if [ "${#pw}" -lt "$min_len" ]; then
-			# Stated up front, refused here: the gateway would refuse it
-			# too, and an install that aborts mid-step over a length rule
-			# is worse than one that asks again.
-			echo "Refused: password must be at least $min_len characters. Try again (Ctrl+C to abort)."
-			continue
-		fi
-		break
+	# Minted, never asked. The operator already chose a password at
+	# configuration time — the IdP's — and this step is NOT that: it is a
+	# second, independent credential in the gateway's own store, existing
+	# for exactly two reasons (the first SSO login adopts this row as the
+	# admin via local-by-email linking, and a broken IdP must not lock the
+	# operator out of their own box). Asking the operator to invent and
+	# confirm a second password mid-phase answered neither — it stalled
+	# installs over a length rule nobody stated (the gateway's own policy,
+	# min $min_len chars) and left CI with no stdin-free path. A minted
+	# value is shown exactly once (below), is resettable by anyone with
+	# shell access ('gateway passwd <email>'), and is the same deal the
+	# Keycloak shape already gives its bootstrap admin.
+	token_url_safe 24
+	local pw="$TOKEN_VAL"
+	# Length first: a minted value can still fall under a raised policy,
+	# and the refusal must happen on the host, not abort the exec.
+	while [ "${#pw}" -lt "$min_len" ]; do
+		token_url_safe 24
+		pw="$TOKEN_VAL"
 	done
 	# The password never touches argv or the environment: it leaves the
 	# host's memory only as stdin of the compose exec. Two lines answer
-	# getpass's two reads (the host already verified the pair matches, so
-	# the container's own mismatch-retry never fires). The overlay flags
+	# getpass's two reads (the minted value is both). The overlay flags
 	# ("$@") ride along — compose_exec_t rewrites the first bare exec and
 	# keeps every -f.
 	compose_exec_t "$@" exec -T gateway gateway passwd "$email" --admin
@@ -1832,7 +1831,16 @@ gateway_passwd_step() { # gateway_passwd_step <env-file> <overlay-flags...> -> P
 		(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" "${COMPOSE_ARGS[@]}"); then
 		fail "gateway passwd $email exited non-zero."
 	fi
-	unset pw pw2
+	echo ""
+	printf '%sBreak-glass local login:%s %s / %s\n' "$GREEN" "$R" "$email" "$pw"
+	if [ -n "$kind" ]; then
+		echo "  A second, independent sign-in for the console's password door — not your $kind password."
+	else
+		echo "  A second, independent sign-in for the console's password door — the house shape's only door."
+	fi
+	echo "  Shown this once; store it or ignore it (shell access can always reset it:"
+	echo "  docker compose ... exec gateway gateway passwd $email)."
+	unset pw
 }
 
 # Creates the chat's Postgres role and database. flags is the overlay set
