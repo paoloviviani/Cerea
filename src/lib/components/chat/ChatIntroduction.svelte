@@ -76,7 +76,7 @@
 	<div
 		class="flex items-center justify-center rounded-xl text-[1.6rem] font-semibold select-none md:text-[2.55rem]"
 	>
-		<Logo classNames="h-[2.55rem] md:h-[4.25rem] w-auto mr-3" />
+		<Logo classNames="h-[2.25rem] md:h-[3.25rem] w-auto mr-3" />
 		<!-- The picked phrase REPLACES the name, in the name's own type: it
 		     says Cerea, Com'è?, Va bin — not a name with a whisper beside
 		     it. Empty until onMount picks, so the SSR payload (pinned by
