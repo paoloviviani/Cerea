@@ -29,8 +29,14 @@
 	 * separators at all.
 	 */
 	const phrases: string[] = (() => {
-		const raw = publicConfig.PUBLIC_TURIN_PHRASES?.trim();
-		if (!raw || raw.toLowerCase() === "false") return [];
+		const rawRaw = publicConfig.PUBLIC_TURIN_PHRASES?.trim();
+		if (!rawRaw || rawRaw.toLowerCase() === "false") return [];
+		// One matching pair of wrapping quotes comes off: dotenv strips them
+		// on the path through .env.local, but a value set directly in a
+		// compose `environment:` entry keeps them, and the first and last
+		// phrase would otherwise carry a stray quote into the logo.
+		const wrapped = rawRaw.length > 1 && (rawRaw.startsWith('"') || rawRaw.startsWith("'"));
+		const raw = wrapped && rawRaw[rawRaw.length - 1] === rawRaw[0] ? rawRaw.slice(1, -1) : rawRaw;
 		const list = raw.startsWith("[")
 			? // JSON form: invalid JSON here means the deployment misconfigured
 				// the variable, and the plain name is the right degradation.
