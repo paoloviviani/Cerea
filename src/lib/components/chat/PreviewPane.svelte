@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from "$app/environment";
 	import { onMount, onDestroy } from "svelte";
 	import CarbonClose from "~icons/carbon/close";
 	import SidePane from "./SidePane.svelte";
@@ -84,6 +85,10 @@
 		window.addEventListener("message", onMessage);
 	});
 	onDestroy(() => {
+		// onDestroy (unlike onMount) also runs after server rendering, where
+		// there is no window to unsubscribe from — the listener above is only
+		// ever attached client-side.
+		if (!browser) return;
 		window.removeEventListener("message", onMessage);
 	});
 </script>
