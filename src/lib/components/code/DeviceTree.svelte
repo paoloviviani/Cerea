@@ -71,8 +71,10 @@
 		hierarchyLoading = true;
 		daemonOff = false;
 		try {
-			workspaces = (await listWorkspaces()).workspaces;
-			agents = selectedWorkspaceId ? (await listWorkspaceAgents(selectedWorkspaceId)).agents : [];
+			workspaces = (await listWorkspaces(device.id)).workspaces;
+			agents = selectedWorkspaceId
+				? (await listWorkspaceAgents(device.id, selectedWorkspaceId)).agents
+				: [];
 		} catch {
 			// 404 (path not offered) or 502 (no daemon behind it): the panel
 			// reads cleanly either way, with the hierarchy quietly absent.

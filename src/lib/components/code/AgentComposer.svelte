@@ -19,10 +19,11 @@
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
+		deviceId: string;
 		agentId: string;
 	}
 
-	let { agentId }: Props = $props();
+	let { deviceId, agentId }: Props = $props();
 
 	let text = $state("");
 	let provider = $state("opencode");
@@ -37,7 +38,7 @@
 		busy = true;
 		failure = null;
 		try {
-			await sendFollowUp(agentId, message, {
+			await sendFollowUp(deviceId, agentId, message, {
 				provider: provider.trim() || "opencode",
 				posture,
 			});

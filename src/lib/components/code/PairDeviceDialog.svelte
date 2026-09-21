@@ -2,11 +2,11 @@
 	Start a pairing, and finish one.
 
 	Two steps in one dialog rather than two screens: naming the machine, then
-	the single-use code. The person types the code into their daemon
-	(`paseo pair <code>`); until a live daemon calls back to complete the
-	handshake, the second step's "I've approved it" button claims the pairing
-	from here — that button is the stand-in for the daemon's callback, and
-	says so, rather than pretending the daemon answered.
+	completing the handshake. The person runs `paseo daemon pair` on the
+	machine — which prints a pairing link — and pastes that link here; Cerea
+	verifies the single-use code against this person's pending row and
+	completes the encrypted handshake through the relay before recording the
+	pairing. A failed handshake is a failed pairing, not a row that pretends.
 -->
 <script lang="ts">
 	import Modal from "$lib/components/Modal.svelte";
@@ -27,6 +27,7 @@
 	let step = $state<Step>("name");
 	let name = $state("");
 	let device = $state<CodeDeviceView | null>(null);
+	let offer = $state("");
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 
@@ -46,11 +47,11 @@
 	}
 
 	async function handleClaim() {
-		if (!device?.pairingCode || busy) return;
+		if (!device?.pairingCode || !offer.trim() || busy) return;
 		busy = true;
 		failure = null;
 		try {
-			const paired = await claimPairing(device.pairingCode);
+			const paired = await claimPairing(device.pairingCode, offer.trim());
 			onpaired(paired.device);
 			onclose();
 		} catch (err) {
@@ -72,7 +73,7 @@
 				<p class={s.SUBTITLE}>
 					{step === "name"
 						? "Name the machine your coding agents run on."
-						: "Approve the pairing on that machine."}
+						: "Bring the pairing link back from that machine."}
 				</p>
 			</div>
 		</div>
@@ -114,30 +115,45 @@
 				</div>
 			</form>
 		{:else if device}
-			<div class="mb-4 rounded-lg bg-sunken p-4 text-center">
-				<p class="text-xs text-ink-muted">On <span class="font-medium">{device.name}</span>, run</p>
-				<p class="mt-1 font-mono text-lg font-semibold tracking-widest text-ink">
-					paseo pair {device.pairingCode}
+			<div class="mb-4 rounded-lg bg-sunken p-4">
+				<p class="text-center text-xs text-ink-muted">
+					On <span class="font-medium">{device.name}</span>, run
+					<span class="mt-1 block font-mono text-lg font-semibold tracking-widest text-ink">
+						paseo daemon pair
+					</span>
+					and paste the pairing link it prints. The code
+					<span class="font-mono font-semibold text-ink">{device.pairingCode}</span> proves the pairing
+					is yours.
 				</p>
-				<p class="mt-1 text-xs text-ink-muted">The code is single-use and expires with the row.</p>
 			</div>
-			<div class={s.TIPS}>
-				<h4 class={s.TIPS_TITLE}>Without a daemon yet?</h4>
-				<ul class={s.TIPS_LIST}>
-					<li>
-						• "I've approved it" completes the pairing from here — it stands in for the daemon's
-						callback until a live daemon calls back itself.
-					</li>
-					<li>• Revoking a device only removes the pairing; nothing on the machine is touched.</li>
-				</ul>
-			</div>
-			<div class="mt-4 flex justify-end gap-2">
-				<button onclick={onclose} class={s.SECONDARY} disabled={busy}>Later</button>
-				<button onclick={() => void handleClaim()} class={s.PRIMARY} disabled={busy}>
-					<IconCheckmark class="size-4" />
-					{busy ? "Confirming…" : "I've approved it"}
-				</button>
-			</div>
+			<form
+				onsubmit={(e) => {
+					e.preventDefault();
+					void handleClaim();
+				}}
+			>
+				<label class={s.LABEL} for="pair-device-offer">Pairing link</label>
+				<textarea
+					id="pair-device-offer"
+					class="{s.INPUT} h-24 font-mono text-xs"
+					placeholder="https://app.paseo.sh/#offer=…"
+					bind:value={offer}
+					disabled={busy}
+				></textarea>
+				<p class={s.HINT}>
+					Cerea connects to the daemon through the relay with this link before the pairing is
+					recorded. The code expires with the row; the link is single-use.
+				</p>
+				<div class="mt-4 flex justify-end gap-2">
+					<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
+						Later
+					</button>
+					<button type="submit" class={s.PRIMARY} disabled={!offer.trim() || busy}>
+						<IconCheckmark class="size-4" />
+						{busy ? "Confirming…" : "Complete pairing"}
+					</button>
+				</div>
+			</form>
 		{/if}
 	</div>
 </Modal>

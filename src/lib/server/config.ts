@@ -165,7 +165,9 @@ type ExtraConfigKeys =
 	| "MCP_FORWARD_HF_USER_TOKEN"
 	| "MCP_TOOL_TIMEOUT_MS"
 	| "EXA_API_KEY"
-	| "GITHUB_TOKEN";
+	| "GITHUB_TOKEN"
+	/** The relay the `/code` panel's daemons are reached through (ADR 0085). */
+	| "CODE_RELAY_URL";
 
 type ConfigProxy = ConfigManager & { [K in ConfigKey | ExtraConfigKeys]: string };
 

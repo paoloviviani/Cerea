@@ -20,10 +20,11 @@
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
+		deviceId: string;
 		agentId: string;
 	}
 
-	let { agentId }: Props = $props();
+	let { deviceId, agentId }: Props = $props();
 
 	type Tab = "transcript" | "changes";
 	let tab = $state<Tab>("transcript");
@@ -32,7 +33,7 @@
 	onMount(() => {
 		(async () => {
 			try {
-				agent = (await getAgent(agentId)).agent;
+				agent = (await getAgent(deviceId, agentId)).agent;
 			} catch {
 				// The transcript and diff carry their own states; a header
 				// that only errors when the daemon is off is worse than a
@@ -80,11 +81,11 @@
 
 	<div class="flex min-h-0 flex-1 flex-col p-4">
 		{#if tab === "transcript"}
-			<AgentTimeline {agentId} />
+			<AgentTimeline {deviceId} {agentId} />
 		{:else}
-			<AgentDiff {agentId} />
+			<AgentDiff {deviceId} {agentId} />
 		{/if}
 	</div>
 
-	<AgentComposer {agentId} />
+	<AgentComposer {deviceId} {agentId} />
 </div>
