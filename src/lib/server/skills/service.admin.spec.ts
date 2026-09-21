@@ -159,6 +159,38 @@ describe("scope separation", () => {
 		expect(resolved?.owner).toBe("user");
 		expect((await findSkillBody(stranger, "admin-spec-shared"))?.owner).toBe("admin");
 	});
+
+	it("lets one owner hold the same name as user and deployment rows", async () => {
+		// The operator's bug: a deployment row stores its creating admin's
+		// userId, so under a {userId, name} unique key an admin importing a
+		// deployment skill named like one of their own user skills hit a
+		// duplicate key. The key is {scope, userId, name}; both orders work.
+		await createSkill(admin, doc("admin-spec-self", "Mine."));
+		try {
+			const deployed = await createDeploymentSkill(admin, doc("admin-spec-self", "Everyone's."));
+			created.push(deployed._id);
+			expect((await listUserSkills(admin)).map((row) => row.name)).toStrictEqual([
+				"admin-spec-self",
+			]);
+			expect((await findSkillBody(admin, "admin-spec-self"))?.owner).toBe("user");
+			expect((await findSkillBody(stranger, "admin-spec-self"))?.owner).toBe("admin");
+		} finally {
+			// Both rows share this owner and name (different scopes); the
+			// afterEach cleanup of `created` then finds nothing left.
+			await collections.skills.deleteMany({ userId: admin, name: "admin-spec-self" });
+		}
+	});
+
+	it("lets one owner import the user row after the deployment row", async () => {
+		const deployed = await createDeploymentSkill(admin, doc("admin-spec-self-rev", "Everyone's."));
+		created.push(deployed._id);
+		try {
+			await createSkill(admin, doc("admin-spec-self-rev", "Mine."));
+			expect((await findSkillBody(admin, "admin-spec-self-rev"))?.owner).toBe("user");
+		} finally {
+			await collections.skills.deleteMany({ userId: admin, name: "admin-spec-self-rev" });
+		}
+	});
 });
 
 describe("deployment resolution", () => {

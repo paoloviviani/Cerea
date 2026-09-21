@@ -330,10 +330,22 @@ export class Database {
 		projects
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for projects by userId"));
-		// One owner's skill names are unique; the listing reads newest last.
+		// Skill names are unique per (scope, owner), not per owner: a personal
+		// skill and a deployment skill may share a name — prompt assembly
+		// already prefers the personal one, and the service's explicit
+		// pre-checks keep each namespace itself collision-free with readable
+		// errors. The previous {userId, name} key could not express that: a
+		// deployment row stores its creating admin's userId, so an admin
+		// importing a deployment skill named like one of their own user
+		// skills hit a duplicate key. Created before the old key is dropped
+		// so a failure here keeps the old guard rather than leaving none.
 		skills
-			.createIndex({ userId: 1, name: 1 }, { unique: true })
-			.catch((e) => logger.error(e, "Error creating index for skills by userId and name"));
+			.createIndex({ scope: 1, userId: 1, name: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for skills by scope, userId and name"));
+		// The retired key, dropped after its replacement exists. Absent on
+		// fresh databases (nothing to migrate) and already gone on re-runs —
+		// either way not an error worth logging.
+		skills.dropIndex("userId_1_name_1").catch(() => undefined);
 		skills
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for skills by userId"));
