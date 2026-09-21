@@ -18,6 +18,7 @@
 	import { base } from "$app/paths";
 	import IconBook from "~icons/carbon/book";
 	import IconDocument from "~icons/carbon/document";
+	import IconLaunch from "~icons/carbon/launch";
 	import IconPlug from "~icons/carbon/plug";
 	import type { LayoutServerData } from "./$types";
 
@@ -101,6 +102,25 @@
 					data.identity.displayName ??
 					"an administrator"}.
 			</p>
+			{#if (page.data as { consoleEnabled?: boolean }).consoleEnabled}
+				<!-- Not a section of this panel but a way out of it: the platform
+				     side — providers, models, prices, quotas, users — lives in the
+				     Pystino console, same origin. A link, deliberately styled
+				     unlike the tabs below so nobody expects a panel to open under
+				     it; the split is by whose decision it is (the file header),
+				     not by which service stores the data. Gated on the deployment
+				     flag (FeatureFlags.consoleEnabled, CHAT_CONSOLE_ENABLED): a
+				     standalone profile's origin does not serve /console —
+				     satellite's is central's, generic has none — and a link to
+				     an unserved path would be a 404 wearing a feature's name. -->
+				<a
+					href="/console"
+					class="inline-flex w-fit items-center gap-1.5 text-sm text-blue-600 hover:underline dark:text-blue-400"
+				>
+					<IconLaunch class="size-4" />
+					Manage providers, models, quotas and users in the Pystino console
+				</a>
+			{/if}
 		</header>
 
 		<nav class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700">
