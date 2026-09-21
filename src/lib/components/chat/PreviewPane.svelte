@@ -24,7 +24,12 @@
 	 * versions and no persistence: the content lives in the message, the store
 	 * only holds what is showing. The iframe runs the same sandboxed builders
 	 * as every other preview, so the security posture is identical — only the
-	 * surface moved, from the fullscreen modal to this pane.
+	 * surface moved, from the fullscreen modal to this pane. The one
+	 * exception is a pdf payload: the browser's native viewer refuses to
+	 * attach to a sandboxed opaque-origin frame (Chrome shows its "blocked"
+	 * interstitial, Safari a white box), so it is framed WITHOUT the
+	 * sandbox — the bytes are typed application/pdf by this app, rendered by
+	 * the browser's viewer, and executing no document script of their own.
 	 */
 	interface Props {
 		/**
@@ -144,24 +149,30 @@
 				</div>
 				<div class="relative min-h-0 flex-1">
 					{#if payload.kind === "pdf" && browserRendersPdfInFrame()}
-						<!-- A document the browser renders natively: the payload
-						     content IS the data: URL, framed directly instead of
-						     through a srcdoc builder (there is no HTML to build). -->
+						<!-- A pdf IS its own document type: the browser's native
+						     viewer draws it, so there is no srcdoc to build and
+						     nothing generated to execute. The sandbox token set is
+						     withheld deliberately — a native viewer refuses to
+						     attach to a sandboxed opaque-origin frame, which was
+						     the Chrome "blocked" panel and the Safari white box
+		    		         on every desktop, not a mobile quirk. The bytes are
+						     typed application/pdf by this app (8 MB cap, DOMPurify
+						     never sees them; there is no HTML to sanitize). -->
 						<iframe
 							title={`Preview of ${payload.title}`}
 							class="h-full w-full bg-white dark:bg-gray-900 {resizing
 								? 'pointer-events-none'
 								: ''}"
-							sandbox={PREVIEW_SANDBOX}
 							allow={PREVIEW_ALLOW}
 							allowfullscreen
 							referrerpolicy="no-referrer"
 							src={payload.content}
 						></iframe>
 					{:else if payload.kind === "pdf"}
-						<!-- A mobile browser: no in-frame viewer exists, and its
-						     placeholder's "Open" is dead under this sandbox — the
-						     pop-out chip is the working version of that button. -->
+						<!-- A mobile browser: no in-frame viewer exists even
+						     unsandboxed, and the placeholder's "Open" is dead under
+						     the preview sandbox — the pop-out chip is the working
+						     version of that button. -->
 						<div
 							class="flex h-full flex-col items-center justify-center gap-3 bg-gray-50 px-6 text-center dark:bg-gray-900"
 						>

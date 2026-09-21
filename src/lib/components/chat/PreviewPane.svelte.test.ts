@@ -70,6 +70,12 @@ describe("PreviewPane", () => {
 		const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
 		expect(iframe?.getAttribute("src")).toBe("data:application/pdf;base64,AAA");
 		expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+		// The sandbox token set is deliberately ABSENT for a pdf: native
+		// viewers refuse to attach to a sandboxed opaque-origin frame —
+		// that refusal was Chrome's "blocked" panel and Safari's white box
+		// on every desktop. A regression to sandbox={PREVIEW_SANDBOX} here
+		// would blank the preview again, so pin the absence.
+		expect(iframe?.hasAttribute("sandbox")).toBe(false);
 	});
 
 	it("gives a mobile browser a working pop-out instead of the dead iframe placeholder", async () => {

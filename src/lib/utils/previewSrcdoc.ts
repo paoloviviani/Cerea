@@ -118,17 +118,17 @@ export const PREVIEW_ALLOW =
 	"fullscreen *; pointer-lock *; accelerometer *; gyroscope *; magnetometer *; gamepad *; autoplay *; clipboard-write *";
 
 /**
- * Whether this browser can draw a PDF inside an iframe. Desktop engines ship
- * an in-frame viewer (PDFium, pdf.js); mobile ones do not — Chrome Android
- * and Mobile Safari render a placeholder whose only way out is a top-level
- * navigation, which the preview sandbox withholds (and Chrome blocks for
- * data: URLs regardless), leaving a dead "Open" button as the entire
- * preview. There is no capability probe for this, so the platform is read
- * from the user agent: a coarse, standard signal (Chromium and WebKit both
- * publish the mobile tokens on their mobile builds and not on their desktop
- * ones), and the fallback on a wrong read is graceful — a desktop that
- * tests as mobile gets an Open-in-new-tab chip it did not strictly need,
- * not a broken preview.
+ * Whether this browser can draw a PDF inside our preview frame. Mobile
+ * engines ship no in-frame viewer at all, and the desktop ones — for this
+ * pane — refuse to attach theirs to a sandboxed opaque-origin frame, so
+ * the pane's pdf branch deliberately frames WITHOUT the sandbox and this
+ * check only answers whether an in-frame viewer exists to attach at all:
+ * no on mobile, yes on desktop. There is no capability probe for this,
+ * so the platform is read from the user agent: a coarse, standard signal
+ * (Chromium and WebKit both publish the mobile tokens on their mobile
+ * builds and not on their desktop ones), and the fallback on a wrong
+ * read is graceful — a desktop that tests as mobile gets an
+ * Open-in-new-tab chip it did not strictly need, not a broken preview.
  *
  * Evaluated lazily (not at module load) so SSR never touches `navigator`,
  * and cached because the answer cannot change within a page session.
@@ -140,7 +140,8 @@ export function browserRendersPdfInFrame(): boolean {
 		const isMobileUa = /android|iphone|ipad|ipod|mobile/i.test(ua);
 		// iPadOS 13+ masquerades as desktop Safari; the touch-pointing Mac is
 		// the tell (Apple documents this exact combination).
-		const isIpadOs = navigator.maxTouchPoints > 1 && /macintosh/i.test(ua);
+		const isIpadOs =
+			typeof navigator !== "undefined" && navigator.maxTouchPoints > 1 && /macintosh/i.test(ua);
 		canRenderPdfInFrame = !(isMobileUa || isIpadOs);
 	}
 	return canRenderPdfInFrame;
