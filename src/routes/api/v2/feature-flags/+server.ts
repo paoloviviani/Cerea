@@ -4,6 +4,7 @@ import { loginEnabled } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
+import { codeAgentsEnabled } from "$lib/server/codeEnabled";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 
@@ -42,5 +43,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// the standalone profiles do not (satellite's console is central's,
 		// generic has none).
 		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true",
+		codeAgentsEnabled: codeAgentsEnabled(),
 	} satisfies FeatureFlags);
 };

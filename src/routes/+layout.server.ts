@@ -11,11 +11,16 @@
  * the link and nothing else — the panel's own gate still decides.
  */
 import { callerIdentity } from "$lib/server/admin";
+import { codeAgentsEnabled } from "$lib/server/codeEnabled";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
 	const identity = await callerIdentity(locals);
 	return {
 		gatewayIsAdmin: identity?.isAdmin === true,
+		// Threaded the same way `gatewayIsAdmin` is (see +layout.ts): the
+		// sidebar's `/code` row reads it, and the route's guard re-checks it
+		// server-side rather than trusting the prop.
+		codeAgentsEnabled: codeAgentsEnabled(),
 	};
 };
