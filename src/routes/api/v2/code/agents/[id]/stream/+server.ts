@@ -107,71 +107,87 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	const stream = new ReadableStream({
 		async start(controller) {
 			const signal = request.signal;
-			const deadline = Date.now() + MAX_LIFETIME_MS;
 			let buffer = "";
 			let lastEmit = Date.now();
-			let ended = false;
+			let closed = false;
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
 
-			const heartbeatDue = () => Date.now() - lastEmit >= HEARTBEAT_AFTER_MS;
-
-			const pump = async (): Promise<void> => {
-				const { done, value } = await reader.read();
-				if (done) return;
-				buffer += decoder.decode(value, { stream: true });
-				const { frames, rest } = splitFrames(buffer);
-				buffer = rest;
-				for (const frame of frames) {
-					if (frame.event === "end") {
-						enc(`event: end\ndata: ${frame.data}\n\n`);
-						ended = true;
-						controller.close();
-						return;
-					}
-					if (frame.event !== "update") continue;
-					if (!isAgentUpdate(frame.data)) {
-						logger.warn({ agentId }, "dropping a malformed agent timeline frame");
-						continue;
-					}
-					seq += 1;
-					enc(`id: ${frame.id ?? seq}\nevent: update\ndata: ${frame.data}\n\n`);
-					lastEmit = Date.now();
+			// Idempotent teardown, called exactly once per connection no
+			// matter which of abort, deadline, `end` or error wins the race.
+			const finish = () => {
+				if (closed) return;
+				closed = true;
+				clearInterval(heartbeat);
+				clearTimeout(lifetime);
+				signal.removeEventListener("abort", onAbort);
+				// A cancelled reader resolves its pending read as done, so
+				// the loop below always wakes up to exit — no dangling read.
+				void reader.cancel().catch(() => {
+					// already closed
+				});
+				try {
+					controller.close();
+				} catch {
+					// already closed
 				}
 			};
+			const onAbort = () => finish();
+			// Registered once, not per tick: the read loop below awaits one
+			// `reader.read()` at a time and is never raced against a timer,
+			// so neither pending reads nor abort listeners can accumulate
+			// while the daemon is quiet.
+			signal.addEventListener("abort", onAbort, { once: true });
+			// The 5-minute cap as an exact timer rather than a per-tick
+			// check: a silent daemon holds the read below forever, and a
+			// check that only runs when data flows would never fire.
+			const lifetime = setTimeout(finish, MAX_LIFETIME_MS);
+
+			// The heartbeat is a separate timer, not a race against the read:
+			// it fires only when the line has been quiet for
+			// HEARTBEAT_AFTER_MS, and data writes reset `lastEmit`, so the
+			// two never emit back-to-back. Single-threaded writes through one
+			// controller cannot interleave mid-frame.
+			const heartbeat = setInterval(() => {
+				if (closed) return;
+				if (Date.now() - lastEmit >= HEARTBEAT_AFTER_MS) {
+					try {
+						enc(": heartbeat\n\n");
+						lastEmit = Date.now();
+					} catch {
+						finish();
+					}
+				}
+			}, 1000);
 
 			try {
-				while (!signal.aborted && !ended && Date.now() < deadline) {
-					const result = await Promise.race([
-						pump().then(() => "data" as const),
-						new Promise<"timeout">((resolve) => {
-							const remaining = Math.max(0, HEARTBEAT_AFTER_MS - (Date.now() - lastEmit));
-							const t = setTimeout(() => resolve("timeout"), Math.min(remaining, 1000));
-							signal.addEventListener("abort", () => {
-								clearTimeout(t);
-								resolve("timeout");
-							});
-						}),
-					]);
-					if (signal.aborted) break;
-					if (result === "timeout" && heartbeatDue()) {
-						enc(": heartbeat\n\n");
+				for (;;) {
+					if (signal.aborted || closed) break;
+					const { done, value } = await reader.read();
+					if (done || closed) break;
+					buffer += decoder.decode(value, { stream: true });
+					const { frames, rest } = splitFrames(buffer);
+					buffer = rest;
+					for (const frame of frames) {
+						if (frame.event === "end") {
+							enc(`event: end\ndata: ${frame.data}\n\n`);
+							finish();
+							return;
+						}
+						if (frame.event !== "update") continue;
+						if (!isAgentUpdate(frame.data)) {
+							logger.warn({ agentId }, "dropping a malformed agent timeline frame");
+							continue;
+						}
+						seq += 1;
+						enc(`id: ${frame.id ?? seq}\nevent: update\ndata: ${frame.data}\n\n`);
 						lastEmit = Date.now();
 					}
 				}
 			} catch {
-				// Transient or already closed — fall through to a plain close so
-				// the client reconnects with its Last-Event-ID.
+				// Transient — fall through to a plain close so the client
+				// reconnects with its Last-Event-ID.
 			}
-			try {
-				await reader.cancel();
-			} catch {
-				// already closed
-			}
-			try {
-				controller.close();
-			} catch {
-				// already closed
-			}
+			finish();
 		},
 	});
 

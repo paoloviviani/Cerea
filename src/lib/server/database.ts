@@ -698,6 +698,14 @@ export class Database {
 				{ partialFilterExpression: { sessionId: { $exists: true } } }
 			)
 			.catch((e) => logger.error(e, "Error creating index for codeDevices by sessionId"));
+		// An unclaimed pairing expires 15 minutes after it starts
+		// (`expiresAt`, set by `enroll`'s start and cleared by its claim, with
+		// `expireAfterSeconds: 0` meaning "when the date in the field
+		// passes"). Only pending rows carry the field, so a paired device —
+		// which must never be TTL-deleted — is untouched by this index.
+		codeDevices
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeDevices by expiresAt"));
 	}
 }
 
