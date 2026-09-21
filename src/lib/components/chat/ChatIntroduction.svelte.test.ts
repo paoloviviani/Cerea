@@ -64,4 +64,23 @@ describe("ChatIntroduction", () => {
 		await vi.waitFor(() => expect(screen.getByText("chat-ui")).toBeVisible());
 		expect(screen.baseElement.textContent).not.toContain("Com'è?");
 	});
+
+	it("strips one pair of wrapping quotes a compose environment entry would carry literally", async () => {
+		// dotenv strips them on the .env.local path; a direct environment:
+		// entry does not, and the first/last phrase would otherwise carry a
+		// stray quote into the logo slot.
+		const screen = renderWithApp(
+			ChatIntroduction,
+			{ currentModel: model },
+			{ publicConfig: { PUBLIC_TURIN_PHRASES: `"${PHRASES.join(",")}"` } }
+		);
+		await vi.waitFor(() => {
+			const printed = ROTATION.filter(
+				(phrase) =>
+					screen.baseElement.textContent?.includes(phrase) &&
+					!screen.baseElement.textContent?.includes(`"${phrase}`)
+			);
+			expect(printed.length).toBeGreaterThanOrEqual(1);
+		});
+	});
 });
