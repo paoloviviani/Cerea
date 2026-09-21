@@ -121,6 +121,12 @@ export interface CodeDevice {
 	pairingCode?: string;
 	/** Daemon-reported device id, recorded when the pairing completes. */
 	daemonId?: string;
+	/**
+	 * When an unclaimed pairing stops existing. Set only while `pending` —
+	 * a paired row carries no expiry, so the TTL index below can never
+	 * delete a live device. Cleared by `claim` alongside `pairingCode`.
+	 */
+	expiresAt?: Date;
 	createdAt: Date;
 	updatedAt: Date;
 	pairedAt?: Date;

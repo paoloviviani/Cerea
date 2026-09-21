@@ -52,6 +52,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			name: body.name,
 			status: "pending",
 			pairingCode: code,
+			// An unclaimed pairing is a row nobody will ever read again;
+			// fifteen minutes is long enough to walk to the machine and type
+			// the code, short enough that abandoned rows do not linger. Only
+			// pending rows carry this field, so only they can expire.
+			expiresAt: new Date(now.getTime() + 15 * 60_000),
 			createdAt: now,
 			updatedAt: now,
 		});
@@ -76,7 +81,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				pairedAt: now,
 				...(body.daemonId ? { daemonId: body.daemonId } : {}),
 			},
-			$unset: { pairingCode: "" },
+			$unset: { pairingCode: "", expiresAt: "" },
 		}
 	);
 	const paired = await collections.codeDevices.findOne({ _id: device._id });
