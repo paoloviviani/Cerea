@@ -3,6 +3,7 @@
 	import { onDestroy, untrack } from "svelte";
 
 	import ArtifactPanel from "./ArtifactPanel.svelte";
+	import PreviewPane from "./PreviewPane.svelte";
 	import TrackioPane from "./TrackioPane.svelte";
 	import DeliverablesPanel from "./DeliverablesPanel.svelte";
 	import { collectArtifacts } from "$lib/utils/artifacts";
@@ -1436,6 +1437,7 @@
 		canScreenshot={!shared && !isReadOnly && mimeMatchesAllowlist("image/png", activeMimeTypes)}
 		onsend={canSendFix ? sendFixRequest : undefined}
 	/>
+	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />
 	<TrackioPane items={paneItems} />
 	<DeliverablesPanel />
 </div>

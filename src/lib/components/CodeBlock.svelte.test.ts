@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { tick } from "svelte";
 import type { RunOutcome } from "$lib/utils/execution/protocol";
+import { sidePane } from "$lib/stores/sidePane.svelte";
 
 /**
  * The real runs store is exercised; only the worker session underneath is a
@@ -67,6 +68,9 @@ const mount = (props: Record<string, unknown>) => {
 beforeEach(() => {
 	sessionMock.run.mockClear();
 	sessionMock.listFiles.mockClear();
+	// sidePane is a module singleton: a preview left open by one test would
+	// leak into the next one's assertions.
+	sidePane.reset();
 });
 
 describe("CodeBlock execution", () => {
@@ -259,7 +263,7 @@ describe("CodeBlock execution", () => {
 describe("CodeBlock direct-emission file blocks", () => {
 	const content = "# Report\n\nAll quiet.";
 
-	/** Captures the card's download without triggering a real browser download. */
+	/** Captures the header's download without triggering a real browser download. */
 	function spyDownload() {
 		const blobs: Blob[] = [];
 		const createObjectURL = vi
@@ -279,7 +283,7 @@ describe("CodeBlock direct-emission file blocks", () => {
 		};
 	}
 
-	it("renders a closed titled fence as a file card with name and byte size", async () => {
+	it("renders a closed titled fence inline: filename header plus the same code body", async () => {
 		const { screen } = mount({
 			rawCode: content,
 			language: "markdown title=report.md",
@@ -292,6 +296,10 @@ describe("CodeBlock direct-emission file blocks", () => {
 		expect(bytes).toBe(20);
 		await expect.element(screen.getByText("20 B")).toBeVisible();
 		await expect.element(screen.getByRole("button", { name: "Download report.md" })).toBeVisible();
+		// Convergence: the titled fence keeps the code body (highlighted) and
+		// the shared button cluster — no separate file-card chrome.
+		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
+		expect(screen.baseElement.querySelector('button[aria-label^="Preview"]')).toBeNull();
 	});
 
 	it("downloads the exact block bytes under the annotated filename", async () => {
@@ -316,19 +324,59 @@ describe("CodeBlock direct-emission file blocks", () => {
 		}
 	});
 
-	it("previews a previewable kind inline without the sandbox", async () => {
+	it("opens a titled html fence in the side panel instead of a text preview", async () => {
+		sidePane.reset();
 		const { screen } = mount({
-			rawCode: content,
-			language: "markdown title=report.md",
+			rawCode: "<!DOCTYPE html><html><body><h1>Hi</h1></body></html>",
+			language: "html title=index.html",
 			autorun: true,
 		});
 		await tick();
-		await screen.getByRole("button", { name: "Preview report.md" }).click();
-		await expect.element(screen.getByText("# Report")).toBeVisible();
-		expect(sessionMock.readFile).not.toHaveBeenCalled();
+		await expect.element(screen.getByText("index.html")).toBeVisible();
+		await screen.getByRole("button", { name: "Preview HTML" }).click();
+		await tick();
+		// The panel — not a modal, not an inline text box — owns the render.
+		expect(sidePane.open).toBe(true);
+		expect(sidePane.view).toBe("preview");
+		expect(sidePane.preview).toMatchObject({ kind: "html", title: "index.html" });
+		expect(sidePane.preview?.content).toContain("<h1>Hi</h1>");
+		sidePane.reset();
 	});
 
-	it("streams an unclosed titled fence as an ordinary code block, box only after close", async () => {
+	it("opens a mermaid fence in the side panel as a diagram", async () => {
+		sidePane.reset();
+		const { screen } = mount({
+			rawCode: "flowchart LR\n    A --> B",
+			language: "mermaid",
+			autorun: true,
+		});
+		await tick();
+		await screen.getByRole("button", { name: "Preview diagram" }).click();
+		await tick();
+		expect(sidePane.open).toBe(true);
+		expect(sidePane.view).toBe("preview");
+		expect(sidePane.preview).toMatchObject({ kind: "mermaid", title: "Preview" });
+		sidePane.reset();
+	});
+
+	it("opens an untitled html fence in the side panel, never a modal", async () => {
+		sidePane.reset();
+		const { screen } = mount({
+			rawCode: "<!DOCTYPE html><html><body><h1>Hi</h1></body></html>",
+			language: "html",
+			autorun: true,
+		});
+		await tick();
+		await screen.getByRole("button", { name: "Preview HTML" }).click();
+		await tick();
+		expect(sidePane.open).toBe(true);
+		expect(sidePane.view).toBe("preview");
+		// No fullscreen modal is mounted for fence previews anymore.
+		expect(screen.baseElement.querySelector('[role="dialog"]')).toBeNull();
+		sidePane.reset();
+	});
+
+	it("streams an unclosed titled fence as an ordinary code block, header only after close", async () => {
 		const { screen } = mount({
 			rawCode: content,
 			language: "markdown title=report.md",
@@ -336,7 +384,7 @@ describe("CodeBlock direct-emission file blocks", () => {
 			loading: true,
 		});
 		await tick();
-		// While streaming: the code fence renders, no file card exists yet.
+		// While streaming: the code fence renders, no filename header exists yet.
 		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
 		expect(screen.baseElement.querySelector('button[aria-label="Download report.md"]')).toBeNull();
 
