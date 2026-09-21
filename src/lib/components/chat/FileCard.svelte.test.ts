@@ -1,6 +1,8 @@
 import FileCard from "./FileCard.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { convertToHtml } from "mammoth";
+import { sidePane } from "$lib/stores/sidePane.svelte";
 
 /**
  * The session underneath is a controllable fake; the card under test is real,
@@ -15,6 +17,13 @@ vi.mock("$lib/utils/execution/runtime", () => ({
 	getExecutionSession: () => sessionMock,
 }));
 
+// The converter is a real dependency with its own upstream tests; what is
+// under test here is the wiring — bytes in, sanitized panel payload out —
+// so the module boundary is mocked, not the zip format.
+vi.mock("mammoth", () => ({
+	convertToHtml: vi.fn(async () => ({ value: "<h1>Hi</h1>", messages: [] })),
+}));
+
 const textBytes = (text: string) => new TextEncoder().encode(text).buffer as ArrayBuffer;
 
 beforeEach(() => {
@@ -23,6 +32,11 @@ beforeEach(() => {
 	sessionMock.readFile.mockImplementation(
 		async () => new Uint8Array([104, 105]).buffer as ArrayBuffer
 	);
+	vi.mocked(convertToHtml).mockClear();
+	vi.mocked(convertToHtml).mockResolvedValue({ value: "<h1>Hi</h1>", messages: [] });
+	// sidePane is a module singleton: a preview left open by one test would
+	// leak into the next one's assertions.
+	sidePane.reset();
 });
 
 describe("FileCard", () => {
@@ -133,13 +147,98 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 		expect(sessionMock.readFile).not.toHaveBeenCalled();
 	});
 
-	it("offers no docx preview for inline content (that one runs Python)", async () => {
+	it("offers no docx preview for inline content (inline content is text, not a zip)", async () => {
 		const screen = render(FileCard, {
 			file: { path: "file.docx", size: 0 },
 			inlineContent: "not a zip",
 		});
 		await expect.element(screen.getByRole("button", { name: "Download file.docx" })).toBeVisible();
 		expect(screen.baseElement.querySelector('button[aria-label="Preview file.docx"]')).toBeNull();
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+	});
+
+	it("renders a sandbox docx as formatted HTML in the side panel, never Python", async () => {
+		const screen = render(FileCard, { file: { path: "/home/pyodide/report.docx", size: 2916 } });
+		await screen.getByRole("button", { name: "Preview report.docx" }).click();
+		await vi.waitFor(() => expect(sidePane.open).toBe(true));
+		expect(sidePane.view).toBe("preview");
+		expect(sidePane.preview).toMatchObject({ kind: "html", title: "report.docx" });
+		expect(sidePane.preview?.content).toContain("<h1>Hi</h1>");
+		// The converter read fetched bytes; the sandbox Python path is gone.
 		expect(sessionMock.run).not.toHaveBeenCalled();
+		// No inline expander opens for a document preview — the panel owns it.
+		expect(screen.baseElement.querySelector("pre")).toBeNull();
+	});
+
+	it("renders a persisted docx from its download URL — previews survive reload", async () => {
+		const realFetch = globalThis.fetch;
+		const fetch = vi.fn(async () => new Response(new Uint8Array([80, 75, 3, 4]).buffer));
+		vi.stubGlobal("fetch", fetch);
+		try {
+			const screen = render(FileCard, {
+				file: { path: "report.docx", size: 4 },
+				downloadUrl: "/conversation/abc/code-execution/output/sha256",
+			});
+			// The persisted path offers the same Preview button the live path does.
+			await expect
+				.element(screen.getByRole("button", { name: "Preview report.docx" }))
+				.toBeVisible();
+			await screen.getByRole("button", { name: "Preview report.docx" }).click();
+			await vi.waitFor(() => expect(sidePane.open).toBe(true));
+			expect(fetch).toHaveBeenCalledWith("/conversation/abc/code-execution/output/sha256");
+			expect(vi.mocked(convertToHtml)).toHaveBeenCalled();
+			expect(sidePane.preview).toMatchObject({ kind: "html", title: "report.docx" });
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
+
+	it("sanitizes the converted document before paneling it", async () => {
+		vi.mocked(convertToHtml).mockResolvedValue({
+			value: '<h1>Hi</h1><script>alert("x")</script>',
+			messages: [],
+		});
+		const screen = render(FileCard, { file: { path: "/home/pyodide/report.docx", size: 2916 } });
+		await screen.getByRole("button", { name: "Preview report.docx" }).click();
+		await vi.waitFor(() => expect(sidePane.open).toBe(true));
+		expect(sidePane.preview?.content).toContain("<h1>Hi</h1>");
+		expect(sidePane.preview?.content).not.toContain("<script>");
+	});
+
+	it("refuses an oversized docx with the download left working", async () => {
+		const big = new Uint8Array(8 * 1024 * 1024 + 1);
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(big.buffer))
+		);
+		try {
+			const screen = render(FileCard, {
+				file: { path: "report.docx", size: big.length },
+				downloadUrl: "/conversation/abc/code-execution/output/sha256",
+			});
+			await screen.getByRole("button", { name: "Preview report.docx" }).click();
+			await expect
+				.element(screen.getByText("too large to preview", { exact: false }))
+				.toBeVisible();
+			expect(sidePane.open).toBe(false);
+			expect(vi.mocked(convertToHtml)).not.toHaveBeenCalled();
+			await expect
+				.element(screen.getByRole("button", { name: "Download report.docx" }))
+				.toBeVisible();
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
+
+	it("shows a conversion failure inline with the download intact", async () => {
+		vi.mocked(convertToHtml).mockRejectedValue(new Error("not a zip"));
+		const screen = render(FileCard, { file: { path: "/home/pyodide/report.docx", size: 2916 } });
+		await screen.getByRole("button", { name: "Preview report.docx" }).click();
+		await expect.element(screen.getByText("not a zip")).toBeVisible();
+		expect(sidePane.open).toBe(false);
+		await expect
+			.element(screen.getByRole("button", { name: "Download report.docx" }))
+			.toBeVisible();
 	});
 });

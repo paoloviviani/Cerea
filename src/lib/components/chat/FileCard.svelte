@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
+	import DOMPurify from "isomorphic-dompurify";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
+	import { sidePane } from "$lib/stores/sidePane.svelte";
 
 	/**
 	 * One file a run generated, as a deliverable rather than a log line: name
@@ -17,10 +19,13 @@
 	 * share every class and the preview logic, so the two cards cannot drift.
 	 *
 	 * Previews are fetched lazily on first expand and kept for the session:
-	 * text decodes in-page, images and PDFs render from a blob URL, and Word
-	 * documents go through a tiny in-sandbox extraction (the standard
-	 * library's zipfile — no new dependency, no server round trip). Anything
-	 * else is metadata plus the download, which is always available.
+	 * text decodes in-page, images and PDFs render from a blob URL. Word
+	 * documents render as formatted HTML in the side panel (mammoth, vendored
+	 * and loaded on demand): a text extraction was the previous preview and it
+	 * answered "what words" while looking nothing like the document — the panel
+	 * shows headings, lists, tables and emphasis, on bytes from any source, so
+	 * the preview survives reloads. Anything else is metadata plus the download,
+	 * which is always available.
 	 */
 	interface Props {
 		file: { path: string; size: number };
@@ -49,7 +54,7 @@
 	);
 
 	type PreviewKind = "text" | "image" | "pdf" | "docx" | "none";
-	function previewKindFor(extension: string, allowDocx: boolean): PreviewKind {
+	function previewKindFor(extension: string, isInlineContent: boolean): PreviewKind {
 		if (
 			[
 				"txt",
@@ -75,15 +80,15 @@
 		if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"].includes(extension))
 			return "image";
 		if (extension === "pdf") return "pdf";
-		// The docx preview runs Python in the sandbox, which direct-emission
-		// blocks must never touch — and inline content is text, not a zip.
-		if (extension === "docx") return allowDocx ? "docx" : "none";
+		// Word documents render through mammoth from fetched bytes, so every
+		// byte source qualifies — live sandbox, persisted store, replay. Only
+		// direct-emission blocks are excluded, and those cannot be a docx
+		// anyway: inline content is text, not a zip.
+		if (extension === "docx") return isInlineContent ? "none" : "docx";
 		return "none";
 	}
 
-	const previewKind = $derived(
-		previewKindFor(extension, inlineContent === undefined && downloadUrl === undefined)
-	);
+	const previewKind = $derived(previewKindFor(extension, inlineContent !== undefined));
 
 	/** UTF-8 byte length of the inline content; only computed in direct-emission mode. */
 	const inlineSize = $derived(
@@ -172,23 +177,50 @@
 	}
 
 	/**
-	 * The preview snippet for a Word document. Runs in the sandbox itself so
-	 * no zip dependency or server round trip is needed; read-only, writes
-	 * nothing, and prints at most PREVIEW_CHARS so it always fits the output
-	 * cap. The path travels as a JSON string, which is a valid Python string
-	 * literal — never interpolated raw.
+	 * Rendered-document preview for a Word file: bytes from any source (live
+	 * sandbox, persisted store, replay) through mammoth to semantic HTML,
+	 * sanitized, shown in the side panel. Loaded on demand so the converter
+	 * never enters the bundle of a conversation without a docx in it.
 	 */
-	function docxPreviewCode(path: string, maxChars: number): string {
-		return [
-			"import zipfile, xml.etree.ElementTree as ET",
-			`_z = zipfile.ZipFile(${JSON.stringify(path)})`,
-			"_root = ET.fromstring(_z.read('word/document.xml'))",
-			"_ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'",
-			"_paras = []",
-			"for _p in _root.iter(f'{_ns}p'):",
-			"    _paras.append(''.join(_t.text or '' for _t in _p.iter(f'{_ns}t')))",
-			`print('\\n'.join(_paras)[:${maxChars}])`,
-		].join("\n");
+	const DOCX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+	async function openDocxPreview(): Promise<void> {
+		previewBusy = true;
+		previewError = null;
+		try {
+			const data = await readBytes();
+			const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+			if (bytes.byteLength > DOCX_PREVIEW_MAX_BYTES) {
+				throw new Error("too large to preview — download it to read the whole document");
+			}
+			const mammoth = await import("mammoth");
+			// slice() copies exactly the viewed range: bytes.buffer may overhang
+			// it (transferable slices), and mammoth would parse the slack too.
+			const { value } = await mammoth.convertToHtml({ arrayBuffer: bytes.slice().buffer });
+			// Mammoth emits an unstyled fragment; the wrapper gives it readable
+			// typography inside the preview frame (inline <style> is allowed by
+			// the preview CSP). Sanitized like every other model-authored HTML
+			// before it reaches the panel — the sandboxed iframe is the second
+			// layer, not the only one.
+			const document = `<style>
+				.docx-preview{font:14px/1.6 system-ui,sans-serif;color:#111;max-width:65ch;margin:0 auto;padding:24px}
+				.docx-preview table{border-collapse:collapse;margin:12px 0}
+				.docx-preview th,.docx-preview td{border:1px solid #ccc;padding:4px 8px;text-align:left}
+				.docx-preview img{max-width:100%}
+			</style><div class="docx-preview">${value}</div>`;
+			sidePane.openPreview({
+				kind: "html",
+				title: name,
+				content: DOMPurify.sanitize(document),
+			});
+		} catch (err) {
+			previewError =
+				err instanceof Error ? err.message : "the preview is unavailable; the download still works";
+			// A failed render still needs somewhere visible to land: reuse the
+			// inline error slot the other kinds share.
+			previewOpen = true;
+		} finally {
+			previewBusy = false;
+		}
 	}
 
 	const PREVIEW_TEXT_CHARS = 4000;
@@ -197,6 +229,13 @@
 		if (previewOpen) {
 			previewOpen = false;
 			revokePreviewUrl();
+			return;
+		}
+		// A rendered document belongs in the side panel with every other
+		// rendered view — not in the inline expander, which stays for the
+		// small text/image/pdf snippets.
+		if (previewKind === "docx") {
+			await openDocxPreview();
 			return;
 		}
 		previewOpen = true;
@@ -218,14 +257,6 @@
 				const data = await readBytes();
 				revokePreviewUrl();
 				previewUrl = URL.createObjectURL(new Blob([data]));
-			} else if (previewKind === "docx") {
-				// Only reachable in sandbox mode: direct-emission blocks never get
-				// a docx preview kind (their content is text, not a zip).
-				const session = getExecutionSession();
-				if (!session) throw new Error("the execution sandbox is not available in this context");
-				const outcome = await session.run(docxPreviewCode(file.path, PREVIEW_TEXT_CHARS));
-				if (!outcome.ok) throw new Error(outcome.error ?? "the preview run failed");
-				previewText = outcome.stdout.trim() === "" ? "(no readable text found)" : outcome.stdout;
 			}
 		} catch (err) {
 			previewError =
