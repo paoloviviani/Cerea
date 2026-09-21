@@ -19,10 +19,11 @@
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
+		deviceId: string;
 		agentId: string;
 	}
 
-	let { agentId }: Props = $props();
+	let { deviceId, agentId }: Props = $props();
 
 	let files = $state<CodeFileChange[]>([]);
 	let loading = $state(true);
@@ -31,7 +32,7 @@
 	onMount(() => {
 		(async () => {
 			try {
-				files = (await getAgentDiff(agentId)).files;
+				files = (await getAgentDiff(deviceId, agentId)).files;
 			} catch (err) {
 				failure = err instanceof Error ? err.message : "Could not load the agent's changes.";
 			} finally {

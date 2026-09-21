@@ -18,11 +18,12 @@
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
+		deviceId: string;
 		agentId: string;
 		request: CodePermissionRequestUpdate;
 	}
 
-	let { agentId, request }: Props = $props();
+	let { deviceId, agentId, request }: Props = $props();
 
 	let busy = $state<PermissionDecision | null>(null);
 	let failure = $state<string | null>(null);
@@ -38,7 +39,7 @@
 		busy = decision;
 		failure = null;
 		try {
-			await respondPermission(agentId, request.requestId, decision);
+			await respondPermission(deviceId, agentId, request.requestId, decision);
 			localResolution = decision;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not answer the request.";

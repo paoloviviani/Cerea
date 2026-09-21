@@ -1,79 +1,389 @@
 import { error } from "@sveltejs/kit";
+import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { buildRelayWebSocketUrl } from "@getpaseo/protocol/daemon-endpoints";
+import type { FetchAgentTimelineResponseMessage } from "@getpaseo/protocol/messages";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
+import { getPairedDevice } from "$lib/server/codeDevices";
+import type {
+	CodeAgentSession,
+	CodeFileChange,
+	CodeWorkspace,
+	CodeTurnState,
+} from "$lib/types/CodeAgent";
 
+type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
+/** Whatever `getCheckoutDiff` actually answers with — parsed diff files. */
+type CheckoutDiffPayload = Awaited<ReturnType<DaemonClient["getCheckoutDiff"]>>;
 /**
- * How the Cerea server reaches the paseo daemon, and with what.
+ * How the Cerea server reaches a paired person's daemon: through the relay,
+ * as an end-to-end-encrypted paseo client, one connection per paired device.
  *
- * The daemon runs on the person's own machine (or behind a relay the
- * operator deploys); either way the browser never talks to it. The base URL
- * (`CODE_DAEMON_URL`) and the service credential (`CODE_DAEMON_TOKEN`) live
- * in the server environment, are attached here, and never reach the page —
- * the same discipline as the gateway forwarder's `token(locals)`, except the
- * credential is the deployment's, not the caller's: the relay is
- * identity-blind, and per-user scoping is brokered by Cerea's pairing
- * records (see `api/v2/code/devices` and `api/v2/code/enroll`).
+ * The daemon's control surface is its WebSocket session protocol — its own
+ * clients (web, mobile, CLI) speak it, and the typed SDK (`@getpaseo/client`)
+ * is the supported way in; there is no REST surface to forward HTTP to (ADR
+ * 0085). So instead of a URL and a bearer token, a device's pairing row now
+ * carries the two things a relay client needs: the daemon's `serverId` (the
+ * relay's route key, stored as `daemonId`) and its Curve25519 public key
+ * (stored as `daemonPublicKey`, with credential discipline — the pairing
+ * offer is the daemon's bearer capability). The relay address itself is the
+ * deployment's (`CODE_RELAY_URL`), never taken from the pasted offer, so a
+ * crafted offer cannot point Cerea at a different rendezvous.
  *
- * Requests carry a pinned API version (`X-Paseo-Version`). A daemon that
- * answers it with a different version is a 502 here rather than a proxied
- * conversation between strangers: the shapes below were coded against
- * paseo daemon API v1 (workspaces, agents, sessions, messages, permissions,
- * diff — see the allowlist in `api/v2/code/[...path]/+server.ts`), and a
- * version skew would fail in ways neither side describes well.
+ * Each paired device gets at most one `DaemonClient`, created on first use
+ * and reused across requests: the connection dials outbound to the relay,
+ * performs the NaCl handshake, and stays up. A daemon that answers with a
+ * different `serverId` than the row recorded is refused outright — that is
+ * not our person's machine. The pinned SDK version is the API contract
+ * (`PASEO_SDK_VERSION`); the daemon's own reported version must match its
+ * minor or the link refuses to serve rather than guessing at shapes.
  */
 
-export const PASEO_API_VERSION = "1";
+/** Exact-pin of @getpaseo/client and @getpaseo/protocol in package.json. */
+export const PASEO_SDK_VERSION = "0.8.0";
 
-export function daemonBaseUrl(): string {
-	const base = config.CODE_DAEMON_URL?.trim();
-	if (!base) {
-		error(404, "No coding-agent daemon is configured in this deployment.");
+/** The relay Cerea dials. Deployment config, like the old daemon URL. */
+function relayBaseUrl(): string {
+	const raw = config.CODE_RELAY_URL?.trim();
+	if (!raw) {
+		error(404, "No coding-agent relay is configured in this deployment.");
 	}
-	return base.replace(/\/$/, "");
+	return raw.replace(/\/$/, "");
 }
 
-export function daemonHeaders(): Record<string, string> {
-	const token = config.CODE_DAEMON_TOKEN?.trim();
-	if (!token) {
-		// Configured address but no credential: refuse rather than call the
-		// daemon unauthenticated, which would fail there with less context.
-		error(502, "The coding-agent daemon credential is not configured.");
+interface DeviceIdentity {
+	/** The paired row's id — the pool key. */
+	deviceId: string;
+	/** The paseo daemon's serverId: the relay routes by it. */
+	serverId: string;
+	/** The daemon's Curve25519 public key (base64) from its pairing offer. */
+	daemonPublicKey: string;
+}
+
+/** The daemon minor this server was coded against; a skew is refused, not guessed at. */
+function versionMinor(version: string | null | undefined): string | null {
+	if (!version) return null;
+	const match = /^(\d+\.\d+)\./.exec(version);
+	return match?.[1] ?? null;
+}
+
+class DeviceDaemonLink {
+	private client: DaemonClient | null = null;
+	private connecting: Promise<void> | null = null;
+	private statusOk = false;
+
+	constructor(private readonly identity: DeviceIdentity) {}
+
+	async ensureReady(): Promise<DaemonClient> {
+		if (this.client && this.statusOk) return this.client;
+		if (!this.connecting) {
+			this.connecting = this.connect().finally(() => {
+				this.connecting = null;
+			});
+		}
+		await this.connecting;
+		if (!this.client || !this.statusOk) error(502, "The coding-agent daemon could not be reached.");
+		return this.client;
 	}
+
+	private async connect(): Promise<void> {
+		this.statusOk = false;
+		const base = relayBaseUrl();
+		const useTls = base.startsWith("wss://") || base.startsWith("https://");
+		const hostPort = base.replace(/^wss?:\/\//, "").replace(/^https?:\/\//, "");
+		const url = buildRelayWebSocketUrl({
+			endpoint: hostPort,
+			useTls,
+			serverId: this.identity.serverId,
+			role: "client",
+			version: "2",
+		});
+		const client = new DaemonClient({
+			url,
+			clientId: "cerea-code-panel",
+			// The machine client type: Cerea is not a phone or a browser tab.
+			clientType: "hub",
+			appVersion: PASEO_SDK_VERSION,
+			e2ee: { enabled: true, daemonPublicKeyB64: this.identity.daemonPublicKey },
+			reconnect: { enabled: true, baseDelayMs: 1000, maxDelayMs: 15_000 },
+			logger: {
+				debug: () => {},
+				info: () => {},
+				warn: (obj, msg) =>
+					logger.warn({ ...obj, deviceId: this.identity.deviceId }, msg ?? "paseo link warning"),
+				error: (obj, msg) =>
+					logger.error({ ...obj, deviceId: this.identity.deviceId }, msg ?? "paseo link error"),
+			},
+		});
+		try {
+			await client.connect();
+			const status = await client.getDaemonStatus();
+			if (status.serverId !== this.identity.serverId) {
+				// The relay routed us somewhere else than the row's daemon:
+				// refuse rather than drive a stranger's machine.
+				logger.error(
+					{ expected: this.identity.serverId, answered: status.serverId },
+					"paseo daemon serverId mismatch through the relay"
+				);
+				client.close();
+				error(502, "The paired daemon answered with a different identity.");
+			}
+			if (versionMinor(status.version) !== versionMinor(PASEO_SDK_VERSION)) {
+				logger.error(
+					{ daemonVersion: status.version, pinned: PASEO_SDK_VERSION },
+					"paseo daemon version mismatch"
+				);
+				client.close();
+				error(502, "The paired daemon speaks an unsupported API version.");
+			}
+			this.client = client;
+			this.statusOk = true;
+		} catch (err) {
+			client.close();
+			if (err && typeof err === "object" && "status" in err) throw err;
+			logger.error({ err, deviceId: this.identity.deviceId }, "paseo daemon link failed");
+			error(502, "The coding-agent daemon could not be reached through the relay.");
+		}
+	}
+
+	/** The agent's cwd, needed by the diff surface, from one fetch. */
+	async agentCwd(agentId: string): Promise<string> {
+		const client = await this.ensureReady();
+		const result = await client.fetchAgent(agentId);
+		if (!result) error(404, "No such agent on this daemon.");
+		return result.agent.cwd;
+	}
+
+	async listWorkspaces(): Promise<CodeWorkspace[]> {
+		const client = await this.ensureReady();
+		const result = await client.fetchWorkspaces();
+		return result.entries.map(toWorkspace);
+	}
+
+	async getWorkspace(workspaceId: string): Promise<CodeWorkspace> {
+		const all = await this.listWorkspaces();
+		const found = all.find((workspace) => workspace.id === workspaceId);
+		if (!found) error(404, "No such workspace on this daemon.");
+		return found;
+	}
+
+	async listAgents(workspaceId?: string): Promise<CodeAgentSession[]> {
+		const client = await this.ensureReady();
+		const result = await client.fetchAgents();
+		const mapped = result.entries.map((entry) => toSession(entry.agent));
+		return workspaceId ? mapped.filter((agent) => agent.workspaceId === workspaceId) : mapped;
+	}
+
+	async getAgent(agentId: string): Promise<CodeAgentSession> {
+		const client = await this.ensureReady();
+		const result = await client.fetchAgent(agentId);
+		if (!result) error(404, "No such agent on this daemon.");
+		return toSession(result.agent);
+	}
+
+	async createAgent(input: {
+		provider: string;
+		cwd: string;
+		posture: "plan" | "write";
+		title?: string;
+	}): Promise<CodeAgentSession> {
+		const client = await this.ensureReady();
+		const agent = await client.createAgent({
+			provider: input.provider,
+			cwd: input.cwd,
+			modeId: input.posture === "write" ? "build" : "plan",
+			title: input.title ?? null,
+		});
+		return toSession(agent);
+	}
+
+	async deleteAgent(agentId: string): Promise<void> {
+		const client = await this.ensureReady();
+		await client.deleteAgent(agentId);
+	}
+
+	async sendAgentMessage(agentId: string, text: string, posture: "plan" | "write"): Promise<void> {
+		const client = await this.ensureReady();
+		// Posture is the daemon's own mode switch: plan proposes, build writes.
+		await client.setAgentMode(agentId, posture === "write" ? "build" : "plan");
+		await client.sendAgentMessage(agentId, text);
+	}
+
+	async respondPermission(
+		agentId: string,
+		requestId: string,
+		decision: "approve" | "deny"
+	): Promise<void> {
+		const client = await this.ensureReady();
+		await client.respondToPermission(agentId, requestId, {
+			behavior: decision === "approve" ? "allow" : "deny",
+		});
+	}
+
+	async fetchTimeline(agentId: string): Promise<FetchAgentTimelinePayload> {
+		const client = await this.ensureReady();
+		return client.fetchAgentTimeline(agentId, { direction: "tail", limit: 500 });
+	}
+
+	async fetchDiff(agentId: string): Promise<CheckoutDiffPayload> {
+		const client = await this.ensureReady();
+		const cwd = await this.agentCwd(agentId);
+		return client.getCheckoutDiff(cwd, { mode: "uncommitted" });
+	}
+
+	close(): void {
+		this.statusOk = false;
+		this.client?.close();
+		this.client = null;
+	}
+}
+
+function toWorkspace(payload: {
+	id: string;
+	name?: string | null;
+	directory?: string | null;
+	projectDisplayName?: string | null;
+	projectRootPath?: string | null;
+}): CodeWorkspace {
+	const path = payload.directory ?? payload.projectRootPath ?? "";
 	return {
-		Authorization: `Bearer ${token}`,
-		"X-Paseo-Version": PASEO_API_VERSION,
+		id: payload.id,
+		name:
+			payload.name ?? payload.projectDisplayName ?? path.split("/").filter(Boolean).pop() ?? path,
+		path,
 	};
 }
 
-/** The daemon's status and body, verbatim, including its refusals. */
-export async function relayDaemon(response: Response): Promise<Response> {
-	const body = await response.text();
-	return new Response(body, {
-		status: response.status,
-		headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
-	});
+function toSession(payload: {
+	id: string;
+	provider: string;
+	cwd: string;
+	workspaceId?: string | null;
+	status: string;
+	title?: string | null;
+	pendingPermissions?: unknown[];
+	updatedAt?: string | null;
+}): CodeAgentSession {
+	const base =
+		payload.status === "running"
+			? "running"
+			: payload.status === "error"
+				? "error"
+				: payload.status === "closed"
+					? "done"
+					: "idle";
+	const state: CodeTurnState =
+		base === "running" && (payload.pendingPermissions?.length ?? 0) > 0
+			? "waiting-permission"
+			: base;
+	return {
+		id: payload.id,
+		workspaceId: payload.workspaceId ?? "",
+		title: payload.title ?? payload.cwd,
+		provider: payload.provider,
+		state,
+		updatedAt: payload.updatedAt ?? new Date().toISOString(),
+	};
 }
 
-export async function callDaemon(
-	path: string,
-	init: { method?: string; body?: BodyInit; contentType?: string; signal?: AbortSignal },
-	fetchFn: typeof fetch = fetch
-): Promise<Response> {
-	const base = daemonBaseUrl();
-	const headers = daemonHeaders();
-	if (init.contentType) headers["content-type"] = init.contentType;
+/** One link per paired device, for the whole server process. */
+const pool = new Map<string, DeviceDaemonLink>();
+
+/**
+ * The link for one of the caller's own paired devices. Ownership is checked
+ * against the row before anything dials: a device id that is not yours is a
+ * 404, not a connection.
+ */
+export async function linkForDevice(
+	locals: App.Locals,
+	deviceId: string | null | undefined
+): Promise<DeviceDaemonLink> {
+	if (!deviceId) error(400, "A paired device is required: pass ?device=.");
+	const device = await getPairedDevice(locals, deviceId);
+	if (!device.daemonId || !device.daemonPublicKey) {
+		error(502, "The paired device has no relay identity recorded.");
+	}
+	const existing = pool.get(deviceId);
+	if (existing) return existing;
+	const link = new DeviceDaemonLink({
+		deviceId,
+		serverId: device.daemonId,
+		daemonPublicKey: device.daemonPublicKey,
+	});
+	pool.set(deviceId, link);
+	return link;
+}
+
+/** The pool only holds live pairings; revocation drops the connection. */
+export function dropLink(deviceId: string): void {
+	pool.get(deviceId)?.close();
+	pool.delete(deviceId);
+}
+
+/** A one-shot encrypted probe used by pairing: connect, verify, hang up. */
+export async function probePairingOffer(input: {
+	serverId: string;
+	daemonPublicKey: string;
+}): Promise<{ version: string | null }> {
+	const base = relayBaseUrl();
+	const useTls = base.startsWith("wss://") || base.startsWith("https://");
+	const hostPort = base.replace(/^wss?:\/\//, "").replace(/^https?:\/\//, "");
+	const url = buildRelayWebSocketUrl({
+		endpoint: hostPort,
+		useTls,
+		serverId: input.serverId,
+		role: "client",
+		version: "2",
+	});
+	const client = new DaemonClient({
+		url,
+		clientId: "cerea-pairing-probe",
+		clientType: "hub",
+		appVersion: PASEO_SDK_VERSION,
+		e2ee: { enabled: true, daemonPublicKeyB64: input.daemonPublicKey },
+		logger: {
+			debug: () => {},
+			info: () => {},
+			warn: () => {},
+			error: () => {},
+		},
+	});
 	try {
-		return await relayDaemon(
-			await fetchFn(`${base}/${path}`, {
-				method: init.method ?? "GET",
-				headers,
-				body: init.body,
-				signal: init.signal,
-			})
-		);
+		await client.connect();
+		const status = await client.getDaemonStatus();
+		if (status.serverId !== input.serverId) {
+			error(502, "The relay routed the pairing probe to a different daemon.");
+		}
+		return { version: status.version ?? null };
 	} catch (err) {
 		if (err && typeof err === "object" && "status" in err) throw err;
-		logger.error({ err, path }, "paseo daemon call failed");
-		error(502, "The coding-agent daemon could not be reached.");
+		logger.error({ err, serverId: input.serverId }, "pairing probe failed");
+		error(
+			502,
+			"The daemon could not be reached through the relay. Is it running with `paseo daemon pair` and relay enabled?"
+		);
+	} finally {
+		client.close();
 	}
+}
+
+/** Build the CodeFileChange[] the diff viewer renders, from the daemon's parsed diff. */
+export function toFileChanges(diff: CheckoutDiffPayload): CodeFileChange[] {
+	return (diff.files ?? []).map((file) => {
+		let oldText = "";
+		let newText = "";
+		for (const hunk of file.hunks ?? []) {
+			for (const line of hunk.lines ?? []) {
+				if (line.type === "context") {
+					oldText += `${line.content}\n`;
+					newText += `${line.content}\n`;
+				} else if (line.type === "remove") {
+					oldText += `${line.content}\n`;
+				} else if (line.type === "add") {
+					newText += `${line.content}\n`;
+				}
+			}
+		}
+		return { path: file.path, oldText, newText };
+	});
 }
