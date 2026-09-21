@@ -2389,10 +2389,21 @@ main() {
 		# (IDP_BUNDLED); the global mirrors it so required_keys_for sees the
 		# same shape as a fresh run.
 		IDP_BUNDLED="${PARSED[IDP_BUNDLED]:-}"
-		local key
-		for key in "${PARSED_ORDER[@]}"; do
-			set_value "$key" "${PARSED[$key]}"
-		done
+ 		local key
+ 		for key in "${PARSED_ORDER[@]}"; do
+ 			set_value "$key" "${PARSED[$key]}"
+ 		done
+		# The component toggles a resume's --components overrode must reach
+		# the value map: collect_values is where they translate on a fresh
+		# run, and --phase2 never calls it — the file's values alone would
+		# win over the operator's explicit toggle. The CODE_* trio is the
+		# one such family today (every other component already writes its
+		# file key on the install that set it, so the parsed copy is right).
+		if [ "${ST_CODEPANEL:-0}" = "1" ]; then
+			set_value CODE_AGENTS_ENABLED "true"
+			set_value CODE_RELAY_URL "relay:4000"
+			set_value RELAY_PORT "4000"
+		fi
 		# --set on a resume: applied over the parsed values and re-validated
 		# with everything else below. The settable-key filter already ran at
 		# parse time, so a derived/generated key cannot sneak in here.
@@ -2491,6 +2502,43 @@ main() {
 	validate_values "$PROFILE" VALUES
 
 	if [ "$PHASE2_ONLY" = "1" ]; then
+		# The resume's compose profiles must reflect the toggles the
+		# operator just changed, not only the shape the file recorded:
+		# --components code-panel=on adds the relay's profile to the set
+		# the name-less `up -d` brings up. Derived, never --set-able —
+		# and derived BEFORE the persisting write below, so the file the
+		# children read carries the new set too (the in-memory copy alone
+		# would leave deploy/.env describing the old one).
+		derive_compose_profiles
+		set_value COMPOSE_PROFILES "$COMPOSE_PROFILES_VALUE"
+		# A resume that overrides the recorded shape (--components) must
+		# persist the change: the compose children all read deploy/.env,
+		# and an override that lives only in this process would leave the
+		# file describing a stack that no longer matches it (and the
+		# metadata block would keep re-imposing the old shape on every
+		# later resume). The write is the fresh path's own build_env_file:
+		# every existing value arrives through the parse, so nothing is
+		# regenerated — only the overridden shape changes. Untouched
+		# resumes skip it: the file is already the truth they resume.
+		if [ -n "$COMPONENTS_SPEC" ]; then
+			local tmp_env="$ENV_FILE.installing.$$"
+			build_env_file "$PYSTINO_ROOT/deploy/profiles/$(profile_fragment "$PROFILE")" >"$tmp_env"
+			chmod 600 "$tmp_env"
+			parse_env_file "$tmp_env"
+			VALUES_ORDER=()
+			VALUES=()
+			local key
+			for key in "${PARSED_ORDER[@]}"; do
+				set_value "$key" "${PARSED[$key]}"
+			done
+			if [ "$DRY_RUN" = "1" ]; then
+				ENV_FILE="$tmp_env"
+				note "[dry-run] the shape override would re-write $PYSTINO_ROOT/deploy/.env (nothing was changed)."
+			else
+				mv -f "$tmp_env" "$ENV_FILE"
+				echo "Wrote $ENV_FILE (mode 600) — shape override persisted."
+			fi
+		fi
 		build_scrub "$ENV_FILE"
 		check_idp_files
 		if is_standalone_profile "$PROFILE"; then
