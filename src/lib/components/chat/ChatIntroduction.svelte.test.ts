@@ -13,7 +13,7 @@ import type { Model } from "$lib/types/Model";
 
 const model = { id: "m", displayName: "Model", name: "model" } as unknown as Model;
 
-const PHRASES = ["Com'è?", "Va bin", "Facciamo che iniziare?", "Oh basta là"];
+const PHRASES = ["Com'è?", "Va bin", "Facciamo che iniziare?", "Oh basta là", "Fuma c'anduma"];
 const ROTATION = ["chat-ui", ...PHRASES];
 
 describe("ChatIntroduction", () => {

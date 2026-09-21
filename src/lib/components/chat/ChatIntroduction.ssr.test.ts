@@ -22,7 +22,7 @@ vi.mock("$app/state", () => ({
  */
 
 const model = { id: "m", displayName: "Model", name: "model" } as unknown as Model;
-const PHRASES = ["Com'è?", "Va bin", "Facciamo che iniziare?", "Oh basta là"];
+const PHRASES = ["Com'è?", "Va bin", "Facciamo che iniziare?", "Oh basta là", "Fuma c'anduma"];
 
 const manager = getConfigManager({
 	PUBLIC_APP_NAME: "chat-ui",
