@@ -82,4 +82,14 @@ export interface FeatureFlags {
 	 * anything is stored or injected.
 	 */
 	memoryEnabled: boolean;
+	/**
+	 * Whether this origin serves the Pystino console at /console
+	 * (`CHAT_CONSOLE_ENABLED`). On means the gateway profiles (homelab, team,
+	 * enterprise): the chat's admin panel links to the console for the
+	 * platform side — providers, models, prices, quotas, users. Off means the
+	 * standalone profiles: satellite's Pystino is central's and its console
+	 * is not this origin's to serve, generic has no Pystino at all — a link
+	 * to an unserved /console would be a 404 wearing the name of a feature.
+	 */
+	consoleEnabled: boolean;
 }
