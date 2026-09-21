@@ -95,6 +95,37 @@
 		return "none";
 	}
 
+	/**
+	 * Content type for the preview blob. Chrome's PDF viewer only engages for
+	 * application/pdf: a typeless blob navigated in the preview iframe
+	 * downloads instead of rendering, which is exactly the blank-frame-plus-
+	 * download failure. Images sniff either way, but an explicit type costs
+	 * nothing and states what the bytes are.
+	 */
+	function previewMimeType(extension: string): string {
+		switch (extension) {
+			case "pdf":
+				return "application/pdf";
+			case "png":
+				return "image/png";
+			case "jpg":
+			case "jpeg":
+				return "image/jpeg";
+			case "gif":
+				return "image/gif";
+			case "webp":
+				return "image/webp";
+			case "svg":
+				return "image/svg+xml";
+			case "bmp":
+				return "image/bmp";
+			case "avif":
+				return "image/avif";
+			default:
+				return "application/octet-stream";
+		}
+	}
+
 	const previewKind = $derived(previewKindFor(extension, inlineContent !== undefined));
 
 	/** UTF-8 byte length of the inline content; only computed in direct-emission mode. */
@@ -263,7 +294,7 @@
 			} else if (previewKind === "image" || previewKind === "pdf") {
 				const data = await readBytes();
 				revokePreviewUrl();
-				previewUrl = URL.createObjectURL(new Blob([data]));
+				previewUrl = URL.createObjectURL(new Blob([data], { type: previewMimeType(extension) }));
 			}
 		} catch (err) {
 			previewError =
