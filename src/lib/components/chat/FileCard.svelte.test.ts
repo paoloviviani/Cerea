@@ -241,4 +241,27 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 			.element(screen.getByRole("button", { name: "Download report.docx" }))
 			.toBeVisible();
 	});
+
+	it("types the pdf preview blob so the viewer renders instead of downloading", async () => {
+		// Chrome's PDF viewer only engages for application/pdf: a typeless
+		// blob navigated in the preview iframe downloads and leaves a blank
+		// frame — the exact failure this pins.
+		const blobs: Blob[] = [];
+		const createObjectURL = vi
+			.spyOn(URL, "createObjectURL")
+			.mockImplementation((blob: Blob | MediaSource) => {
+				blobs.push(blob as Blob);
+				return "blob:mock";
+			});
+		try {
+			const screen = render(FileCard, { file: { path: "/home/pyodide/report.pdf", size: 1024 } });
+			await screen.getByRole("button", { name: "Preview report.pdf" }).click();
+			await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0));
+			expect(blobs[0].type).toBe("application/pdf");
+			const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
+			expect(iframe?.getAttribute("src")).toBe("blob:mock");
+		} finally {
+			createObjectURL.mockRestore();
+		}
+	});
 });
