@@ -17,6 +17,7 @@
 	import AgentComposer from "./AgentComposer.svelte";
 	import { getAgent } from "$lib/codeApi";
 	import type { CodeAgentSession } from "$lib/types/CodeAgent";
+	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -29,6 +30,14 @@
 	type Tab = "transcript" | "changes";
 	let tab = $state<Tab>("transcript");
 	let agent = $state<CodeAgentSession | null>(null);
+
+	// The mobile top bar names the screen it is on; chats get their title
+	// from the conversations store, and an agent is not one — it reports
+	// itself here, and clears the slot when the screen goes away.
+	$effect(() => {
+		codeNav.agentTitle = agent?.title ?? "";
+		return () => (codeNav.agentTitle = "");
+	});
 
 	onMount(() => {
 		(async () => {
