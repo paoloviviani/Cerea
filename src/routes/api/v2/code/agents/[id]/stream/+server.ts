@@ -83,9 +83,13 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		wake?.();
 		wake = null;
 	};
+	// The handler receives the consumerMessage envelope — the event is
+	// payload.event, never a sibling of `type` (reading message.event here
+	// once dropped every live frame, and live delivery only ever worked
+	// through the history replay).
 	const unsubscribe = client.subscribeAgentTimeline(agentId, (message) => {
 		if (message.type !== "agent_stream") return;
-		const event = (message as { event?: unknown }).event;
+		const event = message.payload.event;
 		if (!event) return;
 		try {
 			const updates = streamEventToUpdate(event as Parameters<typeof streamEventToUpdate>[0]);
