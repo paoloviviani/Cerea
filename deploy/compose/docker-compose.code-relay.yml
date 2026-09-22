@@ -73,7 +73,11 @@ services:
       # present at /usr/bin/bash, so the probe says bash explicitly.
       # Liveness only — /ready also reports drain state, which would
       # restart a draining relay.
-      test: ["CMD-SHELL", "bash -c \"exec 3<>/dev/tcp/127.0.0.1/4000 && printf 'GET /health HTTP/1.0\\\\r\\\\n\\\\r\\\\n' >&3 && cat <&3 | grep -q '200 OK'\""]
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c \"exec 3<>/dev/tcp/127.0.0.1/4000 && printf 'GET /health HTTP/1.0\\\\r\\\\n\\\\r\\\\n' >&3 && cat <&3 | grep -q '200 OK'\"",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6
