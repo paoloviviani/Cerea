@@ -136,7 +136,7 @@ is_settable_key() { # is_settable_key <key> -> REJECT_REASON (empty when settabl
 			REJECT_REASON="component- or safety-derived — express it with --components (or leave the install shape to decide)"
 			return 1
 			;;
-		CODE_AGENTS_ENABLED | CODE_RELAY_URL | RELAY_PORT)
+		CODE_AGENTS_ENABLED | CODE_RELAY_URL)
 			REJECT_REASON="component-derived (the /code panel toggle, ADR 0085) — express it with --components code-panel=on|off"
 			return 1
 			;;
