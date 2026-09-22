@@ -228,3 +228,35 @@ export async function respondPermission(
 		)
 	);
 }
+
+// -- archival: leaving the daemon's active lists ------------------------------
+//
+// Both removals are the daemon's own archive operations, named by the path
+// alone (no body). An archived session disappears from every daemon listing
+// — which is where the tree reads from — with its transcript archived on the
+// daemon, and nothing on the person's disk changes; a deleted workspace goes
+// the same way and takes its sessions with it. Callers confirm first and
+// redraw the tree from the daemon afterwards.
+
+/** Archive one session. The row leaves the tree when the daemon is re-read. */
+export async function archiveAgent(deviceId: string, agentId: string): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/archive?device=${encodeURIComponent(deviceId)}`,
+			{ method: "POST" }
+		)
+	);
+}
+
+/** Delete (archive) a workspace: its sessions go with it, local files stay. */
+export async function archiveWorkspace(
+	deviceId: string,
+	workspaceId: string
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/archive?device=${encodeURIComponent(deviceId)}`,
+			{ method: "POST" }
+		)
+	);
+}
