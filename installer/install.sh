@@ -2445,6 +2445,19 @@ main() {
 			set_value CODE_AGENTS_ENABLED "true"
 			set_value CODE_RELAY_URL "relay:4000"
 		fi
+		# RELAY_PORT belonged to the published-port design the /ws subpath
+		# replaced: nothing reads it anymore, and a stale
+		# RELAY_PORT=4000 in the file would keep telling the operator the
+		# daemons dial a port that no longer exists. Drop it from the map
+		# (value and order) so the persisted file stops carrying it.
+		if [ -n "${VALUES[RELAY_PORT]+x}" ]; then
+			unset 'VALUES[RELAY_PORT]'
+			local _vo=() _k
+			for _k in "${VALUES_ORDER[@]}"; do
+				[ "$_k" = "RELAY_PORT" ] || _vo+=("$_k")
+			done
+			VALUES_ORDER=("${_vo[@]}")
+		fi
 		# --set on a resume: applied over the parsed values and re-validated
 		# with everything else below. The settable-key filter already ran at
 		# parse time, so a derived/generated key cannot sneak in here.
@@ -2582,6 +2595,9 @@ main() {
 		fi
 		build_scrub "$ENV_FILE"
 		check_idp_files
+		if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+			ensure_edge_relay_route
+		fi
 		if is_standalone_profile "$PROFILE"; then
 			standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
 			phase_two_standalone "$ENV_FILE"
