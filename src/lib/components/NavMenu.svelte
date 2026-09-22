@@ -231,28 +231,35 @@
 	<!-- The list's foot: the panel switch. Chats and coding agents are two
 	     contents of the same list, not two destinations — the agents panel
 	     keeps its actions (pair, add workspace, new agent) in the tree, and
-	     an agent opens the way a chat does. -->
-	<div class="mx-2 mb-1 flex shrink-0 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
-		<button
-			class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
-			'chats'
-				? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-				: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
-			onclick={() => (codeNav.view = "chats")}
-		>
-			<CarbonChat class="size-3.5" />
-			Chats
-		</button>
-		<button
-			class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
-			'agents'
-				? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-				: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
-			onclick={() => (codeNav.view = "agents")}
-		>
-			<CarbonCode class="size-3.5" />
-			Agents
-		</button>
+	     an agent opens the way a chat does. Two boxes, not one: +layout.svelte
+	     pins every NavMenu child to the nav's 260px column, so horizontal
+	     insets must be padding inside that box — margins on a w-[260px] child
+	     push its far edge 8px past the list's border. The pt-2 is the air the
+	     list keeps above the switch, so a scrolling row never vanishes flush
+	     against the selector. -->
+	<div class="shrink-0 px-2 pt-2 pb-1">
+		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+			<button
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
+				'chats'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
+				onclick={() => (codeNav.view = "chats")}
+			>
+				<CarbonChat class="size-3.5" />
+				Chats
+			</button>
+			<button
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
+				'agents'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
+				onclick={() => (codeNav.view = "agents")}
+			>
+				<CarbonCode class="size-3.5" />
+				Agents
+			</button>
+		</div>
 	</div>
 {/if}
 
