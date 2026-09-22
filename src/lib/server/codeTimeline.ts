@@ -258,12 +258,20 @@ export function permissionResolvedToUpdate(
 	};
 }
 
-/** The agent's own status, as the turn state a mid-run mount should adopt. */
+/** The agent's own status, as the turn state a mid-run mount should adopt.
+ *
+ * Every status is terminal except "running" and "initializing": an idle
+ * agent is by definition past its last turn, and its replayed history
+ * carries no lifecycle events (turn frames are stream events, not timeline
+ * items) — so without this frame the transcript's last assistant message
+ * has no terminal marker and the column reads as generating forever, which
+ * is the stuck-loading shape of the agent screen.
+ */
 export function agentStatusTurnState(status: string): MessageTurnStateUpdate | null {
 	if (status === "running") return turnStateUpdate("running");
+	if (status === "initializing") return null;
 	if (status === "error") return turnStateUpdate("failed", "The turn failed.");
-	if (status === "closed") return turnStateUpdate("done");
-	return null;
+	return turnStateUpdate("done");
 }
 
 /** One live stream event → zero or more panel frames. */

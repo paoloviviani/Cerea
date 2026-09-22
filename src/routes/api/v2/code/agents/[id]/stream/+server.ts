@@ -142,11 +142,19 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			return true;
 		});
 
-	const statusFrame = agentStatusTurnState(agent.agent.status);
+	// The snapshot's status, adopted as a turn state — but never ahead of a
+	// live turn state the subscription already delivered in the drain
+	// window (subscribe-before-fetch means the buffer is the fresher
+	// signal; a synthetic "running" that overrides a drained "done" is the
+	// stuck-loading shape). Pending permissions render after it either way:
+	// a waiting card is not a state, it is a hold to answer.
+	const statusFrame = drained.some((update) => update.type === MessageUpdateType.TurnState)
+		? undefined
+		: agentStatusTurnState(agent.agent.status);
 	const initial: AgentStreamUpdate[] = [
 		...history,
-		...(statusFrame ? [statusFrame] : []),
 		...drained,
+		...(statusFrame ? [statusFrame] : []),
 		...pending,
 	];
 
