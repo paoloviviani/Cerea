@@ -120,7 +120,6 @@ export const GET: RequestHandler = async (event) => {
 
 const messageSchema = z.object({
 	text: z.string().trim().min(1).max(16_000),
-	provider: z.string().trim().min(1).max(64).default("opencode"),
 	posture: z.enum(["plan", "write"]).default("plan"),
 });
 
