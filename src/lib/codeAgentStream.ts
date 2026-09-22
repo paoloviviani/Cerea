@@ -1,24 +1,22 @@
 import { base } from "$app/paths";
-import {
-	CodeAgentUpdateType,
-	type CodeAgentUpdate,
-	type CodeFileChange,
-} from "$lib/types/CodeAgent";
+import { AGENT_STREAM_UPDATE_TYPES, type AgentStreamUpdate } from "$lib/types/CodeAgent";
 
 /**
  * Consume the agent timeline bridge (`api/v2/code/agents/[id]/stream`) as an
- * async iterator of agent updates.
+ * async iterator of agent frames.
  *
  * The shape mirrors `reattachStream.ts`: EventSource auto-reconnects and
  * resends the last event id, so this surfaces `update` frames and stops on
  * `end` or abort. A fresh subscription starts at `fromSeq=0`, and the bridge
  * replays the daemon's log before tailing — so mounting this iterator is the
- * whole history fetch; no separate snapshot call is needed.
+ * whole history fetch; no separate snapshot call is needed. The frames are
+ * the chat's update shapes (see `types/CodeAgent.ts`), folded into
+ * `Message[]` by `consumeAgentUpdates`.
  */
 
-const KNOWN_TYPES = new Set<string>(Object.values(CodeAgentUpdateType));
+const KNOWN_TYPES = new Set<string>(AGENT_STREAM_UPDATE_TYPES);
 
-function isAgentUpdate(value: unknown): value is CodeAgentUpdate {
+function isAgentUpdate(value: unknown): value is AgentStreamUpdate {
 	if (typeof value !== "object" || value === null) return false;
 	const type = (value as { type?: unknown }).type;
 	return typeof type === "string" && KNOWN_TYPES.has(type);
@@ -32,9 +30,9 @@ export async function* codeAgentStream(
 	deviceId: string,
 	agentId: string,
 	signal: AbortSignal
-): AsyncGenerator<CodeAgentUpdate> {
+): AsyncGenerator<AgentStreamUpdate> {
 	const source = new EventSource(agentStreamUrl(deviceId, agentId));
-	const queue: CodeAgentUpdate[] = [];
+	const queue: AgentStreamUpdate[] = [];
 	let done = false;
 	let wake: (() => void) | null = null;
 	const notify = () => {
@@ -76,9 +74,4 @@ export async function* codeAgentStream(
 	} finally {
 		source.close();
 	}
-}
-
-/** A file diff, for the Changes tab. Only mounted once an agent is selected. */
-export interface AgentDiffPayload {
-	files: CodeFileChange[];
 }
