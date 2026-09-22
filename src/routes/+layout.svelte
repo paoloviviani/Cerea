@@ -24,6 +24,7 @@
 	import { setContext } from "svelte";
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { isAborted } from "$lib/stores/isAborted";
+	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { isPro } from "$lib/stores/isPro";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { createConversationsStore } from "$lib/stores/conversations.svelte";
@@ -204,7 +205,10 @@
 	let mobileNavTitle = $derived(
 		["/models", "/privacy"].includes(page.route.id ?? "")
 			? ""
-			: convsStore.list.find((conv) => conv.id === page.params.id)?.title
+			: page.route.id === "/code"
+				? // The agent screen names itself once the daemon answers.
+					codeNav.agentTitle || "Code Agents"
+				: convsStore.list.find((conv) => conv.id === page.params.id)?.title
 	);
 
 	// Show the welcome modal once on first app load
@@ -305,7 +309,7 @@
 		/>
 	</MobileNav>
 	<nav
-		class="grid max-h-dvh grid-cols-1 grid-rows-[auto_1fr_auto] overflow-hidden *:w-[260px] max-md:hidden"
+		class="grid max-h-dvh grid-cols-1 grid-rows-[auto_1fr_auto_auto] overflow-hidden *:w-[260px] max-md:hidden"
 	>
 		<NavMenu
 			conversations={convsStore.list}
