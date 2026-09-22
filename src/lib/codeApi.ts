@@ -107,6 +107,12 @@ export async function createWorkspace(
 	);
 }
 
+/** Every session on the device, across its workspaces — the daemon groups
+ * them by `workspaceId`, which is what the tree needs in one call. */
+export async function listAgents(deviceId: string): Promise<{ agents: CodeAgentSession[] }> {
+	return unwrap(await fetch(`${root()}/v1/agents?device=${encodeURIComponent(deviceId)}`));
+}
+
 /** Coding sessions in one workspace. Live on the daemon; never cached here. */
 export async function listWorkspaceAgents(
 	deviceId: string,
