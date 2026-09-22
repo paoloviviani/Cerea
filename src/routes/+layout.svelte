@@ -246,25 +246,25 @@
 		<meta property="og:site_name" content={publicConfig.PUBLIC_APP_NAME} />
 		<meta property="og:locale" content="en_US" />
 	{/if}
-	<link rel="icon" href="{publicConfig.assetPath}/icon.svg" type="image/svg+xml" />
+	<link rel="icon" href="{publicConfig.assetPath}/icon.svg?v=2" type="image/svg+xml" />
 	{#if publicConfig.PUBLIC_ORIGIN}
 		<link
 			rel="icon"
-			href="{publicConfig.assetPath}/favicon.svg"
+			href="{publicConfig.assetPath}/favicon.svg?v=2"
 			type="image/svg+xml"
 			media="(prefers-color-scheme: light)"
 		/>
 		<link
 			rel="icon"
-			href="{publicConfig.assetPath}/favicon-dark.svg"
+			href="{publicConfig.assetPath}/favicon-dark.svg?v=2"
 			type="image/svg+xml"
 			media="(prefers-color-scheme: dark)"
 		/>
 	{:else}
-		<link rel="icon" href="{publicConfig.assetPath}/favicon-dev.svg" type="image/svg+xml" />
+		<link rel="icon" href="{publicConfig.assetPath}/favicon-dev.svg?v=2" type="image/svg+xml" />
 	{/if}
-	<link rel="apple-touch-icon" href="{publicConfig.assetPath}/apple-touch-icon.png" />
-	<link rel="manifest" href="{publicConfig.assetPath}/manifest.json" />
+	<link rel="apple-touch-icon" href="{publicConfig.assetPath}/apple-touch-icon.png?v=2" />
+	<link rel="manifest" href="{publicConfig.assetPath}/manifest.json?v=2" />
 
 	{#if publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}
 		<script async src={publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}></script>
