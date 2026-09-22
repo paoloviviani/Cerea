@@ -110,10 +110,17 @@ export async function consumeAgentUpdates(
 		const message: Message = { id: v4(), from: "assistant", content: buffer, children: [] };
 		buffer = "";
 		messages.push(message);
-		current = message;
+		// Re-read through the array, never keep the local reference: in the
+		// browser `messages` is a $state proxy, and mutating the raw object
+		// that was just pushed bypasses the proxy's traps — the content
+		// lands in the data and the DOM never re-renders it (the answer
+		// that only appears after a remount). Reading the slot back returns
+		// the proxied message, whose mutations invalidate what tracks it.
+		// In tests the array is plain and the read returns the same object.
+		current = messages[messages.length - 1] ?? message;
 		updatesBuffer = [];
 		updatesDirty = false;
-		return message;
+		return current;
 	}
 
 	/** Close the current turn; the next frame opens a fresh message. Any
@@ -148,12 +155,19 @@ export async function consumeAgentUpdates(
 	}
 
 	/**
-	 * Adopt the running turn. After a user echo the turn is brand new (last
-	 * message is the user's) and gets a fresh message; on a mid-run mount the
-	 * trailing assistant message IS the running turn's, so its remaining
-	 * deltas continue into it rather than splitting the bubble.
+	 * Adopt the running turn. Three shapes, one rule each:
+	 *
+	 * - mid-run mount: the trailing assistant IS the running turn's, so its
+	 *   remaining deltas continue into it rather than splitting the bubble;
+	 * - after a user echo (the mount's replay order): a fresh empty bubble
+	 *   carries the generating indicator until the first token lands;
+	 * - running BEFORE any user echo (the daemon's live order — turn_started
+	 *   precedes the timeline echo): nothing is adopted or created, because
+	 *   an empty assistant ABOVE the not-yet-arrived user message is a
+	 *   bubble stranded at the transcript head. The echo and the tokens open
+	 *   the turn's bubble in the right place.
 	 */
-	function adoptRunning(): Message {
+	function adoptRunning(): Message | null {
 		if (current) return current;
 		const last = messages.at(-1);
 		if (last && last.from === "assistant") {
@@ -162,7 +176,10 @@ export async function consumeAgentUpdates(
 			updatesDirty = false;
 			return last;
 		}
-		return openAssistant();
+		if (messages.some((message) => message.from === "user")) {
+			return openAssistant();
+		}
+		return null;
 	}
 
 	/** Attach an update to a message that may not be the buffered one. */
@@ -282,7 +299,8 @@ export async function consumeAgentUpdates(
 			case MessageUpdateType.TurnState: {
 				ctx.onTurnEvent();
 				if (update.state === "running") {
-					adoptRunning();
+					const adopted = adoptRunning();
+					if (!adopted) break; // running before the echo: nothing to carry it
 					pushUpdate(update);
 					scheduleFrameFlush();
 					break;
