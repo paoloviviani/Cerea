@@ -132,6 +132,9 @@ export default defineConfig({
 				GENERATION_HEARTBEAT_MS: "1000",
 				LLM_ROUTER_ROUTES_PATH: "",
 				LLM_ROUTER_ARCH_BASE_URL: "",
+				// The /code surface's own tests mount it; the flag is the same
+				// gate production sets (the route 404s without it).
+				CODE_AGENTS_ENABLED: "true",
 				ALLOW_IFRAME: "true",
 				NODE_ENV: "production",
 			},

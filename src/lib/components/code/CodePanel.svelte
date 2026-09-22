@@ -66,9 +66,14 @@
 	}
 </script>
 
-<div class="flex h-full min-h-0 flex-col overflow-hidden">
+<!-- pointer-events-none: the agent screen nests the message column, which
+     paints at z-[-1] (ChatMessageColumn's own contract) — any
+     pointer-enabled wrapper above it intercepts clicks meant for the
+     composer. Every branch here re-enables pointer events itself, the
+     ChatWindow contract (its own tree does the same above the column). -->
+<div class="pointer-events-none flex h-full min-h-0 flex-col overflow-hidden">
 	{#if !enabled}
-		<div class={s.EMPTY}>
+		<div class="pointer-events-auto {s.EMPTY}">
 			<IconCode class={s.EMPTY_ICON} />
 			<p class={s.EMPTY_TITLE}>Coding agents are not enabled</p>
 			<p class={s.EMPTY_DETAIL}>This deployment has no paseo overlay beside it.</p>
@@ -82,12 +87,12 @@
 					workspaceId={selectedWorkspaceId}
 				/>
 			{:else if loading}
-				<div class={s.EMPTY}>
+				<div class="pointer-events-auto {s.EMPTY}">
 					<IconLaptop class={s.EMPTY_ICON} />
 					<p class={s.EMPTY_TITLE}>Loading…</p>
 				</div>
 			{:else if selected?.status === "pending" && selected.pairingCode}
-				<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto p-6">
+				<div class="pointer-events-auto scrollbar-custom min-h-0 flex-1 overflow-y-auto p-6">
 					<div class={s.EMBEDDED}>
 						<div class="p-6">
 							<div class={s.HEADER}>
@@ -110,8 +115,8 @@
 					</div>
 				</div>
 			{:else}
-				<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
-					<div class={s.EMPTY}>
+				<div class="pointer-events-auto scrollbar-custom min-h-0 flex-1 overflow-y-auto">
+					<div class="pointer-events-auto {s.EMPTY}">
 						<IconLaptop class={s.EMPTY_ICON} />
 						<p class={s.EMPTY_TITLE}>
 							{devices.length === 0 ? "No paired devices" : "No agent selected"}
