@@ -50,6 +50,7 @@ export async function consumeAgentUpdates(
 	let updatesBuffer: MessageUpdate[] = [];
 	let updatesDirty = false;
 	let frameFlushScheduled = false;
+	let frameFlushTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Daemon call ids that already emitted their Call / their closing frame. */
 	const toolOpen = new Set<string>();
 	const toolClosed = new Set<string>();
@@ -69,25 +70,45 @@ export async function consumeAgentUpdates(
 		}
 	};
 
+	// One commit per paint frame, never one per frame off the wire: a
+	// tool-heavy turn or a replayed history arrives as a burst of frames,
+	// and a synchronous reactive write per frame re-derives the whole
+	// message (blocks, markdown) per frame — saturating the main thread
+	// until input stops landing, which reads as a freeze. This is the
+	// discipline paseo's own app applies to the same daemon stream (its
+	// reducer queue commits on a RAF with a timer fallback for hidden
+	// tabs, where RAF never fires but the transcript must still advance).
 	const scheduleFrameFlush = () => {
 		if (frameFlushScheduled) return;
 		frameFlushScheduled = true;
 		const flush = () => {
+			if (frameFlushTimer) {
+				clearTimeout(frameFlushTimer);
+				frameFlushTimer = null;
+			}
 			frameFlushScheduled = false;
 			flushBuffer();
 		};
 		if (typeof requestAnimationFrame === "function") {
 			requestAnimationFrame(flush);
+			// RAF never fires in a hidden tab; the timer (48ms — the same
+			// ceiling paseo's reducer queue allows) keeps the transcript
+			// advancing when nothing paints.
+			frameFlushTimer = setTimeout(flush, 48);
 		} else {
 			setTimeout(flush, 0);
 		}
 	};
 
-	/** The turn's assistant message, created on first use. */
+	/** The turn's assistant message, created on first use. The local buffer
+	 * joins the new message (the scheduled flush commits it); no forced
+	 * synchronous commit here — `openAssistant` runs per frame off the
+	 * wire, and a forced flush would restore the per-frame render storm
+	 * the scheduling exists to prevent. */
 	function openAssistant(): Message {
 		if (current) return current;
-		flushBuffer();
-		const message: Message = { id: v4(), from: "assistant", content: "", children: [] };
+		const message: Message = { id: v4(), from: "assistant", content: buffer, children: [] };
+		buffer = "";
 		messages.push(message);
 		current = message;
 		updatesBuffer = [];
@@ -95,9 +116,18 @@ export async function consumeAgentUpdates(
 		return message;
 	}
 
-	/** Close the current turn; the next frame opens a fresh message. */
+	/** Close the current turn; the next frame opens a fresh message. Any
+	 * text still buffered belongs to the closing message, so it lands here
+	 * before the switch; the RAF timer above carries updates either way. */
 	function closeTurn() {
-		flushBuffer();
+		if (current && buffer.length > 0) {
+			current.content += buffer;
+			buffer = "";
+		}
+		if (current && updatesDirty) {
+			current.updates = updatesBuffer;
+			updatesDirty = false;
+		}
 		current = null;
 	}
 
@@ -139,7 +169,7 @@ export async function consumeAgentUpdates(
 	function attach(target: Message, update: MessageUpdate) {
 		if (target === current) {
 			pushUpdate(update);
-			flushBuffer();
+			scheduleFrameFlush();
 			return;
 		}
 		target.updates = [...(target.updates ?? []), update];
@@ -178,13 +208,12 @@ export async function consumeAgentUpdates(
 				break;
 			}
 			case MessageUpdateType.Tool: {
-				flushBuffer();
 				openAssistant();
 				if (update.subtype === MessageToolUpdateType.Call) {
 					if (toolOpen.has(update.uuid)) break;
 					toolOpen.add(update.uuid);
 					pushUpdate(update);
-					flushBuffer();
+					scheduleFrameFlush();
 					break;
 				}
 				// A closing frame for a call this fold never saw (a seam the
@@ -204,48 +233,58 @@ export async function consumeAgentUpdates(
 				if (toolClosed.has(update.uuid)) break;
 				toolClosed.add(update.uuid);
 				pushUpdate(update);
-				flushBuffer();
+				scheduleFrameFlush();
 				break;
 			}
 			case MessageUpdateType.Plan: {
-				flushBuffer();
 				openAssistant();
 				pushUpdate(update);
-				flushBuffer();
+				scheduleFrameFlush();
 				break;
 			}
 			case MessageUpdateType.Elicitation: {
 				if (update.subtype === MessageElicitationUpdateType.Request) {
-					flushBuffer();
 					openAssistant();
 					pushUpdate(update);
-					flushBuffer();
+					scheduleFrameFlush();
 					break;
 				}
 				// A resolution settles the card that asked, wherever it lives —
-				// the transcript, not the open turn, owns the pairing.
-				const target = [...messages]
-					.reverse()
-					.find(
-						(message) =>
-							message.from === "assistant" &&
-							(message.updates ?? []).some(
-								(candidate) =>
-									candidate.type === MessageUpdateType.Elicitation &&
-									candidate.subtype === MessageElicitationUpdateType.Request &&
-									candidate.request.elicitationId === update.elicitationId
-							)
+				// the transcript, not the open turn, owns the pairing. The open
+				// turn's pending request may still be in the uncommitted buffer,
+				// so it is matched there too; a same-batch resolution never
+				// misses its request.
+				const bufferedRequest =
+					current &&
+					updatesBuffer.some(
+						(candidate) =>
+							candidate.type === MessageUpdateType.Elicitation &&
+							candidate.subtype === MessageElicitationUpdateType.Request &&
+							candidate.request.elicitationId === update.elicitationId
 					);
+				const target = bufferedRequest
+					? current
+					: [...messages]
+							.reverse()
+							.find(
+								(message) =>
+									message.from === "assistant" &&
+									(message.updates ?? []).some(
+										(candidate) =>
+											candidate.type === MessageUpdateType.Elicitation &&
+											candidate.subtype === MessageElicitationUpdateType.Request &&
+											candidate.request.elicitationId === update.elicitationId
+									)
+							);
 				if (target) attach(target, update);
 				break;
 			}
 			case MessageUpdateType.TurnState: {
-				flushBuffer();
 				ctx.onTurnEvent();
 				if (update.state === "running") {
 					adoptRunning();
 					pushUpdate(update);
-					flushBuffer();
+					scheduleFrameFlush();
 					break;
 				}
 				const target = stateTarget();
