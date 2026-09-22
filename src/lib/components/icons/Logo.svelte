@@ -6,14 +6,13 @@
 	interface Props {
 		classNames?: string;
 		/**
-		 * The sidebar renders the mark at ~24px, where the default file's
-		 * charcoal ink downscales into a grey smear: at that size every pixel
-		 * of the band is half-toned, none reaches full coverage, and the mark
-		 * reads grey next to the wordmark. The small variant is the same
-		 * drawing at the same weight (radius 3 — heavier dilation only closes
-		 * the valleys and makes the smear worse, as radius 4.5 proved live),
-		 * drawn in pure black so its core pixels still reach full coverage at
-		 * sidebar size. Same viewBox, same aspect; only the ink differs.
+		 * `small` renders the pixel-art ridge — the mark designed for small
+		 * boxes — instead of the vector outline. The vector's charcoal ink
+		 * downscales to a grey smear below ~48px and no dilate radius fixes
+		 * both readings at once; the 24x8 pixel grid (the verbatim
+		 * makebead-24x8.png in brand/) is crisp with full pixel coverage at
+		 * every integer scale. The sidebar pairs it with an 18px font whose
+		 * stems are ~2px, so the mark renders at h-4 (16px, a clean 2x).
 		 */
 		variant?: "default" | "small";
 	}
@@ -23,11 +22,11 @@
 	// Bump when any served logo file changes: the assets carry no
 	// Cache-Control, so browsers heuristic-cache them for hours and a swap
 	// otherwise keeps showing the old drawing to returning visitors.
-	const ASSET_VERSION = "6";
+	const ASSET_VERSION = "7";
 
 	const file = $derived(variant === "small" ? "logo-small" : "logo");
-	const w = 337;
-	const h = 112;
+	const w = $derived(variant === "small" ? 48 : 337);
+	const h = $derived(variant === "small" ? 16 : 112);
 </script>
 
 <!--
@@ -38,21 +37,40 @@
 	variant every color token uses (no `invert` filter — that would land the
 	white variant at #e1e1e1, not the white it was drawn in). Both load as
 	<img>, so the `thicken` filter id each file defines stays inside its own
-	document. The filled-silhouette detour and earlier outlines stay
-	archived under brand/ and in git history.
+	document. The pixel-art small variant is theme-switched the same way.
+	The filled-silhouette detour and earlier outlines stay archived under
+	brand/ and in git history.
 -->
-<img
-	width={w}
-	height={h}
-	class="{classNames} dark:hidden"
-	alt="{publicConfig.PUBLIC_APP_NAME} logo"
-	src="{publicConfig.assetPath}/{file}.svg?v={ASSET_VERSION}"
-/>
-<img
-	width={w}
-	height={h}
-	class="{classNames} hidden dark:block"
-	alt=""
-	aria-hidden="true"
-	src="{publicConfig.assetPath}/{file}-white.svg?v={ASSET_VERSION}"
-/>
+{#if variant === "small"}
+	<img
+		width={w}
+		height={h}
+		class="{classNames} dark:hidden"
+		alt="{publicConfig.PUBLIC_APP_NAME} logo"
+		src="{publicConfig.assetPath}/{file}.svg?v={ASSET_VERSION}"
+	/>
+	<img
+		width={w}
+		height={h}
+		class="{classNames} hidden dark:block"
+		alt=""
+		aria-hidden="true"
+		src="{publicConfig.assetPath}/{file}-white.svg?v={ASSET_VERSION}"
+	/>
+{:else}
+	<img
+		width={w}
+		height={h}
+		class="{classNames} dark:hidden"
+		alt="{publicConfig.PUBLIC_APP_NAME} logo"
+		src="{publicConfig.assetPath}/logo.svg?v={ASSET_VERSION}"
+	/>
+	<img
+		width={w}
+		height={h}
+		class="{classNames} hidden dark:block"
+		alt=""
+		aria-hidden="true"
+		src="{publicConfig.assetPath}/logo-white.svg?v={ASSET_VERSION}"
+	/>
+{/if}
