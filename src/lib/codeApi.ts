@@ -93,6 +93,20 @@ export async function listWorkspaces(deviceId: string): Promise<{ workspaces: Co
 	return unwrap(await fetch(`${root()}/v1/workspaces?device=${encodeURIComponent(deviceId)}`));
 }
 
+/** A workspace backed by an existing directory on the daemon's machine. */
+export async function createWorkspace(
+	deviceId: string,
+	input: { path: string; title?: string }
+): Promise<{ workspace: CodeWorkspace }> {
+	return unwrap(
+		await fetch(`${root()}/v1/workspaces?device=${encodeURIComponent(deviceId)}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(input),
+		})
+	);
+}
+
 /** Coding sessions in one workspace. Live on the daemon; never cached here. */
 export async function listWorkspaceAgents(
 	deviceId: string,

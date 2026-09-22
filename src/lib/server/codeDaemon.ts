@@ -174,6 +174,21 @@ class DeviceDaemonLink {
 		return result.entries.map(toWorkspace);
 	}
 
+	/** A workspace backed by an existing directory on the daemon's machine.
+	 * The only source the panel offers: the person names a checkout they
+	 * can see, and the daemon serves agents from it. Worktree/forge
+	 * sources stay daemon-side (the `paseo` CLI), not proxied. */
+	async createWorkspace(input: { path: string; title?: string }): Promise<CodeWorkspace> {
+		const result = await this.operate((client) =>
+			client.createWorkspace({
+				source: { kind: "directory", path: input.path },
+				title: input.title,
+			})
+		);
+		if (!result.workspace) error(502, "The daemon refused the workspace.");
+		return toWorkspace(result.workspace);
+	}
+
 	async getWorkspace(workspaceId: string): Promise<CodeWorkspace> {
 		const all = await this.listWorkspaces();
 		const found = all.find((workspace) => workspace.id === workspaceId);

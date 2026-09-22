@@ -25,6 +25,7 @@
 	import { listWorkspaces, listWorkspaceAgents, type CodeDeviceView } from "$lib/codeApi";
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 	import * as s from "$lib/components/overlay/styles";
+	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 
 	interface Props {
 		devices: CodeDeviceView[];
@@ -58,6 +59,7 @@
 	let hierarchyLoading = $state(false);
 	let daemonOff = $state(false);
 	let hierarchyFor = $state("");
+	let workspaceDialogFor = $state<string | null>(null);
 
 	async function loadHierarchy() {
 		const device = devices.find((d) => d.id === selectedId);
@@ -170,7 +172,26 @@
 									<p class="py-1 text-xs text-ink-faint">Daemon not connected.</p>
 								{:else if workspaces.length === 0}
 									<p class="py-1 text-xs text-ink-faint">No workspaces on the daemon.</p>
+									<button
+										onclick={() => (workspaceDialogFor = device.id)}
+										class="{s.CARD_ACTION} mt-1"
+										title="Serve a directory on this machine as a workspace"
+									>
+										<IconAdd class="size-3.5" />
+										Add workspace
+									</button>
 								{:else}
+									<div class="mb-1 flex items-center justify-between">
+										<span class="text-xs font-medium text-ink-muted">Workspaces</span>
+										<button
+											onclick={() => (workspaceDialogFor = device.id)}
+											class="{s.CARD_ACTION} -mr-1"
+											title="Serve a directory on this machine as a workspace"
+										>
+											<IconAdd class="size-3.5" />
+											Add
+										</button>
+									</div>
 									<ul class="space-y-px">
 										{#each workspaces as ws (ws.id)}
 											{@const wsActive = ws.id === selectedWorkspaceId}
@@ -240,3 +261,15 @@
 		</ul>
 	{/if}
 </div>
+
+{#if workspaceDialogFor}
+	<WorkspaceDialog
+		deviceId={workspaceDialogFor}
+		onclose={() => (workspaceDialogFor = null)}
+		oncreated={() => {
+			// The daemon is the source of truth; reload rather than splice.
+			hierarchyFor = "";
+			void loadHierarchy();
+		}}
+	/>
+{/if}
