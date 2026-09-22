@@ -2595,6 +2595,15 @@ main() {
 		fi
 		build_scrub "$ENV_FILE"
 		check_idp_files
+		# Edge routes live as installer-appended blocks in Caddyfile.netbird,
+		# outside every compose file — so a resume must re-assert them, not
+		# just the fresh run: a file that lost them (a checkout reset, a
+		# hand edit) otherwise serves a stack whose /authelia and /ws fall
+		# through to the gateway's 404. Both functions are idempotent
+		# behind their markers and dry-run aware.
+		if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+			ensure_edge_idp_route
+		fi
 		if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
 			ensure_edge_relay_route
 		fi
