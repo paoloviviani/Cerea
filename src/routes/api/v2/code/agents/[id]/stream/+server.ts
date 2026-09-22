@@ -94,6 +94,10 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		try {
 			const updates = streamEventToUpdate(event as Parameters<typeof streamEventToUpdate>[0]);
 			if (updates.length) {
+				logger.info(
+					{ agentId, event: event.type, frames: updates.length },
+					"agent stream: live frame received"
+				);
 				buffered.push(...updates);
 				notify();
 			}
@@ -179,6 +183,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				seq += 1;
 				enc(`id: ${seq}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
 				lastEmit = Date.now();
+				logger.info({ agentId, seq, type: update.type }, "agent stream: frame emitted to browser");
 			};
 
 			// Idempotent teardown, called exactly once per connection no
@@ -212,6 +217,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 					try {
 						enc(": heartbeat\n\n");
 						lastEmit = Date.now();
+						logger.info({ agentId }, "agent stream: heartbeat sent");
 					} catch {
 						finish();
 					}
