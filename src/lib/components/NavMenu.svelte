@@ -165,7 +165,7 @@
 		class="flex items-center rounded-xl text-lg font-semibold select-none"
 		href="{publicConfig.PUBLIC_ORIGIN}{base}/"
 	>
-		<Logo variant="small" classNames="h-6 w-auto mr-[2px]" />
+		<Logo variant="small" classNames="h-4 w-auto mr-1" />
 		{publicConfig.PUBLIC_APP_NAME}
 	</a>
 	<a
