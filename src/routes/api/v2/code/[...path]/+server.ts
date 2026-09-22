@@ -32,6 +32,7 @@ const ID = "[A-Za-z0-9_.:~-]+";
 
 const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: /^v1\/workspaces$/ },
+	{ method: "POST", pattern: /^v1\/workspaces$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
 	{ method: "GET", pattern: /^v1\/agents$/ },
@@ -118,6 +119,22 @@ const createSchema = z.object({
 	title: z.string().trim().max(120).optional(),
 });
 
+const workspaceSchema = z.object({
+	// An absolute directory on the daemon's machine (a checkout the person
+	// can see there). Relative paths would resolve against whatever cwd the
+	// daemon process was born with — unguessable from here, so refused.
+	path: z
+		.string()
+		.trim()
+		.min(1)
+		.max(1024)
+		.refine(
+			(p) => p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p),
+			"Expected an absolute path on the daemon's machine."
+		),
+	title: z.string().trim().max(120).optional(),
+});
+
 export const POST: RequestHandler = async (event) => {
 	requireCodeAgents(event.locals);
 	const path = event.params.path ?? "";
@@ -127,6 +144,12 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const link = await linkForDevice(event.locals, event.url.searchParams.get("device"));
 	const body = await readJson(event.request);
+
+	if (path === "v1/workspaces") {
+		const parsed = workspaceSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { path, title? } with an absolute path.");
+		return json({ workspace: await link.createWorkspace(parsed.data) });
+	}
 
 	const createMatch = /^v1\/agents$/.test(path);
 	if (createMatch) {
