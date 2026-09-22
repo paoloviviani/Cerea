@@ -1712,7 +1712,7 @@ ensure_edge_relay_route() {
 	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" != "true" ]; then return; fi
 	if [ "${EXPOSURE:-}" != "edge" ]; then return; fi
 	local netbird="$PYSTINO_ROOT/deploy/caddy/Caddyfile.netbird"
-	local marker="# installer: relay /ws route (deploy/compose/docker-compose.code-relay.yml)"
+	local marker="# installer: relay /ws route (chat deploy/compose/docker-compose.code-relay.yml)"
 	if [ "$DRY_RUN" = "1" ]; then
 		note "[dry-run] would append the relay /ws route to deploy/caddy/Caddyfile.netbird (shared snippet, both sites)"
 		return
@@ -1721,7 +1721,7 @@ ensure_edge_relay_route() {
 		note "Relay route already present in Caddyfile.netbird."
 		return
 	fi
-	local snippet_src="$PYSTINO_ROOT/deploy/caddy/conf.d-code-relay/20-relay.caddy"
+	local snippet_src="$CEREA_ROOT/deploy/caddy/conf.d-code-relay/20-relay.caddy"
 	[ -f "$snippet_src" ] || fail "missing $snippet_src (it ships with the Pystino checkout — fetch or rebase before installing)."
 	local site_line
 	site_line="$(grep -nE '^[a-z0-9.:-]+ \{$' "$netbird" | head -1 | cut -d: -f1)"
@@ -2145,9 +2145,9 @@ phase_two() { # phase_two <env-file>
 	echo "Overlay set: $file_list"
 	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
 		# The relay image builds from the pinned source checkout the fetch
-		# script maintains (no published image exists; ADR 0085). Before
-		# the up, because the up builds it.
-		"$PYSTINO_ROOT/deploy/code-relay/fetch.sh" ||
+		# script maintains beside the overlay (no published image exists;
+		# ADR 0085). Before the up, because the up builds it.
+		"$CEREA_ROOT/deploy/code-relay/fetch.sh" ||
 			fail "fetching the relay source failed (network?)."
 	fi
 	if [ "$BUILD" = "1" ]; then
