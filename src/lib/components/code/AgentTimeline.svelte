@@ -14,11 +14,14 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import IconTool from "~icons/carbon/tool-kit";
-	import IconCheckmark from "~icons/carbon/checkmark-filled";
-	import IconPending from "~icons/carbon/pending-filled";
 	import IconDocument from "~icons/carbon/document";
 	import IconRenew from "~icons/carbon/renew";
+	import IconPending from "~icons/carbon/pending-filled";
 	import PermissionCard from "./PermissionCard.svelte";
+	import MarkdownRenderer from "$lib/components/chat/MarkdownRenderer.svelte";
+	import CodeBlock from "$lib/components/CodeBlock.svelte";
+	import PlanCard from "$lib/components/chat/PlanCard.svelte";
+	import type { MessagePlanUpdate } from "$lib/types/MessageUpdate";
 	import {
 		CodeAgentUpdateType,
 		type CodeAgentUpdate,
@@ -28,6 +31,29 @@
 	} from "$lib/types/CodeAgent";
 	import { codeAgentStream } from "$lib/codeAgentStream";
 	import * as s from "$lib/components/overlay/styles";
+
+	// Agent text is markdown — a coding agent answers in prose and fences —
+	// so the transcript reads it through the same renderer the chat does.
+	const proseClasses =
+		"prose max-w-none text-smd dark:prose-invert prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 prose-img:my-0 prose-img:cursor-pointer prose-img:rounded-lg dark:prose-pre:bg-gray-900";
+
+	/** The daemon's todo statuses, in the vocabulary PlanCard already draws. */
+	function planUpdate(update: CodePlanUpdate): MessagePlanUpdate {
+		return {
+			goal: update.goal,
+			version: 1,
+			uuid: `agent-plan-${update.goal.length}-${update.steps.length}`,
+			steps: update.steps.map((step) => ({
+				step: step.title,
+				status:
+					step.status === "done"
+						? ("completed" as const)
+						: step.status === "active"
+							? ("in_progress" as const)
+							: ("pending" as const),
+			})),
+		} as MessagePlanUpdate;
+	}
 
 	interface Props {
 		deviceId: string;
@@ -160,13 +186,17 @@
 
 	{#each entries as entry, i (i)}
 		{#if entry.kind === "message"}
-			<div
-				class="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap {entry.role === 'user'
-					? 'self-end bg-accent-subtle text-ink'
-					: 'bg-sunken text-ink'}"
-			>
-				{entry.text}
-			</div>
+			{#if entry.role === "user"}
+				<div
+					class="max-w-[85%] self-end rounded-lg bg-accent-subtle px-3 py-2 text-sm whitespace-pre-wrap text-ink"
+				>
+					{entry.text}
+				</div>
+			{:else}
+				<div class="max-w-full self-start {proseClasses}">
+					<MarkdownRenderer content={entry.text} />
+				</div>
+			{/if}
 		{:else if entry.kind === "tool"}
 			{@const { tone, label } = toolTone(entry.update.status)}
 			<div class="{s.card(false)} {s.CARD_BODY}">
@@ -178,30 +208,14 @@
 				{#if entry.update.output}
 					<details class="mt-2">
 						<summary class="cursor-pointer text-xs text-ink-muted">Output</summary>
-						<pre
-							class="mt-1 scrollbar-custom max-h-48 overflow-auto rounded bg-sunken p-2 font-mono text-xs whitespace-pre-wrap text-ink">{entry
-								.update.output}</pre>
+						<div class="mt-1">
+							<CodeBlock code={entry.update.output} />
+						</div>
 					</details>
 				{/if}
 			</div>
 		{:else if entry.kind === "plan"}
-			<div class="{s.card(true)} {s.CARD_BODY}">
-				<p class="text-sm font-semibold text-ink">{entry.update.goal}</p>
-				<ul class="mt-2 space-y-1">
-					{#each entry.update.steps as step (step.title)}
-						<li class="flex items-center gap-2 text-sm text-ink-muted">
-							{#if step.status === "done"}
-								<IconCheckmark class="size-4 shrink-0 text-green-700" />
-							{:else if step.status === "active"}
-								<IconPending class="size-4 shrink-0 text-blue-700" />
-							{:else}
-								<span class="size-4 shrink-0 rounded-full border border-line-strong"></span>
-							{/if}
-							<span class={step.status === "done" ? "line-through" : ""}>{step.title}</span>
-						</li>
-					{/each}
-				</ul>
-			</div>
+			<PlanCard update={planUpdate(entry.update)} />
 		{:else if entry.kind === "turn"}
 			<p class="text-center text-xs text-ink-faint">
 				{entry.state}{entry.detail ? ` — ${entry.detail}` : ""}

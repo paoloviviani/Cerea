@@ -5,12 +5,14 @@
 	propose, never write, until the person opts into writes for this agent.
 	The default resets on every mount on purpose — writes are a decision made
 	looking at the transcript, not a preference remembered from last week.
-	The provider stays pickable (opencode-first; a daemon can run others
-	later) as a plain input, because no live catalogue exists to choose from.
+	There is no provider field: the agent already has one, and the daemon's
+	send takes none — a picker here would be a control that does nothing.
 
-	The reply is NOT inserted optimistically: the timeline stream echoes the
-	person's message back, and the stream is the transcript's source of truth.
-	Sending twice against a slow daemon would print twice.
+	The box grows with its text (ChatInput's behaviour, without the chat
+	surface's file/mention/model machinery, none of which an agent follow-up
+	has). The reply is NOT inserted optimistically: the timeline stream
+	echoes the person's message back, and the stream is the transcript's
+	source of truth. Sending twice against a slow daemon would print twice.
 -->
 <script lang="ts">
 	import IconSend from "~icons/carbon/send";
@@ -26,7 +28,6 @@
 	let { deviceId, agentId }: Props = $props();
 
 	let text = $state("");
-	let provider = $state("opencode");
 	let posture = $state<AgentPosture>("plan");
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
@@ -38,17 +39,23 @@
 		busy = true;
 		failure = null;
 		try {
-			await sendFollowUp(deviceId, agentId, message, {
-				provider: provider.trim() || "opencode",
-				posture,
-			});
+			await sendFollowUp(deviceId, agentId, message, { posture });
 			text = "";
+			grow();
 			box?.focus();
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
 		} finally {
 			busy = false;
 		}
+	}
+
+	/** Grow with the text, cap at a third of the viewport so a pasted log
+	 * cannot swallow the transcript. */
+	function grow() {
+		if (!box) return;
+		box.style.height = "auto";
+		box.style.height = `${Math.min(box.scrollHeight, Math.floor(window.innerHeight / 3))}px`;
 	}
 
 	function onKeydown(event: KeyboardEvent) {
@@ -68,21 +75,13 @@
 			bind:this={box}
 			bind:value={text}
 			onkeydown={onKeydown}
-			rows={2}
-			placeholder="Follow up with the agent… (Enter to send, Shift+Enter for a newline)"
+			oninput={grow}
+			rows={1}
+			placeholder="Follow up with the agent…"
 			class="{s.INPUT} scrollbar-custom resize-none"
 			disabled={busy}
 		></textarea>
 		<div class="flex flex-wrap items-center gap-2">
-			<label class="flex items-center gap-1.5 text-xs text-ink-muted">
-				Provider
-				<input
-					bind:value={provider}
-					class="{s.INPUT} w-28 px-2 py-1 text-xs"
-					disabled={busy}
-					aria-label="Agent provider"
-				/>
-			</label>
 			<div
 				class="flex overflow-hidden rounded-lg border border-line text-xs font-medium"
 				role="group"

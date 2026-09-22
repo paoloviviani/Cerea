@@ -182,8 +182,6 @@ export async function getAgentDiff(
 export type AgentPosture = "plan" | "write";
 
 export interface FollowUpOptions {
-	/** Which runner answers. opencode-first; the daemon may run others later. */
-	provider?: string;
 	/** Defaults to "plan": propose, never write, until the person opts into writes. */
 	posture?: AgentPosture;
 }
@@ -203,7 +201,6 @@ export async function sendFollowUp(
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
 					text,
-					provider: options.provider || "opencode",
 					posture: options.posture ?? "plan",
 				}),
 			}
