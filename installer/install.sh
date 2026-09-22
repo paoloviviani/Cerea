@@ -1562,10 +1562,17 @@ idp_ca_dance() { # idp_ca_dance <env-file> <flags...>
 	local envfile="$1"
 	shift
 	if [ -z "${VALUES[IDP_BUNDLED]:-}" ]; then return; fi
-	if [ "${EXPOSURE:-proxy}" != "proxy" ]; then
-		note "Edge shape: no CA dance (plain HTTP behind the edge)."
-		return
-	fi
+	# Both shapes maintain the bundle — just for different first reasons.
+	# Proxy: the gateway fetches OIDC discovery from the issuer URL, which
+	# answers on the proxy's internal TLS. Edge: the same fetch answers on
+	# the same internal listener (the public name hairpins to it inside
+	# the compose network) — "plain HTTP behind the edge" describes the
+	# edge's hop, not the box's. And on either shape the gateway also calls
+	# public upstreams, so the bundle is public roots first with the live
+	# proxy root appended — never the proxy root alone, which is what a
+	# hand-maintained file decays to, and exactly the shape that answers
+	# every public-TLS call with CERTIFICATE_VERIFY_FAILED while internal
+	# fetches keep working (found live: chat login fine, Cortecs dead).
 	if [ "$DRY_RUN" = "1" ]; then
 		note "[dry-run] would append the proxy's local CA root to deploy/tls/caddy-root.crt (public roots first, de-duplicated) and restart the gateway"
 		return
