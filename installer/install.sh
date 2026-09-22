@@ -655,7 +655,7 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 		printf '  %s7)%s User memory: %s\n' "$CYAN" "$R" "$memory_label"
 		note "     free: a handful of short facts per person in Mongo — and each person still has to opt in, so leaving it on stores nothing by itself"
 		printf '  %s8)%s /code remote-agent panel: %s\n' "$CYAN" "$R" "$codepanel_label"
-		note "     hosts the paseo-relay (one container, one published port — the one service daemons outside dial; ADR 0085). Off hides the /code panel in the chat"
+		note "     hosts the paseo-relay (one container, no new port — it rides the origin at /ws; ADR 0085). Off hides the /code panel in the chat"
 		printf '  %s9)%s Done — continue with this selection\n' "$CYAN" "$R"
 		ask "Toggle [1-9]" "9"
 		if [ "$REPLY_VAL" = "9" ]; then return; fi
@@ -1353,17 +1353,17 @@ collect_values() { # collect_values <profile>
 	# see the standalone branch above).
 	set_value CHAT_CONSOLE_ENABLED "true"
 	# The /code remote-agent panel (ADR 0085): on only where the operator
-	# toggled it, because it deploys a relay container and publishes a port
-	# (the one service in this stack that is meant to be dialled from
-	# outside). The relay endpoint Cerea dials is the compose-internal one;
-	# daemons outside dial <PUBLIC_HOST>:<RELAY_PORT> and the pairing offer
-	# they paste into the panel records that public endpoint. The enrollment
-	# axis (opencode -> /v1 through the serve shim) is untouched by this
-	# toggle and never touches the relay.
+	# toggled it, because it deploys the relay container daemons outside
+	# dial. No published port: the relay rides the origin at /ws (proxy
+	# snippet from the overlay, installer-appended block on edge). The
+	# relay endpoint Cerea dials is the compose-internal one; daemons
+	# outside dial the origin Caddy already publishes, path /ws, and the
+	# pairing offer they paste into the panel records that public endpoint.
+	# The enrollment axis (opencode -> /v1 through the serve shim) is
+	# untouched by this toggle and never touches the relay.
 	if [ "$ST_CODEPANEL" = "1" ]; then
 		set_value CODE_AGENTS_ENABLED "true"
 		set_value CODE_RELAY_URL "relay:4000"
-		set_value RELAY_PORT "4000"
 	else
 		set_value CODE_AGENTS_ENABLED ""
 		set_value CODE_RELAY_URL ""
@@ -1700,6 +1700,48 @@ ensure_edge_idp_route() {
 	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import idp-routes|' "$tmp_nb"
 	mv -f "$tmp_nb" "$netbird"
 	note "Bundled $kind route inserted above the sites in Caddyfile.netbird (both sites import it)."
+}
+
+# Edge shape: Caddyfile.netbird has no conf.d import, so the relay's /ws
+# route is appended once to a shared snippet both sites import — the same
+# mechanism as the bundled IdP route above, with its own marker and snippet
+# name so the two never mistake each other. Proxy shape needs nothing (the
+# code-relay overlay mounts into conf.d). Idempotent; same fail-closed
+# shape checks as the IdP version.
+ensure_edge_relay_route() {
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" != "true" ]; then return; fi
+	if [ "${EXPOSURE:-}" != "edge" ]; then return; fi
+	local netbird="$PYSTINO_ROOT/deploy/caddy/Caddyfile.netbird"
+	local marker="# installer: relay /ws route (deploy/compose/docker-compose.code-relay.yml)"
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would append the relay /ws route to deploy/caddy/Caddyfile.netbird (shared snippet, both sites)"
+		return
+	fi
+	if grep -q "installer: relay /ws route" "$netbird" 2>/dev/null; then
+		note "Relay route already present in Caddyfile.netbird."
+		return
+	fi
+	local snippet_src="$PYSTINO_ROOT/deploy/caddy/conf.d-code-relay/20-relay.caddy"
+	[ -f "$snippet_src" ] || fail "missing $snippet_src (it ships with the Pystino checkout — fetch or rebase before installing)."
+	local site_line
+	site_line="$(grep -nE '^[a-z0-9.:-]+ \{$' "$netbird" | head -1 | cut -d: -f1)"
+	[ -n "$site_line" ] || fail "Caddyfile.netbird no longer matches the shape this installer knows (no site block opener to insert the (relay-routes) snippet before). Add it by hand above the sites, then re-run with --phase2."
+	local tmp_nb="$netbird.new.$$"
+	{
+		sed -n "1,$((site_line - 1))p" "$netbird"
+		printf '\n%s\n' "$marker"
+		printf '(relay-routes) {\n'
+		cat "$snippet_src"
+		printf '}\n'
+		sed -n "${site_line},\$p" "$netbird"
+	} >"$tmp_nb"
+	if ! grep -q $'^\timport origin-routes$' "$tmp_nb"; then
+		rm -f "$tmp_nb"
+		fail "Caddyfile.netbird no longer matches the shape this installer knows (no '<tab>import origin-routes' lines). Add the (relay-routes) snippet's import to both sites by hand, then re-run with --phase2."
+	fi
+	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import relay-routes|' "$tmp_nb"
+	mv -f "$tmp_nb" "$netbird"
+	note "Relay /ws route inserted above the sites in Caddyfile.netbird (both sites import it)."
 }
 
 # Escape a value for the sed replacement half (delimiter |): backslashes,
@@ -2402,7 +2444,6 @@ main() {
 		if [ "${ST_CODEPANEL:-0}" = "1" ]; then
 			set_value CODE_AGENTS_ENABLED "true"
 			set_value CODE_RELAY_URL "relay:4000"
-			set_value RELAY_PORT "4000"
 		fi
 		# --set on a resume: applied over the parsed values and re-validated
 		# with everything else below. The settable-key filter already ran at
@@ -2724,6 +2765,9 @@ main() {
 
 	if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
 		ensure_edge_idp_route
+	fi
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+		ensure_edge_relay_route
 	fi
 	if is_standalone_profile "$PROFILE"; then
 		standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
