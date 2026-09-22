@@ -38,7 +38,11 @@ const startSchema = z.object({
 });
 
 const offerSchema = z.object({
-	v: z.string().optional(),
+	// The daemon emits v as a JSON number (verified live against a real
+	// 0.8.0 pairing link: {"v":2,...}), not a string. The panel never acts
+	// on the offer version — the probe speaks protocol v2 unconditionally —
+	// so both scalar shapes are accepted and the value is ignored.
+	v: z.union([z.string(), z.number()]).optional(),
 	serverId: z.string().trim().min(1).max(256),
 	daemonPublicKeyB64: z
 		.string()
