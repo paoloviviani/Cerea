@@ -1,4 +1,15 @@
 import type { ObjectId } from "mongodb";
+import {
+	MessageUpdateType,
+	type MessageElicitationRequestUpdate,
+	type MessageElicitationResolvedUpdate,
+	type MessagePlanUpdate,
+	type MessageStreamUpdate,
+	type MessageToolCallUpdate,
+	type MessageToolErrorUpdate,
+	type MessageToolResultUpdate,
+	type MessageTurnStateUpdate,
+} from "$lib/types/MessageUpdate";
 
 /**
  * The `/code` surface: a remote-control panel for coding agents, NOT a chat
@@ -21,87 +32,55 @@ import type { ObjectId } from "mongodb";
  * (`api/v2/code/agents/[id]/stream`), never the chat JSONL stream.
  */
 
-export enum CodeAgentUpdateType {
-	AgentMessage = "agent-message",
-	ToolCall = "tool-call",
-	Plan = "plan",
-	TurnState = "turn-state",
-	PermissionRequest = "permission-request",
-	Diff = "diff",
-}
-
-export type CodeAgentUpdate =
-	| CodeAgentMessageUpdate
-	| CodeToolCallUpdate
-	| CodePlanUpdate
-	| CodeTurnStateUpdate
-	| CodePermissionRequestUpdate
-	| CodeDiffUpdate;
-
-export interface CodeAgentMessageUpdate {
-	type: CodeAgentUpdateType.AgentMessage;
-	/** Which party spoke: the agent's prose, or the person's follow-up echoed back. */
-	role: "agent" | "user";
+/**
+ * The agent SSE bridge carries the chat's own update shapes (`MessageUpdate`)
+ * wherever a chat shape exists — stream tokens, tool call/result/error, plan,
+ * elicitation request/resolution, turn state — so the transcript is folded by
+ * the same machinery that renders a conversation. Two frames have no chat
+ * counterpart and are agent-only:
+ *
+ * - `user`: the person's message, echoed back by the daemon. Chats author
+ *   their user messages client-side, so chat's stream union has no such
+ *   frame; an agent transcript is a replay of the daemon's log, and the log
+ *   owns both sides.
+ * - there is deliberately no diff frame: changed files live in the side
+ *   pane, which fetches the daemon's checkout diff itself.
+ *
+ * Frames are plain JSON (no Dates), like everything else on this wire.
+ */
+export interface AgentUserMessageUpdate {
+	type: "user";
 	text: string;
-	/** Present while the agent is still streaming this message. */
-	partial?: boolean;
 }
 
-export type CodeToolCallStatus = "running" | "done" | "error";
+export type AgentStreamUpdate =
+	| AgentUserMessageUpdate
+	| MessageStreamUpdate
+	| MessageToolCallUpdate
+	| MessageToolResultUpdate
+	| MessageToolErrorUpdate
+	| MessagePlanUpdate
+	| MessageElicitationRequestUpdate
+	| MessageElicitationResolvedUpdate
+	| MessageTurnStateUpdate;
 
-export interface CodeToolCallUpdate {
-	type: CodeAgentUpdateType.ToolCall;
-	/** Daemon-issued call id; result frames carry the same id. */
-	id: string;
-	tool: string;
-	input?: Record<string, unknown>;
-	output?: string;
-	status: CodeToolCallStatus;
-}
-
-export interface CodePlanStep {
-	title: string;
-	status: "pending" | "active" | "done";
-}
-
-export interface CodePlanUpdate {
-	type: CodeAgentUpdateType.Plan;
-	goal: string;
-	steps: CodePlanStep[];
-}
+/** Frame `type` values the bridge may emit, for the client's backstop check. */
+export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
+	"user",
+	MessageUpdateType.Stream,
+	MessageUpdateType.Tool,
+	MessageUpdateType.Plan,
+	MessageUpdateType.Elicitation,
+	MessageUpdateType.TurnState,
+];
 
 export type CodeTurnState = "idle" | "running" | "waiting-permission" | "done" | "error";
-
-export interface CodeTurnStateUpdate {
-	type: CodeAgentUpdateType.TurnState;
-	state: CodeTurnState;
-	detail?: string;
-}
-
-export interface CodePermissionRequestUpdate {
-	type: CodeAgentUpdateType.PermissionRequest;
-	/** Answered against `v1/agents/{id}/permissions/{requestId}`. */
-	requestId: string;
-	/** What the agent wants to do, in its own words. */
-	description: string;
-	/** The command or operation awaiting approval, when there is one. */
-	command?: string;
-	/** True while the daemon still waits; false once answered (replay). */
-	pending: boolean;
-	/** How it was answered, once it was. */
-	resolution?: "approved" | "denied";
-}
 
 export interface CodeFileChange {
 	path: string;
 	/** Unified presentation: the before and after the diff viewer aligns. */
 	oldText: string;
 	newText: string;
-}
-
-export interface CodeDiffUpdate {
-	type: CodeAgentUpdateType.Diff;
-	files: CodeFileChange[];
 }
 
 /** A paired device: somebody's machine running the paseo daemon. */
