@@ -1,13 +1,21 @@
 <!--
 	The sidebar's agents panel: paired devices, each with its workspaces and
 	their sessions, plus every action the person needs — pair, add a
-	workspace, start an agent, revoke. Nothing here talks to the daemon:
-	rows are Cerea's pairing records and proxy calls (`codeApi`), and an
-	agent row is only ever an address (`/code?device=&ws=&agent=`).
+	workspace, start an agent, revoke, archive a session, delete a
+	workspace. Nothing here talks to the daemon: rows are Cerea's pairing
+	records and proxy calls (`codeApi`), and an agent row is only ever an
+	address (`/code?device=&ws=&agent=`).
 
 	All mutations live here, not in the agent pane: one owner for the
 	device list means a pair, a revoke or a creation updates the tree the
 	person is looking at, wherever they opened the dialog from.
+
+	The two removals confirm first, then ask the daemon and redraw the
+	acted-on device's subtree from its answer — never an optimistic splice,
+	because the daemon owns the listings an archived row disappears from.
+	When the row that went is the one open in the address, the person is
+	navigated away: an archived session or workspace is not one the panel
+	can still show.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -26,12 +34,15 @@
 		listWorkspaces,
 		listAgents,
 		revokeDevice,
+		archiveAgent,
+		archiveWorkspace,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
+	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 
 	/** One paired device's live subtree, read through the proxy. */
 	interface DeviceSubtree {
@@ -48,6 +59,12 @@
 	let pairingOpen = $state(false);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
+	/** A removal waiting for its confirmation: which row, on which device. */
+	let confirmRequest = $state<
+		| { kind: "agent"; device: CodeDeviceView; agent: CodeAgentSession }
+		| { kind: "workspace"; device: CodeDeviceView; workspace: CodeWorkspace }
+		| null
+	>(null);
 
 	const selectedDeviceId = $derived(page.url.searchParams.get("device"));
 	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws"));
@@ -93,7 +110,8 @@
 		try {
 			await revokeDevice(id);
 			devices = devices.filter((d) => d.id !== id);
-			const { [id]: _gone, ...rest } = trees;
+			const rest = { ...trees };
+			delete rest[id];
 			trees = rest;
 			if (selectedDeviceId === id) {
 				void goto(`${base}/code`, { keepFocus: true });
@@ -101,6 +119,38 @@
 		} catch {
 			failure = "Could not revoke the device.";
 		}
+	}
+
+	/**
+	 * Archive one session. The daemon answers first, the person leaves the
+	 * archived session's address second, and the tree is re-read last — the
+	 * daemon's listings, not a local guess, decide what the tree shows.
+	 * Throw on failure: the confirm dialog holds the question open with the
+	 * daemon's own words, and nothing here pretends it worked.
+	 */
+	async function handleArchiveAgent(device: CodeDeviceView, agent: CodeAgentSession) {
+		await archiveAgent(device.id, agent.id);
+		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
+			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
+		}
+		await reloadDevice(device.id);
+	}
+
+	/** Whether the open address lives on a workspace that just went — its
+	 * own row, or one of the sessions that were archived with it. */
+	function addressOnWorkspace(deviceId: string, workspaceId: string): boolean {
+		if (selectedDeviceId !== deviceId) return false;
+		if (selectedWorkspaceId === workspaceId) return true;
+		const agent = trees[deviceId]?.agents.find((a) => a.id === selectedAgentId);
+		return agent?.workspaceId === workspaceId;
+	}
+
+	async function handleArchiveWorkspace(device: CodeDeviceView, workspace: CodeWorkspace) {
+		await archiveWorkspace(device.id, workspace.id);
+		if (addressOnWorkspace(device.id, workspace.id)) {
+			void goto(`${base}/code?device=${device.id}`, { keepFocus: true });
+		}
+		await reloadDevice(device.id);
 	}
 
 	function handlePaired(device: CodeDeviceView) {
@@ -233,28 +283,44 @@
 									>
 										<IconAdd class="size-3.5" />
 									</button>
+									<button
+										class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
+										title="Delete this workspace"
+										onclick={() => (confirmRequest = { kind: "workspace", device, workspace: ws })}
+									>
+										<IconTrash class="size-3.5" />
+									</button>
 								</div>
 								{#each agentsOf(tree, ws.id) as agent (agent.id)}
 									{@const agentActive = agent.id === selectedAgentId}
-									<a
-										href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
-										class="pl-8 {row(agentActive)}"
-										title={agent.title}
-									>
-										<IconCode class="size-3 shrink-0" />
-										<span class="min-w-0 flex-1 truncate">{agent.title}</span>
-										<span
-											class="size-1.5 shrink-0 rounded-full {agent.state === 'running' ||
-											agent.state === 'waiting-permission'
-												? 'bg-blue-600'
-												: agent.state === 'error'
-													? 'bg-red-600'
-													: agent.state === 'done'
-														? 'bg-green-700'
-														: 'bg-gray-400'}"
-											title={agent.state}
-										></span>
-									</a>
+									<div class="flex items-center gap-1 pr-1">
+										<a
+											href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
+											class="min-w-0 flex-1 pl-8 {row(agentActive)}"
+											title={agent.title}
+										>
+											<IconCode class="size-3 shrink-0" />
+											<span class="min-w-0 flex-1 truncate">{agent.title}</span>
+											<span
+												class="size-1.5 shrink-0 rounded-full {agent.state === 'running' ||
+												agent.state === 'waiting-permission'
+													? 'bg-blue-600'
+													: agent.state === 'error'
+														? 'bg-red-600'
+														: agent.state === 'done'
+															? 'bg-green-700'
+															: 'bg-gray-400'}"
+												title={agent.state}
+											></span>
+										</a>
+										<button
+											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
+											title="Archive this session"
+											onclick={() => (confirmRequest = { kind: "agent", device, agent })}
+										>
+											<IconTrash class="size-3.5" />
+										</button>
+									</div>
 								{/each}
 								{#if wsActive && agentsOf(tree, ws.id).length === 0}
 									<p class="py-0.5 pl-10 text-xs text-gray-400 dark:text-gray-500">
@@ -309,4 +375,29 @@
 			}
 		}}
 	/>
+{/if}
+
+{#if confirmRequest}
+	{@const request = confirmRequest}
+	{#if request.kind === "agent"}
+		<CodeConfirmDialog
+			title="Archive session"
+			target={request.agent.title}
+			message="This session disappears from the daemon's active list, its transcript archived with it. Local files on the device are untouched."
+			confirmLabel="Archive session"
+			busyLabel="Archiving…"
+			onconfirm={() => handleArchiveAgent(request.device, request.agent)}
+			onclose={() => (confirmRequest = null)}
+		/>
+	{:else}
+		<CodeConfirmDialog
+			title="Delete workspace"
+			target={request.workspace.name}
+			message="The workspace and its sessions disappear from the daemon's active list, their transcripts archived with them. Local files on the device are untouched."
+			confirmLabel="Delete workspace"
+			busyLabel="Deleting…"
+			onconfirm={() => handleArchiveWorkspace(request.device, request.workspace)}
+			onclose={() => (confirmRequest = null)}
+		/>
+	{/if}
 {/if}
