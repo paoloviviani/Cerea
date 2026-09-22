@@ -229,8 +229,14 @@
 	let column: ChatMessageColumn | undefined = $state();
 </script>
 
-<div class="flex h-full min-h-0 flex-1 flex-col">
-	<div class="flex items-center gap-2 px-4 pt-3 pb-2">
+<!-- pointer-events-none on every wrapper above the column, the ChatWindow
+     contract: the column paints at z-[-1] (its own contract, see
+     ChatMessageColumn), so any pointer-enabled ancestor between it and the
+     page intercepts clicks meant for the composer — the prompt box read as
+     locked while the rest stayed responsive. The column, the strip, the
+     failure banner and the side pane re-enable pointer events themselves. -->
+<div class="pointer-events-none flex h-full min-h-0 flex-1 flex-col">
+	<div class="pointer-events-auto flex items-center gap-2 px-4 pt-3 pb-2">
 		<IconCode class="size-4 shrink-0 text-ink-muted" />
 		{#if workspaceName}
 			<span class="min-w-0 truncate text-sm font-medium text-ink" title={workspace?.path}>
@@ -257,10 +263,16 @@
 	</div>
 
 	{#if failure}
-		<div class="{s.ERROR} mx-4 mb-2">{failure}</div>
+		<div class="pointer-events-auto {s.ERROR} mx-4 mb-2">{failure}</div>
 	{/if}
 
-	<div class="flex min-h-0 flex-1">
+	<!-- pointer-events-none: the message column paints at z-[-1] (its own
+	     contract, see ChatMessageColumn), which places it behind this row's
+	     own hit box — a plain flex row intercepted every click meant for the
+	     composer, and the prompt box read as locked while the rest stayed
+	     responsive. The column re-enables pointer events itself; the side
+	     pane renders above and is not affected. -->
+	<div class="pointer-events-none flex min-h-0 flex-1">
 		<ChatMessageColumn
 			{messages}
 			{loading}
