@@ -213,16 +213,26 @@ class DeviceDaemonLink {
 		cwd: string;
 		posture: "plan" | "write";
 		title?: string;
+		workspaceId?: string;
 	}): Promise<CodeAgentSession> {
 		const agent = await this.operate((client) =>
 			client.createAgent({
 				provider: input.provider,
 				cwd: input.cwd,
+				workspaceId: input.workspaceId,
 				modeId: input.posture === "write" ? "build" : "plan",
 				title: input.title ?? null,
 			})
 		);
 		return toSession(agent);
+	}
+
+	/** The provider ids the daemon actually has. The panel offers exactly
+	 * these for a new agent — never a hardcoded list that would drift from
+	 * what the daemon can run. */
+	async listProviders(): Promise<Array<{ id: string; available: boolean }>> {
+		const result = await this.operate((client) => client.listAvailableProviders());
+		return result.providers.map((p) => ({ id: p.provider, available: p.available }));
 	}
 
 	async deleteAgent(agentId: string): Promise<void> {

@@ -38,6 +38,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
 	{ method: "GET", pattern: /^v1\/agents$/ },
 	{ method: "POST", pattern: /^v1\/agents$/ },
+	{ method: "GET", pattern: /^v1\/providers$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
@@ -83,6 +84,10 @@ export const GET: RequestHandler = async (event) => {
 		return superjsonResponse({ agents: await link.listAgents() });
 	}
 
+	if (path === "v1/providers") {
+		return superjsonResponse({ providers: await link.listProviders() });
+	}
+
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	if (agentMatch) {
 		return superjsonResponse({ agent: await link.getAgent(decodeURIComponent(agentMatch[1])) });
@@ -124,6 +129,7 @@ const createSchema = z.object({
 	provider: z.string().trim().min(1).max(64).default("opencode"),
 	posture: z.enum(["plan", "write"]).default("plan"),
 	title: z.string().trim().max(120).optional(),
+	workspaceId: z.string().trim().min(1).max(120).optional(),
 });
 
 const workspaceSchema = z.object({
@@ -161,7 +167,7 @@ export const POST: RequestHandler = async (event) => {
 	const createMatch = /^v1\/agents$/.test(path);
 	if (createMatch) {
 		const parsed = createSchema.safeParse(body);
-		if (!parsed.success) error(400, "Expected { cwd, provider?, posture?, title? }.");
+		if (!parsed.success) error(400, "Expected { cwd, provider?, posture?, title?, workspaceId? }.");
 		return superjsonResponse({ agent: await link.createAgent(parsed.data) });
 	}
 
