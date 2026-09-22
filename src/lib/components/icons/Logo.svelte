@@ -6,12 +6,14 @@
 	interface Props {
 		classNames?: string;
 		/**
-		 * The sidebar renders the mark at a fraction of the intro's size, and
-		 * one dilation cannot serve both: a stroke that reads substantial at
-		 * 52px is a hairline at 24px, while thickening the one file enough
-		 * for the small size swallows the ridge's small bumps at 52px. The
-		 * small variant is the same drawing with its own dilate radius and a
-		 * viewBox padded to hold the grown ink.
+		 * The sidebar renders the mark at ~24px, where the default file's
+		 * charcoal ink downscales into a grey smear: at that size every pixel
+		 * of the band is half-toned, none reaches full coverage, and the mark
+		 * reads grey next to the wordmark. The small variant is the same
+		 * drawing at the same weight (radius 3 — heavier dilation only closes
+		 * the valleys and makes the smear worse, as radius 4.5 proved live),
+		 * drawn in pure black so its core pixels still reach full coverage at
+		 * sidebar size. Same viewBox, same aspect; only the ink differs.
 		 */
 		variant?: "default" | "small";
 	}
@@ -21,11 +23,11 @@
 	// Bump when any served logo file changes: the assets carry no
 	// Cache-Control, so browsers heuristic-cache them for hours and a swap
 	// otherwise keeps showing the old drawing to returning visitors.
-	const ASSET_VERSION = "5";
+	const ASSET_VERSION = "6";
 
 	const file = $derived(variant === "small" ? "logo-small" : "logo");
-	const w = $derived(variant === "small" ? 337 : 337);
-	const h = $derived(variant === "small" ? 120 : 112);
+	const w = 337;
+	const h = 112;
 </script>
 
 <!--
