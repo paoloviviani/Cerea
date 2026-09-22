@@ -12,6 +12,9 @@
 # Unit-tested by installer/tests/test-compose-flags.sh.
 #
 # State:
+#   CEREA_ROOT           the checkout this file lives in (chat-owned infra —
+#                        the relay overlay, Caddy snippet and fetch script —
+#                        anchors here, never in Pystino)
 #   BUILD / BUILD_FLAG   --build switch and its materialised form (BUILD_FLAG
 #                        is empty normally, (--build) when forced)
 #   SCRUB                array: the `env -u ...` prefix that keeps compose
@@ -71,6 +74,12 @@
 BUILD=0
 BUILD_FLAG=()
 UP_SERVICES=()
+
+# Anchored to this file, not to a global: the lib is sourced both by the
+# installer (which has CEREA_ROOT) and standalone by the unit tests (which
+# do not), and both run from this checkout.
+# shellcheck disable=SC2034
+CEREA_ROOT="${CEREA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 set_build_flag() { # set_build_flag <0|1> -> BUILD_FLAG[]
 	if [ "$1" = "1" ]; then BUILD_FLAG=(--build); else BUILD_FLAG=(); fi
@@ -284,9 +293,12 @@ append_idp_overlay() {
 # as append_idp_overlay: the chat's CODE_* plumbing rides the chat overlay,
 # and this file contributes the relay service itself — profile-gated
 # (`code-relay`), so including the file without the profile deploys nothing.
+# The path anchors at CEREA_ROOT (above): the overlay lives with its
+# consumer, the chat, not in the Pystino tree these relative -f paths
+# otherwise assume.
 append_code_relay_overlay() {
 	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
-		OVERLAY_FLAGS+=(-f deploy/compose/docker-compose.code-relay.yml)
+		OVERLAY_FLAGS+=(-f "$CEREA_ROOT/deploy/compose/docker-compose.code-relay.yml")
 	fi
 }
 
