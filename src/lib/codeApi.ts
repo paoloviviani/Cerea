@@ -119,6 +119,33 @@ export async function listWorkspaceAgents(
 	);
 }
 
+/** The provider ids this daemon can actually run, from the daemon itself. */
+export async function listProviders(
+	deviceId: string
+): Promise<{ providers: Array<{ id: string; available: boolean }> }> {
+	return unwrap(await fetch(`${root()}/v1/providers?device=${encodeURIComponent(deviceId)}`));
+}
+
+/** A new coding session on the daemon, scoped to one of its workspaces. */
+export async function createAgent(
+	deviceId: string,
+	input: {
+		cwd: string;
+		provider?: string;
+		posture?: AgentPosture;
+		title?: string;
+		workspaceId?: string;
+	}
+): Promise<{ agent: CodeAgentSession }> {
+	return unwrap(
+		await fetch(`${root()}/v1/agents?device=${encodeURIComponent(deviceId)}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(input),
+		})
+	);
+}
+
 /** One agent's current record (title, provider, state). */
 export async function getAgent(
 	deviceId: string,

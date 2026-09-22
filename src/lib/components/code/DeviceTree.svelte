@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
 	import { base } from "$app/paths";
+	import { goto } from "$app/navigation";
 	import IconAdd from "~icons/carbon/add";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconLaptop from "~icons/carbon/laptop";
@@ -26,6 +27,7 @@
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 	import * as s from "$lib/components/overlay/styles";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
+	import AgentDialog from "./AgentDialog.svelte";
 
 	interface Props {
 		devices: CodeDeviceView[];
@@ -60,6 +62,7 @@
 	let daemonOff = $state(false);
 	let hierarchyFor = $state("");
 	let workspaceDialogFor = $state<string | null>(null);
+	let agentDialogFor = $state<CodeWorkspace | null>(null);
 
 	async function loadHierarchy() {
 		const device = devices.find((d) => d.id === selectedId);
@@ -240,6 +243,16 @@
 														{#if agents.length === 0}
 															<li class="px-1 py-1 text-xs text-ink-faint">No agents here.</li>
 														{/if}
+														<li>
+															<button
+																onclick={() => (agentDialogFor = ws)}
+																class="{s.CARD_ACTION} mt-px"
+																title="Start a coding session in this workspace"
+															>
+																<IconAdd class="size-3.5" />
+																New agent
+															</button>
+														</li>
 													</ul>
 												{/if}
 											</li>
@@ -273,6 +286,24 @@
 			// The daemon is the source of truth; reload rather than splice.
 			hierarchyFor = "";
 			void loadHierarchy();
+		}}
+	/>
+{/if}
+
+{#if agentDialogFor}
+	{@const dialogWorkspace = agentDialogFor}
+	<AgentDialog
+		deviceId={selectedId ?? ""}
+		workspace={dialogWorkspace}
+		onclose={() => (agentDialogFor = null)}
+		oncreated={(agent) => {
+			// Same discipline as a workspace: the daemon owns the truth, and
+			// the address takes the person straight to their new session.
+			hierarchyFor = "";
+			void loadHierarchy();
+			void goto(`${base}/code?device=${selectedId}&ws=${dialogWorkspace.id}&agent=${agent.id}`, {
+				keepFocus: true,
+			});
 		}}
 	/>
 {/if}
