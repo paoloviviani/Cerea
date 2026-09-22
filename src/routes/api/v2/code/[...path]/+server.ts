@@ -45,6 +45,8 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/timeline$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
 ];
 
@@ -191,6 +193,22 @@ export const POST: RequestHandler = async (event) => {
 			decodeURIComponent(permissionMatch[2]),
 			parsed.data.decision
 		);
+		return superjsonResponse({ ok: true });
+	}
+
+	// The two removals. Both are the daemon's own archive operations under
+	// their user-facing names, fully named by the path — there is no body to
+	// validate — and both answer { ok: true } rather than the daemon's
+	// payload, whose shape is none of the browser's business (ADR 0085).
+	const archiveAgentMatch = new RegExp(`^v1/agents/(${ID})/archive$`).exec(path);
+	if (archiveAgentMatch) {
+		await link.archiveAgentSession(decodeURIComponent(archiveAgentMatch[1]));
+		return superjsonResponse({ ok: true });
+	}
+
+	const archiveWorkspaceMatch = new RegExp(`^v1/workspaces/(${ID})/archive$`).exec(path);
+	if (archiveWorkspaceMatch) {
+		await link.archiveWorkspace(decodeURIComponent(archiveWorkspaceMatch[1]));
 		return superjsonResponse({ ok: true });
 	}
 
