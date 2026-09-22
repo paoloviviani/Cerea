@@ -115,13 +115,22 @@
 					</div>
 				</div>
 			{:else}
-				<div class="pointer-events-auto scrollbar-custom min-h-0 flex-1 overflow-y-auto">
-					<div class="pointer-events-auto {s.EMPTY}">
-						<IconLaptop class={s.EMPTY_ICON} />
-						<p class={s.EMPTY_TITLE}>
+				<!-- The empty state is deliberately small and generously
+				     surrounded: a faint dashed box adrift in the pane reads as
+				     "nothing here yet", while a full-width panel would read as
+				     a surface to work in. Local classes, not `s.EMPTY` — the
+				     shared constants size for settings pages, not this pane. -->
+				<div
+					class="pointer-events-auto scrollbar-custom flex min-h-0 flex-1 overflow-y-auto p-8 sm:p-24"
+				>
+					<div
+						class="m-auto flex w-full max-w-xs flex-col items-center rounded-lg border-2 border-dashed border-line-strong px-8 py-10 text-center sm:px-14 sm:py-14"
+					>
+						<IconLaptop class="mb-3 size-7 text-ink-faint" />
+						<p class="mb-1 text-xs font-medium text-ink">
 							{devices.length === 0 ? "No paired devices" : "No agent selected"}
 						</p>
-						<p class={s.EMPTY_DETAIL}>
+						<p class="mb-4 text-xs text-ink-muted">
 							{devices.length === 0
 								? "Pair the machine your coding agents run on to begin."
 								: "Pick a session from the Agents panel in the sidebar."}

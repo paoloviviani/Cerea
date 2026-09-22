@@ -1,8 +1,8 @@
 <!--
 	The sidebar's agents panel: paired devices, each with its workspaces and
 	their sessions, plus every action the person needs — pair, add a
-	workspace, start an agent, revoke, archive a session, delete a
-	workspace. Nothing here talks to the daemon: rows are Cerea's pairing
+	workspace, start an agent, revoke, archive a session, rename or archive
+	a workspace. Nothing here talks to the daemon: rows are Cerea's pairing
 	records and proxy calls (`codeApi`), and an agent row is only ever an
 	address (`/code?device=&ws=&agent=`).
 
@@ -15,19 +15,24 @@
 	because the daemon owns the listings an archived row disappears from.
 	When the row that went is the one open in the address, the person is
 	navigated away: an archived session or workspace is not one the panel
-	can still show.
+	can still show. A creation navigates the other way: the workspace or
+	session just made is the one the person is dropped on, so the panel
+	lands where the action put them.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
+	import { DropdownMenu } from "bits-ui";
 	import IconAdd from "~icons/carbon/add";
 	import IconLaptop from "~icons/carbon/laptop";
 	import IconFolder from "~icons/carbon/folder";
 	import IconCode from "~icons/carbon/code";
 	import IconRenew from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
+	import IconKebab from "~icons/carbon/overflow-menu-vertical";
+	import IconEdit from "~icons/carbon/edit";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import {
 		listDevices,
@@ -41,6 +46,7 @@
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
+	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 
@@ -59,6 +65,8 @@
 	let pairingOpen = $state(false);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
+	/** The workspace whose rename dialog is open, with its device. */
+	let renameFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
 	/** A removal waiting for its confirmation: which row, on which device. */
 	let confirmRequest = $state<
 		| { kind: "agent"; device: CodeDeviceView; agent: CodeAgentSession }
@@ -283,13 +291,45 @@
 									>
 										<IconAdd class="size-3.5" />
 									</button>
-									<button
-										class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-										title="Delete this workspace"
-										onclick={() => (confirmRequest = { kind: "workspace", device, workspace: ws })}
-									>
-										<IconTrash class="size-3.5" />
-									</button>
+									<!-- The workspace's actions live in one kebab, not a
+								     row of icons: rename and archive are occasional,
+								     and a bare trash can was the only visible offer
+								     for both. -->
+									<DropdownMenu.Root>
+										<DropdownMenu.Trigger
+											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+											title="Workspace actions"
+										>
+											<IconKebab class="size-3.5" />
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Portal>
+											<DropdownMenu.Content
+												class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+												side="bottom"
+												align="end"
+												sideOffset={6}
+												trapFocus={false}
+												onCloseAutoFocus={(e) => e.preventDefault()}
+												interactOutsideBehavior="defer-otherwise-close"
+											>
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+													onSelect={() => (renameFor = { device, workspace: ws })}
+												>
+													<IconEdit class="size-4 opacity-90 dark:opacity-80" />
+													Rename
+												</DropdownMenu.Item>
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+													onSelect={() =>
+														(confirmRequest = { kind: "workspace", device, workspace: ws })}
+												>
+													<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+													Archive
+												</DropdownMenu.Item>
+											</DropdownMenu.Content>
+										</DropdownMenu.Portal>
+									</DropdownMenu.Root>
 								</div>
 								{#each agentsOf(tree, ws.id) as agent (agent.id)}
 									{@const agentActive = agent.id === selectedAgentId}
@@ -344,10 +384,18 @@
 	<WorkspaceDialog
 		deviceId={workspaceDialogFor}
 		onclose={() => (workspaceDialogFor = null)}
-		oncreated={() => {
+		oncreated={(workspace) => {
+			// The daemon owns the truth; reload the tree and drop the person
+			// on the workspace they just made — staying wherever they were
+			// would leave the fresh row unselected and the panel pointing at
+			// something they have already moved past. Navigation also closes
+			// the drawer.
 			const id = workspaceDialogFor;
 			workspaceDialogFor = null;
-			if (id) void reloadDevice(id);
+			if (id) {
+				void reloadDevice(id);
+				void goto(`${base}/code?device=${id}&ws=${workspace.id}`, { keepFocus: true });
+			}
 		}}
 	/>
 {/if}
@@ -391,13 +439,26 @@
 		/>
 	{:else}
 		<CodeConfirmDialog
-			title="Delete workspace"
+			title="Archive workspace"
 			target={request.workspace.name}
 			message="The workspace and its sessions disappear from the daemon's active list, their transcripts archived with them. Local files on the device are untouched."
-			confirmLabel="Delete workspace"
-			busyLabel="Deleting…"
+			confirmLabel="Archive workspace"
+			busyLabel="Archiving…"
 			onconfirm={() => handleArchiveWorkspace(request.device, request.workspace)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{/if}
+{/if}
+
+{#if renameFor}
+	<WorkspaceRenameDialog
+		deviceId={renameFor.device.id}
+		workspace={renameFor.workspace}
+		onclose={() => (renameFor = null)}
+		onrenamed={() => {
+			const id = renameFor?.device.id;
+			renameFor = null;
+			if (id) void reloadDevice(id);
+		}}
+	/>
 {/if}

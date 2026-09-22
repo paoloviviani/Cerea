@@ -76,6 +76,25 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 
 export type CodeTurnState = "idle" | "running" | "waiting-permission" | "done" | "error";
 
+/**
+ * One of the daemon's provider modes — paseo's own permission vocabulary
+ * (plan, build, …), listed live so the panel never hardcodes a set that
+ * would drift from what the daemon enforces. `AgentMode` in the protocol.
+ */
+export interface CodeProviderMode {
+	id: string;
+	label: string;
+	description?: string;
+}
+
+/** One of the daemon's provider models (`AgentModelDefinition`, trimmed). */
+export interface CodeProviderModel {
+	id: string;
+	label: string;
+	description?: string;
+	isDefault?: boolean;
+}
+
 export interface CodeFileChange {
 	path: string;
 	/** Unified presentation: the before and after the diff viewer aligns. */
@@ -137,4 +156,13 @@ export interface CodeAgentSession {
 	provider: string;
 	state: CodeTurnState;
 	updatedAt: string;
+	/**
+	 * The daemon's live session config, as the snapshot reports it: the mode
+	 * is paseo's permission vocabulary (plan, build, …) switched by the
+	 * composer's pill, and the model the provider runs. Both are `null`
+	 * until the daemon has reported them — an agent that never answered
+	 * shows pills that carry no claim.
+	 */
+	modeId: string | null;
+	modelId: string | null;
 }
