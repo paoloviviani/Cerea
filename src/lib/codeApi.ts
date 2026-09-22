@@ -15,7 +15,13 @@
 import superjson from "superjson";
 import { base } from "$app/paths";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
-import type { CodeAgentSession, CodeFileChange, CodeWorkspace } from "$lib/types/CodeAgent";
+import type {
+	CodeAgentSession,
+	CodeFileChange,
+	CodeProviderMode,
+	CodeProviderModel,
+	CodeWorkspace,
+} from "$lib/types/CodeAgent";
 
 export type { CodeDeviceView };
 
@@ -132,6 +138,31 @@ export async function listProviders(
 	return unwrap(await fetch(`${root()}/v1/providers?device=${encodeURIComponent(deviceId)}`));
 }
 
+/** The provider's modes — paseo's permission vocabulary (plan, build, …),
+ * as the daemon itself defines it. */
+export async function listProviderModes(
+	deviceId: string,
+	provider: string
+): Promise<{ modes: CodeProviderMode[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/providers/${encodeURIComponent(provider)}/modes?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** The provider's models, as the daemon reports them (selectable only). */
+export async function listProviderModels(
+	deviceId: string,
+	provider: string
+): Promise<{ models: CodeProviderModel[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/providers/${encodeURIComponent(provider)}/models?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
 /** A new coding session on the daemon, scoped to one of its workspaces. */
 export async function createAgent(
 	deviceId: string,
@@ -178,20 +209,22 @@ export async function getAgentDiff(
 
 // -- control: follow-ups and approvals (Phase 3) ----------------------------
 
-/** How much licence a follow-up carries. Sent with every message; the daemon enforces it. */
+/** How much licence a new agent starts with. Creation-time only: the live
+ * switch is the mode pill on the open agent (ADR 0085's panel drives the
+ * daemon's own mode vocabulary). */
 export type AgentPosture = "plan" | "write";
 
-export interface FollowUpOptions {
-	/** Defaults to "plan": propose, never write, until the person opts into writes. */
-	posture?: AgentPosture;
-}
+export type PermissionDecision = "approve" | "deny";
 
-/** Send a follow-up to a running session. The reply arrives on the timeline stream. */
+/** Send a follow-up to a running session. The reply arrives on the timeline
+ * stream. No licence rides along: the agent's mode — paseo's permission
+ * vocabulary — is switched live by the composer's mode pill and stays until
+ * switched again, which is paseo's own semantics rather than a per-send
+ * override. */
 export async function sendFollowUp(
 	deviceId: string,
 	agentId: string,
-	text: string,
-	options: FollowUpOptions = {}
+	text: string
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
@@ -199,16 +232,48 @@ export async function sendFollowUp(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					text,
-					posture: options.posture ?? "plan",
-				}),
+				body: JSON.stringify({ text }),
 			}
 		)
 	);
 }
 
-export type PermissionDecision = "approve" | "deny";
+/** Switch the open agent's mode. A provider refusal comes back as the
+ * notice text (null when applied without comment). */
+export async function setAgentMode(
+	deviceId: string,
+	agentId: string,
+	modeId: string
+): Promise<{ ok: boolean; notice: string | null }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/mode?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ modeId }),
+			}
+		)
+	);
+}
+
+/** Switch the open agent's model (`null` resets to the provider's default). */
+export async function setAgentModel(
+	deviceId: string,
+	agentId: string,
+	modelId: string | null
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/model?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ modelId }),
+			}
+		)
+	);
+}
 
 /** Answer a waiting permission request. Blocking: the agent holds until this lands. */
 export async function respondPermission(
@@ -257,6 +322,25 @@ export async function archiveWorkspace(
 		await fetch(
 			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/archive?device=${encodeURIComponent(deviceId)}`,
 			{ method: "POST" }
+		)
+	);
+}
+
+/** Rename a workspace: the daemon's setWorkspaceTitle, answering the title
+ * as the daemon recorded it (`null` clears the custom name). */
+export async function renameWorkspace(
+	deviceId: string,
+	workspaceId: string,
+	title: string | null
+): Promise<{ title: string | null }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/title?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ title }),
+			}
 		)
 	);
 }

@@ -8,6 +8,8 @@ import { getPairedDevice } from "$lib/server/codeDevices";
 import type {
 	CodeAgentSession,
 	CodeFileChange,
+	CodeProviderMode,
+	CodeProviderModel,
 	CodeWorkspace,
 	CodeTurnState,
 } from "$lib/types/CodeAgent";
@@ -259,12 +261,66 @@ class DeviceDaemonLink {
 		}
 	}
 
-	async sendAgentMessage(agentId: string, text: string, posture: "plan" | "write"): Promise<void> {
-		await this.operate(async (client) => {
-			// Posture is the daemon's own mode switch: plan proposes, build writes.
-			await client.setAgentMode(agentId, posture === "write" ? "build" : "plan");
-			await client.sendAgentMessage(agentId, text);
-		});
+	/** Rename a workspace: `setWorkspaceTitle` is the daemon's own rename —
+	 * the title overrides the derived name in its listings, and `null`
+	 * clears it back. The answer carries the title as the daemon recorded
+	 * it, so the tree redraws from the daemon's word, not the request's. */
+	async renameWorkspace(workspaceId: string, title: string | null): Promise<string | null> {
+		const result = await this.operate((client) => client.setWorkspaceTitle(workspaceId, title));
+		return result.title;
+	}
+
+	/** The modes the provider offers — paseo's permission vocabulary as the
+	 * daemon itself defines it (plan, build, …). Listed live: a hardcoded
+	 * set here would drift from what the daemon enforces. A refusal in the
+	 * payload (provider not ready) surfaces as this deployment's 502 with
+	 * the daemon's own words, so the pill can say why the list is empty. */
+	async listProviderModes(provider: string): Promise<CodeProviderMode[]> {
+		const result = await this.operate((client) => client.listProviderModes(provider));
+		if (result.error) {
+			error(502, `The daemon could not list modes: ${result.error}`);
+		}
+		return (result.modes ?? []).map((mode) => ({
+			id: mode.id,
+			label: mode.label,
+			...(mode.description ? { description: mode.description } : {}),
+		}));
+	}
+
+	/** The models the provider offers, live from the daemon. `isSelectable`
+	 * is honoured — a model the provider refuses to select must not be
+	 * offered — and a refusal in the payload is a 502 like the modes'. */
+	async listProviderModels(provider: string): Promise<CodeProviderModel[]> {
+		const result = await this.operate((client) => client.listProviderModels(provider));
+		if (result.error) {
+			error(502, `The daemon could not list models: ${result.error}`);
+		}
+		return (result.models ?? [])
+			.filter((model) => model.isSelectable !== false)
+			.map((model) => ({
+				id: model.id,
+				label: model.label,
+				...(model.description ? { description: model.description } : {}),
+				...(model.isDefault ? { isDefault: true } : {}),
+			}));
+	}
+
+	/** Switch the agent's mode (plan, build, …). A provider refusal travels
+	 * back as a notice rather than a thrown error — the panel shows it and
+	 * the next snapshot read still reports the truth. */
+	async setAgentMode(agentId: string, modeId: string): Promise<string | null> {
+		const notice = await this.operate((client) => client.setAgentMode(agentId, modeId));
+		if (notice?.type === "error") error(502, notice.message);
+		return notice?.message ?? null;
+	}
+
+	/** Switch the agent's model (`null` resets to the provider's default). */
+	async setAgentModel(agentId: string, modelId: string | null): Promise<void> {
+		await this.operate((client) => client.setAgentModel(agentId, modelId));
+	}
+
+	async sendAgentMessage(agentId: string, text: string): Promise<void> {
+		await this.operate((client) => client.sendAgentMessage(agentId, text));
 	}
 
 	async respondPermission(
@@ -300,6 +356,10 @@ class DeviceDaemonLink {
 function toWorkspace(payload: {
 	id: string;
 	name?: string | null;
+	// The custom title `setWorkspaceTitle` writes; it overrides the derived
+	// name in the daemon's listings, so it leads here too — a rename would
+	// otherwise be invisible in the tree.
+	title?: string | null;
 	directory?: string | null;
 	projectDisplayName?: string | null;
 	projectRootPath?: string | null;
@@ -308,7 +368,11 @@ function toWorkspace(payload: {
 	return {
 		id: payload.id,
 		name:
-			payload.name ?? payload.projectDisplayName ?? path.split("/").filter(Boolean).pop() ?? path,
+			payload.title ??
+			payload.name ??
+			payload.projectDisplayName ??
+			path.split("/").filter(Boolean).pop() ??
+			path,
 		path,
 	};
 }
@@ -322,6 +386,11 @@ function toSession(payload: {
 	title?: string | null;
 	pendingPermissions?: unknown[];
 	updatedAt?: string | null;
+	// The live session config, as the snapshot carries it: `currentModeId`
+	// is the daemon's mode switch (plan, build, …), `model` the model id.
+	// Both nullable — an agent that has not reported them yet shows none.
+	currentModeId?: string | null;
+	model?: string | null;
 }): CodeAgentSession {
 	const base =
 		payload.status === "running"
@@ -342,6 +411,8 @@ function toSession(payload: {
 		provider: payload.provider,
 		state,
 		updatedAt: payload.updatedAt ?? new Date().toISOString(),
+		modeId: payload.currentModeId ?? null,
+		modelId: payload.model ?? null,
 	};
 }
 
