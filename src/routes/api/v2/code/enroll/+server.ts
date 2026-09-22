@@ -16,6 +16,10 @@
  * cannot point the server at a different rendezvous. Both directions are
  * scoped to the caller's own pending rows, and the code is cleared the
  * moment it is used.
+ *
+ * The offer parsing itself is shared with the machine endpoint
+ * (`machine/+server.ts`, same directory), which pairs without the code and
+ * the paste — see that file.
  */
 
 import { error, type RequestHandler } from "@sveltejs/kit";
@@ -28,6 +32,7 @@ import {
 	deviceView,
 	newPairingCode,
 	ownerFilter,
+	parseOffer,
 	requireCodeAgents,
 } from "$lib/server/codeDevices";
 import { logger } from "$lib/server/logger";
@@ -36,50 +41,6 @@ const startSchema = z.object({
 	action: z.literal("start"),
 	name: z.string().trim().min(1).max(64),
 });
-
-const offerSchema = z.object({
-	// The daemon emits v as a JSON number (verified live against a real
-	// 0.8.0 pairing link: {"v":2,...}), not a string. The panel never acts
-	// on the offer version — the probe speaks protocol v2 unconditionally —
-	// so both scalar shapes are accepted and the value is ignored.
-	v: z.union([z.string(), z.number()]).optional(),
-	serverId: z.string().trim().min(1).max(256),
-	daemonPublicKeyB64: z
-		.string()
-		.trim()
-		.regex(/^[A-Za-z0-9+/=]+$/, "not base64"),
-});
-
-function parseOffer(raw: string): z.infer<typeof offerSchema> {
-	const text = raw.trim();
-	let json: unknown;
-	if (text.startsWith("{")) {
-		try {
-			json = JSON.parse(text);
-		} catch {
-			error(400, "That pairing offer is not valid JSON.");
-		}
-	} else {
-		const fragmentIndex = text.indexOf("#offer=");
-		if (fragmentIndex === -1) {
-			error(400, "Paste the pairing link `paseo daemon pair` prints on the machine.");
-		}
-		const encoded = text
-			.slice(fragmentIndex + "#offer=".length)
-			.split(/[?&]/)[0]
-			.trim();
-		try {
-			json = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-		} catch {
-			error(400, "The pairing link's offer could not be read.");
-		}
-	}
-	const parsed = offerSchema.safeParse(json);
-	if (!parsed.success) {
-		error(400, "That pairing offer is missing the daemon's relay identity.");
-	}
-	return parsed.data;
-}
 
 const claimSchema = z.object({
 	action: z.literal("claim"),

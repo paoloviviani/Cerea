@@ -36,6 +36,18 @@ function getClientAddressSafe(event: RequestEvent): string | undefined {
 const MACHINE_ADMIN_ROUTES = new Set(["/admin/export", "/admin/stats/compute"]);
 const MACHINE_ADMIN_PATHS = ["/admin/export", "/admin/stats/compute"];
 
+/**
+ * The /code pairing endpoint a *machine* calls (`enroll pair` on the agent
+ * machine), with a bearer from this deployment's identity provider that the
+ * endpoint validates itself. It must stay out of both generic paths below:
+ * the bearer branch of `authenticateRequest` presents tokens to
+ * huggingface.co — an IdP token dies there as a thrown 500 — and the
+ * signed-in wall would 401 a request that already carries its credential.
+ * Same shape as the admin set above: a program's endpoint, its own credential.
+ */
+const MACHINE_CODE_ROUTES = new Set(["/api/v2/code/enroll/machine"]);
+const MACHINE_CODE_PATHS = ["/api/v2/code/enroll/machine"];
+
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
 	const requestId = crypto.randomUUID();
@@ -93,7 +105,12 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				}
 			}
 
-			const isApi = event.url.pathname.startsWith(`${base}/api/`);
+			// The machine pairing endpoint validates its own bearer (an IdP
+			// token, not an HF one), so the generic bearer path must never see
+			// it — see MACHINE_CODE_ROUTES above.
+			const isApi =
+				event.url.pathname.startsWith(`${base}/api/`) &&
+				!MACHINE_CODE_ROUTES.has(event.route.id ?? "");
 			const auth = await authenticateRequest(
 				event.request.headers,
 				event.cookies,
@@ -210,8 +227,11 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// authenticate with a static secret and carry no session, so the
 				// login wall would refuse the cron job that is entitled to them.
 				// The administration UI under /admin is deliberately *not* exempt —
-				// it is a person, and a person has to be signed in.
+				// it is a person, and a person has to be signed in. The machine
+				// pairing endpoint is exempt for the same reason (its bearer is
+				// the credential) and the same scope: the route only, not /code.
 				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
+				!MACHINE_CODE_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
 				// And `/logout` answers for itself: refusing a 401 to a session
 				// that is already gone is refusing to clean up after it.
