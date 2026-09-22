@@ -239,6 +239,26 @@ class DeviceDaemonLink {
 		await this.operate((client) => client.deleteAgent(agentId));
 	}
 
+	/** Archive a session: it leaves the daemon's active lists, its transcript
+	 * archived with it — the panel's tree follows the daemon's listings, so
+	 * the row goes when the daemon says so, not before. Nothing on disk
+	 * changes; this is not the hard delete `deleteAgent` performs. */
+	async archiveAgentSession(agentId: string): Promise<void> {
+		await this.operate((client) => client.archiveAgent(agentId));
+	}
+
+	/** Archive a workspace: the daemon drops it and its sessions from its
+	 * active lists, and its local directories are untouched — the daemon owns
+	 * the worktree lifecycle, and the workspace's project may back other
+	 * checkouts, so `removeProject` is never the panel's move. The refusal
+	 * travels in the payload, not as a thrown error. */
+	async archiveWorkspace(workspaceId: string): Promise<void> {
+		const result = await this.operate((client) => client.archiveWorkspace(workspaceId));
+		if (result.error) {
+			error(502, `The daemon refused to archive the workspace: ${result.error}`);
+		}
+	}
+
 	async sendAgentMessage(agentId: string, text: string, posture: "plan" | "write"): Promise<void> {
 		await this.operate(async (client) => {
 			// Posture is the daemon's own mode switch: plan proposes, build writes.
