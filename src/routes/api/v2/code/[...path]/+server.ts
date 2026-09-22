@@ -35,16 +35,21 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: /^v1\/workspaces$/ },
 	{ method: "POST", pattern: /^v1\/workspaces$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/title$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
 	{ method: "GET", pattern: /^v1\/agents$/ },
 	{ method: "POST", pattern: /^v1\/agents$/ },
 	{ method: "GET", pattern: /^v1\/providers$/ },
+	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/modes$`) },
+	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/models$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/timeline$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
@@ -90,6 +95,20 @@ export const GET: RequestHandler = async (event) => {
 		return superjsonResponse({ providers: await link.listProviders() });
 	}
 
+	// The two live option lists for the composer's pills: the provider's
+	// modes (paseo's permission vocabulary) and models, exactly as the
+	// daemon defines them. The provider id names the daemon's provider —
+	// the ID regex guards the path, the daemon answers the rest.
+	const modesMatch = new RegExp(`^v1/providers/(${ID})/modes$`).exec(path);
+	if (modesMatch) {
+		return superjsonResponse({ modes: await link.listProviderModes(modesMatch[1]) });
+	}
+
+	const modelsMatch = new RegExp(`^v1/providers/(${ID})/models$`).exec(path);
+	if (modelsMatch) {
+		return superjsonResponse({ models: await link.listProviderModels(modelsMatch[1]) });
+	}
+
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	if (agentMatch) {
 		return superjsonResponse({ agent: await link.getAgent(decodeURIComponent(agentMatch[1])) });
@@ -122,7 +141,22 @@ export const GET: RequestHandler = async (event) => {
 
 const messageSchema = z.object({
 	text: z.string().trim().min(1).max(16_000),
-	posture: z.enum(["plan", "write"]).default("plan"),
+});
+
+// The mode/model switches apply live to the open agent — the composer's
+// pills carry them, not the send. A mode the provider refused comes back
+// as a notice string (null when applied silently); a model switch answers
+// void, so there is nothing to carry but ok.
+const modeSchema = z.object({
+	modeId: z.string().trim().min(1).max(120),
+});
+
+const modelSchema = z.object({
+	modelId: z.string().trim().min(1).max(200).nullable(),
+});
+
+const titleSchema = z.object({
+	title: z.string().trim().min(1).max(120).nullable(),
 });
 
 const createSchema = z.object({
@@ -175,13 +209,38 @@ export const POST: RequestHandler = async (event) => {
 	const messageMatch = new RegExp(`^v1/agents/(${ID})/messages$`).exec(path);
 	if (messageMatch) {
 		const parsed = messageSchema.safeParse(body);
-		if (!parsed.success) error(400, "Expected { text, provider?, posture? }.");
-		await link.sendAgentMessage(
-			decodeURIComponent(messageMatch[1]),
-			parsed.data.text,
-			parsed.data.posture
-		);
+		if (!parsed.success) error(400, "Expected { text }.");
+		await link.sendAgentMessage(decodeURIComponent(messageMatch[1]), parsed.data.text);
 		return superjsonResponse({ ok: true });
+	}
+
+	// The live mode/model switches, the composer's pills. The mode answers
+	// with the provider's notice (null when applied without comment); the
+	// model answers void. Both leave the truth to the next snapshot read.
+	const modeMatch = new RegExp(`^v1/agents/(${ID})/mode$`).exec(path);
+	if (modeMatch) {
+		const parsed = modeSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { modeId }.");
+		const notice = await link.setAgentMode(decodeURIComponent(modeMatch[1]), parsed.data.modeId);
+		return superjsonResponse({ ok: true, notice });
+	}
+
+	const modelMatch = new RegExp(`^v1/agents/(${ID})/model$`).exec(path);
+	if (modelMatch) {
+		const parsed = modelSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { modelId: string | null }.");
+		await link.setAgentModel(decodeURIComponent(modelMatch[1]), parsed.data.modelId);
+		return superjsonResponse({ ok: true });
+	}
+
+	// The workspace rename — the daemon's own setWorkspaceTitle, answering
+	// the title as the daemon recorded it.
+	const titleMatch = new RegExp(`^v1/workspaces/(${ID})/title$`).exec(path);
+	if (titleMatch) {
+		const parsed = titleSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { title: string | null }.");
+		const title = await link.renameWorkspace(decodeURIComponent(titleMatch[1]), parsed.data.title);
+		return superjsonResponse({ title });
 	}
 
 	const permissionMatch = new RegExp(`^v1/agents/(${ID})/permissions/(${ID})$`).exec(path);

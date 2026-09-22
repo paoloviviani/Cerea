@@ -12,7 +12,8 @@
 	the column carrying the workspace name and the provider/state pills, and
 	the daemon's permission requests, which render as the chat's approval card
 	answering through the relay forwarder. Git changes live in the shared side
-	pane; follow-ups carry the composer's posture, plan by default.
+	pane; the composer carries the agent's mode and model as pills, switched
+	live on the daemon rather than per send.
 
 	The address (`?device=&ws=&agent=`) is the selection; the `{#key}` in
 	`CodePanel` remounts this whole view on a new address, so the transcript is
@@ -30,13 +31,7 @@
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
 	import { codeAgentStream } from "$lib/codeAgentStream";
-	import {
-		getAgent,
-		listWorkspaces,
-		respondPermission,
-		sendFollowUp,
-		type AgentPosture,
-	} from "$lib/codeApi";
+	import { getAgent, listWorkspaces, respondPermission, sendFollowUp } from "$lib/codeApi";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
@@ -78,15 +73,7 @@
 	});
 
 	onMount(() => {
-		(async () => {
-			try {
-				agent = (await getAgent(deviceId, agentId)).agent;
-			} catch {
-				// The transcript carries its own states; a strip that only
-				// errors when the daemon is off is worse than fallbacks.
-				agent = null;
-			}
-		})();
+		refreshAgent();
 		(async () => {
 			if (!workspaceId) return;
 			try {
@@ -97,6 +84,19 @@
 			}
 		})();
 	});
+
+	/** One snapshot read, from mount and after every composer switch: the
+	 * strip's pills and the composer's mode/model pills label from the
+	 * daemon's own word, never from what the request claimed. */
+	async function refreshAgent() {
+		try {
+			agent = (await getAgent(deviceId, agentId)).agent;
+		} catch {
+			// The transcript carries its own states; a strip that only
+			// errors when the daemon is off is worse than fallbacks.
+			agent = null;
+		}
+	}
 
 	// Mounting this iterator IS the history fetch (a fresh subscription replays
 	// the daemon's log before tailing), so the transcript assembles itself from
@@ -191,13 +191,13 @@
 	// strip simply carries the pills.
 	let workspaceName = $derived(workspace?.name ?? "");
 
-	async function handleSend(text: string, posture: AgentPosture) {
+	async function handleSend(text: string) {
 		pending = true;
 		failure = null;
 		// The send is the request to see the exchange — same contract as chat.
 		column?.notifySend();
 		try {
-			await sendFollowUp(deviceId, agentId, text, { posture });
+			await sendFollowUp(deviceId, agentId, text);
 		} catch (err) {
 			pending = false;
 			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
@@ -287,13 +287,19 @@
 					<IconCode class="size-10 text-ink-faint" />
 					<p class="text-sm font-medium text-ink">Ready when you are</p>
 					<p class="max-w-xs text-xs text-ink-muted">
-						Describe the task below. The agent proposes a plan first, and asks before it touches
-						anything.
+						Describe the task below. The mode pill sets how much the agent may do on its own, and it
+						asks before anything destructive.
 					</p>
 				</div>
 			{/snippet}
 			{#snippet composer()}
-				<AgentComposer onsend={handleSend} />
+				<AgentComposer
+					{deviceId}
+					{agentId}
+					{agent}
+					onsend={handleSend}
+					onchanged={() => void refreshAgent()}
+				/>
 			{/snippet}
 		</ChatMessageColumn>
 
