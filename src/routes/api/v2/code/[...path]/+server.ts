@@ -22,11 +22,12 @@
  *   machines.
  */
 
-import { error, json, type RequestHandler } from "@sveltejs/kit";
+import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { linkForDevice, toFileChanges } from "$lib/server/codeDaemon";
 import { timelineEntryToUpdate } from "$lib/server/codeTimeline";
 import { requireCodeAgents } from "$lib/server/codeDevices";
+import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 
 const ID = "[A-Za-z0-9_.:~-]+";
 
@@ -62,45 +63,51 @@ export const GET: RequestHandler = async (event) => {
 	const link = await linkForDevice(event.locals, event.url.searchParams.get("device"));
 
 	if (path === "v1/workspaces") {
-		return json({ workspaces: await link.listWorkspaces() });
+		return superjsonResponse({ workspaces: await link.listWorkspaces() });
 	}
 
 	const workspaceMatch = /^v1\/workspaces\/([^/]+)$/.exec(path);
 	if (workspaceMatch) {
-		return json({ workspace: await link.getWorkspace(decodeURIComponent(workspaceMatch[1])) });
+		return superjsonResponse({
+			workspace: await link.getWorkspace(decodeURIComponent(workspaceMatch[1])),
+		});
 	}
 
 	const workspaceAgentsMatch = /^v1\/workspaces\/([^/]+)\/agents$/.exec(path);
 	if (workspaceAgentsMatch) {
 		const workspace = await link.getWorkspace(decodeURIComponent(workspaceAgentsMatch[1]));
-		return json({ agents: await link.listAgents(workspace.id) });
+		return superjsonResponse({ agents: await link.listAgents(workspace.id) });
 	}
 
 	if (path === "v1/agents") {
-		return json({ agents: await link.listAgents() });
+		return superjsonResponse({ agents: await link.listAgents() });
 	}
 
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	if (agentMatch) {
-		return json({ agent: await link.getAgent(decodeURIComponent(agentMatch[1])) });
+		return superjsonResponse({ agent: await link.getAgent(decodeURIComponent(agentMatch[1])) });
 	}
 
 	const messagesMatch = new RegExp(`^v1/agents/(${ID})/messages$`).exec(path);
 	if (messagesMatch) {
 		const timeline = await link.fetchTimeline(decodeURIComponent(messagesMatch[1]));
-		return json({ updates: timeline.entries.map(timelineEntryToUpdate).filter((u) => u !== null) });
+		return superjsonResponse({
+			updates: timeline.entries.map(timelineEntryToUpdate).filter((u) => u !== null),
+		});
 	}
 
 	const timelineMatch = new RegExp(`^v1/agents/(${ID})/timeline$`).exec(path);
 	if (timelineMatch) {
 		const timeline = await link.fetchTimeline(decodeURIComponent(timelineMatch[1]));
-		return json({ updates: timeline.entries.map(timelineEntryToUpdate).filter((u) => u !== null) });
+		return superjsonResponse({
+			updates: timeline.entries.map(timelineEntryToUpdate).filter((u) => u !== null),
+		});
 	}
 
 	const diffMatch = new RegExp(`^v1/agents/(${ID})/diff$`).exec(path);
 	if (diffMatch) {
 		const diff = await link.fetchDiff(decodeURIComponent(diffMatch[1]));
-		return json({ files: toFileChanges(diff) });
+		return superjsonResponse({ files: toFileChanges(diff) });
 	}
 
 	error(404, "Not available through this endpoint.");
@@ -148,14 +155,14 @@ export const POST: RequestHandler = async (event) => {
 	if (path === "v1/workspaces") {
 		const parsed = workspaceSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { path, title? } with an absolute path.");
-		return json({ workspace: await link.createWorkspace(parsed.data) });
+		return superjsonResponse({ workspace: await link.createWorkspace(parsed.data) });
 	}
 
 	const createMatch = /^v1\/agents$/.test(path);
 	if (createMatch) {
 		const parsed = createSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { cwd, provider?, posture?, title? }.");
-		return json({ agent: await link.createAgent(parsed.data) });
+		return superjsonResponse({ agent: await link.createAgent(parsed.data) });
 	}
 
 	const messageMatch = new RegExp(`^v1/agents/(${ID})/messages$`).exec(path);
@@ -167,7 +174,7 @@ export const POST: RequestHandler = async (event) => {
 			parsed.data.text,
 			parsed.data.posture
 		);
-		return json({ ok: true });
+		return superjsonResponse({ ok: true });
 	}
 
 	const permissionMatch = new RegExp(`^v1/agents/(${ID})/permissions/(${ID})$`).exec(path);
@@ -179,7 +186,7 @@ export const POST: RequestHandler = async (event) => {
 			decodeURIComponent(permissionMatch[2]),
 			parsed.data.decision
 		);
-		return json({ ok: true });
+		return superjsonResponse({ ok: true });
 	}
 
 	error(404, "Not available through this endpoint.");
@@ -194,5 +201,5 @@ export const DELETE: RequestHandler = async (event) => {
 	}
 	const link = await linkForDevice(event.locals, event.url.searchParams.get("device"));
 	await link.deleteAgent(decodeURIComponent(agentMatch[1]));
-	return json({ ok: true });
+	return superjsonResponse({ ok: true });
 };
