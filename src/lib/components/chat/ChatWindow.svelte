@@ -39,14 +39,9 @@
 	} from "$lib/utils/resumeAfterFailure";
 	import file2base64 from "$lib/utils/file2base64";
 	import { base } from "$app/paths";
-	import ChatMessage from "./ChatMessage.svelte";
+	import ChatMessageColumn from "./ChatMessageColumn.svelte";
 	import ThinkingEffortChip from "./ThinkingEffortChip.svelte";
-	import ScrollToBottomBtn from "../ScrollToBottomBtn.svelte";
-	import ScrollToPreviousBtn from "../ScrollToPreviousBtn.svelte";
 	import { browser } from "$app/environment";
-	import { createChatScroll } from "$lib/utils/scroll/chatScroll.svelte";
-	import { isAssistantGenerationTerminal } from "$lib/utils/generationState";
-	import { NAV_EDGE_SWIPE_ZONE_PX } from "$lib/constants/gestures";
 	import SystemPromptModal from "../SystemPromptModal.svelte";
 	import ShareConversationModal from "../ShareConversationModal.svelte";
 	import ChatIntroduction from "./ChatIntroduction.svelte";
@@ -254,7 +249,6 @@
 	let paneItems = $derived(collectPaneItems(messages, artifactRegistry, trackioDashboards));
 
 	let shareModalOpen = $state(false);
-	let editMsdgId: Message["id"] | null = $state(null);
 	let pastedLongContent = $state(false);
 
 	// Voice recording state
@@ -268,7 +262,7 @@
 	const handleSubmit = () => {
 		if (requireAuthUser() || loading || !draft) return;
 		tap();
-		chatScroll.notifySend();
+		column?.notifySend();
 		// Latches the mode onto the conversation, so the strip stays and swaps its
 		// tool note for the plan progress row. No-op when the mode is off.
 		mlAssistant.startTask();
@@ -360,7 +354,7 @@
 	function sendFixRequest(text: string): boolean {
 		if (requireAuthUser() || loading) return false;
 		tap();
-		chatScroll.notifySend();
+		column?.notifySend();
 		// Queued attachments belong to the user's next message, not to this
 		// machine-composed one. The send handler snapshots the bound `files`
 		// synchronously before its first await, so emptying around the call is
@@ -443,59 +437,7 @@
 		}
 	});
 
-	const chatScroll = createChatScroll();
-	let messagesEl: HTMLElement | undefined = $state();
-	let pendingEl: HTMLElement | undefined = $state();
-	let composerHeight = $state<number | undefined>(undefined);
-
-	// Turn grouping: a user message starts a turn, following assistant messages
-	// join it (plus a headless leading turn for edge shapes). Each turn renders
-	// as one group so the anchored turn's reservation is a single CSS
-	// min-height. Reads only
-	// ids/from, so token flushes never regroup.
-	let turns = $derived.by(() => {
-		const groups: { key: string; messages: Message[] }[] = [];
-		for (const message of messages) {
-			const last = groups.at(-1);
-			if (message.from === "user" || !last) {
-				groups.push({ key: message.id, messages: [message] });
-			} else {
-				last.messages.push(message);
-			}
-		}
-		return groups;
-	});
-
-	// Structural sync: conversation identity, the trailing turn, and which turn
-	// (if any) a reply is currently streaming into — the whole condition for a
-	// turn to anchor. Reads ids/from/loading only (terminal-ness untracked), so
-	// token flushes never re-run it. The terminal check keeps the pre-mount gap
-	// after a submit — when the trailing message is still the previous, settled
-	// reply — from anchoring that turn.
-	$effect(() => {
-		const lastMessage = messages.at(-1);
-		const lastTurnKey = turns.at(-1)?.key ?? null;
-		const streaming =
-			loading &&
-			lastMessage?.from === "assistant" &&
-			untrack(() => !isAssistantGenerationTerminal(lastMessage));
-		chatScroll.sync({
-			conversationKey: page.params?.id,
-			turnCount: turns.length,
-			lastTurnKey,
-			streamingTurnKey: streaming ? lastTurnKey : null,
-			// Untracked like the terminal check: read once at the streaming flip,
-			// never per token. A park resuming (wait elapsed, question answered)
-			// re-enters streaming on a message that already carries work — a
-			// continuation, not a new reply, so the carry-to-anchor must not
-			// re-run. A fresh reply's message is still empty at the flip.
-			resumedStream: Boolean(
-				streaming &&
-				lastMessage &&
-				untrack(() => lastMessage.content.length > 0 || (lastMessage.updates?.length ?? 0) > 0)
-			),
-		});
-	});
+	let column: ChatMessageColumn | undefined = $state();
 
 	// Conversation switch also resets the artifact panel. This used to
 	// piggyback on a first-message-id heuristic that misfired when the first
@@ -507,19 +449,6 @@
 			prevConversationKey = key;
 			sidePane.reset();
 		}
-	});
-
-	// The growing content element mounts after the container when a
-	// conversation gains its first messages (or the pending placeholder
-	// renders before any message exists) — re-point the size observer.
-	$effect(() => {
-		void messagesEl;
-		void pendingEl;
-		chatScroll.notifyContentChanged();
-	});
-
-	$effect(() => {
-		chatScroll.setComposerHeight(composerHeight);
 	});
 
 	// Open the newest dashboard the first time it shows up: the point of the run
@@ -929,193 +858,82 @@
      hit-area would otherwise swallow every click meant for it. Children
      re-enable pointer events themselves. -->
 <div class="pointer-events-none relative flex min-h-0 min-w-0">
-	<!-- --scrollbar-gutter: measured half-gutter of the scroll container, added
-	     to the composer overlay's padding so its text stays aligned with the
-	     message column on classic-scrollbar platforms. -->
-	<div
-		class="pointer-events-auto relative z-[-1] min-h-0 min-w-0 flex-1"
-		style="--scrollbar-gutter: {chatScroll.gutterHalfPx}px"
+	<ChatMessageColumn
+		{messages}
+		{messagesAlternatives}
+		{loading}
+		{pending}
+		isAuthor={!shared}
+		readOnly={isReadOnly}
+		showPlaceholder={showPendingPlaceholder}
+		conversationKey={page.params?.id}
+		{onretry}
+		{onshowAlternateMsg}
+		bind:this={column}
 	>
-		{#if shareModalOpen}
-			<ShareConversationModal open={shareModalOpen} onclose={() => shareModal.close()} />
-		{/if}
-		{#if canExport || canShare}
-			<!-- Lives in the chat column (not the layout) so it stays visible when
-			     the artifact panel is open. The export button used to sit here;
-			     it moved into the artifacts pane and this menu button opens it. -->
-			<div
-				class="pointer-events-auto hidden md:absolute md:top-5 md:right-6 md:z-10 md:flex md:items-center md:gap-2"
+		{#snippet overlay()}
+			{#if shareModalOpen}
+				<ShareConversationModal open={shareModalOpen} onclose={() => shareModal.close()} />
+			{/if}
+			{#if canExport || canShare}
+				<!-- Lives in the chat column (not the layout) so it stays visible when
+				     the artifact panel is open. The export button used to sit here;
+				     it moved into the artifacts pane and this menu button opens it. -->
+				<div
+					class="pointer-events-auto hidden md:absolute md:top-5 md:right-6 md:z-10 md:flex md:items-center md:gap-2"
+				>
+					{#if canExport}
+						<button
+							type="button"
+							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
+							onclick={() => sidePane.toggleLibrary()}
+							aria-label="Open artifacts panel"
+							title="Artifacts and chat export"
+						>
+							<CarbonSidePanelOpen />
+						</button>
+					{/if}
+					{#if canShare}
+						<button
+							type="button"
+							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
+								{loading ? 'cursor-not-allowed opacity-40' : ''}"
+							onclick={() => shareModal.open()}
+							aria-label="Share conversation"
+							disabled={loading}
+						>
+							<IconShare />
+						</button>
+					{/if}
+				</div>
+			{/if}
+			{#if featureAnnouncement && showFeatureAnnouncement && !mlSpotlightVisible}
+				<FeatureAnnouncementToast announcement={featureAnnouncement} />
+			{/if}
+		{/snippet}
+		{#snippet head()}
+			{#if preprompt && preprompt != currentModel.preprompt}
+				<SystemPromptModal preprompt={preprompt ?? ""} />
+			{/if}
+		{/snippet}
+		{#snippet introduction()}
+			<ChatIntroduction
+				{currentModel}
+				onmessage={(content) => {
+					onmessage?.(content);
+				}}
 			>
-				{#if canExport}
-					<button
-						type="button"
-						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
-						onclick={() => sidePane.toggleLibrary()}
-						aria-label="Open artifacts panel"
-						title="Artifacts and chat export"
-					>
-						<CarbonSidePanelOpen />
-					</button>
+				{#if mlSpotlightVisible}
+					<MlInternSpotlight ontry={tryMlIntern} ondismiss={dismissMlSpotlight} />
 				{/if}
-				{#if canShare}
-					<button
-						type="button"
-						class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
-							{loading ? 'cursor-not-allowed opacity-40' : ''}"
-						onclick={() => shareModal.open()}
-						aria-label="Share conversation"
-						disabled={loading}
-					>
-						<IconShare />
-					</button>
-				{/if}
-			</div>
-		{/if}
-		{#if featureAnnouncement && showFeatureAnnouncement && !mlSpotlightVisible}
-			<FeatureAnnouncementToast announcement={featureAnnouncement} />
-		{/if}
-		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-		<!-- tabindex: the document never scrolls in this app, so without it
-		     keyboard-only users cannot scroll the conversation at all. Keyboard
-		     focus draws a soft inset ring instead of the browser's default
-		     outline around the whole pane; mouse focus draws nothing. -->
-		<div
-			class="scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
-			tabindex="0"
-			aria-label="Conversation messages"
-			use:chatScroll.attach={{
-				content: () => messagesEl ?? pendingEl,
-				ignoreTouchZonePx: NAV_EDGE_SWIPE_ZONE_PX,
-			}}
-		>
-			<!-- @container: descendants (e.g. the per-message router-metadata row) adapt
-			     to the actual column width, which shrinks when the artifact panel is open -->
-			<div
-				class="@container mx-auto flex h-full max-w-3xl flex-col gap-6 px-5 pt-6 sm:gap-8 xl:max-w-4xl xl:pt-10"
-			>
-				{#if preprompt && preprompt != currentModel.preprompt}
-					<SystemPromptModal preprompt={preprompt ?? ""} />
-				{/if}
-
-				{#if messages.length > 0}
-					<!-- padding-bottom is the composer clearance (content never hides
-					     behind the composer overlay); the SSR-rendered value equals the
-					     historical clearance. The anchored turn's min-height is the
-					     reservation its reply streams into — space the turn owns from
-					     the start, so filling it moves nothing. -->
-					<div
-						bind:this={messagesEl}
-						class="flex h-max flex-col gap-8"
-						style:padding-bottom="{chatScroll.bottomClearancePx}px"
-					>
-						<!-- Turn groups are identified by position, not key: the post-stream
-						     reconciliation re-keys every message, and re-created group
-						     elements would give Safari an in-between layout to clamp the
-						     view against (it clamps synchronously mid-DOM-swap). Messages
-						     inside stay keyed by id; the group's reservation binds to the
-						     anchored INDEX for the same reason. -->
-						{#each turns as turn, turnIdx}
-							<div
-								class="flex flex-col gap-8"
-								style:min-height={turnIdx === chatScroll.anchoredTurnIndex
-									? `${chatScroll.anchorMinHeightPx}px`
-									: null}
-							>
-								{#each turn.messages as message, msgIdx (message.id)}
-									<ChatMessage
-										{loading}
-										{message}
-										alternatives={messagesAlternatives.find((a) => a.includes(message.id)) ?? []}
-										isAuthor={!shared}
-										readOnly={isReadOnly}
-										isLast={turnIdx === turns.length - 1 && msgIdx === turn.messages.length - 1}
-										bind:editMsdgId
-										onretry={(payload) => {
-											// Edit-with-content mounts a fresh turn like a send; a
-											// plain regenerate needs nothing — the reservation
-											// absorbs the old reply's collapse either way.
-											if (payload.content !== undefined) chatScroll.notifySend();
-											onretry?.(payload);
-										}}
-										onshowAlternateMsg={(payload) => {
-											chatScroll.notifyBranchSwitch();
-											onshowAlternateMsg?.(payload);
-										}}
-									/>
-								{/each}
-								{#if turnIdx === turns.length - 1 && showPendingPlaceholder}
-									<ChatMessage
-										loading={true}
-										message={{
-											id: "pending-placeholder",
-											content: "",
-											from: "assistant",
-											children: [],
-										}}
-										isAuthor={!shared}
-										readOnly={isReadOnly}
-									/>
-								{/if}
-							</div>
-						{/each}
-						{#if isReadOnly}
-							<ModelSwitch models={switchableModels} {currentModel} />
-						{/if}
-					</div>
-				{:else if pending}
-					<!-- Outside messagesEl, so it gets its own wrapper for the scroll
-					     controller's size observer (an h-full column never resizes). -->
-					<div bind:this={pendingEl} class="flex h-max flex-col">
-						<ChatMessage
-							loading={true}
-							message={{
-								id: "0-0-0-0-0",
-								content: "",
-								from: "assistant",
-								children: [],
-							}}
-							isAuthor={!shared}
-							readOnly={isReadOnly}
-						/>
-					</div>
-				{:else}
-					<ChatIntroduction
-						{currentModel}
-						onmessage={(content) => {
-							onmessage?.(content);
-						}}
-					>
-						{#if mlSpotlightVisible}
-							<MlInternSpotlight ontry={tryMlIntern} ondismiss={dismissMlSpotlight} />
-						{/if}
-					</ChatIntroduction>
-				{/if}
-			</div>
-
-			<ScrollToPreviousBtn
-				class="fixed right-4 bottom-48 lg:right-10"
-				visible={chatScroll.showJumpToPrevious}
-				onclick={() => chatScroll.scrollToPreviousMessage()}
-			/>
-
-			<ScrollToBottomBtn
-				class="fixed right-4 bottom-36 lg:right-10"
-				visible={chatScroll.showJumpToBottom}
-				onclick={() => chatScroll.scrollToBottom()}
-			/>
-		</div>
-
-		<!-- --scrollbar-gutter (measured by chatScroll) keeps the composer text
-		     aligned with the message column, whose content box is narrowed by
-		     the scroller's scrollbar-gutter on classic-scrollbar platforms. -->
-		<div
-			bind:clientHeight={composerHeight}
-			class="pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
-			max-w-3xl flex-col items-center justify-center bg-linear-to-t from-white
-			via-white to-white/0 px-[calc(0.875rem+var(--scrollbar-gutter,0px))] pt-2 *:pointer-events-auto
-			max-sm:py-0 sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))]
-			md:pb-4 xl:max-w-4xl dark:border-gray-800 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900/0"
-		>
+			</ChatIntroduction>
+		{/snippet}
+		{#snippet tail()}
+			{#if isReadOnly}
+				<ModelSwitch models={switchableModels} {currentModel} />
+			{/if}
+		{/snippet}
+		{#snippet composer()}
 			{#if !draft.length && !messages.length && !sources.length && !loading && (mlModeOn || currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
 				<div
 					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
@@ -1427,8 +1245,8 @@
 					{/if}
 				</div>
 			</div>
-		</div>
-	</div>
+		{/snippet}
+	</ChatMessageColumn>
 
 	<ArtifactPanel
 		registry={artifactRegistry}

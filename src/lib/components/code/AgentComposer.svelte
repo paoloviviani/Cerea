@@ -1,126 +1,127 @@
 <!--
-	A follow-up, with its licence attached.
+	A follow-up, with its licence attached — in the chat's own composer.
 
-	Every message carries a posture, and the posture defaults to "plan":
-	propose, never write, until the person opts into writes for this agent.
-	The default resets on every mount on purpose — writes are a decision made
-	looking at the transcript, not a preference remembered from last week.
-	There is no provider field: the agent already has one, and the daemon's
-	send takes none — a picker here would be a control that does nothing.
+	The textarea is ChatInput with the default props: no mime types to offer
+	(no upload affordances), no conversation to PATCH (so no web-search or
+	knowledge or tool-approval pills either — the pill row hides with an
+	empty allowlist), no hub mentions. What replaces the chat's model-picker
+	row underneath is the posture: every follow-up carries a licence, and
+	"plan" is the default — propose, never write, until the person opts into
+	writes for this send. The default resets on every mount on purpose;
+	writes are a decision made looking at the transcript, not a preference
+	remembered from last week. There is no provider field: the agent already
+	has one, and the daemon's send takes none.
 
-	The box grows with its text (ChatInput's behaviour, without the chat
-	surface's file/mention/model machinery, none of which an agent follow-up
-	has). The reply is NOT inserted optimistically: the timeline stream
-	echoes the person's message back, and the stream is the transcript's
-	source of truth. Sending twice against a slow daemon would print twice.
+	The reply is NOT inserted optimistically: the transcript stream echoes
+	the person's message back, and the stream is the source of truth.
+	Sending twice against a slow daemon would print twice.
 -->
 <script lang="ts">
-	import IconSend from "~icons/carbon/send";
+	import ChatInput from "$lib/components/chat/ChatInput.svelte";
+	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconWarning from "~icons/carbon/warning-filled";
-	import { sendFollowUp, type AgentPosture } from "$lib/codeApi";
-	import * as s from "$lib/components/overlay/styles";
+	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
+	import type { AgentPosture } from "$lib/codeApi";
 
 	interface Props {
-		deviceId: string;
-		agentId: string;
+		/** Called synchronously with the submit, before the POST — the view
+		 * engages the column's follow and raises its pending placeholder. */
+		onsend: (text: string, posture: AgentPosture) => Promise<void>;
 	}
 
-	let { deviceId, agentId }: Props = $props();
+	let { onsend }: Props = $props();
 
-	let text = $state("");
+	let draft = $state("");
 	let posture = $state<AgentPosture>("plan");
+	let focused = $state(false);
 	let busy = $state(false);
-	let failure = $state<string | null>(null);
-	let box: HTMLTextAreaElement | undefined = $state();
 
-	async function send() {
-		const message = text.trim();
+	async function submit() {
+		const message = draft.trim();
 		if (!message || busy) return;
 		busy = true;
-		failure = null;
 		try {
-			await sendFollowUp(deviceId, agentId, message, { posture });
-			text = "";
-			grow();
-			box?.focus();
-		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
+			await onsend(message, posture);
+			// Cleared only on a landed send: a refused follow-up keeps its text,
+			// like every composer here.
+			draft = "";
 		} finally {
 			busy = false;
 		}
 	}
 
-	/** Grow with the text, cap at a third of the viewport so a pasted log
-	 * cannot swallow the transcript. */
-	function grow() {
-		if (!box) return;
-		box.style.height = "auto";
-		box.style.height = `${Math.min(box.scrollHeight, Math.floor(window.innerHeight / 3))}px`;
-	}
-
-	function onKeydown(event: KeyboardEvent) {
-		if (event.key === "Enter" && !event.shiftKey) {
-			event.preventDefault();
-			void send();
-		}
+	function postureClass(active: boolean): string {
+		return active
+			? "rounded-md bg-gray-200/80 px-1.5 py-0.5 font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+			: "rounded-md px-1.5 py-0.5 hover:text-gray-600 dark:hover:text-gray-300";
 	}
 </script>
 
-<div class="border-t border-line px-4 pt-3 pb-4">
-	{#if failure}
-		<div class="{s.ERROR} mb-2">{failure}</div>
-	{/if}
-	<div class="flex flex-col gap-2">
-		<textarea
-			bind:this={box}
-			bind:value={text}
-			onkeydown={onKeydown}
-			oninput={grow}
-			rows={1}
-			placeholder="Follow up with the agent…"
-			class="{s.INPUT} scrollbar-custom resize-none"
-			disabled={busy}
-		></textarea>
-		<div class="flex flex-wrap items-center gap-2">
-			<div
-				class="flex overflow-hidden rounded-lg border border-line text-xs font-medium"
-				role="group"
-				aria-label="Posture"
+<form
+	tabindex="-1"
+	onsubmit={(e) => {
+		e.preventDefault();
+		void submit();
+	}}
+	class={{
+		"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-gray-100 dark:border-gray-700 dark:bg-gray-800": true,
+		"max-sm:mb-4": focused && isVirtualKeyboard(),
+	}}
+	style:--composer-actions-width="44px"
+>
+	<div class="flex w-full items-center">
+		<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
+			<ChatInput
+				placeholder="Follow up with the agent…"
+				bind:value={draft}
+				mimeTypes={[]}
+				onsubmit={submit}
+				bind:focused
+			/>
+			<button
+				class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
+					? ''
+					: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+				disabled={!draft.trim() || busy}
+				type="submit"
+				aria-label="Send message"
+				name="submit"
 			>
-				<button
-					onclick={() => (posture = "plan")}
-					aria-pressed={posture === "plan"}
-					class="px-2.5 py-1 {posture === 'plan'
-						? 'bg-accent-subtle text-accent'
-						: 'text-ink-muted hover:bg-sunken'}"
-					disabled={busy}
-					title="The agent proposes; it never writes."
-				>
-					Plan
-				</button>
-				<button
-					onclick={() => (posture = "write")}
-					aria-pressed={posture === "write"}
-					class="px-2.5 py-1 {posture === 'write'
-						? 'bg-accent-subtle text-accent'
-						: 'text-ink-muted hover:bg-sunken'}"
-					disabled={busy}
-					title="The agent may edit files."
-				>
-					Write
-				</button>
-			</div>
-			{#if posture === "write"}
-				<span class="flex items-center gap-1 text-xs text-amber-700">
-					<IconWarning class="size-3.5" />
-					May edit files
-				</span>
-			{/if}
-			<span class="flex-1"></span>
-			<button onclick={() => void send()} class={s.PRIMARY} disabled={!text.trim() || busy}>
-				<IconSend class="size-4" />
-				{busy ? "Sending…" : "Send"}
+				<IconArrowUp />
 			</button>
 		</div>
 	</div>
+</form>
+<div
+	class={{
+		"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
+		"max-sm:hidden": focused && isVirtualKeyboard(),
+	}}
+>
+	<div class="flex items-center gap-0.5" role="group" aria-label="Posture">
+		<button
+			type="button"
+			onclick={() => (posture = "plan")}
+			aria-pressed={posture === "plan"}
+			class={postureClass(posture === "plan")}
+			title="The agent proposes; it never writes."
+		>
+			Plan
+		</button>
+		<button
+			type="button"
+			onclick={() => (posture = "write")}
+			aria-pressed={posture === "write"}
+			class={postureClass(posture === "write")}
+			title="The agent may edit files."
+		>
+			Write
+		</button>
+	</div>
+	{#if posture === "write"}
+		<span class="ml-1.5 flex items-center gap-1 text-amber-600 dark:text-amber-400">
+			<IconWarning class="size-3" />
+			May edit files
+		</span>
+	{/if}
 </div>

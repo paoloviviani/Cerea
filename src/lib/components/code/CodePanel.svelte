@@ -36,9 +36,11 @@
 	let loading = $state(true);
 
 	// The address is the selection; `ws` rides along so the sidebar can
-	// highlight the workspace the session belongs to.
+	// highlight the workspace the session belongs to, and the agent screen
+	// can name the workspace in its strip without guessing.
 	const selectedDeviceId = $derived(page.url.searchParams.get("device") ?? undefined);
 	const selectedAgentId = $derived(page.url.searchParams.get("agent") ?? undefined);
+	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws") ?? undefined);
 	const selected = $derived(devices.find((d) => d.id === selectedDeviceId));
 
 	onMount(() => {
@@ -74,7 +76,11 @@
 	{:else}
 		{#key `${selectedDeviceId ?? ""}:${selectedAgentId ?? ""}`}
 			{#if selectedAgentId && selectedDeviceId}
-				<AgentView deviceId={selectedDeviceId} agentId={selectedAgentId} />
+				<AgentView
+					deviceId={selectedDeviceId}
+					agentId={selectedAgentId}
+					workspaceId={selectedWorkspaceId}
+				/>
 			{:else if loading}
 				<div class={s.EMPTY}>
 					<IconLaptop class={s.EMPTY_ICON} />

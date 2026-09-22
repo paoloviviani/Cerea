@@ -19,9 +19,26 @@
 		request: ElicitationRequestPayload;
 		expiresAt?: number;
 		resolved?: MessageElicitationResolvedUpdate;
+		/**
+		 * Pluggable answer path: when set, the card answers through it instead
+		 * of `sendElicitationAnswer`, and the conversation-scope button is not
+		 * offered — the caller owns the semantics (the coding-agent surface
+		 * answers a daemon permission through its own forwarder; there is no
+		 * conversation to scope an "always" grant to).
+		 */
+		onanswer?: (action: ElicitationAction) => Promise<{ ok: boolean; error?: string }>;
+		/** The allow button's label; the agent path approves a single request. */
+		approveLabel?: string;
 	}
 
-	let { conversationId, request, expiresAt, resolved }: Props = $props();
+	let {
+		conversationId,
+		request,
+		expiresAt,
+		resolved,
+		onanswer,
+		approveLabel = "Allow once",
+	}: Props = $props();
 
 	const toolApproval = $derived(request.toolApproval);
 
@@ -65,6 +82,16 @@
 		if (submitting || !open) return;
 		submitting = scope ?? "deny";
 		error = null;
+		if (onanswer) {
+			const result = await onanswer(action);
+			submitting = null;
+			if (!result.ok) {
+				error = result.error ?? "The answer did not go through.";
+				return;
+			}
+			submitted = action;
+			return;
+		}
 		const result = await sendElicitationAnswer({
 			conversationId,
 			elicitationId: request.elicitationId,
@@ -157,21 +184,23 @@
 			<div class="mt-4 flex flex-wrap gap-2">
 				<button
 					type="button"
-					onclick={() => send("accept", "once")}
+					onclick={() => send("accept", onanswer ? undefined : "once")}
 					disabled={submitting !== null}
 					class="rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 				>
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
-					Allow once
+					{approveLabel}
 				</button>
-				<button
-					type="button"
-					onclick={() => send("accept", "conversation")}
-					disabled={submitting !== null}
-					class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-				>
-					Allow for this conversation
-				</button>
+				{#if !onanswer}
+					<button
+						type="button"
+						onclick={() => send("accept", "conversation")}
+						disabled={submitting !== null}
+						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+					>
+						Allow for this conversation
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={() => send("decline")}

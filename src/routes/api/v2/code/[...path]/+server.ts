@@ -97,7 +97,7 @@ export const GET: RequestHandler = async (event) => {
 	if (messagesMatch) {
 		const timeline = await link.fetchTimeline(decodeURIComponent(messagesMatch[1]));
 		return superjsonResponse({
-			updates: timeline.entries.map(timelineEntryToUpdate).filter((u) => u !== null),
+			updates: timeline.entries.flatMap(timelineEntryToUpdate),
 		});
 	}
 
@@ -105,7 +105,7 @@ export const GET: RequestHandler = async (event) => {
 	if (timelineMatch) {
 		const timeline = await link.fetchTimeline(decodeURIComponent(timelineMatch[1]));
 		return superjsonResponse({
-			updates: timeline.entries.map(timelineEntryToUpdate).filter((u) => u !== null),
+			updates: timeline.entries.flatMap(timelineEntryToUpdate),
 		});
 	}
 

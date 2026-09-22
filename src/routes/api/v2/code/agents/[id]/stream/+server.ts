@@ -5,16 +5,21 @@
  * one subscription to the daemon — through the caller's relay link
  * (`codeDaemon.ts`), never a browser-reachable URL. Frames are translated,
  * not relayed: daemon timeline items and stream events go through
- * `codeTimeline.ts`, and anything without a panel representation is dropped
- * rather than invented into one.
+ * `codeTimeline.ts` into the chat's update shapes, and anything without a
+ * panel representation is dropped rather than invented into one.
  *
  * History then live: the daemon's timeline is fetched (a bounded tail) and
  * mapped first; the subscription — opened before the fetch, buffering — is
  * drained afterwards, with frames the history already delivered dropped by
  * their stable keys. The seam between the two sources therefore cannot
- * double-render a frame in either direction.
+ * double-render a frame in either direction. Tool keys carry the status on
+ * purpose: history holds the call as it stood at fetch time, and the live
+ * completion that lands in the buffer must survive the seam instead of being
+ * keyed away by the stale entry. The agent's own status joins as a synthetic
+ * turn state, so a mount mid-run renders live without waiting for a turn
+ * event that has already fired.
  *
- * SSE: `event: update` carries one `CodeAgentUpdate`, tagged `id: <seq>` so
+ * SSE: `event: update` carries one `AgentStreamUpdate`, tagged `id: <seq>` so
  * EventSource resumes via Last-Event-ID on reconnect. The seq counts a
  * deterministic replay (the daemon's timeline is the same list on every
  * fetch), so a resumed connection skips exactly the frames the browser
@@ -28,24 +33,37 @@
 
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { linkForDevice } from "$lib/server/codeDaemon";
-import { streamEventToUpdate, timelineEntryToUpdate } from "$lib/server/codeTimeline";
+import {
+	agentStatusTurnState,
+	permissionRequestToUpdate,
+	streamEventToUpdate,
+	timelineEntryToUpdate,
+} from "$lib/server/codeTimeline";
 import { requireCodeAgents } from "$lib/server/codeDevices";
-import { CodeAgentUpdateType, type CodeAgentUpdate } from "$lib/types/CodeAgent";
+import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import { logger } from "$lib/server/logger";
 
 const MAX_LIFETIME_MS = 5 * 60_000;
 const HEARTBEAT_AFTER_MS = 15_000;
 
 /** A frame's identity for seam de-duplication: the same item never twice. */
-function frameKey(update: CodeAgentUpdate): string | null {
+function frameKey(update: AgentStreamUpdate): string | null {
 	switch (update.type) {
-		case CodeAgentUpdateType.AgentMessage:
-			return `m:${update.role}:${update.text}`;
-		case CodeAgentUpdateType.ToolCall:
-			return `t:${update.id}`;
-		case CodeAgentUpdateType.Plan:
-			return `p:${update.steps.map((step) => step.title).join("|")}`;
+		case "user":
+			return `u:${update.text}`;
+		case MessageUpdateType.Stream:
+			return `s:${update.token}`;
+		case MessageUpdateType.Tool:
+			return `t:${update.uuid}:${update.subtype}`;
+		case MessageUpdateType.Plan:
+			return `p:${update.goal}:${update.steps.map((step) => `${step.step}:${step.status}`).join("|")}`;
+		case MessageUpdateType.Elicitation:
+			return update.subtype === MessageElicitationUpdateType.Request
+				? `q:${update.request.elicitationId}`
+				: `r:${update.elicitationId}`;
 		default:
+			// Turn states are cosmetic re-convergences, never de-duplicated.
 			return null;
 	}
 }
@@ -59,7 +77,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 
 	// Subscribe first and buffer, so events fired while history is being
 	// fetched are queued rather than lost at the seam.
-	const buffered: CodeAgentUpdate[] = [];
+	const buffered: AgentStreamUpdate[] = [];
 	let wake: (() => void) | null = null;
 	const notify = () => {
 		wake?.();
@@ -70,9 +88,9 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		const event = (message as { event?: unknown }).event;
 		if (!event) return;
 		try {
-			const update = streamEventToUpdate(event as Parameters<typeof streamEventToUpdate>[0]);
-			if (update) {
-				buffered.push(update);
+			const updates = streamEventToUpdate(event as Parameters<typeof streamEventToUpdate>[0]);
+			if (updates.length) {
+				buffered.push(...updates);
 				notify();
 			}
 		} catch (err) {
@@ -86,12 +104,10 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		error(404, "No such agent on this daemon.");
 	}
 
-	let history: CodeAgentUpdate[] = [];
+	let history: AgentStreamUpdate[] = [];
 	try {
 		const timeline = await link.fetchTimeline(agentId);
-		history = timeline.entries
-			.map(timelineEntryToUpdate)
-			.filter((update): update is CodeAgentUpdate => update !== null);
+		history = timeline.entries.flatMap(timelineEntryToUpdate);
 	} catch (err) {
 		logger.warn({ err, agentId }, "timeline history fetch failed; streaming live only");
 	}
@@ -102,7 +118,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		const key = frameKey(update);
 		if (key) seen.add(key);
 	}
-	const drained: CodeAgentUpdate[] = [];
+	const drained: AgentStreamUpdate[] = [];
 	for (const update of buffered) {
 		const key = frameKey(update);
 		if (key && seen.has(key)) continue;
@@ -112,20 +128,27 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	buffered.length = 0;
 
 	// Permissions live outside the timeline: surface whatever is still
-	// pending so a fresh mount shows the blocking card. The transcript
-	// upserts these by request id, so a replay of a resolution overtakes
-	// them safely.
+	// pending so a fresh mount shows the blocking card. A request the
+	// subscription already delivered is skipped here, not rendered twice —
+	// the transcript's approval card is keyed by request id and the fold
+	// does not upsert request blocks. A replayed resolution overtakes them
+	// safely.
 	const pending = (agent.agent.pendingPermissions ?? [])
-		.map((request) =>
-			streamEventToUpdate({
-				type: "permission_requested",
-				provider: request.provider,
-				request,
-			} as Parameters<typeof streamEventToUpdate>[0])
-		)
-		.filter((update): update is CodeAgentUpdate => update !== null);
+		.map(permissionRequestToUpdate)
+		.filter((update) => {
+			const key = frameKey(update);
+			if (key && seen.has(key)) return false;
+			if (key) seen.add(key);
+			return true;
+		});
 
-	const initial: CodeAgentUpdate[] = [...history, ...pending, ...drained];
+	const statusFrame = agentStatusTurnState(agent.agent.status);
+	const initial: AgentStreamUpdate[] = [
+		...history,
+		...(statusFrame ? [statusFrame] : []),
+		...drained,
+		...pending,
+	];
 
 	const lastEventId = request.headers.get("last-event-id");
 	const resumeFrom =
@@ -140,7 +163,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			let closed = false;
 			let lastEmit = Date.now();
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
-			const emit = (update: CodeAgentUpdate) => {
+			const emit = (update: AgentStreamUpdate) => {
 				seq += 1;
 				enc(`id: ${seq}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
 				lastEmit = Date.now();
