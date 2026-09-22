@@ -90,9 +90,12 @@
 
 	// An effect, not the body and not onMount alone: the hierarchy follows the
 	// address, and a page body runs on the server where effects never fire.
-	// The key guard keeps address-unrelated refreshes from refetching.
+	// The device's presence is part of the key: on a hard load this effect
+	// fires before the device rows arrive, and without it the key guard would
+	// lock in the empty first run forever.
 	$effect(() => {
-		const key = `${selectedId ?? ""}:${selectedWorkspaceId ?? ""}`;
+		const device = devices.find((d) => d.id === selectedId);
+		const key = `${selectedId ?? ""}:${selectedWorkspaceId ?? ""}:${device?.status ?? ""}`;
 		if (key === hierarchyFor) return;
 		hierarchyFor = key;
 		void loadHierarchy();
