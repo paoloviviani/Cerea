@@ -272,7 +272,7 @@
 					{#if enrollment === "expired"}
 						<button
 							type="button"
-							class="shrink-0 rounded-full px-1.5 text-[.65rem] font-medium bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300"
+							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] font-medium text-red-800 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300"
 							title="This machine's enrollment expired or was revoked — click to re-enroll"
 							onclick={() => (reenrollFor = device)}
 						>

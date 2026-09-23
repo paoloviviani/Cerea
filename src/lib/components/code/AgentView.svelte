@@ -24,8 +24,18 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
-	import { MessageToolUpdateType, MessageUpdateType, type MessageTurnStateUpdate } from "$lib/types/MessageUpdate";
-	import type { CodeAgentSession, CodeSubagent, CodeSubagentAnchor, CodeTurnState, CodeWorkspace } from "$lib/types/CodeAgent";
+	import {
+		MessageToolUpdateType,
+		MessageUpdateType,
+		type MessageTurnStateUpdate,
+	} from "$lib/types/MessageUpdate";
+	import type {
+		CodeAgentSession,
+		CodeSubagent,
+		CodeSubagentAnchor,
+		CodeTurnState,
+		CodeWorkspace,
+	} from "$lib/types/CodeAgent";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
@@ -307,9 +317,7 @@
 			fallbackTitle: description ?? subagent?.description ?? "",
 			load: subagent
 				? () =>
-						fetchSubagentTimeline(deviceId, agentId, subagent.id).then(
-							(result) => result.updates
-						)
+						fetchSubagentTimeline(deviceId, agentId, subagent.id).then((result) => result.updates)
 				: null,
 		};
 	}
@@ -452,7 +460,7 @@
 			conversationKey="{deviceId}:{agentId}"
 			onanswerElicitation={answerPermission}
 			{subagentFor}
-			subagentCard={subagentCard}
+			{subagentCard}
 			bind:this={column}
 		>
 			{#snippet introduction()}
