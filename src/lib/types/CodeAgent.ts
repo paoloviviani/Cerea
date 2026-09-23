@@ -77,6 +77,56 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 export type CodeTurnState = "idle" | "running" | "waiting-permission" | "done" | "error";
 
 /**
+ * One subagent a turn spawned (the provider's Task tool), as the daemon's
+ * roster reports it — the polled list is the authority for its title, status
+ * and subtitle. `toolCallId` is the parent transcript's Task tool call, and
+ * is what anchors the subagent's card there; a subagent spawned without a
+ * tool call carries `null` and has no anchor, so the panel does not render
+ * it rather than guessing a position.
+ *
+ * Plain JSON only (no Dates): it crosses the forwarder's superjson wire as
+ * the daemon reported it.
+ */
+export interface CodeSubagent {
+	id: string;
+	parentAgentId: string;
+	parentSubagentId?: string | null;
+	provider: string;
+	title: string | null;
+	description: string | null;
+	status: CodeSubagentStatus;
+	createdAt: string;
+	updatedAt: string;
+	toolCallId: string | null;
+	cwd?: string | null;
+	subtitle?: string | null;
+}
+
+export type CodeSubagentStatus = "running" | "completed" | "failed" | "canceled";
+
+/**
+ * What the transcript's subagent card renders from, at the Task tool call it
+ * anchors. Built by the view (`AgentView`) when it merges the polled roster
+ * with the transcript's task calls; the card and `ChatMessage` see only this.
+ *
+ * `subagent` is null while the call is still running and the poll has not
+ * named it yet — the anchor is then the call itself (opencode names the spawn
+ * tool `task`), the title falls back to the call's own description, and the
+ * status reads running. Once the poll has paired a descriptor, it rules.
+ */
+export interface CodeSubagentAnchor {
+	subagent: CodeSubagent | null;
+	/** The task call's own description, the title until the roster names it. */
+	fallbackTitle: string;
+	/**
+	 * Fetch the subagent's own transcript, as agent frames for the chat's
+	 * fold. Null while `subagent` is — without an id there is nothing to
+	 * fetch, so the card offers no expansion yet.
+	 */
+	load: (() => Promise<AgentStreamUpdate[]>) | null;
+}
+
+/**
  * One of the daemon's provider modes — paseo's own permission vocabulary
  * (plan, build, …), listed live so the panel never hardcodes a set that
  * would drift from what the daemon enforces. `AgentMode` in the protocol.
