@@ -61,6 +61,7 @@
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
+	import CarbonEdit from "~icons/carbon/edit";
 	import CodeNavTree from "./code/CodeNavTree.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 
@@ -174,14 +175,21 @@
 		<Logo variant="small" classNames="h-4 w-auto mr-1" />
 		{publicConfig.PUBLIC_APP_NAME}
 	</a>
-	<a
-		href={`${base}/`}
-		onclick={handleNewChatClick}
-		class="flex rounded-lg border bg-white px-2 py-0.5 text-center whitespace-nowrap shadow-xs hover:shadow-none sm:text-smd dark:border-gray-600 dark:bg-gray-700"
-		title="Ctrl/Cmd + Shift + O"
-	>
-		New Chat
-	</a>
+	<!-- The switcher's own idiom, carried up top: the same gray pill and chip
+	     the Chats/Agents selector uses, with the same small semibold text and
+	     an icon — the bordered white button this replaced read as a foreign
+	     element beside it. Href and the abort-handling click are unchanged. -->
+	<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+		<a
+			href={`${base}/`}
+			onclick={handleNewChatClick}
+			class="flex items-center justify-center gap-1.5 rounded-md bg-white px-2 py-1 text-xs font-medium whitespace-nowrap text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white"
+			title="Ctrl/Cmd + Shift + O"
+		>
+			<CarbonEdit class="size-3.5" />
+			New Chat
+		</a>
+	</div>
 </div>
 
 <div

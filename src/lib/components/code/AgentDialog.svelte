@@ -7,6 +7,16 @@
 	agent lands in the tree it was opened from. The first prompt is not
 	asked here; the agent view's composer is that surface, so the person
 	enrolls the device once and does everything else through Cerea.
+
+	The dialog is phone-sized first: the operator's primary surface is a
+	264px viewport, where the workspace path in the subtitle — one
+	unbreakable word — used to drive the modal's fit-content width past
+	the screen and clip the posture pills and the footer buttons. The
+	path wraps (`break-words` breaks only words that cannot fit a line,
+	so normal subtitles are untouched), the header text column can
+	shrink (`min-w-0`, plus the right inset that keeps it clear of the
+	close button), the padding steps down on phones, and the footer may
+	wrap rather than clip.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -68,14 +78,18 @@
 </script>
 
 <Modal width="max-w-md" closeButton labelledBy="agent-title" {onclose}>
-	<div class="p-6">
+	<div class="p-4 sm:p-6">
 		<div class="mb-6 flex items-center gap-3">
-			<div class={s.STRIP_TILE}>
+			<div class="{s.STRIP_TILE} shrink-0">
 				<IconCode class="size-5 text-blue-600" />
 			</div>
-			<div>
+			<!-- min-w-0 lets the column shrink below the path's min-content —
+			     without it the flex row stays as wide as the unbreakable path
+			     and everything past the first line clips. pr-8 keeps the
+			     wrapped lines clear of the close button floating at top-right. -->
+			<div class="min-w-0 pr-8">
 				<h2 id="agent-title" class={s.TITLE}>New agent</h2>
-				<p class={s.SUBTITLE}>In {workspace.name} — {workspace.path}</p>
+				<p class="{s.SUBTITLE} break-words">In {workspace.name} — {workspace.path}</p>
 			</div>
 		</div>
 
@@ -130,7 +144,7 @@
 			/>
 
 			<span class="{s.LABEL} mt-4">Posture</span>
-			<div class="flex gap-2">
+			<div class="flex flex-wrap gap-2">
 				<button
 					type="button"
 					class={posture === "plan" ? s.PRIMARY : s.SECONDARY}
@@ -154,7 +168,10 @@
 					: "Writes; still asks before anything destructive."}
 			</p>
 
-			<div class="mt-4 flex justify-end gap-2">
+			<!-- flex-wrap, not fixed widths: side-by-side whenever both buttons
+			     fit (they do from ~264px viewports up with the reduced
+			     padding), wrapped instead of clipped when they do not. -->
+			<div class="mt-4 flex flex-wrap justify-end gap-2">
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
 					Cancel
 				</button>

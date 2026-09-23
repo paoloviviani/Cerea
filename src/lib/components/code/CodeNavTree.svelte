@@ -47,6 +47,7 @@
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
+	import AgentRenameDialog from "./AgentRenameDialog.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 
@@ -67,6 +68,8 @@
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
 	let renameFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
+	/** The agent whose rename dialog is open, with its device. */
+	let renameAgentFor = $state<{ device: CodeDeviceView; agent: CodeAgentSession } | null>(null);
 	/** A removal waiting for its confirmation: which row, on which device. */
 	let confirmRequest = $state<
 		| { kind: "agent"; device: CodeDeviceView; agent: CodeAgentSession }
@@ -168,7 +171,12 @@
 	}
 
 	function row(active: boolean): string {
-		return `flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-sm ${
+		// flex-1, not flex-none: the row's link fills the row so its
+		// trailing actions (the add button, the kebab) pin to the sidebar's
+		// right edge. A second flex utility on the call site would lose to
+		// stylesheet order regardless of class order, so growth lives here
+		// alone — call sites carry no flex sizing of their own.
+		return `flex h-8 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-sm ${
 			active
 				? "bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white"
 				: "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
@@ -231,10 +239,10 @@
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
 			<div>
-				<div class="flex items-center gap-1 pr-1">
+				<div class="group flex items-center gap-1 pr-1">
 					<a
 						href="{base}/code?device={device.id}"
-						class="min-w-0 flex-1 {row(deviceActive && !selectedAgentId)}"
+						class="min-w-0 {row(deviceActive && !selectedAgentId)}"
 						title={device.name}
 					>
 						<IconLaptop class="size-3.5 shrink-0" />
@@ -279,8 +287,8 @@
 						{#each tree?.workspaces ?? [] as ws (ws.id)}
 							{@const wsActive = ws.id === selectedWorkspaceId && deviceActive}
 							<div>
-								<div class="flex items-center gap-1 pr-1">
-									<span class="min-w-0 flex-1 {row(wsActive && !selectedAgentId)} pl-4">
+								<div class="group flex items-center gap-1 pr-1">
+									<span class="min-w-0 {row(wsActive && !selectedAgentId)} pl-4">
 										<IconFolder class="size-3 shrink-0" />
 										<span class="min-w-0 flex-1 truncate">{ws.name}</span>
 									</span>
@@ -295,10 +303,19 @@
 								     row of icons: rename and archive are occasional,
 								     and a bare trash can was the only visible offer
 								     for both. -->
+									<!-- The kebab sits at the row's right edge with air
+								     between it and the add button: the two are
+								     both 24px targets, and a tap meant to start
+								     a session must never open a menu instead. -->
 									<DropdownMenu.Root>
+										<!-- The kebab follows the chat list's behaviour
+								     (NavConversationItem): always present on touch,
+								     revealed on row hover with a pointer, kept
+								     while its menu is open. -->
 										<DropdownMenu.Trigger
-											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+											class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
 											title="Workspace actions"
+											aria-label="Workspace actions"
 										>
 											<IconKebab class="size-3.5" />
 										</DropdownMenu.Trigger>
@@ -333,10 +350,10 @@
 								</div>
 								{#each agentsOf(tree, ws.id) as agent (agent.id)}
 									{@const agentActive = agent.id === selectedAgentId}
-									<div class="flex items-center gap-1 pr-1">
+									<div class="group flex items-center gap-1 pr-1">
 										<a
 											href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
-											class="min-w-0 flex-1 pl-8 {row(agentActive)}"
+											class="min-w-0 pl-8 {row(agentActive)}"
 											title={agent.title}
 										>
 											<IconCode class="size-3 shrink-0" />
@@ -353,13 +370,45 @@
 												title={agent.state}
 											></span>
 										</a>
-										<button
-											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-											title="Archive this session"
-											onclick={() => (confirmRequest = { kind: "agent", device, agent })}
-										>
-											<IconTrash class="size-3.5" />
-										</button>
+										<!-- The session's actions live in the same kebab
+									     as the workspace's, at the row's right edge:
+									     rename and archive are occasional, and a bare
+									     trash can was the only visible offer for both. -->
+										<DropdownMenu.Root>
+											<DropdownMenu.Trigger
+												class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+												title="Session actions"
+												aria-label="Session actions"
+											>
+												<IconKebab class="size-3.5" />
+											</DropdownMenu.Trigger>
+											<DropdownMenu.Portal>
+												<DropdownMenu.Content
+													class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+													side="bottom"
+													align="end"
+													sideOffset={6}
+													trapFocus={false}
+													onCloseAutoFocus={(e) => e.preventDefault()}
+													interactOutsideBehavior="defer-otherwise-close"
+												>
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+														onSelect={() => (renameAgentFor = { device, agent })}
+													>
+														<IconEdit class="size-4 opacity-90 dark:opacity-80" />
+														Rename
+													</DropdownMenu.Item>
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+														onSelect={() => (confirmRequest = { kind: "agent", device, agent })}
+													>
+														<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+														Archive
+													</DropdownMenu.Item>
+												</DropdownMenu.Content>
+											</DropdownMenu.Portal>
+										</DropdownMenu.Root>
 									</div>
 								{/each}
 								{#if wsActive && agentsOf(tree, ws.id).length === 0}
@@ -458,6 +507,19 @@
 		onrenamed={() => {
 			const id = renameFor?.device.id;
 			renameFor = null;
+			if (id) void reloadDevice(id);
+		}}
+	/>
+{/if}
+
+{#if renameAgentFor}
+	<AgentRenameDialog
+		deviceId={renameAgentFor.device.id}
+		agent={renameAgentFor.agent}
+		onclose={() => (renameAgentFor = null)}
+		onrenamed={() => {
+			const id = renameAgentFor?.device.id;
+			renameAgentFor = null;
 			if (id) void reloadDevice(id);
 		}}
 	/>

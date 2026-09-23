@@ -26,6 +26,7 @@
 	import { isAssistantGenerationTerminal } from "$lib/utils/generationState";
 	import { NAV_EDGE_SWIPE_ZONE_PX } from "$lib/constants/gestures";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
+	import type { CodeSubagentAnchor } from "$lib/types/CodeAgent";
 
 	interface Props {
 		messages: Message[];
@@ -47,6 +48,14 @@
 			request: ElicitationRequestPayload,
 			action: ElicitationAction
 		) => Promise<{ ok: boolean; error?: string }>;
+		/**
+		 * The coding-agent panel's subagent claim and its card, threaded to
+		 * ChatMessage (see them there): the claim supersedes a Task tool call's
+		 * generic row with the panel's own subagent card. Absent on chat
+		 * routes, where no transcript carries subagents.
+		 */
+		subagentFor?: (callId: string) => CodeSubagentAnchor | undefined;
+		subagentCard?: Snippet<[CodeSubagentAnchor]>;
 		/** Absolutely positioned chrome inside the column (header buttons, toasts). */
 		overlay?: Snippet;
 		/** Rendered at the top of the container, above whatever the messages branch shows. */
@@ -71,6 +80,8 @@
 		onretry,
 		onshowAlternateMsg,
 		onanswerElicitation,
+		subagentFor,
+		subagentCard,
 		overlay,
 		head,
 		introduction,
@@ -220,6 +231,8 @@
 									isLast={turnIdx === turns.length - 1 && msgIdx === turn.messages.length - 1}
 									bind:editMsdgId
 									{onanswerElicitation}
+									{subagentFor}
+									{subagentCard}
 									onretry={(payload) => {
 										// Edit-with-content mounts a fresh turn like a send; a
 										// plain regenerate needs nothing — the reservation
