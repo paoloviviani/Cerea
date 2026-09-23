@@ -22,6 +22,7 @@ import {
 	E2E_MONGO_PORT,
 	E2E_MONGO_URL,
 	MOCK_MCP_ORIGIN,
+	MOCK_OIDC_ISSUER,
 	MOCK_OPENAI_BASE_URL,
 	MOCK_OPENAI_ORIGIN,
 } from "./tests/fixtures.ts";
@@ -76,6 +77,15 @@ export default defineConfig({
 			// Then the LLM upstream — the app throws at boot without /v1/models.
 			command: `${NODE_TS} tests/mock-openai.ts`,
 			url: `${MOCK_OPENAI_ORIGIN}/__control/health`,
+			reuseExistingServer: !isCI,
+			timeout: 30_000,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+		{
+			// The issuer of machine tokens: the agent's WSS bearer is validated against its JWKS.
+			command: `${NODE_TS} tests/mock-oidc.ts`,
+			url: `${MOCK_OIDC_ISSUER}/__control/health`,
 			reuseExistingServer: !isCI,
 			timeout: 30_000,
 			stdout: "pipe",
@@ -140,6 +150,8 @@ export default defineConfig({
 				// nothing listens on — the failure is instant and local, which
 				// is what the endpoint's 401 spec asserts on.
 				OPENID_PROVIDER_URL: "http://127.0.0.1:9/authelia",
+				// Machine tokens come from the mock issuer; the browser login stays unconfigured.
+				CODE_MACHINE_ISSUER: MOCK_OIDC_ISSUER,
 				ALLOW_IFRAME: "true",
 				NODE_ENV: "production",
 			},
