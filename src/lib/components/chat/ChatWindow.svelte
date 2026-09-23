@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Message, MessageFile } from "$lib/types/Message";
+	import type { Message } from "$lib/types/Message";
 	import { onDestroy, untrack } from "svelte";
 
 	import ArtifactPanel from "./ArtifactPanel.svelte";
@@ -37,7 +37,6 @@
 		canResumeAfterFailure,
 		failureDetailOf,
 	} from "$lib/utils/resumeAfterFailure";
-	import file2base64 from "$lib/utils/file2base64";
 	import { base } from "$app/paths";
 	import ChatMessageColumn from "./ChatMessageColumn.svelte";
 	import ThinkingEffortChip from "./ThinkingEffortChip.svelte";
@@ -45,7 +44,9 @@
 	import SystemPromptModal from "../SystemPromptModal.svelte";
 	import ShareConversationModal from "../ShareConversationModal.svelte";
 	import ChatIntroduction from "./ChatIntroduction.svelte";
-	import UploadedFile from "./UploadedFile.svelte";
+	import ComposerFileChips from "./ComposerFileChips.svelte";
+	import { FileDrag } from "$lib/utils/fileDrag.svelte";
+	import { pastedAttachments } from "$lib/utils/composerFiles";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
@@ -86,9 +87,6 @@
 		ML_ASSISTANT_PLACEHOLDER,
 		mlAssistantExamples,
 	} from "$lib/constants/mlAssistant";
-
-	import { fly } from "svelte/transition";
-	import { cubicInOut } from "svelte/easing";
 
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import { requireAuthUser } from "$lib/utils/auth";
@@ -270,52 +268,21 @@
 		draft = "";
 	};
 
-	let lastTarget: EventTarget | null = null;
-
-	let onDrag = $state(false);
-
-	const onDragEnter = (e: DragEvent) => {
-		lastTarget = e.target;
-		onDrag = true;
-	};
-	const onDragLeave = (e: DragEvent) => {
-		if (e.target === lastTarget) {
-			onDrag = false;
-		}
-	};
+	const drag = new FileDrag();
 
 	const onPaste = (e: ClipboardEvent) => {
-		const textContent = e.clipboardData?.getData("text");
-
-		if (!$settings.directPaste && textContent && textContent.length >= 3984) {
-			e.preventDefault();
+		const pasted = pastedAttachments(e.clipboardData, {
+			mimeTypes: activeMimeTypes,
+			directPaste: $settings.directPaste,
+		});
+		if (pasted.preventDefault) e.preventDefault();
+		if (pasted.longText) {
 			pastedLongContent = true;
 			setTimeout(() => {
 				pastedLongContent = false;
 			}, 1000);
-			const pastedFile = new File([textContent], "Pasted Content", {
-				type: "application/vnd.chatui.clipboard",
-			});
-
-			files = [...files, pastedFile];
 		}
-
-		if (!e.clipboardData) {
-			return;
-		}
-
-		// paste of files
-		const pastedFiles = Array.from(e.clipboardData.files);
-		if (pastedFiles.length !== 0) {
-			e.preventDefault();
-
-			// filter based on activeMimeTypes, including wildcards
-			const filteredFiles = pastedFiles.filter((file) =>
-				mimeMatchesAllowlist(file.type, activeMimeTypes)
-			);
-
-			files = [...files, ...filteredFiles];
-		}
+		if (pasted.files.length) files = [...files, ...pasted.files];
 	};
 
 	let lastMessage = $derived(browser && (messages.at(-1) as Message));
@@ -412,17 +379,6 @@
 			showRouterDetails = true;
 		}, 500);
 	});
-
-	let sources = $derived(
-		files?.map<Promise<MessageFile>>((file) =>
-			file2base64(file).then((value) => ({
-				type: "base64",
-				value,
-				mime: file.type,
-				name: file.name,
-			}))
-		)
-	);
 
 	const unsubscribeShareModal = shareModal.subscribe((value) => {
 		shareModalOpen = value;
@@ -843,14 +799,14 @@
 </script>
 
 <svelte:window
-	ondragenter={onDragEnter}
-	ondragleave={onDragLeave}
+	ondragenter={drag.enter}
+	ondragleave={drag.leave}
 	ondragover={(e) => {
 		e.preventDefault();
 	}}
 	ondrop={(e) => {
 		e.preventDefault();
-		onDrag = false;
+		drag.active = false;
 	}}
 />
 
@@ -934,7 +890,7 @@
 			{/if}
 		{/snippet}
 		{#snippet composer()}
-			{#if !draft.length && !messages.length && !sources.length && !loading && (mlModeOn || currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
+			{#if !draft.length && !messages.length && !files.length && !loading && (mlModeOn || currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
 				<div
 					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
 				>
@@ -972,23 +928,7 @@
 					{/each}
 				</div>
 			{/if}
-			{#if sources?.length && !loading}
-				<div
-					in:fly|local={sources.length === 1 ? { y: -20, easing: cubicInOut } : undefined}
-					class="flex flex-row flex-wrap justify-center gap-2.5 rounded-xl pb-3"
-				>
-					{#each sources as source, index}
-						{#await source then src}
-							<UploadedFile
-								file={src}
-								onclose={() => {
-									files = files.filter((_, i) => i !== index);
-								}}
-							/>
-						{/await}
-					{/each}
-				</div>
-			{/if}
+			<ComposerFileChips bind:files hidden={loading} />
 
 			<div class="w-full">
 				{#if askQuestion}
@@ -1053,8 +993,8 @@
 								onsend={handleRecordingSend}
 								onerror={handleRecordingError}
 							/>
-						{:else if onDrag && isFileUploadEnabled}
-							<FileDropzone bind:files bind:onDrag mimeTypes={activeMimeTypes} />
+						{:else if drag.active && isFileUploadEnabled}
+							<FileDropzone bind:files bind:onDrag={drag.active} mimeTypes={activeMimeTypes} />
 						{:else}
 							<div
 								class="flex w-full flex-1 rounded-xl border-none bg-transparent"
