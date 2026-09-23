@@ -15,6 +15,7 @@ import {
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import { uploadFile } from "$lib/server/files/uploadFile";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
@@ -318,7 +319,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	// check sizes
 	// todo: make configurable
-	if (b64Files.some((file) => file.size > 10 * 1024 * 1024)) {
+	if (b64Files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
 		error(413, "File too large, should be <10MB");
 	}
 
