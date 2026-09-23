@@ -259,6 +259,7 @@
 	<div class="shrink-0 px-2 pt-2 pb-1">
 		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
 			<button
+				data-testid="sidebar-view-chats"
 				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
 				'chats'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
@@ -269,6 +270,7 @@
 				Chats
 			</button>
 			<button
+				data-testid="sidebar-view-agents"
 				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
 				'agents'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
