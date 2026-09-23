@@ -84,7 +84,7 @@
 				bind:this={modalEl}
 				onkeydown={handleKeydown}
 				class={[
-					"relative mx-auto scrollbar-custom max-h-[95dvh] max-w-[90dvw] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
+					"dialog-shell relative mx-auto scrollbar-custom max-w-[90dvw] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
 					width,
 				]}
 			>
@@ -104,7 +104,7 @@
 				onkeydown={handleKeydown}
 				in:fly={{ y: 100 }}
 				class={[
-					"relative mx-auto scrollbar-custom max-h-[95dvh] max-w-[90dvw] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
+					"dialog-shell relative mx-auto scrollbar-custom max-w-[90dvw] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
 					width,
 				]}
 			>
@@ -118,3 +118,22 @@
 		{/if}
 	</div>
 </Portal>
+
+<style>
+	/* WebKit that predates dvh support (iOS/Safari < 15.4, and various
+	   embedded WKWebViews) drops `max-height: 95dvh` as an invalid
+	   declaration rather than clamping to it — max-height then resolves to
+	   `none`, so the dialog can grow taller than the viewport with nothing
+	   to stop it (the footer's Create/Cancel buttons scroll out of reach).
+	   `95vh` first keeps every engine bounded; `95dvh` on the next line
+	   overrides it only where the browser understands the unit, so engines
+	   that support it still get the dynamic (toolbar-aware) viewport height
+	   exactly as before. Plain unlayered CSS, so it wins over the `@layer
+	   utilities` Tailwind classes on the same element regardless of source
+	   order (see the `revert-layer` note in styles/main.css for the same
+	   pattern already relied on here). */
+	.dialog-shell {
+		max-height: 95vh;
+		max-height: 95dvh;
+	}
+</style>
