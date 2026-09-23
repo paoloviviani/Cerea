@@ -33,3 +33,27 @@ export const DOCUMENT_MIME_ALLOWLIST = [
 	"application/vnd.oasis.opendocument.presentation",
 	"application/epub+zip",
 ] as const;
+
+/**
+ * The per-file ceiling every attachment entry point enforces: chat's upload
+ * (`conversation/[id]`), its drop zone, and the owner-keyed store's upload
+ * route. One number, so an agent surface cannot drift from chat's limit.
+ */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * What a person may attach to a coding-agent message — the ceiling the
+ * `/code` upload route enforces; a composer may offer a subset. Chat's text
+ * and document lists, the images every agent provider reads, and chat's own
+ * long-paste type (`application/vnd.chatui.clipboard`, plain text a composer
+ * turned into a chip; a transport should hand it on as `text/plain`).
+ */
+export const AGENT_ATTACHMENT_MIME_ALLOWLIST = [
+	...TEXT_MIME_ALLOWLIST,
+	...DOCUMENT_MIME_ALLOWLIST,
+	"image/png",
+	"image/jpeg",
+	"image/gif",
+	"image/webp",
+	"application/vnd.chatui.clipboard",
+] as const;
