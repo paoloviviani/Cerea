@@ -48,6 +48,8 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/timeline$`) },
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents$`) },
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents/${ID}/timeline$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
@@ -166,6 +168,31 @@ export const GET: RequestHandler = async (event) => {
 		const timeline = await link.fetchTimeline(decodeURIComponent(timelineMatch[1]));
 		return superjsonResponse({
 			updates: timeline.entries.flatMap(timelineEntryToUpdate),
+		});
+	}
+
+	// The subagent surfaces, polled by the transcript on turn boundaries
+	// (never on an interval): the roster is the authority for each
+	// subagent's title/status/subtitle, and the second route serves the
+	// transcript a card expands to, through the same timeline translation
+	// the parent's routes use. Both are reads keyed by the path alone —
+	// there is no body to validate.
+	const subagentsMatch = new RegExp(`^v1/agents/(${ID})/subagents$`).exec(path);
+	if (subagentsMatch) {
+		const subagents = await link.listSubagents(decodeURIComponent(subagentsMatch[1]));
+		return superjsonResponse({ subagents });
+	}
+
+	const subagentTimelineMatch = new RegExp(`^v1/agents/(${ID})/subagents/(${ID})/timeline$`).exec(
+		path
+	);
+	if (subagentTimelineMatch) {
+		const timeline = await link.fetchSubagentTimeline(
+			decodeURIComponent(subagentTimelineMatch[1]),
+			decodeURIComponent(subagentTimelineMatch[2])
+		);
+		return superjsonResponse({
+			updates: timeline.rows.flatMap(timelineEntryToUpdate),
 		});
 	}
 

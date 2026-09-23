@@ -15,11 +15,13 @@
 import superjson from "superjson";
 import { base } from "$app/paths";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
+import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
 	CodeAgentSession,
 	CodeFileChange,
 	CodeProviderMode,
 	CodeProviderModel,
+	CodeSubagent,
 	CodeWorkspace,
 } from "$lib/types/CodeAgent";
 
@@ -240,6 +242,35 @@ export async function getAgentDiff(
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}/diff?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/**
+ * The subagents one agent spawned, as the daemon's roster reports them. The
+ * transcript polls this on turn boundaries — never on an interval — and
+ * anchors each subagent at the Task tool call its `toolCallId` names.
+ */
+export async function listSubagents(
+	deviceId: string,
+	agentId: string
+): Promise<{ subagents: CodeSubagent[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/subagents?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** One subagent's own transcript, as agent frames for the chat's fold. */
+export async function fetchSubagentTimeline(
+	deviceId: string,
+	agentId: string,
+	subagentId: string
+): Promise<{ updates: AgentStreamUpdate[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/subagents/${encodeURIComponent(subagentId)}/timeline?device=${encodeURIComponent(deviceId)}`
 		)
 	);
 }
