@@ -30,13 +30,20 @@
 	interface Props {
 		onclose: () => void;
 		onpaired: (device: CodeDeviceView) => void;
+		/** Re-enrolling an already-paired device whose enrollment expired or
+		 * was revoked, rather than pairing a new machine: the naming step is
+		 * skipped (the row already has a name), and the watcher below tracks
+		 * this device's own `pairedAt` advancing instead of watching for a
+		 * new device id — an id that already exists in the paired set would
+		 * never look "new". */
+		reenroll?: { deviceId: string; name: string };
 	}
 
-	let { onclose, onpaired }: Props = $props();
+	let { onclose, onpaired, reenroll }: Props = $props();
 
 	type Step = "name" | "wait";
-	let step = $state<Step>("name");
-	let name = $state("");
+	let step = $state<Step>(reenroll ? "wait" : "name");
+	let name = $state(reenroll?.name ?? "");
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 
@@ -108,12 +115,54 @@
 		}
 	}
 
+	/**
+	 * The re-enroll watcher: the device already exists in the paired set, so
+	 * "a new id appeared" (the plain pairing watcher's signal) can never
+	 * fire for it. Instead it tracks this one row's own `pairedAt` — the
+	 * machine endpoint (`enroll/machine`) bumps it on every successful
+	 * (re-)pairing, new row or not — against a baseline read on the first
+	 * poll, the same discipline `watchForPairing` uses for its baseline.
+	 */
+	async function watchForReenroll(deviceId: string) {
+		let baseline: number | null = null;
+		while (watching) {
+			await sleep(POLL_MS);
+			if (!watching) return;
+			try {
+				const { devices } = await listDevices();
+				const device = devices.find((d) => d.id === deviceId);
+				const pairedAt = device?.pairedAt ? new Date(device.pairedAt).getTime() : 0;
+				if (baseline === null) {
+					baseline = pairedAt;
+					continue;
+				}
+				if (device?.status === "paired" && pairedAt > baseline) {
+					watching = false;
+					onpaired(device);
+					onclose();
+					return;
+				}
+			} catch {
+				// a failed poll is a missed beat, not a failed pairing
+			}
+		}
+	}
+
 	function stopWatching() {
 		watching = false;
 	}
 
 	$effect(() => {
 		return stopWatching;
+	});
+
+	// Re-enroll skips the naming step entirely, so nothing else starts the
+	// watcher for it — kick it off the moment the dialog mounts with one to
+	// re-enroll.
+	$effect(() => {
+		if (!reenroll) return;
+		watching = true;
+		void watchForReenroll(reenroll.deviceId);
 	});
 
 	async function handleStart() {
@@ -159,11 +208,17 @@
 			     follows — the column shrinks below its content's min-content
 			     and stays clear of the close button at top-right. -->
 			<div class="min-w-0 pr-8">
-				<h2 id="pair-device-title" class={s.TITLE}>Pair a device</h2>
+				<h2 id="pair-device-title" class={s.TITLE}>
+					{reenroll ? "Re-enroll this machine" : "Pair a device"}
+				</h2>
 				<p class="{s.SUBTITLE} break-words">
-					{step === "name"
-						? "Name the machine your coding agents run on."
-						: `Set the machine up, then wait for it to check in.`}
+					{#if reenroll}
+						Run the setup again on {reenroll.name}; this closes itself once it checks back in.
+					{:else}
+						{step === "name"
+							? "Name the machine your coding agents run on."
+							: `Set the machine up, then wait for it to check in.`}
+					{/if}
 				</p>
 			</div>
 		</div>

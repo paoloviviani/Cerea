@@ -20,8 +20,9 @@
 	import IconCode from "~icons/carbon/code";
 	import IconLaptop from "~icons/carbon/laptop";
 	import AgentView from "./AgentView.svelte";
-	import { listDevices, type CodeDeviceView } from "$lib/codeApi";
+	import { checkEnrollment, listDevices, type CodeDeviceView } from "$lib/codeApi";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
+	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import { openMobileNav } from "$lib/components/MobileNav.svelte";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -43,18 +44,56 @@
 	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws") ?? undefined);
 	const selected = $derived(devices.find((d) => d.id === selectedDeviceId));
 
+	/** Quiet on every call after the first: `loading` only ever flips false
+	 * here, so a poll or a focus refetch never re-shows the loading state —
+	 * the list just redraws when the daemon's word changed. */
+	async function loadDevices() {
+		try {
+			devices = (await listDevices()).devices;
+		} catch {
+			// The agent view carries its own states; the address renders
+			// regardless, and a failed device read only dulls the fallbacks.
+			devices = [];
+		} finally {
+			loading = false;
+		}
+	}
+
+	// A device paired from elsewhere (a headless `enroll pair`, another tab,
+	// the sidebar's own pairing dialog) must show up here without a page
+	// reload: poll on a sensible cadence while this pane is mounted, and
+	// refetch the moment the tab regains focus — the two ways this list goes
+	// stale between polls.
+	const DEVICES_POLL_MS = 8000;
 	onMount(() => {
-		(async () => {
-			try {
-				devices = (await listDevices()).devices;
-			} catch {
-				// The agent view carries its own states; the address renders
-				// regardless, and a failed device read only dulls the fallbacks.
-				devices = [];
-			} finally {
-				loading = false;
-			}
-		})();
+		void loadDevices();
+		const interval = setInterval(() => void loadDevices(), DEVICES_POLL_MS);
+		const onFocus = () => void loadDevices();
+		window.addEventListener("focus", onFocus);
+		return () => {
+			clearInterval(interval);
+			window.removeEventListener("focus", onFocus);
+		};
+	});
+
+	// The enrollment probe: on agent open and on every device switch (the
+	// same two triggers the task calls for), ask the daemon to prove its
+	// stored credentials are still good — before the person types anything,
+	// not after a doomed send. Keyed on the address's device+agent so
+	// switching agents on the same device re-probes too, and a stale answer
+	// from a since-abandoned address never overwrites the current one.
+	$effect(() => {
+		const deviceId = selectedDeviceId;
+		const agentId = selectedAgentId;
+		void agentId;
+		if (!deviceId) return;
+		let cancelled = false;
+		void checkEnrollment(deviceId).then((status) => {
+			if (!cancelled) codeEnrollment[deviceId] = status;
+		});
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	/** The empty panes point at the Agents panel, which is where pairing
@@ -85,6 +124,7 @@
 					deviceId={selectedDeviceId}
 					agentId={selectedAgentId}
 					workspaceId={selectedWorkspaceId}
+					deviceName={selected?.name}
 				/>
 			{:else if loading}
 				<div class="pointer-events-auto {s.EMPTY}">
