@@ -132,6 +132,14 @@ export default defineConfig({
 				GENERATION_HEARTBEAT_MS: "1000",
 				LLM_ROUTER_ROUTES_PATH: "",
 				LLM_ROUTER_ARCH_BASE_URL: "",
+				// The /code surface's own tests mount it; the flag is the same
+				// gate production sets (the route 404s without it).
+				CODE_AGENTS_ENABLED: "true",
+				// The machine pairing endpoint validates its bearer against the
+				// issuer; the e2e stack has none, so point discovery at a port
+				// nothing listens on — the failure is instant and local, which
+				// is what the endpoint's 401 spec asserts on.
+				OPENID_PROVIDER_URL: "http://127.0.0.1:9/authelia",
 				ALLOW_IFRAME: "true",
 				NODE_ENV: "production",
 			},

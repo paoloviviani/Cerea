@@ -166,7 +166,7 @@ INSTALLER_PROFILE=satellite
 INSTALLER_EXPOSURE=edge
 INSTALLER_IDP=central
 INSTALLER_AUTH_MODE=central
-INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=off,usage=shown,code-tool=on,knowledge=on,memory=on
+INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=off,usage=shown,code-tool=on,knowledge=on,memory=on,code-panel=off
 # <<< installer metadata <<<
 EOF
 }
@@ -206,7 +206,7 @@ INSTALLER_PROFILE=satellite
 INSTALLER_EXPOSURE=edge
 INSTALLER_IDP=central
 INSTALLER_AUTH_MODE=central
-INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=off,usage=shown,code-tool=on,knowledge=on,memory=on
+INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=off,usage=shown,code-tool=on,knowledge=on,memory=on,code-panel=off
 # <<< installer metadata <<<
 EOF
 }
@@ -224,7 +224,7 @@ env_path="$(printf '%s\n' "$OUT" | sed -n 's/^The .env that would have been writ
 assert_contains "the written .env carries the metadata block" "# >>> installer metadata >>>" "$(cat "$env_path")"
 for kv in "INSTALLER_VERSION=1" "INSTALLER_PROFILE=team" "INSTALLER_EXPOSURE=edge" \
 	"INSTALLER_IDP=house" "INSTALLER_AUTH_MODE=house" \
-	"INSTALLER_COMPONENTS=redaction=pattern,fetch=direct,metering=on,usage=shown,code-tool=on,knowledge=on,memory=on"; do
+	"INSTALLER_COMPONENTS=redaction=pattern,fetch=direct,metering=on,usage=shown,code-tool=on,knowledge=on,memory=on,code-panel=off"; do
 	assert_contains "the block records $kv" "$kv" "$(cat "$env_path")"
 done
 assert_contains "the block closes" "# <<< installer metadata <<<" "$(cat "$env_path")"
@@ -235,10 +235,10 @@ assert_contains "the flagged PUBLIC_HOST landed in the .env" "PUBLIC_HOST=cerea.
 # front end, not a different installer.
 legacy_team_env
 interactive_out="$(
-	# order: chat checkout (default), profile 2=team, toggles 8=done,
+	# order: chat checkout (default), profile 2=team, toggles 9=done,
 	# exposure 1=edge, team sign-in 1=house, PUBLIC_HOST, edge port,
 	# PUBLIC_ORIGIN (default)
-	printf '\n2\n8\n1\n1\ncerea.test\n8443\n\n' |
+	printf '\n2\n9\n1\n1\ncerea.test\n8443\n\n' |
 		env TMPDIR="$TMPD" bash "$CEREA_UNDER_TEST/installer/install.sh" \
 			--dry-run --pystino "$FAKE" 2>&1
 )"
@@ -331,7 +331,7 @@ run_install --dry-run --pystino "$FAKE" --profile team --exposure edge --idp hou
 assert_eq "--components overrides the team defaults" "0" "$RC"
 env_path="$(printf '%s\n' "$OUT" | sed -n 's/^The .env that would have been written: \(.*\) (mode 600)$/\1/p')"
 assert_contains "the overridden shape is what the block records" \
-	"INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=on,usage=hidden,code-tool=on,knowledge=on,memory=on" \
+	"INSTALLER_COMPONENTS=redaction=off,fetch=direct,metering=on,usage=hidden,code-tool=on,knowledge=on,memory=on,code-panel=off" \
 	"$(cat "$env_path")"
 assert_contains "the overridden engine is what the .env records" "GATEWAY_REDACTION__ENGINE=noop" "$(cat "$env_path")"
 assert_contains "a gateway profile serves /console, so the flag is on" "CHAT_CONSOLE_ENABLED=true" "$(cat "$env_path")"

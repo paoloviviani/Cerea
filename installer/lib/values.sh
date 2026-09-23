@@ -16,8 +16,9 @@
 #   TOKEN_VAL               output of token_url_safe
 #   ORIGIN_DEFAULT, HTTPS_PORT_DEFAULT   outputs of the prompt-default helpers
 #   ST_REDACTION ST_FETCH ST_METERING ST_CODETOOL ST_USAGE ST_KNOWLEDGE ST_MEMORY
-#                           component toggles: set by toggle_components on a
-#                           fresh run, by the infer_* functions on --phase2
+#   ST_CODEPANEL             component toggles: set by toggle_components on a
+#                            fresh run, by the infer_* functions on --phase2
+#                            (ST_CODEPANEL: the /code remote-agent panel, ADR 0085)
 #   AUTH_MODE               enterprise sign-in shape (collect or infer_auth_mode)
 #
 # Functions (inputs -> outputs):
@@ -436,6 +437,10 @@ infer_standalone_toggles() { # -> REDACTION_STATE + ST_* (reads PARSED) — LEGA
 	[ "${PARSED[CHAT_USAGE_ENABLED]:-}" = "true" ] && ST_USAGE=1 || ST_USAGE=0
 	[ "${PARSED[CHAT_KNOWLEDGE_ENABLED]:-}" != "false" ] && ST_KNOWLEDGE=1 || ST_KNOWLEDGE=0
 	[ "${PARSED[CHAT_MEMORY_ENABLED]:-}" != "false" ] && ST_MEMORY=1 || ST_MEMORY=0
+	# The /code panel flag (ADR 0085): the chat overlay interpolates it from
+	# deploy/.env, so the block-less fallback reads exactly what the chat
+	# itself will read.
+	[ "${PARSED[CODE_AGENTS_ENABLED]:-}" = "true" ] && ST_CODEPANEL=1 || ST_CODEPANEL=0
 }
 
 infer_gateway_toggles() { # -> REDACTION_STATE + ST_* (reads PARSED) — LEGACY FALLBACK, see the section header
@@ -458,6 +463,7 @@ infer_gateway_toggles() { # -> REDACTION_STATE + ST_* (reads PARSED) — LEGACY 
 	[ -n "${PARSED[CHAT_USAGE_ENABLED]:-}" ] && ST_USAGE=1 || ST_USAGE=0
 	[ "${PARSED[CHAT_KNOWLEDGE_ENABLED]:-}" != "false" ] && ST_KNOWLEDGE=1 || ST_KNOWLEDGE=0
 	[ "${PARSED[CHAT_MEMORY_ENABLED]:-}" != "false" ] && ST_MEMORY=1 || ST_MEMORY=0
+	[ "${PARSED[CODE_AGENTS_ENABLED]:-}" = "true" ] && ST_CODEPANEL=1 || ST_CODEPANEL=0
 }
 
 # The enterprise sign-in shape is inferred the same way: a bundled
@@ -504,6 +510,7 @@ COMPONENT_VALUE_WORDS=(
 	"code-tool:on off"
 	"knowledge:on off"
 	"memory:on off"
+	"code-panel:on off"
 )
 
 components_value_ok() { # components_value_ok <key> <value>
@@ -549,7 +556,7 @@ components_parse() { # components_parse <spec> <map-name> — nameref map of key
 		v="${pair#*=}"
 		[ -n "${out[$k]+x}" ] && fail "component '$k' appears twice in the spec."
 		components_value_ok "$k" "$v" ||
-			fail "component '$k=$v' is outside the vocabulary (redaction=off|pattern|ner, fetch=direct|playwright, metering=on|off, usage=shown|hidden, code-tool=on|off, knowledge=on|off, memory=on|off)."
+			fail "component '$k=$v' is outside the vocabulary (redaction=off|pattern|ner, fetch=direct|playwright, metering=on|off, usage=shown|hidden, code-tool=on|off, knowledge=on|off, memory=on|off, code-panel=on|off)."
 		out[$k]="$v"
 	done
 	[ "${#out[@]}" -gt 0 ] || fail "the component spec carries no key=value pairs."
@@ -568,6 +575,7 @@ components_to_shape() { # components_to_shape <spec> -> ST_* + REDACTION_STATE
 			code-tool) [ "$v" = "on" ] && ST_CODETOOL=1 || ST_CODETOOL=0 ;;
 			knowledge) [ "$v" = "on" ] && ST_KNOWLEDGE=1 || ST_KNOWLEDGE=0 ;;
 			memory) [ "$v" = "on" ] && ST_MEMORY=1 || ST_MEMORY=0 ;;
+			code-panel) [ "$v" = "on" ] && ST_CODEPANEL=1 || ST_CODEPANEL=0 ;;
 		esac
 	done
 	# REDACTION_STATE mirrors ST_REDACTION — the same copy main() makes
@@ -578,7 +586,7 @@ components_to_shape() { # components_to_shape <spec> -> ST_* + REDACTION_STATE
 }
 
 shape_to_components() { # -> COMPONENTS_SPEC, from REDACTION_STATE + ST_*
-	COMPONENTS_SPEC="redaction=${REDACTION_STATE:-off},fetch=${ST_FETCH:-direct},metering=$( [ "${ST_METERING:-0}" = "1" ] && echo on || echo off),usage=$( [ "${ST_USAGE:-0}" = "1" ] && echo shown || echo hidden),code-tool=$( [ "${ST_CODETOOL:-0}" = "1" ] && echo on || echo off),knowledge=$( [ "${ST_KNOWLEDGE:-0}" = "1" ] && echo on || echo off),memory=$( [ "${ST_MEMORY:-0}" = "1" ] && echo on || echo off)"
+	COMPONENTS_SPEC="redaction=${REDACTION_STATE:-off},fetch=${ST_FETCH:-direct},metering=$( [ "${ST_METERING:-0}" = "1" ] && echo on || echo off),usage=$( [ "${ST_USAGE:-0}" = "1" ] && echo shown || echo hidden),code-tool=$( [ "${ST_CODETOOL:-0}" = "1" ] && echo on || echo off),knowledge=$( [ "${ST_KNOWLEDGE:-0}" = "1" ] && echo on || echo off),memory=$( [ "${ST_MEMORY:-0}" = "1" ] && echo on || echo off),code-panel=$( [ "${ST_CODEPANEL:-0}" = "1" ] && echo on || echo off)"
 }
 
 components_differ() { # components_differ <specA> <specB> -> exit 0 when shared keys disagree
@@ -589,7 +597,7 @@ components_differ() { # components_differ <specA> <specB> -> exit 0 when shared 
 	components_parse "$1" DIFF_A
 	components_parse "$2" DIFF_B
 	local k
-	for k in redaction fetch metering usage code-tool knowledge memory; do
+	for k in redaction fetch metering usage code-tool knowledge memory code-panel; do
 		if [ -n "${DIFF_A[$k]+x}" ] && [ -n "${DIFF_B[$k]+x}" ] &&
 			[ "${DIFF_A[$k]}" != "${DIFF_B[$k]}" ]; then
 			return 0
@@ -698,11 +706,14 @@ apply_metadata_shape() { # apply_metadata_shape (reads INSTALLER_META from lib/e
 	local c="${INSTALLER_META[INSTALLER_COMPONENTS]:-}"
 	[ -n "$c" ] || fail "the installer metadata block carries no INSTALLER_COMPONENTS."
 	components_to_shape "$c"
-	# The block is the installer's own serialization: all seven words must
-	# be there, so the restored shape is complete rather than partially
-	# defaulted.
+	# The block is the installer's own serialization: every word the current
+	# vocabulary carries must be there, so the restored shape is complete
+	# rather than partially defaulted. 'code-panel' is the one word an older
+	# block may lack (the vocabulary predates ADR 0085): its absence means
+	# off, which is what the install that wrote the block did — a block from
+	# before the panel existed cannot have turned it on.
 	local k
-	for k in redaction fetch metering usage code-tool knowledge memory; do
+	for k in redaction fetch metering usage code-tool knowledge memory code-panel; do
 		case "$k" in
 			redaction) [ -n "${ST_REDACTION+x}" ] || fail "INSTALLER_COMPONENTS is missing the 'redaction' word." ;;
 			fetch) [ -n "${ST_FETCH+x}" ] || fail "INSTALLER_COMPONENTS is missing the 'fetch' word." ;;
@@ -711,6 +722,7 @@ apply_metadata_shape() { # apply_metadata_shape (reads INSTALLER_META from lib/e
 			code-tool) [ -n "${ST_CODETOOL+x}" ] || fail "INSTALLER_COMPONENTS is missing the 'code-tool' word." ;;
 			knowledge) [ -n "${ST_KNOWLEDGE+x}" ] || fail "INSTALLER_COMPONENTS is missing the 'knowledge' word." ;;
 			memory) [ -n "${ST_MEMORY+x}" ] || fail "INSTALLER_COMPONENTS is missing the 'memory' word." ;;
+			code-panel) [ -n "${ST_CODEPANEL+x}" ] || ST_CODEPANEL=0 ;;
 		esac
 	done
 	REDACTION_STATE="$ST_REDACTION"
