@@ -462,9 +462,7 @@
 						{/if}
 
 						{#if enrollmentExpired}
-							<span
-								class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400"
-							>
+							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
 								<IconWarning class="size-3 shrink-0" />
 								<span class="min-w-0 truncate">
 									This machine's enrollment expired or was revoked.

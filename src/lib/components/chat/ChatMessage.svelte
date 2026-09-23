@@ -225,7 +225,7 @@
 				anchor: CodeSubagentAnchor;
 				/** The call's frames, kept so a reverted card can give them back. */
 				updates: MessageToolUpdate[];
-			};
+		  };
 
 	type ToolBlock = Extract<Block, { type: "tool" }>;
 	type ProcessBlock = Extract<Block, { type: "think" } | { type: "tool" }>;
