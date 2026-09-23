@@ -138,7 +138,12 @@ export default defineConfig({
 				// The machine pairing endpoint validates its bearer against the
 				// issuer; the e2e stack has none, so point discovery at a port
 				// nothing listens on — the failure is instant and local, which
-				// is what the endpoint's 401 spec asserts on.
+				// is what the endpoint's 401 spec asserts on. The pairing
+				// dialog's printed --issuer also reads this value (via the
+				// feature-flags endpoint), which is why it is deliberately not
+				// PUBLIC_ORIGIN-shaped: a spec asserting on the printed command
+				// then catches a regression back to a hardcoded origin-derived
+				// issuer.
 				OPENID_PROVIDER_URL: "http://127.0.0.1:9/authelia",
 				ALLOW_IFRAME: "true",
 				NODE_ENV: "production",

@@ -42,7 +42,7 @@ machine, and the dialog prints the three commands to run on it:
 ```bash
 git clone https://github.com/paoloviviani/Pystino.git
 cd Pystino/deploy/opencode
-./setup-agent.sh --relay <host:port> --gateway <origin> --issuer <origin>/authelia \
+./setup-agent.sh --relay <host:port> --gateway <origin> --issuer <issuer> \
                  --name "<the name you typed>" --yes
 ```
 
@@ -51,11 +51,13 @@ copy them from there rather than from here. `--relay` is the deployment's
 origin **host and port** — the relay answers at `/ws` on it, and has no port of
 its own.
 
-`--issuer` is the deployment's identity provider. The dialog assumes the
-bundled Authelia (`<origin>/authelia`); on a deployment with the bundled
-Keycloak it is `<origin>/idp/realms/pystino`, and on an external directory it
-is whatever that directory's issuer is. If the enrollment step cannot fetch
-discovery, that is the value to check first.
+`--issuer` is the deployment's identity provider — the chat's own
+`OPENID_PROVIDER_URL`, whatever it is set to: the bundled Authelia
+(`<origin>/authelia`), the bundled Keycloak (`<origin>/idp/realms/pystino`),
+or an external directory's own issuer. The dialog prints the real value it
+reads server-side, not a guess, so if the enrollment step cannot fetch
+discovery the value to check first is that deployment setting, not the
+printed command.
 
 The script installs the paseo daemon and opencode (both pinned), wires the
 daemon's relay block, signs you in, leaves a local shim running, sets the

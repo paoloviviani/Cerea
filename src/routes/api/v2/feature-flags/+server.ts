@@ -1,6 +1,6 @@
 import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
-import { loginEnabled } from "$lib/server/auth";
+import { loginEnabled, OIDConfig } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
@@ -44,5 +44,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// generic has none).
 		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true",
 		codeAgentsEnabled: codeAgentsEnabled(),
+		codeOidcIssuerUrl: OIDConfig.PROVIDER_URL,
 	} satisfies FeatureFlags);
 };

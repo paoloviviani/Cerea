@@ -69,12 +69,21 @@
 		return `${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`;
 	});
 
+	// The chat's own OIDC issuer — bundled Authelia, bundled Keycloak, or
+	// whatever external IdP the deployment points at (`OPENID_PROVIDER_URL`,
+	// served through the feature-flags endpoint the way every other
+	// deployment fact is, since it is not a PUBLIC_-prefixed var). Never a
+	// hardcoded `${origin}/authelia` path: that only exists for the bundled
+	// Authelia, and the setup script's own OIDC discovery fails on every
+	// other IdP shape.
+	const issuer = $derived(page.data.codeOidcIssuerUrl as string);
+
 	// The typed name rides into the script's --name (it sets the machine's
 	// display name in the panel); quotes are escaped because the value is
 	// interpolated into a double-quoted shell argument.
 	const setupCommand = $derived.by(() => {
 		const quoted = name.trim().replace(/"/g, '\\"');
-		return `./setup-agent.sh --relay ${relayHost} --gateway ${origin} --issuer ${origin}/authelia --name "${quoted}" --yes`;
+		return `./setup-agent.sh --relay ${relayHost} --gateway ${origin} --issuer ${issuer} --name "${quoted}" --yes`;
 	});
 	const commands = $derived([
 		"git clone https://github.com/paoloviviani/Pystino.git",

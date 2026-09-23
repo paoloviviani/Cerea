@@ -101,13 +101,19 @@ How the route arrives depends on the exposure shape:
 | `proxy` (Caddy terminates TLS here) | the overlay mounts `20-relay.caddy` into the proxy's `conf.d`. Nothing else to do — without the overlay the glob matches only the committed placeholder, so a deployment without it is byte-for-byte unchanged                                    |
 | `edge` (TLS terminated upstream)    | `Caddyfile.netbird` has no `conf.d` import, so the installer inserts a `(relay-routes)` snippet above the sites and adds `import relay-routes` beside every `import origin-routes`. Same mechanism as the bundled IdP routes, with its own marker |
 
-**Restart the proxy after an edge append.** Caddy reads `Caddyfile.netbird` at
-start, and the file is bind-mounted — so changing its contents does not change
-any container's compose config, and `up -d` will not recreate the proxy to pick
-it up. On a stack that was already running, follow the append with
-`docker compose ... restart proxy`, or `/ws` keeps 404ing on a deployment that
-otherwise came up clean. A fresh install does not hit this: the append happens
-before the first bring-up.
+**The installer restarts the proxy after an edge append, when it needs to.**
+Caddy reads `Caddyfile.netbird` at start, and the file is bind-mounted — so
+changing its contents does not change any container's compose config, and
+`up -d` alone would not recreate the proxy to pick it up. `install.sh` closes
+that gap itself: `ensure_edge_idp_route`/`ensure_edge_relay_route` report
+whether they actually wrote, and when either did and the proxy was already
+running, the installer restarts it through its own compose wrapper right
+after bringing the rest of the stack up — this is what makes
+`--phase2 --components code-panel=on` against a running stack work without a
+manual step. A fresh install does not hit this at all: the append happens
+before the first bring-up, so the proxy starts already reading the current
+file. Dry runs never touch docker for this — they only note what they would
+restart.
 
 ## The trust bundle, on the edge shape
 
@@ -206,14 +212,14 @@ Deliberately **not** offered, and why:
 
 ## When it does not work
 
-| Symptom                                                       | Where to look                                                                                                                                                                     |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| no Agents switch in the sidebar                               | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                     |
-| `/code` answers 404                                           | same flag; the route gates on it independently of the sidebar                                                                                                                     |
-| the panel loads, every device reads as unreachable            | the relay container, or `CODE_RELAY_URL`. Cerea's 502 says "could not be reached through the relay"                                                                               |
-| pairing fails at the handshake                                | the daemon is not running, or it is dialling a different relay than this deployment's. The daemon's configured endpoint and `<PUBLIC_ORIGIN>/ws` must be the same relay           |
-| `/ws` 404s from outside                                       | the Caddy route. On `edge`, check for the `# installer: relay /ws route` marker in `Caddyfile.netbird` — and restart the proxy if it is there but was appended to a running stack |
-| a device pairs, then every call 502s with a version complaint | SDK/daemon minor skew. Match `PASEO_SDK_VERSION`; the refusal is deliberate                                                                                                       |
+| Symptom                                                       | Where to look                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no Agents switch in the sidebar                               | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                                                                                                                                                           |
+| `/code` answers 404                                           | same flag; the route gates on it independently of the sidebar                                                                                                                                                                                                                                                           |
+| the panel loads, every device reads as unreachable            | the relay container, or `CODE_RELAY_URL`. Cerea's 502 says "could not be reached through the relay"                                                                                                                                                                                                                     |
+| pairing fails at the handshake                                | the daemon is not running, or it is dialling a different relay than this deployment's. The daemon's configured endpoint and `<PUBLIC_ORIGIN>/ws` must be the same relay                                                                                                                                                 |
+| `/ws` 404s from outside                                       | the Caddy route. On `edge`, check for the `# installer: relay /ws route` marker in `Caddyfile.netbird`; the installer restarts an already-running proxy for you when it appends this, so a 404 with the marker present past an install run means the restart itself failed — `docker compose ... restart proxy` by hand |
+| a device pairs, then every call 502s with a version complaint | SDK/daemon minor skew. Match `PASEO_SDK_VERSION`; the refusal is deliberate                                                                                                                                                                                                                                             |
 
 The relay's own health is a liveness probe on `/health` (not `/ready`, which
 also reports drain state and would restart a draining relay).
