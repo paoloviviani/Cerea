@@ -13,7 +13,7 @@
  * machine checks in as paired; and New Chat keeps its address while carrying
  * the switcher's small/icon idiom.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_URL } from "./fixtures";
 import type { Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -219,15 +219,19 @@ test.describe("the pair dialog's setup commands", () => {
 		await page.getByRole("button", { name: "Start pairing" }).click();
 
 		// The paste step is gone; the setup commands carry this deployment's
-		// own origin (the e2e stack's PUBLIC_ORIGIN) and the typed name.
+		// own origin (the e2e stack's PUBLIC_ORIGIN), its real OIDC issuer
+		// (OPENID_PROVIDER_URL, which the e2e stack deliberately points off
+		// the app's own origin so a hardcoded `${origin}/authelia` guess
+		// cannot pass this assertion by accident) and the typed name.
 		const dialog = page.getByRole("dialog");
 		await expect(
 			dialog.getByText("git clone https://github.com/paoloviviani/Pystino.git")
 		).toBeVisible();
 		await expect(dialog.getByText("cd Pystino/deploy/opencode")).toBeVisible();
+		const relay = new URL(E2E_APP_URL).host;
 		await expect(
 			dialog.getByText(
-				'./setup-agent.sh --relay 127.0.0.1:5199 --gateway http://127.0.0.1:5199 --issuer http://127.0.0.1:5199/authelia --name "test box" --yes'
+				`./setup-agent.sh --relay ${relay} --gateway ${E2E_APP_URL} --issuer http://127.0.0.1:9/authelia --name "test box" --yes`
 			)
 		).toBeVisible();
 		await expect(dialog.getByLabel("Pairing link")).toHaveCount(0);

@@ -99,4 +99,13 @@ export interface FeatureFlags {
 	 * daemon beside it has nothing behind the panel.
 	 */
 	codeAgentsEnabled: boolean;
+	/**
+	 * The chat's own OIDC issuer (`OPENID_PROVIDER_URL`) — bundled Authelia,
+	 * bundled Keycloak, or whatever external IdP the deployment points at.
+	 * The pairing dialog's printed `setup-agent.sh` command carries this as
+	 * `--issuer` so the paired machine's own OIDC discovery lands on the
+	 * provider that actually issued the deployment's tokens, rather than a
+	 * path only the bundled Authelia serves.
+	 */
+	codeOidcIssuerUrl: string;
 }
