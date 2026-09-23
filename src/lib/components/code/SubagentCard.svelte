@@ -18,7 +18,11 @@
 -->
 <script lang="ts">
 	import { tick } from "svelte";
-	import type { AgentStreamUpdate, CodeSubagentAnchor, CodeSubagentStatus } from "$lib/types/CodeAgent";
+	import type {
+		AgentStreamUpdate,
+		CodeSubagentAnchor,
+		CodeSubagentStatus,
+	} from "$lib/types/CodeAgent";
 	import type { Message } from "$lib/types/Message";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
 	import ChatMessage from "$lib/components/chat/ChatMessage.svelte";
@@ -63,11 +67,7 @@
 		if (!current || !anchor.load) return;
 		// A row the roster has since touched refetches; a settled one serves
 		// its cache, so reopening a finished subagent is free.
-		if (
-			transcript &&
-			fetchedFor?.id === current.id &&
-			fetchedFor.updatedAt === current.updatedAt
-		) {
+		if (transcript && fetchedFor?.id === current.id && fetchedFor.updatedAt === current.updatedAt) {
 			return;
 		}
 		working = true;
@@ -106,7 +106,7 @@
 			class="min-w-0 shrink truncate text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {open
 				? 'text-gray-600 dark:text-gray-300'
 				: 'text-gray-500 dark:text-gray-400'}"
-			title={title}
+			{title}
 		>
 			{title}
 		</span>
