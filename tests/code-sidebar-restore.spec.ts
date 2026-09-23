@@ -89,7 +89,7 @@ test("loading an agent session URL directly opens the sidebar on Agents", async 
 	// ...and the paired device's tree is what actually renders in the list,
 	// not the chat list.
 	await expect(page.getByText("e2e box")).toBeVisible();
-	await expect(page.getByRole("button", { name: "Pair a new device" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Pair", exact: true })).toBeVisible();
 });
 
 test("the person can still switch to Chats after an agent reload", async ({
