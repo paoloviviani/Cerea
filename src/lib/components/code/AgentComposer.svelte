@@ -130,28 +130,24 @@
 	// Guards the in-flight fetches against a provider swap (the view remounts
 	// per address, so only a same-mount race exists): a stale answer must not
 	// paint over the fresh one. No snapshot yet means no provider known — the
-	// lists wait for it, and the effect re-runs when it lands. The feature
-	// list additionally waits for a working directory, which the daemon
-	// resolves features per; both stay untracked so a mode/model switch's
-	// snapshot refresh does not tear the list down mid-read (opencode's
-	// feature set does not vary by mode, and the draft's modeId/model are
-	// best-effort echoes of the agent's config).
+	// lists wait for it, and the effect re-runs when it lands. Modes and
+	// models need nothing but the provider; the feature list additionally
+	// waits for a working directory, which the daemon resolves features
+	// per — so the two reads are separate effects, and a snapshot without a
+	// cwd (or a features endpoint that fails) never holds the pills
+	// hostage. Both stay untracked so a mode/model switch's snapshot
+	// refresh does not tear the list down mid-read (opencode's feature set
+	// does not vary by mode, and the draft's modeId/model are best-effort
+	// echoes of the agent's config).
 	let listsToken = 0;
 	$effect(() => {
 		const provider = agent?.provider;
 		if (!provider) return;
-		if (!cwd) return;
 		const token = ++listsToken;
 		modes = null;
 		models = null;
-		featureCatalog = null;
 		modesFailure = null;
 		modelsFailure = null;
-		const draft = untrack(() => ({
-			cwd,
-			...(agent?.modeId ? { modeId: agent.modeId } : {}),
-			...(agent?.modelId ? { model: agent.modelId } : {}),
-		}));
 		untrack(async () => {
 			try {
 				const result = await listProviderModes(deviceId, provider);
@@ -169,14 +165,29 @@
 					modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
 				}
 			}
+		});
+	});
+
+	let featuresToken = 0;
+	$effect(() => {
+		const provider = agent?.provider;
+		if (!provider || !cwd) return;
+		const token = ++featuresToken;
+		featureCatalog = null;
+		const draft = untrack(() => ({
+			cwd,
+			...(agent?.modeId ? { modeId: agent.modeId } : {}),
+			...(agent?.modelId ? { model: agent.modelId } : {}),
+		}));
+		untrack(async () => {
 			// The feature list fails quietly: a toggle has no menu to carry
-			// the failure into, and the pills that matter keep working —
-			// the same reading as the lists above, minus the surface.
+			// the failure into, and the pills keep working — the same
+			// reading as the lists above, minus the surface.
 			try {
 				const result = await listProviderFeatures(deviceId, provider, draft);
-				if (token === listsToken) featureCatalog = result.features;
+				if (token === featuresToken) featureCatalog = result.features;
 			} catch {
-				if (token === listsToken) featureCatalog = [];
+				if (token === featuresToken) featureCatalog = [];
 			}
 		});
 	});
