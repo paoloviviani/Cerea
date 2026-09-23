@@ -152,7 +152,7 @@
 				}}
 			>
 				<DropdownMenu.Trigger
-					class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-200 hover:text-gray-600 data-[state=open]:bg-gray-200 data-[state=open]:text-gray-600 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-600 dark:hover:text-gray-200 dark:data-[state=open]:bg-gray-600 dark:data-[state=open]:text-gray-200"
+					class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-200 hover:text-gray-600 data-[state=open]:bg-gray-200 data-[state=open]:text-gray-600 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-600 dark:hover:text-gray-200 dark:data-[state=open]:bg-gray-600 dark:data-[state=open]:text-gray-200"
 					aria-label="Conversation actions"
 					title="More options"
 				>
