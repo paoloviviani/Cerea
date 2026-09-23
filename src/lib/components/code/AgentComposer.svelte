@@ -68,6 +68,11 @@
 		/** Whether a turn is live on the transcript — the send button's spot
 		 * carries the stop control while it is, permission prompts included. */
 		running?: boolean;
+		/** Set when the device's enrollment probe (on agent open, on device
+		 * switch — see `CodePanel`) found the daemon's stored credentials
+		 * dead: the send is doomed, so it is refused here rather than left
+		 * to fail after the person typed something. */
+		enrollmentExpired?: boolean;
 		/** Called synchronously with the submit, before the POST — the view
 		 * engages the column's follow and raises its pending placeholder. */
 		onsend: (text: string) => Promise<void>;
@@ -79,6 +84,10 @@
 		 * confirmed it in a fresh read — the same discipline as the tree's
 		 * "never an optimistic splice". */
 		onchanged: () => void;
+		/** Opens the re-enroll dialog — the same pointer the sidebar's pill
+		 * offers, reached here because the composer is where the dead send
+		 * would otherwise be discovered. */
+		onreenroll?: () => void;
 	}
 
 	let {
@@ -88,9 +97,11 @@
 		features = [],
 		cwd = null,
 		running = false,
+		enrollmentExpired = false,
 		onsend,
 		onstop,
 		onchanged,
+		onreenroll,
 	}: Props = $props();
 
 	let draft = $state("");
@@ -98,6 +109,7 @@
 	let busy = $state(false);
 
 	async function submit() {
+		if (enrollmentExpired) return;
 		const message = draft.trim();
 		if (!message || busy) return;
 		busy = true;
@@ -448,6 +460,24 @@
 								<span class="min-w-0 truncate" title={applyFailure}>{applyFailure}</span>
 							</span>
 						{/if}
+
+						{#if enrollmentExpired}
+							<span
+								class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400"
+							>
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate">
+									This machine's enrollment expired or was revoked.
+								</span>
+								<button
+									type="button"
+									class="shrink-0 font-medium underline underline-offset-2"
+									onclick={() => onreenroll?.()}
+								>
+									Re-enroll
+								</button>
+							</span>
+						{/if}
 					</div>
 				{/snippet}
 			</ChatInput>
@@ -468,7 +498,7 @@
 					class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
 						? ''
 						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-					disabled={!draft.trim() || busy}
+					disabled={!draft.trim() || busy || enrollmentExpired}
 					type="submit"
 					aria-label="Send message"
 					name="submit"

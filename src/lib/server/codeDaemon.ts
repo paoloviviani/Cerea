@@ -77,6 +77,19 @@ function versionMinor(version: string | null | undefined): string | null {
 	return match?.[1] ?? null;
 }
 
+/**
+ * Whether a daemon call failed because the machine's own enrollment (its
+ * stored IdP tokens, minted by `enroll enroll` on that machine) can no
+ * longer refresh — `invalid_grant` is the OAuth spec's own code for a dead
+ * grant, so it is the one substring this deployment can trust regardless of
+ * which provider phrased the surrounding sentence. This is a re-enrollment,
+ * not a retry: the fix lives on the machine, and a relay hiccup or a merely
+ * unreachable daemon must never be mistaken for it (see `operate` below).
+ */
+function isExpiredEnrollment(message: string): boolean {
+	return /invalid_grant|enrollment (?:has )?expired|enrollment (?:was )?revoked/i.test(message);
+}
+
 class DeviceDaemonLink {
 	private client: DaemonClient | null = null;
 	private connecting: Promise<void> | null = null;
@@ -95,6 +108,20 @@ class DeviceDaemonLink {
 			return await fn(client);
 		} catch (err) {
 			if (err && typeof err === "object" && "status" in err) throw err;
+			const message = err instanceof Error ? err.message : String(err);
+			if (isExpiredEnrollment(message)) {
+				// 401, not 502: a relay hiccup deserves a retry, but a dead
+				// grant does not get better on its own — the caller needs to
+				// tell the person to re-enroll the machine, not to wait.
+				logger.warn(
+					{ deviceId: this.identity.deviceId },
+					"paseo daemon reported an expired or revoked enrollment"
+				);
+				error(
+					401,
+					"The paired machine's enrollment expired or was revoked — re-run the enroll flow on that machine."
+				);
+			}
 			logger.error({ err, deviceId: this.identity.deviceId }, "paseo daemon call failed");
 			error(502, "The coding-agent daemon could not be reached through the relay.");
 		}
