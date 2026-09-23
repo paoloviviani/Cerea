@@ -420,6 +420,28 @@ export async function getOIDCUserData(
 }
 
 /**
+ * Validates a bearer access token issued by this deployment's provider and
+ * returns its claims — the userinfo-only path, for a caller that already
+ * holds a token and has no browser to run an exchange.
+ *
+ * The caller is the machine pairing endpoint: the enroll CLI presents the
+ * token the enrollment flow minted (client `opencode-enrollment`, a secret-
+ * less public client) and the chat maps `sub` onto a user row. The provider
+ * accepts any valid bearer from its own issuer at userinfo, whatever client
+ * minted it — verified live against Authelia 4.39.22 (the bundled IdP), and
+ * it is how userinfo is specified to work; client authentication is a token
+ * *endpoint* concern.
+ */
+export async function getOIDCUserFromToken(
+	settings: OIDCSettings,
+	token: string,
+	url: URL
+): Promise<UserinfoResponse> {
+	const client = await getOIDCClient(settings, url);
+	return client.userinfo(token);
+}
+
+/**
  * Refreshes an OAuth token using the refresh token
  */
 export async function refreshOAuthToken(

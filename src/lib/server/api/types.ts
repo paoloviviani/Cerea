@@ -92,4 +92,11 @@ export interface FeatureFlags {
 	 * to an unserved /console would be a 404 wearing the name of a feature.
 	 */
 	consoleEnabled: boolean;
+	/**
+	 * Whether the deployment exposes the `/code` remote-agent panel
+	 * (`CODE_AGENTS_ENABLED`, off unless explicitly `"true"`). Off hides the
+	 * sidebar row and the route answers 404 — a deployment without a paseo
+	 * daemon beside it has nothing behind the panel.
+	 */
+	codeAgentsEnabled: boolean;
 }

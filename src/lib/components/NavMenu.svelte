@@ -60,6 +60,9 @@
 	import { requireAuthUser } from "$lib/utils/auth";
 	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import CarbonChat from "~icons/carbon/chat";
+	import CarbonCode from "~icons/carbon/code";
+	import CodeNavTree from "./code/CodeNavTree.svelte";
+	import { codeNav } from "$lib/stores/codeNav.svelte";
 
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
@@ -73,6 +76,8 @@
 		user: LayoutData["user"];
 		/** The gateway's own answer — the chat's user flag means nothing here. */
 		gatewayIsAdmin: LayoutData["gatewayIsAdmin"];
+		/** Deployment flag for the agents panel in this list (off unless deployed). */
+		codeAgentsEnabled?: boolean;
 		p?: number;
 		ondeleteConversation?: (id: string) => void;
 		oneditConversationTitle?: (payload: { id: string; title: string }) => void;
@@ -82,6 +87,7 @@
 		conversations = $bindable(),
 		user,
 		gatewayIsAdmin,
+		codeAgentsEnabled = false,
 		p = $bindable(0),
 		ondeleteConversation,
 		oneditConversationTitle,
@@ -181,41 +187,81 @@
 <div
 	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
 >
-	{#if signedIn}
-		<ProjectsBranch
-			bind:this={projectsBranch}
-			onopen={(id) => {
-				projectTarget = id;
-				projectCreate = id === undefined;
-				showProjectsModal = true;
-			}}
-		/>
-	{/if}
+	{#if codeAgentsEnabled && codeNav.view === "agents"}
+		<CodeNavTree />
+	{:else}
+		{#if signedIn}
+			<ProjectsBranch
+				bind:this={projectsBranch}
+				onopen={(id) => {
+					projectTarget = id;
+					projectCreate = id === undefined;
+					showProjectsModal = true;
+				}}
+			/>
+		{/if}
 
-	<TreeBranch label="Chats" badge={loose.length || undefined} bind:open={chatsOpen}>
-		{#snippet icon()}
-			<CarbonChat class="size-3.5 shrink-0" />
-		{/snippet}
-		{#each Object.entries(groupedConversations) as [group, convs]}
-			{#if convs.length}
-				<h4 class="mt-2 mb-1 pl-6 text-xs text-gray-400 first:mt-0.5 dark:text-gray-500">
-					{titles[group]}
-				</h4>
-				{#each convs as conv (String(conv.id))}
-					<div class="pl-3">
-						<NavConversationItem {conv} {oneditConversationTitle} {ondeleteConversation} />
-					</div>
-				{/each}
+		<TreeBranch label="Chats" badge={loose.length || undefined} bind:open={chatsOpen}>
+			{#snippet icon()}
+				<CarbonChat class="size-3.5 shrink-0" />
+			{/snippet}
+			{#each Object.entries(groupedConversations) as [group, convs]}
+				{#if convs.length}
+					<h4 class="mt-2 mb-1 pl-6 text-xs text-gray-400 first:mt-0.5 dark:text-gray-500">
+						{titles[group]}
+					</h4>
+					{#each convs as conv (String(conv.id))}
+						<div class="pl-3">
+							<NavConversationItem {conv} {oneditConversationTitle} {ondeleteConversation} />
+						</div>
+					{/each}
+				{/if}
+			{/each}
+			{#if loose.length === 0}
+				<TreeLeaf label="No chats yet" depth={1} href="{base}/" />
 			{/if}
-		{/each}
-		{#if loose.length === 0}
-			<TreeLeaf label="No chats yet" depth={1} href="{base}/" />
-		{/if}
-		{#if hasMore}
-			<InfiniteScroll onvisible={handleVisible} />
-		{/if}
-	</TreeBranch>
+			{#if hasMore}
+				<InfiniteScroll onvisible={handleVisible} />
+			{/if}
+		</TreeBranch>
+	{/if}
 </div>
+
+{#if codeAgentsEnabled}
+	<!-- The list's foot: the panel switch. Chats and coding agents are two
+	     contents of the same list, not two destinations — the agents panel
+	     keeps its actions (pair, add workspace, new agent) in the tree, and
+	     an agent opens the way a chat does. Two boxes, not one: +layout.svelte
+	     pins every NavMenu child to the nav's 260px column, so horizontal
+	     insets must be padding inside that box — margins on a w-[260px] child
+	     push its far edge 8px past the list's border. The pt-2 is the air the
+	     list keeps above the switch, so a scrolling row never vanishes flush
+	     against the selector. -->
+	<div class="shrink-0 px-2 pt-2 pb-1">
+		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+			<button
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
+				'chats'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
+				onclick={() => (codeNav.view = "chats")}
+			>
+				<CarbonChat class="size-3.5" />
+				Chats
+			</button>
+			<button
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
+				'agents'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
+				onclick={() => (codeNav.view = "agents")}
+			>
+				<CarbonCode class="size-3.5" />
+				Agents
+			</button>
+		</div>
+	</div>
+{/if}
 
 <div
 	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-gray-50 dark:border-transparent md:dark:from-gray-800/30"

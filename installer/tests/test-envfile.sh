@@ -110,7 +110,7 @@ EXPOSURE=edge
 IDP_BUNDLED=""
 AUTH_MODE="house"
 REDACTION_STATE="pattern"
-ST_REDACTION="pattern" ST_FETCH="direct" ST_METERING=1 ST_USAGE=1 ST_CODETOOL=1 ST_KNOWLEDGE=1 ST_MEMORY=1
+ST_REDACTION="pattern" ST_FETCH="direct" ST_METERING=1 ST_USAGE=1 ST_CODETOOL=1 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 cat >"$TMPD/fragment2.env" <<'EOF'
 KEEP=yes
 EOF
@@ -123,13 +123,13 @@ assert_contains "INSTALLER_EXPOSURE written" "INSTALLER_EXPOSURE=edge" "$(cat "$
 assert_contains "INSTALLER_IDP written" "INSTALLER_IDP=house" "$(cat "$TMPD/built2.env")"
 assert_contains "INSTALLER_AUTH_MODE written" "INSTALLER_AUTH_MODE=house" "$(cat "$TMPD/built2.env")"
 assert_contains "INSTALLER_COMPONENTS written" \
-	"INSTALLER_COMPONENTS=redaction=pattern,fetch=direct,metering=on,usage=shown,code-tool=on,knowledge=on,memory=on" \
+	"INSTALLER_COMPONENTS=redaction=pattern,fetch=direct,metering=on,usage=shown,code-tool=on,knowledge=on,memory=on,code-panel=off" \
 	"$(cat "$TMPD/built2.env")"
 parse_env_file "$TMPD/built2.env"
 assert_eq "the block marks META_PRESENT" "1" "$META_PRESENT"
 assert_eq "metadata parses verbatim" "team" "${INSTALLER_META[INSTALLER_PROFILE]}"
 assert_eq "metadata components verbatim" \
-	"redaction=pattern,fetch=direct,metering=on,usage=shown,code-tool=on,knowledge=on,memory=on" \
+	"redaction=pattern,fetch=direct,metering=on,usage=shown,code-tool=on,knowledge=on,memory=on,code-panel=off" \
 	"${INSTALLER_META[INSTALLER_COMPONENTS]}"
 assert_eq "INSTALLER_* never enter PARSED" "KEEP SECRET" "${PARSED_ORDER[*]}"
 run_capture parse_env_file "$TMPD/built2.env"

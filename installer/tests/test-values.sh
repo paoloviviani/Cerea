@@ -468,19 +468,21 @@ assert_fails_with "components_parse rejects the empty spec" "empty" components_p
 
 # ---- components_to_shape over profile defaults, and the round trip
 REDACTION_STATE="off"
-ST_REDACTION="off" ST_FETCH="direct" ST_METERING=0 ST_CODETOOL=1 ST_USAGE=0 ST_KNOWLEDGE=1 ST_MEMORY=1
+ST_REDACTION="off" ST_FETCH="direct" ST_METERING=0 ST_CODETOOL=1 ST_USAGE=0 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 components_to_shape "redaction=pattern,fetch=playwright,usage=shown"
 assert_eq "components_to_shape: redaction applied" "pattern" "$ST_REDACTION"
 assert_eq "components_to_shape: fetch applied" "playwright" "$ST_FETCH"
 assert_eq "components_to_shape: usage applied" "1" "$ST_USAGE"
 assert_eq "components_to_shape: untouched keys keep their values" "0 1 1 1" "$ST_METERING $ST_CODETOOL $ST_KNOWLEDGE $ST_MEMORY"
+components_to_shape "code-panel=on"
+assert_eq "components_to_shape: code-panel applied" "1" "$ST_CODEPANEL"
 shape_to_components
 assert_eq "shape_to_components serialises the whole shape" \
-	"redaction=pattern,fetch=playwright,metering=off,usage=shown,code-tool=on,knowledge=on,memory=on" \
+	"redaction=pattern,fetch=playwright,metering=off,usage=shown,code-tool=on,knowledge=on,memory=on,code-panel=on" \
 	"$COMPONENTS_SPEC"
 components_to_shape "$COMPONENTS_SPEC"
-assert_eq "spec -> shape -> spec is a fixpoint" "pattern playwright 0 1 1 1 1" \
-	"$ST_REDACTION $ST_FETCH $ST_METERING $ST_USAGE $ST_CODETOOL $ST_KNOWLEDGE $ST_MEMORY"
+assert_eq "spec -> shape -> spec is a fixpoint" "pattern playwright 0 1 1 1 1 1" \
+	"$ST_REDACTION $ST_FETCH $ST_METERING $ST_USAGE $ST_CODETOOL $ST_KNOWLEDGE $ST_MEMORY $ST_CODEPANEL"
 
 # ---- components_differ (exit 0 = the shapes disagree)
 assert_fails "identical specs (any order) do not differ" \

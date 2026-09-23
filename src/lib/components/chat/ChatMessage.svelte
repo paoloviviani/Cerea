@@ -52,7 +52,7 @@
 		type MessagePlanUpdate,
 		type MessageMemoryUpdate,
 	} from "$lib/types/MessageUpdate";
-	import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
+	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import { page } from "$app/state";
 	import ImageLightbox from "./ImageLightbox.svelte";
 	import { splitArtifactSegments, stripArtifacts } from "$lib/utils/artifacts";
@@ -67,8 +67,24 @@
 		alternatives?: Message["id"][];
 		editMsdgId?: Message["id"] | null;
 		isLast?: boolean;
+		/**
+		 * Regenerate / edit-with-content, when the caller owns a message tree to
+		 * retry against. Surfaces whose messages are a replay of someone else's
+		 * log (the coding-agent transcript) omit it, and the affordances that
+		 * mutate the tree — retry, edit — are not offered.
+		 */
 		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
+		/**
+		 * Pluggable answer path for approval cards: when set, the agent-style
+		 * approval (see ToolApprovalCard) answers through it instead of the
+		 * conversation elicitation endpoint. Absent on chat routes, where the
+		 * conversation id picks the channel.
+		 */
+		onanswerElicitation?: (
+			request: ElicitationRequestPayload,
+			action: ElicitationAction
+		) => Promise<{ ok: boolean; error?: string }>;
 	}
 
 	let {
@@ -82,6 +98,7 @@
 		isLast = false,
 		onretry,
 		onshowAlternateMsg,
+		onanswerElicitation,
 	}: Props = $props();
 
 	let contentEl: HTMLElement | undefined = $state();
@@ -579,6 +596,9 @@
 										request={block.request}
 										expiresAt={block.expiresAt}
 										resolved={block.resolved}
+										onanswer={onanswerElicitation
+											? (action) => onanswerElicitation(block.request, action)
+											: undefined}
 									/>
 								{:else}
 									<ElicitationForm
@@ -649,6 +669,9 @@
 										request={unit.request}
 										expiresAt={unit.expiresAt}
 										resolved={unit.resolved}
+										onanswer={onanswerElicitation
+											? (action) => onanswerElicitation(unit.request, action)
+											: undefined}
 									/>
 								{:else}
 									<ElicitationForm
@@ -778,16 +801,18 @@
 						value={contentWithoutThink}
 						iconClassNames="text-xs"
 					/>
-					<button
-						class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
-						title="Retry"
-						type="button"
-						onclick={() => {
-							onretry?.({ id: message.id });
-						}}
-					>
-						<CarbonRotate360 />
-					</button>
+					{#if onretry}
+						<button
+							class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
+							title="Retry"
+							type="button"
+							onclick={() => {
+								onretry?.({ id: message.id });
+							}}
+						>
+							<CarbonRotate360 />
+						</button>
+					{/if}
 					{#if alternatives.length > 1 && editMsdgId === null}
 						<Alternatives
 							{message}
@@ -884,20 +909,22 @@
 					/>
 				{/if}
 				{#if (alternatives.length > 1 && editMsdgId === null) || (!loading && !editMode)}
-					<button
-						class="hidden h-5 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-gray-400 group-hover:flex hover:flex hover:bg-gray-100 hover:text-gray-500 lg:-right-2 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300 {isTapped
-							? '[@media(hover:none)]:flex'
-							: ''}"
-						title="Edit"
-						type="button"
-						onclick={() => {
-							if (requireAuthUser()) return;
-							editMsdgId = message.id;
-						}}
-					>
-						<CarbonPen />
-						Edit
-					</button>
+					{#if onretry}
+						<button
+							class="hidden h-5 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-gray-400 group-hover:flex hover:flex hover:bg-gray-100 hover:text-gray-500 lg:-right-2 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300 {isTapped
+								? '[@media(hover:none)]:flex'
+								: ''}"
+							title="Edit"
+							type="button"
+							onclick={() => {
+								if (requireAuthUser()) return;
+								editMsdgId = message.id;
+							}}
+						>
+							<CarbonPen />
+							Edit
+						</button>
+					{/if}
 					<button
 						class="hidden h-5 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs group-hover:flex hover:flex hover:bg-gray-100 lg:-right-2 dark:hover:bg-gray-800 {isTapped
 							? '[@media(hover:none)]:flex'

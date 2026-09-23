@@ -9,7 +9,7 @@ export const SIDE_PANE_MAX_WIDTH = 2400;
 export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
-export type SidePaneView = "artifact" | "trackio" | "library" | "preview";
+export type SidePaneView = "artifact" | "trackio" | "library" | "preview" | "diff";
 
 /**
  * A one-shot rendered view of a single fence or file: no registry entry, no
@@ -142,6 +142,26 @@ class SidePaneStore {
 		this.view = "library";
 		this.open = true;
 		this.revealNonce += 1;
+	}
+
+	/**
+	 * The coding agent's working-tree changes. Like the library view this is
+	 * not part of the pane-item axis: the diff is fetched fresh by the view
+	 * itself (`getAgentDiff`), so there is no selection to hold.
+	 */
+	openDiff() {
+		this.view = "diff";
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/** What the Changes button does: open, or close what it already opened. */
+	toggleDiff() {
+		if (this.open && this.view === "diff") {
+			this.close();
+			return;
+		}
+		this.openDiff();
 	}
 
 	/**

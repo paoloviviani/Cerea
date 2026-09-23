@@ -605,13 +605,13 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 	local profile="$1"
 	case "$profile" in
 		homelab)
-			ST_REDACTION="off" ST_FETCH="direct" ST_METERING=0 ST_CODETOOL=1 ST_USAGE=0 ST_KNOWLEDGE=1 ST_MEMORY=1
+			ST_REDACTION="off" ST_FETCH="direct" ST_METERING=0 ST_CODETOOL=1 ST_USAGE=0 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 			;;
 		team)
-			ST_REDACTION="pattern" ST_FETCH="direct" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1
+			ST_REDACTION="pattern" ST_FETCH="direct" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 			;;
 		enterprise)
-			ST_REDACTION="ner" ST_FETCH="playwright" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1
+			ST_REDACTION="ner" ST_FETCH="playwright" ST_METERING=1 ST_CODETOOL=1 ST_USAGE=1 ST_KNOWLEDGE=1 ST_MEMORY=1 ST_CODEPANEL=0
 			;;
 	esac
 	if [ -n "$COMPONENTS_SPEC" ]; then
@@ -634,10 +634,11 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 		local metering_label="off" usage_label="hidden"
 		[ "$ST_METERING" = "1" ] && metering_label="on"
 		[ "$ST_USAGE" = "1" ] && usage_label="shown"
-		local code_label="off" knowledge_label="off" memory_label="off" fetch_label="$ST_FETCH"
+		local code_label="off" knowledge_label="off" memory_label="off" fetch_label="$ST_FETCH" codepanel_label="off"
 		[ "$ST_CODETOOL" = "1" ] && code_label="on"
 		[ "$ST_KNOWLEDGE" = "1" ] && knowledge_label="on"
 		[ "$ST_MEMORY" = "1" ] && memory_label="on"
+		[ "$ST_CODEPANEL" = "1" ] && codepanel_label="on"
 		printf '\nCurrent selection:\n'
 		printf '  %s1)%s Redaction: %s\n' "$CYAN" "$R" "$redaction_label"
 		note "     off: nothing (+0) · pattern: +~300 MB RSS, +~1.9 GB image (pattern-only redaction + local extractor) · NER: +~750 MB RSS (NER redaction) — needs a rebuild to change later (SPACY_MODELS is a build argument)"
@@ -653,11 +654,13 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 		note "     free: its Postgres is a second database on the gateway's instance, not a container — off hides the surface instead of erroring"
 		printf '  %s7)%s User memory: %s\n' "$CYAN" "$R" "$memory_label"
 		note "     free: a handful of short facts per person in Mongo — and each person still has to opt in, so leaving it on stores nothing by itself"
-		printf '  %s8)%s Done — continue with this selection\n' "$CYAN" "$R"
-		ask "Toggle [1-8]" "8"
-		if [ "$REPLY_VAL" = "8" ]; then return; fi
-		if ! [[ "$REPLY_VAL" =~ ^[1-7]$ ]]; then
-			printf '%sEnter a number between 1 and 8.%s\n' "$YELLOW" "$R"
+		printf '  %s8)%s /code remote-agent panel: %s\n' "$CYAN" "$R" "$codepanel_label"
+		note "     hosts the paseo-relay (one container, no new port — it rides the origin at /ws; ADR 0085). Off hides the /code panel in the chat"
+		printf '  %s9)%s Done — continue with this selection\n' "$CYAN" "$R"
+		ask "Toggle [1-9]" "9"
+		if [ "$REPLY_VAL" = "9" ]; then return; fi
+		if ! [[ "$REPLY_VAL" =~ ^[1-8]$ ]]; then
+			printf '%sEnter a number between 1 and 9.%s\n' "$YELLOW" "$R"
 			continue
 		fi
 		case "$REPLY_VAL" in
@@ -682,6 +685,7 @@ toggle_components() { # toggle_components <profile>  -> ST_* globals
 			5) if [ "$ST_CODETOOL" = "1" ]; then ST_CODETOOL=0; else ST_CODETOOL=1; fi ;;
 			6) if [ "$ST_KNOWLEDGE" = "1" ]; then ST_KNOWLEDGE=0; else ST_KNOWLEDGE=1; fi ;;
 			7) if [ "$ST_MEMORY" = "1" ]; then ST_MEMORY=0; else ST_MEMORY=1; fi ;;
+			8) if [ "$ST_CODEPANEL" = "1" ]; then ST_CODEPANEL=0; else ST_CODEPANEL=1; fi ;;
 		esac
 	done
 }
@@ -1348,6 +1352,22 @@ collect_values() { # collect_values <profile>
 	# chat's admin panel may link to it (satellite/generic leave it empty —
 	# see the standalone branch above).
 	set_value CHAT_CONSOLE_ENABLED "true"
+	# The /code remote-agent panel (ADR 0085): on only where the operator
+	# toggled it, because it deploys the relay container daemons outside
+	# dial. No published port: the relay rides the origin at /ws (proxy
+	# snippet from the overlay, installer-appended block on edge). The
+	# relay endpoint Cerea dials is the compose-internal one; daemons
+	# outside dial the origin Caddy already publishes, path /ws, and the
+	# pairing offer they paste into the panel records that public endpoint.
+	# The enrollment axis (opencode -> /v1 through the serve shim) is
+	# untouched by this toggle and never touches the relay.
+	if [ "$ST_CODEPANEL" = "1" ]; then
+		set_value CODE_AGENTS_ENABLED "true"
+		set_value CODE_RELAY_URL "relay:4000"
+	else
+		set_value CODE_AGENTS_ENABLED ""
+		set_value CODE_RELAY_URL ""
+	fi
 	# GATEWAY_SESSION_COOKIE_SECURE is deliberately not set here: it stays
 	# whatever the fragment says (false for homelab/team loopback shapes,
 	# true for enterprise), and the proxy overlay forces true at the
@@ -1542,10 +1562,17 @@ idp_ca_dance() { # idp_ca_dance <env-file> <flags...>
 	local envfile="$1"
 	shift
 	if [ -z "${VALUES[IDP_BUNDLED]:-}" ]; then return; fi
-	if [ "${EXPOSURE:-proxy}" != "proxy" ]; then
-		note "Edge shape: no CA dance (plain HTTP behind the edge)."
-		return
-	fi
+	# Both shapes maintain the bundle — just for different first reasons.
+	# Proxy: the gateway fetches OIDC discovery from the issuer URL, which
+	# answers on the proxy's internal TLS. Edge: the same fetch answers on
+	# the same internal listener (the public name hairpins to it inside
+	# the compose network) — "plain HTTP behind the edge" describes the
+	# edge's hop, not the box's. And on either shape the gateway also calls
+	# public upstreams, so the bundle is public roots first with the live
+	# proxy root appended — never the proxy root alone, which is what a
+	# hand-maintained file decays to, and exactly the shape that answers
+	# every public-TLS call with CERTIFICATE_VERIFY_FAILED while internal
+	# fetches keep working (found live: chat login fine, Cortecs dead).
 	if [ "$DRY_RUN" = "1" ]; then
 		note "[dry-run] would append the proxy's local CA root to deploy/tls/caddy-root.crt (public roots first, de-duplicated) and restart the gateway"
 		return
@@ -1680,6 +1707,48 @@ ensure_edge_idp_route() {
 	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import idp-routes|' "$tmp_nb"
 	mv -f "$tmp_nb" "$netbird"
 	note "Bundled $kind route inserted above the sites in Caddyfile.netbird (both sites import it)."
+}
+
+# Edge shape: Caddyfile.netbird has no conf.d import, so the relay's /ws
+# route is appended once to a shared snippet both sites import — the same
+# mechanism as the bundled IdP route above, with its own marker and snippet
+# name so the two never mistake each other. Proxy shape needs nothing (the
+# code-relay overlay mounts into conf.d). Idempotent; same fail-closed
+# shape checks as the IdP version.
+ensure_edge_relay_route() {
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" != "true" ]; then return; fi
+	if [ "${EXPOSURE:-}" != "edge" ]; then return; fi
+	local netbird="$PYSTINO_ROOT/deploy/caddy/Caddyfile.netbird"
+	local marker="# installer: relay /ws route (chat deploy/compose/docker-compose.code-relay.yml)"
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would append the relay /ws route to deploy/caddy/Caddyfile.netbird (shared snippet, both sites)"
+		return
+	fi
+	if grep -q "installer: relay /ws route" "$netbird" 2>/dev/null; then
+		note "Relay route already present in Caddyfile.netbird."
+		return
+	fi
+	local snippet_src="$CEREA_ROOT/deploy/caddy/conf.d-code-relay/20-relay.caddy"
+	[ -f "$snippet_src" ] || fail "missing $snippet_src (it ships with the Pystino checkout — fetch or rebase before installing)."
+	local site_line
+	site_line="$(grep -nE '^[a-z0-9.:-]+ \{$' "$netbird" | head -1 | cut -d: -f1)"
+	[ -n "$site_line" ] || fail "Caddyfile.netbird no longer matches the shape this installer knows (no site block opener to insert the (relay-routes) snippet before). Add it by hand above the sites, then re-run with --phase2."
+	local tmp_nb="$netbird.new.$$"
+	{
+		sed -n "1,$((site_line - 1))p" "$netbird"
+		printf '\n%s\n' "$marker"
+		printf '(relay-routes) {\n'
+		cat "$snippet_src"
+		printf '}\n'
+		sed -n "${site_line},\$p" "$netbird"
+	} >"$tmp_nb"
+	if ! grep -q $'^\timport origin-routes$' "$tmp_nb"; then
+		rm -f "$tmp_nb"
+		fail "Caddyfile.netbird no longer matches the shape this installer knows (no '<tab>import origin-routes' lines). Add the (relay-routes) snippet's import to both sites by hand, then re-run with --phase2."
+	fi
+	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import relay-routes|' "$tmp_nb"
+	mv -f "$tmp_nb" "$netbird"
+	note "Relay /ws route inserted above the sites in Caddyfile.netbird (both sites import it)."
 }
 
 # Escape a value for the sed replacement half (delimiter |): backslashes,
@@ -2077,9 +2146,17 @@ phase_two() { # phase_two <env-file>
 	title "Phase 2 — full stack"
 	overlay_flags custom_overlays "$EXPOSURE" "$REDACTION_STATE" "$ST_FETCH"
 	append_idp_overlay
+	append_code_relay_overlay
 	local file_list="${OVERLAY_FLAGS[*]}"
 	file_list="${file_list//-f /}"
 	echo "Overlay set: $file_list"
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+		# The relay image builds from the pinned source checkout the fetch
+		# script maintains beside the overlay (no published image exists;
+		# ADR 0085). Before the up, because the up builds it.
+		"$CEREA_ROOT/deploy/code-relay/fetch.sh" ||
+			fail "fetching the relay source failed (network?)."
+	fi
 	if [ "$BUILD" = "1" ]; then
 		echo "Rebuilding images and starting (--build) ..."
 	else
@@ -2361,10 +2438,33 @@ main() {
 		# (IDP_BUNDLED); the global mirrors it so required_keys_for sees the
 		# same shape as a fresh run.
 		IDP_BUNDLED="${PARSED[IDP_BUNDLED]:-}"
-		local key
-		for key in "${PARSED_ORDER[@]}"; do
-			set_value "$key" "${PARSED[$key]}"
-		done
+ 		local key
+ 		for key in "${PARSED_ORDER[@]}"; do
+ 			set_value "$key" "${PARSED[$key]}"
+ 		done
+		# The component toggles a resume's --components overrode must reach
+		# the value map: collect_values is where they translate on a fresh
+		# run, and --phase2 never calls it — the file's values alone would
+		# win over the operator's explicit toggle. The CODE_* trio is the
+		# one such family today (every other component already writes its
+		# file key on the install that set it, so the parsed copy is right).
+		if [ "${ST_CODEPANEL:-0}" = "1" ]; then
+			set_value CODE_AGENTS_ENABLED "true"
+			set_value CODE_RELAY_URL "relay:4000"
+		fi
+		# RELAY_PORT belonged to the published-port design the /ws subpath
+		# replaced: nothing reads it anymore, and a stale
+		# RELAY_PORT=4000 in the file would keep telling the operator the
+		# daemons dial a port that no longer exists. Drop it from the map
+		# (value and order) so the persisted file stops carrying it.
+		if [ -n "${VALUES[RELAY_PORT]+x}" ]; then
+			unset 'VALUES[RELAY_PORT]'
+			local _vo=() _k
+			for _k in "${VALUES_ORDER[@]}"; do
+				[ "$_k" = "RELAY_PORT" ] || _vo+=("$_k")
+			done
+			VALUES_ORDER=("${_vo[@]}")
+		fi
 		# --set on a resume: applied over the parsed values and re-validated
 		# with everything else below. The settable-key filter already ran at
 		# parse time, so a derived/generated key cannot sneak in here.
@@ -2463,8 +2563,57 @@ main() {
 	validate_values "$PROFILE" VALUES
 
 	if [ "$PHASE2_ONLY" = "1" ]; then
+		# The resume's compose profiles must reflect the toggles the
+		# operator just changed, not only the shape the file recorded:
+		# --components code-panel=on adds the relay's profile to the set
+		# the name-less `up -d` brings up. Derived, never --set-able —
+		# and derived BEFORE the persisting write below, so the file the
+		# children read carries the new set too (the in-memory copy alone
+		# would leave deploy/.env describing the old one).
+		derive_compose_profiles
+		set_value COMPOSE_PROFILES "$COMPOSE_PROFILES_VALUE"
+		# A resume that overrides the recorded shape (--components) must
+		# persist the change: the compose children all read deploy/.env,
+		# and an override that lives only in this process would leave the
+		# file describing a stack that no longer matches it (and the
+		# metadata block would keep re-imposing the old shape on every
+		# later resume). The write is the fresh path's own build_env_file:
+		# every existing value arrives through the parse, so nothing is
+		# regenerated — only the overridden shape changes. Untouched
+		# resumes skip it: the file is already the truth they resume.
+		if [ -n "$COMPONENTS_SPEC" ]; then
+			local tmp_env="$ENV_FILE.installing.$$"
+			build_env_file "$PYSTINO_ROOT/deploy/profiles/$(profile_fragment "$PROFILE")" >"$tmp_env"
+			chmod 600 "$tmp_env"
+			parse_env_file "$tmp_env"
+			VALUES_ORDER=()
+			VALUES=()
+			local key
+			for key in "${PARSED_ORDER[@]}"; do
+				set_value "$key" "${PARSED[$key]}"
+			done
+			if [ "$DRY_RUN" = "1" ]; then
+				ENV_FILE="$tmp_env"
+				note "[dry-run] the shape override would re-write $PYSTINO_ROOT/deploy/.env (nothing was changed)."
+			else
+				mv -f "$tmp_env" "$ENV_FILE"
+				echo "Wrote $ENV_FILE (mode 600) — shape override persisted."
+			fi
+		fi
 		build_scrub "$ENV_FILE"
 		check_idp_files
+		# Edge routes live as installer-appended blocks in Caddyfile.netbird,
+		# outside every compose file — so a resume must re-assert them, not
+		# just the fresh run: a file that lost them (a checkout reset, a
+		# hand edit) otherwise serves a stack whose /authelia and /ws fall
+		# through to the gateway's 404. Both functions are idempotent
+		# behind their markers and dry-run aware.
+		if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
+			ensure_edge_idp_route
+		fi
+		if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+			ensure_edge_relay_route
+		fi
 		if is_standalone_profile "$PROFILE"; then
 			standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
 			phase_two_standalone "$ENV_FILE"
@@ -2588,6 +2737,7 @@ main() {
 		else
 			overlay_flags custom_overlays "$EXPOSURE" "$REDACTION_STATE" "$ST_FETCH"
 			append_idp_overlay
+			append_code_relay_overlay
 		fi
 		# The derivation needed CHAT_REPO for the playwright overlay; the
 		# scrub for the parse check must keep it (it is re-supplied as an
@@ -2614,6 +2764,7 @@ main() {
 					chat) need+=(chat chat-mongo) ;;
 					authelia) need+=(authelia ca-bundle) ;;
 					keycloak) need+=(keycloak ca-bundle) ;;
+					code-relay) need+=(relay) ;;
 				esac
 			done
 			local services_out
@@ -2646,6 +2797,9 @@ main() {
 
 	if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
 		ensure_edge_idp_route
+	fi
+	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" = "true" ]; then
+		ensure_edge_relay_route
 	fi
 	if is_standalone_profile "$PROFILE"; then
 		standalone_overlay_flags "$EXPOSURE" "${VALUES[IDP_BUNDLED]:-}"
