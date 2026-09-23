@@ -31,7 +31,14 @@
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
 	import { codeAgentStream } from "$lib/codeAgentStream";
-	import { getAgent, listWorkspaces, respondPermission, sendFollowUp } from "$lib/codeApi";
+	import {
+		cancelAgent,
+		getAgent,
+		listWorkspaces,
+		respondPermission,
+		sendFollowUp,
+	} from "$lib/codeApi";
+	import type { CodeProviderFeature } from "$lib/codeApi";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
@@ -52,6 +59,13 @@
 	let { deviceId, agentId, workspaceId }: Props = $props();
 
 	let agent = $state<CodeAgentSession | null>(null);
+	/** The provider features the agent itself reports — the auto-accept
+	 * toggle's live value. Cleared with the snapshot on a failed read: a
+	 * toggle with no daemon word behind it does not render as on or off. */
+	let features = $state<CodeProviderFeature[]>([]);
+	/** The agent's working directory, from the same read: the feature list
+	 * the composer asks for is resolved per working directory on the daemon. */
+	let agentCwd = $state<string | null>(null);
 	let workspace = $state<CodeWorkspace | null>(null);
 	let messages = $state<Message[]>([]);
 	let pending = $state(false);
@@ -86,15 +100,21 @@
 	});
 
 	/** One snapshot read, from mount and after every composer switch: the
-	 * strip's pills and the composer's mode/model pills label from the
-	 * daemon's own word, never from what the request claimed. */
+	 * strip's pills, the composer's mode/model pills and the feature
+	 * toggles label from the daemon's own word, never from what a request
+	 * claimed. */
 	async function refreshAgent() {
 		try {
-			agent = (await getAgent(deviceId, agentId)).agent;
+			const detail = await getAgent(deviceId, agentId);
+			agent = detail.agent;
+			features = detail.features ?? [];
+			agentCwd = detail.cwd;
 		} catch {
 			// The transcript carries its own states; a strip that only
 			// errors when the daemon is off is worse than fallbacks.
 			agent = null;
+			features = [];
+			agentCwd = null;
 		}
 	}
 
@@ -204,6 +224,22 @@
 		}
 	}
 
+	/** The stop control: ask the daemon to end the live turn. This response
+	 * is the receipt, not the outcome — the transcript records the ending
+	 * itself: `turn_canceled` folds to a terminal state (so the dots stop
+	 * and the send button returns), and where a permission card is waiting
+	 * the daemon resolves it denied, which settles the card through the
+	 * fold's existing resolution path. Stopping is exactly the move for a
+	 * prompt nobody wants to answer. */
+	async function stopAgent() {
+		failure = null;
+		try {
+			await cancelAgent(deviceId, agentId);
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not stop the agent.";
+		}
+	}
+
 	/** The agent's approval card answers through the forwarder, not the chat's
 	 * elicitation endpoint — the daemon owns the request's lifetime. */
 	async function answerPermission(
@@ -297,7 +333,11 @@
 					{deviceId}
 					{agentId}
 					{agent}
+					{features}
+					cwd={agentCwd}
+					running={loading}
 					onsend={handleSend}
+					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}
 				/>
 			{/snippet}
