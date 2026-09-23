@@ -150,6 +150,32 @@ export async function listProviders(
 	return unwrap(await fetch(`${root()}/v1/providers?device=${encodeURIComponent(deviceId)}`));
 }
 
+/** Whether a device's daemon is answering with good enrollment: `"ok"` when
+ * the probe below landed, `"expired"` when the daemon itself said its
+ * enrollment is dead (the forwarder's 401 — see `codeDaemon.ts`'s
+ * `isExpiredEnrollment`), and `"unreachable"` for everything else (a relay
+ * hiccup, a dropped daemon, an unpaired device) — the same bucket every
+ * other daemon read already falls back to. */
+export type EnrollmentCheck = "ok" | "expired" | "unreachable";
+
+/**
+ * A cheap, allowlisted call that still forces the daemon to prove its stored
+ * credentials: the provider's model catalog is itself gated behind the
+ * machine's enrollment, so listing it exercises the same tokens a real chat
+ * turn would need, without spending one. Run on agent open and on device
+ * switch (see `AgentView`/`CodePanel`) so an expired enrollment surfaces
+ * before the person types a doomed message, not after.
+ */
+export async function checkEnrollment(deviceId: string): Promise<EnrollmentCheck> {
+	try {
+		await listProviderModels(deviceId, "opencode");
+		return "ok";
+	} catch (err) {
+		if (err instanceof CodeApiError && err.status === 401) return "expired";
+		return "unreachable";
+	}
+}
+
 /** The provider's modes — paseo's permission vocabulary (plan, build, …),
  * as the daemon itself defines it. */
 export async function listProviderModes(
