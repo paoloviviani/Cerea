@@ -25,6 +25,8 @@ set -a; . deploy/.env; set +a          # the gateway's deployment variables
 ./scripts/test_projects_live.py        # projects: context, retrieval, memory
 ./scripts/test_attachments_live.py     # a document attachment, extracted once
 ./scripts/test_nav_live.py             # the sidebar tree, and signing out for real
+./scripts/test_admin_panel_live.py     # the admin surfaces, and who may see them
+./scripts/test_connectors_live.py      # MCP connector OAuth, against a real provider
 ```
 
 Note the trap in the attachment check, because it will be reintroduced: the
@@ -92,7 +94,7 @@ Tests are split into three workspaces (configured in vite.config.ts):
 ```
 src/
 ├── lib/
-│   ├── components/       # Svelte components (chat/, mcp/, voice/, icons/)
+│   ├── components/       # Svelte components (chat/, code/, mcp/, voice/, icons/)
 │   ├── server/
 │   │   ├── api/utils/       # Shared API helpers (auth, superjson, model/conversation resolvers)
 │   │   ├── textGeneration/  # LLM streaming pipeline
@@ -102,9 +104,13 @@ src/
 │   │   ├── models.ts     # Model registry from OPENAI_BASE_URL/models
 │   │   └── auth.ts       # OpenID Connect authentication
 │   ├── types/            # TypeScript interfaces (Conversation, Message, User, Model, etc.)
+│   │   codeDaemon.ts     # the relay client: one E2EE connection per paired device
+│   │   codeDevices.ts    # pairing records, and the per-person scope on them
+│   │   codeEnabled.ts    # the CODE_AGENTS_ENABLED gate
 │   ├── stores/           # Svelte stores for reactive state
 │   └── utils/            # Helpers (tree/, marked.ts, auth.ts, etc.)
 ├── routes/               # SvelteKit file-based routing
+│   ├── code/             # the /code Agents panel (a thin wrapper; the frame is components/code/)
 │   ├── conversation/[id]/  # Chat page + streaming endpoint
 │   ├── settings/         # User settings pages
 │   ├── api/              # Legacy v1 API endpoints (mcp, transcribe, fetch-url)
@@ -140,6 +146,8 @@ Smart routing via Arch-Router model. Configured with:
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
+- `codeDevices` - Paired coding-agent machines (ADR 0085). Pairing records
+  only — name, daemon `serverId`, its public key, one owner. No agent state
 
 ## Where a model's capabilities come from
 
@@ -415,6 +423,53 @@ knowing before touching the model picker or writing another live check:
   its parent id — the create puts a system message at the conversation's root
   and `addChildren` refuses to guess. A JSON body there is a 500 from undici
   before any of this app's code runs.
+
+## The /code Agents panel
+
+ADR 0085. Coding agents run on **the person's own machine** (opencode under a
+paseo daemon); this app is a remote control reached through a self-hosted
+relay. `docs/code-panel.md` is the operator guide and `docs/agent-machines.md`
+the user's; what matters when changing the code:
+
+- **`CODE_AGENTS_ENABLED` must be exactly `"true"`.** Off hides the
+  Chats/Agents switch, 404s `/code` in `+page.server.ts`, and refuses the
+  pairing endpoints as a backstop. Unlike knowledge or memory this one defaults
+  **off**: it needs a relay deployed, and a route that only errors without one
+  is worse than none.
+- **The browser never reaches the daemon.** Every call goes to Cerea, which
+  dials the relay. `routes/api/v2/code/[...path]/+server.ts` is the forwarder,
+  and its allowlist maps each permitted browser path to exactly one typed SDK
+  call — promoted from path patterns to _operations_, because the daemon has no
+  REST surface to forward HTTP to. Timeline streams, pairing hooks, terminals,
+  worktrees and daemon config are deliberately absent; read that file's header
+  before adding anything.
+- **`CODE_RELAY_URL` is the deployment's, never the offer's.** A pairing offer
+  carries its own relay field and it is ignored, deliberately: an offer that
+  could name the rendezvous could point this server at somebody else's relay.
+- **The pairing probe is load-bearing.** Both entry points (the panel's paste
+  and `enroll/machine`'s POST) complete the encrypted handshake before writing
+  a row, and refuse a daemon whose `serverId` differs from the offer's. Do not
+  "optimize" it away: without it a row can name a machine nothing can reach.
+- **`enroll/machine` is bearer-only and exempt from the hook's generic bearer
+  handling**, because a headless machine holds no cookie. It validates by
+  calling userinfo and maps `sub` → `hfUserId` exactly as the login callback
+  does. A valid token for an unknown account is **404**, not 401 — the
+  credential is fine, the account is missing.
+- **Ownership is `userId` _or_ `sessionId`**, the same split as
+  `authCondition`, and every read and write filters on it.
+- **The SDK version is pinned and skew is refused.** `PASEO_SDK_VERSION` in
+  `codeDaemon.ts` must match `package.json`'s exact pins of `@getpaseo/client`
+  and `@getpaseo/protocol`; a daemon reporting a different minor is refused
+  rather than guessed at.
+- **The panel owns mutations, the pane owns display.** `CodeNavTree.svelte` has
+  every dialog and every write; `CodePanel`/`AgentView` render whatever
+  `?device=&ws=&agent=` names, and a new address remounts the view. Removals
+  confirm, then redraw from the daemon's answer — never an optimistic splice,
+  because the daemon owns the listings.
+- **The agent view is the chat's own machinery.** `ChatMessageColumn`,
+  `ChatInput`, the approval card, the shared side pane. That is what makes
+  live updates arrive by construction; a bespoke stack here would be a second
+  thing to keep working.
 
 ## Environment Setup
 
