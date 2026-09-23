@@ -17,6 +17,15 @@
 	shrink (`min-w-0`, plus the right inset that keeps it clear of the
 	close button), the padding steps down on phones, and the footer may
 	wrap rather than clip.
+
+	Two more sizes that stayed broken on the operator's Safari after that
+	fix landed for Chromium: the provider select and the title input carry
+	an inline `font-size: 16px` because their shared `s.INPUT` class is
+	`text-sm` (14px) — WebKit auto-zooms the whole page on focus of any
+	control under 16px, and `user-scalable=no` in the viewport meta does
+	not stop it (WebKit ignores that attribute for accessibility). The
+	modal's own `max-height` fix lives in Modal.svelte, the shell every
+	dialog shares.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -116,6 +125,7 @@
 				<select
 					id="agent-provider"
 					class={s.INPUT}
+					style="font-size: 16px;"
 					bind:value={provider}
 					disabled={busy || providers.length === 0}
 				>
@@ -137,6 +147,7 @@
 			<input
 				id="agent-title-input"
 				class={s.INPUT}
+				style="font-size: 16px;"
 				placeholder="Refactor the login flow"
 				maxlength={120}
 				bind:value={title}
