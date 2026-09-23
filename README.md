@@ -150,6 +150,14 @@ OpenAI client:
 - **File upload wired to the gateway's extraction surface** — `POST /v1/ocr`
   (ADR 0055), whose local backend runs markitdown with its NLP engine switched
   off, so a `.docx` or a text-layer PDF never leaves the deployment.
+- **The `/code` Agents panel** (ADR 0085) — coding agents running on people's
+  own machines, driven from the sidebar. A paseo daemon on the machine dials
+  out to a relay this deployment hosts at the origin's `/ws` path; Cerea is a
+  client of that relay, end-to-end encrypted, and stores nothing but the
+  pairing record. Off unless `CODE_AGENTS_ENABLED=true` and the relay overlay
+  is deployed — `--components code-panel=on`. See
+  [docs/code-panel.md](docs/code-panel.md) for deploying it and
+  [docs/agent-machines.md](docs/agent-machines.md) for using it.
 
 ## Licensing
 
@@ -174,14 +182,27 @@ gateway's repository.
 
 ## Decisions
 
-The decision record is **not here**. It is one numbered series for the whole
-endeavour, in
-[ai-stack/docs/adr](https://gitlab.linksfoundation.com/viviani/ai-stack/-/blob/main/docs/adr/README.md).
-Cite by number — `(ADR 0040)` — which resolves wherever the file lives.
+The decision record is **not here**, and is deliberately never linked: it is
+one numbered series for the whole endeavour, it is private, and a URL into it
+promises a source the reader cannot open. Cite by number — `(ADR 0040)` —
+which resolves wherever the file lives.
 
-Planned components keep their own documents: [docs/rag.md](docs/rag.md),
-[docs/desktop.md](docs/desktop.md), [docs/shared.md](docs/shared.md).
-Upstream's own documentation is under [docs/source](docs/source).
+## Documentation
+
+- [docs/code-panel.md](docs/code-panel.md) — deploying the `/code` Agents
+  panel: the relay, the flags, the `/ws` route.
+- [docs/agent-machines.md](docs/agent-machines.md) — pairing a machine, and
+  what the panel does.
+- [docs/pyodide.md](docs/pyodide.md) — client-side Python execution, its
+  sandbox and what it deliberately cannot do.
+- [docs/browser.md](docs/browser.md) — the headless browser behind
+  `FETCH_BACKEND=playwright`, and why it is never published.
+- [docs/rag.md](docs/rag.md) — knowledge bases: what is built and what the
+  decisions were.
+- Planned components keep their own documents:
+  [docs/desktop.md](docs/desktop.md), [docs/shared.md](docs/shared.md).
+- Upstream chat-ui's own documentation is under
+  [docs/source](docs/source) — read it as upstream's, not as this fork's.
 
 ## The name
 
