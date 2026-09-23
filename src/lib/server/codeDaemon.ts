@@ -2,6 +2,11 @@ import { error } from "@sveltejs/kit";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { buildRelayWebSocketUrl } from "@getpaseo/protocol/daemon-endpoints";
 import type { FetchAgentTimelineResponseMessage } from "@getpaseo/protocol/messages";
+import type { AgentFeature, AgentFeatureToggle } from "@getpaseo/protocol/agent-types";
+import type {
+	ProviderSubagentListPayload,
+	ProviderSubagentTimelinePayload,
+} from "@getpaseo/client/internal/daemon-client";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { getPairedDevice } from "$lib/server/codeDevices";
@@ -13,8 +18,11 @@ import type {
 	CodeWorkspace,
 	CodeTurnState,
 } from "$lib/types/CodeAgent";
+import type { CodeProviderFeature } from "$lib/codeApi";
 
 type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
+/** The parent agent's subagent roster, as the daemon's provider reports it. */
+type ProviderSubagentList = ProviderSubagentListPayload["subagents"];
 /** Whatever `getCheckoutDiff` actually answers with — parsed diff files. */
 type CheckoutDiffPayload = Awaited<ReturnType<DaemonClient["getCheckoutDiff"]>>;
 /**
@@ -204,10 +212,23 @@ class DeviceDaemonLink {
 		return workspaceId ? mapped.filter((agent) => agent.workspaceId === workspaceId) : mapped;
 	}
 
-	async getAgent(agentId: string): Promise<CodeAgentSession> {
+	/** One agent's snapshot with everything the open screen labels from:
+	 * the mapped session, the provider features the agent itself reports
+	 * (the auto-accept toggle's live value — the provider's feature list
+	 * only says what exists), and the cwd the feature query requires. One
+	 * fetch, one read, one truth. */
+	async getAgentDetail(agentId: string): Promise<{
+		session: CodeAgentSession;
+		features: CodeProviderFeature[];
+		cwd: string;
+	}> {
 		const result = await this.operate((client) => client.fetchAgent(agentId));
-		if (!result) error(404, "No such agent on this daemon.");
-		return toSession(result.agent);
+		if (!result?.agent) error(404, "No such agent on this daemon.");
+		return {
+			session: toSession(result.agent),
+			features: toFeatureToggles(result.agent.features),
+			cwd: result.agent.cwd,
+		};
 	}
 
 	async createAgent(input: {
@@ -270,6 +291,13 @@ class DeviceDaemonLink {
 		return result.title;
 	}
 
+	/** Rename an agent: `updateAgent`'s name is the daemon's own rename —
+	 * the tree redraws from the daemon's listings afterwards, never from
+	 * the string that was typed. */
+	async renameAgent(agentId: string, name: string): Promise<void> {
+		await this.operate((client) => client.updateAgent(agentId, { name }));
+	}
+
 	/** The modes the provider offers — paseo's permission vocabulary as the
 	 * daemon itself defines it (plan, build, …). Listed live: a hardcoded
 	 * set here would drift from what the daemon enforces. A refusal in the
@@ -305,6 +333,26 @@ class DeviceDaemonLink {
 			}));
 	}
 
+	/** The provider's features, as the daemon drafts them for a config like
+	 * the agent's (`cwd` required — the daemon resolves features per
+	 * working directory; the agent's mode and model ride along when
+	 * known). This list says what toggles EXIST and what they are called;
+	 * a live value comes from the agent's own snapshot, whose features
+	 * carry the config the agent is actually running. A refusal in the
+	 * payload is a 502 like the modes' and models'. */
+	async listProviderFeatures(draft: {
+		provider: string;
+		cwd: string;
+		modeId?: string;
+		model?: string;
+	}): Promise<CodeProviderFeature[]> {
+		const result = await this.operate((client) => client.listProviderFeatures(draft));
+		if (result.error) {
+			error(502, `The daemon could not list features: ${result.error}`);
+		}
+		return toFeatureToggles(result.features);
+	}
+
 	/** Switch the agent's mode (plan, build, …). A provider refusal travels
 	 * back as a notice rather than a thrown error — the panel shows it and
 	 * the next snapshot read still reports the truth. */
@@ -323,6 +371,24 @@ class DeviceDaemonLink {
 		await this.operate((client) => client.sendAgentMessage(agentId, text));
 	}
 
+	/** Stop the agent's live turn. The daemon interrupts the provider and,
+	 * when permission requests are outstanding, resolves each of them
+	 * denied before it answers — so the transcript's approval card settles
+	 * through its own resolution frame instead of hanging, and the turn's
+	 * end arrives on the stream as `turn_canceled`. An agent between turns
+	 * answers not_running and changes nothing. */
+	async cancelAgent(agentId: string): Promise<void> {
+		await this.operate((client) => client.cancelAgent(agentId));
+	}
+
+	/** Flip one of the agent's provider features (the auto-accept toggle).
+	 * The daemon answers accepted/error; a rejection throws here, so the
+	 * pill keeps the value the snapshot reported rather than claiming the
+	 * request landed. */
+	async setAgentFeature(agentId: string, featureId: string, value: boolean): Promise<void> {
+		await this.operate((client) => client.setAgentFeature(agentId, featureId, value));
+	}
+
 	async respondPermission(
 		agentId: string,
 		requestId: string,
@@ -338,6 +404,39 @@ class DeviceDaemonLink {
 	async fetchTimeline(agentId: string): Promise<FetchAgentTimelinePayload> {
 		return this.operate((client) =>
 			client.fetchAgentTimeline(agentId, { direction: "tail", limit: 500 })
+		);
+	}
+
+	/**
+	 * The subagents one parent agent spawned, as the daemon's provider tracks
+	 * them. The panel polls this on turn boundaries only — the roster is the
+	 * authority for each subagent's title, status and subtitle, and the
+	 * transcript's Task tool call (matched by the descriptor's `toolCallId`)
+	 * is where the panel anchors it. Subagents the provider spawned without a
+	 * tool call (`toolCallId: null`) have no place in the transcript to anchor
+	 * at and are not invented one.
+	 */
+	async listSubagents(agentId: string): Promise<ProviderSubagentList> {
+		return this.operate((client) => client.listProviderSubagents(agentId)).then(
+			(result) => result.subagents
+		);
+	}
+
+	/**
+	 * One subagent's own timeline — the transcript its card expands to. The
+	 * rows are ordinary timeline entries, so the forwarder maps them through
+	 * the same `timelineEntryToUpdate` the parent's routes use, and a subagent
+	 * transcript reads exactly like the parent's.
+	 */
+	async fetchSubagentTimeline(
+		agentId: string,
+		subagentId: string
+	): Promise<ProviderSubagentTimelinePayload> {
+		return this.operate((client) =>
+			client.fetchProviderSubagentTimeline(agentId, subagentId, {
+				direction: "tail",
+				limit: 500,
+			})
 		);
 	}
 
@@ -414,6 +513,21 @@ function toSession(payload: {
 		modeId: payload.currentModeId ?? null,
 		modelId: payload.model ?? null,
 	};
+}
+
+/** The provider features the panel drives, as toggles only. A select
+ * feature (one value chosen from a list) has no panel shape yet — dropping
+ * it here keeps every caller from re-filtering, the way the timeline's
+ * unmappable items are dropped at their own boundary. */
+function toFeatureToggles(features: AgentFeature[] | null | undefined): CodeProviderFeature[] {
+	return (features ?? [])
+		.filter((feature): feature is AgentFeatureToggle => feature.type === "toggle")
+		.map((feature) => ({
+			id: feature.id,
+			label: feature.label,
+			...(feature.description ? { description: feature.description } : {}),
+			value: feature.value,
+		}));
 }
 
 /** One link per paired device, for the whole server process. */

@@ -15,15 +15,27 @@
 import superjson from "superjson";
 import { base } from "$app/paths";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
+import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
 	CodeAgentSession,
 	CodeFileChange,
 	CodeProviderMode,
 	CodeProviderModel,
+	CodeSubagent,
 	CodeWorkspace,
 } from "$lib/types/CodeAgent";
 
 export type { CodeDeviceView };
+
+/** One provider feature the panel can toggle on an agent — the daemon's
+ * `AgentFeatureToggle`, trimmed. Select features (a value chosen from a
+ * list) are dropped at the forwarder: the panel offers switches, not menus. */
+export interface CodeProviderFeature {
+	id: string;
+	label: string;
+	description?: string;
+	value: boolean;
+}
 
 export class CodeApiError extends Error {
 	constructor(
@@ -163,6 +175,30 @@ export async function listProviderModels(
 	);
 }
 
+/** The provider's features — the toggles a person can flip on an agent
+ * (opencode's auto-accept) — as the daemon drafts them for a config like
+ * the agent's. The query needs the agent's working directory; the agent's
+ * mode and model ride along when known. This list says what EXISTS and
+ * what it is called; the live value is the agent snapshot's word
+ * (`getAgent`), never this list's. */
+export async function listProviderFeatures(
+	deviceId: string,
+	provider: string,
+	draft: { cwd: string; modeId?: string; model?: string }
+): Promise<{ features: CodeProviderFeature[] }> {
+	const params = new URLSearchParams({
+		device: deviceId,
+		cwd: draft.cwd,
+		...(draft.modeId ? { modeId: draft.modeId } : {}),
+		...(draft.model ? { model: draft.model } : {}),
+	});
+	return unwrap(
+		await fetch(
+			`${root()}/v1/providers/${encodeURIComponent(provider)}/features?${params.toString()}`
+		)
+	);
+}
+
 /** A new coding session on the daemon, scoped to one of its workspaces. */
 export async function createAgent(
 	deviceId: string,
@@ -183,11 +219,14 @@ export async function createAgent(
 	);
 }
 
-/** One agent's current record (title, provider, state). */
+/** One agent's current record (title, provider, state), with the two
+ * things the open screen needs beside it: the provider features the agent
+ * ITSELF reports — the auto-accept toggle's live value lives here, not in
+ * the provider's feature list — and the cwd the feature query requires. */
 export async function getAgent(
 	deviceId: string,
 	agentId: string
-): Promise<{ agent: CodeAgentSession }> {
+): Promise<{ agent: CodeAgentSession; features: CodeProviderFeature[]; cwd: string }> {
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}?device=${encodeURIComponent(deviceId)}`
@@ -203,6 +242,35 @@ export async function getAgentDiff(
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}/diff?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/**
+ * The subagents one agent spawned, as the daemon's roster reports them. The
+ * transcript polls this on turn boundaries — never on an interval — and
+ * anchors each subagent at the Task tool call its `toolCallId` names.
+ */
+export async function listSubagents(
+	deviceId: string,
+	agentId: string
+): Promise<{ subagents: CodeSubagent[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/subagents?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** One subagent's own transcript, as agent frames for the chat's fold. */
+export async function fetchSubagentTimeline(
+	deviceId: string,
+	agentId: string,
+	subagentId: string
+): Promise<{ updates: AgentStreamUpdate[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/subagents/${encodeURIComponent(subagentId)}/timeline?device=${encodeURIComponent(deviceId)}`
 		)
 	);
 }
@@ -275,6 +343,46 @@ export async function setAgentModel(
 	);
 }
 
+/** Flip one of the agent's provider features — the auto-accept toggle and
+ * its kind. The answer is only the POST's receipt: the toggle's label
+ * claims the new value when the refreshed agent snapshot agrees, never
+ * from this call. */
+export async function setAgentFeature(
+	deviceId: string,
+	agentId: string,
+	featureId: string,
+	value: boolean
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/feature?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ featureId, value }),
+			}
+		)
+	);
+}
+
+/** Stop the agent's live turn — the way out of a runaway run and of a
+ * permission prompt nobody wants to answer. The answer is the POST's
+ * receipt, nothing more: the turn's end (`turn_canceled`) and the denied
+ * resolutions of any outstanding permission requests arrive on the
+ * transcript stream, which is the source of truth. */
+export async function cancelAgent(deviceId: string, agentId: string): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/cancel?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({}),
+			}
+		)
+	);
+}
+
 /** Answer a waiting permission request. Blocking: the agent holds until this lands. */
 export async function respondPermission(
 	deviceId: string,
@@ -340,6 +448,24 @@ export async function renameWorkspace(
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ title }),
+			}
+		)
+	);
+}
+
+/** Rename an agent: the daemon's updateAgent name. */
+export async function renameAgent(
+	deviceId: string,
+	agentId: string,
+	name: string
+): Promise<{ ok: true }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/name?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ name }),
 			}
 		)
 	);
