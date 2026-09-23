@@ -42,6 +42,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: /^v1\/providers$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/modes$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/models$`) },
+	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/features$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
@@ -50,6 +51,8 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/feature$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/cancel$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
@@ -110,9 +113,44 @@ export const GET: RequestHandler = async (event) => {
 		return superjsonResponse({ models: await link.listProviderModels(modelsMatch[1]) });
 	}
 
+	// The third live option list, beside modes and models: the provider's
+	// features — the toggles a person can flip on an agent (opencode's
+	// auto-accept). The daemon resolves them per working directory, so
+	// `cwd` is required here the way it is in the daemon's own draft
+	// config; the agent's mode and model ride along when known so the
+	// draft mirrors the config the agent actually runs. The list carries
+	// what EXISTS and what it is called; the agent snapshot (below) is
+	// where a live value comes from.
+	const featuresMatch = new RegExp(`^v1/providers/(${ID})/features$`).exec(path);
+	if (featuresMatch) {
+		const cwd = event.url.searchParams.get("cwd");
+		if (!cwd?.trim()) {
+			error(400, "A working directory is required: pass ?cwd=.");
+		}
+		const modeId = event.url.searchParams.get("modeId") ?? undefined;
+		const model = event.url.searchParams.get("model") ?? undefined;
+		const features = await link.listProviderFeatures({
+			provider: decodeURIComponent(featuresMatch[1]),
+			cwd,
+			...(modeId ? { modeId } : {}),
+			...(model ? { model } : {}),
+		});
+		return superjsonResponse({ features });
+	}
+
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	if (agentMatch) {
-		return superjsonResponse({ agent: await link.getAgent(decodeURIComponent(agentMatch[1])) });
+		// The open screen's snapshot: the session, the features the agent
+		// itself reports (the auto-accept toggle's live value — the
+		// provider's list above only says what exists), and the cwd the
+		// feature query requires. All three leave together so the pills
+		// and the toggle label from one read.
+		const detail = await link.getAgentDetail(decodeURIComponent(agentMatch[1]));
+		return superjsonResponse({
+			agent: detail.session,
+			features: detail.features,
+			cwd: detail.cwd,
+		});
 	}
 
 	const messagesMatch = new RegExp(`^v1/agents/(${ID})/messages$`).exec(path);
@@ -158,6 +196,18 @@ const modelSchema = z.object({
 
 const titleSchema = z.object({
 	title: z.string().trim().min(1).max(120).nullable(),
+});
+
+// The stop control. The daemon takes the request, not the outcome: the
+// transcript's own stream carries the turn's end (`turn_canceled`) and the
+// denied resolutions of any outstanding permission requests, so this
+// response is only the POST's receipt. Any body — or none — is accepted:
+// the path fully names the act.
+const cancelSchema = z.unknown();
+
+const featureSchema = z.object({
+	featureId: z.string().trim().min(1).max(120),
+	value: z.boolean(),
 });
 
 const createSchema = z.object({
@@ -231,6 +281,35 @@ export const POST: RequestHandler = async (event) => {
 		const parsed = modelSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { modelId: string | null }.");
 		await link.setAgentModel(decodeURIComponent(modelMatch[1]), parsed.data.modelId);
+		return superjsonResponse({ ok: true });
+	}
+
+	// The stop control: interrupt the agent's live turn. Where a permission
+	// request is outstanding the daemon ends the turn AND resolves the
+	// request denied, so the fold's existing resolution path settles the
+	// approval card — no hanging card, no hanging dots, and this endpoint
+	// has nothing to say about either.
+	const cancelMatch = new RegExp(`^v1/agents/(${ID})/cancel$`).exec(path);
+	if (cancelMatch) {
+		cancelSchema.parse(body);
+		await link.cancelAgent(decodeURIComponent(cancelMatch[1]));
+		return superjsonResponse({ ok: true });
+	}
+
+	// One provider feature flipped live on the open agent — the auto-accept
+	// toggle and its kind. The daemon answers accepted/error; a refusal
+	// throws here as a 502 and the pill keeps the value the snapshot
+	// reported, because the flip is claimed only when the next snapshot
+	// read agrees (the mode pill's discipline).
+	const featureMatch = new RegExp(`^v1/agents/(${ID})/feature$`).exec(path);
+	if (featureMatch) {
+		const parsed = featureSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { featureId, value } with a boolean value.");
+		await link.setAgentFeature(
+			decodeURIComponent(featureMatch[1]),
+			parsed.data.featureId,
+			parsed.data.value
+		);
 		return superjsonResponse({ ok: true });
 	}
 
