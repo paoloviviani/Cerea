@@ -270,6 +270,13 @@ class DeviceDaemonLink {
 		return result.title;
 	}
 
+	/** Rename an agent: `updateAgent`'s name is the daemon's own rename —
+	 * the tree redraws from the daemon's listings afterwards, never from
+	 * the string that was typed. */
+	async renameAgent(agentId: string, name: string): Promise<void> {
+		await this.operate((client) => client.updateAgent(agentId, { name }));
+	}
+
 	/** The modes the provider offers — paseo's permission vocabulary as the
 	 * daemon itself defines it (plan, build, …). Listed live: a hardcoded
 	 * set here would drift from what the daemon enforces. A refusal in the

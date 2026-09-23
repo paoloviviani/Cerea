@@ -50,6 +50,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
@@ -230,6 +231,17 @@ export const POST: RequestHandler = async (event) => {
 		const parsed = modelSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { modelId: string | null }.");
 		await link.setAgentModel(decodeURIComponent(modelMatch[1]), parsed.data.modelId);
+		return superjsonResponse({ ok: true });
+	}
+
+	// The agent rename — the daemon's updateAgent name, answering { ok }.
+	// The tree redraws from the daemon's next listing, not from the string
+	// that was typed (same discipline as the workspace title above).
+	const agentNameMatch = new RegExp(`^v1/agents/(${ID})/name$`).exec(path);
+	if (agentNameMatch) {
+		const parsed = z.object({ name: z.string().trim().min(1).max(120) }).safeParse(body);
+		if (!parsed.success) error(400, "Expected { name }.");
+		await link.renameAgent(decodeURIComponent(agentNameMatch[1]), parsed.data.name);
 		return superjsonResponse({ ok: true });
 	}
 
