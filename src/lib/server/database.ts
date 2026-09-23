@@ -44,6 +44,7 @@ import { findRepoRoot } from "./findRepoRoot";
 import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
+import type { CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
@@ -191,6 +192,12 @@ export class Database {
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
+		// Paired coding-agent devices for the `/code` panel (one person's
+		// machines running the paseo daemon). The daemon owns every live
+		// thing — workspaces, sessions, transcripts — so these rows are the
+		// only agent state this app persists: who paired what, and whether
+		// the pairing completed.
+		const codeDevices = db.collection<CodeDevice>("codeDevices");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
 		// Computed `execute_code` deliverables (ADR 0073's amendment): a separate
 		// bucket from message attachments so a conversation's deliverables can be
@@ -225,6 +232,7 @@ export class Database {
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
+			codeDevices,
 			conversationStats,
 			assistants,
 			reports,
@@ -264,6 +272,7 @@ export class Database {
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
+			codeDevices,
 			conversationStats,
 			assistants,
 			reports,
@@ -674,6 +683,29 @@ export class Database {
 		codeExecutionOutputs
 			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for codeExecutionOutputs"));
+
+		// A person's paired devices, newest first. Two partial indexes rather
+		// than one compound: a row carries exactly one of the two owner keys.
+		codeDevices
+			.createIndex(
+				{ userId: 1, updatedAt: -1 },
+				{ partialFilterExpression: { userId: { $exists: true } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for codeDevices by userId"));
+		codeDevices
+			.createIndex(
+				{ sessionId: 1, updatedAt: -1 },
+				{ partialFilterExpression: { sessionId: { $exists: true } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for codeDevices by sessionId"));
+		// An unclaimed pairing expires 15 minutes after it starts
+		// (`expiresAt`, set by `enroll`'s start and cleared by its claim, with
+		// `expireAfterSeconds: 0` meaning "when the date in the field
+		// passes"). Only pending rows carry the field, so a paired device —
+		// which must never be TTL-deleted — is untouched by this index.
+		codeDevices
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeDevices by expiresAt"));
 	}
 }
 

@@ -1,0 +1,168 @@
+import type { ObjectId } from "mongodb";
+import {
+	MessageUpdateType,
+	type MessageElicitationRequestUpdate,
+	type MessageElicitationResolvedUpdate,
+	type MessagePlanUpdate,
+	type MessageStreamUpdate,
+	type MessageToolCallUpdate,
+	type MessageToolErrorUpdate,
+	type MessageToolResultUpdate,
+	type MessageTurnStateUpdate,
+} from "$lib/types/MessageUpdate";
+
+/**
+ * The `/code` surface: a remote-control panel for coding agents, NOT a chat
+ * mode.
+ *
+ * A mode in this app is a boolean latched on a `Conversation` document
+ * (`Conversation.mlAssistant`) — inherently conversation-bound. This surface
+ * has no conversation; it is a top-level route that drives a self-hosted
+ * "paseo" daemon (which runs `opencode` agents on the person's own machine)
+ * through the Cerea server. The browser never talks to the daemon directly.
+ *
+ * Persistence split, by design: the daemon owns sessions and worktrees; Cerea
+ * persists only pairing/device records (Mongo, `codeDevices`) and proxies
+ * live agent state. Live state is a rendering concern, never mirrored into
+ * Mongo — there is deliberately no second agent store.
+ *
+ * The update union below follows the discriminated-union style of
+ * `MessageUpdate` (`$lib/types/MessageUpdate.ts`) but is agent-specific and
+ * does NOT overload chat's union: these frames travel the agent SSE bridge
+ * (`api/v2/code/agents/[id]/stream`), never the chat JSONL stream.
+ */
+
+/**
+ * The agent SSE bridge carries the chat's own update shapes (`MessageUpdate`)
+ * wherever a chat shape exists — stream tokens, tool call/result/error, plan,
+ * elicitation request/resolution, turn state — so the transcript is folded by
+ * the same machinery that renders a conversation. Two frames have no chat
+ * counterpart and are agent-only:
+ *
+ * - `user`: the person's message, echoed back by the daemon. Chats author
+ *   their user messages client-side, so chat's stream union has no such
+ *   frame; an agent transcript is a replay of the daemon's log, and the log
+ *   owns both sides.
+ * - there is deliberately no diff frame: changed files live in the side
+ *   pane, which fetches the daemon's checkout diff itself.
+ *
+ * Frames are plain JSON (no Dates), like everything else on this wire.
+ */
+export interface AgentUserMessageUpdate {
+	type: "user";
+	text: string;
+}
+
+export type AgentStreamUpdate =
+	| AgentUserMessageUpdate
+	| MessageStreamUpdate
+	| MessageToolCallUpdate
+	| MessageToolResultUpdate
+	| MessageToolErrorUpdate
+	| MessagePlanUpdate
+	| MessageElicitationRequestUpdate
+	| MessageElicitationResolvedUpdate
+	| MessageTurnStateUpdate;
+
+/** Frame `type` values the bridge may emit, for the client's backstop check. */
+export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
+	"user",
+	MessageUpdateType.Stream,
+	MessageUpdateType.Tool,
+	MessageUpdateType.Plan,
+	MessageUpdateType.Elicitation,
+	MessageUpdateType.TurnState,
+];
+
+export type CodeTurnState = "idle" | "running" | "waiting-permission" | "done" | "error";
+
+/**
+ * One of the daemon's provider modes — paseo's own permission vocabulary
+ * (plan, build, …), listed live so the panel never hardcodes a set that
+ * would drift from what the daemon enforces. `AgentMode` in the protocol.
+ */
+export interface CodeProviderMode {
+	id: string;
+	label: string;
+	description?: string;
+}
+
+/** One of the daemon's provider models (`AgentModelDefinition`, trimmed). */
+export interface CodeProviderModel {
+	id: string;
+	label: string;
+	description?: string;
+	isDefault?: boolean;
+}
+
+export interface CodeFileChange {
+	path: string;
+	/** Unified presentation: the before and after the diff viewer aligns. */
+	oldText: string;
+	newText: string;
+}
+
+/** A paired device: somebody's machine running the paseo daemon. */
+export type CodeDeviceStatus = "pending" | "paired";
+
+export interface CodeDevice {
+	_id: ObjectId;
+	userId?: ObjectId;
+	sessionId?: string;
+	name: string;
+	status: CodeDeviceStatus;
+	/**
+	 * The short code shown at pairing time. The person runs `paseo daemon
+	 * pair` on their machine and pastes the pairing link it prints back into
+	 * the panel; the code alone proves the person saw this row, and the pasted
+	 * offer carries the daemon's relay identity. Cleared once paired — it is
+	 * single-use by design.
+	 */
+	pairingCode?: string;
+	/** Daemon-reported device id, recorded when the pairing completes. */
+	daemonId?: string;
+	/**
+	 * The daemon's Curve25519 public key, from the pairing offer the person
+	 * pasted at claim time. This is half of the E2EE channel key material:
+	 * the offer as a whole is the bearer capability for the daemon (paseo
+	 * treats its QR code like a password), so it is stored with the same
+	 * care as a credential and never leaves the server.
+	 */
+	daemonPublicKey?: string;
+	/**
+	 * When an unclaimed pairing stops existing. Set only while `pending` —
+	 * a paired row carries no expiry, so the TTL index below can never
+	 * delete a live device. Cleared by `claim` alongside `pairingCode`.
+	 */
+	expiresAt?: Date;
+	createdAt: Date;
+	updatedAt: Date;
+	pairedAt?: Date;
+}
+
+/** A working directory the daemon serves agents from. Lives on the daemon. */
+export interface CodeWorkspace {
+	id: string;
+	name: string;
+	path: string;
+}
+
+/** A coding session on a device. Lives on the daemon; never mirrored here. */
+export interface CodeAgentSession {
+	id: string;
+	workspaceId: string;
+	title: string;
+	/** opencode-first; the daemon may run others later, so this stays a string. */
+	provider: string;
+	state: CodeTurnState;
+	updatedAt: string;
+	/**
+	 * The daemon's live session config, as the snapshot reports it: the mode
+	 * is paseo's permission vocabulary (plan, build, …) switched by the
+	 * composer's pill, and the model the provider runs. Both are `null`
+	 * until the daemon has reported them — an agent that never answered
+	 * shows pills that carry no claim.
+	 */
+	modeId: string | null;
+	modelId: string | null;
+}
