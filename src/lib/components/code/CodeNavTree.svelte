@@ -171,7 +171,12 @@
 	}
 
 	function row(active: boolean): string {
-		return `flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-sm ${
+		// flex-1, not flex-none: the row's link fills the row so its
+		// trailing actions (the add button, the kebab) pin to the sidebar's
+		// right edge. A second flex utility on the call site would lose to
+		// stylesheet order regardless of class order, so growth lives here
+		// alone — call sites carry no flex sizing of their own.
+		return `flex h-8 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-sm ${
 			active
 				? "bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white"
 				: "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
@@ -234,10 +239,10 @@
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
 			<div>
-				<div class="flex items-center gap-1 pr-1">
+				<div class="group flex items-center gap-1 pr-1">
 					<a
 						href="{base}/code?device={device.id}"
-						class="min-w-0 flex-1 {row(deviceActive && !selectedAgentId)}"
+						class="min-w-0 {row(deviceActive && !selectedAgentId)}"
 						title={device.name}
 					>
 						<IconLaptop class="size-3.5 shrink-0" />
@@ -282,8 +287,8 @@
 						{#each tree?.workspaces ?? [] as ws (ws.id)}
 							{@const wsActive = ws.id === selectedWorkspaceId && deviceActive}
 							<div>
-								<div class="flex items-center gap-1 pr-1">
-									<span class="min-w-0 flex-1 {row(wsActive && !selectedAgentId)} pl-4">
+								<div class="group flex items-center gap-1 pr-1">
+									<span class="min-w-0 {row(wsActive && !selectedAgentId)} pl-4">
 										<IconFolder class="size-3 shrink-0" />
 										<span class="min-w-0 flex-1 truncate">{ws.name}</span>
 									</span>
@@ -303,9 +308,14 @@
 								     both 24px targets, and a tap meant to start
 								     a session must never open a menu instead. -->
 									<DropdownMenu.Root>
+										<!-- The kebab follows the chat list's behaviour
+								     (NavConversationItem): always present on touch,
+								     revealed on row hover with a pointer, kept
+								     while its menu is open. -->
 										<DropdownMenu.Trigger
-											class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+											class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
 											title="Workspace actions"
+											aria-label="Workspace actions"
 										>
 											<IconKebab class="size-3.5" />
 										</DropdownMenu.Trigger>
@@ -340,10 +350,10 @@
 								</div>
 								{#each agentsOf(tree, ws.id) as agent (agent.id)}
 									{@const agentActive = agent.id === selectedAgentId}
-									<div class="flex items-center gap-1 pr-1">
+									<div class="group flex items-center gap-1 pr-1">
 										<a
 											href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
-											class="min-w-0 flex-1 pl-8 {row(agentActive)}"
+											class="min-w-0 pl-8 {row(agentActive)}"
 											title={agent.title}
 										>
 											<IconCode class="size-3 shrink-0" />
@@ -366,8 +376,9 @@
 									     trash can was the only visible offer for both. -->
 										<DropdownMenu.Root>
 											<DropdownMenu.Trigger
-												class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+												class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
 												title="Session actions"
+												aria-label="Session actions"
 											>
 												<IconKebab class="size-3.5" />
 											</DropdownMenu.Trigger>
