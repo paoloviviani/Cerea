@@ -199,8 +199,8 @@ which resolves wherever the file lives.
   `FETCH_BACKEND=playwright`, and why it is never published.
 - [docs/rag.md](docs/rag.md) — knowledge bases: what is built and what the
   decisions were.
-- Planned components keep their own documents:
-  [docs/desktop.md](docs/desktop.md), [docs/shared.md](docs/shared.md).
+- [docs/desktop.md](docs/desktop.md) — the desktop shell: not started, and the
+  decisions already taken about it.
 - Upstream chat-ui's own documentation is under
   [docs/source](docs/source) — read it as upstream's, not as this fork's.
 
