@@ -31,7 +31,7 @@
 	import IconCode from "~icons/carbon/code";
 	import IconRenew from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
-	import IconKebab from "~icons/carbon/overflow-menu-vertical";
+	import IconKebab from "~icons/lucide/ellipsis";
 	import IconEdit from "~icons/carbon/edit";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import {
@@ -44,6 +44,7 @@
 		type CodeDeviceView,
 	} from "$lib/codeApi";
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
+	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
@@ -64,6 +65,9 @@
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
 	let pairingOpen = $state(false);
+	/** The device whose re-enroll dialog is open — the same `PairDeviceDialog`
+	 * the "Pair" button uses, just started past the naming step. */
+	let reenrollFor = $state<CodeDeviceView | null>(null);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
@@ -115,7 +119,23 @@
 		trees = { ...trees, [deviceId]: await loadTree(deviceId) };
 	}
 
-	onMount(() => void load());
+	// A device paired headlessly (no dialog open to watch for it) or a
+	// session/workspace created from elsewhere (another tab, the daemon's
+	// own CLI) must show up here without a manual reload: poll on a sensible
+	// cadence while this tree is mounted, and refetch the moment the tab
+	// regains focus. `loading` only ever flips false in `load()`, so neither
+	// trigger re-shows the loading state — the tree just redraws quietly.
+	const TREE_POLL_MS = 8000;
+	onMount(() => {
+		void load();
+		const interval = setInterval(() => void load(), TREE_POLL_MS);
+		const onFocus = () => void load();
+		window.addEventListener("focus", onFocus);
+		return () => {
+			clearInterval(interval);
+			window.removeEventListener("focus", onFocus);
+		};
+	});
 
 	async function handleRevoke(id: string) {
 		try {
@@ -238,6 +258,7 @@
 		{#each devices as device (device.id)}
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
+			{@const enrollment = codeEnrollment[device.id]}
 			<div>
 				<div class="group flex items-center gap-1 pr-1">
 					<a
@@ -247,6 +268,17 @@
 					>
 						<IconLaptop class="size-3.5 shrink-0" />
 						<span class="min-w-0 flex-1 truncate">{device.name}</span>
+					</a>
+					{#if enrollment === "expired"}
+						<button
+							type="button"
+							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] font-medium text-red-800 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300"
+							title="This machine's enrollment expired or was revoked — click to re-enroll"
+							onclick={() => (reenrollFor = device)}
+						>
+							re-enroll
+						</button>
+					{:else}
 						<span
 							class="shrink-0 rounded-full px-1.5 text-[.65rem] {device.status === 'paired'
 								? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
@@ -254,7 +286,21 @@
 						>
 							{device.status}
 						</span>
-					</a>
+					{/if}
+					{#if device.status === "paired"}
+						<!-- Mirrors the workspace row's agent "+": always visible,
+						     not hidden behind the kebab, because adding a
+						     workspace is the primary action on a paired device
+						     and the only way to add a second one once the
+						     empty-state button (below) is gone. -->
+						<button
+							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
+							title="Add a workspace to this device"
+							onclick={() => (workspaceDialogFor = device.id)}
+						>
+							<IconAdd class="size-3.5" />
+						</button>
+					{/if}
 					<button
 						class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
 						title="Remove this pairing"
@@ -308,12 +354,15 @@
 								     both 24px targets, and a tap meant to start
 								     a session must never open a menu instead. -->
 									<DropdownMenu.Root>
-										<!-- The kebab follows the chat list's behaviour
-								     (NavConversationItem): always present on touch,
-								     revealed on row hover with a pointer, kept
-								     while its menu is open. -->
+										<!-- The trigger stays in flow at all times (never
+								     display:none) so its 24px slot is always reserved
+								     — only opacity toggles on hover/focus/open. A
+								     display toggle here would shrink the flex-1 name
+								     span next to it and shove the dot/add button
+								     sideways on hover, which is the bug this avoids.
+								     Same idiom as NavConversationItem's chat kebab. -->
 										<DropdownMenu.Trigger
-											class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+											class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
 											title="Workspace actions"
 											aria-label="Workspace actions"
 										>
@@ -375,8 +424,12 @@
 									     rename and archive are occasional, and a bare
 									     trash can was the only visible offer for both. -->
 										<DropdownMenu.Root>
+											<!-- Reserved-space trigger, same as the workspace
+										     kebab above: opacity toggles, display never
+										     does, so the presence dot never jumps on
+										     hover. -->
 											<DropdownMenu.Trigger
-												class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:hidden md:group-hover:flex md:data-[state=open]:flex dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+												class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
 												title="Session actions"
 												aria-label="Session actions"
 											>
@@ -427,6 +480,19 @@
 
 {#if pairingOpen}
 	<PairDeviceDialog onclose={() => (pairingOpen = false)} onpaired={handlePaired} />
+{/if}
+
+{#if reenrollFor}
+	{@const target = reenrollFor}
+	<PairDeviceDialog
+		reenroll={{ deviceId: target.id, name: target.name }}
+		onclose={() => (reenrollFor = null)}
+		onpaired={(device) => {
+			handlePaired(device);
+			codeEnrollment[device.id] = "ok";
+			reenrollFor = null;
+		}}
+	/>
 {/if}
 
 {#if workspaceDialogFor}
