@@ -61,7 +61,7 @@ test.beforeEach(async ({ page }) => {
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
-			body: superjsonBody({ agent }),
+			body: superjsonBody({ agent, features: [], cwd: "/repo" }),
 		})
 	);
 
