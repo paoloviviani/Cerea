@@ -344,3 +344,21 @@ export async function renameWorkspace(
 		)
 	);
 }
+
+/** Rename an agent: the daemon's updateAgent name. */
+export async function renameAgent(
+	deviceId: string,
+	agentId: string,
+	name: string
+): Promise<{ ok: true }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/name?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ name }),
+			}
+		)
+	);
+}
