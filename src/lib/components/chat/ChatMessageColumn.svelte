@@ -56,6 +56,8 @@
 		 */
 		subagentFor?: (callId: string) => CodeSubagentAnchor | undefined;
 		subagentCard?: Snippet<[CodeSubagentAnchor]>;
+		/** Where the person's attachments are served from, threaded to ChatMessage (see it). */
+		fileBaseUrl?: string;
 		/** Absolutely positioned chrome inside the column (header buttons, toasts). */
 		overlay?: Snippet;
 		/** Rendered at the top of the container, above whatever the messages branch shows. */
@@ -82,6 +84,7 @@
 		onanswerElicitation,
 		subagentFor,
 		subagentCard,
+		fileBaseUrl,
 		overlay,
 		head,
 		introduction,
@@ -233,6 +236,7 @@
 									{onanswerElicitation}
 									{subagentFor}
 									{subagentCard}
+									{fileBaseUrl}
 									onretry={(payload) => {
 										// Edit-with-content mounts a fresh turn like a send; a
 										// plain regenerate needs nothing — the reservation
