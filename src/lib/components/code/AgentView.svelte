@@ -24,14 +24,25 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
-	import { MessageToolUpdateType, MessageUpdateType, type MessageTurnStateUpdate } from "$lib/types/MessageUpdate";
-	import type { CodeAgentSession, CodeSubagent, CodeSubagentAnchor, CodeTurnState, CodeWorkspace } from "$lib/types/CodeAgent";
+	import {
+		MessageToolUpdateType,
+		MessageUpdateType,
+		type MessageTurnStateUpdate,
+	} from "$lib/types/MessageUpdate";
+	import type {
+		CodeAgentSession,
+		CodeSubagent,
+		CodeSubagentAnchor,
+		CodeTurnState,
+		CodeWorkspace,
+	} from "$lib/types/CodeAgent";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
 	import { codeAgentStream } from "$lib/codeAgentStream";
 	import {
+		CodeApiError,
 		cancelAgent,
 		fetchSubagentTimeline,
 		getAgent,
@@ -45,9 +56,11 @@
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
+	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
+	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconDiff from "~icons/lucide/diff";
 	import * as s from "$lib/components/overlay/styles";
@@ -57,9 +70,20 @@
 		agentId: string;
 		/** The workspace the address named, so the strip can name it without guessing. */
 		workspaceId?: string;
+		/** The device's own display name, for the re-enroll dialog's copy and
+		 * its setup command's `--name` — unknown only in the brief window
+		 * before the device list has loaded. */
+		deviceName?: string;
 	}
 
-	let { deviceId, agentId, workspaceId }: Props = $props();
+	let { deviceId, agentId, workspaceId, deviceName }: Props = $props();
+
+	/** Whether `CodePanel`'s probe (on agent open, on device switch) last
+	 * found this device's enrollment expired — the composer refuses to send
+	 * on it, and the pointer to fix it is the same re-enroll dialog the pill
+	 * opens. */
+	let enrollmentExpired = $derived(codeEnrollment[deviceId] === "expired");
+	let showReenroll = $state(false);
 
 	let agent = $state<CodeAgentSession | null>(null);
 	/** The provider features the agent itself reports — the auto-accept
@@ -112,6 +136,11 @@
 			agent = detail.agent;
 			features = detail.features ?? [];
 			agentCwd = detail.cwd;
+			// The snapshot's own word, not a guess: if the daemon's last real
+			// attempt on this agent already failed on an expired/revoked
+			// grant, say so immediately rather than waiting on the device
+			// probe's next poll to catch up.
+			if (detail.enrollmentExpired) codeEnrollment[deviceId] = "expired";
 		} catch {
 			// The transcript carries its own states; a strip that only
 			// errors when the daemon is off is worse than fallbacks.
@@ -288,9 +317,7 @@
 			fallbackTitle: description ?? subagent?.description ?? "",
 			load: subagent
 				? () =>
-						fetchSubagentTimeline(deviceId, agentId, subagent.id).then(
-							(result) => result.updates
-						)
+						fetchSubagentTimeline(deviceId, agentId, subagent.id).then((result) => result.updates)
 				: null,
 		};
 	}
@@ -307,6 +334,13 @@
 	let workspaceName = $derived(workspace?.name ?? "");
 
 	async function handleSend(text: string) {
+		// The composer already refuses to submit on a known-expired
+		// enrollment; this is the backstop for a send that raced ahead of
+		// the probe's answer (Enter fired before `enrollmentExpired` landed).
+		if (enrollmentExpired) {
+			failure = "This machine's enrollment expired or was revoked — re-enroll to send.";
+			return;
+		}
 		pending = true;
 		failure = null;
 		// The send is the request to see the exchange — same contract as chat.
@@ -315,6 +349,12 @@
 			await sendFollowUp(deviceId, agentId, text);
 		} catch (err) {
 			pending = false;
+			// A 401 here is the forwarder's own word that the daemon's
+			// enrollment died mid-session — the pill and the composer both
+			// need to know, not just this one banner.
+			if (err instanceof CodeApiError && err.status === 401) {
+				codeEnrollment[deviceId] = "expired";
+			}
 			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
 		}
 	}
@@ -420,7 +460,7 @@
 			conversationKey="{deviceId}:{agentId}"
 			onanswerElicitation={answerPermission}
 			{subagentFor}
-			subagentCard={subagentCard}
+			{subagentCard}
 			bind:this={column}
 		>
 			{#snippet introduction()}
@@ -441,9 +481,11 @@
 					{features}
 					cwd={agentCwd}
 					running={loading}
+					{enrollmentExpired}
 					onsend={handleSend}
 					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}
+					onreenroll={() => (showReenroll = true)}
 				/>
 			{/snippet}
 		</ChatMessageColumn>
@@ -455,3 +497,18 @@
 		{/if}
 	</div>
 </div>
+
+{#if showReenroll}
+	<!-- The same pairing dialog the sidebar's device pill opens (see
+	     CodeNavTree), not a second flow: `reenroll` skips the naming step
+	     and watches this device's own row for its `pairedAt` to advance,
+	     rather than watching for a new device id. -->
+	<PairDeviceDialog
+		reenroll={{ deviceId, name: deviceName ?? "" }}
+		onclose={() => (showReenroll = false)}
+		onpaired={() => {
+			codeEnrollment[deviceId] = "ok";
+			showReenroll = false;
+		}}
+	/>
+{/if}

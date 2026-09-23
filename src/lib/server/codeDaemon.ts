@@ -77,6 +77,38 @@ function versionMinor(version: string | null | undefined): string | null {
 	return match?.[1] ?? null;
 }
 
+/**
+ * Whether a daemon call failed because the machine's own enrollment (its
+ * stored IdP tokens, minted by `enroll enroll` on that machine) can no
+ * longer refresh — `invalid_grant` is the OAuth spec's own code for a dead
+ * grant, so it is the one substring this deployment can trust regardless of
+ * which provider phrased the surrounding sentence. This is a re-enrollment,
+ * not a retry: the fix lives on the machine, and a relay hiccup or a merely
+ * unreachable daemon must never be mistaken for it (see `operate` below).
+ */
+function isExpiredEnrollment(message: string): boolean {
+	return /invalid_grant|enrollment (?:has )?expired|enrollment (?:was )?revoked/i.test(message);
+}
+
+/**
+ * A provider RPC's own soft refusal (`result.error`, answered rather than
+ * thrown) classified the same way a thrown daemon failure is in `operate`:
+ * the daemon can phrase an expired grant either way, and a caller matching
+ * only the thrown path would silently misclassify the other as a generic
+ * 502 "unreachable" — exactly the false negative this feature exists to
+ * avoid.
+ */
+function throwProviderRefusal(message: string, deviceId: string): never {
+	if (isExpiredEnrollment(message)) {
+		logger.warn({ deviceId }, "paseo daemon reported an expired or revoked enrollment");
+		error(
+			401,
+			"The paired machine's enrollment expired or was revoked — re-run the enroll flow on that machine."
+		);
+	}
+	error(502, `The daemon refused the request: ${message}`);
+}
+
 class DeviceDaemonLink {
 	private client: DaemonClient | null = null;
 	private connecting: Promise<void> | null = null;
@@ -95,6 +127,20 @@ class DeviceDaemonLink {
 			return await fn(client);
 		} catch (err) {
 			if (err && typeof err === "object" && "status" in err) throw err;
+			const message = err instanceof Error ? err.message : String(err);
+			if (isExpiredEnrollment(message)) {
+				// 401, not 502: a relay hiccup deserves a retry, but a dead
+				// grant does not get better on its own — the caller needs to
+				// tell the person to re-enroll the machine, not to wait.
+				logger.warn(
+					{ deviceId: this.identity.deviceId },
+					"paseo daemon reported an expired or revoked enrollment"
+				);
+				error(
+					401,
+					"The paired machine's enrollment expired or was revoked — re-run the enroll flow on that machine."
+				);
+			}
 			logger.error({ err, deviceId: this.identity.deviceId }, "paseo daemon call failed");
 			error(502, "The coding-agent daemon could not be reached through the relay.");
 		}
@@ -221,6 +267,12 @@ class DeviceDaemonLink {
 		session: CodeAgentSession;
 		features: CodeProviderFeature[];
 		cwd: string;
+		/** Whether the agent's own snapshot carries an `invalid_grant`-class
+		 * `lastError` — the daemon's exact record of its last real failure,
+		 * so this is trustworthy where the composer's send has already run
+		 * once, but tells nothing about an agent that never has (`lastError`
+		 * absent is not evidence of a good enrollment, just untested). */
+		enrollmentExpired: boolean;
 	}> {
 		const result = await this.operate((client) => client.fetchAgent(agentId));
 		if (!result?.agent) error(404, "No such agent on this daemon.");
@@ -228,6 +280,7 @@ class DeviceDaemonLink {
 			session: toSession(result.agent),
 			features: toFeatureToggles(result.agent.features),
 			cwd: result.agent.cwd,
+			enrollmentExpired: isExpiredEnrollment(result.agent.lastError ?? ""),
 		};
 	}
 
@@ -252,10 +305,24 @@ class DeviceDaemonLink {
 
 	/** The provider ids the daemon actually has. The panel offers exactly
 	 * these for a new agent — never a hardcoded list that would drift from
-	 * what the daemon can run. */
-	async listProviders(): Promise<Array<{ id: string; available: boolean }>> {
+	 * what the daemon can run. `enrollmentExpired` classifies each
+	 * provider's own `error` word the same way a thrown failure is
+	 * classified elsewhere — this is the enrollment probe's signal (see
+	 * `checkEnrollment` in `codeApi.ts`): cheap (no `cwd`, no model
+	 * catalog) and answered by the same RPC that already backs the "new
+	 * agent" provider list, but it is this deployment's best available
+	 * proxy, not a dedicated auth check — the protocol has none, so
+	 * whether `available`/`error` reflect a live credential probe or a
+	 * cached install check is the daemon's call, not this server's. */
+	async listProviders(): Promise<
+		Array<{ id: string; available: boolean; enrollmentExpired: boolean }>
+	> {
 		const result = await this.operate((client) => client.listAvailableProviders());
-		return result.providers.map((p) => ({ id: p.provider, available: p.available }));
+		return result.providers.map((p) => ({
+			id: p.provider,
+			available: p.available,
+			enrollmentExpired: isExpiredEnrollment(p.error ?? ""),
+		}));
 	}
 
 	async deleteAgent(agentId: string): Promise<void> {
@@ -306,7 +373,7 @@ class DeviceDaemonLink {
 	async listProviderModes(provider: string): Promise<CodeProviderMode[]> {
 		const result = await this.operate((client) => client.listProviderModes(provider));
 		if (result.error) {
-			error(502, `The daemon could not list modes: ${result.error}`);
+			throwProviderRefusal(result.error, this.identity.deviceId);
 		}
 		return (result.modes ?? []).map((mode) => ({
 			id: mode.id,
@@ -321,7 +388,7 @@ class DeviceDaemonLink {
 	async listProviderModels(provider: string): Promise<CodeProviderModel[]> {
 		const result = await this.operate((client) => client.listProviderModels(provider));
 		if (result.error) {
-			error(502, `The daemon could not list models: ${result.error}`);
+			throwProviderRefusal(result.error, this.identity.deviceId);
 		}
 		return (result.models ?? [])
 			.filter((model) => model.isSelectable !== false)
@@ -348,7 +415,7 @@ class DeviceDaemonLink {
 	}): Promise<CodeProviderFeature[]> {
 		const result = await this.operate((client) => client.listProviderFeatures(draft));
 		if (result.error) {
-			error(502, `The daemon could not list features: ${result.error}`);
+			throwProviderRefusal(result.error, this.identity.deviceId);
 		}
 		return toFeatureToggles(result.features);
 	}

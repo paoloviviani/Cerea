@@ -44,6 +44,7 @@
 		type CodeDeviceView,
 	} from "$lib/codeApi";
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
+	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
@@ -64,6 +65,9 @@
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
 	let pairingOpen = $state(false);
+	/** The device whose re-enroll dialog is open — the same `PairDeviceDialog`
+	 * the "Pair" button uses, just started past the naming step. */
+	let reenrollFor = $state<CodeDeviceView | null>(null);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
@@ -115,7 +119,23 @@
 		trees = { ...trees, [deviceId]: await loadTree(deviceId) };
 	}
 
-	onMount(() => void load());
+	// A device paired headlessly (no dialog open to watch for it) or a
+	// session/workspace created from elsewhere (another tab, the daemon's
+	// own CLI) must show up here without a manual reload: poll on a sensible
+	// cadence while this tree is mounted, and refetch the moment the tab
+	// regains focus. `loading` only ever flips false in `load()`, so neither
+	// trigger re-shows the loading state — the tree just redraws quietly.
+	const TREE_POLL_MS = 8000;
+	onMount(() => {
+		void load();
+		const interval = setInterval(() => void load(), TREE_POLL_MS);
+		const onFocus = () => void load();
+		window.addEventListener("focus", onFocus);
+		return () => {
+			clearInterval(interval);
+			window.removeEventListener("focus", onFocus);
+		};
+	});
 
 	async function handleRevoke(id: string) {
 		try {
@@ -238,6 +258,7 @@
 		{#each devices as device (device.id)}
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
+			{@const enrollment = codeEnrollment[device.id]}
 			<div>
 				<div class="group flex items-center gap-1 pr-1">
 					<a
@@ -247,6 +268,17 @@
 					>
 						<IconLaptop class="size-3.5 shrink-0" />
 						<span class="min-w-0 flex-1 truncate">{device.name}</span>
+					</a>
+					{#if enrollment === "expired"}
+						<button
+							type="button"
+							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] font-medium text-red-800 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300"
+							title="This machine's enrollment expired or was revoked — click to re-enroll"
+							onclick={() => (reenrollFor = device)}
+						>
+							re-enroll
+						</button>
+					{:else}
 						<span
 							class="shrink-0 rounded-full px-1.5 text-[.65rem] {device.status === 'paired'
 								? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
@@ -254,7 +286,7 @@
 						>
 							{device.status}
 						</span>
-					</a>
+					{/if}
 					{#if device.status === "paired"}
 						<!-- Mirrors the workspace row's agent "+": always visible,
 						     not hidden behind the kebab, because adding a
@@ -448,6 +480,19 @@
 
 {#if pairingOpen}
 	<PairDeviceDialog onclose={() => (pairingOpen = false)} onpaired={handlePaired} />
+{/if}
+
+{#if reenrollFor}
+	{@const target = reenrollFor}
+	<PairDeviceDialog
+		reenroll={{ deviceId: target.id, name: target.name }}
+		onclose={() => (reenrollFor = null)}
+		onpaired={(device) => {
+			handlePaired(device);
+			codeEnrollment[device.id] = "ok";
+			reenrollFor = null;
+		}}
+	/>
 {/if}
 
 {#if workspaceDialogFor}
