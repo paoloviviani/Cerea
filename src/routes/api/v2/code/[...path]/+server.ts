@@ -152,6 +152,7 @@ export const GET: RequestHandler = async (event) => {
 			agent: detail.session,
 			features: detail.features,
 			cwd: detail.cwd,
+			enrollmentExpired: detail.enrollmentExpired,
 		});
 	}
 

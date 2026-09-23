@@ -143,33 +143,48 @@ export async function listWorkspaceAgents(
 	);
 }
 
-/** The provider ids this daemon can actually run, from the daemon itself. */
+/** The provider ids this daemon can actually run, from the daemon itself.
+ * `enrollmentExpired` is the server's own classification of that provider's
+ * `error` word (see `codeDaemon.ts`'s `isExpiredEnrollment`) — the protocol
+ * has no dedicated auth-status call, so this reuses the cheapest RPC that
+ * already reports per-provider health for the "new agent" dialog. */
 export async function listProviders(
 	deviceId: string
-): Promise<{ providers: Array<{ id: string; available: boolean }> }> {
+): Promise<{ providers: Array<{ id: string; available: boolean; enrollmentExpired: boolean }> }> {
 	return unwrap(await fetch(`${root()}/v1/providers?device=${encodeURIComponent(deviceId)}`));
 }
 
 /** Whether a device's daemon is answering with good enrollment: `"ok"` when
- * the probe below landed, `"expired"` when the daemon itself said its
- * enrollment is dead (the forwarder's 401 — see `codeDaemon.ts`'s
- * `isExpiredEnrollment`), and `"unreachable"` for everything else (a relay
- * hiccup, a dropped daemon, an unpaired device) — the same bucket every
- * other daemon read already falls back to. */
+ * the probe below found nothing wrong, `"expired"` when the daemon itself
+ * said its enrollment is dead (a 401, or a provider reporting an
+ * `invalid_grant`-class error — see `codeDaemon.ts`'s `isExpiredEnrollment`),
+ * and `"unreachable"` for everything else (a relay hiccup, a dropped daemon,
+ * an unpaired device, plain offline) — the same bucket every other daemon
+ * read already falls back to. Only the first bucket ever renders as
+ * "re-enroll"; the third must never be mistaken for it. */
 export type EnrollmentCheck = "ok" | "expired" | "unreachable";
 
 /**
- * A cheap, allowlisted call that still forces the daemon to prove its stored
- * credentials: the provider's model catalog is itself gated behind the
- * machine's enrollment, so listing it exercises the same tokens a real chat
- * turn would need, without spending one. Run on agent open and on device
- * switch (see `AgentView`/`CodePanel`) so an expired enrollment surfaces
- * before the person types a doomed message, not after.
+ * A cheap, allowlisted call, run on agent open and on device switch (see
+ * `CodePanel`) so an expired enrollment surfaces before the person types a
+ * doomed message, not after. `listAvailableProviders` is this deployment's
+ * best available proxy for "the daemon's stored credentials still work" —
+ * the paseo protocol has no dedicated auth-status RPC, so this is a
+ * judgment call, not a guarantee: whether a provider's `available`/`error`
+ * reflect a live credential check or a cached install check is up to the
+ * daemon, not this call. The one thing this deployment can trust regardless
+ * is the substring match against `invalid_grant` — see `isExpiredEnrollment`
+ * — which is why a provider merely reported "unavailable" for some other
+ * reason still reads as `"ok"` here, never as `"expired"`.
  */
-export async function checkEnrollment(deviceId: string): Promise<EnrollmentCheck> {
+export async function checkEnrollment(
+	deviceId: string,
+	provider = "opencode"
+): Promise<EnrollmentCheck> {
 	try {
-		await listProviderModels(deviceId, "opencode");
-		return "ok";
+		const { providers } = await listProviders(deviceId);
+		const entry = providers.find((p) => p.id === provider);
+		return entry?.enrollmentExpired ? "expired" : "ok";
 	} catch (err) {
 		if (err instanceof CodeApiError && err.status === 401) return "expired";
 		return "unreachable";
@@ -252,7 +267,17 @@ export async function createAgent(
 export async function getAgent(
 	deviceId: string,
 	agentId: string
-): Promise<{ agent: CodeAgentSession; features: CodeProviderFeature[]; cwd: string }> {
+): Promise<{
+	agent: CodeAgentSession;
+	features: CodeProviderFeature[];
+	cwd: string;
+	/** The agent's own snapshot already said its last real failure was an
+	 * expired/revoked enrollment (see `codeDaemon.ts`'s `getAgentDetail`) —
+	 * unlike `checkEnrollment`'s probe, this is not a guess: it is the exact
+	 * error the daemon recorded from a real attempt. `false` only means "no
+	 * such failure is on record yet", not "the enrollment is good". */
+	enrollmentExpired: boolean;
+}> {
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}?device=${encodeURIComponent(deviceId)}`

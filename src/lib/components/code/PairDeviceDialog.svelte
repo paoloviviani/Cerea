@@ -18,6 +18,7 @@
 	the script's `--name`.
 -->
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { page } from "$app/state";
 	import Modal from "$lib/components/Modal.svelte";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
@@ -42,8 +43,13 @@
 	let { onclose, onpaired, reenroll }: Props = $props();
 
 	type Step = "name" | "wait";
-	let step = $state<Step>(reenroll ? "wait" : "name");
-	let name = $state(reenroll?.name ?? "");
+	// The one-time initial read, not a live binding: `reenroll` never changes
+	// after this dialog mounts (it names which flow opened it), so `step`
+	// and `name` are seeded from it once and then are this component's own
+	// mutable state — `untrack` says so explicitly rather than leaving the
+	// compiler to guess.
+	let step = $state<Step>(untrack(() => (reenroll ? "wait" : "name")));
+	let name = $state(untrack(() => reenroll?.name ?? ""));
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 

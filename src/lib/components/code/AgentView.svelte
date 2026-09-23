@@ -126,6 +126,11 @@
 			agent = detail.agent;
 			features = detail.features ?? [];
 			agentCwd = detail.cwd;
+			// The snapshot's own word, not a guess: if the daemon's last real
+			// attempt on this agent already failed on an expired/revoked
+			// grant, say so immediately rather than waiting on the device
+			// probe's next poll to catch up.
+			if (detail.enrollmentExpired) codeEnrollment[deviceId] = "expired";
 		} catch {
 			// The transcript carries its own states; a strip that only
 			// errors when the daemon is off is worse than fallbacks.
