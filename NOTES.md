@@ -1,5 +1,10 @@
 # NOTES — feat/pyodide-execution
 
+> **Superseded working notes, kept as a record.** The branch is merged; the
+> durable version of what it built is [docs/pyodide.md](docs/pyodide.md), and
+> some details here are already out of date (the preview CSP described as
+> missing is now applied). Do not treat anything below as current state.
+
 Task: client-side Python execution (Pyodide in a Web Worker), auto-run for
 model-written code, wired into artifacts. Work ONLY in this worktree.
 Resume = read this file, then `git log --oneline -12` to see where we stopped.
