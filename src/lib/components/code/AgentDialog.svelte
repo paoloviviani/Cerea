@@ -18,14 +18,32 @@
 	close button), the padding steps down on phones, and the footer may
 	wrap rather than clip.
 
-	Two more sizes that stayed broken on the operator's Safari after that
-	fix landed for Chromium: the provider select and the title input carry
-	an inline `font-size: 16px` because their shared `s.INPUT` class is
-	`text-sm` (14px) — WebKit auto-zooms the whole page on focus of any
-	control under 16px, and `user-scalable=no` in the viewport meta does
-	not stop it (WebKit ignores that attribute for accessibility). The
-	modal's own `max-height` fix lives in Modal.svelte, the shell every
-	dialog shares.
+	The provider select and the title input carry an inline
+	`font-size: 16px` because their shared `s.INPUT` class is `text-sm`
+	(14px) — WebKit auto-zooms the whole page on focus of any control
+	under 16px, and `user-scalable=no` in the viewport meta does not stop
+	it (WebKit ignores that attribute for accessibility).
+
+	What actually broke on the operator's Safari after clicking Create,
+	confirmed against a real WebKit engine (not just modern-Safari-should-
+	support-it assumptions): a failed create mounts the error banner above
+	the form, and on a short viewport (her 264x568 screenshot) that pushes
+	the dialog's total content past the shell's `max-height` cap. The
+	shell's own `overflow-y-auto` then clips the overflow rather than
+	resizing — normal, expected behaviour — but the clip starts at
+	scrollTop 0, so the newly-relevant footer (Cancel/Create) is exactly
+	what falls into the clipped region, with no visible cue that scrolling
+	the dialog itself would reveal it. Chromium and WebKit render this
+	scenario at nearly the same total height, but WebKit's native
+	`<select>` — at this 16px font size — measures 8px taller than
+	Chromium's for the same markup (39px vs 47px, confirmed via
+	`getBoundingClientRect`), which is exactly enough to tip the footer
+	from "fits" (Chromium) to "clipped" (WebKit) at this viewport height.
+	The fix does not fight the `<select>` sizing (that is native chrome,
+	not something to override without its own cross-engine risk) — it
+	makes the footer `sticky` to the bottom of the scrollable shell, so it
+	is pinned in view regardless of how tall the content above it renders
+	on a given engine.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -181,8 +199,25 @@
 
 			<!-- flex-wrap, not fixed widths: side-by-side whenever both buttons
 			     fit (they do from ~264px viewports up with the reduced
-			     padding), wrapped instead of clipped when they do not. -->
-			<div class="mt-4 flex flex-wrap justify-end gap-2">
+			     padding), wrapped instead of clipped when they do not.
+			     `sticky bottom-0`, not a plain `mt-4` row: the modal shell
+			     above this is `overflow-y-auto` with its own `max-height`,
+			     and on a short viewport a failed create's error banner can
+			     push the footer past that cap. A non-sticky footer then
+			     sits in the clipped-and-unscrolled-to region — reachable
+			     only by scrolling the dialog itself, with nothing to
+			     suggest that's needed. Pinning it to the shell's own bottom
+			     edge keeps Cancel/Create in view no matter how tall the
+			     content above renders (this is what varies by engine —
+			     WebKit's native `<select>` measures taller than Chromium's
+			     for the same markup, which is what turned this from a
+			     latent bug into a visible one on Safari). The negative
+			     margins cancel this dialog's own `p-4 sm:p-6` so the
+			     footer's background reaches the shell's edges instead of
+			     leaving its padding as a gap below the buttons. -->
+			<div
+				class="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 border-t border-line bg-white px-4 py-3 dark:border-white/10 dark:bg-gray-800 sm:-mx-6 sm:-mb-6 sm:px-6"
+			>
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
 					Cancel
 				</button>
