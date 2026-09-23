@@ -15,14 +15,25 @@
 		file: MessageFile;
 		canClose?: boolean;
 		onclose?: () => void;
+		/**
+		 * Where a `hash` file's bytes are served, as `<fileBaseUrl>/<sha>`.
+		 * Defaults to the page's own `…/output`, which is chat's
+		 * `conversation/[id]/output/[sha256]`; a surface with no conversation
+		 * in its path (the `/code` panel) passes its store's route instead.
+		 */
+		fileBaseUrl?: string;
 	}
 
-	let { file, canClose = true, onclose }: Props = $props();
+	let { file, canClose = true, onclose, fileBaseUrl }: Props = $props();
 
 	let showModal = $state(false);
 
 	// Capture URL once at component creation to prevent reactive updates during navigation
-	let urlNotTrailing = page.url.pathname.replace(/\/$/, "");
+	// svelte-ignore state_referenced_locally
+	let outputBase = (fileBaseUrl ?? page.url.pathname.replace(/\/$/, "") + "/output").replace(
+		/\/$/,
+		""
+	);
 
 	function truncateMiddle(text: string, maxLength: number): string {
 		if (text.length <= maxLength) {
@@ -68,11 +79,7 @@
 	<Modal width="xl:max-w-[75dvw]" onclose={() => (showModal = false)}>
 		{#if isImage(file.mime)}
 			{#if file.type === "hash"}
-				<img
-					src={urlNotTrailing + "/output/" + file.value}
-					alt="input from user"
-					class="aspect-auto"
-				/>
+				<img src={outputBase + "/" + file.value} alt="input from user" class="aspect-auto" />
 			{:else}
 				<!-- handle the case where this is a base64 encoded image -->
 				<img
@@ -101,7 +108,7 @@
 					<CarbonClose class="text-xl" />
 				</button>
 				{#if file.type === "hash"}
-					{#await fetch(urlNotTrailing + "/output/" + file.value).then((res) => res.text())}
+					{#await fetch(outputBase + "/" + file.value).then((res) => res.text())}
 						<div class="flex h-full w-full items-center justify-center">
 							<EosIconsLoading class="text-xl" />
 						</div>
@@ -146,7 +153,7 @@
 				<img
 					src={file.type === "base64"
 						? `data:${file.mime};base64,${file.value}`
-						: urlNotTrailing + "/output/" + file.value}
+						: outputBase + "/" + file.value}
 					alt={file.name}
 					class="h-36 bg-gray-200 object-cover dark:bg-gray-800"
 				/>
@@ -155,7 +162,7 @@
 			<AudioPlayer
 				src={file.type === "base64"
 					? `data:${file.mime};base64,${file.value}`
-					: urlNotTrailing + "/output/" + file.value}
+					: outputBase + "/" + file.value}
 				name={truncateMiddle(file.name, 28)}
 			/>
 		{:else if isVideo(file.mime)}
@@ -166,7 +173,7 @@
 				<video
 					src={file.type === "base64"
 						? `data:${file.mime};base64,${file.value}`
-						: urlNotTrailing + "/output/" + file.value}
+						: outputBase + "/" + file.value}
 					controls
 				></video>
 			</div>
@@ -210,7 +217,7 @@
 				<a
 					href={file.type === "base64"
 						? `data:application/octet-stream;base64,${file.value}`
-						: urlNotTrailing + "/output/" + file.value}
+						: outputBase + "/" + file.value}
 					download={file.name}
 					class="ml-auto flex-none"
 				>
