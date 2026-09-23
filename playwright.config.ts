@@ -98,7 +98,7 @@ export default defineConfig({
 			command: `npm run build && node server.js`,
 			url: E2E_APP_URL,
 			reuseExistingServer: !isCI,
-			timeout: 300_000,
+			timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 600_000),
 			// Request logging at info level buries the test results; errors still reach stderr.
 			stdout: "ignore",
 			stderr: "pipe",
