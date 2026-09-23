@@ -83,6 +83,22 @@ function expectInsideViewport(
 	expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5);
 }
 
+/**
+ * A control holds both axes of the viewport — used for the footer after a
+ * failed create, where the risk is the *bottom* edge scrolling out of reach
+ * (a real WebKit repro at 264x568, see tests/webkit-safari-check.ts), not
+ * horizontal clipping.
+ */
+function expectInsideViewportBox(
+	box: { x: number; y: number; width: number; height: number },
+	width: number,
+	height: number
+) {
+	expectInsideViewport(box, width);
+	expect(box.y).toBeGreaterThanOrEqual(-0.5);
+	expect(box.y + box.height).toBeLessThanOrEqual(height + 0.5);
+}
+
 /** A bounding box or a clear failure — the null return is never useful here. */
 async function boxOf(locator: ReturnType<Page["getByRole"]>) {
 	const box = await locator.boundingBox();
@@ -126,6 +142,44 @@ test.describe("the new-agent dialog on a phone", () => {
 			await page.screenshot({ path: `test-results/agent-dialog-${width}.png` });
 		});
 	}
+});
+
+test.describe("the new-agent dialog after a failed create", () => {
+	test("keeps the footer inside a short viewport (the operator's 264x568) when the daemon refuses", async ({
+		page,
+	}) => {
+		deviceRows = [{ id: DEVICE, name: "e2e box", status: "paired" }];
+		await stubCodePanel(page);
+		// Overrides the GET-only stub above for this one request: the daemon
+		// refuses the create, which is what mounts the error banner above
+		// the form and grows the dialog's content — the trigger for the
+		// real bug (confirmed on WebKit, see tests/webkit-safari-check.ts):
+		// on a short viewport that growth pushes past the shell's
+		// `max-height`, and a non-sticky footer scrolls out of reach with
+		// no cue that scrolling the dialog itself would reveal it.
+		await page.route("**/api/v2/code/v1/agents?*", async (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			await route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: JSON.stringify({ message: "The daemon refused the request." }),
+			});
+		});
+		await page.setViewportSize({ width: 264, height: 568 });
+		await openAgentDialog(page);
+
+		const dialog = page.getByRole("dialog");
+		await dialog.getByRole("button", { name: "Create agent" }).click();
+		await expect(dialog.getByText("Agent failed")).toBeVisible();
+
+		expectInsideViewportBox(await boxOf(dialog.getByRole("button", { name: "Cancel" })), 264, 568);
+		expectInsideViewportBox(
+			await boxOf(dialog.getByRole("button", { name: "Create agent" })),
+			264,
+			568
+		);
+		await page.screenshot({ path: "test-results/agent-dialog-264-after-fail.png" });
+	});
 });
 
 test.describe("the pair dialog's setup commands", () => {
