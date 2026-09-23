@@ -54,7 +54,11 @@ export async function startMockOidc(port: number = MOCK_OIDC_PORT): Promise<Mock
 	let issuer = "";
 
 	async function issue(refreshToken: string, grant: Grant): Promise<TokenResponse> {
-		const accessToken = await new SignJWT({ azp: grant.azp, client_id: grant.azp, scope: "openid offline_access" })
+		const accessToken = await new SignJWT({
+			azp: grant.azp,
+			client_id: grant.azp,
+			scope: "openid offline_access",
+		})
 			.setProtectedHeader({ alg: "RS256", kid, typ: "at+jwt" })
 			.setIssuer(issuer)
 			.setSubject(grant.sub)
@@ -151,7 +155,9 @@ export async function startMockOidc(port: number = MOCK_OIDC_PORT): Promise<Mock
 		port: actualPort,
 		mint,
 		close: () =>
-			new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+			new Promise<void>((resolve, reject) =>
+				server.close((err) => (err ? reject(err) : resolve()))
+			),
 	};
 }
 
