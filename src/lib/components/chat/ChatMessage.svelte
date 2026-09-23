@@ -45,6 +45,7 @@
 	} from "$lib/utils/messageUpdates";
 	import {
 		MessageUpdateType,
+		MessageToolUpdateType,
 		type MessageToolUpdate,
 		type MessageElicitationResolvedUpdate,
 		type MessageCodeExecutionRequestUpdate,
@@ -53,6 +54,8 @@
 		type MessageMemoryUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
+	import type { CodeSubagentAnchor } from "$lib/types/CodeAgent";
+	import type { Snippet } from "svelte";
 	import { page } from "$app/state";
 	import ImageLightbox from "./ImageLightbox.svelte";
 	import { splitArtifactSegments, stripArtifacts } from "$lib/utils/artifacts";
@@ -85,6 +88,17 @@
 			request: ElicitationRequestPayload,
 			action: ElicitationAction
 		) => Promise<{ ok: boolean; error?: string }>;
+		/**
+		 * The coding-agent panel's subagent claim: when a tool call id names a
+		 * subagent (the roster the panel polls on turn boundaries, or — before
+		 * that pairing — a spawn tool call), the generic tool card gives way to
+		 * the panel's subagent card, exactly as a Plan or Memory update
+		 * supersedes the call that produced it. The card itself is the caller's
+		 * snippet, so chat stays decoupled from the panel; without these props
+		 * the transcript renders as it always has.
+		 */
+		subagentFor?: (callId: string) => CodeSubagentAnchor | undefined;
+		subagentCard?: Snippet<[CodeSubagentAnchor]>;
 	}
 
 	let {
@@ -99,6 +113,8 @@
 		onretry,
 		onshowAlternateMsg,
 		onanswerElicitation,
+		subagentFor,
+		subagentCard,
 	}: Props = $props();
 
 	let contentEl: HTMLElement | undefined = $state();
@@ -202,7 +218,14 @@
 		| ElicitationBlock
 		| CodeExecutionBlock
 		| { type: "plan"; update: MessagePlanUpdate }
-		| { type: "memory"; update: MessageMemoryUpdate };
+		| { type: "memory"; update: MessageMemoryUpdate }
+		| {
+				type: "subagent";
+				uuid: string;
+				anchor: CodeSubagentAnchor;
+				/** The call's frames, kept so a reverted card can give them back. */
+				updates: MessageToolUpdate[];
+			};
 
 	type ToolBlock = Extract<Block, { type: "tool" }>;
 	type ProcessBlock = Extract<Block, { type: "think" } | { type: "tool" }>;
@@ -214,7 +237,8 @@
 		| ({ kind: "elicitation" } & Omit<ElicitationBlock, "type">)
 		| ({ kind: "codeExecution" } & Omit<CodeExecutionBlock, "type">)
 		| { kind: "plan"; update: MessagePlanUpdate }
-		| { kind: "memory"; update: MessageMemoryUpdate };
+		| { kind: "memory"; update: MessageMemoryUpdate }
+		| { kind: "subagent"; uuid: string; anchor: CodeSubagentAnchor; updates: MessageToolUpdate[] };
 
 	// Expand any text block containing <think>…</think> into dedicated think blocks
 	// so reasoning can be grouped/collapsed separately from the answer text.
@@ -327,6 +351,61 @@
 				if (last?.type === "text") last.content += chunk;
 				else res.push({ type: "text" as const, content: chunk });
 			} else if (isMessageToolUpdate(update)) {
+				// The panel's subagent claim, decided per frame — the roster can
+				// pair (or unname) a call between commits, and the builder reruns
+				// from scratch, so the decision must be a pure function of the
+				// frames seen so far:
+				// - a call frame with a claim becomes the dedicated subagent card,
+				//   and the generic tool card never forms for that uuid;
+				// - a closing frame keeps the card only while the polled roster
+				//   backs it — a call that closed unpaired gives the row back to
+				//   the generic card, so a spawn the daemon never tracked does not
+				//   read as a subagent stuck running forever.
+				if (subagentFor) {
+					const anchor = subagentFor(update.uuid);
+					const subagentBlock = res.find(
+						(b): b is Extract<Block, { type: "subagent" }> =>
+							b.type === "subagent" && b.uuid === update.uuid
+					);
+					if (update.subtype === MessageToolUpdateType.Call) {
+						if (anchor) {
+							if (subagentBlock) {
+								subagentBlock.anchor = anchor;
+								subagentBlock.updates.push(update);
+							} else {
+								res.push({
+									type: "subagent" as const,
+									uuid: update.uuid,
+									anchor,
+									updates: [update],
+								});
+							}
+							continue;
+						}
+					} else if (subagentBlock) {
+						if (anchor?.subagent) {
+							subagentBlock.updates.push(update);
+							continue;
+						}
+						// Closed without a polled record: the row goes back to the
+						// generic card, with every frame it swallowed.
+						res.splice(res.indexOf(subagentBlock), 1);
+						res.push({
+							type: "tool" as const,
+							uuid: update.uuid,
+							updates: [...subagentBlock.updates, update],
+						});
+						continue;
+					} else if (anchor?.subagent) {
+						res.push({
+							type: "subagent" as const,
+							uuid: update.uuid,
+							anchor,
+							updates: [update],
+						});
+						continue;
+					}
+				}
 				const existingBlock = res.find(
 					(b): b is ToolBlock => b.type === "tool" && b.uuid === update.uuid
 				);
@@ -467,6 +546,17 @@
 				// the undo is only found by people who go looking for it.
 				flush();
 				units.push({ kind: "memory", update: block.update });
+			} else if (block.type === "subagent") {
+				// Never folded into the summary either: a subagent's status has
+				// to stay readable after the turn ends — that is the whole point
+				// of tracking it to a terminal state.
+				flush();
+				units.push({
+					kind: "subagent",
+					uuid: block.uuid,
+					anchor: block.anchor,
+					updates: block.updates,
+				});
 			} else {
 				flush();
 				units.push({ kind: "text", content: block.content });
@@ -476,7 +566,9 @@
 		return units;
 	});
 
-	/** Reasoning, a running tool and growing text animate; a finished tool and a settled question do not. */
+	/** Reasoning, a running tool and growing text animate; a finished tool, a
+	 * settled question and a terminal subagent do not. A subagent still
+	 * running — polled or merely unpaired — keeps the shimmer. */
 	let trailingBlockShowsProgress = $derived.by(() => {
 		const last = blocks.at(-1);
 		if (!last) return false;
@@ -485,6 +577,9 @@
 			return !last.updates.some(
 				(update) => isMessageToolResultUpdate(update) || isMessageToolErrorUpdate(update)
 			);
+		}
+		if (last.type === "subagent") {
+			return !last.anchor.subagent || last.anchor.subagent.status === "running";
 		}
 		if (last.type === "text") return last.content.trim().length > 0;
 		return false;
@@ -502,7 +597,8 @@
 				block.type === "tool" ||
 				block.type === "elicitation" ||
 				block.type === "plan" ||
-				block.type === "memory"
+				block.type === "memory" ||
+				block.type === "subagent"
 		);
 	});
 
@@ -575,7 +671,7 @@
 				{#if isProcessStreaming}
 					<!-- A streaming turn that used thinking / tools: every block renders flat
 					     and inline until the turn ends, then the nested summary takes over. -->
-					{#each blocks as block, blockIndex (block.type === "tool" ? `tool-${block.uuid}-${blockIndex}` : block.type === "plan" ? `plan-${block.update.version}` : `block-${blockIndex}`)}
+					{#each blocks as block, blockIndex (block.type === "tool" ? `tool-${block.uuid}-${blockIndex}` : block.type === "plan" ? `plan-${block.update.version}` : block.type === "subagent" ? `subagent-${block.uuid}` : `block-${blockIndex}`)}
 						{#if block.type === "text"}
 							{#if block.content.trim().length > 0}
 								<div class={proseClasses}>
@@ -625,6 +721,17 @@
 							<div data-exclude-from-copy>
 								<MemoryCard update={block.update} />
 							</div>
+						{:else if block.type === "subagent"}
+							<div data-exclude-from-copy>
+								{#if subagentCard}
+									{@render subagentCard(block.anchor)}
+								{:else}
+									<!-- Defensive: a caller that claims subagents without
+									     supplying their card falls back to the generic
+									     row rather than losing the call. -->
+									<ToolUpdate tool={block.updates} {loading} />
+								{/if}
+							</div>
 						{:else}
 							<div data-exclude-from-copy class="not-last:mb-1 has-[+.prose]:mb-2! [.prose+&]:mt-3">
 								{#if block.type === "think"}
@@ -646,7 +753,7 @@
 					{/if}
 				{:else}
 					<!-- Answer started or generation finished: nest the process blocks. -->
-					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : `${unit.kind}-${unitIndex}`)}
+					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : `${unit.kind}-${unitIndex}`)}
 						{#if unit.kind === "text"}
 							{#if isLast && loading && unit.content.length === 0}
 								<IconLoading classNames="loading inline ml-2 first:ml-0" />
@@ -697,6 +804,15 @@
 						{:else if unit.kind === "memory"}
 							<div data-exclude-from-copy>
 								<MemoryCard update={unit.update} />
+							</div>
+						{:else if unit.kind === "subagent"}
+							<div data-exclude-from-copy>
+								{#if subagentCard}
+									{@render subagentCard(unit.anchor)}
+								{:else}
+									<!-- Defensive fallback, same as the flat branch's. -->
+									<ToolUpdate tool={unit.updates} loading={false} />
+								{/if}
 							</div>
 						{:else if unit.kind === "group"}
 							<div data-exclude-from-copy class="not-last:mb-1 has-[+.prose]:mb-2! [.prose+&]:mt-3">

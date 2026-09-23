@@ -3,6 +3,10 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { buildRelayWebSocketUrl } from "@getpaseo/protocol/daemon-endpoints";
 import type { FetchAgentTimelineResponseMessage } from "@getpaseo/protocol/messages";
 import type { AgentFeature, AgentFeatureToggle } from "@getpaseo/protocol/agent-types";
+import type {
+	ProviderSubagentListPayload,
+	ProviderSubagentTimelinePayload,
+} from "@getpaseo/client/internal/daemon-client";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { getPairedDevice } from "$lib/server/codeDevices";
@@ -17,6 +21,8 @@ import type {
 import type { CodeProviderFeature } from "$lib/codeApi";
 
 type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
+/** The parent agent's subagent roster, as the daemon's provider reports it. */
+type ProviderSubagentList = ProviderSubagentListPayload["subagents"];
 /** Whatever `getCheckoutDiff` actually answers with — parsed diff files. */
 type CheckoutDiffPayload = Awaited<ReturnType<DaemonClient["getCheckoutDiff"]>>;
 /**
@@ -398,6 +404,39 @@ class DeviceDaemonLink {
 	async fetchTimeline(agentId: string): Promise<FetchAgentTimelinePayload> {
 		return this.operate((client) =>
 			client.fetchAgentTimeline(agentId, { direction: "tail", limit: 500 })
+		);
+	}
+
+	/**
+	 * The subagents one parent agent spawned, as the daemon's provider tracks
+	 * them. The panel polls this on turn boundaries only — the roster is the
+	 * authority for each subagent's title, status and subtitle, and the
+	 * transcript's Task tool call (matched by the descriptor's `toolCallId`)
+	 * is where the panel anchors it. Subagents the provider spawned without a
+	 * tool call (`toolCallId: null`) have no place in the transcript to anchor
+	 * at and are not invented one.
+	 */
+	async listSubagents(agentId: string): Promise<ProviderSubagentList> {
+		return this.operate((client) => client.listProviderSubagents(agentId)).then(
+			(result) => result.subagents
+		);
+	}
+
+	/**
+	 * One subagent's own timeline — the transcript its card expands to. The
+	 * rows are ordinary timeline entries, so the forwarder maps them through
+	 * the same `timelineEntryToUpdate` the parent's routes use, and a subagent
+	 * transcript reads exactly like the parent's.
+	 */
+	async fetchSubagentTimeline(
+		agentId: string,
+		subagentId: string
+	): Promise<ProviderSubagentTimelinePayload> {
+		return this.operate((client) =>
+			client.fetchProviderSubagentTimeline(agentId, subagentId, {
+				direction: "tail",
+				limit: 500,
+			})
 		);
 	}
 

@@ -24,8 +24,8 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
-	import { MessageUpdateType, type MessageTurnStateUpdate } from "$lib/types/MessageUpdate";
-	import type { CodeAgentSession, CodeTurnState, CodeWorkspace } from "$lib/types/CodeAgent";
+	import { MessageToolUpdateType, MessageUpdateType, type MessageTurnStateUpdate } from "$lib/types/MessageUpdate";
+	import type { CodeAgentSession, CodeSubagent, CodeSubagentAnchor, CodeTurnState, CodeWorkspace } from "$lib/types/CodeAgent";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
@@ -33,7 +33,9 @@
 	import { codeAgentStream } from "$lib/codeAgentStream";
 	import {
 		cancelAgent,
+		fetchSubagentTimeline,
 		getAgent,
+		listSubagents,
 		listWorkspaces,
 		respondPermission,
 		sendFollowUp,
@@ -43,6 +45,7 @@
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
+	import SubagentCard from "./SubagentCard.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import IconCode from "~icons/carbon/code";
@@ -200,6 +203,98 @@
 		return agent?.state ?? ("idle" as CodeTurnState);
 	});
 
+	// ── Subagent tracking ─────────────────────────────────────────────────
+	//
+	// A turn may spawn subagents (the provider's Task tool). The daemon's
+	// parent timeline carries each spawn as an ordinary tool call — a call
+	// frame the fold already renders — but the transcript has no subagent
+	// frames: `agent.provider_subagents.update` is a separate session
+	// message the timeline subscription never delivers. So the roster is
+	// POLLED, and only on turn boundaries: entering a running turn and
+	// leaving one, derived from the same turn state the pills read. Never
+	// on an interval — a subagent's row is settled data, and a timer would
+	// be a second heartbeat riding a link that already has one.
+	//
+	// The roster is the authority for title, status and subtitle; the
+	// transcript's Task tool call (matched by the descriptor's `toolCallId`)
+	// is where the card anchors. Before the first pairing, a running spawn
+	// tool call anchors on its name alone (`task`, opencode's spawn tool),
+	// with the call's own description as the standing title; a call that
+	// closes without ever being paired gives the row back to the generic
+	// tool card — see ChatMessage. Subagents reported without a tool call
+	// have no anchor and are not rendered: the transcript has nowhere honest
+	// to put them.
+	let subagentRoster = $state<CodeSubagent[]>([]);
+
+	let subagentsByCallId = $derived.by(() => {
+		const byCallId = new Map<string, CodeSubagent>();
+		for (const subagent of subagentRoster) {
+			if (subagent.toolCallId) byCallId.set(subagent.toolCallId, subagent);
+		}
+		return byCallId;
+	});
+
+	/** The transcript's spawn tool calls, by id, with the description the
+	 * call itself carried — the pre-pairing title. */
+	let taskCalls = $derived.by(() => {
+		const calls = new Map<string, string>();
+		for (const message of messages) {
+			if (message.from !== "assistant") continue;
+			for (const update of message.updates ?? []) {
+				if (update.type !== MessageUpdateType.Tool) continue;
+				if (update.subtype !== MessageToolUpdateType.Call) continue;
+				if (update.call.name.toLowerCase() !== "task") continue;
+				const description = update.call.parameters["description"];
+				calls.set(update.uuid, typeof description === "string" ? description : "");
+			}
+		}
+		return calls;
+	});
+
+	let rosterPollSeq = 0;
+	async function pollSubagents() {
+		const seq = ++rosterPollSeq;
+		try {
+			const { subagents } = await listSubagents(deviceId, agentId);
+			if (seq === rosterPollSeq) subagentRoster = subagents;
+		} catch {
+			// A failed poll keeps the previous roster — the transcript carries
+			// its own states, and the next boundary re-asks.
+		}
+	}
+
+	// The phase the pills already show, as a two-state boundary signal.
+	// A permission hold is still inside the running turn, so it stays
+	// "running" here rather than faking a boundary at each hold.
+	let rosterPhase: "none" | "running" | "settled" = "none";
+	$effect(() => {
+		const phase =
+			shownState === "running" || shownState === "waiting-permission"
+				? ("running" as const)
+				: ("settled" as const);
+		if (phase === rosterPhase) return;
+		rosterPhase = phase;
+		void pollSubagents();
+	});
+
+	/** The claim ChatMessage asks per tool call: does a subagent own this
+	 * row? The polled roster rules; a task-named call anchors pre-pairing. */
+	function subagentFor(callId: string): CodeSubagentAnchor | undefined {
+		const subagent = subagentsByCallId.get(callId) ?? null;
+		const description = taskCalls.get(callId);
+		if (!subagent && description === undefined) return undefined;
+		return {
+			subagent,
+			fallbackTitle: description ?? subagent?.description ?? "",
+			load: subagent
+				? () =>
+						fetchSubagentTimeline(deviceId, agentId, subagent.id).then(
+							(result) => result.updates
+						)
+				: null,
+		};
+	}
+
 	function stateTone(state: CodeTurnState): s.PillTone {
 		if (state === "running" || state === "waiting-permission") return "busy";
 		if (state === "error") return "bad";
@@ -265,6 +360,14 @@
 	let column: ChatMessageColumn | undefined = $state();
 </script>
 
+<!-- The subagent card is the panel's own renderer for the slots ChatMessage
+     opens where a Task tool call is claimed: the card carries the roster
+     row, the fallback title, and the transcript fetch, and ChatMessage stays
+     free of any panel import. -->
+{#snippet subagentCard(anchor: CodeSubagentAnchor)}
+	<SubagentCard {anchor} />
+{/snippet}
+
 <!-- pointer-events-none on every wrapper above the column, the ChatWindow
      contract: the column paints at z-[-1] (its own contract, see
      ChatMessageColumn), so any pointer-enabled ancestor between it and the
@@ -316,6 +419,8 @@
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
 			onanswerElicitation={answerPermission}
+			{subagentFor}
+			subagentCard={subagentCard}
 			bind:this={column}
 		>
 			{#snippet introduction()}
