@@ -167,6 +167,7 @@ test("the meter is hidden when the backend has no usage capability", async ({ pa
 
 	// The composer itself is there (mode/model pills render); the meter never
 	// appears, capability absent regardless of what usage frames might say.
-	await expect(page.getByRole("button", { name: "Mode" })).toBeVisible();
+	// `exact: true`, because "Mode" is otherwise a substring match of "Model" too.
+	await expect(page.getByRole("button", { name: "Mode", exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: /^\d+%$/ })).toHaveCount(0);
 });
