@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  check-and-lint:
+    name: Type-check and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+
+  test-server-ssr:
+    name: Vitest (server + ssr)
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # mongodb-memory-server needs a CPU with AVX, which GitHub-hosted
+      # runners don't reliably have; point the server suite at the service
+      # container instead, same as this box's own e2e-mongo (see CLAUDE.md).
+      TEST_MONGODB_URL: mongodb://127.0.0.1:27017/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # TEST_MONGODB_URL points every spec file at the same disposable Mongo
+      # instance (no per-file isolation like mongodb-memory-server gives),
+      # so the suite must run its files serially.
+      - run: npx vitest run --project=server --project=ssr --no-file-parallelism
+
+  test-client:
+    name: Vitest (client)
+    runs-on: ubuntu-latest
+    # The client project needs a real Chromium through Playwright, and the
+    # image's browsers must match the *installed* Playwright version exactly
+    # (node_modules/playwright, not package.json's caret range) or tests
+    # silently report "no tests" instead of failing — see CLAUDE.md.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user root
+    env:
+      HOME: /root
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run --project=client
