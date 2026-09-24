@@ -31,6 +31,10 @@ import { z } from "zod";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
+import { logger } from "$lib/server/logger";
+import { promptAttachments } from "$lib/server/code/promptAttachments";
+import { codeAttachmentKey } from "$lib/server/codeAttachments";
+import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { OpError, type Session, type Workspace } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
@@ -175,7 +179,8 @@ function toSubagent(session: Session): CodeSubagent {
 		status,
 		createdAt: session.createdAt,
 		updatedAt: session.updatedAt,
-		toolCallId: null,
+		// The anchor in the parent transcript: without it the card has nowhere to render.
+		toolCallId: session.parentToolCallId ?? null,
 		cwd: null,
 		subtitle: null,
 	};
@@ -434,11 +439,21 @@ export const POST: RequestHandler = async (event) => {
 	if (messageMatch) {
 		const parsed = messageSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { text }.");
+		const sessionId = decodeURIComponent(messageMatch[1]);
+		// Files the composer uploaded under this message id travel with the prompt. With no
+		// messageId there can be none: the browser uploads under the id it then sends.
+		const attachments = parsed.data.messageId
+			? await promptAttachments(
+					codeAttachmentKey(device._id.toHexString(), sessionId),
+					parsed.data.messageId
+				)
+			: [];
 		await callOp(() =>
 			link.sessionPrompt({
-				sessionId: decodeURIComponent(messageMatch[1]),
+				sessionId,
 				text: parsed.data.text,
 				clientMessageId: parsed.data.messageId ?? randomUUID(),
+				...(attachments.length ? { attachments } : {}),
 			})
 		);
 		return superjsonResponse({ ok: true });
@@ -578,6 +593,11 @@ export const DELETE: RequestHandler = async (event) => {
 	}
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
 	const link = new MachineLink(device._id.toString());
-	await callOp(() => link.sessionDelete({ sessionId: decodeURIComponent(agentMatch[1]) }));
+	const sessionId = decodeURIComponent(agentMatch[1]);
+	await callOp(() => link.sessionDelete({ sessionId }));
+	// The session is gone on the machine; what it was sent goes with it.
+	await deleteAttachments(codeAttachmentKey(device._id.toHexString(), sessionId)).catch((err) =>
+		logger.error({ err, sessionId }, "failed to delete a deleted session's attachments")
+	);
 	return superjsonResponse({ ok: true });
 };
