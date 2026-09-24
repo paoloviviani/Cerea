@@ -1,4 +1,5 @@
 import { error } from "@sveltejs/kit";
+import mimeTypes from "mime-types";
 import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
 import type { SharedConversation } from "$lib/types/SharedConversation";
@@ -31,4 +32,30 @@ export async function downloadFile(
 	});
 
 	return { type: "base64", name, value: buffer.toString("base64"), mime };
+}
+
+/**
+ * "Download, never render": the response every stored-attachment route
+ * answers with. An `<img>` still displays it (it ignores the disposition);
+ * navigating to it saves a file instead of running whatever the bytes are,
+ * and the sandbox CSP holds even if a browser renders it anyway.
+ */
+export function attachmentResponse(
+	sha256: string,
+	file: { value: string; mime?: string }
+): Response {
+	const { value, mime } = file;
+	const b64Value = Buffer.from(value, "base64");
+	return new Response(b64Value, {
+		headers: {
+			"Content-Type": mime ?? "application/octet-stream",
+			"Content-Security-Policy":
+				"default-src 'none'; script-src 'none'; style-src 'none'; sandbox;",
+			"Content-Disposition": `attachment; filename="${sha256.slice(0, 8)}.${
+				mime ? mimeTypes.extension(mime) || "bin" : "bin"
+			}"`,
+			"Content-Length": b64Value.length.toString(),
+			"Accept-Range": "bytes",
+		},
+	});
 }

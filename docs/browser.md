@@ -1,13 +1,13 @@
 # The headless browser
 
-`deploy/compose/docker-compose.playwright.yml` adds one service: a Playwright
+The stack's `fetch` profile (Pystino `deploy/stack/compose.yaml`) adds one service: a Playwright
 `run-server` with Chromium, Firefox and WebKit behind it, speaking Playwright's
 own WebSocket protocol on port 3000 of the compose network.
 
 **It has a consumer now.** `FETCH_BACKEND=playwright` points the chat's fetch
 seam at it (`src/lib/server/fetching/playwright.ts`, reaching
 `PLAYWRIGHT_WS_ENDPOINT`, default `ws://playwright:3000/`); `direct` is the
-default and plain HTTPS. The `enterprise` profile selects this overlay, the
+default and plain HTTPS. The `enterprise` preset turns on this profile, the
 others do not. It was deployed ahead of its consumer, which is why much of what
 follows is written as an argument for deploying it at all.
 
@@ -67,14 +67,12 @@ somebody does.
 Reaching it from the host to debug is a deliberate and temporary act:
 
 ```bash
-docker compose --env-file deploy/.env \
-  -f deploy/compose/docker-compose.playwright.yml \
-  run --rm --publish 127.0.0.1:3000:3000 playwright
+docker compose run --rm --publish 127.0.0.1:3000:3000 playwright   # in the deploy directory
 ```
 
 ## The version pin
 
-The overlay pins **1.61.1**, and `PLAYWRIGHT_VERSION` feeds both the image tag
+The release manifest pins **1.61.1**, and `PLAYWRIGHT_VERSION` feeds both the image tag
 and the `npx` argument so the browser binaries and the driver cannot drift apart.
 
 The pin is not taste. Measured on 2026-09-11 against real servers on this host:

@@ -23,6 +23,7 @@ import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import type { User } from "$lib/types/User";
 import { logger } from "$lib/server/logger";
+import { forwardedHeaders } from "$lib/server/oidcBackchannel";
 
 function normalizeIssuer(raw: string): string {
 	return raw.trim().replace(/\/+$/, "");
@@ -42,6 +43,32 @@ function machineAudience(): string {
 
 function machineClientId(): string {
 	return config.CODE_MACHINE_CLIENT_ID?.trim() || "opencode-enrollment";
+}
+
+/**
+ * Where to fetch this issuer's discovery and keys from, when that is not the
+ * issuer URL itself.
+ *
+ * On the Pystino stack the bundled Authelia is published at
+ * `https://<origin>/authelia` for browsers and reachable from this container at
+ * `OPENID_INTERNAL_URL` (`http://authelia:9091/authelia`). Fetching the public
+ * URL from here hairpins through the proxy's TLS listener, which needed a CA
+ * bundle that decayed; the browser login already uses the internal URL
+ * (`oidcBackchannel.ts`), and machine tokens come from the
+ * same issuer, so they follow the same rule. Authelia derives its issuer from
+ * `X-Forwarded-Proto/Host` and answers nothing on its internal address without
+ * them. Only applies when the machine issuer *is* the browser issuer — a
+ * separately configured CODE_MACHINE_ISSUER (a test's mock IdP) is fetched
+ * where it says.
+ */
+export function machineBackchannel(
+	issuer: string,
+	providerUrl: string | undefined,
+	internalUrl: string | undefined
+): { base: string; headers: Record<string, string> } | null {
+	const internal = internalUrl?.trim();
+	if (!internal || issuer !== normalizeIssuer(providerUrl ?? "")) return null;
+	return { base: normalizeIssuer(internal), headers: forwardedHeaders(issuer) };
 }
 
 interface DiscoveryDoc {
@@ -66,9 +93,17 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
 	if (cachedJwks && cachedForIssuer === issuer && now - cachedAt < DISCOVERY_TTL_MS) {
 		return cachedJwks;
 	}
-	const discoveryUrl = `${issuer}/.well-known/openid-configuration`;
+	const backchannel = machineBackchannel(
+		issuer,
+		config.OPENID_PROVIDER_URL,
+		config.OPENID_INTERNAL_URL
+	);
+	const discoveryUrl = `${backchannel?.base ?? issuer}/.well-known/openid-configuration`;
 	// Bounded (R1): a slow or hung IdP must fail the handshake, not hold it open.
-	const res = await fetch(discoveryUrl, { signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });
+	const res = await fetch(discoveryUrl, {
+		headers: backchannel?.headers,
+		signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+	});
 	if (!res.ok) {
 		throw new Error(`OIDC discovery at ${discoveryUrl} failed with ${res.status}`);
 	}
@@ -81,8 +116,15 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
 	if (normalizeIssuer(doc.issuer ?? "") !== issuer) {
 		throw new Error(`OIDC discovery at ${discoveryUrl} names issuer ${doc.issuer}, not ${issuer}`);
 	}
-	cachedJwks = createRemoteJWKSet(new URL(doc.jwks_uri), {
+	// The keys are fetched over the same back-channel: the public jwks_uri moved
+	// onto the internal base, with the same forwarded headers.
+	const jwksUri =
+		backchannel && doc.jwks_uri.startsWith(issuer)
+			? backchannel.base + doc.jwks_uri.slice(issuer.length)
+			: doc.jwks_uri;
+	cachedJwks = createRemoteJWKSet(new URL(jwksUri), {
 		timeoutDuration: DISCOVERY_TIMEOUT_MS,
+		headers: backchannel?.headers,
 	});
 	cachedForIssuer = issuer;
 	cachedAt = now;

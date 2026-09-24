@@ -18,6 +18,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
+import { base } from "$app/paths";
 import { MACHINE_PATH, MACHINE_PROTOCOL } from "$lib/types/machineProtocol";
 import { authenticateMachineRequest } from "$lib/server/code/machineAuth";
 import { acceptMachineConnection } from "$lib/server/code/machines";
@@ -40,7 +41,11 @@ const wss = new WebSocketServer({ noServer: true });
 
 async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
 	const url = new URL(req.url ?? "/", "http://internal");
-	if (url.pathname !== MACHINE_PATH) {
+	// The upgrade arrives below SvelteKit, so the app's base path is still on
+	// it: behind the Pystino stack (APP_BASE=/chat) the machine dials
+	// /chat/api/v2/code/machine, and comparing against the bare path dropped
+	// every machine socket.
+	if (url.pathname !== `${base}${MACHINE_PATH}`) {
 		socket.destroy();
 		return;
 	}

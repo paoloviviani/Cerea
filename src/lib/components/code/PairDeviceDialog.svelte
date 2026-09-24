@@ -18,6 +18,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
+	import { base } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import IconLaptop from "~icons/carbon/laptop";
@@ -41,9 +42,14 @@
 	let { onclose, onpaired }: Props = $props();
 
 	const publicConfig = usePublicConfig();
-	// The deployment's own origin — the machine dials out to this same
-	// address (`X-Pystino-Machine-*` headers, spec §3) over WSS.
-	const origin = $derived(publicConfig.PUBLIC_ORIGIN || page.url.origin);
+	// The deployment's own origin plus the app's base path — the machine dials
+	// out to `<this>/api/v2/code/machine` (`X-Pystino-Machine-*` headers, spec
+	// §3) over WSS. Behind the Pystino stack the chat is built with
+	// APP_BASE=/chat while PUBLIC_ORIGIN is the bare origin, so without the base
+	// the printed command would send the machine to the gateway.
+	const origin = $derived(
+		(publicConfig.PUBLIC_ORIGIN || page.url.origin).replace(/\/+$/, "") + base
+	);
 	const commands = $derived([`pystino-agent enroll --cerea ${origin}`, "pystino-agent run"]);
 
 	let busy = $state<string | null>(null);

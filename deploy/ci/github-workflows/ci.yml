@@ -1,0 +1,79 @@
+# The one PR workflow for Cerea (it folds in the checks thin-agent/main parked
+# here as ci.yml: check, lint, vitest).
+#
+# Sized for the GitHub free plan's Action minutes:
+#   - PRs and manual runs only, docs excluded, no matrix, cancel-in-progress;
+#   - ONE job for lint + check + the server/ssr suite, so `npm ci` (the
+#     slowest step) is paid once per run instead of once per job;
+#   - the client project (a real Chromium in the Playwright image, the
+#     costliest suite) runs weekly and on demand, not on every PR.
+# Image builds are images.yml (main and tags); the gateway contract is
+# contract.yml.
+name: ci
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "deploy/ci/github-workflows/README.md"
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1" # Mondays: the client project
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  check:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # mongodb-memory-server needs AVX, which hosted runners do not reliably
+      # have; the suite uses the service container instead (see CLAUDE.md).
+      TEST_MONGODB_URL: mongodb://127.0.0.1:27017/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+      # One shared Mongo, no per-file isolation: the files run serially.
+      - run: npx vitest run --project=server --project=ssr --no-file-parallelism
+
+  client:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # The Playwright image's browsers must match the *installed* Playwright
+    # exactly, or the project silently reports "no tests" (see CLAUDE.md).
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user root
+    env:
+      HOME: /root
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci
+      - run: npx vitest run --project=client
