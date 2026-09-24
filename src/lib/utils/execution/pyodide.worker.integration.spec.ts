@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootstrapWorker } from "./pyodide.worker";
 import { MOUNT_ROOT, type HostToWorker, type WorkerToHost } from "./protocol";
@@ -15,6 +16,15 @@ const INDEX_URL = `${import.meta.dirname}/static/pyodide/`.replace(
 	"/src/lib/utils/execution/",
 	"/"
 );
+
+// The dist is generated, not committed: `npm run sync-pyodide` (the prebuild
+// hook) fetches ~325 MB from the pyodide CDN and PyPI. Without it — CI, a fresh
+// clone before its first build — there is nothing to test, so the suite skips
+// rather than failing on a missing file. With it, the clean/dirty exit test
+// still ends the run with Pyodide's stray SystemExit rejections, a known
+// pre-existing failure: reports/2026-09-24-thin-agent-progress.md, "Known CI
+// exclusions".
+const DIST_PRESENT = existsSync(`${INDEX_URL}pyodide.asm.wasm`);
 
 interface FakeScope {
 	location: { origin: string };
@@ -89,7 +99,7 @@ async function until(
 	}
 }
 
-describe("pyodide worker pipeline (real dist)", () => {
+describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 	it(
 		"boots, runs code, captures output, mounts files and refuses the network",
 		async () => {
