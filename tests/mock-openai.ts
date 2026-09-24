@@ -37,6 +37,12 @@ export interface ScenarioScript {
 	reasoningField?: "reasoning" | "reasoning_content";
 	/** Tool calls, emitted before content on the first turn only. */
 	toolCalls?: ToolCallSpec[];
+	/**
+	 * Emit `toolCalls` for the first tool-offering request only, across every
+	 * conversation. An agent that spawns a subagent (opencode's `task`) replays
+	 * the default scenario in the child, which would otherwise call the tool again.
+	 */
+	toolCallsOnce?: boolean;
 	/** Content tokens. */
 	content?: string[];
 	/** finish_reason on the final chunk. */
@@ -288,7 +294,13 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			const toolResultSeen = messages.some(
 				(m) => typeof m === "object" && m !== null && (m as { role?: string }).role === "tool"
 			);
-			const emitToolCalls = Boolean(script.toolCalls?.length) && !toolResultSeen;
+			const offersTools = Array.isArray(body.tools) && body.tools.length > 0;
+			const once = script as ScenarioScript & { spent?: boolean };
+			const emitToolCalls =
+				Boolean(script.toolCalls?.length) &&
+				!toolResultSeen &&
+				(!script.toolCallsOnce || (offersTools && !once.spent));
+			if (emitToolCalls && script.toolCallsOnce) once.spent = true;
 
 			// ── Non-streaming: title generation and tool-call id recovery ──────────
 			if (!wantsStream) {

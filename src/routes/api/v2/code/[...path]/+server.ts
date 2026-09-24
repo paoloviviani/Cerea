@@ -263,7 +263,10 @@ export const GET: RequestHandler = async (event) => {
 	const modelsMatch = new RegExp(`^v1/providers/(${ID})/models$`).exec(path);
 	if (modelsMatch) {
 		const listed = await callOp(() => link.backendModels({ backend: modelsMatch[1] }));
-		const { models, hidden } = filterModels(device, listed.models);
+		const { models, hidden: hiddenHere } = filterModels(device, listed.models);
+		// The agent filters by its own policy first and reports what it removed;
+		// whatever Cerea removes on top is the defence-in-depth remainder.
+		const hidden = (listed.hidden ?? 0) + hiddenHere;
 		const mapped: CodeProviderModel[] = models.map((model) => ({
 			id: model.id,
 			label: model.label,
