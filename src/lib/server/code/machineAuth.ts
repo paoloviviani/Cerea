@@ -134,7 +134,10 @@ export async function validateMachineToken(token: string): Promise<ValidatedMach
 		payload = verified.payload;
 	} catch (err) {
 		logger.warn({ err }, "machine link: token verification failed");
-		throw new MachineAuthError(401, "The token is invalid, expired, or not meant for this deployment.");
+		throw new MachineAuthError(
+			401,
+			"The token is invalid, expired, or not meant for this deployment."
+		);
 	}
 	const azp = (payload.azp as string | undefined) ?? (payload.client_id as string | undefined);
 	if (azp !== machineClientId()) {
@@ -171,8 +174,7 @@ export interface MachinePrincipal {
 }
 
 export type MachineAuthResult =
-	| { ok: true; principal: MachinePrincipal }
-	| { ok: false; status: 401 | 403; message: string };
+	{ ok: true; principal: MachinePrincipal } | { ok: false; status: 401 | 403; message: string };
 
 /** The full pre-upgrade check (spec §3): bearer, `X-Pystino-Machine-Id`,
  * `X-Pystino-Machine-Name`. Rejections here become a plain HTTP 401/403
@@ -203,7 +205,8 @@ export async function authenticateMachineRequest(
 	try {
 		validated = await validateMachineToken(token);
 	} catch (err) {
-		if (err instanceof MachineAuthError) return { ok: false, status: err.status, message: err.message };
+		if (err instanceof MachineAuthError)
+			return { ok: false, status: err.status, message: err.message };
 		logger.warn({ err }, "machine link: unexpected auth failure");
 		return { ok: false, status: 401, message: "Authentication failed." };
 	}

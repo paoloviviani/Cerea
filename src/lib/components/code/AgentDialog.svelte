@@ -215,7 +215,7 @@
 			     footer's background reaches the shell's edges instead of
 			     leaving its padding as a gap below the buttons. -->
 			<div
-				class="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 border-t border-line bg-white px-4 py-3 dark:border-white/10 dark:bg-gray-800 sm:-mx-6 sm:-mb-6 sm:px-6"
+				class="sticky bottom-0 -mx-4 mt-4 -mb-4 flex flex-wrap justify-end gap-2 border-t border-line bg-white px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6 dark:border-white/10 dark:bg-gray-800"
 			>
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
 					Cancel

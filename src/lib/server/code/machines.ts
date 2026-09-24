@@ -239,7 +239,9 @@ export class MachineLink {
 	backendModes(args: { backend?: string; workspaceId?: string } = {}): Promise<{ modes: Mode[] }> {
 		return this.call("backend.modes", args);
 	}
-	backendModels(args: { backend?: string; workspaceId?: string } = {}): Promise<{ models: Model[] }> {
+	backendModels(
+		args: { backend?: string; workspaceId?: string } = {}
+	): Promise<{ models: Model[] }> {
 		return this.call("backend.models", args);
 	}
 }

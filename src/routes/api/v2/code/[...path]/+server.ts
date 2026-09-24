@@ -179,7 +179,9 @@ function toSubagent(session: Session): CodeSubagent {
 	};
 }
 
-function toFileChanges(files: Array<{ path: string; before: string; after: string }>): CodeFileChange[] {
+function toFileChanges(
+	files: Array<{ path: string; before: string; after: string }>
+): CodeFileChange[] {
 	return files.map((file) => ({ path: file.path, oldText: file.before, newText: file.after }));
 }
 
