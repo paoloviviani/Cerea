@@ -58,6 +58,12 @@ export function getEnabledBuiltinTools(params: {
 	 */
 	memoryEnabled?: boolean;
 	/**
+	 * Whether `ask_user_question` joins this conversation even outside the ML
+	 * Assistant preset (which always has it): the deployment switch
+	 * `CHAT_ASK_USER_QUESTION_ENABLED`, resolved by the caller like memory's.
+	 */
+	askUserQuestionEnabled?: boolean;
+	/**
 	 * Whether a recent liveness probe of the configured Playwright renderer
 	 * succeeded (`probePlaywrightHealth` in `$lib/server/fetching/playwright`,
 	 * cached ~30s). The caller resolves this — an async network probe has no
@@ -89,6 +95,12 @@ export function getEnabledBuiltinTools(params: {
 			createJobCheckTool(),
 			createTrackioTool(() => params.namespace)
 		);
+	}
+
+	// Every conversation can put a decision to the person as options they
+	// click; the ML Assistant preset already carries the tool above.
+	if (params.askUserQuestionEnabled && !isMlAssistantConversation(params.conv)) {
+		tools.push(askUserQuestionBuiltin);
 	}
 
 	// Gated on the deployment-level flag alone: absent flag = fences only,
