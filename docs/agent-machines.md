@@ -143,12 +143,12 @@ to reconnect, and its live socket (if any) is closed immediately. Re-running
 
 ## What is kept where
 
-|                                                             | Where it lives                                                |
-| ----------------------------------------------------------- | -------------------------------------------------------------- |
+|                                                             | Where it lives                                                  |
+| ----------------------------------------------------------- | --------------------------------------------------------------- |
 | your code, your working tree, the session's live transcript | your machine                                                    |
-| the pairing record — name, machine id, policy, owner         | the chat's database                                             |
-| prompts, replies, file contents                              | in flight only, over your machine's own outbound TLS connection |
-| your LLM spend                                               | the gateway's ledger, against your account and billing group    |
+| the pairing record — name, machine id, policy, owner        | the chat's database                                             |
+| prompts, replies, file contents                             | in flight only, over your machine's own outbound TLS connection |
+| your LLM spend                                              | the gateway's ledger, against your account and billing group    |
 
 Pairing records are scoped to you: nobody else's panel can see or revoke your
 machines.

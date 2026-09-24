@@ -469,7 +469,7 @@ user's; what matters when changing the code:
 - **The SSE bridge is cursored on the machine's own `epoch`/`seq`**
   (`agents/[id]/stream/+server.ts`), not an invented replay counter — an
   epoch change (the machine's process restarted) sends a `reset` frame down
-  the *same* update channel `consumeAgentUpdates.ts` already parses, and the
+  the _same_ update channel `consumeAgentUpdates.ts` already parses, and the
   connection's listeners migrate across a machine reconnect
   (`machines.ts`'s `onHello`) rather than going silently stale.
 - **The panel owns mutations, the pane owns display.** `CodeNavTree.svelte` has

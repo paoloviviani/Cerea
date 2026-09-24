@@ -23,12 +23,12 @@ beyond the one this deployment already exposes.
 
 Two env vars:
 
-| Var | What |
-| --- | --- |
-| `CODE_AGENTS_ENABLED` | `"true"` to show the sidebar switch and serve `/code`; off (including unset) 404s the route and hides pairing, since a route that only errors without a machine is worse than none |
-| `CODE_MACHINE_AUDIENCE` | the `aud` a machine's bearer must carry; defaults to `pystino-api` |
-| `CODE_MACHINE_CLIENT_ID` | the `azp`/`client_id` a machine's bearer must carry; defaults to `opencode-enrollment` |
-| `CODE_MACHINE_ISSUER` | the OIDC issuer a machine's bearer must be signed by; defaults to `OPENID_PROVIDER_URL`, so a normal deployment sets nothing extra here — separate only for a test harness pointing machine tokens at a mock issuer |
+| Var                      | What                                                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CODE_AGENTS_ENABLED`    | `"true"` to show the sidebar switch and serve `/code`; off (including unset) 404s the route and hides pairing, since a route that only errors without a machine is worse than none                                  |
+| `CODE_MACHINE_AUDIENCE`  | the `aud` a machine's bearer must carry; defaults to `pystino-api`                                                                                                                                                  |
+| `CODE_MACHINE_CLIENT_ID` | the `azp`/`client_id` a machine's bearer must carry; defaults to `opencode-enrollment`                                                                                                                              |
+| `CODE_MACHINE_ISSUER`    | the OIDC issuer a machine's bearer must be signed by; defaults to `OPENID_PROVIDER_URL`, so a normal deployment sets nothing extra here — separate only for a test harness pointing machine tokens at a mock issuer |
 
 ## Local JWT validation, not userinfo (review C1)
 
@@ -89,11 +89,11 @@ Deliberately **not** offered, and why:
 
 ## When it does not work
 
-| Symptom | Where to look |
-| --- | --- |
-| no Agents switch in the sidebar | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in |
-| `/code` answers 404 | same flag; the route gates on it independently of the sidebar |
-| a machine never appears, even `pending` | its bearer is failing local validation — check `CODE_MACHINE_ISSUER`/`CODE_MACHINE_AUDIENCE`/`CODE_MACHINE_CLIENT_ID` match what the enrollment minted, and that the machine's `sub` has signed into this chat at least once |
-| a machine appears `pending` forever | nobody has clicked Confirm in the Agents panel yet |
-| every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs) |
-| a machine that was working now gets `4401` closes | its access token stopped renewing — re-run its enrollment |
+| Symptom                                                | Where to look                                                                                                                                                                                                                |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no Agents switch in the sidebar                        | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                                                                |
+| `/code` answers 404                                    | same flag; the route gates on it independently of the sidebar                                                                                                                                                                |
+| a machine never appears, even `pending`                | its bearer is failing local validation — check `CODE_MACHINE_ISSUER`/`CODE_MACHINE_AUDIENCE`/`CODE_MACHINE_CLIENT_ID` match what the enrollment minted, and that the machine's `sub` has signed into this chat at least once |
+| a machine appears `pending` forever                    | nobody has clicked Confirm in the Agents panel yet                                                                                                                                                                           |
+| every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                         |
+| a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                    |

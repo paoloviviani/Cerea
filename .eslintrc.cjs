@@ -39,7 +39,11 @@ module.exports = {
 	},
 	env: {
 		browser: true,
-		es2017: true,
+		// es2020, not es2017: `globalThis` (the machine link's upgrade-handoff
+		// symbol, `server.js`/`vite.config.ts`) is an ES2020 global, and a
+		// plain-JS file here gets no TypeScript-level global resolution to
+		// fall back on.
+		es2020: true,
 		node: true,
 	},
 };

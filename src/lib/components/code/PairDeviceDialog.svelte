@@ -106,8 +106,8 @@
 
 		<div class="mb-4 flex items-center gap-2 rounded-lg bg-sunken p-4">
 			<p class="min-w-0 flex-1 text-xs text-ink-muted">
-				`enroll` signs the machine into your account with this deployment's identity provider;
-				`run` starts the agent, which dials out here and appears below once it checks in.
+				`enroll` signs the machine into your account with this deployment's identity provider; `run`
+				starts the agent, which dials out here and appears below once it checks in.
 			</p>
 			<CopyToClipBoardBtn
 				classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
