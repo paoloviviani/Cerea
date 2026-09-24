@@ -1,4 +1,5 @@
 import type { ObjectId } from "mongodb";
+import type { Backend, CredentialState, Policy } from "$lib/types/machineProtocol";
 import {
 	MessageUpdateType,
 	type MessageElicitationRequestUpdate,
@@ -152,39 +153,41 @@ export interface CodeFileChange {
 	newText: string;
 }
 
-/** A paired device: somebody's machine running the paseo daemon. */
-export type CodeDeviceStatus = "pending" | "paired";
+/**
+ * A paired machine: somebody's own box, running `pystino-agent`, dialled in
+ * over the machine link (`reports/2026-09-24-thin-agent-protocol.md`).
+ *
+ * Nothing capability-bearing lives here — the row names a machine and records
+ * what it last reported about itself; the only thing that can actually reach
+ * it is a live socket in the in-process registry (`$lib/server/code/machines.ts`),
+ * which a Mongo dump cannot hold. Revoking is real: the socket is closed
+ * (4403) and a `machineId` marked `revoked` is refused at the next connect,
+ * unlike the old daemon capability tuple this replaces.
+ */
+export type CodeDeviceStatus = "pending" | "paired" | "revoked";
 
 export interface CodeDevice {
 	_id: ObjectId;
-	userId?: ObjectId;
-	sessionId?: string;
+	userId: ObjectId;
+	/** The machine's own generated id (`X-Pystino-Machine-Id`); stable across
+	 * reconnects, but a fresh one for every re-enroll. Unique per user. */
+	machineId: string;
 	name: string;
 	status: CodeDeviceStatus;
-	/**
-	 * The short code shown at pairing time. The person runs `paseo daemon
-	 * pair` on their machine and pastes the pairing link it prints back into
-	 * the panel; the code alone proves the person saw this row, and the pasted
-	 * offer carries the daemon's relay identity. Cleared once paired — it is
-	 * single-use by design.
-	 */
-	pairingCode?: string;
-	/** Daemon-reported device id, recorded when the pairing completes. */
-	daemonId?: string;
-	/**
-	 * The daemon's Curve25519 public key, from the pairing offer the person
-	 * pasted at claim time. This is half of the E2EE channel key material:
-	 * the offer as a whole is the bearer capability for the daemon (paseo
-	 * treats its QR code like a password), so it is stored with the same
-	 * care as a credential and never leaves the server.
-	 */
-	daemonPublicKey?: string;
-	/**
-	 * When an unclaimed pairing stops existing. Set only while `pending` —
-	 * a paired row carries no expiry, so the TTL index below can never
-	 * delete a live device. Cleared by `claim` alongside `pairingCode`.
-	 */
-	expiresAt?: Date;
+	/** The OIDC subject the machine's bearer carried when it first connected
+	 * (or last reconnected) — recorded for audit, never used for ownership:
+	 * ownership is `userId`, decided once at connect time by `machineAuth.ts`. */
+	sub: string;
+	/** The issuer that minted the bearer, trailing-slash normalized. */
+	iss: string;
+	/** The backends `hello` reported (opencode, later others). */
+	backends: Backend[];
+	/** The machine's own policy (`hello`), shown so the UI can explain a
+	 * refusal — the panel cannot override it; it is the machine's veto. */
+	policy: Policy;
+	/** The gateway/enrollment credential's last reported health. */
+	credentialState: CredentialState;
+	lastSeenAt?: Date;
 	createdAt: Date;
 	updatedAt: Date;
 	pairedAt?: Date;
