@@ -97,13 +97,7 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			// all — it is a raw WebSocket upgrade, intercepted on the
 			// underlying http.Server before SvelteKit's request handling ever
 			// sees it (`server.js`, `machineServer.ts`). No exemption needed.
-			const isApi = event.url.pathname.startsWith(`${base}/api/`);
-			const auth = await authenticateRequest(
-				event.request.headers,
-				event.cookies,
-				event.url,
-				isApi
-			);
+			const auth = await authenticateRequest(event.cookies, event.url);
 
 			event.locals.sessionId = auth.sessionId;
 

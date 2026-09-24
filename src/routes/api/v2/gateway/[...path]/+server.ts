@@ -67,7 +67,6 @@ const INTERNAL = [
 
 /** Paths that still belong to the gateway, forwarded with the caller's token. */
 const FORWARDED = [
-	/^vector_stores\/[0-9a-f-]{36}.*$/,
 	// The caller's billable groups, so a share dialog can offer them by name.
 	/^billing\/groups$/,
 	// The model list, so a share dialog can offer the models this person may
