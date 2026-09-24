@@ -219,6 +219,9 @@ export async function* runMcpFlow({
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		memoryEnabled: memoryAllowed,
+		askUserQuestionEnabled: (
+			await import("$lib/server/askUserQuestionEnabled")
+		).askUserQuestionEnabled(),
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
 		token: turnToken,
 		searchModelIds: turnToken ? await findSearchModelIds(turnToken) : [],
