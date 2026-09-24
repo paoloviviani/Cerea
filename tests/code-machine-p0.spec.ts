@@ -11,7 +11,7 @@
 import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import { opencodeAvailable, seedUser, startMachine, type Machine } from "./machineHarness";
 
 test.describe("owned machine agent (P0)", () => {
@@ -52,7 +52,7 @@ test.describe("owned machine agent (P0)", () => {
 		machine = await startMachine({ sub });
 
 		// ── Pair: the machine appears pending; the person confirms it ──────────
-		await page.goto("/code");
+		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		const pending = page.getByText(machine.name);
 		await expect(pending).toBeVisible({ timeout: 60_000 });

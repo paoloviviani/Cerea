@@ -6,7 +6,7 @@
  * path, the same pattern code-kebab-layout.spec.ts and code-answer.spec.ts
  * use.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -76,7 +76,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("loading an agent session URL directly opens the sidebar on Agents", async ({ page }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// The switch itself reads as Agents-selected — scoped by testid, not role
 	// name, because the chat tree's own "Chats" branch header is also a
@@ -98,7 +98,7 @@ test("the person can still switch to Chats after an agent reload", async ({
 }) => {
 	await seedConversation({ title: "a restored chat row" });
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByText("e2e box")).toBeVisible();
 
 	await page.getByTestId("sidebar-view-chats").first().click();
@@ -116,7 +116,7 @@ test("loading a chat route opens the sidebar on Chats, unaffected by the /code d
 }) => {
 	await seedConversation({ title: "an ordinary chat row" });
 
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 
 	await expect(page.getByText("an ordinary chat row")).toBeVisible();
 	const chatsPill = page.getByTestId("sidebar-view-chats").first();

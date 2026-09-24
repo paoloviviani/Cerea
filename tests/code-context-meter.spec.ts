@@ -9,7 +9,7 @@
  * calls the forwarder's compact route; and the whole meter is absent when
  * the device's backend does not advertise the `usage` capability.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -98,7 +98,7 @@ test("the meter shows a percentage and its popover carries the breakdown", async
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	const trigger = page.getByRole("button", { name: "40%" });
 	await expect(trigger).toBeVisible();
@@ -120,7 +120,7 @@ test("the meter shows a raw token count when no max is known", async ({ page }) 
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// No invented maximum: a bare token count, never a percentage.
 	await expect(page.getByRole("button", { name: "1.2k" })).toBeVisible();
@@ -145,7 +145,7 @@ test("Compact now calls the forwarder's compact route and the popover reflects i
 		await route.fulfill({ contentType: "application/json", body: superjsonBody({ ok: true }) });
 	});
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	const trigger = page.getByRole("button", { name: "90%" });
 	await trigger.click();
@@ -163,7 +163,7 @@ test("the meter is hidden when the backend has no usage capability", async ({ pa
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// The composer itself is there (mode/model pills render); the meter never
 	// appears, capability absent regardless of what usage frames might say.

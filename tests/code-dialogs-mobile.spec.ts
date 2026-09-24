@@ -13,7 +13,7 @@
  * machine checks in as paired; and New Chat keeps its address while carrying
  * the switcher's small/icon idiom.
  */
-import { test, expect, E2E_APP_URL } from "./fixtures";
+import { test, expect, E2E_APP_URL, E2E_APP_BASE } from "./fixtures";
 import type { Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -60,7 +60,7 @@ function visibleTreeButton(page: Page, title: string) {
 }
 
 async function openAgentsPanel(page: Page) {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}`);
 	await page.getByRole("button", { name: "Open Agents panel" }).click();
 }
 
@@ -244,7 +244,7 @@ test("New Chat keeps its address and carries the switcher's small icon idiom", a
 	deviceRows = [{ id: DEVICE, name: "e2e box", status: "paired" }];
 	await stubCodePanel(page);
 	await page.setViewportSize({ width: 1280, height: 800 });
-	await page.goto(`/code?device=${DEVICE}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 
 	const newChat = page.getByRole("link", { name: "New Chat" });
 	await expect(newChat).toBeVisible();

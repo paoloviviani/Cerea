@@ -7,7 +7,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import {
 	opencodeAvailable,
 	seedUser,
@@ -56,7 +56,7 @@ test.describe("owned machine agent: parity", () => {
 		await seedUser(db, sessionId, sub);
 		const started = await startMachine({ sub, policy });
 		machine = started;
-		await page.goto("/code");
+		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(started.name)).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: "Confirm this machine" }).click();
