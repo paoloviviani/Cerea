@@ -137,11 +137,20 @@ export async function* runMcpFlow({
 	abortSignal,
 	abortController,
 	promptedAt,
+	artifactsEnabled,
 }: RunMcpFlowContext & {
 	preprompt?: string;
 	abortSignal?: AbortSignal;
 	abortController?: AbortController;
 	promptedAt?: Date;
+	/**
+	 * Whether this turn carries the artifacts prompt (preset force-enables it,
+	 * otherwise per-model opt-in with user override). Decided by the caller from
+	 * the same inputs as `resolvePreprompt` so the tool preprompt can repeat the
+	 * artifact/tool rule beside the tool guidance — the one place the model
+	 * reads the tool list.
+	 */
+	artifactsEnabled?: boolean;
 }): AsyncGenerator<MessageUpdate, McpFlowResult, undefined> {
 	// Helper to check if generation should be aborted via DB polling
 	// Also triggers the abort controller to cancel active streams/requests
@@ -663,6 +672,7 @@ export async function* runMcpFlow({
 		// which is the inverse of the preset's doctrine.
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {
 			mlAssistant,
+			artifacts: artifactsEnabled,
 		});
 		const prepromptPieces: string[] = [];
 		if (toolPreprompt.trim().length > 0) {
