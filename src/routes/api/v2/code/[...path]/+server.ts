@@ -1,33 +1,49 @@
 /**
- * The proxy to a paired person's daemon, for the surfaces the browser may
- * use — now routed per device through the relay.
+ * The proxy to a paired person's machine, for the surfaces the browser may
+ * use — routed per device through the in-process machine registry
+ * (`$lib/server/code/machines.ts`) instead of a relay-hopped daemon.
  *
- * This is the gateway forwarder's discipline applied to a different
- * upstream, with the allowlist promoted from path patterns to operations:
- * each allowed browser path maps to exactly one typed SDK call (ADR 0085 —
- * the daemon's control surface is its WebSocket session protocol, not a
- * REST API). The browser still never talks to the daemon, and never picks
- * the upstream: every call carries `?device=`, the row is checked against
- * the caller before anything dials, and the connection itself is the
- * per-device relay link in `codeDaemon.ts`.
+ * Same discipline as before: each allowed browser path maps to exactly one
+ * typed op (`MachineLink`, spec §6), the browser never talks to the machine
+ * directly, and every call is scoped to a device row owned by
+ * `locals.user` and `status: "paired"` (`getPairedDevice`, C6).
+ *
+ * The wire vocabulary changed underneath (workspace/session/backend ops
+ * instead of paseo's agent RPCs), but this route keeps the URLs and response
+ * shapes `$lib/codeApi.ts` already expects — an "agent" in the UI is a
+ * `Session`; the mapping functions below are the seam.
  *
  * Deliberately NOT offered, and why:
  * - any timeline stream: the SSE bridge (`agents/[id]/stream`) owns the
- *   subscription; a browser-direct stream would bypass the pairing scope
- *   the bridge enforces.
- * - any pairing/enroll hook: Cerea brokers pairing itself (`devices`,
- *   `enroll`) because the relay is identity-blind.
- * - everything else the daemon can do (terminals, worktree management,
- *   checkout operations, daemon config): the panel drives agents, not
- *   machines.
+ *   subscription and calls `session.sync`/events directly.
+ * - any pairing/enroll hook: pairing happens on connect (`machines.ts`), and
+ *   confirm/reject/revoke live in `devices/+server.ts`.
+ * - the `messages`/`timeline` GET routes the old forwarder carried: they were
+ *   byte-identical dead code (O8) with no caller in `codeApi.ts`.
+ * - everything else a machine can do beyond one backend's sessions
+ *   (workspace roots outside policy, raw backend config): the panel drives
+ *   sessions, not machines.
  */
 
+import { randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
-import { linkForDevice, toFileChanges } from "$lib/server/codeDaemon";
-import { timelineEntryToUpdate } from "$lib/server/codeTimeline";
-import { requireCodeAgents } from "$lib/server/codeDevices";
+import { MachineLink } from "$lib/server/code/machines";
+import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
+import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
+import { OpError, type Session, type Workspace } from "$lib/types/machineProtocol";
+import type { CodeDevice } from "$lib/types/CodeAgent";
+import type {
+	CodeAgentSession,
+	CodeFileChange,
+	CodeProviderMode,
+	CodeProviderModel,
+	CodeSubagent,
+	CodeTurnState,
+	CodeWorkspace,
+} from "$lib/types/CodeAgent";
+import type { CodeProviderFeature } from "$lib/codeApi";
 
 const ID = "[A-Za-z0-9_.:~-]+";
 
@@ -45,21 +61,138 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/features$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}$`) },
-	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
-	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
-	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/timeline$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents/${ID}/timeline$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/feature$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/cancel$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/compact$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
 ];
+
+/** Every `OpError` the machine can answer with, mapped to the HTTP status
+ * the browser sees. `unavailable` covers both an offline machine (the
+ * registry rejects instantly, R1) and a per-op deadline expiring. */
+async function callOp<T>(fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (err) {
+		if (err instanceof OpError) {
+			switch (err.code) {
+				case "not_found":
+					error(404, err.message);
+					break;
+				case "invalid":
+					error(400, err.message);
+					break;
+				case "forbidden":
+					error(403, err.message);
+					break;
+				case "unsupported":
+					error(404, err.message);
+					break;
+				default:
+					error(502, err.message);
+			}
+		}
+		throw err;
+	}
+}
+
+async function resolveWorkspace(link: MachineLink, workspaceId: string): Promise<Workspace> {
+	const { workspaces } = await callOp(() => link.workspaceList());
+	const found = workspaces.find((workspace) => workspace.id === workspaceId);
+	if (!found) error(404, "No such workspace on this machine.");
+	return found;
+}
+
+function toWorkspace(workspace: Workspace): CodeWorkspace {
+	return { id: workspace.id, name: workspace.name, path: workspace.path };
+}
+
+function toSession(session: Session): CodeAgentSession {
+	let state: CodeTurnState;
+	switch (session.status) {
+		case "busy":
+			state = session.pendingPermissions > 0 ? "waiting-permission" : "running";
+			break;
+		case "retry":
+			state = "running";
+			break;
+		case "error":
+			state = "error";
+			break;
+		default:
+			state = "idle";
+	}
+	return {
+		id: session.id,
+		workspaceId: session.workspaceId,
+		title: session.title,
+		provider: session.backend,
+		state,
+		updatedAt: session.updatedAt,
+		modeId: session.modeId,
+		modelId: session.modelId,
+	};
+}
+
+/** The single feature this deployment offers: opencode's auto-accept,
+ * backed directly by `session.setAutoAccept` (spec §8). Absent — not
+ * disabled, the existing UI has no tri-state for a toggle — when the
+ * backend lacks the capability, or the machine's own policy vetoes it
+ * (C4's veto: the panel cannot override a `denied` policy). */
+function autoAcceptCatalog(device: CodeDevice, backendId: string): CodeProviderFeature[] {
+	const backend = device.backends.find((b) => b.id === backendId);
+	if (!backend?.capabilities.autoAccept) return [];
+	if (device.policy.autoAccept === "denied") return [];
+	return [{ id: "auto_accept", label: "Auto-accept", value: false }];
+}
+
+function autoAcceptLive(device: CodeDevice, session: Session): CodeProviderFeature[] {
+	const backend = device.backends.find((b) => b.id === session.backend);
+	if (!backend?.capabilities.autoAccept) return [];
+	if (device.policy.autoAccept === "denied") return [];
+	return [{ id: "auto_accept", label: "Auto-accept", value: session.autoAccept }];
+}
+
+function toSubagent(session: Session): CodeSubagent {
+	const status: CodeSubagent["status"] =
+		session.status === "error" ? "failed" : session.status === "idle" ? "completed" : "running";
+	return {
+		id: session.id,
+		parentAgentId: session.parentId ?? "",
+		parentSubagentId: null,
+		provider: session.backend,
+		title: session.title,
+		description: null,
+		status,
+		createdAt: session.createdAt,
+		updatedAt: session.updatedAt,
+		toolCallId: null,
+		cwd: null,
+		subtitle: null,
+	};
+}
+
+function toFileChanges(
+	files: Array<{ path: string; before: string; after: string }>
+): CodeFileChange[] {
+	return files.map((file) => ({ path: file.path, oldText: file.before, newText: file.after }));
+}
+
+function requireJsonBody(request: Request): void {
+	const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+	if (contentType !== "application/json") {
+		error(400, "Expected Content-Type: application/json.");
+	}
+}
 
 async function readJson(request: Request): Promise<unknown> {
 	return request.json().catch(() => null);
@@ -74,133 +207,131 @@ export const GET: RequestHandler = async (event) => {
 		// and "forbidden" would imply it might with other credentials.
 		error(404, "Not available through this endpoint.");
 	}
-	const link = await linkForDevice(event.locals, event.url.searchParams.get("device"));
+	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
+	const deviceId = device._id.toString();
+	const link = new MachineLink(deviceId);
 
 	if (path === "v1/workspaces") {
-		return superjsonResponse({ workspaces: await link.listWorkspaces() });
+		const { workspaces } = await callOp(() => link.workspaceList());
+		return superjsonResponse({ workspaces: workspaces.map(toWorkspace) });
 	}
 
 	const workspaceMatch = /^v1\/workspaces\/([^/]+)$/.exec(path);
 	if (workspaceMatch) {
-		return superjsonResponse({
-			workspace: await link.getWorkspace(decodeURIComponent(workspaceMatch[1])),
-		});
+		const workspace = await resolveWorkspace(link, decodeURIComponent(workspaceMatch[1]));
+		return superjsonResponse({ workspace: toWorkspace(workspace) });
 	}
 
 	const workspaceAgentsMatch = /^v1\/workspaces\/([^/]+)\/agents$/.exec(path);
 	if (workspaceAgentsMatch) {
-		const workspace = await link.getWorkspace(decodeURIComponent(workspaceAgentsMatch[1]));
-		return superjsonResponse({ agents: await link.listAgents(workspace.id) });
+		const workspaceId = decodeURIComponent(workspaceAgentsMatch[1]);
+		await resolveWorkspace(link, workspaceId);
+		const { sessions } = await callOp(() => link.sessionList({ workspaceId }));
+		return superjsonResponse({ agents: sessions.map(toSession) });
 	}
 
 	if (path === "v1/agents") {
-		return superjsonResponse({ agents: await link.listAgents() });
+		const { sessions } = await callOp(() => link.sessionList());
+		return superjsonResponse({ agents: sessions.map(toSession) });
 	}
 
 	if (path === "v1/providers") {
-		return superjsonResponse({ providers: await link.listProviders() });
+		const expired = device.credentialState === "expired";
+		return superjsonResponse({
+			providers: device.backends.map((backend) => ({
+				id: backend.id,
+				available: true,
+				enrollmentExpired: expired,
+			})),
+		});
 	}
 
-	// The two live option lists for the composer's pills: the provider's
-	// modes (paseo's permission vocabulary) and models, exactly as the
-	// daemon defines them. The provider id names the daemon's provider —
-	// the ID regex guards the path, the daemon answers the rest.
+	// The two live option lists for the composer's pills: the backend's
+	// modes and models, exactly as the machine defines them. The provider
+	// id in the path names the backend — the ID regex guards the path, the
+	// machine answers the rest.
 	const modesMatch = new RegExp(`^v1/providers/(${ID})/modes$`).exec(path);
 	if (modesMatch) {
-		return superjsonResponse({ modes: await link.listProviderModes(modesMatch[1]) });
+		const { modes } = await callOp(() => link.backendModes({ backend: modesMatch[1] }));
+		const mapped: CodeProviderMode[] = modes.map((mode) => ({
+			id: mode.id,
+			label: mode.label,
+			...(mode.description ? { description: mode.description } : {}),
+		}));
+		return superjsonResponse({ modes: mapped });
 	}
 
 	const modelsMatch = new RegExp(`^v1/providers/(${ID})/models$`).exec(path);
 	if (modelsMatch) {
-		return superjsonResponse({ models: await link.listProviderModels(modelsMatch[1]) });
+		const listed = await callOp(() => link.backendModels({ backend: modelsMatch[1] }));
+		const { models, hidden: hiddenHere } = filterModels(device, listed.models);
+		// The agent filters by its own policy first and reports what it removed;
+		// whatever Cerea removes on top is the defence-in-depth remainder.
+		const hidden = (listed.hidden ?? 0) + hiddenHere;
+		const mapped: CodeProviderModel[] = models.map((model) => ({
+			id: model.id,
+			label: model.label,
+			...(model.isDefault ? { isDefault: true } : {}),
+		}));
+		// `hidden` lets the pill say why the list is short rather than look broken.
+		return superjsonResponse({ models: mapped, hidden });
 	}
 
-	// The third live option list, beside modes and models: the provider's
-	// features — the toggles a person can flip on an agent (opencode's
-	// auto-accept). The daemon resolves them per working directory, so
-	// `cwd` is required here the way it is in the daemon's own draft
-	// config; the agent's mode and model ride along when known so the
-	// draft mirrors the config the agent actually runs. The list carries
-	// what EXISTS and what it is called; the agent snapshot (below) is
-	// where a live value comes from.
+	// The third live option list, beside modes and models: this deployment's
+	// one feature (auto-accept). `cwd`/`modeId`/`model` in the query string
+	// are accepted for URL compatibility with the old per-draft negotiation
+	// but no longer change the answer — the feature exists or it does not,
+	// per the backend's capability and the machine's own policy (C4).
 	const featuresMatch = new RegExp(`^v1/providers/(${ID})/features$`).exec(path);
 	if (featuresMatch) {
-		const cwd = event.url.searchParams.get("cwd");
-		if (!cwd?.trim()) {
-			error(400, "A working directory is required: pass ?cwd=.");
-		}
-		const modeId = event.url.searchParams.get("modeId") ?? undefined;
-		const model = event.url.searchParams.get("model") ?? undefined;
-		const features = await link.listProviderFeatures({
-			provider: decodeURIComponent(featuresMatch[1]),
-			cwd,
-			...(modeId ? { modeId } : {}),
-			...(model ? { model } : {}),
+		return superjsonResponse({
+			features: autoAcceptCatalog(device, decodeURIComponent(featuresMatch[1])),
 		});
-		return superjsonResponse({ features });
 	}
 
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	if (agentMatch) {
-		// The open screen's snapshot: the session, the features the agent
-		// itself reports (the auto-accept toggle's live value — the
-		// provider's list above only says what exists), and the cwd the
-		// feature query requires. All three leave together so the pills
-		// and the toggle label from one read.
-		const detail = await link.getAgentDetail(decodeURIComponent(agentMatch[1]));
+		const sessionId = decodeURIComponent(agentMatch[1]);
+		const { session } = await callOp(() => link.sessionGet({ sessionId }));
+		const workspace = await resolveWorkspace(link, session.workspaceId).catch(() => null);
 		return superjsonResponse({
-			agent: detail.session,
-			features: detail.features,
-			cwd: detail.cwd,
-			enrollmentExpired: detail.enrollmentExpired,
-		});
-	}
-
-	const messagesMatch = new RegExp(`^v1/agents/(${ID})/messages$`).exec(path);
-	if (messagesMatch) {
-		const timeline = await link.fetchTimeline(decodeURIComponent(messagesMatch[1]));
-		return superjsonResponse({
-			updates: timeline.entries.flatMap(timelineEntryToUpdate),
-		});
-	}
-
-	const timelineMatch = new RegExp(`^v1/agents/(${ID})/timeline$`).exec(path);
-	if (timelineMatch) {
-		const timeline = await link.fetchTimeline(decodeURIComponent(timelineMatch[1]));
-		return superjsonResponse({
-			updates: timeline.entries.flatMap(timelineEntryToUpdate),
+			agent: toSession(session),
+			features: autoAcceptLive(device, session),
+			cwd: workspace?.path ?? "",
+			enrollmentExpired: device.credentialState === "expired",
 		});
 	}
 
 	// The subagent surfaces, polled by the transcript on turn boundaries
-	// (never on an interval): the roster is the authority for each
-	// subagent's title/status/subtitle, and the second route serves the
-	// transcript a card expands to, through the same timeline translation
-	// the parent's routes use. Both are reads keyed by the path alone —
-	// there is no body to validate.
+	// (never on an interval): the roster is session.children, and its own
+	// transcript is the ordinary agent-stream history (`session.sync`),
+	// mapped through the same `machineTimeline` the parent's stream uses.
 	const subagentsMatch = new RegExp(`^v1/agents/(${ID})/subagents$`).exec(path);
 	if (subagentsMatch) {
-		const subagents = await link.listSubagents(decodeURIComponent(subagentsMatch[1]));
-		return superjsonResponse({ subagents });
+		const { sessions } = await callOp(() =>
+			link.sessionChildren({ sessionId: decodeURIComponent(subagentsMatch[1]) })
+		);
+		return superjsonResponse({ subagents: sessions.map(toSubagent) });
 	}
 
 	const subagentTimelineMatch = new RegExp(`^v1/agents/(${ID})/subagents/(${ID})/timeline$`).exec(
 		path
 	);
 	if (subagentTimelineMatch) {
-		const timeline = await link.fetchSubagentTimeline(
-			decodeURIComponent(subagentTimelineMatch[1]),
-			decodeURIComponent(subagentTimelineMatch[2])
+		const { snapshotToUpdates } = await import("$lib/server/code/machineTimeline");
+		const sync = await callOp(() =>
+			link.sessionSync({ sessionId: decodeURIComponent(subagentTimelineMatch[2]) })
 		);
-		return superjsonResponse({
-			updates: timeline.rows.flatMap(timelineEntryToUpdate),
-		});
+		const updates = "snapshot" in sync ? snapshotToUpdates(sync.snapshot) : [];
+		return superjsonResponse({ updates });
 	}
 
 	const diffMatch = new RegExp(`^v1/agents/(${ID})/diff$`).exec(path);
 	if (diffMatch) {
-		const diff = await link.fetchDiff(decodeURIComponent(diffMatch[1]));
-		return superjsonResponse({ files: toFileChanges(diff) });
+		const { files } = await callOp(() =>
+			link.sessionDiff({ sessionId: decodeURIComponent(diffMatch[1]) })
+		);
+		return superjsonResponse({ files: toFileChanges(files) });
 	}
 
 	error(404, "Not available through this endpoint.");
@@ -208,12 +339,12 @@ export const GET: RequestHandler = async (event) => {
 
 const messageSchema = z.object({
 	text: z.string().trim().min(1).max(16_000),
+	// The key attachments (images/files) will key off once the attachment
+	// store lands (spec's `session.prompt`, always carries one) — minted
+	// here when the caller does not supply its own.
+	messageId: z.string().trim().min(1).max(128).optional(),
 });
 
-// The mode/model switches apply live to the open agent — the composer's
-// pills carry them, not the send. A mode the provider refused comes back
-// as a notice string (null when applied silently); a model switch answers
-// void, so there is nothing to carry but ok.
 const modeSchema = z.object({
 	modeId: z.string().trim().min(1).max(120),
 });
@@ -223,14 +354,9 @@ const modelSchema = z.object({
 });
 
 const titleSchema = z.object({
-	title: z.string().trim().min(1).max(120).nullable(),
+	title: z.string().trim().max(120).nullable(),
 });
 
-// The stop control. The daemon takes the request, not the outcome: the
-// transcript's own stream carries the turn's end (`turn_canceled`) and the
-// denied resolutions of any outstanding permission requests, so this
-// response is only the POST's receipt. Any body — or none — is accepted:
-// the path fully names the act.
 const cancelSchema = z.unknown();
 
 const featureSchema = z.object({
@@ -239,17 +365,18 @@ const featureSchema = z.object({
 });
 
 const createSchema = z.object({
-	cwd: z.string().trim().min(1).max(1024),
 	provider: z.string().trim().min(1).max(64).default("opencode"),
 	posture: z.enum(["plan", "write"]).default("plan"),
+	modeId: z.string().trim().min(1).max(120).optional(),
+	modelId: z.string().trim().min(1).max(200).optional(),
 	title: z.string().trim().max(120).optional(),
-	workspaceId: z.string().trim().min(1).max(120).optional(),
+	workspaceId: z.string().trim().min(1).max(120),
 });
 
 const workspaceSchema = z.object({
-	// An absolute directory on the daemon's machine (a checkout the person
-	// can see there). Relative paths would resolve against whatever cwd the
-	// daemon process was born with — unguessable from here, so refused.
+	// An absolute directory on the machine (a checkout the person can see
+	// there). Relative paths would resolve against whatever cwd the
+	// machine process was born with — unguessable from here, so refused.
 	path: z
 		.string()
 		.trim()
@@ -257,136 +384,185 @@ const workspaceSchema = z.object({
 		.max(1024)
 		.refine(
 			(p) => p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p),
-			"Expected an absolute path on the daemon's machine."
+			"Expected an absolute path on the machine."
 		),
 	title: z.string().trim().max(120).optional(),
 });
 
 export const POST: RequestHandler = async (event) => {
 	requireCodeAgents(event.locals);
+	requireJsonBody(event.request);
 	const path = event.params.path ?? "";
 	const method = "POST";
 	if (!RULES.some((rule) => rule.method === method && rule.pattern.test(path))) {
 		error(404, "Not available through this endpoint.");
 	}
-	const link = await linkForDevice(event.locals, event.url.searchParams.get("device"));
+	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
+	const link = new MachineLink(device._id.toString());
 	const body = await readJson(event.request);
 
 	if (path === "v1/workspaces") {
 		const parsed = workspaceSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { path, title? } with an absolute path.");
-		return superjsonResponse({ workspace: await link.createWorkspace(parsed.data) });
+		const { workspace } = await callOp(() => link.workspaceCreate(parsed.data));
+		return superjsonResponse({ workspace: toWorkspace(workspace) });
 	}
 
-	const createMatch = /^v1\/agents$/.test(path);
-	if (createMatch) {
+	if (path === "v1/agents") {
 		const parsed = createSchema.safeParse(body);
-		if (!parsed.success) error(400, "Expected { cwd, provider?, posture?, title?, workspaceId? }.");
-		return superjsonResponse({ agent: await link.createAgent(parsed.data) });
+		if (!parsed.success) {
+			error(400, "Expected { workspaceId, provider?, posture?, modeId?, modelId?, title? }.");
+		}
+		if (parsed.data.modelId && !allowsModel(device, parsed.data.modelId)) {
+			error(403, "This machine was enrolled without --allow-free-models.");
+		}
+		const { session } = await callOp(() =>
+			link.sessionCreate({
+				workspaceId: parsed.data.workspaceId,
+				backend: parsed.data.provider,
+				// A live mode id from the machine's list wins; the posture pair is the
+				// fallback for callers that only know plan/write (opencode's ids).
+				modeId: parsed.data.modeId ?? (parsed.data.posture === "write" ? "build" : "plan"),
+				...(parsed.data.modelId ? { modelId: parsed.data.modelId } : {}),
+				...(parsed.data.title ? { title: parsed.data.title } : {}),
+			})
+		);
+		return superjsonResponse({ agent: toSession(session) });
 	}
 
 	const messageMatch = new RegExp(`^v1/agents/(${ID})/messages$`).exec(path);
 	if (messageMatch) {
 		const parsed = messageSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { text }.");
-		await link.sendAgentMessage(decodeURIComponent(messageMatch[1]), parsed.data.text);
+		await callOp(() =>
+			link.sessionPrompt({
+				sessionId: decodeURIComponent(messageMatch[1]),
+				text: parsed.data.text,
+				clientMessageId: parsed.data.messageId ?? randomUUID(),
+			})
+		);
 		return superjsonResponse({ ok: true });
 	}
 
-	// The live mode/model switches, the composer's pills. The mode answers
-	// with the provider's notice (null when applied without comment); the
-	// model answers void. Both leave the truth to the next snapshot read.
 	const modeMatch = new RegExp(`^v1/agents/(${ID})/mode$`).exec(path);
 	if (modeMatch) {
 		const parsed = modeSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { modeId }.");
-		const notice = await link.setAgentMode(decodeURIComponent(modeMatch[1]), parsed.data.modeId);
-		return superjsonResponse({ ok: true, notice });
+		await callOp(() =>
+			link.sessionSetMode({
+				sessionId: decodeURIComponent(modeMatch[1]),
+				modeId: parsed.data.modeId,
+			})
+		);
+		return superjsonResponse({ ok: true, notice: null });
 	}
 
 	const modelMatch = new RegExp(`^v1/agents/(${ID})/model$`).exec(path);
 	if (modelMatch) {
 		const parsed = modelSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { modelId: string | null }.");
-		await link.setAgentModel(decodeURIComponent(modelMatch[1]), parsed.data.modelId);
+		if (parsed.data.modelId) {
+			if (!allowsModel(device, parsed.data.modelId)) {
+				error(403, "This machine was enrolled without --allow-free-models.");
+			}
+			await callOp(() =>
+				link.sessionSetModel({
+					sessionId: decodeURIComponent(modelMatch[1]),
+					modelId: parsed.data.modelId as string,
+				})
+			);
+		}
 		return superjsonResponse({ ok: true });
 	}
 
-	// The stop control: interrupt the agent's live turn. Where a permission
-	// request is outstanding the daemon ends the turn AND resolves the
-	// request denied, so the fold's existing resolution path settles the
-	// approval card — no hanging card, no hanging dots, and this endpoint
-	// has nothing to say about either.
 	const cancelMatch = new RegExp(`^v1/agents/(${ID})/cancel$`).exec(path);
 	if (cancelMatch) {
 		cancelSchema.parse(body);
-		await link.cancelAgent(decodeURIComponent(cancelMatch[1]));
+		await callOp(() => link.sessionCancel({ sessionId: decodeURIComponent(cancelMatch[1]) }));
 		return superjsonResponse({ ok: true });
 	}
 
-	// One provider feature flipped live on the open agent — the auto-accept
-	// toggle and its kind. The daemon answers accepted/error; a refusal
-	// throws here as a 502 and the pill keeps the value the snapshot
-	// reported, because the flip is claimed only when the next snapshot
-	// read agrees (the mode pill's discipline).
+	// Manual context compaction ("Compact now", M3). `unsupported` (the
+	// backend has no `compact` capability) surfaces as a 404 through
+	// `callOp`, same as any other capability the machine lacks.
+	const compactMatch = new RegExp(`^v1/agents/(${ID})/compact$`).exec(path);
+	if (compactMatch) {
+		cancelSchema.parse(body);
+		await callOp(() => link.sessionCompact({ sessionId: decodeURIComponent(compactMatch[1]) }));
+		return superjsonResponse({ ok: true });
+	}
+
+	// This deployment's one feature: opencode's auto-accept, gated by the
+	// backend's capability and the machine's own policy — a `forbidden`
+	// `OpError` (policy denies it) surfaces as a 403 through `callOp`.
 	const featureMatch = new RegExp(`^v1/agents/(${ID})/feature$`).exec(path);
 	if (featureMatch) {
 		const parsed = featureSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { featureId, value } with a boolean value.");
-		await link.setAgentFeature(
-			decodeURIComponent(featureMatch[1]),
-			parsed.data.featureId,
-			parsed.data.value
+		if (parsed.data.featureId !== "auto_accept") {
+			error(404, "No such feature on this backend.");
+		}
+		await callOp(() =>
+			link.sessionSetAutoAccept({
+				sessionId: decodeURIComponent(featureMatch[1]),
+				enabled: parsed.data.value,
+			})
 		);
 		return superjsonResponse({ ok: true });
 	}
 
-	// The agent rename — the daemon's updateAgent name, answering { ok }.
-	// The tree redraws from the daemon's next listing, not from the string
-	// that was typed (same discipline as the workspace title above).
 	const agentNameMatch = new RegExp(`^v1/agents/(${ID})/name$`).exec(path);
 	if (agentNameMatch) {
 		const parsed = z.object({ name: z.string().trim().min(1).max(120) }).safeParse(body);
 		if (!parsed.success) error(400, "Expected { name }.");
-		await link.renameAgent(decodeURIComponent(agentNameMatch[1]), parsed.data.name);
+		await callOp(() =>
+			link.sessionRename({
+				sessionId: decodeURIComponent(agentNameMatch[1]),
+				title: parsed.data.name,
+			})
+		);
 		return superjsonResponse({ ok: true });
 	}
 
-	// The workspace rename — the daemon's own setWorkspaceTitle, answering
-	// the title as the daemon recorded it.
 	const titleMatch = new RegExp(`^v1/workspaces/(${ID})/title$`).exec(path);
 	if (titleMatch) {
 		const parsed = titleSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { title: string | null }.");
-		const title = await link.renameWorkspace(decodeURIComponent(titleMatch[1]), parsed.data.title);
-		return superjsonResponse({ title });
+		const workspaceId = decodeURIComponent(titleMatch[1]);
+		if (!parsed.data.title) return superjsonResponse({ title: null });
+		const { workspace } = await callOp(() =>
+			link.workspaceRename({ workspaceId, title: parsed.data.title as string })
+		);
+		return superjsonResponse({ title: workspace.name });
 	}
 
 	const permissionMatch = new RegExp(`^v1/agents/(${ID})/permissions/(${ID})$`).exec(path);
 	if (permissionMatch) {
 		const parsed = z.object({ decision: z.enum(["approve", "deny"]) }).safeParse(body);
 		if (!parsed.success) error(400, "Expected { decision: 'approve' | 'deny' }.");
-		await link.respondPermission(
-			decodeURIComponent(permissionMatch[1]),
-			decodeURIComponent(permissionMatch[2]),
-			parsed.data.decision
+		await callOp(() =>
+			link.permissionReply({
+				sessionId: decodeURIComponent(permissionMatch[1]),
+				requestId: decodeURIComponent(permissionMatch[2]),
+				decision: parsed.data.decision === "approve" ? "once" : "reject",
+			})
 		);
 		return superjsonResponse({ ok: true });
 	}
 
-	// The two removals. Both are the daemon's own archive operations under
-	// their user-facing names, fully named by the path — there is no body to
-	// validate — and both answer { ok: true } rather than the daemon's
-	// payload, whose shape is none of the browser's business (ADR 0085).
 	const archiveAgentMatch = new RegExp(`^v1/agents/(${ID})/archive$`).exec(path);
 	if (archiveAgentMatch) {
-		await link.archiveAgentSession(decodeURIComponent(archiveAgentMatch[1]));
+		await callOp(() =>
+			link.sessionArchive({ sessionId: decodeURIComponent(archiveAgentMatch[1]) })
+		);
 		return superjsonResponse({ ok: true });
 	}
 
 	const archiveWorkspaceMatch = new RegExp(`^v1/workspaces/(${ID})/archive$`).exec(path);
 	if (archiveWorkspaceMatch) {
-		await link.archiveWorkspace(decodeURIComponent(archiveWorkspaceMatch[1]));
+		await callOp(() =>
+			link.workspaceArchive({ workspaceId: decodeURIComponent(archiveWorkspaceMatch[1]) })
+		);
 		return superjsonResponse({ ok: true });
 	}
 
@@ -400,7 +576,8 @@ export const DELETE: RequestHandler = async (event) => {
 	if (!agentMatch) {
 		error(404, "Not available through this endpoint.");
 	}
-	const link = await linkForDevice(event.locals, event.url.searchParams.get("device"));
-	await link.deleteAgent(decodeURIComponent(agentMatch[1]));
+	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
+	const link = new MachineLink(device._id.toString());
+	await callOp(() => link.sessionDelete({ sessionId: decodeURIComponent(agentMatch[1]) }));
 	return superjsonResponse({ ok: true });
 };

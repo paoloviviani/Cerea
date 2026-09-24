@@ -1,219 +1,99 @@
 # The `/code` panel: deploying it
 
-The Agents panel drives **coding agents running on people's own machines** from
-the chat's sidebar. Nothing about it runs model inference here, and nothing
-about it stores code here: the agent is opencode on somebody's laptop, driven
-by a paseo daemon, reached through a relay this deployment hosts (ADR 0085).
+The Agents panel drives **coding agents running on people's own machines**
+from the chat's sidebar. Nothing about it runs model inference here, and
+nothing about it stores code here: the agent is `opencode`, supervised by a
+one-binary agent (`pystino-agent`) on the person's own machine, which dials
+**out** to this deployment over WSS and authenticates with its own OIDC
+enrollment credential — no relay, no daemon, no paseo (see
+`reports/2026-09-24-thin-agent-protocol.md` for the wire protocol).
 
 This page is for whoever deploys it. The person sitting in front of the panel
 wants [Agent machines](agent-machines.md) instead.
 
 ## What actually gets deployed
 
-One container and one Caddy route.
-
-| Piece      | Where                                                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------- |
-| the relay  | `deploy/compose/docker-compose.code-relay.yml`, compose profile `code-relay`                                              |
-| its source | `deploy/code-relay/fetch.sh` clones a **pinned commit** into `deploy/code-relay/paseo-relay/`; the image builds from that |
-| its route  | `deploy/caddy/conf.d-code-relay/20-relay.caddy` — `handle /ws*` → `relay:4000`                                            |
-| the flags  | `CODE_AGENTS_ENABLED=true`, `CODE_RELAY_URL=relay:4000` in the deployment's `deploy/.env`                                 |
-
-All four live in **this** checkout even though the compose invocation is
-assembled from Pystino's `deploy/` directory: the only things that connect to
-this relay are Cerea and the users' daemons, so the overlay belongs with its
-consumer. Paths into this checkout ride `$CHAT_REPO`.
+Nothing extra. The machine link is one WebSocket endpoint
+(`GET /api/v2/code/machine`) served by this same chat process — `server.js`
+upgrades it below SvelteKit's request handling (`src/lib/server/code/machineServer.ts`).
+There is no relay container, no pinned external image, and no published port
+beyond the one this deployment already exposes.
 
 ## Turning it on
 
-Through the installer, which is the supported path:
+Two env vars:
 
-```bash
-./installer/install.sh --components code-panel=on
-```
+| Var                      | What                                                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CODE_AGENTS_ENABLED`    | `"true"` to show the sidebar switch and serve `/code`; off (including unset) 404s the route and hides pairing, since a route that only errors without a machine is worse than none                                  |
+| `CODE_MACHINE_AUDIENCE`  | the `aud` a machine's bearer must carry; defaults to `pystino-api`                                                                                                                                                  |
+| `CODE_MACHINE_CLIENT_ID` | the `azp`/`client_id` a machine's bearer must carry; defaults to `opencode-enrollment`                                                                                                                              |
+| `CODE_MACHINE_ISSUER`    | the OIDC issuer a machine's bearer must be signed by; defaults to `OPENID_PROVIDER_URL`, so a normal deployment sets nothing extra here — separate only for a test harness pointing machine tokens at a mock issuer |
 
-`code-panel=on|off` is the component switch. It is deliberately **not** a
-`--set` key: `CODE_AGENTS_ENABLED` and `CODE_RELAY_URL` are derived from it, and
-letting `--set` write them would leave the compose profile set and the flags
-disagreeing about whether a relay exists.
+## Local JWT validation, not userinfo (review C1)
 
-Turning it on for an existing deployment is a resume:
+A machine's bearer is validated **locally** against the issuer's own JWKS
+(`src/lib/server/code/machineAuth.ts`): `iss` exact match (trailing slash
+normalized), `aud` contains `CODE_MACHINE_AUDIENCE`, `azp`/`client_id` equals
+`CODE_MACHINE_CLIENT_ID`, `exp` in the future, and the token must not be an ID
+token. Userinfo is never called — it proves nothing about audience or
+authorized party, which is exactly the hole the old `enroll/machine` endpoint
+had.
 
-```bash
-./installer/install.sh --phase2 --components code-panel=on
-```
-
-The resume re-derives `COMPOSE_PROFILES`, persists the change to `deploy/.env`
-(so the compose children read the same shape the process does), fetches the
-pinned relay source, and re-asserts the edge route.
-
-By hand, the overlay goes on the end of the set and brings its own profile:
-
-```bash
-$CHAT_REPO/deploy/code-relay/fetch.sh
-docker compose --env-file <pystino>/deploy/.env \
-  -f <pystino>/deploy/compose/docker-compose.yml \
-  -f <pystino>/deploy/compose/docker-compose.proxy.yml \
-  -f <pystino>/deploy/compose/docker-compose.chat.yml \
-  -f $CHAT_REPO/deploy/compose/docker-compose.code-relay.yml \
-  --profile chat --profile code-relay up -d --build
-```
-
-## The two flags, and why they are two
-
-`CODE_AGENTS_ENABLED` is the **surface**: off (including unset) hides the
-Chats/Agents switch at the foot of the sidebar, makes `/code` answer 404, and
-makes the pairing endpoints refuse as a backstop. It is off unless explicitly
-`"true"` — unlike knowledge or memory, this one needs a relay deployed beside
-the chat, and a route that only errors without one is worse than no route.
-
-`CODE_RELAY_URL` is the **rendezvous**: `host:port` over the compose network,
-always the service name (`relay:4000`), never the public origin. Cerea dials it
-as an end-to-end-encrypted paseo client, one connection per paired device.
-
-It is deployment configuration on purpose. A pairing offer carries its own
-relay field and Cerea **ignores it**: if the offer could name the rendezvous, a
-crafted offer would point this server at a relay somebody else controls.
-
-There is no `CODE_DAEMON_URL` and no `RELAY_PORT`. Both belonged to earlier
-shapes — a daemon addressed directly by URL, and a relay on a published port —
-and a deployment carrying either is describing a topology that no longer
-exists. The installer strips `RELAY_PORT` out of `deploy/.env` when it finds
-it.
-
-## No published port: the relay rides `/ws`
-
-The relay has to be reachable from _outside_ the compose network — the whole
-point is daemons on laptops behind NAT — and it still publishes nothing. It
-lives at the `/ws` subpath of the origin Caddy already serves.
-
-**The path is forced by the client, not chosen.** Every paseo client — the
-daemon, and Cerea through the SDK — builds its relay URL as
-`<scheme>://<host>:<port>/ws` from a `host:port` endpoint, with the path
-hardcoded. A nested prefix like `/relay/ws` is unreachable because nothing can
-generate it. Nothing else in the stack serves `/ws`, and the match is
-exact-prefix, so `/wsanything` never collides.
-
-How the route arrives depends on the exposure shape:
-
-| Exposure                            | How                                                                                                                                                                                                                                               |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `proxy` (Caddy terminates TLS here) | the overlay mounts `20-relay.caddy` into the proxy's `conf.d`. Nothing else to do — without the overlay the glob matches only the committed placeholder, so a deployment without it is byte-for-byte unchanged                                    |
-| `edge` (TLS terminated upstream)    | `Caddyfile.netbird` has no `conf.d` import, so the installer inserts a `(relay-routes)` snippet above the sites and adds `import relay-routes` beside every `import origin-routes`. Same mechanism as the bundled IdP routes, with its own marker |
-
-**Restart the proxy after an edge append.** Caddy reads `Caddyfile.netbird` at
-start, and the file is bind-mounted — so changing its contents does not change
-any container's compose config, and `up -d` will not recreate the proxy to pick
-it up. On a stack that was already running, follow the append with
-`docker compose ... restart proxy`, or `/ws` keeps 404ing on a deployment that
-otherwise came up clean. A fresh install does not hit this: the append happens
-before the first bring-up.
-
-## The trust bundle, on the edge shape
-
-If this deployment runs a bundled IdP (ADR 0084), the installer maintains
-`deploy/tls/caddy-root.crt` — the CA bundle the gateway and the chat are
-pointed at. **It must hold the public roots _plus_ Caddy's local root**, in
-that order, not the local root alone.
-
-A bundle containing only the Caddy root is exactly the shape that makes
-internal fetches work and every public-TLS call fail with
-`CERTIFICATE_VERIFY_FAILED` — found live as "chat login fine, upstream
-provider dead". The installer builds it that way (public roots from the Caddy
-image, then the live proxy root, de-duplicated) and re-asserts it _after_ the
-last bring-up, because a `up` that recreates the proxy on a fresh
-`caddy-data` volume mints a **new** root behind the old bundle's back.
-
-Both consumers read the bundle at process start, so a rebundle is followed by
-a restart of the gateway and the chat. This is not specific to the `/code`
-panel, but a deployment that first meets it while adding the relay will meet it
-as "pairing cannot reach the identity provider".
-
-## The image is built from source, and pinned
-
-There is no published relay image. `deploy/code-relay/fetch.sh` clones
-`getpaseo/paseo-relay` and checks out one verified commit; re-running it is a
-no-op when that commit is already checked out, which is what lets the installer
-call it on every run without leaving a dirty tree.
-
-The pin is also how protocol churn is managed: the project warns that its
-internal protocol may change without notice. Re-verify on upgrade, and never
-float to a branch. Cerea pins the SDK to match — `PASEO_SDK_VERSION` in
-`src/lib/server/codeDaemon.ts` — and refuses a daemon whose reported version
-differs in the minor rather than guessing at message shapes.
+The token's `sub` maps to an existing Cerea user the same way the OIDC login
+callback does (`hfUserId`). No user → the WebSocket upgrade is refused with a
+plain HTTP 403 before it ever completes.
 
 ## What Cerea stores, and what it does not
 
 Cerea persists **pairing records only**, in the `codeDevices` collection: a
-name, the daemon's `serverId` (the relay's route key, stored as `daemonId`),
-its Curve25519 public key, and an owner. Live agent state — workspaces,
-sessions, transcripts, the code itself — stays on the daemon.
+name, the machine's own id (`machineId`, from `X-Pystino-Machine-Id`), the
+OIDC `sub`/`iss` it last connected with, the backends and policy it reported
+in `hello`, and its last-known credential health. Nothing here is a bearer
+capability — the only thing that can reach a machine is a live socket held in
+an in-process registry (`src/lib/server/code/machines.ts`), lost on restart, and a
+Mongo dump of the collection yields names and ids only (review C4).
 
-That is why revoking a device is a row deletion and nothing more: without the
-pairing, the daemon is unreachable from here, which is all a revocation needs
-to do.
+That is why revoking a machine tombstones the row (`status: "revoked"`)
+rather than deleting it: a reconnect under the same `machineId` is refused
+from then on, and the live socket (if any) is closed with WebSocket code
+`4403`.
 
-Every row is scoped to one person (`userId`, or `sessionId` for an anonymous
-session), and every `/code` endpoint filters on that scope. The relay is
-identity-blind — it bridges WebSocket sessions and never sees a token, a
-password or plaintext content — so Cerea has to broker pairing itself.
+## Pairing: connect, then confirm
 
-## The pairing paths
+A machine with a valid bearer and an unrecognized `machineId` creates a
+`pending` row on its first `hello` frame — the socket stays open, but nothing
+is forwarded to it. The panel lists pending machines with **Confirm/Reject**;
+Confirm is the fresh human approval that a phished device-code grant alone
+never reaches (review C2), and pushes a `status: "paired"` frame down the
+socket. Reject is the same tombstoning action as revoking a paired machine.
 
-Two, and the second is the fallback for the first.
+## What the browser may ask the machine to do
 
-**Machine self-pairing** — `POST /api/v2/code/enroll/machine`. The setup script
-on the agent machine calls it with the access token its enrollment minted at
-the deployment's identity provider. That route is bearer-only and exempt from
-the generic bearer handling in the hook: there is no session cookie on a
-headless box. Cerea validates the token by calling userinfo (an expired,
-revoked or forged bearer fails there, and the claims come from the issuer
-rather than from the caller), maps `sub` → `hfUserId` exactly as the login
-callback does, then probes the daemon through the relay before writing
-anything. Re-running it updates the row in place — one machine is one row.
-
-A token that identifies somebody this chat has never seen answers **404, not
-401**: the credential is fine, the account is what is missing. Log into the
-chat once first.
-
-**Manual paste** — `POST /api/v2/code/enroll` with `start` then `claim`. The
-panel names the machine and gets a single-use code; the person runs `paseo
-daemon pair` on the machine and pastes the printed link into the dialog. The
-pending row expires after fifteen minutes.
-
-Both paths end at the same proof: Cerea connects to the daemon through **this
-deployment's** relay and completes the encrypted handshake. A daemon that
-answers with a different `serverId` than the offer claimed is refused outright
-— that is not the machine the offer described, and no row may be written for
-it.
-
-## What the browser may ask the daemon to do
-
-Never directly: the browser talks to Cerea, Cerea talks to the relay. The
-forwarder (`src/routes/api/v2/code/[...path]/+server.ts`) maps each allowed
-browser path onto exactly one typed SDK call, and every call carries
-`?device=`, whose row is checked against the caller before anything dials.
+Never directly: the browser talks to Cerea, Cerea talks to the machine
+registry. The forwarder (`src/routes/api/v2/code/[...path]/+server.ts`) maps
+each allowed browser path onto exactly one typed op (spec §6), and every call
+carries `?device=`, whose row is checked against the caller before anything
+is sent. An offline machine answers instantly from the registry — never a
+hang (review R1).
 
 Deliberately **not** offered, and why:
 
 - **timeline streams** — the SSE bridge at `agents/[id]/stream` owns the
-  subscription, and a browser-direct stream would bypass the pairing scope it
-  enforces;
-- **pairing hooks on the daemon** — Cerea brokers pairing itself, because the
-  relay cannot tell whose daemon is whose;
-- **terminals, worktree management, checkout operations, daemon config** — the
-  panel drives agents, not machines.
+  subscription and calls `session.sync`/events directly;
+- **pairing hooks on the machine** — pairing happens on connect
+  (`machines.ts`), confirm/reject/revoke live in `devices/+server.ts`;
+- **anything beyond one backend's sessions** (workspace roots outside the
+  machine's own policy, raw backend config) — the panel drives sessions, not
+  machines, and the machine's own policy is a veto the panel cannot override.
 
 ## When it does not work
 
-| Symptom                                                       | Where to look                                                                                                                                                                     |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| no Agents switch in the sidebar                               | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                     |
-| `/code` answers 404                                           | same flag; the route gates on it independently of the sidebar                                                                                                                     |
-| the panel loads, every device reads as unreachable            | the relay container, or `CODE_RELAY_URL`. Cerea's 502 says "could not be reached through the relay"                                                                               |
-| pairing fails at the handshake                                | the daemon is not running, or it is dialling a different relay than this deployment's. The daemon's configured endpoint and `<PUBLIC_ORIGIN>/ws` must be the same relay           |
-| `/ws` 404s from outside                                       | the Caddy route. On `edge`, check for the `# installer: relay /ws route` marker in `Caddyfile.netbird` — and restart the proxy if it is there but was appended to a running stack |
-| a device pairs, then every call 502s with a version complaint | SDK/daemon minor skew. Match `PASEO_SDK_VERSION`; the refusal is deliberate                                                                                                       |
-
-The relay's own health is a liveness probe on `/health` (not `/ready`, which
-also reports drain state and would restart a draining relay).
+| Symptom                                                | Where to look                                                                                                                                                                                                                |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no Agents switch in the sidebar                        | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                                                                |
+| `/code` answers 404                                    | same flag; the route gates on it independently of the sidebar                                                                                                                                                                |
+| a machine never appears, even `pending`                | its bearer is failing local validation — check `CODE_MACHINE_ISSUER`/`CODE_MACHINE_AUDIENCE`/`CODE_MACHINE_CLIENT_ID` match what the enrollment minted, and that the machine's `sub` has signed into this chat at least once |
+| a machine appears `pending` forever                    | nobody has clicked Confirm in the Agents panel yet                                                                                                                                                                           |
+| every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                         |
+| a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                    |

@@ -21,6 +21,40 @@ function loadTTFAsArrayBuffer() {
 		},
 	};
 }
+
+// `vite dev`'s own http server never sees `server.js` (that file only runs
+// the production build's adapter-node output), so the machine link's
+// WebSocket upgrade needs the same wiring here — the app still registers its
+// upgrade function on the well-known global symbol from `initServer()`
+// (SvelteKit's `init` hook runs under `vite dev` too), so this plugin only
+// has to forward the raw http.Server's `upgrade` event to it.
+function machineLinkDevUpgrade() {
+	const MACHINE_UPGRADE = Symbol.for("cerea.machineUpgrade");
+	// Vite's own HMR websocket shares this same http.Server and its own
+	// `upgrade` listener — every listener sees every upgrade request, so
+	// this one must only ever act on its own path and otherwise do
+	// nothing, never `socket.destroy()`, or it would take down HMR's
+	// upgrade too. The "destroy anything else" rule belongs to production's
+	// `server.js`, which has no other websocket sharing its server.
+	return {
+		name: "machine-link-dev-upgrade",
+		configureServer(server) {
+			server.httpServer?.on("upgrade", (req, socket, head) => {
+				if (new URL(req.url ?? "/", "http://internal").pathname !== "/api/v2/code/machine") return;
+				const upgradeHandler = (globalThis as Record<symbol, unknown>)[MACHINE_UPGRADE];
+				if (typeof upgradeHandler === "function") {
+					(upgradeHandler as (req: unknown, socket: unknown, head: unknown) => void)(
+						req,
+						socket,
+						head
+					);
+				} else {
+					socket.destroy();
+				}
+			});
+		},
+	};
+}
 export default defineConfig({
 	define: {
 		// Build flag for ML Assistant mode, fixed at build time rather than read from
@@ -35,6 +69,7 @@ export default defineConfig({
 			compiler: "svelte",
 		}),
 		loadTTFAsArrayBuffer(),
+		machineLinkDevUpgrade(),
 	],
 	// Allow external access via ngrok tunnel host
 	server: {

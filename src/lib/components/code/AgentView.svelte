@@ -30,12 +30,15 @@
 		type MessageTurnStateUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type {
+		AgentCompactionUpdate,
+		AgentUsageUpdate,
 		CodeAgentSession,
 		CodeSubagent,
 		CodeSubagentAnchor,
 		CodeTurnState,
 		CodeWorkspace,
 	} from "$lib/types/CodeAgent";
+	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
@@ -70,13 +73,9 @@
 		agentId: string;
 		/** The workspace the address named, so the strip can name it without guessing. */
 		workspaceId?: string;
-		/** The device's own display name, for the re-enroll dialog's copy and
-		 * its setup command's `--name` — unknown only in the brief window
-		 * before the device list has loaded. */
-		deviceName?: string;
 	}
 
-	let { deviceId, agentId, workspaceId, deviceName }: Props = $props();
+	let { deviceId, agentId, workspaceId }: Props = $props();
 
 	/** Whether `CodePanel`'s probe (on agent open, on device switch) last
 	 * found this device's enrollment expired — the composer refuses to send
@@ -97,6 +96,19 @@
 	let messages = $state<Message[]>([]);
 	let pending = $state(false);
 	let failure = $state<string | null>(null);
+	/** The latest usage/compaction side-channel frames (M3) — the fold's
+	 * onUsage/onCompaction never touch `messages`, so these track separately. */
+	let usage = $state<AgentUsageUpdate["usage"] | null>(null);
+	let lastCompaction = $state<AgentCompactionUpdate | null>(null);
+
+	/** Whether this agent's backend advertised the `usage` capability in
+	 * `hello` — the meter hides entirely otherwise. `codeDeviceList` is the
+	 * same shared poll the sidebar tree reads its device rows from. */
+	let usageSupported = $derived(
+		codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities.usage ?? false
+	);
 
 	// The mobile top bar names the screen it is on; chats get their title
 	// from the conversations store, and an agent is not one — it reports
@@ -162,6 +174,8 @@
 	$effect(() => {
 		messages = [];
 		pending = false;
+		usage = null;
+		lastCompaction = null;
 		const abort = new AbortController();
 		untrack(() => {
 			(async () => {
@@ -170,6 +184,12 @@
 						isAborted: () => abort.signal.aborted,
 						onAbort: () => abort.abort(),
 						onTurnEvent: () => (pending = false),
+						onUsage: (u) => (usage = u),
+						onCompaction: (c) => (lastCompaction = c),
+						onReset: () => {
+							usage = null;
+							lastCompaction = null;
+						},
 					});
 				} catch (err) {
 					if (!abort.signal.aborted) {
@@ -486,6 +506,9 @@
 					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}
 					onreenroll={() => (showReenroll = true)}
+					{usage}
+					{lastCompaction}
+					{usageSupported}
 				/>
 			{/snippet}
 		</ChatMessageColumn>
@@ -500,15 +523,12 @@
 
 {#if showReenroll}
 	<!-- The same pairing dialog the sidebar's device pill opens (see
-	     CodeNavTree), not a second flow: `reenroll` skips the naming step
-	     and watches this device's own row for its `pairedAt` to advance,
-	     rather than watching for a new device id. -->
+	     CodeNavTree). A re-enroll mints a fresh machine id (spec §3), so it
+	     is a new pending row to confirm, not an update to this one — the
+	     expired row here still needs revoking separately once the new
+	     machine is up. -->
 	<PairDeviceDialog
-		reenroll={{ deviceId, name: deviceName ?? "" }}
 		onclose={() => (showReenroll = false)}
-		onpaired={() => {
-			codeEnrollment[deviceId] = "ok";
-			showReenroll = false;
-		}}
+		onpaired={() => (showReenroll = false)}
 	/>
 {/if}
