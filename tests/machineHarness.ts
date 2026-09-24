@@ -17,8 +17,7 @@ import type { Db, ObjectId } from "mongodb";
 import { E2E_APP_URL, MOCK_OIDC_ISSUER, MOCK_OPENAI_BASE_URL } from "./fixtures.ts";
 
 const AGENT_SRC =
-	process.env.PYSTINO_AGENT_SRC ??
-	"/home/ubuntu/.paseo/worktrees/thin-machine-agent-pystino/deploy/agent";
+	process.env.PYSTINO_AGENT_SRC ?? "/home/ubuntu/.paseo/worktrees/thin-pystino/deploy/agent";
 const GO =
 	process.env.GO_BIN ?? (existsSync("/usr/local/go/bin/go") ? "/usr/local/go/bin/go" : "go");
 
