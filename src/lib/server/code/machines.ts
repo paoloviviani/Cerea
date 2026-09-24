@@ -236,6 +236,9 @@ export class MachineLink {
 	sessionChildren(args: { sessionId: string }): Promise<{ sessions: Session[] }> {
 		return this.call("session.children", args);
 	}
+	sessionCompact(args: { sessionId: string }): Promise<Record<string, never>> {
+		return this.call("session.compact", args);
+	}
 	backendModes(args: { backend?: string; workspaceId?: string } = {}): Promise<{ modes: Mode[] }> {
 		return this.call("backend.modes", args);
 	}
