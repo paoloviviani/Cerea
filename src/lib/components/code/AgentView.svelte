@@ -24,7 +24,11 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import { goto } from "$app/navigation";
-	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
+	import type {
+		ElicitationAction,
+		ElicitationRequestPayload,
+		ElicitationValue,
+	} from "$lib/types/McpElicitation";
 	import {
 		MessageToolUpdateType,
 		MessageUpdateType,
@@ -54,6 +58,7 @@
 		listSubagents,
 		listWorkspaces,
 		respondPermission,
+		respondQuestion,
 		sendFollowUp,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
@@ -67,6 +72,8 @@
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
+	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
+	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
@@ -444,6 +451,49 @@
 		}
 	}
 
+	/** The agent-initiated question tool (user-question design): the SAME
+	 * global store and card chat's own `ask_user_question` uses, keyed on
+	 * this agent's id instead of a conversation id — `questionRequestedToUpdate`
+	 * on the server side is what actually registers one, via the ordinary
+	 * elicitation fold `consumeAgentUpdates` already runs. */
+	let questionStore = $derived(firstQuestionFor(agentId));
+	let askQuestion = $derived($questionStore);
+
+	/** `content` keys are `q0`, `q1`, … in question order (see
+	 * `questionRequestedToUpdate`); each value is the option label(s) picked
+	 * for that question, and `respondQuestion` wants them back the same way
+	 * `questionResolvedToUpdate` will read them off the resolved event. */
+	async function answerQuestion(
+		action: ElicitationAction,
+		content?: Record<string, ElicitationValue>
+	): Promise<{ ok: boolean; error?: string }> {
+		if (!askQuestion) return { ok: false, error: "No question is open." };
+		const requestId = askQuestion.request.elicitationId;
+		try {
+			const answers = content
+				? Object.keys(content)
+						.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+						.map((key) => {
+							const value = content[key];
+							return (Array.isArray(value) ? value : [value]).map(String);
+						})
+				: undefined;
+			await respondQuestion(
+				deviceId,
+				agentId,
+				requestId,
+				action === "accept" ? "accept" : "decline",
+				answers
+			);
+			return { ok: true };
+		} catch (err) {
+			return {
+				ok: false,
+				error: err instanceof Error ? err.message : "Could not answer the question.",
+			};
+		}
+	}
+
 	let column: ChatMessageColumn | undefined = $state();
 
 	// ── Fork handoff (parity plan §4.2(a)) ───────────────────────────────
@@ -546,6 +596,7 @@
 			{pending}
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
+			conversationId={agentId}
 			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
 			{subagentFor}
@@ -564,6 +615,13 @@
 				</div>
 			{/snippet}
 			{#snippet composer()}
+				{#if askQuestion}
+					<AskQuestion
+						conversationId={askQuestion.conversationId}
+						request={askQuestion.request}
+						onanswer={answerQuestion}
+					/>
+				{/if}
 				<AgentComposer
 					{deviceId}
 					{agentId}

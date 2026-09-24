@@ -74,6 +74,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/handoff$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/questions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/feature$`) },
@@ -701,6 +702,31 @@ export const POST: RequestHandler = async (event) => {
 				sessionId: decodeURIComponent(permissionMatch[1]),
 				requestId: decodeURIComponent(permissionMatch[2]),
 				decision: parsed.data.decision === "approve" ? "once" : "reject",
+			})
+		);
+		return superjsonResponse({ ok: true });
+	}
+
+	// The user-question tool design: the SAME "accept"/"decline" vocabulary
+	// AskQuestion.svelte's own onanswer prop already emits (chat's own
+	// ask_user_question answers through the same two actions), translated
+	// here into question.reply's "answer"/"reject".
+	const questionMatch = new RegExp(`^v1/agents/(${ID})/questions/(${ID})$`).exec(path);
+	if (questionMatch) {
+		const parsed = z
+			.object({
+				decision: z.enum(["accept", "decline"]),
+				answers: z.array(z.array(z.string())).optional(),
+			})
+			.safeParse(body);
+		if (!parsed.success)
+			error(400, "Expected { decision: 'accept' | 'decline', answers?: string[][] }.");
+		await callOp(() =>
+			link.questionReply({
+				sessionId: decodeURIComponent(questionMatch[1]),
+				requestId: decodeURIComponent(questionMatch[2]),
+				decision: parsed.data.decision === "accept" ? "answer" : "reject",
+				...(parsed.data.answers ? { answers: parsed.data.answers } : {}),
 			})
 		);
 		return superjsonResponse({ ok: true });

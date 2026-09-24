@@ -2,6 +2,7 @@
 	import CarbonArrowLeft from "~icons/carbon/arrow-left";
 	import { MAX_OTHER_CHARS } from "$lib/types/McpElicitation";
 	import type {
+		ElicitationAction,
 		ElicitationField,
 		ElicitationRequestPayload,
 		ElicitationValue,
@@ -15,9 +16,21 @@
 	interface Props {
 		conversationId: string;
 		request: ElicitationRequestPayload;
+		/**
+		 * Pluggable answer path (the user-question tool design): when set, a
+		 * machine-originated question answers through it — the `/code`
+		 * forwarder's own `question.reply` route — instead of chat's
+		 * elicitation endpoint. The ML Assistant budget mirroring below stays
+		 * chat-only regardless, since `mlAssistant.budget` is never set
+		 * outside a chat conversation.
+		 */
+		onanswer?: (
+			action: ElicitationAction,
+			content?: Record<string, ElicitationValue>
+		) => Promise<{ ok: boolean; error?: string }>;
 	}
 
-	let { conversationId, request }: Props = $props();
+	let { conversationId, request, onanswer }: Props = $props();
 
 	const fields = $derived(request.fields ?? []);
 
@@ -96,15 +109,17 @@
 			}
 		}
 
-		const result = await sendElicitationAnswer({
-			conversationId,
-			elicitationId: request.elicitationId,
-			action,
-			...(action === "accept" ? { content } : {}),
-		});
+		const result = onanswer
+			? await onanswer(action, action === "accept" ? content : undefined)
+			: await sendElicitationAnswer({
+					conversationId,
+					elicitationId: request.elicitationId,
+					action,
+					...(action === "accept" ? { content } : {}),
+				});
 		submitting = false;
 		if (!result.ok) {
-			error = result.error;
+			error = result.error ?? null;
 			return;
 		}
 		// Mirror a budget grant into the strip right away — the server applied it
