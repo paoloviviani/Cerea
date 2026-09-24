@@ -110,7 +110,6 @@ export async function cleanupTestData() {
 		collections.messageEvents.deleteMany({}),
 		collections.semaphores.deleteMany({}),
 		collections.migrationResults.deleteMany({}),
-		collections.tokenCaches.deleteMany({}),
 		collections.tools.deleteMany({}),
 		collections.codeExecutionOutputs.deleteMany({}),
 		cleanupGridFS(),

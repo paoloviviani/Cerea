@@ -68,29 +68,22 @@ export async function listDevices(): Promise<{ devices: CodeDeviceView[] }> {
 	return unwrap(await fetch(`${root()}/devices`));
 }
 
-export async function startPairing(name: string): Promise<{ device: CodeDeviceView }> {
+/** Confirm a machine that connected and is waiting in `pending` — the fresh
+ * human approval review C2 calls for. Pushes the `status: paired` frame
+ * down the machine's live socket if it is still connected. */
+export async function confirmDevice(id: string): Promise<{ confirmed: boolean }> {
 	return unwrap(
-		await fetch(`${root()}/enroll`, {
-			method: "POST",
+		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, {
+			method: "PATCH",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ action: "start", name }),
+			body: JSON.stringify({ action: "confirm" }),
 		})
 	);
 }
 
-export async function claimPairing(
-	code: string,
-	offer: string
-): Promise<{ device: CodeDeviceView }> {
-	return unwrap(
-		await fetch(`${root()}/enroll`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ action: "claim", code, offer }),
-		})
-	);
-}
-
+/** Revoke a paired machine, or reject one still `pending` — the same
+ * tombstoning action either way (spec §4): the row becomes `revoked` and a
+ * reconnect with the same machine id is refused from then on. */
 export async function revokeDevice(id: string): Promise<{ revoked: boolean }> {
 	return unwrap(
 		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, { method: "DELETE" })
@@ -143,53 +136,21 @@ export async function listWorkspaceAgents(
 	);
 }
 
-/** The provider ids this daemon can actually run, from the daemon itself.
- * `enrollmentExpired` is the server's own classification of that provider's
- * `error` word (see `codeDaemon.ts`'s `isExpiredEnrollment`) — the protocol
- * has no dedicated auth-status call, so this reuses the cheapest RPC that
- * already reports per-provider health for the "new agent" dialog. */
+/** The backend ids this machine actually runs, from `hello` (spec §5).
+ * `enrollmentExpired` is the paired device row's own `credentialState`. */
 export async function listProviders(
 	deviceId: string
 ): Promise<{ providers: Array<{ id: string; available: boolean; enrollmentExpired: boolean }> }> {
 	return unwrap(await fetch(`${root()}/v1/providers?device=${encodeURIComponent(deviceId)}`));
 }
 
-/** Whether a device's daemon is answering with good enrollment: `"ok"` when
- * the probe below found nothing wrong, `"expired"` when the daemon itself
- * said its enrollment is dead (a 401, or a provider reporting an
- * `invalid_grant`-class error — see `codeDaemon.ts`'s `isExpiredEnrollment`),
- * and `"unreachable"` for everything else (a relay hiccup, a dropped daemon,
- * an unpaired device, plain offline) — the same bucket every other daemon
- * read already falls back to. Only the first bucket ever renders as
- * "re-enroll"; the third must never be mistaken for it. */
+/** Whether a device's credential is answering as good: `"ok"` when the
+ * paired row's `credentialState` (kept live by every `hello`/`credential`
+ * frame the machine sends, spec §5) is not `"expired"`, `"expired"` when it
+ * is, and `"unreachable"` for a device this deployment cannot currently read
+ * at all. Unlike the paseo-era probe this replaces, nothing here makes a
+ * network call: the device row already carries the answer. */
 export type EnrollmentCheck = "ok" | "expired" | "unreachable";
-
-/**
- * A cheap, allowlisted call, run on agent open and on device switch (see
- * `CodePanel`) so an expired enrollment surfaces before the person types a
- * doomed message, not after. `listAvailableProviders` is this deployment's
- * best available proxy for "the daemon's stored credentials still work" —
- * the paseo protocol has no dedicated auth-status RPC, so this is a
- * judgment call, not a guarantee: whether a provider's `available`/`error`
- * reflect a live credential check or a cached install check is up to the
- * daemon, not this call. The one thing this deployment can trust regardless
- * is the substring match against `invalid_grant` — see `isExpiredEnrollment`
- * — which is why a provider merely reported "unavailable" for some other
- * reason still reads as `"ok"` here, never as `"expired"`.
- */
-export async function checkEnrollment(
-	deviceId: string,
-	provider = "opencode"
-): Promise<EnrollmentCheck> {
-	try {
-		const { providers } = await listProviders(deviceId);
-		const entry = providers.find((p) => p.id === provider);
-		return entry?.enrollmentExpired ? "expired" : "ok";
-	} catch (err) {
-		if (err instanceof CodeApiError && err.status === 401) return "expired";
-		return "unreachable";
-	}
-}
 
 /** The provider's modes — paseo's permission vocabulary (plan, build, …),
  * as the daemon itself defines it. */
@@ -208,7 +169,7 @@ export async function listProviderModes(
 export async function listProviderModels(
 	deviceId: string,
 	provider: string
-): Promise<{ models: CodeProviderModel[] }> {
+): Promise<{ models: CodeProviderModel[]; hidden?: number }> {
 	return unwrap(
 		await fetch(
 			`${root()}/v1/providers/${encodeURIComponent(provider)}/models?device=${encodeURIComponent(deviceId)}`
@@ -244,11 +205,10 @@ export async function listProviderFeatures(
 export async function createAgent(
 	deviceId: string,
 	input: {
-		cwd: string;
 		provider?: string;
 		posture?: AgentPosture;
 		title?: string;
-		workspaceId?: string;
+		workspaceId: string;
 	}
 ): Promise<{ agent: CodeAgentSession }> {
 	return unwrap(
@@ -271,11 +231,8 @@ export async function getAgent(
 	agent: CodeAgentSession;
 	features: CodeProviderFeature[];
 	cwd: string;
-	/** The agent's own snapshot already said its last real failure was an
-	 * expired/revoked enrollment (see `codeDaemon.ts`'s `getAgentDetail`) —
-	 * unlike `checkEnrollment`'s probe, this is not a guess: it is the exact
-	 * error the daemon recorded from a real attempt. `false` only means "no
-	 * such failure is on record yet", not "the enrollment is good". */
+	/** The paired device row's own `credentialState === "expired"` (spec §5),
+	 * read fresh alongside this snapshot. */
 	enrollmentExpired: boolean;
 }> {
 	return unwrap(
@@ -343,7 +300,11 @@ export type PermissionDecision = "approve" | "deny";
 export async function sendFollowUp(
 	deviceId: string,
 	agentId: string,
-	text: string
+	text: string,
+	/** The client's own id for the user message this creates — the key
+	 * attachments (images/files) will key off once the attachment store
+	 * lands. Left unset, the server mints one. */
+	messageId?: string
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
@@ -351,7 +312,7 @@ export async function sendFollowUp(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ text }),
+				body: JSON.stringify({ text, ...(messageId ? { messageId } : {}) }),
 			}
 		)
 	);
@@ -434,6 +395,24 @@ export async function cancelAgent(deviceId: string, agentId: string): Promise<{ 
 	);
 }
 
+/** Manual context compaction ("Compact now", M3). The transcript records the
+ * result (a `compaction` marker part, per the machine's own event stream);
+ * this only carries the request. 404s (`CodeApiError.status === 404`) when
+ * the backend has no `compact` capability — the meter hides the button in
+ * that case, so a caller reaching this without checking is the exception. */
+export async function compactAgent(deviceId: string, agentId: string): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/compact?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({}),
+			}
+		)
+	);
+}
+
 /** Answer a waiting permission request. Blocking: the agent holds until this lands. */
 export async function respondPermission(
 	deviceId: string,
@@ -467,7 +446,7 @@ export async function archiveAgent(deviceId: string, agentId: string): Promise<{
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}/archive?device=${encodeURIComponent(deviceId)}`,
-			{ method: "POST" }
+			{ method: "POST", headers: { "content-type": "application/json" } }
 		)
 	);
 }
@@ -480,7 +459,7 @@ export async function archiveWorkspace(
 	return unwrap(
 		await fetch(
 			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/archive?device=${encodeURIComponent(deviceId)}`,
-			{ method: "POST" }
+			{ method: "POST", headers: { "content-type": "application/json" } }
 		)
 	);
 }

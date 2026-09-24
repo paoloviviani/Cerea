@@ -1,5 +1,6 @@
 import { config, ready } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
+import { registerMachineUpgrade } from "$lib/server/code/machineServer";
 import { initExitHandler } from "$lib/server/exitHandler";
 import { assertOcrConfigValid } from "$lib/server/files/extractDocument";
 import { configuredBackend } from "$lib/server/fetching";
@@ -38,6 +39,13 @@ export async function initServer(): Promise<void> {
 
 	logger.info("Starting server...");
 	initExitHandler();
+
+	// The machine link's WebSocket upgrade (`/api/v2/code/machine`) is wired
+	// one layer below SvelteKit, on the raw http.Server `server.js` creates
+	// (adapter-node's `handler` only speaks HTTP) — see `machineServer.ts`'s
+	// header for why. Registering here, rather than at module load, keeps
+	// the symbol's function from going live before config/DB are ready.
+	registerMachineUpgrade();
 
 	if (config.METRICS_ENABLED === "true") {
 		MetricsServer.getInstance();

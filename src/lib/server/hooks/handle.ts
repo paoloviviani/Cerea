@@ -36,18 +36,6 @@ function getClientAddressSafe(event: RequestEvent): string | undefined {
 const MACHINE_ADMIN_ROUTES = new Set(["/admin/export", "/admin/stats/compute"]);
 const MACHINE_ADMIN_PATHS = ["/admin/export", "/admin/stats/compute"];
 
-/**
- * The /code pairing endpoint a *machine* calls (`enroll pair` on the agent
- * machine), with a bearer from this deployment's identity provider that the
- * endpoint validates itself. It must stay out of both generic paths below:
- * the bearer branch of `authenticateRequest` presents tokens to
- * huggingface.co — an IdP token dies there as a thrown 500 — and the
- * signed-in wall would 401 a request that already carries its credential.
- * Same shape as the admin set above: a program's endpoint, its own credential.
- */
-const MACHINE_CODE_ROUTES = new Set(["/api/v2/code/enroll/machine"]);
-const MACHINE_CODE_PATHS = ["/api/v2/code/enroll/machine"];
-
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
 	const requestId = crypto.randomUUID();
@@ -105,18 +93,11 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				}
 			}
 
-			// The machine pairing endpoint validates its own bearer (an IdP
-			// token, not an HF one), so the generic bearer path must never see
-			// it — see MACHINE_CODE_ROUTES above.
-			const isApi =
-				event.url.pathname.startsWith(`${base}/api/`) &&
-				!MACHINE_CODE_ROUTES.has(event.route.id ?? "");
-			const auth = await authenticateRequest(
-				event.request.headers,
-				event.cookies,
-				event.url,
-				isApi
-			);
+			// The machine link (`/api/v2/code/machine`) never reaches here at
+			// all — it is a raw WebSocket upgrade, intercepted on the
+			// underlying http.Server before SvelteKit's request handling ever
+			// sees it (`server.js`, `machineServer.ts`). No exemption needed.
+			const auth = await authenticateRequest(event.cookies, event.url);
 
 			event.locals.sessionId = auth.sessionId;
 
@@ -205,6 +186,43 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				}
 			}
 
+			// Every /api body must say what it is. The Origin check above only
+			// looks at the *native form* content types a <form> can produce; a
+			// cross-site `fetch(url, { mode: "no-cors", body: new Blob([json]) })`
+			// needs no preflight and — because a typeless Blob gets no
+			// Content-Type header at all — carries neither an Origin header this
+			// hook demands nor a content-type the old check recognized, and
+			// sailed through with the cookie attached regardless. A request with
+			// an actual body now has to name a type this app understands.
+			//
+			// Routes with their own raw-body contract (checked against their own
+			// allow-list downstream) are named here rather than widening the
+			// types accepted everywhere: `/api/transcribe` takes the recorded
+			// clip's own MIME type (audio/webm, audio/wav, ...), never JSON or a
+			// form.
+			const RAW_BODY_API_PATHS = new Set([`${base}/api/transcribe`]);
+
+			if (
+				event.url.pathname.startsWith(`${base}/api/`) &&
+				!["GET", "HEAD", "OPTIONS"].includes(event.request.method) &&
+				!RAW_BODY_API_PATHS.has(event.url.pathname)
+			) {
+				const contentLength = event.request.headers.get("content-length");
+				const hasBody =
+					(contentLength !== null && contentLength !== "0") ||
+					event.request.headers.get("transfer-encoding") !== null;
+
+				if (hasBody) {
+					const type = requestContentType.toLowerCase();
+					if (type !== "application/json" && type !== "multipart/form-data") {
+						return errorResponse(
+							415,
+							"Unsupported Media Type: /api requests with a body need Content-Type: application/json (or multipart/form-data for uploads)"
+						);
+					}
+				}
+			}
+
 			if (
 				event.request.method === "POST" ||
 				event.url.pathname.startsWith(`${base}/login`) ||
@@ -223,15 +241,14 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				loginEnabled &&
 				!event.locals.user &&
 				!event.url.pathname.startsWith(`${base}/login`) &&
-				// The machine endpoints only, not the whole /admin tree: they
-				// authenticate with a static secret and carry no session, so the
-				// login wall would refuse the cron job that is entitled to them.
-				// The administration UI under /admin is deliberately *not* exempt —
-				// it is a person, and a person has to be signed in. The machine
-				// pairing endpoint is exempt for the same reason (its bearer is
-				// the credential) and the same scope: the route only, not /code.
+				// The admin machine endpoints only, not the whole /admin tree:
+				// they authenticate with a static secret and carry no session,
+				// so the login wall would refuse the cron job that is entitled
+				// to them. The administration UI under /admin is deliberately
+				// *not* exempt — it is a person, and a person has to be signed
+				// in. (The machine link has no such exemption to carry here: it
+				// never reaches this hook at all, see `isApi` above.)
 				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
-				!MACHINE_CODE_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
 				// And `/logout` answers for itself: refusing a 401 to a session
 				// that is already gone is refusing to clean up after it.

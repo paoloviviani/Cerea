@@ -40,6 +40,9 @@ export const MOCK_OPENAI_ORIGIN = `http://127.0.0.1:${MOCK_OPENAI_PORT}`;
 export const MOCK_OPENAI_BASE_URL = `${MOCK_OPENAI_ORIGIN}/v1`;
 export const MOCK_MCP_ORIGIN = `http://127.0.0.1:${MOCK_MCP_PORT}`;
 export const MOCK_MCP_URL = `${MOCK_MCP_ORIGIN}/mcp`;
+export const MOCK_OIDC_PORT = Number(process.env.MOCK_OIDC_PORT ?? 8796);
+/** The mock issuer for machine tokens (`tests/mock-oidc.ts`). */
+export const MOCK_OIDC_ISSUER = `http://127.0.0.1:${MOCK_OIDC_PORT}`;
 
 /** Cookie the app stores the session secret in (`COOKIE_NAME` in .env). */
 export const SESSION_COOKIE_NAME = process.env.COOKIE_NAME ?? "hf-chat";
@@ -57,6 +60,7 @@ const MUTABLE_COLLECTIONS = [
 	"settings",
 	"sessions",
 	"users",
+	"codeDevices",
 ];
 
 // ── Test database ─────────────────────────────────────────────────────────────
