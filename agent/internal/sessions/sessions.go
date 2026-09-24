@@ -32,12 +32,17 @@ var ErrUnknownSession = errors.New("sessions: unknown session")
 var ErrAutoAcceptForbidden = errors.New("sessions: auto-accept is denied by machine policy")
 
 // Envelope is one pushed event, addressed by (epoch, seq) per session
-// (PROTOCOL.md §5 "event" frame, §7).
+// (PROTOCOL.md §5 "event" frame, §7). RootSessionID names the top-level
+// ancestor of SessionID — the session itself for a top-level session — so
+// a client watching a session also receives its descendants' envelopes
+// (PROTOCOL.md §5 "event" frame, §7: subagent approvals surface mid-turn
+// in the parent's view).
 type Envelope struct {
-	SessionID string
-	Epoch     string
-	Seq       int64
-	Event     backend.Event
+	SessionID     string
+	Epoch         string
+	Seq           int64
+	RootSessionID string
+	Event         backend.Event
 }
 
 // SyncResult is session.sync's answer: either Events (a contiguous tail
@@ -59,6 +64,12 @@ type sessionState struct {
 	workspaceDir string
 	seeded       bool
 	autoAccept   bool
+	// parentID is the session this one was spawned from (opencode's
+	// subagent/"subtask" tree, Session.ParentID), empty for a top-level
+	// session. Learned from Track, from session events carrying it, and
+	// from the parent's own task tool parts naming the child they
+	// spawned — whichever arrives first.
+	parentID string
 
 	seq  int64
 	ring []Envelope
@@ -217,11 +228,85 @@ func (m *Materializer) Track(workspaceDir string, sess backend.Session) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, exists := m.sessions[sess.ID]; exists {
+		m.setParentLocked(sess.ID, sess.ParentID)
 		return
 	}
 	st := newSessionState(workspaceDir, sess.ID)
 	st.status = sess.Status
+	st.parentID = sess.ParentID
 	m.sessions[sess.ID] = st
+}
+
+// setParentLocked records that childID was spawned from parentID. Empty
+// parentIDs are ignored, a session is never its own parent, and an already
+// known parent is never overwritten by a later (possibly staler) report —
+// whichever source names the parent first wins. The child's state is
+// created if no event has mentioned it yet, so a parent learned before the
+// child's first event still applies. Caller holds m.mu.
+func (m *Materializer) setParentLocked(childID, parentID string) {
+	if parentID == "" || childID == parentID {
+		return
+	}
+	st, ok := m.sessions[childID]
+	if !ok {
+		st = newSessionState("", childID)
+		m.sessions[childID] = st
+	}
+	if st.parentID == "" {
+		st.parentID = parentID
+	}
+}
+
+// rootLocked walks the parent chain to the top-level ancestor, returning
+// sessionID itself when it has no parent. Cycle-safe: a corrupted chain
+// resolves to wherever the walk gives up rather than looping forever.
+// Caller holds m.mu.
+func (m *Materializer) rootLocked(sessionID string) string {
+	seen := map[string]bool{sessionID: true}
+	current := sessionID
+	for {
+		st, ok := m.sessions[current]
+		if !ok || st.parentID == "" {
+			return current
+		}
+		if seen[st.parentID] {
+			return current
+		}
+		seen[st.parentID] = true
+		current = st.parentID
+	}
+}
+
+// autoAcceptEffectiveLocked reports whether auto-accept is on for st
+// itself or for any ancestor up to the root: a subagent inherits its
+// root's auto-accept, so a child never blocks a turn its parent already
+// cleared for automatic tool calls. Caller holds m.mu.
+func (m *Materializer) autoAcceptEffectiveLocked(st *sessionState) bool {
+	seen := map[string]bool{st.sessionID: true}
+	current := st
+	for {
+		if current.autoAccept {
+			return true
+		}
+		if current.parentID == "" || seen[current.parentID] {
+			return false
+		}
+		seen[current.parentID] = true
+		parent, ok := m.sessions[current.parentID]
+		if !ok {
+			return false
+		}
+		current = parent
+	}
+}
+
+// RootOf returns the top-level ancestor of sessionID, or sessionID itself
+// when it has no known parent. Exported for the wire layer, which tags
+// every envelope with it (PROTOCOL.md §5).
+func (m *Materializer) RootOf(sessionID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rootLocked(sessionID)
 }
 
 // WorkspaceDir returns the workspace directory a known session belongs to
@@ -290,6 +375,12 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 	} else if be.WorkspaceDir != "" {
 		st.workspaceDir = be.WorkspaceDir
 	}
+	// A session event carries the session record itself, which names the
+	// parent when this session is a subagent — the earliest point the
+	// materializer can learn the tree edge for a child it never Tracked.
+	if be.Event.Kind == backend.EventSession && be.Event.Session != nil {
+		m.setParentLocked(be.SessionID, be.Event.Session.ParentID)
+	}
 	events, autoReply := m.translateLocked(st, be.Event)
 	envs := make([]Envelope, 0, len(events))
 	for _, ev := range events {
@@ -336,7 +427,7 @@ func (m *Materializer) publish(env Envelope) {
 
 func (m *Materializer) appendRingLocked(st *sessionState, ev backend.Event) Envelope {
 	st.seq++
-	env := Envelope{SessionID: st.sessionID, Epoch: m.epoch, Seq: st.seq, Event: ev}
+	env := Envelope{SessionID: st.sessionID, Epoch: m.epoch, Seq: st.seq, RootSessionID: m.rootLocked(st.sessionID), Event: ev}
 	st.ring = append(st.ring, env)
 	if len(st.ring) > ringCapacity {
 		trimmed := make([]Envelope, ringCapacity)
@@ -388,7 +479,12 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) ([]ba
 		if ev.Request == nil {
 			return nil, nil
 		}
-		if st.autoAccept && m.policy.AutoAcceptAllowed() {
+		// Auto-accept is inherited up the subagent tree: a child without
+		// its own flag still auto-replies when any ancestor has it on and
+		// the machine policy allows it — otherwise a subagent blocks a
+		// turn its parent already cleared. Handoff approvals are never
+		// auto-accepted, whatever the flags say.
+		if !isHandoffApproval(ev.Request) && m.autoAcceptEffectiveLocked(st) && m.policy.AutoAcceptAllowed() {
 			if st.autoRepliedIDs == nil {
 				st.autoRepliedIDs = map[string]bool{}
 			}
@@ -456,6 +552,14 @@ func (m *Materializer) translatePartLocked(st *sessionState, ev backend.Event) (
 	}
 	incoming := *ev.Part
 	msgID, partID := incoming.MessageID, incoming.ID
+	// A task/subtask part names the child session its call spawned —
+	// the parent side of the same tree edge a session event reports
+	// from the child's side. Recording it here means the link exists
+	// before the child's own first event (including its first
+	// permission.asked) ever arrives.
+	if incoming.SubtaskSessionID != "" {
+		m.setParentLocked(incoming.SubtaskSessionID, st.sessionID)
+	}
 	ensureMessageLocked(st, msgID, incoming.Role)
 	// Backends like opencode keep the role on the message, not the part, but
 	// PROTOCOL.md puts it on every part and delta so Cerea can tell the
@@ -551,6 +655,14 @@ func ensureMessageLocked(st *sessionState, msgID, role string) {
 	}
 	st.messageOrder = append(st.messageOrder, msgID)
 	st.messages[msgID] = &backend.Message{ID: msgID, Role: role}
+}
+
+// isHandoffApproval reports whether a permission request is a handoff
+// approval — handing a session's work to another agent or device. Those
+// are never auto-accepted: moving work across a trust boundary always
+// needs a person's explicit say-so, whatever auto-accept flags say.
+func isHandoffApproval(req *backend.PermissionRequest) bool {
+	return strings.Contains(strings.ToLower(req.Tool), "handoff")
 }
 
 func removeString(list []string, s string) []string {

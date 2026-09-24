@@ -47,6 +47,11 @@ export interface AgentConsumeContext {
 	onUsage?: (usage: AgentUsageUpdate["usage"]) => void;
 	/** A `compaction` side-channel frame arrived. Same discipline as `onUsage`. */
 	onCompaction?: (update: AgentCompactionUpdate) => void;
+	/** A `childActivity` side-channel frame arrived: a subagent of this
+	 * transcript did something its card may want to show. Never touches
+	 * turn structure — the subagent card re-syncs the child's own
+	 * timeline on it, throttled. */
+	onChildActivity?: (childId: string) => void;
 }
 
 export async function consumeAgentUpdates(
@@ -277,6 +282,14 @@ export async function consumeAgentUpdates(
 			}
 			case "compaction": {
 				ctx.onCompaction?.(update);
+				break;
+			}
+			// A subagent's own activity, kept out of this transcript by
+			// design (see `machineTimeline`'s child branch): the subagent
+			// card re-syncs the child's timeline on it, throttled, so its
+			// output streams live.
+			case "childActivity": {
+				ctx.onChildActivity?.(update.childId);
 				break;
 			}
 			case MessageUpdateType.Stream: {

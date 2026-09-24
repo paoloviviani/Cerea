@@ -9,12 +9,14 @@
 	named it yet) the card shows the call's own description as the title and
 	reads as running.
 
-	Expanding fetches the subagent's own timeline once through the forwarder,
+	Expanding fetches the subagent's own timeline through the forwarder,
 	folds it with the same consumer the parent transcript uses, and renders it
 	through the chat's message components — a nested read-only conversation.
-	The fetch is deliberately not polled: the transcript refreshes on the next
-	expand after the subagent's row reports a change, and the roster's
-	`updatedAt` decides whether a re-expand refetches.
+	While expanded the timeline re-syncs live: every `activity` tick (the
+	parent stream's `childActivity` side channel for this child) and a 1s
+	interval both refetch, throttled to at most one fetch per second, so the
+	child's output streams without ever merging into the parent's turns. A
+	settled row whose roster entry has not moved serves its cache instead.
 -->
 <script lang="ts">
 	import { tick } from "svelte";
@@ -29,11 +31,17 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideUsers from "~icons/lucide/users";
 
+	/** At most one timeline re-sync per second while expanded. */
+	const RESYNC_THROTTLE_MS = 1000;
+
 	interface Props {
 		anchor: CodeSubagentAnchor;
+		/** Bumped by the parent view whenever this child's activity arrives
+		 * on the parent stream — the cue to re-sync, throttled. */
+		activity?: number;
 	}
 
-	let { anchor }: Props = $props();
+	let { anchor, activity = 0 }: Props = $props();
 
 	let open = $state(false);
 	let working = $state(false);
@@ -41,6 +49,7 @@
 	/** The folded transcript, and the roster row it was fetched for. */
 	let transcript = $state<Message[] | null>(null);
 	let fetchedFor: { id: string; updatedAt: string } | null = null;
+	let lastFetchAt = 0;
 
 	let title = $derived(anchor.subagent?.title || anchor.fallbackTitle || "Subagent");
 	let status = $derived<CodeSubagentStatus>(anchor.subagent?.status ?? "running");
@@ -59,16 +68,23 @@
 		for (const update of updates) yield update;
 	}
 
-	async function toggle() {
-		open = !open;
-		if (!open) return;
+	async function refresh() {
 		const current = anchor.subagent;
-		if (!current || !anchor.load) return;
-		// A row the roster has since touched refetches; a settled one serves
-		// its cache, so reopening a finished subagent is free.
-		if (transcript && fetchedFor?.id === current.id && fetchedFor.updatedAt === current.updatedAt) {
+		if (!current || !anchor.load || working) return;
+		// A settled row whose roster entry has not moved serves its cache,
+		// so reopening (or ticking on) a finished subagent is free; a
+		// running one always re-syncs, throttled.
+		const settled = current.status !== "running";
+		if (
+			transcript &&
+			fetchedFor?.id === current.id &&
+			fetchedFor.updatedAt === current.updatedAt &&
+			settled
+		) {
 			return;
 		}
+		if (Date.now() - lastFetchAt < RESYNC_THROTTLE_MS) return;
+		lastFetchAt = Date.now();
 		working = true;
 		failure = null;
 		try {
@@ -88,6 +104,29 @@
 			working = false;
 		}
 	}
+
+	async function toggle() {
+		open = !open;
+		if (!open) return;
+		lastFetchAt = 0;
+		await refresh();
+	}
+
+	// Live re-sync while expanded: the parent's `childActivity` ticks (one
+	// per `activity` bump for this child) plus a 1s interval for activity
+	// the stream has not framed yet — both funnel through the same
+	// throttled refresh, so a fast child still costs at most one
+	// `session.sync` per second.
+	$effect(() => {
+		if (!open) return;
+		void activity;
+		void refresh();
+	});
+	$effect(() => {
+		if (!open) return;
+		const timer = setInterval(() => void refresh(), RESYNC_THROTTLE_MS);
+		return () => clearInterval(timer);
+	});
 </script>
 
 <div class="flex max-w-full min-w-0 flex-col items-stretch">

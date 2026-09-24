@@ -483,8 +483,12 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 	}
 	envs := make([]map[string]any, 0, len(res.Events))
 	for _, env := range res.Events {
+		root := env.RootSessionID
+		if root == "" {
+			root = env.SessionID
+		}
 		envs = append(envs, map[string]any{
-			"sessionId": env.SessionID, "epoch": env.Epoch, "seq": env.Seq, "event": eventToWire(env.Event),
+			"sessionId": env.SessionID, "epoch": env.Epoch, "seq": env.Seq, "rootSessionId": root, "event": eventToWire(env.Event),
 		})
 	}
 	out["events"] = orEmpty(envs)
@@ -554,6 +558,14 @@ func (mc *machine) opSessionChildren(ctx context.Context, args json.RawMessage) 
 	}
 	out := make([]backend.Session, 0, len(children))
 	for _, c := range children {
+		// Register the tree edge with the materializer too: a child the
+		// backend reports here may never have been Tracked from its own
+		// events yet, and its parent linkage is what routes its later
+		// envelopes (and inherits auto-accept) to this session's root.
+		if c.ParentID == "" {
+			c.ParentID = a.SessionID
+		}
+		mc.mat.Track(dir, c)
 		c.ParentToolCallID = spawnedBy[c.ID]
 		out = append(out, mc.enrich(c, workspaceID))
 	}

@@ -55,6 +55,10 @@ interface ConnectionState {
 	policy: Policy;
 	pending: Map<string, PendingRequest>;
 	listeners: Map<string, Set<(envelope: Envelope) => void>>;
+	/** Watchers of a whole session tree: a listener on a root session id
+	 * also receives its descendants' envelopes (subagent approvals and
+	 * questions surfacing mid-turn in the parent's view). */
+	rootListeners: Map<string, Set<(envelope: Envelope) => void>>;
 	authDeadline: ReturnType<typeof setTimeout> | null;
 	pingInterval: ReturnType<typeof setInterval> | null;
 	lastPongAt: number;
@@ -289,6 +293,31 @@ export function subscribeSessionEvents(
 	};
 }
 
+/** Fan out a whole session tree's normalized events: the listener on a
+ * root session id receives the root's own envelopes plus every
+ * descendant's (matched on `rootSessionId`, falling back to `sessionId`
+ * for machines that predate the field). The SSE bridge subscribes this
+ * way, so a subagent's approval or question reaches the parent's view
+ * mid-turn instead of hanging until the next roster poll. Returns an
+ * unsubscribe. */
+export function subscribeSessionTree(
+	deviceId: string,
+	rootSessionId: string,
+	listener: (envelope: Envelope) => void
+): () => void {
+	const state = registry.get(deviceId);
+	if (!state) return () => {};
+	let set = state.rootListeners.get(rootSessionId);
+	if (!set) {
+		set = new Set();
+		state.rootListeners.set(rootSessionId, set);
+	}
+	set.add(listener);
+	return () => {
+		set?.delete(listener);
+	};
+}
+
 function touchDeviceRow(deviceId: string, patch: Partial<CodeDevice>): void {
 	void collections.codeDevices
 		.updateOne({ _id: new ObjectId(deviceId) }, { $set: { ...patch, updatedAt: new Date() } })
@@ -368,15 +397,28 @@ export function acceptMachineConnection(
 				return;
 			}
 			case "event": {
+				// A machine that predates `rootSessionId` tags nothing: the
+				// envelope then roots at its own session, i.e. only direct
+				// watchers fire — the same behaviour as before the field.
+				const root = frame.rootSessionId ?? frame.sessionId;
 				const listeners = state.listeners.get(frame.sessionId);
-				if (!listeners || listeners.size === 0) return;
+				// Tree watchers of the root, and of the session itself: a
+				// subagent's own view subscribes as a tree too, and its
+				// envelopes are rooted at the parent, not at the subagent.
+				const treeListeners = new Set([
+					...(state.rootListeners.get(root) ?? []),
+					...(root !== frame.sessionId ? (state.rootListeners.get(frame.sessionId) ?? []) : []),
+				]);
+				if ((!listeners || listeners.size === 0) && treeListeners.size === 0) return;
 				const envelope: Envelope = {
 					sessionId: frame.sessionId,
 					epoch: frame.epoch,
 					seq: frame.seq,
+					rootSessionId: root,
 					event: frame.event,
 				};
-				for (const listener of listeners) listener(envelope);
+				if (listeners) for (const listener of listeners) listener(envelope);
+				for (const listener of treeListeners) listener(envelope);
 				return;
 			}
 			case "credential": {
@@ -485,12 +527,14 @@ async function onHello(
 
 	// A newer connection for the same machine replaces an older one (§3).
 	// Its event listeners move to the new connection first (the same Map
-	// instance, so every `subscribeSessionEvents` closure the SSE bridge
-	// holds keeps working with no re-subscribe) — otherwise an open bridge
-	// silently goes quiet across a machine reconnect, since the fresh
-	// connection would start with an empty listener map of its own.
+	// instances, so every `subscribeSessionEvents`/`subscribeSessionTree`
+	// closure the SSE bridge holds keeps working with no re-subscribe) —
+	// otherwise an open bridge silently goes quiet across a machine
+	// reconnect, since the fresh connection would start with empty
+	// listener maps of its own.
 	const previous = registry.get(deviceId);
 	const listeners = previous?.listeners ?? new Map();
+	const rootListeners = previous?.rootListeners ?? new Map();
 	if (previous) closeConnection(previous, 4409, "a newer connection replaced this one");
 
 	const state: ConnectionState = {
@@ -501,6 +545,7 @@ async function onHello(
 		policy: hello.policy,
 		pending: new Map(),
 		listeners,
+		rootListeners,
 		authDeadline: null,
 		pingInterval: null,
 		lastPongAt: Date.now(),
