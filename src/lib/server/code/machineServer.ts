@@ -16,7 +16,7 @@
  */
 
 import type { IncomingMessage } from "node:http";
-import type { Socket } from "node:net";
+import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
 import { MACHINE_PATH, MACHINE_PROTOCOL } from "$lib/types/machineProtocol";
 import { authenticateMachineRequest } from "$lib/server/code/machineAuth";
@@ -25,7 +25,7 @@ import { logger } from "$lib/server/logger";
 
 const MACHINE_UPGRADE_SYMBOL = Symbol.for("cerea.machineUpgrade");
 
-function writeHttpRejection(socket: Socket, status: number, message: string): void {
+function writeHttpRejection(socket: Duplex, status: number, message: string): void {
 	const body = message;
 	socket.write(
 		`HTTP/1.1 ${status} ${status === 401 ? "Unauthorized" : "Forbidden"}\r\n` +
@@ -38,7 +38,7 @@ function writeHttpRejection(socket: Socket, status: number, message: string): vo
 
 const wss = new WebSocketServer({ noServer: true });
 
-async function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
+async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
 	const url = new URL(req.url ?? "/", "http://internal");
 	if (url.pathname !== MACHINE_PATH) {
 		socket.destroy();
@@ -70,7 +70,7 @@ async function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer)
 export function registerMachineUpgrade(): void {
 	(globalThis as Record<symbol, unknown>)[MACHINE_UPGRADE_SYMBOL] = (
 		req: IncomingMessage,
-		socket: Socket,
+		socket: Duplex,
 		head: Buffer
 	) => {
 		void handleUpgrade(req, socket, head);

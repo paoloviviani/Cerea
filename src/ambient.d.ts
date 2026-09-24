@@ -11,26 +11,34 @@ declare module "*.ttf" {
  */
 declare module "ws" {
 	import type { IncomingMessage } from "node:http";
-	import type { Socket } from "node:net";
+	import type { Duplex } from "node:stream";
 	import type { EventEmitter } from "node:events";
 
 	export class WebSocket extends EventEmitter {
+		constructor(address: string, options?: { headers?: Record<string, string> });
 		send(data: string | Buffer): void;
 		close(code?: number, reason?: string): void;
 		terminate(): void;
 		ping(): void;
+		on(event: "open", listener: () => void): this;
 		on(event: "message", listener: (data: Buffer | string, isBinary: boolean) => void): this;
 		on(event: "pong", listener: (data: Buffer) => void): this;
 		on(event: "close", listener: (code: number, reason: Buffer) => void): this;
 		on(event: "error", listener: (err: Error) => void): this;
 		on(event: string, listener: (...args: unknown[]) => void): this;
+		off(event: "message", listener: (data: Buffer | string, isBinary: boolean) => void): this;
+		off(event: string, listener: (...args: unknown[]) => void): this;
 	}
 
 	export class WebSocketServer extends EventEmitter {
 		constructor(options: { noServer: true });
+		close(callback?: (err?: Error) => void): void;
 		handleUpgrade(
 			request: IncomingMessage,
-			socket: Socket,
+			// Node's own `http.Server` "upgrade" event types this `Duplex`, not
+			// the narrower `net.Socket` — matching it here is what lets a real
+			// upgrade handler's socket pass straight through untyped.
+			socket: Duplex,
 			head: Buffer,
 			callback: (client: WebSocket, request: IncomingMessage) => void
 		): void;

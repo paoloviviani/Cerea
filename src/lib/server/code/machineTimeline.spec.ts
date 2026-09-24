@@ -68,12 +68,8 @@ describe("snapshotToUpdates", () => {
 		};
 		const updates = snapshotToUpdates(transcript);
 		expect(updates).toContainEqual({ type: MessageUpdateType.Stream, token: "on it" });
-		const call = updates.find(
-			(u) => u.type === MessageUpdateType.Tool && u.subtype === "call"
-		);
-		const result = updates.find(
-			(u) => u.type === MessageUpdateType.Tool && u.subtype === "result"
-		);
+		const call = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "call");
+		const result = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "result");
 		expect(call).toBeTruthy();
 		expect(result).toBeTruthy();
 	});
@@ -192,13 +188,27 @@ describe("the seam: duplicate identical tokens must not be dropped", () => {
 				sessionId: "s1",
 				epoch: "e1",
 				seq: 1,
-				event: { kind: "delta", messageId: "m1", partId: "p1", role: "assistant", field: "text", delta: " the" },
+				event: {
+					kind: "delta",
+					messageId: "m1",
+					partId: "p1",
+					role: "assistant",
+					field: "text",
+					delta: " the",
+				},
 			},
 			{
 				sessionId: "s1",
 				epoch: "e1",
 				seq: 2,
-				event: { kind: "delta", messageId: "m1", partId: "p1", role: "assistant", field: "text", delta: " the" },
+				event: {
+					kind: "delta",
+					messageId: "m1",
+					partId: "p1",
+					role: "assistant",
+					field: "text",
+					delta: " the",
+				},
 			},
 		];
 		const { updates } = foldEnvelopeEvents(envelopes);
