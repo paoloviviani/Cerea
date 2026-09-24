@@ -239,6 +239,14 @@ export class MachineLink {
 	}): Promise<Record<string, never>> {
 		return this.call("permission.reply", args);
 	}
+	questionReply(args: {
+		sessionId: string;
+		requestId: string;
+		decision: "answer" | "reject";
+		answers?: string[][];
+	}): Promise<Record<string, never>> {
+		return this.call("question.reply", args);
+	}
 	sessionSync(args: { sessionId: string; epoch?: string; afterSeq?: number }): Promise<SyncResult> {
 		return this.call("session.sync", args);
 	}

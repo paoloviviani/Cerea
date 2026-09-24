@@ -449,6 +449,29 @@ export async function respondPermission(
 	);
 }
 
+/** The user-question tool design's own approval — the SAME "accept"/
+ * "decline" vocabulary AskQuestion.svelte's onanswer prop already emits;
+ * answers (one array of chosen labels per question, in order) only on
+ * accept. */
+export async function respondQuestion(
+	deviceId: string,
+	agentId: string,
+	requestId: string,
+	decision: "accept" | "decline",
+	answers?: string[][]
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/questions/${encodeURIComponent(requestId)}?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ decision, ...(answers ? { answers } : {}) }),
+			}
+		)
+	);
+}
+
 // -- archival: leaving the daemon's active lists ------------------------------
 //
 // Both removals are the daemon's own archive operations, named by the path

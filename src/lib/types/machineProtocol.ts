@@ -26,6 +26,10 @@ export interface Backend {
 		files: boolean;
 		worktrees: boolean;
 		autoAccept: boolean;
+		/** The user-question tool design: a native multiple-choice question
+		 * mechanism (opencode: its built-in "question" tool). ACP reports
+		 * false — it has no wire message for this. */
+		questions: boolean;
 	};
 }
 
@@ -171,6 +175,21 @@ export type Part =
 	  })
 	| ({ id: string; messageId: string; role: string; type: "compaction" } & { auto: boolean });
 
+/** One choice offered for a Question (opencode's own QuestionOption). */
+export interface QuestionOption {
+	label: string;
+	description?: string;
+}
+
+/** One question of a (possibly multi-question) ask — opencode's own
+ * built-in "question" tool, verified live against 1.18.31. */
+export interface Question {
+	question: string;
+	header?: string;
+	options: QuestionOption[];
+	multiple?: boolean;
+}
+
 export interface PermissionRequest {
 	id: string;
 	sessionId: string;
@@ -204,7 +223,9 @@ export type NormalizedEvent =
 	| { kind: "usage"; usage: Usage }
 	| { kind: "session"; session: Session }
 	| { kind: "error"; message: string; code?: string }
-	| { kind: "todo"; todos: Todo[] };
+	| { kind: "todo"; todos: Todo[] }
+	| { kind: "question.asked"; request: { id: string; questions: Question[]; callId?: string } }
+	| { kind: "question.resolved"; requestId: string; answers?: string[][]; rejected?: true };
 
 export interface Envelope {
 	sessionId: string;
@@ -234,6 +255,7 @@ export type OpName =
 	| "session.setModel"
 	| "session.setAutoAccept"
 	| "permission.reply"
+	| "question.reply"
 	| "session.sync"
 	| "session.diff"
 	| "session.children"
@@ -343,6 +365,7 @@ const backendSchema = z.object({
 		files: z.boolean(),
 		worktrees: z.boolean(),
 		autoAccept: z.boolean(),
+		questions: z.boolean(),
 	}),
 });
 
