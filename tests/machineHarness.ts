@@ -63,6 +63,9 @@ export async function seedUser(db: Db, sessionId: string, sub: string): Promise<
 		createdAt: now,
 		updatedAt: now,
 	});
+	// A signed-in person's settings are keyed by userId, not sessionId (authCondition):
+	// move the fixture's welcome-dismissed settings over, or the modal inerts the app.
+	await db.collection("settings").updateOne({ sessionId }, { $set: { userId: insertedId } });
 	return insertedId;
 }
 
