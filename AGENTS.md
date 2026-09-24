@@ -427,16 +427,20 @@ knowing before touching the model picker or writing another live check:
 
 ## The /code Agents panel
 
-`reports/2026-09-24-thin-agent-protocol.md` is the wire protocol (binding for
-both this app and the Go agent, `pystino-agent`); it replaced paseo (daemon +
-relay + `@getpaseo` SDK) after `reports/2026-09-23-code-and-architecture-review.md`
-found paseo's trust model un-hardenable (Cerea held an irrevocable capability
-per machine) and its internal API a fast-churning, unsupported import.
-Coding agents run on **the person's own machine**, supervised by one binary
-that dials **out** to this deployment over WSS with its own OIDC credential —
-no relay, no daemon process, nothing capability-bearing at rest in Cerea.
-`docs/code-panel.md` is the operator guide and `docs/agent-machines.md` the
-user's; what matters when changing the code:
+`agent/PROTOCOL.md` (`reports/2026-09-24-thin-agent-protocol.md` is its
+design record) is the wire protocol (binding for both this app and the Go
+agent, `galopin`, which lives in this repository as `agent/` — moved from
+Pystino with its history preserved, first-party code under this repo's own
+`LICENCE`); it replaced paseo (daemon + relay + `@getpaseo` SDK) after
+`reports/2026-09-23-code-and-architecture-review.md` found paseo's trust
+model un-hardenable (Cerea held an irrevocable capability per machine) and
+its internal API a fast-churning, unsupported import. Coding agents run on
+**the person's own machine**, supervised by one binary that dials **out** to
+this deployment over WSS with its own OIDC credential — no relay, no daemon
+process, nothing capability-bearing at rest in Cerea. `docs/code-panel.md`
+is the operator guide and `docs/agent-machines.md` the user's (it also
+covers building, installing and running `galopin` itself); what matters when
+changing the code:
 
 - **`CODE_AGENTS_ENABLED` must be exactly `"true"`.** Off hides the
   Chats/Agents switch, 404s `/code` in `+page.server.ts`, and refuses the

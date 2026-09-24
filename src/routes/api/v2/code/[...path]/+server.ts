@@ -172,7 +172,7 @@ function toSession(session: Session): CodeAgentSession {
  * disabled toggle rather than left for someone to discover only after
  * wondering where auto-accept went. */
 const AUTO_ACCEPT_VETO_NOTE =
-	"This machine's policy vetoes auto-accept: re-run `pystino-agent enroll … --allow-auto-accept`, then restart `run`.";
+	"This machine's policy vetoes auto-accept: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
 
 /** The single feature this deployment offers: opencode's auto-accept,
  * backed directly by `session.setAutoAccept` (spec §8). Absent — the

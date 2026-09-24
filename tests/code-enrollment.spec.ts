@@ -5,7 +5,7 @@
  * Unlike the paseo-era daemon this replaces, the machine reports its own
  * credential health directly (`hello`/`credential` frames, spec §5) — there
  * is no separate network probe to run before the first send, and no
- * dedicated "re-enroll" flow (a fresh `pystino-agent enroll` mints a new
+ * dedicated "re-enroll" flow (a fresh `galopin enroll` mints a new
  * machine id, so re-enrolling is just pairing again). This suite pins:
  *
  * - a paired device whose row reports `credentialState: "expired"` shows a

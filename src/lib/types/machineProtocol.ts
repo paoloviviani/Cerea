@@ -1,6 +1,6 @@
 /**
  * The thin machine agent wire protocol (v1) — the one contract this file, the
- * Go agent (`pystino-agent`) and `reports/2026-09-24-thin-agent-protocol.md`
+ * Go agent (`galopin`, in this repository's `agent/`) and `reports/2026-09-24-thin-agent-protocol.md`
  * all implement. Source of truth is the report; this module is its TypeScript
  * half.
  *

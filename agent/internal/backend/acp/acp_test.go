@@ -14,7 +14,7 @@ import (
 // fakeAgent is an in-process ACP agent: it speaks the same rpcConn wire
 // protocol as the real Backend, wired to the opposite ends of two
 // io.Pipes, so these tests never spawn a real process (that is what
-// acp_it_test.go, gated behind PYSTINO_AGENT_ACP_IT=1, does against real
+// acp_it_test.go, gated behind GALOPIN_ACP_IT=1 (alias PYSTINO_AGENT_ACP_IT), does against real
 // `opencode acp`). Using rpcConn on both ends means the fake agent gets
 // ACP's bidirectional request/response/notify behavior for free instead of
 // reimplementing a second, parallel protocol reader.
