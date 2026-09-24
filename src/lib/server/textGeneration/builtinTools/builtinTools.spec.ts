@@ -202,7 +202,7 @@ describe("askUserQuestionBuiltin", () => {
 	it("tells the model to deliver first, never to ask for confirmation or instead of content", () => {
 		expect(askUserQuestionBuiltin.preprompt).toMatch(/Never use it to confirm \("did it work\?"\)/);
 		expect(askUserQuestionBuiltin.preprompt).toMatch(
-			/nor in the same step as delivering content \(an artifact/
+			/or in the step that delivers content \(an artifact/
 		);
 		expect(askUserQuestionBuiltin.preprompt).toMatch(
 			/"Other" free-text choice is added automatically; never add your own/
