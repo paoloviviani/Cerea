@@ -9,7 +9,7 @@
  * the live bridge emitted (seq 2-6 of the trace), after the snapshot frame a
  * fresh mount receives (seq 1: the idle agent's settled turn state).
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -79,7 +79,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the live turn's user echo and answer render without a remount", async ({ page }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// The user echo must land as a message.
 	await expect(page.getByText("hello agent")).toBeVisible();

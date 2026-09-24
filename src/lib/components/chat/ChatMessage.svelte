@@ -86,7 +86,9 @@
 		 */
 		onanswerElicitation?: (
 			request: ElicitationRequestPayload,
-			action: ElicitationAction
+			action: ElicitationAction,
+			/** Set only for the approval card's "Always allow" button. */
+			scope?: "always"
 		) => Promise<{ ok: boolean; error?: string }>;
 		/**
 		 * The coding-agent panel's subagent claim: when a tool call id names a
@@ -709,7 +711,7 @@
 										expiresAt={block.expiresAt}
 										resolved={block.resolved}
 										onanswer={onanswerElicitation
-											? (action) => onanswerElicitation(block.request, action)
+											? (action, scope) => onanswerElicitation(block.request, action, scope)
 											: undefined}
 									/>
 								{:else}
@@ -793,7 +795,7 @@
 										expiresAt={unit.expiresAt}
 										resolved={unit.resolved}
 										onanswer={onanswerElicitation
-											? (action) => onanswerElicitation(unit.request, action)
+											? (action, scope) => onanswerElicitation(unit.request, action, scope)
 											: undefined}
 									/>
 								{:else}

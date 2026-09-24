@@ -7,7 +7,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import {
 	opencodeAvailable,
 	seedUser,
@@ -56,7 +56,7 @@ test.describe("owned machine agent: parity", () => {
 		await seedUser(db, sessionId, sub);
 		const started = await startMachine({ sub, policy });
 		machine = started;
-		await page.goto("/code");
+		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(started.name)).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: "Confirm this machine" }).click();
@@ -103,9 +103,60 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByText(/\d+ non-gateway models? hidden/)).toBeVisible();
 	});
 
-	test("auto-accept: absent under the default policy", async ({ page, db, session }) => {
+	test("auto-accept: visible but disabled under the default policy, with the re-enroll fix", async ({
+		page,
+		db,
+		session,
+	}) => {
 		await openSession(page, db, session.sessionId);
-		await expect(page.getByRole("button", { name: /auto.?accept/i })).toHaveCount(0);
+		const pill = page.getByRole("button", { name: /auto.?accept/i });
+		await expect(pill).toBeVisible();
+		await expect(pill).toBeDisabled();
+		await expect(page.getByText(/--allow-auto-accept/)).toBeVisible();
+	});
+
+	test("approvals: Always allow grants the rest of the session, so a later call needs no second prompt", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{
+					id: "call_a",
+					name: "bash",
+					arguments: JSON.stringify({ command: "echo one > a.txt", description: "write a" }),
+				},
+			],
+			toolCallsOnce: true,
+			content: ["First", " done", "."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await send(page, "write a");
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: "Always allow" }).click();
+		await expect(page.getByText("First done.")).toBeVisible({ timeout: 60_000 });
+
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{
+					id: "call_b",
+					name: "bash",
+					arguments: JSON.stringify({ command: "echo two > b.txt", description: "write b" }),
+				},
+			],
+			toolCallsOnce: true,
+			content: ["Second", " done", "."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await send(page, "write b");
+		await expect(page.getByText("Second done.")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText("wants to call")).toHaveCount(0);
 	});
 
 	test("auto-accept: a machine that allows it runs tools without asking, and the diff shows the change", async ({

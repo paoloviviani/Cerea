@@ -36,6 +36,11 @@ export interface CodeProviderFeature {
 	label: string;
 	description?: string;
 	value: boolean;
+	/** Set when the machine's own policy vetoes this feature (C4: the panel
+	 * cannot override it) — the toggle still renders, disabled, carrying
+	 * this as the exact fix rather than disappearing as if the feature
+	 * never existed. */
+	blockedReason?: string;
 }
 
 export class CodeApiError extends Error {
@@ -307,7 +312,10 @@ export async function fetchSubagentTimeline(
  * modes (ADR 0089). */
 export type AgentPosture = "plan" | "write";
 
-export type PermissionDecision = "approve" | "deny";
+/** The daemon's own `permission.reply` vocabulary (spec §8), carried through
+ * unmediated: "once" answers this call only, "always" grants the rest of
+ * the session, "reject" denies it. */
+export type PermissionDecision = "once" | "always" | "reject";
 
 /** Send a follow-up to a running session. The reply arrives on the timeline
  * stream. No licence rides along: the agent's mode — paseo's permission
