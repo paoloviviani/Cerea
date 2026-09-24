@@ -207,9 +207,11 @@ test.describe("owned machine agent: parity", () => {
 	 * a `task` call, while the child's own prompt — which echoes the task
 	 * text — routes to a `bash` call that needs a permission. The mock
 	 * answers tool results with text (its `role: "tool"` check), so neither
-	 * side loops.
+	 * side loops. The child's command names the workspace absolutely: the
+	 * point under test is the approval round trip, not opencode's working
+	 * directory for subagents.
 	 */
-	const subagentApprovalScenario = {
+	const subagentApprovalScenario = (workspace: string) => ({
 		toolCalls: [
 			{
 				id: "call_task",
@@ -234,7 +236,7 @@ test.describe("owned machine agent: parity", () => {
 							id: "call_child_bash",
 							name: "bash",
 							arguments: JSON.stringify({
-								command: "echo child-marker > child.txt",
+								command: `echo child-marker > ${workspace}/child.txt`,
 								description: "write child file",
 							}),
 						},
@@ -246,7 +248,7 @@ test.describe("owned machine agent: parity", () => {
 				},
 			},
 		],
-	};
+	});
 
 	test("subagent approvals: a child's bash permission surfaces as a labelled card mid-turn, and approving lets the child finish", async ({
 		page,
@@ -255,7 +257,7 @@ test.describe("owned machine agent: parity", () => {
 		mockOpenAI,
 	}) => {
 		const m = await openSession(page, db, session.sessionId);
-		await mockOpenAI.setDefaultScenario(subagentApprovalScenario);
+		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
 
 		// The card arrives mid-turn (the turn is still held on it), labelled
@@ -282,12 +284,23 @@ test.describe("owned machine agent: parity", () => {
 	}) => {
 		const m = await openSession(page, db, session.sessionId, { autoAccept: "allowed" });
 		await page.getByRole("button", { name: /auto.?accept/i }).click();
-		await mockOpenAI.setDefaultScenario(subagentApprovalScenario);
+		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
 
 		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
 		await expect(page.getByText("Child done.")).toBeVisible({ timeout: 60_000 });
+		const html = await page.content();
+		console.log(
+			"DEBUG wants-to-call contexts:",
+			(html.match(/.{120}wants to call.{120}/gs) ?? []).join("\n---\n")
+		);
+		for (const r of await mockOpenAI.requests()) {
+			const msgs = ((r.body as { messages?: Array<{ role?: string }> }).messages ?? []).filter(
+				(m) => m.role === "tool"
+			);
+			for (const m of msgs) console.log("DEBUG tool message:", JSON.stringify(m).slice(0, 2000));
+		}
 		await expect(page.getByText("wants to call")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});

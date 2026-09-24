@@ -156,9 +156,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			for (const permission of childSync.snapshot.permissions ?? []) {
 				if (seenChildAsks.has(permission.id)) continue;
 				seenChildAsks.add(permission.id);
-				initial.push(
-					permissionRequestToUpdate(permission, { childId, childTitle: title })
-				);
+				initial.push(permissionRequestToUpdate(permission, { childId, childTitle: title }));
 			}
 		} catch {
 			// One child's history failing to load must not fail the parent's
@@ -193,11 +191,13 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// other mid-stream epoch change). The sync's cursor is the parent
 	// session's own: a child's envelope is ordered on the child's own
 	// sequence, so every same-epoch child envelope buffered here is new.
-	const drainedNow = buffered.splice(0).filter((e) =>
-		e.sessionId === sessionId
-			? e.epoch === sync.epoch && e.seq > sync.seq
-			: e.epoch === sync.epoch
-	);
+	const drainedNow = buffered
+		.splice(0)
+		.filter((e) =>
+			e.sessionId === sessionId
+				? e.epoch === sync.epoch && e.seq > sync.seq
+				: e.epoch === sync.epoch
+		);
 	for (const envelope of drainedNow) learnTitle(envelope);
 	const drainedFolded = foldEnvelopeEvents(
 		dedupeSeeded(drainedNow),
