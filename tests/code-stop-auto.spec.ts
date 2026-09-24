@@ -184,7 +184,8 @@ async function installStubs(page: Page, options: { snapshot?: Record<string, unk
 	return { frames, cancelBodies, featureBodies, featureQueries, agent };
 }
 
-const goto = (page: Page) => page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+const goto = (page: Page) =>
+	page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 test.describe("the stop control", () => {
 	test("a live turn shows it; stopping ends the turn when the stream says so", async ({ page }) => {
