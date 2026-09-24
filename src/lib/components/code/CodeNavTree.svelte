@@ -544,13 +544,16 @@
 		oncreated={(agent) => {
 			// The daemon owns the truth; reload the tree and take the person
 			// straight to the new session. Navigation also closes the drawer.
+			// Read the block's consts before clearing agentDialogFor: they are
+			// derived from it, and the {#if} tears down as soon as it is null.
+			const deviceId = dialogDevice;
+			const workspaceId = dialogWorkspace.id;
 			agentDialogFor = null;
-			if (dialogDevice) {
-				void reloadDevice(dialogDevice);
-				void goto(
-					`${base}/code?device=${dialogDevice}&ws=${dialogWorkspace.id}&agent=${agent.id}`,
-					{ keepFocus: true }
-				);
+			if (deviceId) {
+				void reloadDevice(deviceId);
+				void goto(`${base}/code?device=${deviceId}&ws=${workspaceId}&agent=${agent.id}`, {
+					keepFocus: true,
+				});
 			}
 		}}
 	/>
