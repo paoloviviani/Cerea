@@ -1,4 +1,4 @@
-import { injectArtifactsPrompt } from "./artifacts";
+import { artifactsEnabledForTurn, injectArtifactsPrompt } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
 import {
 	ML_ASSISTANT_BUDGET_RULES,
@@ -55,7 +55,7 @@ export function resolvePreprompt({
 	skillsPreprompt,
 }: PrepromptInput): string | undefined {
 	const base = mlAssistant ? ML_ASSISTANT_PREPROMPT : conversationPreprompt;
-	const artifacts = mlAssistant || (artifactsOverride ?? supportsArtifacts);
+	const artifacts = artifactsEnabledForTurn({ mlAssistant, artifactsOverride, supportsArtifacts });
 	// Execution is a client capability, so the prompt is unconditional: models
 	// must know python blocks auto-run in the browser and that they never see
 	// the output themselves.

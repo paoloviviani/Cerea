@@ -6,6 +6,8 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Message } from "$lib/types/Message";
+import { isMessageToolUpdate } from "$lib/utils/messageUpdates";
+import { stripThink } from "$lib/utils/stripThink";
 
 export interface ApplyUpdateContext {
 	/** The assistant message this turn writes into. Mutated in place. */
@@ -32,6 +34,88 @@ export interface AppliedUpdate {
 
 const SKIPPED: AppliedUpdate = { skipped: true, titleChanged: false, finalAnswerReceived: false };
 
+const THINK_CLOSE = "</think>";
+
+/**
+ * Join two consecutive tool-loop steps' text with a paragraph break.
+ *
+ * Pure concatenation is what glued "…play with trails." to "That one's on me…"
+ * with no separator, in the persisted message (which the Markdown export
+ * reads) and in the streamed tokens the UI renders. Empty segments never earn
+ * a break, and neither does a boundary that already has one — so streaming
+ * stays incremental (the break rides on the next step's first token) and
+ * breaks never double.
+ */
+export function joinStepText(existing: string, next: string): string {
+	return existing + stepSeparator(existing, next) + next;
+}
+
+/** The break {@link joinStepText} inserts: `"\n\n"` or `""`. */
+export function stepSeparator(existing: string, next: string): string {
+	// Visible text is what counts: a step of pure `<think>` reasoning is an
+	// empty segment, and so is a message that holds nothing but reasoning.
+	if (stripThink(existing).trim().length === 0) return "";
+	if (stripThink(next).trim().length === 0) return "";
+	if (/\n\n$/.test(existing) || /^\n/.test(next)) return "";
+	return "\n\n";
+}
+
+/**
+ * A tool-loop step whose first visible words have not arrived yet: whether
+ * the message is inside a `<think>` block right now, and any tag prefix a
+ * token ended on ("<thi"), which only the next token can settle. Set when a
+ * tool update passes, dropped once that step's answer starts. Kept beside the
+ * message and advanced one token at a time, never recomputed from the whole
+ * message: a step may reason for tens of thousands of tokens before it speaks,
+ * and rescanning the content per token would make that quadratic. A message
+ * object that outlives this map (a resumed turn) simply gets no break.
+ */
+interface PendingStep {
+	inThink: boolean;
+	carry: string;
+}
+const pendingSteps = new WeakMap<Message, PendingStep>();
+
+const THINK_OPEN = "<think>";
+
+/**
+ * Advance `step` over `token`; the index in `token` where the step's first
+ * visible (non-blank, outside `<think>`) character lands, or -1 while it is
+ * still reasoning or blank. The same case-sensitive tags {@link stripThink}
+ * recognises, so the two agree on what is visible.
+ */
+function firstVisibleIndex(step: PendingStep, token: string): number {
+	const text = step.carry + token;
+	const offset = step.carry.length;
+	step.carry = "";
+	let i = 0;
+	while (i < text.length) {
+		if (text[i] === "<") {
+			const rest = text.slice(i, i + THINK_CLOSE.length);
+			if (rest.startsWith(THINK_OPEN)) {
+				step.inThink = true;
+				i += THINK_OPEN.length;
+				continue;
+			}
+			if (rest.startsWith(THINK_CLOSE)) {
+				step.inThink = false;
+				i += THINK_CLOSE.length;
+				continue;
+			}
+			if (
+				i + rest.length === text.length &&
+				(THINK_OPEN.startsWith(rest) || THINK_CLOSE.startsWith(rest))
+			) {
+				step.carry = rest;
+				return -1;
+			}
+		}
+		if (!step.inThink && text[i].trim() !== "") return Math.max(0, i - offset);
+		i++;
+	}
+	return -1;
+}
+
 /**
  * Fold one update into the message a turn is building.
  *
@@ -53,6 +137,25 @@ export function applyUpdateToMessage(
 
 	if (event.type === MessageUpdateType.Stream) {
 		if (event.token === "") return SKIPPED;
+		const step = pendingSteps.get(message);
+		if (step) {
+			// The break goes where the new step's answer starts: after any
+			// reasoning it opens with (else the UI renders it inside the collapsed
+			// reasoning block), never mid-reasoning, and only once.
+			const at = firstVisibleIndex(step, event.token);
+			if (at >= 0) {
+				pendingSteps.delete(message);
+				const head = event.token.slice(0, at);
+				const tail = event.token.slice(at);
+				const gap = stepSeparator(message.content + head, tail);
+				// Mutating the event (not just `message.content`) keeps every
+				// downstream consumer consistent: the updates log the route
+				// persists, the generation-event writer, and the SSE token the
+				// client appends to its live view. Nothing is buffered: the break
+				// rides on the step's first visible token.
+				if (gap) event.token = head + gap + tail;
+			}
+		}
 		message.content += event.token;
 	} else if (
 		event.type === MessageUpdateType.Reasoning &&
@@ -121,6 +224,16 @@ export function applyUpdateToMessage(
 				provider: event.provider,
 			};
 		}
+	}
+
+	// A tool ran: whatever streams next starts a new step's text, which gets
+	// a paragraph break from the previous step's once its visible words arrive.
+	if (isMessageToolUpdate(event) && !pendingSteps.has(message)) {
+		const content = message.content;
+		pendingSteps.set(message, {
+			inThink: content.lastIndexOf(THINK_OPEN) > content.lastIndexOf(THINK_CLOSE),
+			carry: "",
+		});
 	}
 
 	// Append updates for audit/replay (streams too, to preserve ordering)

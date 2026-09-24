@@ -35,9 +35,10 @@ import { isMessageToolCallUpdate } from "$lib/utils/messageUpdates";
  * - Direct-emission file blocks (titled fences, ```markdown title=x.md) are
  *   ordinary message content and pass through verbatim: language and title=
  *   annotation survive, so the file identity survives the export.
- * - Tool calls are summarized to their names only (`_Called N tool(s): …_`).
- *   Arguments and results are omitted: they can carry huge/base64 payloads
- *   and are call internals, not conversation text.
+ * - Tool calls are summarized to their names with multiplicity
+ *   (`_Called 5 tools: `ask_user_question` ×5._`). Arguments and results are
+ *   omitted: they can carry huge/base64 payloads and are call internals, not
+ *   conversation text.
  * - Attachments and generated files are listed by name; bytes are out of
  *   scope for a text export.
  */
@@ -107,15 +108,27 @@ export function collectReasoning(message: Message): string[] {
 	return parts;
 }
 
-/** Tool-call names in first-call order, from the message's tool updates. */
+/** Every tool call's name in call order, duplicates kept: five `ask_user_question` calls are five calls, not one. */
 export function collectToolNames(message: Message): string[] {
 	const names: string[] = [];
 	for (const update of message.updates ?? []) {
-		if (isMessageToolCallUpdate(update) && !names.includes(update.call.name)) {
+		if (isMessageToolCallUpdate(update)) {
 			names.push(update.call.name);
 		}
 	}
 	return names;
+}
+
+/**
+ * Group call names with multiplicity, keeping first-call order:
+ * `["search", "search", "fetch"]` → `` ["`search` ×2", "`fetch`"] ``.
+ */
+export function formatToolNamesWithCounts(names: string[]): string[] {
+	const counts = new Map<string, number>();
+	for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+	return [...counts].map(([name, count]) =>
+		count === 1 ? `\`${name}\`` : `\`${name}\` ×${count}`
+	);
 }
 
 /** Names of files the run generated (`file` updates carry name + hash, not bytes). */
@@ -183,7 +196,7 @@ function renderAssistantMessage(message: Message, model?: string): string {
 	const toolNames = collectToolNames(message);
 	if (toolNames.length > 0) {
 		sections.push(
-			`_Called ${toolNames.length} tool${toolNames.length === 1 ? "" : "s"}: ${toolNames.map((n) => `\`${n}\``).join(", ")}._`
+			`_Called ${toolNames.length} tool${toolNames.length === 1 ? "" : "s"}: ${formatToolNamesWithCounts(toolNames).join(", ")}._`
 		);
 	}
 	const answer = renderAnswerBody(message.content);
