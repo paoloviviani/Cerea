@@ -1,0 +1,86 @@
+# Build the Cerea image on every PR; publish it from main and tags.
+#
+# Publishing is OFF until the repository variable PUBLISH_IMAGES is "true".
+# Until then each run proves the image builds from a clean checkout — the
+# deployment used to build it from whatever a local working copy held, and
+# nothing recorded which commit was running.
+#
+# The image is built with APP_BASE=/chat: SvelteKit's base path is compile-time,
+# and /chat is where every Pystino stack serves the chat. Pystino pins the
+# published image by digest in deploy/stack/release.env (ADR 0087), so a Cerea
+# release reaches a deployment only through a tested Pystino release.
+#
+# Tags: main → sha-<7>, edge;  vX.Y.Z → X.Y.Z, X.Y, latest.
+name: images
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "installer/**"
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PUBLISH: ${{ vars.PUBLISH_IMAGES == 'true' && github.event_name != 'pull_request' }}
+
+jobs:
+  cerea:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/cerea
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=cerea
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          build-args: |
+            APP_BASE=/chat
+            PUBLIC_COMMIT_SHA=${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          push: ${{ env.PUBLISH == 'true' }}
+          cache-from: type=gha,scope=cerea
+          cache-to: type=gha,mode=max,scope=cerea
+          provenance: ${{ env.PUBLISH == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ env.PUBLISH == 'true' }}
