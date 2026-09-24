@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyUpdateToMessage } from "./applyUpdate";
+import { applyUpdateToMessage, joinStepText, startsNewStepSegment } from "./applyUpdate";
 import {
 	MessageReasoningUpdateType,
 	MessageToolUpdateType,
 	MessageUpdateStatus,
 	MessageUpdateType,
+	type MessageStreamUpdate,
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import type { Message } from "$lib/types/Message";
@@ -33,6 +34,11 @@ const toolCall: MessageUpdate = {
 	uuid: "t1",
 	call: { name: "hf_jobs", parameters: {} },
 };
+
+const stream = (token: string): MessageStreamUpdate => ({
+	type: MessageUpdateType.Stream,
+	token,
+});
 
 describe("applyUpdateToMessage", () => {
 	it("drops an empty stream token entirely", () => {
@@ -184,5 +190,125 @@ describe("applyUpdateToMessage", () => {
 			ctx(plain, "", false)
 		);
 		expect(plain.routerMetadata).toEqual({ route: "", model: "", provider: "hf-inference" });
+	});
+});
+
+describe("joinStepText", () => {
+	it("puts a paragraph break between two non-empty segments", () => {
+		expect(joinStepText("play with trails.", "That one's on me.")).toBe(
+			"play with trails.\n\nThat one's on me."
+		);
+	});
+
+	it("adds no break when either segment is empty", () => {
+		expect(joinStepText("", "That one's on me.")).toBe("That one's on me.");
+		expect(joinStepText("play with trails.", "")).toBe("play with trails.");
+		expect(joinStepText("play with trails.", "   ")).toBe("play with trails.   ");
+	});
+
+	it("adds no break when the boundary already has one", () => {
+		expect(joinStepText("play with trails.\n\n", "That one's on me.")).toBe(
+			"play with trails.\n\nThat one's on me."
+		);
+		expect(joinStepText("play with trails.", "\nThat one's on me.")).toBe(
+			"play with trails.\nThat one's on me."
+		);
+	});
+
+	it("treats pure-reasoning segments as empty", () => {
+		// A step that only thought (or a message holding only thought) is not a
+		// text segment, so no break is owed on either side of it.
+		expect(joinStepText("<think>drafting the artifact</think>", "Here it is.")).toBe(
+			"<think>drafting the artifact</think>Here it is."
+		);
+		expect(joinStepText("play with trails.", "<think>weighing options</think>")).toBe(
+			"play with trails.<think>weighing options</think>"
+		);
+	});
+});
+
+describe("startsNewStepSegment", () => {
+	it("is false with no history or with visible text since any tool", () => {
+		expect(startsNewStepSegment(undefined)).toBe(false);
+		expect(startsNewStepSegment([])).toBe(false);
+		expect(startsNewStepSegment([stream("hello")])).toBe(false);
+		expect(startsNewStepSegment([stream("a"), toolCall, stream("b")])).toBe(false);
+	});
+
+	it("is true when a tool ran since the last visible stream", () => {
+		expect(startsNewStepSegment([stream("a"), toolCall])).toBe(true);
+	});
+
+	it("skips pure-reasoning chunks on both sides of the boundary", () => {
+		// The step thought before speaking: the think chunks are not segments.
+		expect(startsNewStepSegment([stream("a"), toolCall, stream("<think>hmm")])).toBe(true);
+		expect(
+			startsNewStepSegment([stream("<think>draft</think>"), toolCall, stream("<think>hmm")])
+		).toBe(true);
+	});
+});
+
+describe("streaming a new step after tools", () => {
+	it("separates consecutive steps' text, in content and in the forwarded token", () => {
+		const m = message();
+		applyUpdateToMessage(stream("play with trails."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		const second = stream("That one's on me.");
+		applyUpdateToMessage(second, ctx(m));
+
+		expect(m.content).toBe("play with trails.\n\nThat one's on me.");
+		// The break rides on the token itself, so the SSE client, the
+		// generation-event writer and the persisted updates all read the same
+		// bytes as the export does.
+		expect(second.token).toBe("\n\nThat one's on me.");
+		const stored = m.updates?.at(-1);
+		expect(stored?.type).toBe(MessageUpdateType.Stream);
+		if (stored?.type === MessageUpdateType.Stream) expect(stored.token).toBe(second.token);
+	});
+
+	it("streams incrementally within a step: later chunks are untouched", () => {
+		const m = message();
+		applyUpdateToMessage(stream("play with "), ctx(m));
+		applyUpdateToMessage(stream("trails."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("That "), ctx(m));
+		applyUpdateToMessage(stream("one's on me."), ctx(m));
+
+		expect(m.content).toBe("play with trails.\n\nThat one's on me.");
+	});
+
+	it("adds no leading break when the turn had no text before the tools", () => {
+		const m = message();
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("That one's on me."), ctx(m));
+
+		expect(m.content).toBe("That one's on me.");
+	});
+
+	it("adds no break when the prior step is reasoning-only", () => {
+		const m = message();
+		applyUpdateToMessage(stream("<think>drafting the artifact</think>"), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("Here it is."), ctx(m));
+
+		expect(m.content).toBe("<think>drafting the artifact</think>Here it is.");
+	});
+
+	it("never doubles a break the step already carries", () => {
+		const m = message();
+		applyUpdateToMessage(stream("play with trails.\n\n"), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("That one's on me."), ctx(m));
+
+		expect(m.content).toBe("play with trails.\n\nThat one's on me.");
+	});
+
+	it("puts the break after the think markup when the step opens with reasoning", () => {
+		const m = message();
+		applyUpdateToMessage(stream("play with trails.<think>weighing options"), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("</think>That one's on me."), ctx(m));
+
+		expect(m.content).toBe("play with trails.<think>weighing options</think>\n\nThat one's on me.");
 	});
 });
