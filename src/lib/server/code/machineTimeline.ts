@@ -42,11 +42,13 @@ import type {
 	NormalizedEvent,
 	Part,
 	PermissionRequest,
+	Question,
 	SessionStatus,
 	Todo,
 	Transcript,
 	Usage,
 } from "$lib/types/machineProtocol";
+import type { ElicitationField, ElicitationValue } from "$lib/types/McpElicitation";
 
 let planVersion = 0;
 
@@ -177,6 +179,62 @@ export function permissionResolvedToUpdate(
 	};
 }
 
+/** `question.asked` → the same elicitation mechanism, reusing chat's own
+ * `ask_user_question` shape (the user-question tool design): each machine
+ * `Question` normalizes to one `select` field — `AskQuestion.svelte` (the
+ * card `source: "assistant"` already lifts to the composer for) walks
+ * `fields` as a multi-step flow exactly as it does for chat's own tool.
+ * `value` is the option's own label, not an index: opencode's reply body
+ * wants the chosen labels back verbatim, and this is what
+ * `AskQuestion.svelte`'s own submit already collects into `content[name]`. */
+export function questionRequestedToUpdate(event: {
+	requestId: string;
+	questions: Question[];
+}): MessageElicitationRequestUpdate {
+	const fields: ElicitationField[] = event.questions.map((q, i) => ({
+		kind: "select",
+		name: `q${i}`,
+		title: q.header,
+		description: q.question,
+		required: true,
+		multiple: q.multiple ?? false,
+		options: q.options.map((o) => ({ value: o.label, label: o.label, description: o.description })),
+	}));
+	return {
+		type: MessageUpdateType.Elicitation,
+		subtype: MessageElicitationUpdateType.Request,
+		request: {
+			elicitationId: event.requestId,
+			server: "pystino",
+			mode: "form",
+			source: "assistant",
+			message: event.questions.map((q) => q.question).join("\n\n"),
+			fields,
+		},
+	};
+}
+
+/** `question.resolved` closes that card. `answers` is carried into `content`
+ * keyed the same way questionRequestedToUpdate named its fields (`q0`,
+ * `q1`, …), so a reloaded transcript still shows what was chosen — the
+ * same purpose `content` already serves for chat's own `ask_user_question`. */
+export function questionResolvedToUpdate(event: {
+	requestId: string;
+	answers?: string[][];
+	rejected?: true;
+}): MessageElicitationResolvedUpdate {
+	const content: Record<string, ElicitationValue> = {};
+	event.answers?.forEach((answer, i) => (content[`q${i}`] = answer));
+	return {
+		type: MessageUpdateType.Elicitation,
+		subtype: MessageElicitationUpdateType.Resolved,
+		elicitationId: event.requestId,
+		action: event.rejected ? "decline" : "accept",
+		resolution: "user",
+		...(event.answers ? { content } : {}),
+	};
+}
+
 function todoToUpdate(todos: Todo[]): MessagePlanUpdate {
 	planVersion += 1;
 	return {
@@ -274,6 +332,21 @@ export function eventToUpdates(
 			return [turnStateUpdate("failed", event.message)];
 		case "todo":
 			return [todoToUpdate(event.todos)];
+		case "question.asked":
+			return [
+				questionRequestedToUpdate({
+					requestId: event.request.id,
+					questions: event.request.questions,
+				}),
+			];
+		case "question.resolved":
+			return [
+				questionResolvedToUpdate({
+					requestId: event.requestId,
+					answers: event.answers,
+					rejected: event.rejected,
+				}),
+			];
 		default:
 			return [];
 	}
