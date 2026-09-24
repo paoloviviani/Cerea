@@ -66,6 +66,7 @@ test.describe("owned machine agent (P0)", () => {
 		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
 		await page.getByRole("button", { name: "Write" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
 
 		// ── Prompt → streamed reply ────────────────────────────────────────────
 		const box = page.getByRole("combobox");
