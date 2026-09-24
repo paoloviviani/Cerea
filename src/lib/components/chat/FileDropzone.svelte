@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
+	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 	import CarbonImage from "~icons/carbon/image";
 
 	interface Props {
@@ -43,7 +44,7 @@
 						}
 
 						// if file is bigger than 10MB abort
-						if (file.size > 10 * 1024 * 1024) {
+						if (file.size > MAX_ATTACHMENT_BYTES) {
 							setErrorMsg("Some file is too big. (10MB max)");
 							files = [];
 							return;

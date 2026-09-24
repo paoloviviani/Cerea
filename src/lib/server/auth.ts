@@ -9,6 +9,8 @@ import {
 import type { RequestEvent } from "@sveltejs/kit";
 import { addHours, addWeeks, differenceInMinutes, subMinutes } from "date-fns";
 import { config } from "$lib/server/config";
+import { discoverViaInternal, withForwardedHeaders } from "$lib/server/oidcBackchannel";
+import { forgetGatewaySession, gatewaySessionCheck } from "$lib/server/gatewaySession";
 import { sha256 } from "$lib/utils/sha256";
 import { z } from "zod";
 import { dev } from "$app/environment";
@@ -16,7 +18,6 @@ import { redirect, type Cookies } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
 import JSON5 from "json5";
 import { logger } from "$lib/server/logger";
-import { ObjectId } from "mongodb";
 import { adminTokenManager } from "./adminToken";
 import type { User } from "$lib/types/User";
 import type { Session } from "$lib/types/Session";
@@ -44,6 +45,9 @@ export const OIDConfig = z
 		CLIENT_ID: stringWithDefault(config.OPENID_CLIENT_ID),
 		CLIENT_SECRET: stringWithDefault(config.OPENID_CLIENT_SECRET),
 		PROVIDER_URL: stringWithDefault(config.OPENID_PROVIDER_URL),
+		// Where this server reaches the issuer when that is not PROVIDER_URL
+		// (the bundled Authelia on the compose network). Empty: use PROVIDER_URL.
+		INTERNAL_URL: stringWithDefault(config.OPENID_INTERNAL_URL),
 		SCOPES: stringWithDefault(config.OPENID_SCOPES),
 		NAME_CLAIM: stringWithDefault(config.OPENID_NAME_CLAIM).refine(
 			(el) => !["preferred_username", "email", "picture", "sub"].includes(el),
@@ -62,9 +66,22 @@ export const secure = z
 	.default(!(dev || config.ALLOW_INSECURE_COOKIES === "true"))
 	.parse(config.COOKIE_SECURE === "" ? undefined : config.COOKIE_SECURE === "true");
 
+// `none` is only needed when the session cookie must ride along on a
+// cross-site request — the one case here is the app being embedded in
+// someone else's iframe (the HuggingFace Space heritage this fork carries:
+// HF Spaces frame the chat cross-origin, and a `lax` cookie is dropped on
+// that third-party navigation). `ALLOW_IFRAME=true` is that deployment's own
+// signal that it still needs the iframe, so only that case keeps the old
+// `none` default; every other deployment defaults to `lax`, which also
+// closes a CSRF gap a cross-site POST could otherwise ride a `none` cookie
+// into (see the Origin/Content-Type checks in hooks/handle.ts).
 export const sameSite = z
 	.enum(["lax", "none", "strict"])
-	.default(!secure || dev || config.ALLOW_INSECURE_COOKIES === "true" ? "lax" : "none")
+	.default(
+		config.ALLOW_IFRAME === "true" && secure && !dev && config.ALLOW_INSECURE_COOKIES !== "true"
+			? "none"
+			: "lax"
+	)
 	.parse(config.COOKIE_SAMESITE === "" ? undefined : config.COOKIE_SAMESITE);
 
 export function sanitizeReturnPath(path: string | undefined | null): string | undefined {
@@ -281,7 +298,16 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 		lastIssuerFetchedAt = null;
 	}
 	if (!lastIssuer) {
-		lastIssuer = await Issuer.discover(OIDConfig.PROVIDER_URL);
+		if (OIDConfig.INTERNAL_URL) {
+			// Back-channel over the compose network (oidcBackchannel.ts): no
+			// hairpin through the proxy, so no CA bundle to keep in step.
+			const metadata = await discoverViaInternal(OIDConfig.PROVIDER_URL, OIDConfig.INTERNAL_URL);
+			lastIssuer = new Issuer(metadata);
+			// JWKS is fetched by the issuer, so it needs the headers too.
+			lastIssuer[custom.http_options] = withForwardedHeaders(OIDConfig.PROVIDER_URL);
+		} else {
+			lastIssuer = await Issuer.discover(OIDConfig.PROVIDER_URL);
+		}
 		lastIssuerFetchedAt = new Date();
 	}
 
@@ -332,7 +358,13 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 			: alg_supported[0];
 	}
 
-	return new issuer.Client(client_config);
+	const client = new issuer.Client(client_config);
+	if (OIDConfig.INTERNAL_URL) {
+		// Token and userinfo requests are the client's: same headers, so the
+		// IdP mints tokens whose `iss` is the public issuer.
+		client[custom.http_options] = withForwardedHeaders(OIDConfig.PROVIDER_URL);
+	}
+	return client;
 }
 
 export async function getOIDCAuthorizationUrl(
@@ -487,7 +519,6 @@ export async function validateAndParseCsrfToken(
 }
 
 type CookieRecord = Cookies;
-type HeaderRecord = Headers;
 
 export async function getCoupledCookieHash(cookie: CookieRecord): Promise<string | undefined> {
 	if (!config.COUPLE_SESSION_WITH_COOKIE_NAME) {
@@ -504,44 +535,35 @@ export async function getCoupledCookieHash(cookie: CookieRecord): Promise<string
 }
 
 export async function authenticateRequest(
-	headers: HeaderRecord,
 	cookie: CookieRecord,
-	url: URL,
-	isApi?: boolean
+	url: URL
 ): Promise<App.Locals & { secretSessionId: string }> {
 	const token = cookie.get(config.COOKIE_NAME);
 
-	let email = null;
-	if (config.TRUSTED_EMAIL_HEADER) {
-		email = headers.get(config.TRUSTED_EMAIL_HEADER);
-	}
-
 	let secretSessionId: string | null = null;
 	let sessionId: string | null = null;
-
-	if (email) {
-		secretSessionId = sessionId = await sha256(email);
-		return {
-			user: {
-				_id: new ObjectId(sessionId.slice(0, 24)),
-				name: email,
-				email,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				hfUserId: email,
-				avatarUrl: "",
-			},
-			sessionId,
-			secretSessionId,
-			isAdmin: adminTokenManager.isAdmin(sessionId),
-		};
-	}
 
 	if (token) {
 		secretSessionId = token;
 		sessionId = await sha256(token);
 
 		const result = await findUser(sessionId, await getCoupledCookieHash(cookie), url);
+
+		// The gateway decides admin and whether the account is still active
+		// (gatewaySession.ts): a 401 on the session's own token ends it here,
+		// which is how a directory deprovisioning reaches the chat within a
+		// minute. Null — no gateway, a shared key, or the gateway unreachable —
+		// changes nothing.
+		const gateway =
+			result.user && result.oauth?.token?.value
+				? await gatewaySessionCheck(sessionId, result.oauth.token.value)
+				: null;
+		if (gateway && !gateway.valid) {
+			forgetGatewaySession(sessionId);
+			await collections.sessions.deleteOne({ sessionId });
+			result.user = null;
+			result.invalidateSession = true;
+		}
 
 		if (result.invalidateSession) {
 			secretSessionId = crypto.randomUUID();
@@ -557,61 +579,8 @@ export async function authenticateRequest(
 			token: result.oauth?.token?.value,
 			sessionId,
 			secretSessionId,
-			isAdmin: result.user?.isAdmin || adminTokenManager.isAdmin(sessionId),
+			isAdmin: (gateway?.valid === true && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
 		};
-	}
-
-	if (isApi) {
-		const authorization = headers.get("Authorization");
-		if (authorization?.startsWith("Bearer ")) {
-			const token = authorization.slice(7);
-			const hash = await sha256(token);
-			sessionId = secretSessionId = hash;
-
-			const cacheHit = await collections.tokenCaches.findOne({ tokenHash: hash });
-			if (cacheHit) {
-				const user = await collections.users.findOne({ hfUserId: cacheHit.userId });
-				if (!user) {
-					throw new Error("User not found");
-				}
-				return {
-					user,
-					sessionId,
-					token,
-					secretSessionId,
-					isAdmin: user.isAdmin || adminTokenManager.isAdmin(sessionId),
-				};
-			}
-
-			const response = await fetch("https://huggingface.co/api/whoami-v2", {
-				headers: { Authorization: `Bearer ${token}` },
-			});
-
-			if (!response.ok) {
-				throw new Error("Unauthorized");
-			}
-
-			const data = await response.json();
-			const user = await collections.users.findOne({ hfUserId: data.id });
-			if (!user) {
-				throw new Error("User not found");
-			}
-
-			await collections.tokenCaches.insertOne({
-				tokenHash: hash,
-				userId: data.id,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			});
-
-			return {
-				user,
-				sessionId,
-				secretSessionId,
-				token,
-				isAdmin: user.isAdmin || adminTokenManager.isAdmin(sessionId),
-			};
-		}
 	}
 
 	// Generate new session if none exists

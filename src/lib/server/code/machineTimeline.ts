@@ -58,7 +58,7 @@ function toolCallUpdate(
 		type: MessageUpdateType.Tool,
 		subtype: MessageToolUpdateType.Call,
 		uuid: callId,
-		call: { name: tool, parameters: input as Record<string, string | number | boolean> },
+		call: { name: tool, parameters: (input ?? {}) as Record<string, string | number | boolean> },
 	};
 }
 
@@ -70,7 +70,7 @@ function toolResultUpdate(
 ): MessageToolResultUpdate {
 	const result: ToolResult = {
 		status: ToolResultStatus.Success,
-		call: { name: tool, parameters: input as Record<string, string | number | boolean> },
+		call: { name: tool, parameters: (input ?? {}) as Record<string, string | number | boolean> },
 		outputs: output ? [{ text: output }] : [],
 		display: true,
 	};
