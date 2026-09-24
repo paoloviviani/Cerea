@@ -203,6 +203,21 @@ export async function consumeAgentUpdates(
 		}
 
 		switch (update.type) {
+			case "reset": {
+				// The machine's process restarted (a new epoch): every id
+				// before this point is gone, so the whole transcript is
+				// discarded and rebuilt from what follows — a plain clear,
+				// not a close, since the same iterator keeps yielding.
+				messages.length = 0;
+				current = null;
+				buffer = "";
+				updatesBuffer = [];
+				updatesDirty = false;
+				toolOpen.clear();
+				toolClosed.clear();
+				ctx.onTurnEvent();
+				break;
+			}
 			case "user": {
 				closeTurn();
 				messages.push({ id: v4(), from: "user", content: update.text, children: [] });

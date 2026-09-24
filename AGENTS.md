@@ -426,46 +426,59 @@ knowing before touching the model picker or writing another live check:
 
 ## The /code Agents panel
 
-ADR 0085. Coding agents run on **the person's own machine** (opencode under a
-paseo daemon); this app is a remote control reached through a self-hosted
-relay. `docs/code-panel.md` is the operator guide and `docs/agent-machines.md`
-the user's; what matters when changing the code:
+`reports/2026-09-24-thin-agent-protocol.md` is the wire protocol (binding for
+both this app and the Go agent, `pystino-agent`); it replaced paseo (daemon +
+relay + `@getpaseo` SDK) after `reports/2026-09-23-code-and-architecture-review.md`
+found paseo's trust model un-hardenable (Cerea held an irrevocable capability
+per machine) and its internal API a fast-churning, unsupported import.
+Coding agents run on **the person's own machine**, supervised by one binary
+that dials **out** to this deployment over WSS with its own OIDC credential —
+no relay, no daemon process, nothing capability-bearing at rest in Cerea.
+`docs/code-panel.md` is the operator guide and `docs/agent-machines.md` the
+user's; what matters when changing the code:
 
 - **`CODE_AGENTS_ENABLED` must be exactly `"true"`.** Off hides the
   Chats/Agents switch, 404s `/code` in `+page.server.ts`, and refuses the
-  pairing endpoints as a backstop. Unlike knowledge or memory this one defaults
-  **off**: it needs a relay deployed, and a route that only errors without one
-  is worse than none.
-- **The browser never reaches the daemon.** Every call goes to Cerea, which
-  dials the relay. `routes/api/v2/code/[...path]/+server.ts` is the forwarder,
-  and its allowlist maps each permitted browser path to exactly one typed SDK
-  call — promoted from path patterns to _operations_, because the daemon has no
-  REST surface to forward HTTP to. Timeline streams, pairing hooks, terminals,
-  worktrees and daemon config are deliberately absent; read that file's header
-  before adding anything.
-- **`CODE_RELAY_URL` is the deployment's, never the offer's.** A pairing offer
-  carries its own relay field and it is ignored, deliberately: an offer that
-  could name the rendezvous could point this server at somebody else's relay.
-- **The pairing probe is load-bearing.** Both entry points (the panel's paste
-  and `enroll/machine`'s POST) complete the encrypted handshake before writing
-  a row, and refuse a daemon whose `serverId` differs from the offer's. Do not
-  "optimize" it away: without it a row can name a machine nothing can reach.
-- **`enroll/machine` is bearer-only and exempt from the hook's generic bearer
-  handling**, because a headless machine holds no cookie. It validates by
-  calling userinfo and maps `sub` → `hfUserId` exactly as the login callback
-  does. A valid token for an unknown account is **404**, not 401 — the
-  credential is fine, the account is missing.
-- **Ownership is `userId` _or_ `sessionId`**, the same split as
-  `authCondition`, and every read and write filters on it.
-- **The SDK version is pinned and skew is refused.** `PASEO_SDK_VERSION` in
-  `codeDaemon.ts` must match `package.json`'s exact pins of `@getpaseo/client`
-  and `@getpaseo/protocol`; a daemon reporting a different minor is refused
-  rather than guessed at.
+  pairing endpoints as a backstop.
+- **The machine link is a raw WebSocket upgrade, not a SvelteKit route.**
+  `server.js` (production) and `vite.config.ts`'s dev plugin both forward
+  `GET /api/v2/code/machine` upgrades to a function the app registers on
+  `globalThis[Symbol.for("cerea.machineUpgrade")]` from `initServer()`
+  (`src/lib/server/code/machineServer.ts`). It never reaches
+  `hooks/handle.ts` at all.
+- **The bearer is validated locally, never via userinfo (review C1).**
+  `src/lib/server/code/machineAuth.ts`: JWKS from the issuer's discovery doc
+  (cached), `iss`/`aud`/`azp`/`exp` checked, `sub` mapped to a Cerea user the
+  same way the login callback does. No user → the upgrade is refused with a
+  plain HTTP 403 before it completes.
+- **The registry (`src/lib/server/code/machines.ts`) is a plain in-process
+  `Map`, lost on restart.** `MachineLink` is cheap to construct for any
+  device id — every method looks the live connection up at call time, so a
+  link for an offline machine rejects instantly (`unavailable`), never hangs
+  (review R1). Pairing happens on first `hello` (a `pending` row); a browser
+  confirm flips it to `paired` and pushes a `status` frame down the socket —
+  the fresh human approval review C2 calls for. Revoke tombstones the row
+  (`status: "revoked"`) rather than deleting it, so a reconnect under the
+  same `machineId` is refused.
+- **The browser never reaches the machine directly.** Every call goes to
+  Cerea, through `MachineLink`. `routes/api/v2/code/[...path]/+server.ts` is
+  the forwarder, and its allowlist maps each permitted browser path to
+  exactly one typed op (spec §6). Timeline streams, pairing hooks and
+  anything beyond one backend's sessions are deliberately absent; read that
+  file's header before adding anything.
+- **The SSE bridge is cursored on the machine's own `epoch`/`seq`**
+  (`agents/[id]/stream/+server.ts`), not an invented replay counter — an
+  epoch change (the machine's process restarted) sends a `reset` frame down
+  the _same_ update channel `consumeAgentUpdates.ts` already parses, and the
+  connection's listeners migrate across a machine reconnect
+  (`machines.ts`'s `onHello`) rather than going silently stale.
 - **The panel owns mutations, the pane owns display.** `CodeNavTree.svelte` has
   every dialog and every write; `CodePanel`/`AgentView` render whatever
   `?device=&ws=&agent=` names, and a new address remounts the view. Removals
-  confirm, then redraw from the daemon's answer — never an optimistic splice,
-  because the daemon owns the listings.
+  confirm, then redraw from the machine's answer — never an optimistic
+  splice, because the machine owns the listings. The paired-device list
+  itself is one shared poll (`$lib/stores/codeDeviceList.svelte.ts`) — do not
+  reintroduce a second one alongside it.
 - **The agent view is the chat's own machinery.** `ChatMessageColumn`,
   `ChatInput`, the approval card, the shared side pane. That is what makes
   live updates arrive by construction; a bespoke stack here would be a second
