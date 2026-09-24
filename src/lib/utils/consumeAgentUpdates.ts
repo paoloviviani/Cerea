@@ -67,6 +67,11 @@ export async function consumeAgentUpdates(
 	/** Daemon call ids that already emitted their Call / their closing frame. */
 	const toolOpen = new Set<string>();
 	const toolClosed = new Set<string>();
+	/** The machine's own id for the message about to open, from the last
+	 * `messageBoundary` frame (spec §7's `message` event always precedes that
+	 * message's own content, live and replayed alike) — consumed by whichever
+	 * of `openAssistant`/the `user` case creates the next `Message`. */
+	let pendingMessageId: string | undefined;
 
 	const flushBuffer = () => {
 		if (!current) {
@@ -120,7 +125,14 @@ export async function consumeAgentUpdates(
 	 * the scheduling exists to prevent. */
 	function openAssistant(): Message {
 		if (current) return current;
-		const message: Message = { id: v4(), from: "assistant", content: buffer, children: [] };
+		const message: Message = {
+			id: v4(),
+			from: "assistant",
+			content: buffer,
+			children: [],
+			...(pendingMessageId ? { machineMessageId: pendingMessageId } : {}),
+		};
+		pendingMessageId = undefined;
 		buffer = "";
 		messages.push(message);
 		// Re-read through the array, never keep the local reference: in the
@@ -228,6 +240,7 @@ export async function consumeAgentUpdates(
 				updatesDirty = false;
 				toolOpen.clear();
 				toolClosed.clear();
+				pendingMessageId = undefined;
 				ctx.onTurnEvent();
 				ctx.onReset?.();
 				break;
@@ -241,8 +254,17 @@ export async function consumeAgentUpdates(
 					from: "user",
 					content: update.text,
 					children: [],
+					...(pendingMessageId ? { machineMessageId: pendingMessageId } : {}),
 					...(update.files?.length ? { files: update.files } : {}),
 				});
+				pendingMessageId = undefined;
+				break;
+			}
+			// A pure boundary marker (see `AgentMessageBoundaryUpdate`): never
+			// opens/closes a turn itself, just names the id the very next
+			// message (whichever case creates it) should carry.
+			case "messageBoundary": {
+				pendingMessageId = update.messageId;
 				break;
 			}
 			// Side channel (M3): never opens/closes a turn, never touches

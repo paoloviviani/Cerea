@@ -86,6 +86,24 @@ describe("consumeAgentUpdates", () => {
 		expect(isConversationGenerationActive(messages)).toBe(false);
 	});
 
+	it("stamps machineMessageId from a preceding messageBoundary frame, on both sides of a turn", async () => {
+		const messages = await run([
+			{ type: "messageBoundary", role: "user", messageId: "wire-u1" },
+			user("fix the test"),
+			{ type: "messageBoundary", role: "assistant", messageId: "wire-a1" },
+			token("on it"),
+			done(),
+		]);
+		expect(messages[0]).toMatchObject({ from: "user", machineMessageId: "wire-u1" });
+		expect(messages[1]).toMatchObject({ from: "assistant", machineMessageId: "wire-a1" });
+	});
+
+	it("leaves machineMessageId unset when no boundary frame preceded the message", async () => {
+		const messages = await run([user("fix the test"), token("on it"), done()]);
+		expect(messages[0].machineMessageId).toBeUndefined();
+		expect(messages[1].machineMessageId).toBeUndefined();
+	});
+
 	it("puts a user frame's attachments on the user message, and nothing else moves", async () => {
 		const files = [{ type: "hash" as const, value: "abc", mime: "image/png", name: "shot.png" }];
 		const messages = await run([

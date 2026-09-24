@@ -483,6 +483,39 @@ export async function renameWorkspace(
 	);
 }
 
+/**
+ * A fork handoff (parity plan §4.2(a)): a new session — on `targetDevice`
+ * when given, else the source's own device — seeded with `prompt` and,
+ * when `carry`, the source transcript as a markdown attachment (curated up
+ * to `uptoMessageId` when given). `deviceId` in the answer is the session's
+ * own device: the caller (the "Hand off…" dialog) navigates there, which
+ * differs from the source device on a cross-device handoff.
+ */
+export async function handoffAgent(
+	deviceId: string,
+	agentId: string,
+	input: {
+		prompt: string;
+		carry: boolean;
+		targetDevice?: string;
+		workspaceId?: string;
+		modeId?: string;
+		modelId?: string;
+		uptoMessageId?: string;
+	}
+): Promise<{ agent: CodeAgentSession; deviceId: string }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/handoff?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+			}
+		)
+	);
+}
+
 /** Rename an agent: the daemon's updateAgent name. */
 export async function renameAgent(
 	deviceId: string,
