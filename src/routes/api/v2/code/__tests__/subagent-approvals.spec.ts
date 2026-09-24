@@ -182,7 +182,38 @@ async function readFramesUntil(
 	throw new Error("the expected frame never arrived on the stream");
 }
 
+async function readRawFrameUntil(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	predicate: (data: { type?: string }) => boolean,
+	maxFrames = 30
+): Promise<SseFrame> {
+	for (let i = 0; i < maxFrames; i++) {
+		const frame = await readOneFrame(reader);
+		if (frame.event !== "update") continue;
+		if (predicate(JSON.parse(frame.data) as { type?: string })) return frame;
+	}
+	throw new Error("the expected frame never arrived on the stream");
+}
+
 describe("the root-keyed subscription (machines.ts)", () => {
+	it("still delivers a subagent's own envelopes to a view watching that subagent", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+
+		// The subagent's view subscribes as a tree rooted at itself, while the
+		// subagent's envelopes are rooted at its parent.
+		const seen: string[] = [];
+		const unsub = subscribeSessionTree(deviceId, "child-1", (envelope) => {
+			seen.push(`${envelope.sessionId}:${envelope.rootSessionId}`);
+		});
+		machine.pushEvent("child-1", { kind: "status", status: "busy" }, "parent-1");
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		expect(seen).toEqual(["child-1:parent-1"]);
+		unsub();
+		machine.close();
+	});
+
 	it("fans a child's envelopes out to its root's watchers, and nothing else's", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;
@@ -323,6 +354,22 @@ describe("the parent stream over a session tree", () => {
 				(data as { type: string }).type === "childActivity"
 		);
 		expect(activity).toMatchObject({ type: "childActivity", childId: "child-1" });
+
+		// A subagent's frames carry no SSE id: the client's Last-Event-ID is the
+		// watched session's own resume cursor, and a child's seq is not on it.
+		machine.pushEvent(
+			"child-1",
+			{
+				kind: "part",
+				part: { id: "p2", messageId: "m1", role: "assistant", type: "text", text: "more" },
+			},
+			agent.id
+		);
+		const childFrame = await readRawFrameUntil(reader, (data) => data.type === "childActivity");
+		expect(childFrame.id).toBeUndefined();
+		machine.pushEvent(agent.id, { kind: "status", status: "busy" }, agent.id);
+		const parentFrame = await readRawFrameUntil(reader, (data) => data.type !== "childActivity");
+		expect(parentFrame.id).toMatch(/^.+:\d+$/);
 
 		controller.abort();
 		await reader.cancel().catch(() => {});

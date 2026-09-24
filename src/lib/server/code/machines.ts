@@ -402,9 +402,14 @@ export function acceptMachineConnection(
 				// watchers fire — the same behaviour as before the field.
 				const root = frame.rootSessionId ?? frame.sessionId;
 				const listeners = state.listeners.get(frame.sessionId);
-				const treeListeners = state.rootListeners.get(root);
-				if ((!listeners || listeners.size === 0) && (!treeListeners || treeListeners.size === 0))
-					return;
+				// Tree watchers of the root, and of the session itself: a
+				// subagent's own view subscribes as a tree too, and its
+				// envelopes are rooted at the parent, not at the subagent.
+				const treeListeners = new Set([
+					...(state.rootListeners.get(root) ?? []),
+					...(root !== frame.sessionId ? (state.rootListeners.get(frame.sessionId) ?? []) : []),
+				]);
+				if ((!listeners || listeners.size === 0) && treeListeners.size === 0) return;
 				const envelope: Envelope = {
 					sessionId: frame.sessionId,
 					epoch: frame.epoch,
@@ -413,7 +418,7 @@ export function acceptMachineConnection(
 					event: frame.event,
 				};
 				if (listeners) for (const listener of listeners) listener(envelope);
-				if (treeListeners) for (const listener of treeListeners) listener(envelope);
+				for (const listener of treeListeners) listener(envelope);
 				return;
 			}
 			case "credential": {
