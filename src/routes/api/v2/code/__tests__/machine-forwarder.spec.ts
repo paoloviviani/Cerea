@@ -233,6 +233,81 @@ describe("the forwarder over a live machine link", () => {
 		machine.close();
 	});
 
+	it("answers a machine question, translating accept/answers into question.reply (user-question tool)", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const replyArgs: unknown[] = [];
+		machine.onOp("question.reply", (args: unknown) => {
+			replyArgs.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/questions/q-1?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ decision: "accept", answers: [["npm"]] }),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(200);
+		expect(replyArgs).toEqual([
+			{ sessionId: agent.id, requestId: "q-1", decision: "answer", answers: [["npm"]] },
+		]);
+
+		machine.close();
+	});
+
+	it("translates a declined machine question into question.reply's reject, with no answers", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const replyArgs: unknown[] = [];
+		machine.onOp("question.reply", (args: unknown) => {
+			replyArgs.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/questions/q-1?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({ decision: "decline" }), locals: user.locals }
+		);
+		expect(res.status).toBe(200);
+		expect(replyArgs).toEqual([{ sessionId: agent.id, requestId: "q-1", decision: "reject" }]);
+
+		machine.close();
+	});
+
+	it("rejects a malformed question decision before it ever reaches the machine", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const replyArgs: unknown[] = [];
+		machine.onOp("question.reply", (args: unknown) => {
+			replyArgs.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/questions/q-1?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({ decision: "maybe" }), locals: user.locals }
+		);
+		expect(res.status).toBe(400);
+		expect(replyArgs).toHaveLength(0);
+
+		machine.close();
+	});
+
 	it("rejects a non-JSON POST body before it ever reaches the machine (C5)", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;

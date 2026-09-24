@@ -34,6 +34,7 @@ const BACKEND_WITH_USAGE = {
 		files: true,
 		worktrees: false,
 		autoAccept: true,
+		questions: true,
 	},
 };
 

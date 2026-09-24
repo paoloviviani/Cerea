@@ -235,4 +235,46 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("button", { name: "Expand Inspect the repo" }).click();
 		await expect(page.getByText("List what is in the repo.")).toBeVisible({ timeout: 30_000 });
 	});
+
+	test("questions: opencode's own question tool becomes the SAME card as chat's ask_user_question, and the turn resumes once answered", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{
+					id: "call_q",
+					name: "question",
+					arguments: JSON.stringify({
+						questions: [
+							{
+								question: "Which approach?",
+								header: "Approach",
+								options: [{ label: "A", description: "Do A" }, { label: "B", description: "Do B" }],
+								multiple: false,
+							},
+						],
+					}),
+				},
+			],
+			toolCallsOnce: true,
+			content: ["Thanks", " for", " answering."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await send(page, "ask me something");
+
+		await expect(page.getByText("Which approach?")).toBeVisible({ timeout: 60_000 });
+		// The option row's accessible name is its whole content ("A" plus its
+		// description), so match on the description to pick the right one.
+		await page.getByRole("button").filter({ hasText: "Do A" }).click();
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+
+		await expect(page.getByText("Thanks for answering.")).toBeVisible({ timeout: 60_000 });
+		// The tool call itself settles rather than hanging pending forever.
+		await expect(page.getByText("wants to call")).toHaveCount(0);
+	});
 });

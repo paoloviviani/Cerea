@@ -115,6 +115,15 @@
 		 * the footer is exactly what it always was; chat itself stays unchanged.
 		 */
 		messageActions?: Snippet<[Message]>;
+		/**
+		 * Elicitation/question/wait-banner channel id, for a surface whose page
+		 * path is not a conversation's (the coding-agent panel's agent id) — the
+		 * user-question tool's registration key (`pendingQuestion`'s store) is
+		 * this same id, so a panel passing its agent id here is what lets that
+		 * card find the right agent instead of every one sharing chat's route
+		 * fallback. Unset, chat's own `page.params.id` is used, as always.
+		 */
+		conversationId?: string;
 	}
 
 	let {
@@ -133,7 +142,10 @@
 		subagentCard,
 		fileBaseUrl,
 		messageActions,
+		conversationId,
 	}: Props = $props();
+
+	const convId = $derived(conversationId ?? page.params.id ?? "");
 
 	let contentEl: HTMLElement | undefined = $state();
 	let isCopied = $state(false);
@@ -706,7 +718,7 @@
 							<div data-exclude-from-copy>
 								{#if block.request.toolApproval}
 									<ToolApprovalCard
-										conversationId={page.params.id ?? ""}
+										conversationId={convId}
 										request={block.request}
 										expiresAt={block.expiresAt}
 										resolved={block.resolved}
@@ -716,7 +728,7 @@
 									/>
 								{:else}
 									<ElicitationForm
-										conversationId={page.params.id ?? ""}
+										conversationId={convId}
 										request={block.request}
 										expiresAt={block.expiresAt}
 										resolved={block.resolved}
@@ -726,7 +738,7 @@
 						{:else if block.type === "codeExecution"}
 							<div data-exclude-from-copy>
 								<CodeExecutionCard
-									conversationId={page.params.id ?? ""}
+									conversationId={convId}
 									request={block.request}
 									resolved={block.resolved}
 								/>
@@ -790,7 +802,7 @@
 							<div data-exclude-from-copy>
 								{#if unit.request.toolApproval}
 									<ToolApprovalCard
-										conversationId={page.params.id ?? ""}
+										conversationId={convId}
 										request={unit.request}
 										expiresAt={unit.expiresAt}
 										resolved={unit.resolved}
@@ -800,7 +812,7 @@
 									/>
 								{:else}
 									<ElicitationForm
-										conversationId={page.params.id ?? ""}
+										conversationId={convId}
 										request={unit.request}
 										expiresAt={unit.expiresAt}
 										resolved={unit.resolved}
@@ -810,7 +822,7 @@
 						{:else if unit.kind === "codeExecution"}
 							<div data-exclude-from-copy>
 								<CodeExecutionCard
-									conversationId={page.params.id ?? ""}
+									conversationId={convId}
 									request={unit.request}
 									resolved={unit.resolved}
 								/>
@@ -856,7 +868,7 @@
 				<TurnWaitBanner
 					until={waitingState.until ?? 0}
 					reason={waitingState.reason}
-					conversationId={page.params.id ?? ""}
+					conversationId={convId}
 					messageId={message.id}
 					canWake={isAuthor && !readOnly}
 				/>
