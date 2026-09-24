@@ -50,6 +50,7 @@ interface DiscoveryDoc {
 }
 
 const DISCOVERY_TTL_MS = 10 * 60_000;
+const DISCOVERY_TIMEOUT_MS = 5_000;
 
 let cachedForIssuer: string | null = null;
 let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -66,7 +67,8 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
 		return cachedJwks;
 	}
 	const discoveryUrl = `${issuer}/.well-known/openid-configuration`;
-	const res = await fetch(discoveryUrl);
+	// Bounded (R1): a slow or hung IdP must fail the handshake, not hold it open.
+	const res = await fetch(discoveryUrl, { signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });
 	if (!res.ok) {
 		throw new Error(`OIDC discovery at ${discoveryUrl} failed with ${res.status}`);
 	}
@@ -74,7 +76,14 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
 	if (!doc.jwks_uri) {
 		throw new Error(`OIDC discovery at ${discoveryUrl} carried no jwks_uri`);
 	}
-	cachedJwks = createRemoteJWKSet(new URL(doc.jwks_uri));
+	// OIDC Discovery §4.3: the document must name the issuer it was fetched for. A
+	// mismatch means a misconfigured or impersonated IdP, and its keys must not be trusted.
+	if (normalizeIssuer(doc.issuer ?? "") !== issuer) {
+		throw new Error(`OIDC discovery at ${discoveryUrl} names issuer ${doc.issuer}, not ${issuer}`);
+	}
+	cachedJwks = createRemoteJWKSet(new URL(doc.jwks_uri), {
+		timeoutDuration: DISCOVERY_TIMEOUT_MS,
+	});
 	cachedForIssuer = issuer;
 	cachedAt = now;
 	return cachedJwks;
@@ -86,6 +95,13 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
  * issuers set no `typ` at all on either kind, which is why this is a
  * denylist rather than an allowlist: absent is fine, explicitly-ID-token
  * is not. */
+/** Tests only: forget the cached discovery so the next validation fetches it again. */
+export function resetMachineDiscoveryCacheForTests(): void {
+	cachedJwks = null;
+	cachedForIssuer = null;
+	cachedAt = 0;
+}
+
 function looksLikeIdToken(typ: string | undefined): boolean {
 	if (!typ) return false;
 	return /id[-_]?token/i.test(typ);
