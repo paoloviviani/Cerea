@@ -49,7 +49,10 @@ export function emptyModel(): FakeMachineModel {
 		transcripts: new Map(),
 		epoch: randomUUID(),
 		seq: new Map(),
-		modes: [{ id: "plan", label: "Plan" }, { id: "build", label: "Build" }],
+		modes: [
+			{ id: "plan", label: "Plan" },
+			{ id: "build", label: "Build" },
+		],
 		models: [{ id: "opencode/coder", label: "Coder", providerId: "opencode", isDefault: true }],
 	};
 }
@@ -91,7 +94,9 @@ export class FakeMachine {
 	readonly ws: WebSocket;
 	private overrides = new Map<string, (args: unknown) => unknown>();
 	private opened: Promise<void>;
-	private welcomeResolvers: Array<(frame: { deviceId: string; status: string }) => void> = [];
+	private welcomeResolvers: Array<
+		(frame: { deviceId: string; status: "pending" | "paired" }) => void
+	> = [];
 	deviceId: string | null = null;
 	status: "pending" | "paired" | null = null;
 
@@ -144,7 +149,10 @@ export class FakeMachine {
 	waitForPaired(timeoutMs = 5000): Promise<void> {
 		if (this.status === "paired") return Promise.resolve();
 		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error("timed out waiting to be paired")), timeoutMs);
+			const timer = setTimeout(
+				() => reject(new Error("timed out waiting to be paired")),
+				timeoutMs
+			);
 			const onMessage = (raw: Buffer | string) => {
 				const parsed = JSON.parse(raw.toString()) as { type?: string; status?: string };
 				if (parsed.type === "status" && parsed.status === "paired") {
@@ -198,9 +206,9 @@ export class FakeMachine {
 			return;
 		}
 		if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) return;
-		const frame = parsed as { type: string };
+		const frame = parsed as unknown as { type: string };
 		if (frame.type === "welcome") {
-			const welcome = parsed as { deviceId: string; status: "pending" | "paired" };
+			const welcome = parsed as unknown as { deviceId: string; status: "pending" | "paired" };
 			const resolver = this.welcomeResolvers.shift();
 			resolver?.(welcome);
 			return;
@@ -362,7 +370,11 @@ export class FakeMachine {
 			case "session.diff":
 				return { files: [] };
 			case "session.children":
-				return { sessions: model.sessions.filter((s) => s.parentId === (args as { sessionId: string }).sessionId) };
+				return {
+					sessions: model.sessions.filter(
+						(s) => s.parentId === (args as { sessionId: string }).sessionId
+					),
+				};
 			case "backend.modes":
 				return { modes: model.modes };
 			case "backend.models":

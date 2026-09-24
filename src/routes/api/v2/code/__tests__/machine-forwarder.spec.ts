@@ -13,8 +13,12 @@ import { WebSocketServer } from "ws";
 import superjson from "superjson";
 import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { ready } from "$lib/server/database";
-import { createTestUser, cleanupTestData, type TestUser } from "$lib/server/api/__tests__/testHelpers";
-import { testRequest } from "$lib/server/__tests__/testRequest";
+import {
+	createTestUser,
+	cleanupTestData,
+	type TestUser,
+} from "$lib/server/api/__tests__/testHelpers";
+import { testRequest, TEST_ORIGIN } from "$lib/server/__tests__/testRequest";
 import { acceptMachineConnection } from "$lib/server/code/machines";
 import type { MachinePrincipal } from "$lib/server/code/machineAuth";
 import { FakeMachine } from "../../../../../../tests/fake-machine";
@@ -59,7 +63,15 @@ beforeEach(async () => {
 	};
 });
 
+/** Every machine this file connects, so a test that fails mid-way (an
+ * assertion throws before its own `machine.close()` runs) never leaves a
+ * live socket pinning `httpServer.close()` in `afterAll` — that hung the
+ * whole suite for 30s the one time an assertion below failed. */
+let openMachines: FakeMachine[] = [];
+
 afterEach(async () => {
+	for (const machine of openMachines) machine.close();
+	openMachines = [];
 	await cleanupTestData();
 });
 
@@ -70,7 +82,12 @@ async function parse<T>(res: Response): Promise<T> {
 /** `testRequest` stubs SvelteKit's own routing (its module doc: "only
  * path-to-handler routing is stubbed"), so a `[...path]` catch-all handler
  * needs its rest param supplied by hand — this derives it from the URL so
- * every forwarder call in this file gets it right by construction. */
+ * every forwarder call in this file gets it right by construction.
+ * `json: false` still sends an Origin (a body-carrying `Request` with no
+ * explicit content-type defaults to `text/plain`, and the real hook's own
+ * CSRF guard 403s a same-origin-less native-form content type before this
+ * route ever sees the request — this exercises the forwarder's own
+ * `requireJsonBody`, not the hook's separate guard). */
 async function forwarder(
 	handler: typeof forwarderGET,
 	urlPath: string,
@@ -81,7 +98,8 @@ async function forwarder(
 		method: opts.method,
 		path: urlPath,
 		body: opts.body,
-		headers: opts.json === false ? undefined : { "content-type": "application/json" },
+		headers:
+			opts.json === false ? { origin: TEST_ORIGIN } : { "content-type": "application/json" },
 		locals: opts.locals,
 		signal: opts.signal,
 		params: { path: restPath },
@@ -93,6 +111,7 @@ async function forwarder(
  * and wait for the `status: paired` push. */
 async function connectAndPair(): Promise<FakeMachine> {
 	const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+	openMachines.push(machine);
 	const { deviceId, status } = await machine.hello();
 	expect(status).toBe("pending");
 
@@ -178,11 +197,15 @@ describe("the forwarder over a live machine link", () => {
 			return {};
 		});
 
-		await forwarder(forwarderPOST, `/api/v2/code/v1/agents/${agent.id}/messages?device=${deviceId}`, {
-			method: "POST",
-			body: JSON.stringify({ text: "hello", messageId: "browser-mid-1" }),
-			locals: user.locals,
-		});
+		await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/messages?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ text: "hello", messageId: "browser-mid-1" }),
+				locals: user.locals,
+			}
+		);
 		expect(promptArgs[0].clientMessageId).toBe("browser-mid-1");
 
 		machine.close();
