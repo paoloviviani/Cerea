@@ -37,10 +37,10 @@ Pystino's own, documented in Pystino `docs/coding-agents.md`.
 
 ## One binary, two jobs
 
-| Job | What it carries | Command |
-| --- | --- | --- |
-| **LLM** | opencode → the local refreshing shim → gateway `/v1`, billed to the signed-in person | `galopin enroll`, then the shim starts with `run` (or alone with `serve`) |
-| **control** | the machine dials *out* to the chat over WSS (`/api/v2/code/machine`), so the chat's `/code` panel can drive it | `galopin run` |
+| Job         | What it carries                                                                                                 | Command                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **LLM**     | opencode → the local refreshing shim → gateway `/v1`, billed to the signed-in person                            | `galopin enroll`, then the shim starts with `run` (or alone with `serve`) |
+| **control** | the machine dials _out_ to the chat over WSS (`/api/v2/code/machine`), so the chat's `/code` panel can drive it | `galopin run`                                                             |
 
 There is no relay and no daemon to pair: the machine connects outbound with
 its own enrollment token, and a person confirms it in the `/code` panel
@@ -57,12 +57,12 @@ agent/packaging/build-dist.sh ~/galopin-dist
 It writes static binaries (CGO off, so each one runs on any machine of its
 OS/architecture), plus a manifest:
 
-| File | What |
-|---|---|
-| `galopin-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64` | the binary |
-| `REVISION` | the Cerea commit it was built from (`-dirty` if `agent/` had local changes) |
-| `SHA256SUMS` | for `sha256sum -c SHA256SUMS` (macOS: `shasum -a 256 -c SHA256SUMS`) |
-| `galopin.service`, `org.cerea.galopin.plist` | the user-service files below, from `agent/packaging/` |
+| File                                                                    | What                                                                        |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `galopin-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64` | the binary                                                                  |
+| `REVISION`                                                              | the Cerea commit it was built from (`-dirty` if `agent/` had local changes) |
+| `SHA256SUMS`                                                            | for `sha256sum -c SHA256SUMS` (macOS: `shasum -a 256 -c SHA256SUMS`)        |
+| `galopin.service`, `org.cerea.galopin.plist`                            | the user-service files below, from `agent/packaging/`                       |
 
 **Where people get them.** There is no published release yet. Until there
 is, the directory is the release: copy it somewhere your users can fetch
@@ -97,13 +97,13 @@ Support` on macOS). `run` then supervises opencode and dials out to the
 chat. Open the sidebar's **Agents** panel, and the machine is listed as
 pending until someone confirms it (**Confirm this machine**).
 
-| Flag | When |
-|---|---|
-| `--cerea …/chat` | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead |
-| `--output PATH` | the file is **replaced whole**. `enroll` asks before replacing an existing one, and `--yes` skips the question. If you keep your own opencode config, point `--output` somewhere else and pass `run --opencode-config PATH` |
-| `--allow-free-models` | also offer models from providers other than the gateway's. By default only `pystino/*` models are listed, so spend always lands in the account the machine enrolled under |
-| `--device` | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser |
-| `--allow-auto-accept`, `--workspace-root PATH` | the machine's own vetoes, fixed at enrol time (`agent/PROTOCOL.md` §4) |
+| Flag                                           | When                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cerea …/chat`                               | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                             |
+| `--output PATH`                                | the file is **replaced whole**. `enroll` asks before replacing an existing one, and `--yes` skips the question. If you keep your own opencode config, point `--output` somewhere else and pass `run --opencode-config PATH`                                                                                                 |
+| `--allow-free-models`                          | also offer models from providers other than the gateway's. By default only `pystino/*` models are listed, so spend always lands in the account the machine enrolled under                                                                                                                                                   |
+| `--device`                                     | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser |
+| `--allow-auto-accept`, `--workspace-root PATH` | the machine's own vetoes, fixed at enrol time (`agent/PROTOCOL.md` §4)                                                                                                                                                                                                                                                      |
 
 If `enroll` warns that model discovery failed, the gateway offered no model
 yet (no provider configured, or none granted to the person's group). It then
@@ -155,21 +155,21 @@ that omits the complete URI falls back to `verification_uri`.
 
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
-  "enabled_providers": ["pystino"],
-  "provider": {
-    "pystino": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Pystino",
-      "options": { "baseURL": "http://127.0.0.1:41871/v1" },
-      "models": {
-        "my-model": {
-          "name": "My Model",
-          "limit": { "context": 131072, "output": 16384 }
-        }
-      }
-    }
-  }
+	"$schema": "https://opencode.ai/config.json",
+	"enabled_providers": ["pystino"],
+	"provider": {
+		"pystino": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "Pystino",
+			"options": { "baseURL": "http://127.0.0.1:41871/v1" },
+			"models": {
+				"my-model": {
+					"name": "My Model",
+					"limit": { "context": 131072, "output": 16384 }
+				}
+			}
+		}
+	}
 }
 ```
 
