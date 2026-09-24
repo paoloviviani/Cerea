@@ -52,6 +52,22 @@ import type { ElicitationField, ElicitationValue } from "$lib/types/McpElicitati
 
 let planVersion = 0;
 
+/**
+ * A subagent's envelope, as the parent's bridge sees it: which child asked,
+ * and the title the approval/question card labels it with (from the session
+ * list or a `session` event — null while unknown).
+ */
+export interface ChildContext {
+	childId: string;
+	childTitle?: string | null;
+}
+
+/** "Subagent ‹title›: " — or "Subagent: " while the title is unknown. */
+function subagentLabel(child: ChildContext): string {
+	const title = child.childTitle?.trim();
+	return title ? `Subagent ${title}: ` : "Subagent: ";
+}
+
 function toolCallUpdate(
 	callId: string,
 	tool: string,
@@ -151,7 +167,8 @@ function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[
 }
 
 export function permissionRequestToUpdate(
-	request: PermissionRequest
+	request: PermissionRequest,
+	child?: ChildContext
 ): MessageElicitationRequestUpdate {
 	return {
 		type: MessageUpdateType.Elicitation,
@@ -160,8 +177,9 @@ export function permissionRequestToUpdate(
 			elicitationId: request.id,
 			server: request.tool,
 			mode: "form",
-			message: request.title,
+			message: child ? `${subagentLabel(child)}${request.title}` : request.title,
 			toolApproval: { tool: request.tool, args: request.metadata },
+			...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
 		},
 	};
 }
@@ -187,10 +205,13 @@ export function permissionResolvedToUpdate(
  * `value` is the option's own label, not an index: opencode's reply body
  * wants the chosen labels back verbatim, and this is what
  * `AskQuestion.svelte`'s own submit already collects into `content[name]`. */
-export function questionRequestedToUpdate(event: {
-	requestId: string;
-	questions: Question[];
-}): MessageElicitationRequestUpdate {
+export function questionRequestedToUpdate(
+	event: {
+		requestId: string;
+		questions: Question[];
+	},
+	child?: ChildContext
+): MessageElicitationRequestUpdate {
 	const fields: ElicitationField[] = event.questions.map((q, i) => ({
 		kind: "select",
 		name: `q${i}`,
@@ -212,8 +233,11 @@ export function questionRequestedToUpdate(event: {
 			server: "pystino",
 			mode: "form",
 			source: "assistant",
-			message: event.questions.map((q) => q.question).join("\n\n"),
+			message: child
+				? `${subagentLabel(child)}${event.questions.map((q) => q.question).join("\n\n")}`
+				: event.questions.map((q) => q.question).join("\n\n"),
 			fields,
+			...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
 		},
 	};
 }
@@ -295,12 +319,49 @@ function statusToTurnState(
  * a `status: "idle"` event. `resolveClientMessageId` is the same idea for a
  * user part's owning message — a `part` event carries only `messageId`, not
  * the message's `clientMessageId`, so the caller (which has already seen the
- * `message` event that named it) supplies the lookup. */
+ * `message` event that named it) supplies the lookup.
+ *
+ * `child` marks an envelope that belongs to a subagent of the watched
+ * session rather than the session itself: its approvals and questions
+ * become the same labelled cards the parent renders (carrying the child's
+ * session id, so the reply routes to the child's request), while
+ * everything else — tokens, tool calls, turn states — stays out of the
+ * parent's transcript and surfaces only as a `childActivity` side-channel
+ * cue for the subagent card to re-sync on. */
 export function eventToUpdates(
 	event: NormalizedEvent,
 	lastAssistantError?: string,
-	resolveClientMessageId?: (messageId: string) => string | undefined
+	resolveClientMessageId?: (messageId: string) => string | undefined,
+	child?: ChildContext
 ): AgentStreamUpdate[] {
+	if (child) {
+		switch (event.kind) {
+			case "permission.asked":
+				return [permissionRequestToUpdate(event.request, child)];
+			case "permission.replied":
+				return [permissionResolvedToUpdate(event.requestId, event.decision)];
+			case "question.asked":
+				return [
+					questionRequestedToUpdate(
+						{
+							requestId: event.request.id,
+							questions: event.request.questions,
+						},
+						child
+					),
+				];
+			case "question.resolved":
+				return [
+					questionResolvedToUpdate({
+						requestId: event.requestId,
+						answers: event.answers,
+						rejected: event.rejected,
+					}),
+				];
+			default:
+				return [{ type: "childActivity", childId: child.childId }];
+		}
+	}
 	switch (event.kind) {
 		case "message": {
 			// A pure boundary marker (see `AgentMessageBoundaryUpdate`): the
@@ -486,11 +547,18 @@ export function userMessageIdsOf(transcript: Transcript): Map<string, string> {
  * machine's ring buffer still holds the gap) → panel frames, threading
  * `lastAssistantError` and the user-message-id lookup across them the same
  * way a live tail would. Returns both tracked values too, so the caller can
- * keep tracking them for whatever arrives after. */
+ * keep tracking them for whatever arrives after.
+ *
+ * `childOf` names the subagent context for envelopes that belong to a
+ * descendant of the watched session (matched on the envelope's own
+ * session id): their approvals/questions fold as labelled cards and their
+ * content folds to `childActivity`, never touching the parent's tracked
+ * turn state. */
 export function foldEnvelopeEvents(
 	envelopes: Envelope[],
 	initialLastAssistantError?: string,
-	initialUserMessageIds?: Map<string, string>
+	initialUserMessageIds?: Map<string, string>,
+	childOf?: (sessionId: string) => ChildContext | undefined
 ): {
 	updates: AgentStreamUpdate[];
 	lastAssistantError: string | undefined;
@@ -499,8 +567,9 @@ export function foldEnvelopeEvents(
 	let lastAssistantError = initialLastAssistantError;
 	const userMessageIds = new Map(initialUserMessageIds ?? []);
 	const updates: AgentStreamUpdate[] = [];
-	for (const { event } of envelopes) {
-		if (event.kind === "message") {
+	for (const { sessionId, event } of envelopes) {
+		const child = childOf?.(sessionId);
+		if (!child && event.kind === "message") {
 			if (event.message.role === "assistant") {
 				lastAssistantError = event.message.error;
 			} else if (event.message.clientMessageId) {
@@ -508,7 +577,12 @@ export function foldEnvelopeEvents(
 			}
 		}
 		updates.push(
-			...eventToUpdates(event, lastAssistantError, (messageId) => userMessageIds.get(messageId))
+			...eventToUpdates(
+				event,
+				lastAssistantError,
+				(messageId) => userMessageIds.get(messageId),
+				child
+			)
 		);
 	}
 	return { updates, lastAssistantError, userMessageIds };

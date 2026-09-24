@@ -179,11 +179,19 @@ export class FakeMachine {
 	}
 
 	/** Push a normalized event for one session, auto-incrementing its seq
-	 * within this machine's current epoch. */
-	pushEvent(sessionId: string, event: NormalizedEvent): Envelope {
+	 * within this machine's current epoch. `rootSessionId` tags the
+	 * envelope's tree root (itself when omitted) — the field a real
+	 * galopin always sends. */
+	pushEvent(sessionId: string, event: NormalizedEvent, rootSessionId?: string): Envelope {
 		const seq = (this.model.seq.get(sessionId) ?? 0) + 1;
 		this.model.seq.set(sessionId, seq);
-		const envelope: Envelope = { sessionId, epoch: this.model.epoch, seq, event };
+		const envelope: Envelope = {
+			sessionId,
+			epoch: this.model.epoch,
+			seq,
+			rootSessionId: rootSessionId ?? sessionId,
+			event,
+		};
 		this.ws.send(JSON.stringify({ type: "event", ...envelope }));
 		return envelope;
 	}
