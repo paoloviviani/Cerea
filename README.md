@@ -89,11 +89,11 @@ the repositories are: `docker login ghcr.io` once with a token holding
 Two shapes, picked for you:
 
 - **Against a Pystino gateway** (`--central-url https://llm.example.org`, the
-  *satellite* preset): the chat uses the gateway's `/v1` and signs in against
+  _satellite_ preset): the chat uses the gateway's `/v1` and signs in against
   its identity provider; every call carries the signed-in person's own token,
   and no key is stored on the box (one is refused — it would bill a whole site
   to one account).
-- **Against any OpenAI-compatible endpoint** (the *generic* preset; export
+- **Against any OpenAI-compatible endpoint** (the _generic_ preset; export
   `PYSTINO_UPSTREAM_API_KEY` first): one shared key, user-token mode forced off
   (it would send the person's IdP token to a third party), and a bundled
   Authelia for sign-in unless you bring your own OIDC provider.

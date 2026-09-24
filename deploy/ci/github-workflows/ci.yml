@@ -19,7 +19,7 @@ on:
       - "deploy/ci/github-workflows/README.md"
   workflow_dispatch:
   schedule:
-    - cron: "41 4 * * 1"  # Mondays: the client project
+    - cron: "41 4 * * 1" # Mondays: the client project
 
 permissions:
   contents: read
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: {node-version: "${{ env.NODE_VERSION }}", cache: npm}
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       - run: npm ci
       - run: npm run lint
       - run: npm run check
@@ -74,6 +74,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: {node-version: "${{ env.NODE_VERSION }}", cache: npm}
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       - run: npm ci
       - run: npx vitest run --project=client

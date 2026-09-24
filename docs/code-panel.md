@@ -187,7 +187,6 @@ it when your backend deletes a session. The deletions match on
 `metadata.conversation`, never on the filename, and a prefix must end at a
 `:`, so `code:abc:` never matches `code:abcdef:…`.
 
-
 ## What the browser may ask the machine to do
 
 Never directly: the browser talks to Cerea, Cerea talks to the machine
