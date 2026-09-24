@@ -42,6 +42,7 @@
 -->
 <script lang="ts">
 	import { base } from "$app/paths";
+	import { page } from "$app/state";
 
 	import Logo from "$lib/components/icons/Logo.svelte";
 	import { isAborted } from "$lib/stores/isAborted";
@@ -163,6 +164,16 @@
 
 	let projectsBranch = $state<ReturnType<typeof ProjectsBranch> | undefined>(undefined);
 	let chatsOpen = $state(true);
+
+	// codeNav.view is "auto" until something picks a side explicitly; while
+	// auto, the route decides — landing on /code (a reload, or a link in from
+	// elsewhere) opens on Agents without a flash, since this is a pure read
+	// of request-scoped `page` state, computed the same way during SSR and
+	// after hydration. A click on either pill below sets an explicit value
+	// and this stops following the route.
+	const effectiveView = $derived(
+		codeNav.view === "auto" ? (page.route.id === "/code" ? "agents" : "chats") : codeNav.view
+	);
 </script>
 
 <div
@@ -195,7 +206,7 @@
 <div
 	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
 >
-	{#if codeAgentsEnabled && codeNav.view === "agents"}
+	{#if codeAgentsEnabled && effectiveView === "agents"}
 		<CodeNavTree />
 	{:else}
 		{#if signedIn}
@@ -248,7 +259,8 @@
 	<div class="shrink-0 px-2 pt-2 pb-1">
 		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
 			<button
-				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
+				data-testid="sidebar-view-chats"
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
 				'chats'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
 					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
@@ -258,7 +270,8 @@
 				Chats
 			</button>
 			<button
-				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {codeNav.view ===
+				data-testid="sidebar-view-agents"
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
 				'agents'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
 					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"

@@ -60,12 +60,13 @@ run_ensure() { # run_ensure <pystino-root> — drives the real function
 		VALUES[IDP_BUNDLED]=authelia
 		'"$(sed -n '/^ensure_edge_idp_route() {/,/^}/p' ./install.sh)"'
 		ensure_edge_idp_route
+		echo "EDGE_ROUTE_WRITTEN=${EDGE_ROUTE_WRITTEN:-0}"
 	' 2>&1
 }
 
 # ---- 1: the snippet lands above the first site, and both sites import it
 netbird_fixture "$TMPD/p1"
-run_ensure "$TMPD/p1" >/dev/null
+out1="$(run_ensure "$TMPD/p1")"
 nb="$TMPD/p1/deploy/caddy/Caddyfile.netbird"
 snippet_line="$(grep -n '^(idp-routes) {$' "$nb" | cut -d: -f1 | head -1)"
 site_line="$(grep -nE '^:8443 \{$' "$nb" | cut -d: -f1 | head -1)"
@@ -78,11 +79,17 @@ assert_eq "the marker line travels with the snippet" "1" "$(grep -c 'installer: 
 # would duplicate the file body.
 assert_eq "(origin-routes) appears exactly once" "1" "$(grep -c '^(origin-routes) {$' "$nb")"
 assert_eq "the file has exactly two site blocks" "2" "$(grep -cE '^(:8443|cerea\.example) \{$' "$nb")"
+# A caller (the resume/fresh-install branches in install.sh) decides whether
+# to restart the already-running proxy from this: a real write must report 1.
+assert_contains "a real write reports EDGE_ROUTE_WRITTEN=1" "EDGE_ROUTE_WRITTEN=1" "$out1"
 
-# ---- 2: idempotent — a re-run finds the marker and touches nothing
+# ---- 2: idempotent — a re-run finds the marker and touches nothing, and
+# reports nothing written (so a caller does not restart the proxy for no
+# reason on every resume)
 cp "$nb" "$TMPD/p1/before"
-run_ensure "$TMPD/p1" >/dev/null
+out2="$(run_ensure "$TMPD/p1")"
 assert_eq "a second run leaves the file byte-identical" "$(cat "$TMPD/p1/before")" "$(cat "$nb")"
+assert_contains "a no-op re-run reports EDGE_ROUTE_WRITTEN=0" "EDGE_ROUTE_WRITTEN=0" "$out2"
 
 # ---- 3: the crash-loop shape would have been caught — no site opener, refuse
 mkdir -p "$TMPD/p3/deploy/caddy/conf.d-authelia"
@@ -93,5 +100,33 @@ if run_ensure "$TMPD/p3" >/dev/null 2>&1; then
 else
 	assert_eq "a netbird with no site opener is refused" "refused" "refused"
 fi
+
+# ---- 4: ensure_edge_relay_route reports the same way ensure_edge_idp_route
+# does. Its snippet lives under CEREA_ROOT, not PYSTINO_ROOT — the two roots
+# are deliberately different tmp dirs here so a function that reached for
+# the wrong one would fail loudly instead of happening to find a file.
+run_ensure_relay() { # run_ensure_relay <pystino-root> <cerea-root>
+	CODE_AGENTS_ENABLED=true EXPOSURE=edge DRY_RUN=0 PYSTINO_ROOT="$1" CEREA_ROOT="$2" bash -c '
+		source ./lib/term.sh
+		VALUES[CODE_AGENTS_ENABLED]=true
+		'"$(sed -n '/^ensure_edge_relay_route() {/,/^}/p' ./install.sh)"'
+		ensure_edge_relay_route
+		echo "EDGE_ROUTE_WRITTEN=${EDGE_ROUTE_WRITTEN:-0}"
+	' 2>&1
+}
+
+netbird_fixture "$TMPD/p4"
+mkdir -p "$TMPD/cerea/deploy/caddy/conf.d-code-relay"
+printf 'handle /ws {\n\treverse_proxy relay:8080\n}\n' >"$TMPD/cerea/deploy/caddy/conf.d-code-relay/20-relay.caddy"
+out4="$(run_ensure_relay "$TMPD/p4" "$TMPD/cerea")"
+nb4="$TMPD/p4/deploy/caddy/Caddyfile.netbird"
+assert_contains "the relay route's real write reports EDGE_ROUTE_WRITTEN=1" "EDGE_ROUTE_WRITTEN=1" "$out4"
+assert_eq "both sites import relay-routes" "2" "$(grep -c $'^\timport relay-routes$' "$nb4")"
+assert_eq "the marker line travels with the relay snippet" "1" "$(grep -c 'installer: relay /ws route' "$nb4")"
+
+cp "$nb4" "$TMPD/p4/before"
+out5="$(run_ensure_relay "$TMPD/p4" "$TMPD/cerea")"
+assert_eq "a second relay-route run leaves the file byte-identical" "$(cat "$TMPD/p4/before")" "$(cat "$nb4")"
+assert_contains "a no-op relay-route re-run reports EDGE_ROUTE_WRITTEN=0" "EDGE_ROUTE_WRITTEN=0" "$out5"
 
 summary "test-netbird.sh"
