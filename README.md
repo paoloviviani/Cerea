@@ -128,7 +128,9 @@ OpenAI client:
   but the pairing record. Off unless `CODE_AGENTS_ENABLED=true`
   (`pystino init --agents`). See
   [docs/code-panel.md](docs/code-panel.md) for deploying it and
-  [docs/agent-machines.md](docs/agent-machines.md) for using it.
+  [docs/agent-machines.md](docs/agent-machines.md) for using it; building,
+  distributing and installing `pystino-agent` on a machine is Pystino's
+  `docs/agent-machines.md`.
 
 ## Licensing
 
