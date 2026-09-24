@@ -21,7 +21,7 @@ What the workflow does: builds every image on PRs; pushes to
 
 | Workflow | Runs on | What |
 |---|---|---|
-| `ci.yml` | PRs (docs excluded) | lint, svelte-check, server + ssr unit tests |
+| `ci.yml` | PRs (docs excluded); Mondays for the client project | one job: lint, svelte-check, server + ssr tests; the Playwright-image client suite weekly/on demand — the one PR workflow (thin-agent's parked ci.yml folded in) |
 | `contract.yml` | PRs touching gateway-facing code (pinned gateway); Mondays (`edge`, non-blocking) | the gateway contract |
 | `images.yml` | pushes to main (path-filtered) and v* tags | build + push `ghcr.io/paoloviviani/cerea` (private), prune untagged |
 
