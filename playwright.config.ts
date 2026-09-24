@@ -14,6 +14,7 @@
  * Raising `PLAYWRIGHT_WORKERS` also means scoping scenarios per conversation and rethinking the
  * wipe.
  */
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "playwright/test";
 import {
 	E2E_APP_PORT,
@@ -105,7 +106,13 @@ export default defineConfig({
 			// `application/jsonl` unbuffered, and it loads no vite/svelte config, so the
 			// `dotenv.config({ override: true })` in svelte.config.js cannot replace the hermetic
 			// values below with whatever a developer has in `.env.local`.
-			command: `npm run build && node server.js`,
+			// E2E_SKIP_BUILD=1 serves an existing `build/` as is. On a small box the
+			// production build (~2 GB) plus the stack it tests can exceed memory, so
+			// build once alone (`npm run build`), then run specs against it.
+			command:
+				process.env.E2E_SKIP_BUILD === "1" && existsSync("build/handler.js")
+					? "node server.js"
+					: "npm run build && node server.js",
 			url: E2E_APP_URL,
 			reuseExistingServer: !isCI,
 			timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 600_000),
