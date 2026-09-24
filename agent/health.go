@@ -25,7 +25,7 @@ const (
 )
 
 // healthStatus is written to statusFileName next to the credentials on
-// every state change, and served verbatim from GET /pystino/health, so
+// every state change, and served verbatim from GET /galopin/health, so
 // both the file and the endpoint always agree.
 type healthStatus struct {
 	State     credState `json:"state"`
@@ -33,7 +33,7 @@ type healthStatus struct {
 	Message   string    `json:"message"`
 }
 
-const statusFileName = "pystino-status.json"
+const statusFileName = "status.json"
 
 // statusPathFor places the status file beside the credential file: whatever
 // --creds pointed at (default or overridden), the status lives in the same

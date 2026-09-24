@@ -12,10 +12,10 @@ import (
 	"galopin/internal/policy"
 )
 
-const enrollUsage = `pystino-agent enroll — sign in and write the opencode setup.
+const enrollUsage = `galopin enroll — sign in and write the opencode setup.
 
 Usage:
-  pystino-agent enroll [--issuer URL] [--gateway URL] [--client-id ID]
+  galopin enroll [--issuer URL] [--gateway URL] [--client-id ID]
                 [--device | --loopback] [--group NAME] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
                 [--allow-opencode-provider] [--yes]
@@ -33,7 +33,7 @@ Usage:
   --group      Preselect the billing group (else prompted when several).
   --output     Where to write opencode.json (default ./opencode.json).
   --creds      Where to store the refresh credential (default
-               <config-dir>/opencode/pystino-credentials.json), mode 0600.
+               <config-dir>/galopin/credentials.json), mode 0600.
   --shim-port  Preferred local port for the serve shim (default 41871;
                bumped upward while occupied, then recorded).
   --no-discover  Skip GET /v1/models; write a placeholder models map.
@@ -132,6 +132,9 @@ func runEnroll(args []string) error {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
 	}
 	if opts.creds == "" {
+		if err := migrateLegacyState(); err != nil {
+			return err
+		}
 		path, err := defaultCredsPath()
 		if err != nil {
 			return err
@@ -258,8 +261,8 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 
 	fmt.Fprintf(os.Stderr, "wrote %s (provider pystino via shim %s) and %s\n", opts.output, shimAddr, opts.creds)
 	fmt.Fprintf(os.Stderr, "billing group: %s (sent as x-bill-to by the shim)\n", group)
-	fmt.Fprintf(os.Stderr, "next: run 'pystino-agent run', then confirm this machine in the chat's /code panel.\n")
-	fmt.Fprintf(os.Stderr, "      (for opencode on its own without the panel, 'pystino-agent serve' runs just the gateway shim.)\n")
+	fmt.Fprintf(os.Stderr, "next: run 'galopin run', then confirm this machine in the chat's /code panel.\n")
+	fmt.Fprintf(os.Stderr, "      (for opencode on its own without the panel, 'galopin serve' runs just the gateway shim.)\n")
 	fmt.Fprintf(os.Stderr, "spend lands in the gateway's ledger under the billing group above; see it in the console.\n")
 	return nil
 }

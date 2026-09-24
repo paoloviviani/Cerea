@@ -11,8 +11,8 @@ import (
 // file lives in the same directory as whatever --creds pointed at, default
 // or overridden.
 func TestStatusPathForSitsBesideCreds(t *testing.T) {
-	got := statusPathFor("/home/agent/.config/opencode/pystino-credentials.json")
-	want := "/home/agent/.config/opencode/pystino-status.json"
+	got := statusPathFor("/home/agent/.config/galopin/credentials.json")
+	want := "/home/agent/.config/galopin/status.json"
 	if got != want {
 		t.Errorf("statusPathFor = %q, want %q", got, want)
 	}
@@ -24,7 +24,7 @@ func TestStatusPathForSitsBesideCreds(t *testing.T) {
 // next to one.
 func TestWriteStatusFileAtomic(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "pystino-status.json")
+	path := filepath.Join(dir, "status.json")
 	now := time.Now().Truncate(time.Second).UTC()
 	status := healthStatus{State: stateExpired, CheckedAt: now, Message: "dead credential"}
 

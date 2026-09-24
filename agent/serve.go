@@ -15,20 +15,20 @@ import (
 	"time"
 )
 
-const serveUsage = `pystino-agent serve — run the local refreshing proxy shim.
+const serveUsage = `galopin serve — run the local refreshing proxy shim.
 
 Usage:
-  pystino-agent serve [--creds PATH] [--port PORT]
+  galopin serve [--creds PATH] [--port PORT]
 
-  --creds  Credential file written by 'pystino-agent enroll' (default
-           <config-dir>/opencode/pystino-credentials.json).
+  --creds  Credential file written by 'galopin enroll' (default
+           <config-dir>/galopin/credentials.json).
   --port   Override the loopback port recorded at enroll time.
 
 opencode points its baseURL at http://127.0.0.1:<port>/v1; the shim
 injects a fresh access token and the recorded x-bill-to on every request.
 
-GET /pystino/health reports the credential's state ("ok", "expired", or
-"unreachable"), mirrored to <creds-dir>/pystino-status.json on every change.
+GET /galopin/health reports the credential's state ("ok", "expired", or
+"unreachable"), mirrored to <creds-dir>/status.json on every change.
 `
 
 // shim is the running proxy: opencode speaks OpenAI to it over loopback, and
@@ -165,7 +165,7 @@ func (s *shim) transitionLocked(state credState, checkedAt time.Time, message st
 	}
 	switch state {
 	case stateExpired:
-		fmt.Fprintf(os.Stderr, "\n!!! pystino shim: credential EXPIRED — every request will fail until this machine is re-enrolled !!!\n%s\n\n", message)
+		fmt.Fprintf(os.Stderr, "\n!!! galopin shim: credential EXPIRED — every request will fail until this machine is re-enrolled !!!\n%s\n\n", message)
 		if s.onExpired != nil {
 			// Run outside s.mu: the callback (run's link) does its own I/O
 			// and must never be able to deadlock against this shim's lock.
@@ -173,9 +173,9 @@ func (s *shim) transitionLocked(state credState, checkedAt time.Time, message st
 			go onExpired(msg)
 		}
 	case stateUnreachable:
-		fmt.Fprintf(os.Stderr, "pystino shim: refresh failed, will retry — %s\n", message)
+		fmt.Fprintf(os.Stderr, "galopin shim: refresh failed, will retry — %s\n", message)
 	case stateOK:
-		fmt.Fprintf(os.Stderr, "pystino shim: credential OK — %s\n", message)
+		fmt.Fprintf(os.Stderr, "galopin shim: credential OK — %s\n", message)
 	}
 	if err := writeStatusFile(s.statusPath, s.status); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v\n", err)
@@ -455,6 +455,9 @@ func runServe(args []string) error {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
 	if credsPath == "" {
+		if err := migrateLegacyState(); err != nil {
+			return err
+		}
 		path, err := defaultCredsPath()
 		if err != nil {
 			return err
@@ -466,7 +469,7 @@ func runServe(args []string) error {
 		return err
 	}
 	if creds.Gateway == "" {
-		return fmt.Errorf("creds file has no gateway: re-run 'pystino-agent enroll' (the shim has nothing to forward to)")
+		return fmt.Errorf("creds file has no gateway: re-run 'galopin enroll' (the shim has nothing to forward to)")
 	}
 	// Precedence: an explicit --port, else the port enroll recorded, else the
 	// default. The recorded port is what enroll wrote into opencode.json's
@@ -480,7 +483,7 @@ func runServe(args []string) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	if creds.ShimSecret == "" {
-		return fmt.Errorf("creds file has no shim secret: re-run 'pystino-agent enroll' to mint one (C3: the shim now refuses unauthenticated local callers)")
+		return fmt.Errorf("creds file has no shim secret: re-run 'galopin enroll' to mint one (C3: the shim now refuses unauthenticated local callers)")
 	}
 
 	sh := newShim(creds, credsPath, statusPathFor(credsPath), port)
@@ -493,7 +496,7 @@ func runServe(args []string) error {
 	go sh.refreshLoop()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/pystino/health", sh.requireLocalAuth(sh.healthHandler))
+	mux.HandleFunc("/galopin/health", sh.requireLocalAuth(sh.healthHandler))
 	mux.HandleFunc("/", sh.requireLocalAuth(sh.handler))
 
 	server := &http.Server{
@@ -503,9 +506,9 @@ func runServe(args []string) error {
 		// design, so a write or idle deadline here would cut it off.
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	fmt.Fprintf(os.Stderr, "pystino shim on http://%s (opencode baseURL http://%s/v1)\n", addr, addr)
+	fmt.Fprintf(os.Stderr, "galopin shim on http://%s (opencode baseURL http://%s/v1)\n", addr, addr)
 	fmt.Fprintf(os.Stderr, "forwarding to %s as the enrolled user, billing group %s\n", creds.Gateway, creds.Group)
 	fmt.Fprintf(os.Stderr, "spend is not visible here — /v1 has no usage surface; watch it in the console.\n")
-	fmt.Fprintf(os.Stderr, "health: http://%s/pystino/health, status file %s\n", addr, sh.statusPath)
+	fmt.Fprintf(os.Stderr, "health: http://%s/galopin/health, status file %s\n", addr, sh.statusPath)
 	return server.ListenAndServe()
 }

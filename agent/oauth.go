@@ -77,7 +77,7 @@ type permanentRefreshError struct {
 func (e *permanentRefreshError) Error() string {
 	return fmt.Sprintf(
 		"This machine's sign-in to the gateway expired or was revoked (%s). "+
-			"Re-enroll it: run 'pystino-agent enroll' again on this machine.",
+			"Re-enroll it: run 'galopin enroll' again on this machine.",
 		e.code,
 	)
 }
