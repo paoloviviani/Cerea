@@ -4,6 +4,7 @@ import {
 	MessageUpdateType,
 	MessageToolUpdateType,
 	MessageReasoningUpdateType,
+	type MessageToolCallUpdate,
 } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -11,6 +12,7 @@ import {
 	collectToolNames,
 	exportConversationToMarkdown,
 	exportFilename,
+	formatToolNamesWithCounts,
 	renderAnswerBody,
 	slugifyTitle,
 } from "./exportConversationMarkdown";
@@ -113,7 +115,7 @@ describe("renderAnswerBody", () => {
 });
 
 describe("collectToolNames", () => {
-	it("lists tool-call names in order without duplicates", () => {
+	it("lists every call in order, keeping duplicates", () => {
 		const names = collectToolNames(
 			assistantMessage("answer", {
 				updates: [
@@ -148,7 +150,41 @@ describe("collectToolNames", () => {
 				],
 			})
 		);
-		expect(names).toEqual(["search", "fetch"]);
+		// Results are not calls, but repeated calls are: five calls of one tool
+		// must read as five, never collapse to the unique-name count.
+		expect(names).toEqual(["search", "search", "fetch"]);
+	});
+
+	it("counts five calls of one tool as five", () => {
+		const askCall = (i: number): MessageToolCallUpdate => ({
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Call,
+			uuid: `u${i}`,
+			call: { name: "ask_user_question", parameters: {} },
+		});
+		const names = collectToolNames(
+			assistantMessage("answer", {
+				updates: [0, 1, 2, 3, 4].map(askCall),
+			})
+		);
+		expect(names).toEqual(Array(5).fill("ask_user_question"));
+	});
+});
+
+describe("formatToolNamesWithCounts", () => {
+	it("marks repeated names with ×N in first-call order", () => {
+		expect(formatToolNamesWithCounts(["search", "search", "fetch"])).toEqual([
+			"`search` ×2",
+			"`fetch`",
+		]);
+		expect(formatToolNamesWithCounts(Array(5).fill("ask_user_question"))).toEqual([
+			"`ask_user_question` ×5",
+		]);
+	});
+
+	it("leaves single calls unmarked", () => {
+		expect(formatToolNamesWithCounts(["read_pdf"])).toEqual(["`read_pdf`"]);
+		expect(formatToolNamesWithCounts([])).toEqual([]);
 	});
 });
 
@@ -238,6 +274,48 @@ describe("exportConversationToMarkdown", () => {
 		// No vote markers, no tool internals.
 		expect(md).not.toContain("score");
 		expect(md).not.toContain("/tmp/x");
+	});
+
+	it("counts tool calls, not unique names, with multiplicity", () => {
+		const askCall = (uuid: string): MessageToolCallUpdate => ({
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Call,
+			uuid,
+			call: { name: "ask_user_question", parameters: {} },
+		});
+		const md = exportConversationToMarkdown({
+			title: "Questions",
+			conversationId: "abc123",
+			messages: [
+				userMessage("Do the thing"),
+				assistantMessage("Here it is.", {
+					id: "assistant-1",
+					updates: ["u1", "u2", "u3", "u4", "u5"].map(askCall),
+				}),
+			],
+		});
+		expect(md).toContain("_Called 5 tools: `ask_user_question` ×5._");
+	});
+
+	it("lists mixed tools in first-call order with their counts", () => {
+		const toolCall = (uuid: string, name: string): MessageToolCallUpdate => ({
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Call,
+			uuid,
+			call: { name, parameters: {} },
+		});
+		const md = exportConversationToMarkdown({
+			title: "Mixed",
+			conversationId: "abc123",
+			messages: [
+				userMessage("Research this"),
+				assistantMessage("Done.", {
+					id: "assistant-1",
+					updates: [toolCall("u1", "search"), toolCall("u2", "fetch"), toolCall("u3", "search")],
+				}),
+			],
+		});
+		expect(md).toContain("_Called 3 tools: `search` ×2, `fetch`._");
 	});
 
 	it("skips system messages and keeps branch order", () => {
