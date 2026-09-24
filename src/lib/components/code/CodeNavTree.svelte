@@ -195,6 +195,7 @@
 	}
 
 	function handlePaired(device: CodeDeviceView) {
+		pairingOpen = false;
 		void refreshCodeDevices();
 		void reloadDevice(device.id);
 		void goto(`${base}/code?device=${device.id}`, { keepFocus: true });
