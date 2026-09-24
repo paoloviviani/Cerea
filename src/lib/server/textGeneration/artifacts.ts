@@ -58,3 +58,28 @@ export function injectArtifactsPrompt(preprompt?: string): string {
 	const base = preprompt?.trim();
 	return base ? `${base}\n\n${ARTIFACTS_SYSTEM_PROMPT}` : ARTIFACTS_SYSTEM_PROMPT;
 }
+
+/**
+ * Whether this turn carries the artifacts instructions: the ML Assistant
+ * preset force-enables them, otherwise they stay opt-in per model with a
+ * per-model user override. Single source of truth for both the system-prompt
+ * assembly (`resolvePreprompt`) and the tool loop, which needs to know the
+ * same answer to place the artifact/tool rule next to the tool guidance.
+ */
+export function artifactsEnabledForTurn(input: {
+	mlAssistant: boolean;
+	artifactsOverride?: boolean;
+	supportsArtifacts?: boolean;
+}): boolean {
+	return input.mlAssistant || (input.artifactsOverride ?? input.supportsArtifacts ?? false);
+}
+
+/**
+ * One-sentence restatement of the artifact/tool rule for the tool preprompt.
+ * The full instruction lives in {@link ARTIFACTS_SYSTEM_PROMPT} (buried in
+ * the conversation preprompt, after the tool guidance in the merged system
+ * message), so a turn that offers tools repeats the rule where the model
+ * reads the tool list — both together, not pages apart.
+ */
+export const ARTIFACT_TOOL_RULE =
+	"Never call a tool in the step that creates or edits an artifact: emit the artifact first, use tools in a later turn.";
