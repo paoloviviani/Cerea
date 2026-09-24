@@ -1,7 +1,14 @@
 # Thin machine agent: architecture and wire protocol (v1)
 
 Status: implemented (P0 and parity milestones 1–9, 2026-09-24; live since the deploy-rearch cutover). Supersedes paseo in the `/code` data path (ADR 0089, superseding 0085).
-Source of truth for both implementations: the Go agent (Pystino `deploy/agent/`) and Cerea's machine link (`src/lib/server/code/machine*.ts`).
+Source of truth for both implementations: the Go agent, galopin (this repository's `agent/`, moved from Pystino `deploy/agent/` with its history preserved), and Cerea's machine link (`src/lib/server/code/machine*.ts`).
+
+The move and rename left this protocol itself untouched on purpose — live
+machines depend on it: the subprotocol (`pystino-machine.v1`, §3), the WSS
+path (`/api/v2/code/machine`), the `X-Pystino-Machine-*` headers (§3) and
+the `opencode-enrollment` OIDC client id all keep their names below. Only
+the binary, its log prefixes, its on-disk state directory and its packaging
+are galopin now; nothing on the wire changed.
 
 ## 1. Shape
 
@@ -10,7 +17,7 @@ Source of truth for both implementations: the Go agent (Pystino `deploy/agent/`)
                                                           ▲
                                    WSS, dialled OUT by the machine, bearer = enrollment access token
                                                           │
- user's machine:  pystino-agent run
+ user's machine:  galopin run
                    ├─ link      : WSS client to Cerea, reconnect w/ backoff, token renewal frames
                    ├─ sessions  : backend-agnostic materializer (epoch/seq, ring buffer, auto-accept, policy)
                    ├─ backend   : Backend interface; first impl = opencode (supervises `opencode serve`)
@@ -18,7 +25,7 @@ Source of truth for both implementations: the Go agent (Pystino `deploy/agent/`)
                                    opencode ──HTTP──► shim ──HTTPS──► Pystino /v1
 ```
 
-- **One binary** (`pystino-agent`, grown from `pystino-enroll`), no Node/npm/Python/paseo on the machine besides opencode itself.
+- **One binary** (`galopin`, grown from `pystino-enroll` by way of `pystino-agent`), no Node/npm/Python/paseo on the machine besides opencode itself.
 - **One credential root**: the enrollment's OIDC refresh token. The same access token authenticates the WSS to Cerea and the `/v1` calls. Revoking at the IdP kills both within one access-token lifetime.
 - **Nothing capability-bearing is stored in Cerea.** Cerea holds only a live socket that the machine opened. A DB dump yields device names and ids, nothing that can reach a machine.
 - LLM traffic never crosses Cerea (unchanged two-path rule).
@@ -32,7 +39,7 @@ We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent 
 
 **Decision:** our own backend interface, *shaped like ACP* (same nouns: session, prompt, update stream, permission request with once/always/reject, cancel, mode, model) plus optional capabilities for what ACP lacks (usage, diff, children, compact, worktrees). opencode is implemented over `opencode serve` (richer than `opencode acp`, survives restarts, multi-directory). The generic **ACP adapter** is the natural *second* backend (covers Gemini CLI, Claude Code and Codex via their ACP adapters, Pi via `pi-acp`); it simply reports fewer capabilities. Capabilities are advertised per backend in `hello`, and Cerea hides affordances a backend lacks.
 
-`pystino-agent run --backend acp --acp-command "<cmd…>"` (default `opencode acp`) runs the generic adapter (`internal/backend/acp`) instead of the default `opencode` backend; `--backend opencode` (or omitting the flag) keeps the default. The adapter spawns and supervises `<cmd…>` (restart with backoff, process group + `Pdeathsig`, same discipline as opencode's own supervisor) and speaks JSON-RPC 2.0 newline-delimited over its stdio. `initialize` (no fs/terminal client capabilities) seeds `ID()`/`Version()` (`acp:<agentInfo.name>`) and `Capabilities()` (Images from `promptCapabilities.image`; Diff/Children/Usage/Compact/Worktrees always false, since ACP has no wire message for any of them; AutoAccept always true — the materializer's job, not a backend capability). Prompts map to `session/prompt`'s content blocks and return once sent (the async contract); the turn's completion arrives later as a `status` event once the response carries `stopReason` (`cancelled` → idle; `refusal`/an RPC error → `error`). `session/update` notifications become the normalized event stream, with ids derived from a local turn counter rather than the agent's own per-chunk ids, so "one message per turn per role" holds regardless of how a given agent chunks its output. `session/request_permission` becomes `permission.asked`; `ReplyPermission` answers with the `optionId` of kind `allow_once`/`allow_always`/`reject_once` (with fallbacks); a `Cancel` with a permission pending answers it `{outcome:{outcome:"cancelled"}}` first. `session.rename`/`session.delete` are best effort (a title overlay; `session/close` if advertised); `session.setModel` (the still-unstable `session/set_model`) reports the agent's error cleanly if unsupported. Verified live against opencode 1.18.31's `opencode acp` (see `acp_it_test.go`), including the one spot it diverges from the published ACP schema: `session/new` answers with a bespoke `configOptions` list rather than `modes`/`models` — both shapes are read.
+`galopin run --backend acp --acp-command "<cmd…>"` (default `opencode acp`) runs the generic adapter (`internal/backend/acp`) instead of the default `opencode` backend; `--backend opencode` (or omitting the flag) keeps the default. The adapter spawns and supervises `<cmd…>` (restart with backoff, process group + `Pdeathsig`, same discipline as opencode's own supervisor) and speaks JSON-RPC 2.0 newline-delimited over its stdio. `initialize` (no fs/terminal client capabilities) seeds `ID()`/`Version()` (`acp:<agentInfo.name>`) and `Capabilities()` (Images from `promptCapabilities.image`; Diff/Children/Usage/Compact/Worktrees always false, since ACP has no wire message for any of them; AutoAccept always true — the materializer's job, not a backend capability). Prompts map to `session/prompt`'s content blocks and return once sent (the async contract); the turn's completion arrives later as a `status` event once the response carries `stopReason` (`cancelled` → idle; `refusal`/an RPC error → `error`). `session/update` notifications become the normalized event stream, with ids derived from a local turn counter rather than the agent's own per-chunk ids, so "one message per turn per role" holds regardless of how a given agent chunks its output. `session/request_permission` becomes `permission.asked`; `ReplyPermission` answers with the `optionId` of kind `allow_once`/`allow_always`/`reject_once` (with fallbacks); a `Cancel` with a permission pending answers it `{outcome:{outcome:"cancelled"}}` first. `session.rename`/`session.delete` are best effort (a title overlay; `session/close` if advertised); `session.setModel` (the still-unstable `session/set_model`) reports the agent's error cleanly if unsupported. Verified live against opencode 1.18.31's `opencode acp` (see `acp_it_test.go`), including the one spot it diverges from the published ACP schema: `session/new` answers with a bespoke `configOptions` list rather than `modes`/`models` — both shapes are read.
 
 ## 3. Transport and authentication
 
@@ -52,7 +59,7 @@ We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent 
 - The `/code` panel lists pending machines with **Confirm / Reject**. Confirm → `status: "paired"` and Cerea sends `{"type":"status","status":"paired"}` down the socket. This click is the fresh human approval review C2 asks for; a phished device-code approval alone never reaches the panel's operations.
 - Revoke (DELETE device) → row becomes `status: "revoked"` (tombstone keyed by machineId), the live socket is closed with `4403`, and further connects with that machineId are refused. Re-enrolling mints a new machineId → a new pending row.
 - Every browser request is authorized as: `locals.user` present (C6) → device row with `userId == locals.user._id` and `status == "paired"` → the live connection for that row is authenticated as the same `sub`. A device can never be driven by a user other than the one whose credential the machine holds (C10 closed by construction; there is no paste flow).
-- **Machine-side policy (the machine's veto, C4):** `pystino-agent` has a local policy file (`policy.json` in its config dir, set by `enroll` flags, never writable over the link):
+- **Machine-side policy (the machine's veto, C4):** `galopin` has a local policy file (`policy.json` in its config dir, set by `enroll` flags, never writable over the link):
   - `autoAccept`: `"allowed" | "denied"` (default `denied`). When denied, the agent refuses `session.setAutoAccept` and never auto-replies to permissions whatever Cerea sends.
   - `workspaceRoots`: absolute paths; if non-empty, `workspace.create` outside them is refused.
   - `allowFreeModels`: bool (default false). When false the agent lists and accepts only gateway (`pystino/*`) models; Cerea filters as well (defence in depth).

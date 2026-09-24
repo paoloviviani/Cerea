@@ -1,14 +1,14 @@
-# systemd user unit: keeps `pystino-agent run` up. Install:
-#   install -D -m 0644 pystino-agent.service ~/.config/systemd/user/pystino-agent.service
-#   systemctl --user daemon-reload && systemctl --user enable --now pystino-agent
+# systemd user unit: keeps `galopin run` up. Install:
+#   install -D -m 0644 galopin.service ~/.config/systemd/user/galopin.service
+#   systemctl --user daemon-reload && systemctl --user enable --now galopin
 #   loginctl enable-linger "$USER"     # keep it up while logged out
 [Unit]
-Description=pystino-agent: this machine's link to the chat's /code panel
+Description=galopin: this machine's link to the chat's /code panel
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/pystino-agent run
+ExecStart=%h/.local/bin/galopin run
 Restart=on-failure
 RestartSec=10
 # 78 (EX_CONFIG) is "this machine was revoked in the /code panel": no restart can
