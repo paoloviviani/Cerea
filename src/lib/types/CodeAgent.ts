@@ -70,9 +70,41 @@ export interface AgentResetUpdate {
 	type: "reset";
 }
 
+/**
+ * Context/usage, a side channel (M3): never touches the turn structure a
+ * `user`/turn-state frame builds, folds independently of it, and re-converges
+ * on the latest value rather than accumulating (a live `usage` event and the
+ * snapshot's own `usage` both land here the same way). Field names are
+ * Cerea's own, mapped from the machine's `Usage` shape in one place
+ * (`machineTimeline.ts`) so an upstream rename there is a one-line fix.
+ */
+export interface AgentUsageUpdate {
+	type: "usage";
+	usage: {
+		used?: number;
+		max?: number;
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		reasoning?: number;
+	};
+}
+
+/**
+ * A compaction marker (M3), mapped from the machine's `compaction` part
+ * (spec §7). `auto` distinguishes opencode's own context-overflow trigger
+ * from a person's "Compact now" — undefined when the source is silent on it.
+ */
+export interface AgentCompactionUpdate {
+	type: "compaction";
+	auto?: boolean;
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
 	| AgentResetUpdate
+	| AgentUsageUpdate
+	| AgentCompactionUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -86,6 +118,8 @@ export type AgentStreamUpdate =
 export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"user",
 	"reset",
+	"usage",
+	"compaction",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.Plan,

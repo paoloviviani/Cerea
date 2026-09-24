@@ -395,6 +395,24 @@ export async function cancelAgent(deviceId: string, agentId: string): Promise<{ 
 	);
 }
 
+/** Manual context compaction ("Compact now", M3). The transcript records the
+ * result (a `compaction` marker part, per the machine's own event stream);
+ * this only carries the request. 404s (`CodeApiError.status === 404`) when
+ * the backend has no `compact` capability — the meter hides the button in
+ * that case, so a caller reaching this without checking is the exception. */
+export async function compactAgent(deviceId: string, agentId: string): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/compact?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({}),
+			}
+		)
+	);
+}
+
 /** Answer a waiting permission request. Blocking: the agent holds until this lands. */
 export async function respondPermission(
 	deviceId: string,

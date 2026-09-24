@@ -1,0 +1,191 @@
+<!--
+	The context/usage ring, in the composer's own pill row (M3).
+
+	Shows a percentage when the backend has named a context max, otherwise a
+	raw token count — never an invented maximum. Grey below 70%, amber from
+	70%, red from 90%, matching the thresholds the popover's numbers back up.
+	The popover carries the breakdown (input/output/cache), the last
+	compaction, and a manual "Compact now" — the same `DropdownMenu` idiom the
+	mode/model pills beside it already use.
+
+	Hidden entirely when the backend lacks the `usage` capability (the
+	caller's job to decide, via `supported`) or before any usage frame has
+	arrived — a meter with nothing to show would just be a blank ring.
+-->
+<script lang="ts">
+	import { DropdownMenu } from "bits-ui";
+	import IconWarning from "~icons/carbon/warning-filled";
+	import { CodeApiError, compactAgent } from "$lib/codeApi";
+	import type { AgentCompactionUpdate, AgentUsageUpdate } from "$lib/types/CodeAgent";
+
+	interface Props {
+		deviceId: string;
+		agentId: string;
+		/** The latest `usage` side-channel frame, or null before the first one
+		 * arrives (a fresh session that has not run a turn yet). */
+		usage: AgentUsageUpdate["usage"] | null;
+		/** The latest `compaction` side-channel frame, or null if none has
+		 * happened this session. */
+		lastCompaction: AgentCompactionUpdate | null;
+		/** Whether the backend advertised the `usage` capability in `hello` —
+		 * the meter renders nothing at all when it did not. */
+		supported: boolean;
+		/** The daemon's state changed (a compaction landed) — the same signal
+		 * the mode/model pills use to ask the parent to re-read the snapshot. */
+		onchanged?: () => void;
+	}
+
+	let { deviceId, agentId, usage, lastCompaction, supported, onchanged }: Props = $props();
+
+	let compacting = $state(false);
+	let compactFailure = $state<string | null>(null);
+	/** Whether this deployment's `compact` capability is known unavailable —
+	 * learned the first time a "Compact now" click 404s, not guessed up
+	 * front: `supported` only tells us about `usage`, a separate capability. */
+	let compactUnsupported = $state(false);
+
+	let percent = $derived.by(() => {
+		if (!usage?.max) return null;
+		const used = usage.used ?? 0;
+		return Math.max(0, Math.min(100, Math.round((used / usage.max) * 100)));
+	});
+
+	type Tone = "grey" | "amber" | "red";
+	let tone = $derived.by((): Tone => {
+		if (percent === null) return "grey";
+		if (percent >= 90) return "red";
+		if (percent >= 70) return "amber";
+		return "grey";
+	});
+
+	const RING_CLASS: Record<Tone, string> = {
+		grey: "text-gray-400 dark:text-gray-500",
+		amber: "text-amber-500 dark:text-amber-400",
+		red: "text-red-500 dark:text-red-400",
+	};
+
+	const RADIUS = 7;
+	const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+	let dashoffset = $derived(CIRCUMFERENCE * (1 - (percent ?? 0) / 100));
+
+	function formatTokenCount(n: number | undefined): string {
+		const value = n ?? 0;
+		if (value >= 1000) return `${Math.round(value / 100) / 10}k`;
+		return String(value);
+	}
+
+	let label = $derived(percent !== null ? `${percent}%` : formatTokenCount(usage?.used));
+
+	let compactionNote = $derived.by(() => {
+		if (!lastCompaction) return null;
+		if (lastCompaction.auto === false) return "Compacted manually";
+		if (lastCompaction.auto === true) return "Compacted automatically";
+		return "Compacted";
+	});
+
+	async function compactNow() {
+		if (compacting) return;
+		compacting = true;
+		compactFailure = null;
+		try {
+			await compactAgent(deviceId, agentId);
+			onchanged?.();
+		} catch (err) {
+			if (err instanceof CodeApiError && err.status === 404) {
+				compactUnsupported = true;
+			} else {
+				compactFailure = err instanceof Error ? err.message : "The daemon refused to compact.";
+			}
+		} finally {
+			compacting = false;
+		}
+	}
+
+	const menuContentClass =
+		"z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100";
+</script>
+
+{#if supported && usage}
+	<DropdownMenu.Root>
+		<DropdownMenu.Trigger
+			class="ml-auto flex h-7 flex-none items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+			title="Context usage"
+		>
+			<svg viewBox="0 0 18 18" class="size-3.5 {RING_CLASS[tone]}">
+				<circle
+					cx="9"
+					cy="9"
+					r={RADIUS}
+					fill="none"
+					stroke="currentColor"
+					stroke-opacity="0.25"
+					stroke-width="2.5"
+				/>
+				{#if percent !== null}
+					<circle
+						cx="9"
+						cy="9"
+						r={RADIUS}
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-dasharray={CIRCUMFERENCE}
+						stroke-dashoffset={dashoffset}
+						transform="rotate(-90 9 9)"
+					/>
+				{/if}
+			</svg>
+			{label}
+		</DropdownMenu.Trigger>
+		<DropdownMenu.Portal>
+			<DropdownMenu.Content
+				class="{menuContentClass} w-64"
+				side="top"
+				align="end"
+				sideOffset={8}
+				trapFocus={false}
+				onCloseAutoFocus={(e) => e.preventDefault()}
+				interactOutsideBehavior="defer-otherwise-close"
+			>
+				<div class="space-y-2 px-3 py-2.5 text-xs">
+					<div
+						class="flex items-center justify-between font-medium text-gray-800 dark:text-gray-100"
+					>
+						<span>Context</span>
+						<span>{usage.used ?? 0}{usage.max ? ` / ${usage.max}` : ""} tokens</span>
+					</div>
+					<dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
+						<dt>Input</dt>
+						<dd class="text-right">{usage.input ?? 0}</dd>
+						<dt>Output</dt>
+						<dd class="text-right">{usage.output ?? 0}</dd>
+						<dt>Cache read</dt>
+						<dd class="text-right">{usage.cacheRead ?? 0}</dd>
+						<dt>Reasoning</dt>
+						<dd class="text-right">{usage.reasoning ?? 0}</dd>
+					</dl>
+					{#if compactionNote}
+						<div class="text-gray-500 dark:text-gray-400">{compactionNote}</div>
+					{/if}
+					{#if compactFailure}
+						<div class="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+							<IconWarning class="size-3 shrink-0" />
+							<span class="min-w-0 truncate" title={compactFailure}>{compactFailure}</span>
+						</div>
+					{/if}
+					{#if !compactUnsupported}
+						<button
+							type="button"
+							class="w-full rounded-md border border-gray-200 px-2 py-1 text-center font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+							disabled={compacting}
+							onclick={() => void compactNow()}
+						>
+							{compacting ? "Compacting…" : "Compact now"}
+						</button>
+					{/if}
+				</div>
+			</DropdownMenu.Content>
+		</DropdownMenu.Portal>
+	</DropdownMenu.Root>
+{/if}
