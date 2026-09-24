@@ -11,7 +11,14 @@ vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
 
 vi.mock("$lib/server/askUserQuestion", () => ({
 	ASK_USER_QUESTION_TOOL_NAME: "ask_user_question",
-	askUserQuestionTool: { type: "function", function: { name: "ask_user_question" } },
+	askUserQuestionTool: {
+		type: "function",
+		function: { name: "ask_user_question", description: "with setBudgetUsd" },
+	},
+	askUserQuestionToolPlain: {
+		type: "function",
+		function: { name: "ask_user_question", description: "no budget grants" },
+	},
 	openAskPrompt: mocks.openAskPrompt,
 }));
 
@@ -192,6 +199,16 @@ describe("shouldSkipMcpFlow", () => {
 });
 
 describe("askUserQuestionBuiltin", () => {
+	it("tells the model to deliver first, never to ask for confirmation or instead of content", () => {
+		expect(askUserQuestionBuiltin.preprompt).toMatch(/Never use it to confirm \("did it work\?"\)/);
+		expect(askUserQuestionBuiltin.preprompt).toMatch(
+			/nor in the same step as delivering content \(an artifact/
+		);
+		expect(askUserQuestionBuiltin.preprompt).toMatch(
+			/"Other" free-text choice is added automatically; never add your own/
+		);
+	});
+
 	const sink: ElicitationSink = { conversationId: new ObjectId(), emit: vi.fn() };
 	const args = { questions: [] };
 
@@ -252,5 +269,14 @@ describe("ask_user_question beyond the ML Assistant preset", () => {
 			askUserQuestionEnabled: true,
 		}).map((tool) => tool.name);
 		expect(names.filter((name) => name === "ask_user_question")).toHaveLength(1);
+	});
+
+	it("offers setBudgetUsd only inside the preset that can grant budget", () => {
+		const definitionIn = (conv: { _id: ObjectId; mlAssistant?: boolean }) =>
+			getEnabledBuiltinTools({ conv, askUserQuestionEnabled: true }).find(
+				(tool) => tool.name === "ask_user_question"
+			)?.definition.function.description;
+		expect(definitionIn({ _id: new ObjectId() })).toBe("no budget grants");
+		expect(definitionIn({ _id: new ObjectId(), mlAssistant: true })).toBe("with setBudgetUsd");
 	});
 });

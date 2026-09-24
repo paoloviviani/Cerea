@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { Envelope, Message, Part, Transcript } from "$lib/types/machineProtocol";
 import {
+	answersFromQuestionOutput,
 	eventToUpdates,
 	foldEnvelopeEvents,
 	frameKey,
@@ -496,6 +497,7 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 								{ value: "npm", label: "npm", description: undefined },
 								{ value: "pnpm", label: "pnpm", description: "faster installs" },
 							],
+							allowOther: true,
 						},
 					],
 				},
@@ -518,6 +520,22 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 		expect(request.message).toBe("Pick one\n\nPick any");
 		expect(request.fields).toHaveLength(2);
 		expect(request.fields[1]).toMatchObject({ name: "q1", multiple: true });
+	});
+
+	it("offers free text, as opencode tells the model, unless the question turns `custom` off", () => {
+		const updates = eventToUpdates({
+			kind: "question.asked",
+			request: {
+				id: "q-3",
+				questions: [
+					{ question: "Default", options: [{ label: "a" }, { label: "b" }] },
+					{ question: "Closed", options: [{ label: "a" }, { label: "b" }], custom: false },
+				],
+			},
+		});
+		const request = (updates[0] as { request: { fields: unknown[] } }).request;
+		expect(request.fields[0]).toMatchObject({ allowOther: true });
+		expect(request.fields[1]).toMatchObject({ allowOther: false });
 	});
 
 	it("maps question.resolved (accept) to a resolved elicitation carrying the chosen labels", () => {
@@ -554,5 +572,88 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 			},
 		]);
 		expect(updates[0]).not.toHaveProperty("content");
+	});
+});
+
+describe("an answered question, as a reload finds it", () => {
+	const approach = {
+		question: "Which approach?",
+		header: "Approach",
+		options: [{ label: "A" }, { label: "B" }],
+	};
+	const stack = {
+		question: "Which parts?",
+		header: "Parts",
+		multiple: true,
+		options: [{ label: "API, v2" }, { label: "UI" }],
+	};
+	const output = (body: string) =>
+		`User has answered your questions: ${body}. You can now continue with the user's answers in mind.`;
+
+	it("splits opencode's own result text back into per-question answers", () => {
+		expect(
+			answersFromQuestionOutput(
+				[approach, stack],
+				output(`"Which approach?"="B", "Which parts?"="API, v2, UI, and docs"`)
+			)
+		).toEqual([["B"], ["API, v2", "UI", "and docs"]]);
+		expect(answersFromQuestionOutput([approach], output(`"Which approach?"="Unanswered"`))).toEqual(
+			[[]]
+		);
+		expect(
+			answersFromQuestionOutput([approach], output(`"Which approach?"="Neither, do C"`))
+		).toEqual([["Neither, do C"]]);
+	});
+
+	it("gives up rather than guess when the wording is not opencode's", () => {
+		expect(answersFromQuestionOutput([approach], "done")).toBeNull();
+		expect(answersFromQuestionOutput([approach], undefined)).toBeNull();
+	});
+
+	it("rebuilds the answered card from a completed question tool part", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: assistantMessage("m2"),
+					parts: [
+						{
+							id: "p9",
+							messageId: "m2",
+							role: "assistant",
+							type: "tool",
+							callId: "call_q",
+							tool: "question",
+							status: "completed",
+							input: { questions: [approach] },
+							output: output(`"Which approach?"="A"`),
+						},
+					],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(updates).toContainEqual(
+			expect.objectContaining({
+				type: MessageUpdateType.Elicitation,
+				subtype: "request",
+				request: expect.objectContaining({
+					elicitationId: "question-call:call_q",
+					source: "assistant",
+				}),
+			})
+		);
+		expect(updates).toContainEqual(
+			expect.objectContaining({
+				type: MessageUpdateType.Elicitation,
+				subtype: "resolved",
+				elicitationId: "question-call:call_q",
+				action: "accept",
+				content: { q0: ["A"] },
+			})
+		);
 	});
 });

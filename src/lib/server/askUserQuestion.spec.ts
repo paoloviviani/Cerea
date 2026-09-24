@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { normalizeAskUserQuestion, answerToToolResult, chosenBudgetUsd } from "./askUserQuestion";
+import {
+	normalizeAskUserQuestion,
+	answerToToolResult,
+	chosenBudgetUsd,
+	askUserQuestionTool,
+	askUserQuestionToolPlain,
+	isCatchAllLabel,
+} from "./askUserQuestion";
 
 const question = (over: Record<string, unknown> = {}) => ({
 	question: "Which database?",
@@ -95,9 +102,28 @@ describe("the result handed back to the model", () => {
 		expect(text).toContain("Postgres");
 	});
 
-	it("joins a multi-pick answer", () => {
+	it("returns every choice of a multi-pick answer", () => {
 		expect(answerToToolResult(payload, "accept", { q1: ["Postgres", "Mongo"] })).toContain(
-			"Postgres, Mongo"
+			'A: chose "Postgres", "Mongo"'
+		);
+	});
+
+	it("marks a chosen option as chosen, and typed text as custom", () => {
+		const chosen = answerToToolResult(payload, "accept", { q1: "Postgres" });
+		expect(chosen).toContain('Q: Which database?\nA: chose "Postgres"');
+		expect(chosen).not.toContain("custom");
+
+		const typed = answerToToolResult(payload, "accept", { q1: "SQLite, it's a toy" });
+		expect(typed).toContain(
+			'A: typed their own answer (custom, not one of your options) "SQLite, it\'s a toy"'
+		);
+		expect(typed).not.toContain("chose");
+	});
+
+	it("keeps both halves of a multi-pick that mixes options and typed text", () => {
+		const multi = { ...ok({ questions: [question({ multiSelect: true })] }), elicitationId: "x" };
+		expect(answerToToolResult(multi, "accept", { q1: ["Mongo", "Redis"] })).toContain(
+			'A: chose "Mongo"; typed their own answer (custom, not one of your options) "Redis"'
 		);
 	});
 
@@ -244,5 +270,82 @@ describe("budget questions must carry real grants", () => {
 			],
 		});
 		expect(payload.fields).toHaveLength(1);
+	});
+});
+
+describe("the tool the model sees", () => {
+	const describeAll = (tool: typeof askUserQuestionTool) => JSON.stringify(tool);
+
+	it("tells the model the user can always type their own answer, so it never adds Other", () => {
+		for (const tool of [askUserQuestionTool, askUserQuestionToolPlain]) {
+			expect(tool.function.description).toContain(
+				'The user can ALWAYS choose "Other" and type their own answer'
+			);
+			expect(tool.function.description).toMatch(/never add an "Other"/);
+			expect(tool.function.description).toMatch(/1-4 questions/);
+			expect(tool.function.description).toMatch(/multiSelect/);
+			expect(describeAll(tool)).toMatch(/at most 12 characters/);
+			expect(tool.function.description).toMatch(/Never use it to confirm, verify/);
+			expect(tool.function.description).toMatch(
+				/Never call it in the same step as delivering content/
+			);
+		}
+	});
+
+	it("offers setBudgetUsd only in the variant that can grant budget", () => {
+		expect(describeAll(askUserQuestionTool)).toContain("setBudgetUsd");
+		expect(describeAll(askUserQuestionToolPlain)).not.toContain("setBudgetUsd");
+		expect(describeAll(askUserQuestionToolPlain)).not.toMatch(/budget/i);
+	});
+});
+
+describe("a model that adds its own Other anyway", () => {
+	it("recognises catch-all labels and nothing that merely starts like one", () => {
+		for (const label of [
+			"Other",
+			"Other (please specify)",
+			"Something else",
+			"Type my own answer",
+			"None of the above",
+			"other…",
+		]) {
+			expect(isCatchAllLabel(label), label).toBe(true);
+		}
+		for (const label of [
+			"Other people's code",
+			"Postgres",
+			"Customize later",
+			"Something elsewhere",
+		]) {
+			expect(isCatchAllLabel(label), label).toBe(false);
+		}
+	});
+
+	it("loses the duplicate, keeping the form's own Other", () => {
+		const payload = ok({
+			questions: [
+				question({
+					options: [{ label: "Postgres" }, { label: "Mongo" }, { label: "Other (specify)" }],
+				}),
+			],
+		});
+		const field = payload.fields?.[0];
+		expect(field?.kind === "select" && field.options.map((o) => o.label)).toEqual([
+			"Postgres",
+			"Mongo",
+		]);
+		expect(field?.kind === "select" && field.allowOther).toBe(true);
+	});
+
+	it("keeps the model's catch-all when dropping it would leave too few options", () => {
+		const payload = ok({
+			questions: [question({ options: [{ label: "Postgres" }, { label: "Something else" }] })],
+		});
+		const field = payload.fields?.[0];
+		expect(field?.kind === "select" && field.options.map((o) => o.label)).toEqual([
+			"Postgres",
+			"Something else",
+		]);
+		expect(field?.kind === "select" && field.allowOther).toBe(false);
 	});
 });
