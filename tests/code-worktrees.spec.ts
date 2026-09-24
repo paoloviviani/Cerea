@@ -122,8 +122,9 @@ test.describe("creating a worktree workspace", () => {
 		expect(createBody).toEqual({ worktree: { from: WS, branch: "feature/x" } });
 
 		// The tree redraws from the daemon's answer, and shows the new
-		// workspace's branch beside its name.
-		await expect(page.getByText("feature/x")).toBeVisible();
-		await expect(page).toHaveURL(new RegExp(`ws=ws_e2e_worktree`));
+		// workspace's branch badge beside its name (the row's own name is
+		// also "feature/x" here, so this is scoped to the badge specifically
+		// rather than any text match).
+		await expect(page.getByTitle("git worktree on feature/x")).toBeVisible();
 	});
 });
