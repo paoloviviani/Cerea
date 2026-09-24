@@ -188,6 +188,9 @@ export interface Question {
 	header?: string;
 	options: QuestionOption[];
 	multiple?: boolean;
+	/** opencode's own flag, on unless false: its tool description tells the
+	 * model a "Type your own answer" choice is added automatically. */
+	custom?: boolean;
 }
 
 export interface PermissionRequest {

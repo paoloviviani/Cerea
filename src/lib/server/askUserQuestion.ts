@@ -13,70 +13,103 @@ const MAX_HEADER_CHARS = 12;
 
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
 
-export const askUserQuestionTool = {
-	type: "function" as const,
-	function: {
-		name: ASK_USER_QUESTION_TOOL_NAME,
+const BUDGET_OPTION_PROPERTY = {
+	setBudgetUsd: {
+		type: "number",
 		description:
-			"Put a decision to the user as options they can click, and wait for the answer. " +
-			"Use it when the request has more than one sensible reading and those readings " +
-			"lead to materially different work — which framing, which scope, which of several " +
-			"approaches. Prefer it to asking in prose, which cannot be answered with a click. " +
-			"Not for something you can look up, a choice with an obvious default, or anything " +
-			"the user has already told you.",
-		parameters: {
-			type: "object",
-			properties: {
-				questions: {
-					type: "array",
-					minItems: 1,
-					maxItems: MAX_QUESTIONS,
-					description: "The decisions to put to the user, at most four.",
-					items: {
-						type: "object",
-						properties: {
-							question: {
-								type: "string",
-								description: "The complete question, ending in a question mark.",
-							},
-							header: {
-								type: "string",
-								description: `Short label shown as a chip, at most ${MAX_HEADER_CHARS} characters.`,
-							},
-							multiSelect: {
-								type: "boolean",
-								description: "Whether more than one option may be chosen.",
-							},
-							options: {
-								type: "array",
-								minItems: MIN_OPTIONS,
-								maxItems: MAX_OPTIONS,
-								items: {
-									type: "object",
-									properties: {
-										label: { type: "string", description: "The choice, in a few words." },
-										description: {
-											type: "string",
-											description: "What picking this means, and its trade-off.",
-										},
-										setBudgetUsd: {
-											type: "number",
-											description:
-												"ML sessions with a compute budget only: if the user picks this option, the session budget is set to this many dollars. The option's title is generated from the amount and your label is ignored — put the trade-off in the description. Use the smallest whole amount that covers the run you are proposing.",
-										},
-									},
-									required: ["label", "description"],
-								},
-							},
-						},
-						required: ["question", "header", "options", "multiSelect"],
-					},
-				},
-			},
-			required: ["questions"],
-		},
+			"ML sessions with a compute budget only: if the user picks this option, the session budget is set to this many dollars. The option's title is generated from the amount and your label is ignored — put the trade-off in the description. Use the smallest whole amount that covers the run you are proposing.",
 	},
 };
+
+/**
+ * The tool as the model sees it. `withBudget` adds the ML Assistant preset's
+ * `setBudgetUsd` option field; everywhere else it is left out, because a field
+ * the model cannot use only invites it to guess at one.
+ */
+export function askUserQuestionToolFor(withBudget: boolean) {
+	return {
+		type: "function" as const,
+		function: {
+			name: ASK_USER_QUESTION_TOOL_NAME,
+			description:
+				"Put a decision to the user as options they can click, and wait for the answer. " +
+				"Use it only when you are blocked on a real choice: the request has more than one sensible reading and those readings " +
+				"lead to materially different work (which framing, which scope, which of several approaches). " +
+				"Not for something you can look up, a choice with an obvious default, or anything the user has already told you. " +
+				'Never use it to confirm, verify or ask "did it work?" / "is this what you wanted?": deliver, and let the user reply in chat. ' +
+				"Never call it in the same step as delivering content (an artifact, code, a long answer): write the content out in your reply first; " +
+				"a question in place of the content means the user never sees it. " +
+				`Ask 1-${MAX_QUESTIONS} questions in one call, each with ${MIN_OPTIONS}-${MAX_OPTIONS} options; ` +
+				"set multiSelect when the user may pick more than one. " +
+				'The user can ALWAYS choose "Other" and type their own answer instead: the interface adds that choice automatically, ' +
+				'so never add an "Other", "Something else" or catch-all option yourself. ' +
+				"The result says, for each question, which option(s) were chosen or the text the user typed.",
+			parameters: {
+				type: "object",
+				properties: {
+					questions: {
+						type: "array",
+						minItems: 1,
+						maxItems: MAX_QUESTIONS,
+						description: `The decisions to put to the user, 1 to ${MAX_QUESTIONS}.`,
+						items: {
+							type: "object",
+							properties: {
+								question: {
+									type: "string",
+									description: "The complete question, ending in a question mark.",
+								},
+								header: {
+									type: "string",
+									description: `A short chip label for the question, at most ${MAX_HEADER_CHARS} characters (e.g. "Format").`,
+								},
+								multiSelect: {
+									type: "boolean",
+									description: "true lets the user pick several options; false means exactly one.",
+								},
+								options: {
+									type: "array",
+									minItems: MIN_OPTIONS,
+									maxItems: MAX_OPTIONS,
+									description: `${MIN_OPTIONS}-${MAX_OPTIONS} concrete choices. Do not include an "Other" option: it is added for you.`,
+									items: {
+										type: "object",
+										properties: {
+											label: { type: "string", description: "The choice, in a few words." },
+											description: {
+												type: "string",
+												description:
+													"Shown under the label: what picking this means, its consequence or trade-off, in one line.",
+											},
+											...(withBudget ? BUDGET_OPTION_PROPERTY : {}),
+										},
+										required: ["label", "description"],
+									},
+								},
+							},
+							required: ["question", "header", "options", "multiSelect"],
+						},
+					},
+				},
+				required: ["questions"],
+			},
+		},
+	};
+}
+
+/** The ML Assistant preset's tool (with `setBudgetUsd`), kept under its old name. */
+export const askUserQuestionTool = askUserQuestionToolFor(true);
+
+/** An ordinary conversation's tool: no budget field. */
+export const askUserQuestionToolPlain = askUserQuestionToolFor(false);
+
+/** "Other", "Something else", "Type my own…": the catch-all the form already provides. */
+export function isCatchAllLabel(label: string): boolean {
+	// Whole label only (plus a trailing aside), so "Other people's code" stays.
+	return /^\s*(other|others|something else|anything else|none of (the|these)( above)?|(let me )?(type|write) (my|your|a) own( answer)?|custom( answer)?)\s*([(:\-\u2013\u2014\u2026.,].*)?$/i.test(
+		label
+	);
+}
 
 const asText = (value: unknown, max: number): string | undefined => {
 	if (typeof value !== "string") return undefined;
@@ -143,6 +176,20 @@ export function normalizeAskUserQuestion(args: unknown): NormalizedAsk {
 				...(setBudgetUsd !== undefined ? { setBudgetUsd } : {}),
 			});
 		}
+		// The form always adds its own "Other", so a model-authored one would show
+		// twice. Drop it when enough real options remain; otherwise keep the
+		// model's and suppress the form's instead.
+		const catchAll = options.filter(
+			(o) => o.setBudgetUsd === undefined && isCatchAllLabel(o.label)
+		);
+		let allowOther = true;
+		if (catchAll.length > 0) {
+			if (options.length - catchAll.length >= MIN_OPTIONS) {
+				for (const o of catchAll) options.splice(options.indexOf(o), 1);
+			} else {
+				allowOther = false;
+			}
+		}
 		if (options.length < MIN_OPTIONS) {
 			return { ok: false, reason: `question ${index + 1} needs at least ${MIN_OPTIONS} options` };
 		}
@@ -178,7 +225,7 @@ export function normalizeAskUserQuestion(args: unknown): NormalizedAsk {
 			multiple: q?.multiSelect === true,
 			options,
 			// The model's options are guesses; the user always keeps a way to say otherwise.
-			allowOther: true,
+			allowOther,
 			...(q?.multiSelect === true ? { minItems: 1 } : {}),
 		});
 	}
@@ -229,10 +276,27 @@ export function answerToToolResult(
 			? "The user declined to answer. Proceed with your best judgement and say what you assumed."
 			: "The user dismissed the question. Proceed with your best judgement and say what you assumed.";
 	}
+	// Each answer says whether it is one of the model's options or text the user
+	// typed instead, so the model never mistakes a custom answer for a label.
 	const answered = (payload.fields ?? []).map((field) => {
 		const value = content[field.name];
-		const shown = Array.isArray(value) ? value.join(", ") : String(value ?? "");
-		return `${field.description ?? field.title ?? field.name}\n${shown}`;
+		const values = (Array.isArray(value) ? value : [value])
+			.map((v) => (typeof v === "string" ? v : v === undefined || v === null ? "" : String(v)))
+			.filter((v) => v !== "");
+		const known = field.kind === "select" ? field.options.map((o) => o.value) : [];
+		const chosen = values.filter((v) => known.includes(v));
+		const typed = values.filter((v) => !known.includes(v));
+		const parts: string[] = [];
+		if (chosen.length) parts.push(`chose ${chosen.map((v) => JSON.stringify(v)).join(", ")}`);
+		if (typed.length) {
+			parts.push(
+				`${field.kind === "select" ? "typed their own answer (custom, not one of your options)" : "wrote"} ${typed
+					.map((v) => JSON.stringify(v))
+					.join(", ")}`
+			);
+		}
+		const question = field.description ?? field.title ?? field.name;
+		return `Q: ${question}\nA: ${parts.length ? parts.join("; ") : "(no answer)"}`;
 	});
 	const granted = chosenBudgetUsd(payload, content);
 	const budgetLine =

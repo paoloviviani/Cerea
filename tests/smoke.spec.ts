@@ -2,7 +2,7 @@
  * Canary for the e2e harness, not a feature suite — keep it small. Feature coverage belongs in
  * the per-area specs.
  */
-import { test, expect } from "./fixtures.ts";
+import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 
 const PLAIN_TEXT_REPLY = "Hello from the mock server.";
 
@@ -14,7 +14,7 @@ test("sends a message, streams a reply, and persists it", async ({
 }) => {
 	await mockOpenAI.setDefaultScenario("plainText");
 
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 
 	await page.getByPlaceholder("Ask anything").fill("hello mock");
 	await page.getByRole("button", { name: "Send message" }).click();
@@ -58,7 +58,7 @@ test("renders a conversation seeded directly into Mongo", async ({ page, seedCon
 		],
 	});
 
-	await page.goto(`/conversation/${id.toString()}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${id.toString()}`);
 
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
 		"seeded answer"

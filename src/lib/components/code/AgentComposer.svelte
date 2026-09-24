@@ -515,6 +515,7 @@
 							{usage}
 							{lastCompaction}
 							supported={usageSupported}
+							{running}
 							{onchanged}
 						/>
 
