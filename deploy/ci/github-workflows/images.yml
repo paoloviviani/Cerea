@@ -79,4 +79,10 @@ jobs:
         run: echo "CEREA_IMAGE=ghcr.io/${{ github.repository_owner }}/cerea@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
       # A step, not a second job: every job is billed rounded up to a minute.
       - uses: actions/delete-package-versions@v5
-        with: {package-name: cerea, package-type: container, delete-only-untagged-versions: "true", min-versions-to-keep: 5}
+        with:
+          {
+            package-name: cerea,
+            package-type: container,
+            delete-only-untagged-versions: "true",
+            min-versions-to-keep: 5,
+          }
