@@ -197,7 +197,7 @@ test("the popup's Quotas section lists every usage report section in order, with
 					{ title: "You — this month", entries: [{ label: "Tokens", used: 100, unit: "tokens" }] },
 					{
 						title: "Team",
-						entries: [{ label: "Requests", used: 5, limit: 10, unit: "requests", scope: "group" }],
+						entries: [{ label: "Requests", used: 5, limit: 10, unit: "requests" }],
 					},
 				],
 			}),
@@ -212,8 +212,8 @@ test("the popup's Quotas section lists every usage report section in order, with
 	await expect(menu.getByText("Quotas")).toBeVisible();
 	await expect.poll(() => usageCalls).toBe(1);
 
-	await expect(menu.getByText("Tokens")).toBeVisible();
-	await expect(menu.getByText("Requests")).toBeVisible();
+	await expect(menu.getByText("Tokens", { exact: true })).toBeVisible();
+	await expect(menu.getByText("Requests", { exact: true })).toBeVisible();
 
 	// Section order matches the report's own order.
 	const menuText = (await menu.innerText()).replace(/\s+/g, " ");
@@ -224,7 +224,9 @@ test("the popup's Quotas section lists every usage report section in order, with
 	await expect(settingsLink).toHaveAttribute("href", `${E2E_APP_BASE}/settings/usage`);
 });
 
-test("the Quotas section is hidden cleanly when the gateway reports no quotas", async ({ page }) => {
+test("the Quotas section is hidden cleanly when the gateway reports no quotas", async ({
+	page,
+}) => {
 	await routeCommon(page, [BACKEND_WITH_USAGE]);
 	const stream = [
 		frame({ type: "turnState", state: "done", serverNow: Date.now() }),
