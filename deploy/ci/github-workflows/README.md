@@ -19,11 +19,11 @@ What the workflow does: builds every image on PRs; pushes to
 `main` (tag `edge`), `deploy/rearch` (tag `rearch`) and `v*` tags (`X.Y.Z`,
 `X.Y`); deletes untagged versions beyond the newest five.
 
-| Workflow | Runs on | What |
-|---|---|---|
-| `ci.yml` | PRs (docs excluded); Mondays for the client project | one job: lint, svelte-check, server + ssr tests; the Playwright-image client suite weekly/on demand — the one PR workflow (thin-agent's parked ci.yml folded in) |
-| `contract.yml` | PRs touching gateway-facing code (pinned gateway); Mondays (`edge`, non-blocking) | the gateway contract |
-| `images.yml` | pushes to main (path-filtered) and v* tags | build + push `ghcr.io/paoloviviani/cerea` (private), prune untagged |
+| Workflow       | Runs on                                                                           | What                                                                                                                                                             |
+| -------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`       | PRs (docs excluded); Mondays for the client project                               | one job: lint, svelte-check, server + ssr tests; the Playwright-image client suite weekly/on demand — the one PR workflow (thin-agent's parked ci.yml folded in) |
+| `contract.yml` | PRs touching gateway-facing code (pinned gateway); Mondays (`edge`, non-blocking) | the gateway contract                                                                                                                                             |
+| `images.yml`   | pushes to main (path-filtered) and v* tags                                        | build + push `ghcr.io/paoloviviani/cerea` (private), prune untagged                                                                                              |
 
 Budgeted for the GitHub free plan: see the deployment re-architecture report,
 §11 ("Action minutes").
