@@ -229,3 +229,28 @@ describe("askUserQuestionBuiltin", () => {
 		expect("error" in outcome && outcome.error).toContain("no chat to ask");
 	});
 });
+
+describe("ask_user_question beyond the ML Assistant preset", () => {
+	it("joins an ordinary conversation when the deployment switch is on", () => {
+		const names = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId() },
+			askUserQuestionEnabled: true,
+		}).map((tool) => tool.name);
+		expect(names).toContain("ask_user_question");
+	});
+
+	it("stays out of an ordinary conversation when the switch is off", () => {
+		const names = getEnabledBuiltinTools({ conv: { _id: new ObjectId() } }).map(
+			(tool) => tool.name
+		);
+		expect(names).not.toContain("ask_user_question");
+	});
+
+	it("is offered once, not twice, in an ML Assistant conversation", () => {
+		const names = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId(), mlAssistant: true },
+			askUserQuestionEnabled: true,
+		}).map((tool) => tool.name);
+		expect(names.filter((name) => name === "ask_user_question")).toHaveLength(1);
+	});
+});
