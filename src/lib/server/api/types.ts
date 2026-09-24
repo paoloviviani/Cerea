@@ -95,16 +95,14 @@ export interface FeatureFlags {
 	/**
 	 * Whether the deployment exposes the `/code` remote-agent panel
 	 * (`CODE_AGENTS_ENABLED`, off unless explicitly `"true"`). Off hides the
-	 * sidebar row and the route answers 404 — a deployment without a paseo
-	 * daemon beside it has nothing behind the panel.
+	 * sidebar row and the route answers 404.
 	 */
 	codeAgentsEnabled: boolean;
 	/**
-	 * The chat's own OIDC issuer (`OPENID_PROVIDER_URL`) — bundled Authelia,
-	 * bundled Keycloak, or whatever external IdP the deployment points at.
-	 * The pairing dialog's printed `setup-agent.sh` command carries this as
-	 * `--issuer` so the paired machine's own OIDC discovery lands on the
-	 * provider that actually issued the deployment's tokens, rather than a
+	 * The chat's own OIDC issuer (`OPENID_PROVIDER_URL`) — the bundled
+	 * Authelia or whatever external IdP the deployment points at: the
+	 * `--issuer` a machine's `pystino-agent enroll` needs, so its OIDC lands on
+	 * the provider that actually issued the deployment's tokens, rather than a
 	 * path only the bundled Authelia serves.
 	 */
 	codeOidcIssuerUrl: string;
