@@ -54,8 +54,21 @@ export interface AgentUserMessageUpdate {
 	text: string;
 }
 
+/**
+ * The machine's process restarted mid-session (its `epoch` changed, spec
+ * §7-§8): every seq before this point is gone, so the fold must discard the
+ * whole transcript and rebuild from what follows — the frames right after a
+ * `reset` are exactly the fresh epoch's own history. Travels the ordinary
+ * `update` channel (never a separate SSE event type) so the client needs no
+ * new plumbing beyond one more case in `consumeAgentUpdates`.
+ */
+export interface AgentResetUpdate {
+	type: "reset";
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
+	| AgentResetUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -68,6 +81,7 @@ export type AgentStreamUpdate =
 /** Frame `type` values the bridge may emit, for the client's backstop check. */
 export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"user",
+	"reset",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.Plan,

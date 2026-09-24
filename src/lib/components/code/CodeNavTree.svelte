@@ -34,17 +34,23 @@
 	import IconKebab from "~icons/lucide/ellipsis";
 	import IconEdit from "~icons/carbon/edit";
 	import IconWarning from "~icons/carbon/warning-filled";
+	import IconCheck from "~icons/carbon/checkmark";
+	import IconClose from "~icons/carbon/close";
 	import {
-		listDevices,
 		listWorkspaces,
 		listAgents,
+		confirmDevice,
 		revokeDevice,
 		archiveAgent,
 		archiveWorkspace,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
-	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
+	import {
+		codeDeviceList,
+		refreshCodeDevices,
+		useCodeDevicePoll,
+	} from "$lib/stores/codeDeviceList.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
@@ -60,14 +66,8 @@
 		off: boolean;
 	}
 
-	let devices = $state<CodeDeviceView[]>([]);
 	let trees = $state<Record<string, DeviceSubtree>>({});
-	let loading = $state(true);
-	let failure = $state<string | null>(null);
 	let pairingOpen = $state(false);
-	/** The device whose re-enroll dialog is open — the same `PairDeviceDialog`
-	 * the "Pair" button uses, just started past the naming step. */
-	let reenrollFor = $state<CodeDeviceView | null>(null);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
@@ -101,46 +101,56 @@
 		}
 	}
 
-	async function load() {
-		failure = null;
-		try {
-			devices = (await listDevices()).devices;
-			const paired = devices.filter((d) => d.status === "paired");
-			const settled = await Promise.all(paired.map((d) => loadTree(d.id)));
-			trees = Object.fromEntries(paired.map((d, i) => [d.id, settled[i]]));
-		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load paired devices.";
-		} finally {
-			loading = false;
-		}
-	}
-
 	async function reloadDevice(deviceId: string) {
 		trees = { ...trees, [deviceId]: await loadTree(deviceId) };
 	}
 
-	// A device paired headlessly (no dialog open to watch for it) or a
-	// session/workspace created from elsewhere (another tab, the daemon's
-	// own CLI) must show up here without a manual reload: poll on a sensible
-	// cadence while this tree is mounted, and refetch the moment the tab
-	// regains focus. `loading` only ever flips false in `load()`, so neither
-	// trigger re-shows the loading state — the tree just redraws quietly.
+	// The device list itself is the shared poll (`codeDeviceList.svelte.ts`,
+	// X4) — CodePanel reads the same interval instead of running its own.
+	// This tree additionally loads each *online, paired* device's own
+	// workspace/agent subtree: never for an offline one (X4 — a device with
+	// nothing to answer must never even be asked, which is what used to
+	// freeze the tree behind `Promise.all`), and never for one still
+	// `pending`, which has no subtree to show yet.
+	const loadableDevices = $derived(
+		codeDeviceList.devices.filter((device) => device.status === "paired" && device.online)
+	);
 	const TREE_POLL_MS = 8000;
+	async function refreshTrees() {
+		const settled = await Promise.all(loadableDevices.map((device) => loadTree(device.id)));
+		trees = Object.fromEntries(loadableDevices.map((device, i) => [device.id, settled[i]]));
+	}
 	onMount(() => {
-		void load();
-		const interval = setInterval(() => void load(), TREE_POLL_MS);
-		const onFocus = () => void load();
+		const stopDevicePoll = useCodeDevicePoll();
+		void refreshTrees();
+		const interval = setInterval(() => void refreshTrees(), TREE_POLL_MS);
+		const onFocus = () => {
+			void refreshCodeDevices();
+			void refreshTrees();
+		};
 		window.addEventListener("focus", onFocus);
 		return () => {
+			stopDevicePoll();
 			clearInterval(interval);
 			window.removeEventListener("focus", onFocus);
 		};
 	});
 
+	let actionFailure = $state<string | null>(null);
+
+	async function handleConfirm(id: string) {
+		try {
+			await confirmDevice(id);
+			await refreshCodeDevices();
+		} catch (err) {
+			actionFailure = err instanceof Error ? err.message : "Could not confirm the machine.";
+		}
+	}
+
 	async function handleRevoke(id: string) {
 		try {
 			await revokeDevice(id);
-			devices = devices.filter((d) => d.id !== id);
+			await refreshCodeDevices();
 			const rest = { ...trees };
 			delete rest[id];
 			trees = rest;
@@ -148,7 +158,7 @@
 				void goto(`${base}/code`, { keepFocus: true });
 			}
 		} catch {
-			failure = "Could not revoke the device.";
+			actionFailure = "Could not revoke the device.";
 		}
 	}
 
@@ -185,7 +195,7 @@
 	}
 
 	function handlePaired(device: CodeDeviceView) {
-		devices = [device, ...devices.filter((d) => d.id !== device.id)];
+		void refreshCodeDevices();
 		void reloadDevice(device.id);
 		void goto(`${base}/code?device=${device.id}`, { keepFocus: true });
 	}
@@ -217,30 +227,22 @@
 		</button>
 	</div>
 
-	{#if loading}
+	{#if actionFailure}
+		<div
+			class="mx-2 mb-1 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300"
+		>
+			<p class="flex items-center gap-1.5 font-medium">
+				<IconWarning class="size-3.5" />
+				{actionFailure}
+			</p>
+		</div>
+	{/if}
+	{#if codeDeviceList.loading}
 		<p class="flex items-center gap-2 px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
 			<IconRenew class="size-4 animate-spin" />
 			Loading paired devices…
 		</p>
-	{:else if failure}
-		<div
-			class="mx-2 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300"
-		>
-			<p class="flex items-center gap-1.5 font-medium">
-				<IconWarning class="size-3.5" />
-				Could not load devices
-			</p>
-			<button
-				class="mt-1 font-medium underline underline-offset-2"
-				onclick={() => {
-					loading = true;
-					void load();
-				}}
-			>
-				Retry
-			</button>
-		</div>
-	{:else if devices.length === 0}
+	{:else if codeDeviceList.devices.length === 0}
 		<div class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
 			<p class="flex items-center gap-1.5">
 				<IconLaptop class="size-4 shrink-0" />
@@ -255,39 +257,67 @@
 			</button>
 		</div>
 	{:else}
-		{#each devices as device (device.id)}
+		{#each codeDeviceList.devices as device (device.id)}
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
-			{@const enrollment = codeEnrollment[device.id]}
 			<div>
 				<div class="group flex items-center gap-1 pr-1">
-					<a
-						href="{base}/code?device={device.id}"
-						class="min-w-0 {row(deviceActive && !selectedAgentId)}"
-						title={device.name}
-					>
-						<IconLaptop class="size-3.5 shrink-0" />
-						<span class="min-w-0 flex-1 truncate">{device.name}</span>
-					</a>
-					{#if enrollment === "expired"}
+					{#if device.status === "pending"}
+						<span class="min-w-0 {row(false)}">
+							<IconLaptop class="size-3.5 shrink-0" />
+							<span class="min-w-0 flex-1 truncate">{device.name}</span>
+						</span>
+					{:else}
+						<a
+							href="{base}/code?device={device.id}"
+							class="min-w-0 {row(deviceActive && !selectedAgentId)}"
+							title={device.name}
+						>
+							<IconLaptop class="size-3.5 shrink-0" />
+							<span class="min-w-0 flex-1 truncate">{device.name}</span>
+						</a>
+					{/if}
+					{#if device.status === "pending"}
+						<!-- The fresh human approval review C2 calls for: a
+						     machine that connected with a valid bearer waits
+						     here until Confirm, and nothing is forwarded to
+						     it before that click. -->
 						<button
 							type="button"
-							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] font-medium text-red-800 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300"
-							title="This machine's enrollment expired or was revoked — click to re-enroll"
-							onclick={() => (reenrollFor = device)}
+							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
+							title="Confirm this machine"
+							onclick={() => void handleConfirm(device.id)}
 						>
-							re-enroll
+							<IconCheck class="size-3.5" />
+						</button>
+						<button
+							type="button"
+							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
+							title="Reject this machine"
+							onclick={() => void handleRevoke(device.id)}
+						>
+							<IconClose class="size-3.5" />
 						</button>
 					{:else}
 						<span
-							class="shrink-0 rounded-full px-1.5 text-[.65rem] {device.status === 'paired'
-								? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
-								: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'}"
+							class="shrink-0 rounded-full px-1.5 text-[.65rem] {device.credentialState ===
+							'expired'
+								? 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
+								: device.online
+									? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
+									: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}"
+							title={device.credentialState === "expired"
+								? "This machine's gateway credential expired or was revoked."
+								: device.online
+									? "Connected"
+									: "Not connected"}
 						>
-							{device.status}
+							{device.credentialState === "expired"
+								? "credential expired"
+								: device.online
+									? "online"
+									: "offline"}
 						</span>
-					{/if}
-					{#if device.status === "paired"}
 						<!-- Mirrors the workspace row's agent "+": always visible,
 						     not hidden behind the kebab, because adding a
 						     workspace is the primary action on a paired device
@@ -296,31 +326,27 @@
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
 							title="Add a workspace to this device"
+							disabled={!device.online}
 							onclick={() => (workspaceDialogFor = device.id)}
 						>
 							<IconAdd class="size-3.5" />
 						</button>
+						<button
+							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
+							title="Remove this pairing"
+							onclick={() => void handleRevoke(device.id)}
+						>
+							<IconTrash class="size-3.5" />
+						</button>
 					{/if}
-					<button
-						class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-						title="Remove this pairing"
-						onclick={() => void handleRevoke(device.id)}
-					>
-						<IconTrash class="size-3.5" />
-					</button>
 				</div>
-				{#if device.status === "pending" && device.pairingCode}
-					<p class="pl-6 text-xs text-gray-400 dark:text-gray-500">
-						code <span class="font-mono font-semibold text-gray-600 dark:text-gray-300">
-							{device.pairingCode}
-						</span>
-					</p>
-				{/if}
 				{#if device.status === "paired"}
-					{#if tree?.off}
-						<p class="py-0.5 pl-6 text-xs text-gray-400 dark:text-gray-500">
-							Daemon not connected.
-						</p>
+					{#if !device.online || tree?.off}
+						<!-- Offline renders as a plain label, never a spinner (X4):
+						     an unreachable machine is never even asked for its
+						     tree (see `loadableDevices` above), so there is
+						     nothing here to wait on. -->
+						<p class="py-0.5 pl-6 text-xs text-gray-400 dark:text-gray-500">Offline.</p>
 					{:else if tree && tree.workspaces.length === 0}
 						<button
 							class="flex items-center gap-1.5 py-0.5 pl-6 text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
@@ -480,19 +506,6 @@
 
 {#if pairingOpen}
 	<PairDeviceDialog onclose={() => (pairingOpen = false)} onpaired={handlePaired} />
-{/if}
-
-{#if reenrollFor}
-	{@const target = reenrollFor}
-	<PairDeviceDialog
-		reenroll={{ deviceId: target.id, name: target.name }}
-		onclose={() => (reenrollFor = null)}
-		onpaired={(device) => {
-			handlePaired(device);
-			codeEnrollment[device.id] = "ok";
-			reenrollFor = null;
-		}}
-	/>
 {/if}
 
 {#if workspaceDialogFor}

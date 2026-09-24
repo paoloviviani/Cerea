@@ -88,7 +88,6 @@
 		failure = null;
 		try {
 			const created = await createAgent(deviceId, {
-				cwd: workspace.path,
 				provider,
 				posture,
 				...(title.trim() ? { title: title.trim() } : {}),

@@ -71,8 +71,12 @@ export async function listDevices(locals: App.Locals): Promise<CodeDeviceView[]>
  * unguessable, and a mismatched owner must be indistinguishable from a
  * nonexistent device.
  */
-export async function getOwnedDevice(locals: App.Locals, deviceId: string): Promise<CodeDevice> {
+export async function getOwnedDevice(
+	locals: App.Locals,
+	deviceId: string | null | undefined
+): Promise<CodeDevice> {
 	if (!locals.user) error(401, "Login required");
+	if (!deviceId) error(400, "A paired device is required: pass ?device=.");
 	let objectId: ObjectId;
 	try {
 		objectId = new ObjectId(deviceId);
@@ -85,7 +89,10 @@ export async function getOwnedDevice(locals: App.Locals, deviceId: string): Prom
 }
 
 /** One of the caller's own *paired* devices, for routing machine traffic. */
-export async function getPairedDevice(locals: App.Locals, deviceId: string): Promise<CodeDevice> {
+export async function getPairedDevice(
+	locals: App.Locals,
+	deviceId: string | null | undefined
+): Promise<CodeDevice> {
 	const device = await getOwnedDevice(locals, deviceId);
 	if (device.status !== "paired") error(409, "That device is not paired yet.");
 	return device;

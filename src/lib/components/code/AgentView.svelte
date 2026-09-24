@@ -500,15 +500,9 @@
 
 {#if showReenroll}
 	<!-- The same pairing dialog the sidebar's device pill opens (see
-	     CodeNavTree), not a second flow: `reenroll` skips the naming step
-	     and watches this device's own row for its `pairedAt` to advance,
-	     rather than watching for a new device id. -->
-	<PairDeviceDialog
-		reenroll={{ deviceId, name: deviceName ?? "" }}
-		onclose={() => (showReenroll = false)}
-		onpaired={() => {
-			codeEnrollment[deviceId] = "ok";
-			showReenroll = false;
-		}}
-	/>
+	     CodeNavTree). A re-enroll mints a fresh machine id (spec §3), so it
+	     is a new pending row to confirm, not an update to this one — the
+	     expired row here still needs revoking separately once the new
+	     machine is up. -->
+	<PairDeviceDialog onclose={() => (showReenroll = false)} onpaired={() => (showReenroll = false)} />
 {/if}
