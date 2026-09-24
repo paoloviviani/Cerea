@@ -10,9 +10,9 @@
 	/**
 	 * The tool-approval gate (ADR 0075): a dedicated card, not the generic
 	 * `ElicitationForm` select — an approval needs exactly three buttons
-	 * (accept once, accept for the conversation, deny), never a dropdown.
-	 * Wired the same way as any other elicitation: `sendElicitationAnswer`
-	 * posts to the same endpoint, with the scope carried in `content`.
+	 * (accept once, accept for longer, deny), never a dropdown. Wired the
+	 * same way as any other elicitation: `sendElicitationAnswer` posts to the
+	 * same endpoint, with the scope carried in `content`.
 	 */
 	interface Props {
 		conversationId: string;
@@ -21,12 +21,17 @@
 		resolved?: MessageElicitationResolvedUpdate;
 		/**
 		 * Pluggable answer path: when set, the card answers through it instead
-		 * of `sendElicitationAnswer`, and the conversation-scope button is not
-		 * offered — the caller owns the semantics (the coding-agent surface
-		 * answers a daemon permission through its own forwarder; there is no
-		 * conversation to scope an "always" grant to).
+		 * of `sendElicitationAnswer`, and the second button reads "Always
+		 * allow" rather than "Allow for this conversation" — the caller owns
+		 * the semantics (the coding-agent surface answers a daemon permission
+		 * through its own forwarder; `scope: "always"` there is the daemon's
+		 * own `permission.reply` vocabulary — the rest of this session — not
+		 * a conversation-scoped grant).
 		 */
-		onanswer?: (action: ElicitationAction) => Promise<{ ok: boolean; error?: string }>;
+		onanswer?: (
+			action: ElicitationAction,
+			scope?: "always"
+		) => Promise<{ ok: boolean; error?: string }>;
 		/** The allow button's label; the agent path approves a single request. */
 		approveLabel?: string;
 	}
@@ -42,7 +47,7 @@
 
 	const toolApproval = $derived(request.toolApproval);
 
-	let submitting = $state<"once" | "conversation" | "deny" | null>(null);
+	let submitting = $state<"once" | "conversation" | "always" | "deny" | null>(null);
 	let error = $state<string | null>(null);
 	/** Settles the card without waiting for the run to echo the outcome back. */
 	let submitted = $state<ElicitationAction | null>(null);
@@ -78,12 +83,12 @@
 		return "Denied";
 	});
 
-	async function send(action: ElicitationAction, scope?: "once" | "conversation") {
+	async function send(action: ElicitationAction, scope?: "once" | "conversation" | "always") {
 		if (submitting || !open) return;
 		submitting = scope ?? "deny";
 		error = null;
 		if (onanswer) {
-			const result = await onanswer(action);
+			const result = await onanswer(action, scope === "always" ? "always" : undefined);
 			submitting = null;
 			if (!result.ok) {
 				error = result.error ?? "The answer did not go through.";
@@ -191,16 +196,14 @@
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
 					{approveLabel}
 				</button>
-				{#if !onanswer}
-					<button
-						type="button"
-						onclick={() => send("accept", "conversation")}
-						disabled={submitting !== null}
-						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-					>
-						Allow for this conversation
-					</button>
-				{/if}
+				<button
+					type="button"
+					onclick={() => send("accept", onanswer ? "always" : "conversation")}
+					disabled={submitting !== null}
+					class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+				>
+					{onanswer ? "Always allow" : "Allow for this conversation"}
+				</button>
 				<button
 					type="button"
 					onclick={() => send("decline")}

@@ -46,7 +46,8 @@
 		/** Pluggable approval-card answer path, threaded to ChatMessage (see it). */
 		onanswerElicitation?: (
 			request: ElicitationRequestPayload,
-			action: ElicitationAction
+			action: ElicitationAction,
+			scope?: "always"
 		) => Promise<{ ok: boolean; error?: string }>;
 		/**
 		 * The coding-agent panel's subagent claim and its card, threaded to
@@ -60,6 +61,8 @@
 		fileBaseUrl?: string;
 		/** Extra per-message actions in the assistant footer, threaded to ChatMessage (see it). */
 		messageActions?: Snippet<[Message]>;
+		/** Elicitation/question channel id, threaded to ChatMessage (see it). */
+		conversationId?: string;
 		/** Absolutely positioned chrome inside the column (header buttons, toasts). */
 		overlay?: Snippet;
 		/** Rendered at the top of the container, above whatever the messages branch shows. */
@@ -88,6 +91,7 @@
 		subagentCard,
 		fileBaseUrl,
 		messageActions,
+		conversationId,
 		overlay,
 		head,
 		introduction,
@@ -241,6 +245,7 @@
 									{subagentCard}
 									{fileBaseUrl}
 									{messageActions}
+									{conversationId}
 									onretry={(payload) => {
 										// Edit-with-content mounts a fresh turn like a send; a
 										// plain regenerate needs nothing — the reservation

@@ -9,7 +9,7 @@
  * calls the forwarder's compact route; and the whole meter is absent when
  * the device's backend does not advertise the `usage` capability.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -34,6 +34,7 @@ const BACKEND_WITH_USAGE = {
 		files: true,
 		worktrees: false,
 		autoAccept: true,
+		questions: true,
 	},
 };
 
@@ -98,7 +99,7 @@ test("the meter shows a percentage and its popover carries the breakdown", async
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	const trigger = page.getByRole("button", { name: "40%" });
 	await expect(trigger).toBeVisible();
@@ -120,7 +121,7 @@ test("the meter shows a raw token count when no max is known", async ({ page }) 
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// No invented maximum: a bare token count, never a percentage.
 	await expect(page.getByRole("button", { name: "1.2k" })).toBeVisible();
@@ -145,7 +146,7 @@ test("Compact now calls the forwarder's compact route and the popover reflects i
 		await route.fulfill({ contentType: "application/json", body: superjsonBody({ ok: true }) });
 	});
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	const trigger = page.getByRole("button", { name: "90%" });
 	await trigger.click();
@@ -156,6 +157,25 @@ test("Compact now calls the forwarder's compact route and the popover reflects i
 	await expect.poll(() => compactCalls).toBe(1);
 });
 
+test("a new message that has not reported usage yet does not drop the meter to 0", async ({
+	page,
+}) => {
+	await routeCommon(page, [BACKEND_WITH_USAGE]);
+	// A finished turn at 40%, then the next turn starts: opencode's new assistant
+	// message carries zero tokens until its step ends.
+	const stream = [
+		frame({ type: "usage", usage: { used: 400, max: 1000 } }),
+		frame({ type: "turnState", state: "running", serverNow: Date.now() }),
+		frame({ type: "usage", usage: { used: 0, max: 1000, input: 0, output: 0 } }),
+	].join("");
+	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, (route) =>
+		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
+	);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await expect(page.getByRole("button", { name: "40%" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "0%", exact: true })).toHaveCount(0);
+});
+
 test("the meter is hidden when the backend has no usage capability", async ({ page }) => {
 	await routeCommon(page, [BACKEND_NO_USAGE]);
 	const stream = [frame({ type: "turnState", state: "done", serverNow: Date.now() })].join("");
@@ -163,7 +183,7 @@ test("the meter is hidden when the backend has no usage capability", async ({ pa
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// The composer itself is there (mode/model pills render); the meter never
 	// appears, capability absent regardless of what usage frames might say.
