@@ -63,6 +63,13 @@ We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent 
   - `autoAccept`: `"allowed" | "denied"` (default `denied`). When denied, the agent refuses `session.setAutoAccept` and never auto-replies to permissions whatever Cerea sends.
   - `workspaceRoots`: absolute paths; if non-empty, `workspace.create` outside them is refused.
   - `allowFreeModels`: bool (default false). When false the agent lists and accepts only gateway (`pystino/*`) models; Cerea filters as well (defence in depth).
+  - Machine powers (ADR 0090, §9; specified, not built yet; they exist only when `hello.machine.capabilities` says so):
+    - `files`: `"read" | "off"` (default `"read"`; `enroll --no-files`). `off` answers every `files.*` op `forbidden`.
+    - `fileWrite`: `"allowed" | "denied"` (default `denied`; `enroll --allow-file-write`). Gates `files.write`.
+    - `fileDeny`: glob list (default: the §9.4 list; `enroll --file-deny GLOB` adds, `--no-default-file-deny` drops the defaults). Matching entries are listed with `redacted: true`, reading them is `forbidden`, and search skips them.
+    - `terminal`: `"allowed" | "denied"` (default `denied`; `enroll --allow-terminal`). Gates every `terminal.*` op.
+    - `maxTerminals`: int (default 8). `terminal.open` beyond it is `invalid`.
+    - A local `galopin policy set` may only tighten these; loosening needs `enroll`.
   - The policy is reported in `hello` so the UI can explain refusals.
 
 What this achieves against review C4: no capability at rest in Cerea; per-device, per-user authority that ends on revoke (socket closed, machineId tombstoned) or on IdP revocation (≤ one token lifetime); the machine can veto auto-accept and confine workspaces. What it does **not** achieve: while a machine is connected and paired, a compromised Cerea process can still send prompts to it within the machine's policy (the panel is, by design, a remote control). Mitigations beyond that (per-prompt signing by the browser) are out of scope for v1.
@@ -86,6 +93,10 @@ Unknown frame types and unknown event kinds are ignored by both sides (forward c
 
 `Backend = {"id":"opencode","version":"1.18.31","capabilities":{"diff":true,"children":true,"usage":true,"compact":true,"images":true,"files":true,"worktrees":false,"autoAccept":true,"questions":true}}`
 `Policy = {"autoAccept":"denied","workspaceRoots":[],"allowFreeModels":false}`
+
+With the machine powers (§9), `hello` also carries `"machine":Machine`, and `Policy` gains the power fields:
+`Policy = {…, "files":"read", "fileWrite":"denied", "fileDeny":[…], "terminal":"denied", "maxTerminals":8}`
+`Machine = {"capabilities":{"files":true,"fileSearch":true,"fileWatch":false,"fileWrite":true,"terminal":true}}`: a capability means "this galopin implements it on this OS", and the policy means "the owner allows it"; both must hold. `terminal` is false on non-Unix builds. Two more frame shapes exist only there: `notice` (§9.5) and binary terminal frames (§9.2). Two more error codes: `"conflict"` (`files.write` revision mismatch, `error.details = {revision}`) and `"too_large"` (over a cap).
 
 ## 6. Operations (C→M `req.op`)
 
@@ -178,3 +189,103 @@ The agent is subscribed to its backend from process start, so it has seen every 
 - The browser-facing API stays (`/api/v2/code/v1/...?device=` + `/api/v2/code/agents/[id]/stream`), so the UI and its specs keep working; only the server behind it changes: `codeDaemon.ts` (paseo) → `machineLink` (typed ops over the socket). `@getpaseo/*` is removed.
 - SSE bridge: register a fan-out listener (buffering), `session.sync` with the browser's `Last-Event-ID` (`<epoch>:<seq>`), emit (snapshot → chat frames, or the missing events), then drain buffered live events with `seq >` the sync's `seq`. SSE `id` = `<epoch>:<seq>` of the last envelope a frame came from. Epoch change → a `reset` event that makes the client re-fold from scratch. No per-frame info logs (R6).
 - Mapping normalized → chat `AgentStreamUpdate` (replaces `codeTimeline.ts`): user `text` part (non-synthetic) → `user`; assistant `text` part/delta → `Stream`; `tool` part → Tool call / result / error (uuid = callId); `permission.asked/replied` → Elicitation request/resolved; `question.asked/resolved` → the same Elicitation request/resolved (the user-question tool design: normalized questions become `ElicitationField[]`, the same shape and card — `AskQuestion.svelte` — chat's own `ask_user_question` already uses); `status busy` → TurnState running, `idle` → done (failed if the last assistant message carries `error`); `error` → TurnState failed; `todo` → Plan; `usage` → a side-channel frame (M3).
+
+## 9. Machine powers: files and terminals (specified by ADR 0090; F1 and T1 build it)
+
+Additive only: `protocol` stays `1`. Everything here exists only when `hello.machine.capabilities` says so, and an unknown op still answers `unsupported`, so an old Cerea paired with a new galopin works unchanged, and so does the reverse. These are **machine ops**: galopin dispatches `files.*` and `terminal.*` before the backend switch, and they never call opencode or an ACP agent. opencode's own `/file*`, `/find*` and `/pty` are deliberately not used.
+
+A power is live only when the machine policy (§4), the deployment switch (`CODE_FILES_ENABLED`, `CODE_FILE_WRITE_ENABLED`, `CODE_TERMINAL_ENABLED`) and the capability all allow it. Cerea checks the first two before forwarding, answering 403 with the exact enroll flag, and galopin enforces the policy again.
+
+### 9.1 Paths and confinement
+
+- Paths are **workspace-relative**, `/`-separated, with no leading `/` and no `..` segments (`invalid` otherwise). `"."` is the root.
+- Every access goes through Go's `os.Root` for the workspace (openat-based, so no TOCTOU). A symlink whose target escapes the root is listed with `escapes: true` and never followed or read.
+- `.git/` is skipped. Dotfiles are listed with `hidden: true`. `fileDeny` matches are redacted.
+
+### 9.2 Binary frames (terminal streams only)
+
+galopin sends these only on a channel Cerea opened with `terminal.attach`, so a peer that does not know them never receives one.
+
+```
+byte 0        kind   0x01 term.output (M→C) · 0x02 term.input (C→M) · 0x03 term.ack (C→M)
+byte 1        L      channel id length, 1..32
+bytes 2..L+1  channel id, ASCII [A-Za-z0-9_-] (chosen by Cerea in terminal.attach, one per viewer)
+next 8 bytes  u64 big-endian offset
+                term.output: absolute output offset of the payload's first byte
+                term.ack:    the viewer has consumed output up to (excluding) this offset
+                term.input:  0
+rest          payload: raw bytes. term.output ≤ 32 KiB; term.input ≤ 16 KiB; term.ack empty
+```
+
+Unknown kinds are ignored. Offsets are per terminal, start at 0 when it is spawned, and never reset for its life. Terminals die with the galopin process.
+
+**Flow control:**
+
+- galopin's writer has two lanes. Control (`res`, `event`, `notice`, `credential`, `auth`) is always drained before stream frames, which are at most 32 KiB each.
+- Per channel, galopin sends output only while `sent − acked ≤ 256 KiB`. Acks come from the browser, after xterm has processed each 64 KiB, and Cerea relays them.
+- Out of credit, galopin stops reading that PTY. With no viewer attached, or every viewer out of credit for 10 s, it keeps reading into its 2 MiB ring and drops the oldest bytes.
+- A viewer that comes back behind the ring start gets `reset`.
+
+### 9.3 Operations
+
+| op                | args                                                                                    | result                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `files.list`      | `{workspaceId, path=".", ignored?: bool=true}`                                          | `{path, entries: Entry[], truncated}`. At most 5 000 entries; directories first, then natural sort.                                                                                                                                                                                                                                                                                      |
+| `files.stat`      | `{workspaceId, path}`                                                                   | `{entry: Entry}`                                                                                                                                                                                                                                                                                                                                                                         |
+| `files.read`      | `{workspaceId, path, offset?=0, length?=1048576, as?: "text"\|"base64"}`                | `{path, revision, size, offset, length, eof, kind: "text"\|"binary"\|"image", mime, encoding: "utf-8"\|"base64"\|"none", content?}`. `length` is at most 1 MiB. A text range is trimmed to a UTF-8 boundary, and `length` reports the bytes returned. `binary` carries no content unless `as: "base64"`. Images are capped at 8 MiB (`too_large`). Redacted paths are `forbidden`.       |
+| `files.status`    | `{workspaceId}`                                                                         | `{isGitRepo, branch?, head?, entries: [{path, x, y, origPath?}], truncated}`, with porcelain-v2 XY codes and at most 10 000 entries.                                                                                                                                                                                                                                                     |
+| `files.find`      | `{workspaceId, query, limit?=50}`                                                       | `{paths: string[], truncated}`: fuzzy over `git ls-files -co --exclude-standard`, or over a bounded walk (50 000 files, 3 s). Capability `fileSearch`.                                                                                                                                                                                                                                   |
+| `files.grep`      | `{workspaceId, pattern, regex?=false, caseSensitive?=false, glob?, limit?=200}`         | `{matches: [{path, line, column, text}], truncated, engine: "rg"\|"git"\|"walk"}`. `text` is at most 512 characters, the search at most 5 s. It skips ignored, redacted and binary files. Capability `fileSearch`.                                                                                                                                                                       |
+| `files.watch`     | `{workspaceId, paths: string[]}` (at most 64)                                           | `{watchId, ttlSeconds: 60}`: a lease, renewed by calling again with `watchId`. Capability `fileWatch`.                                                                                                                                                                                                                                                                                   |
+| `files.unwatch`   | `{watchId}`                                                                             | `{}`                                                                                                                                                                                                                                                                                                                                                                                     |
+| `files.write`     | `{workspaceId, path, content, encoding: "utf-8"\|"base64", baseRevision: string\|null}` | `{entry}`. `baseRevision: null` means the file must not exist yet. A mismatch answers `conflict`. At most 1 MiB. Written atomically (temp + rename in the same directory, mode preserved). Policy `fileWrite`.                                                                                                                                                                           |
+| `terminal.list`   | `{workspaceId?}`                                                                        | `{terminals: Terminal[]}`                                                                                                                                                                                                                                                                                                                                                                |
+| `terminal.open`   | `{workspaceId, cwd?: path, cols, rows, title?}`                                         | `{terminal}`. Policy `terminal`; `maxTerminals`.                                                                                                                                                                                                                                                                                                                                         |
+| `terminal.attach` | `{terminalId, channel, from?: offset}`                                                  | `{terminal, from, reset: bool, prelude?: base64}`. Streaming starts on `channel` at `from` = max(requested, ring start). `reset: true` (the offset was evicted, or none was given): the viewer clears, writes `prelude` (the tracked modes: alternate screen, bracketed paste, cursor, application-cursor), then the stream. galopin then nudges a redraw (a resize to rows−1 and back). |
+| `terminal.detach` | `{terminalId, channel}`                                                                 | `{}`                                                                                                                                                                                                                                                                                                                                                                                     |
+| `terminal.resize` | `{terminalId, cols, rows, claim?: bool=true}`                                           | `{applied: bool}`; `false` when another channel owns the size and `claim` was false.                                                                                                                                                                                                                                                                                                     |
+| `terminal.rename` | `{terminalId, title}`                                                                   | `{terminal}`                                                                                                                                                                                                                                                                                                                                                                             |
+| `terminal.close`  | `{terminalId, force?: bool}`                                                            | `{}`: SIGHUP to the process group, then SIGKILL after 5 s (immediately with `force`).                                                                                                                                                                                                                                                                                                    |
+
+Deadlines: the default is 15 s. `files.grep` and `files.find` run 5 s machine-side and 10 s in Cerea.
+
+```
+Entry    = {name, path, type: "file"|"dir"|"symlink"|"other", size, mtime, revision?,
+            hidden: bool, ignored: bool, redacted: bool,
+            symlink?: {target: string, escapes: bool, dangling: bool}}
+            // revision = dev:ino:size:mtimeNs
+Terminal = {id, workspaceId, title, cwd, shell, cols, rows, pid, createdAt,
+            state: "running"|"exited", exitCode?, signal?, offset /* bytes produced so far */,
+            viewers: number}
+Notice   = {kind: "files.changed", paths: string[], overflow?: bool}   // scope.workspaceId
+         | {kind: "terminal.exit", exitCode, signal?}                    // scope.terminalId
+         | {kind: "terminal.title", title}                               // scope.terminalId (OSC 0/2)
+         | {kind: "terminal.state", terminal: Terminal}                  // opened/closed/renamed
+```
+
+**Terminal process rules:**
+
+- It runs `$SHELL -l` (falling back to `/bin/sh`) in a `cwd` inside the workspace root, with `TERM=xterm-256color`.
+- Its environment is **scrubbed** of everything galopin injected for itself: the opencode server password, the shim secret, and any token or refresh variable.
+- Exited terminals are kept 10 minutes for display. A terminal with no viewer for 24 h gets SIGHUP.
+- All terminals are closed on `run` shutdown and on a 4403 revoke.
+
+### 9.4 Default `fileDeny`
+
+`.env` · `.env.*` except `.env.example`, `.env.sample` and `.env.template` · `.envrc` · `*.pem` · `*.key` · `*.p12` · `*.pfx` · `*.kdbx` · `id_rsa*`, `id_ecdsa*`, `id_ed25519*` · `.netrc` · `.npmrc` · `.pypirc` · `.git-credentials` · `.aws/credentials` · `.docker/config.json` · `*.tfstate` · `secrets.y*ml`.
+
+The deny list prevents **accidental** exposure: screen sharing, and content flowing through Cerea into logs or caches. It is **not** a security boundary once a terminal or the agent can read the file, and the UI says so.
+
+### 9.5 Notices
+
+`{"type":"notice","scope":{"workspaceId"?:"…","terminalId"?:"…"},"event":Notice}` frames are machine-level and lossy: no epoch or seq, no replay. A receiver that might have missed some re-queries `files.status` or `terminal.list`. `files.changed` is debounced to 200 ms with at most 256 paths; beyond that it carries `overflow: true`, and the receiver refreshes everything.
+
+### 9.6 Browser side (Cerea)
+
+- **Files:** REST on the forwarder, with the same `getPairedDevice` check. `conflict` maps to 409, `too_large` to 413, and `unsupported` to 404. The raw route serves only raster images inline, with `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox; default-src 'none'`. Anything else goes as `text/plain` or an attachment, never as HTML or SVG.
+- **Terminal:** a browser WebSocket.
+  1. `POST …/terminals/:id/ticket` passes through the hooks and returns a single-use ticket: 256 bits, 30 s, bound to user, session, device and terminal.
+  2. Minting requires an OIDC `auth_time` within 12 h (otherwise re-login), plus the one-time acknowledgement per machine.
+  3. The upgrade at `${base}/api/v2/code/terminal?ticket=…` redeems the ticket and requires `Origin` to equal the public origin.
+  4. The socket re-checks the session and the device every 60 s and closes with 4403 on logout, revoke or unpair.
+- **Audit:** Cerea `codeAudit` (90-day TTL) and galopin's local `audit.log` record actions (terminal open, attach and close; file writes; refusals; ticket failures). They never record keystrokes, output or file content.
