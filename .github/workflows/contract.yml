@@ -7,19 +7,12 @@
 # repository read access (Pystino package settings → Manage Actions access).
 name: contract
 
+# Manual runs only while publishing is on hold (see images.yml): the contract
+# runs against a published Pystino gateway image. To restore, point
+# deploy/ci/pystino-contract.env at a published tag and replace the two `on:`
+# lines below with this one line:
+# on: {workflow_dispatch: {}, pull_request: {paths: [src/lib/server/admin.ts, src/lib/server/gatewaySession.ts, src/lib/server/usage/**, src/lib/server/models.ts, src/routes/api/v2/gateway/**, src/lib/server/__contract__/**, deploy/ci/pystino-contract.env, .github/workflows/contract.yml]}, schedule: [{cron: "23 5 * * 1"}]}
 on:
-  pull_request:
-    paths:
-      - "src/lib/server/admin.ts"
-      - "src/lib/server/gatewaySession.ts"
-      - "src/lib/server/usage/**"
-      - "src/lib/server/models.ts"
-      - "src/routes/api/v2/gateway/**"
-      - "src/lib/server/__contract__/**"
-      - "deploy/ci/pystino-contract.env"
-      - ".github/workflows/contract.yml"
-  schedule:
-    - cron: "23 5 * * 1" # Mondays, against edge
   workflow_dispatch:
 
 permissions:
