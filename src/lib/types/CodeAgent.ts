@@ -120,12 +120,26 @@ export interface AgentMessageBoundaryUpdate {
 	messageId: string;
 }
 
+/**
+ * A subagent did something the parent's transcript deliberately does NOT
+ * fold in (its tokens, tool calls, status transitions — anything but its
+ * approvals and questions, which become labelled cards instead). The
+ * transcript ignores this frame; an expanded subagent card treats it as
+ * the cue to re-sync the child's own timeline (throttled), so the child's
+ * output streams live without ever merging into the parent's turns.
+ */
+export interface AgentChildActivityUpdate {
+	type: "childActivity";
+	childId: string;
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
 	| AgentResetUpdate
 	| AgentUsageUpdate
 	| AgentCompactionUpdate
 	| AgentMessageBoundaryUpdate
+	| AgentChildActivityUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -142,6 +156,7 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"usage",
 	"compaction",
 	"messageBoundary",
+	"childActivity",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.Plan,

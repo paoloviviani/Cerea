@@ -51,6 +51,14 @@ export interface ScenarioScript {
 	 * the default scenario in the child, which would otherwise call the tool again.
 	 */
 	toolCallsOnce?: boolean;
+	/**
+	 * Content-based overrides: when the request body (messages, tool names
+	 * and arguments included) contains `contains`, that route's scenario
+	 * answers instead of this one. Lets one scenario serve a whole subagent
+	 * tree — e.g. the parent's prompt gets a `task` call while the child's
+	 * own prompt (which echoes the task text) gets a `bash` call.
+	 */
+	routes?: Array<{ contains: string; scenario: ScenarioScript }>;
 	/** Content tokens. */
 	content?: string[];
 	/** finish_reason on the final chunk. */
@@ -277,7 +285,12 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			const body = JSON.parse((await readBody(req)) || "{}") as Record<string, unknown>;
 			const wantsStream = body.stream === true;
 			const model = String(body.model ?? MODELS_FIXTURE.data[0].id);
-			const script = scenarioFor(conversationId);
+			let script = scenarioFor(conversationId);
+			if (script.routes?.length) {
+				const raw = JSON.stringify(body);
+				const match = script.routes.find((r) => r.contains && raw.includes(r.contains));
+				if (match) script = match.scenario;
+			}
 
 			recorded.push({
 				method: "POST",

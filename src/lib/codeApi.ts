@@ -438,12 +438,15 @@ export async function compactAgent(deviceId: string, agentId: string): Promise<{
 	);
 }
 
-/** Answer a waiting permission request. Blocking: the agent holds until this lands. */
+/** Answer a waiting permission request. Blocking: the agent holds until this lands.
+ * `childSessionId` answers a subagent's ask (labelled with it by the stream
+ * bridge) — the reply is forwarded to the child's own request. */
 export async function respondPermission(
 	deviceId: string,
 	agentId: string,
 	requestId: string,
-	decision: PermissionDecision
+	decision: PermissionDecision,
+	childSessionId?: string
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
@@ -451,7 +454,7 @@ export async function respondPermission(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ decision }),
+				body: JSON.stringify({ decision, ...(childSessionId ? { childSessionId } : {}) }),
 			}
 		)
 	);
@@ -466,7 +469,8 @@ export async function respondQuestion(
 	agentId: string,
 	requestId: string,
 	decision: "accept" | "decline",
-	answers?: string[][]
+	answers?: string[][],
+	childSessionId?: string
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
@@ -474,7 +478,11 @@ export async function respondQuestion(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ decision, ...(answers ? { answers } : {}) }),
+				body: JSON.stringify({
+					decision,
+					...(answers ? { answers } : {}),
+					...(childSessionId ? { childSessionId } : {}),
+				}),
 			}
 		)
 	);

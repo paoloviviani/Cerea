@@ -343,7 +343,7 @@ func forwardEvents(ctx context.Context, mat *sessions.Materializer, lnk *link.Li
 			if err != nil {
 				continue
 			}
-			_ = lnk.PublishEvent(env.SessionID, env.Epoch, env.Seq, raw)
+			_ = lnk.PublishEvent(env.SessionID, env.Epoch, env.Seq, env.RootSessionID, raw)
 		}
 	}
 }
