@@ -234,7 +234,15 @@ export async function consumeAgentUpdates(
 			}
 			case "user": {
 				closeTurn();
-				messages.push({ id: v4(), from: "user", content: update.text, children: [] });
+				// The one property a user frame adds: its attachments, which
+				// ChatMessage already renders on a user message.
+				messages.push({
+					id: v4(),
+					from: "user",
+					content: update.text,
+					children: [],
+					...(update.files?.length ? { files: update.files } : {}),
+				});
 				break;
 			}
 			// Side channel (M3): never opens/closes a turn, never touches
