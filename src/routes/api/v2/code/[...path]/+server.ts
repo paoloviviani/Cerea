@@ -69,6 +69,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/feature$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/cancel$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/compact$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
@@ -478,6 +479,16 @@ export const POST: RequestHandler = async (event) => {
 	if (cancelMatch) {
 		cancelSchema.parse(body);
 		await callOp(() => link.sessionCancel({ sessionId: decodeURIComponent(cancelMatch[1]) }));
+		return superjsonResponse({ ok: true });
+	}
+
+	// Manual context compaction ("Compact now", M3). `unsupported` (the
+	// backend has no `compact` capability) surfaces as a 404 through
+	// `callOp`, same as any other capability the machine lacks.
+	const compactMatch = new RegExp(`^v1/agents/(${ID})/compact$`).exec(path);
+	if (compactMatch) {
+		cancelSchema.parse(body);
+		await callOp(() => link.sessionCompact({ sessionId: decodeURIComponent(compactMatch[1]) }));
 		return superjsonResponse({ ok: true });
 	}
 
