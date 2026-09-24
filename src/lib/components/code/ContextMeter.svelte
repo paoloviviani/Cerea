@@ -90,12 +90,16 @@
 
 	// A completed turn while the popup is open — the falling edge of
 	// `running`, the same signal the send button's stop-control swap uses.
-	let wasRunning = running;
+	// `previousRunning` starts undefined (never a completed turn yet) rather
+	// than snapshotting `running` outside the effect, which Svelte can't tell
+	// apart from a stale read.
+	let previousRunning: boolean | undefined;
 	$effect(() => {
+		const wasRunning = previousRunning;
+		previousRunning = running;
 		if (wasRunning && !running && quotaPopupOpen) {
 			void loadQuotas();
 		}
-		wasRunning = running;
 	});
 
 	let compacting = $state(false);
