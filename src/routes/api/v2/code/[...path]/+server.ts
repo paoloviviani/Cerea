@@ -25,6 +25,7 @@
  *   sessions, not machines.
  */
 
+import { randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { MachineLink } from "$lib/server/code/machines";
@@ -329,6 +330,10 @@ export const GET: RequestHandler = async (event) => {
 
 const messageSchema = z.object({
 	text: z.string().trim().min(1).max(16_000),
+	// The key attachments (images/files) will key off once the attachment
+	// store lands (spec's `session.prompt`, always carries one) — minted
+	// here when the caller does not supply its own.
+	messageId: z.string().trim().min(1).max(128).optional(),
 });
 
 const modeSchema = z.object({
@@ -414,6 +419,7 @@ export const POST: RequestHandler = async (event) => {
 			link.sessionPrompt({
 				sessionId: decodeURIComponent(messageMatch[1]),
 				text: parsed.data.text,
+				clientMessageId: parsed.data.messageId ?? randomUUID(),
 			})
 		);
 		return superjsonResponse({ ok: true });

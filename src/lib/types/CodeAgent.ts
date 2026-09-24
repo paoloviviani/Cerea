@@ -52,6 +52,10 @@ import {
 export interface AgentUserMessageUpdate {
 	type: "user";
 	text: string;
+	/** The machine's echo of `Message.clientMessageId` (spec) — the key
+	 * attachments (images/files) will key off once the attachment store
+	 * lands. The fold may ignore it for now. */
+	messageId?: string;
 }
 
 /**
