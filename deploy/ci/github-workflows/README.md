@@ -1,21 +1,29 @@
 # GitHub Actions workflows, parked
 
-This belongs in `.github/workflows/`. GitHub refused it from the agent's
+These belong in `.github/workflows/`. GitHub refused them from the agent's
 token on 2026-09-24 with exactly:
 
-    ! [remote rejected] thin-agent/quickwins -> thin-agent/quickwins
-    (refusing to allow a Personal Access Token to create or update workflow
-    `.github/workflows/ci.yml` without `workflow` scope)
+    ! [remote rejected] deploy/rearch -> deploy/rearch (refusing to allow a
+    Personal Access Token to create or update workflow
+    `.github/workflows/images.yml` without `workflow` scope)
 
 The token is a fine-grained PAT; it needs **Repository permissions →
-Workflows: Read and write** (or push this yourself). Then:
+Workflows: Read and write** (or push these yourself). Then:
 
-    git mv deploy/ci/github-workflows/ci.yml .github/workflows/ci.yml
+    git mv deploy/ci/github-workflows/*.yml .github/workflows/
     git rm deploy/ci/github-workflows/README.md
-    git commit -m "Activate the CI workflow" && git push
+    git commit -m "Activate the workflows" && git push
 
-What the workflow does: `npm run lint` + `npm run check`, the `server`/`ssr`
-vitest projects against a Mongo service container, and the `client` vitest
-project inside the Playwright image pinned to the installed Playwright
-version. Browser-driven e2e (`tests/*.spec.ts`) is deliberately left out —
-see the workflow's own comments.
+What the workflow does: builds every image on PRs; pushes to
+`ghcr.io/paoloviviani/cerea` (private while the repository is private) on
+`main` (tag `edge`), `deploy/rearch` (tag `rearch`) and `v*` tags (`X.Y.Z`,
+`X.Y`); deletes untagged versions beyond the newest five.
+
+| Workflow       | Runs on                                                                           | What                                                                                                                                                             |
+| -------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`       | PRs (docs excluded); Mondays for the client project                               | one job: lint, svelte-check, server + ssr tests; the Playwright-image client suite weekly/on demand — the one PR workflow (thin-agent's parked ci.yml folded in) |
+| `contract.yml` | PRs touching gateway-facing code (pinned gateway); Mondays (`edge`, non-blocking) | the gateway contract                                                                                                                                             |
+| `images.yml`   | pushes to main (path-filtered) and v* tags                                        | build + push `ghcr.io/paoloviviani/cerea` (private), prune untagged                                                                                              |
+
+Budgeted for the GitHub free plan: see the deployment re-architecture report,
+§11 ("Action minutes").
