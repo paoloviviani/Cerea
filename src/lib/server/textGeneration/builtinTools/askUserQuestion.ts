@@ -18,8 +18,8 @@ export const askUserQuestionBuiltin: BuiltinTool = {
 		`Give 2-4 concrete options, each with a short note on what picking it means, and set multiSelect when more than one can apply together. ` +
 		`An "Other" free-text choice is added automatically; never add your own. ` +
 		`Ask once, then get on with the work using what you are told. ` +
-		`Never use it to confirm ("did it work?"), nor in the same step as delivering content (an artifact, code): deliver first; the user replies in chat. ` +
-		`Do not use it for something you can look up, for a choice with an obvious default, or when the user has already said what they want.`,
+		`Never use it to confirm ("did it work?") or in the step that delivers content (an artifact, code): deliver first; the user replies in chat. ` +
+		`Not for what you can look up, an obvious default, or what the user already said.`,
 	mayPark: true,
 	// One call carries several questions, so say that instead of asking twice.
 	parkRefusalMessage:
