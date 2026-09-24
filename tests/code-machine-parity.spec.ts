@@ -329,12 +329,18 @@ test.describe("owned machine agent: parity", () => {
 
 		await expect(page.getByText("Doing C.")).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByText("Approach → Other: Neither, do C").first()).toBeVisible();
-		// opencode's own tool result quotes the answer: `"<question>"="<answer>"`.
-		const requests = await mockOpenAI.requests();
-		expect(
-			requests.some((r) =>
-				JSON.stringify(r.body).includes('\\"Which approach?\\"=\\"Neither, do C\\"')
+		// The typed text reaches the model through opencode's own tool result, on
+		// the follow-up request opencode makes after the answer (the scripted reply
+		// streams alongside the tool call, so it can show before that request).
+		await expect
+			.poll(
+				async () =>
+					(await mockOpenAI.requests()).some((r) => {
+						const body = JSON.stringify(r.body);
+						return body.includes("Neither, do C") && body.includes("Which approach?");
+					}),
+				{ timeout: 30_000 }
 			)
-		).toBe(true);
+			.toBe(true);
 	});
 });

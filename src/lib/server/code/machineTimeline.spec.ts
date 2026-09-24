@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { Envelope, Message, Part, Transcript } from "$lib/types/machineProtocol";
 import {
+	answersFromQuestionOutput,
 	eventToUpdates,
 	foldEnvelopeEvents,
 	frameKey,
@@ -571,5 +572,88 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 			},
 		]);
 		expect(updates[0]).not.toHaveProperty("content");
+	});
+});
+
+describe("an answered question, as a reload finds it", () => {
+	const approach = {
+		question: "Which approach?",
+		header: "Approach",
+		options: [{ label: "A" }, { label: "B" }],
+	};
+	const stack = {
+		question: "Which parts?",
+		header: "Parts",
+		multiple: true,
+		options: [{ label: "API, v2" }, { label: "UI" }],
+	};
+	const output = (body: string) =>
+		`User has answered your questions: ${body}. You can now continue with the user's answers in mind.`;
+
+	it("splits opencode's own result text back into per-question answers", () => {
+		expect(
+			answersFromQuestionOutput(
+				[approach, stack],
+				output(`"Which approach?"="B", "Which parts?"="API, v2, UI, and docs"`)
+			)
+		).toEqual([["B"], ["API, v2", "UI", "and docs"]]);
+		expect(answersFromQuestionOutput([approach], output(`"Which approach?"="Unanswered"`))).toEqual(
+			[[]]
+		);
+		expect(
+			answersFromQuestionOutput([approach], output(`"Which approach?"="Neither, do C"`))
+		).toEqual([["Neither, do C"]]);
+	});
+
+	it("gives up rather than guess when the wording is not opencode's", () => {
+		expect(answersFromQuestionOutput([approach], "done")).toBeNull();
+		expect(answersFromQuestionOutput([approach], undefined)).toBeNull();
+	});
+
+	it("rebuilds the answered card from a completed question tool part", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: assistantMessage("m2"),
+					parts: [
+						{
+							id: "p9",
+							messageId: "m2",
+							role: "assistant",
+							type: "tool",
+							callId: "call_q",
+							tool: "question",
+							status: "completed",
+							input: { questions: [approach] },
+							output: output(`"Which approach?"="A"`),
+						},
+					],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(updates).toContainEqual(
+			expect.objectContaining({
+				type: MessageUpdateType.Elicitation,
+				subtype: "request",
+				request: expect.objectContaining({
+					elicitationId: "question-call:call_q",
+					source: "assistant",
+				}),
+			})
+		);
+		expect(updates).toContainEqual(
+			expect.objectContaining({
+				type: MessageUpdateType.Elicitation,
+				subtype: "resolved",
+				elicitationId: "question-call:call_q",
+				action: "accept",
+				content: { q0: ["A"] },
+			})
+		);
 	});
 });

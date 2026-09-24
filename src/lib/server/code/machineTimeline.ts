@@ -356,6 +356,76 @@ export function eventToUpdates(
 	}
 }
 
+/** opencode's own `question` tool result reads
+ * `User has answered your questions: "<q1>"="<a, b>", "<q2>"="<c>". You can now…`,
+ * answers joined with ", " and "Unanswered" for none. Split back into per-question
+ * label lists, using the options to re-split a multi-pick (a label may itself hold
+ * ", "); whatever is left over is the text the user typed. Null when the text is
+ * not that shape, so a changed upstream wording degrades to no summary. */
+export function answersFromQuestionOutput(
+	questions: Question[],
+	output: string | undefined
+): string[][] | null {
+	if (!output || questions.length === 0) return null;
+	const answers: string[][] = [];
+	let cursor = 0;
+	for (let i = 0; i < questions.length; i++) {
+		const opener = `"${questions[i].question}"="`;
+		const start = output.indexOf(opener, cursor);
+		if (start < 0) return null;
+		const from = start + opener.length;
+		const next = questions[i + 1];
+		const end = next
+			? output.indexOf(`", "${next.question}"="`, from)
+			: output.lastIndexOf(`". You can now`);
+		if (end < from) return null;
+		const joined = output.slice(from, end);
+		cursor = end;
+		if (joined === "Unanswered") {
+			answers.push([]);
+			continue;
+		}
+		if (!questions[i].multiple) {
+			answers.push([joined]);
+			continue;
+		}
+		const labels = new Set(questions[i].options.map((o) => o.label));
+		const picked: string[] = [];
+		let pending: string[] = [];
+		for (const piece of joined.split(", ")) {
+			pending.push(piece);
+			const candidate = pending.join(", ");
+			if (labels.has(candidate)) {
+				picked.push(candidate);
+				pending = [];
+			}
+		}
+		if (pending.length) picked.push(pending.join(", "));
+		answers.push(picked);
+	}
+	return answers;
+}
+
+/** A completed `question` tool part, as a reload finds it: the live card came
+ * from `question.asked`/`question.resolved`, which a snapshot does not replay,
+ * so rebuild the answered card from the call's own input and result. Keyed by
+ * the call id — the live card's opencode request id is not on the part — which
+ * cannot collide with a live card because a snapshot only precedes live events
+ * that come after the question was already answered. */
+function answeredQuestionFromPart(part: Part): AgentStreamUpdate[] {
+	if (part.type !== "tool" || part.tool !== "question" || part.status !== "completed") return [];
+	const questions = Array.isArray(part.input?.questions)
+		? (part.input.questions as Question[])
+		: [];
+	const answers = answersFromQuestionOutput(questions, part.output);
+	if (!answers) return [];
+	const requestId = `question-call:${part.callId}`;
+	return [
+		questionRequestedToUpdate({ requestId, questions }),
+		questionResolvedToUpdate({ requestId, answers }),
+	];
+}
+
 /** A whole snapshot (`session.sync`'s `Transcript`, or an offline read) →
  * the panel frames a fresh mount replays. */
 export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
@@ -366,7 +436,9 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	for (const { message, parts } of transcript.messages ?? []) {
 		const clientMessageId = message.role === "user" ? message.clientMessageId : undefined;
 		updates.push({ type: "messageBoundary", role: message.role, messageId: message.id });
-		for (const part of parts ?? []) updates.push(...partToUpdates(part, clientMessageId));
+		for (const part of parts ?? []) {
+			updates.push(...partToUpdates(part, clientMessageId), ...answeredQuestionFromPart(part));
+		}
 		if (message.role === "assistant") lastAssistantError = message.error;
 	}
 	for (const permission of transcript.permissions ?? []) {
