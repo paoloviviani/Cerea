@@ -1,16 +1,21 @@
-# Build the Cerea image on every PR; publish it from main and tags.
+# Build the Cerea image on every PR; publish it from main, deploy/rearch (to
+# exercise the pipeline) and release tags.
 #
-# Publishing is OFF until the repository variable PUBLISH_IMAGES is "true".
-# Until then each run proves the image builds from a clean checkout — the
-# deployment used to build it from whatever a local working copy held, and
-# nothing recorded which commit was running.
+# The package is PRIVATE while the repository is: images pushed with
+# GITHUB_TOKEN from a private repository inherit its visibility, and pulling
+# needs `docker login ghcr.io` with a read:packages token. Going public later
+# is the package's own setting (Package settings → Danger Zone → Change
+# visibility).
 #
-# The image is built with APP_BASE=/chat: SvelteKit's base path is compile-time,
-# and /chat is where every Pystino stack serves the chat. Pystino pins the
-# published image by digest in deploy/stack/release.env (ADR 0087), so a Cerea
-# release reaches a deployment only through a tested Pystino release.
+# Private storage counts against the Packages quota, so the tag set is lean:
+#   main → edge;  deploy/rearch → rearch;  vX.Y.Z → X.Y.Z, X.Y (never overwritten)
+# Pystino pins this image by digest in deploy/stack/release.env (ADR 0087), so
+# no per-commit tag is needed; the cleanup job keeps the newest five untagged
+# versions and deletes the rest. Attestations are off: they are stored as
+# untagged manifests, and pruning those would break the image.
 #
-# Tags: main → sha-<7>, edge;  vX.Y.Z → X.Y.Z, X.Y, latest.
+# Built with APP_BASE=/chat: SvelteKit's base path is compile-time, and /chat
+# is where every stack serves the chat.
 name: images
 
 on:
@@ -20,22 +25,20 @@ on:
       - "**/*.md"
       - "installer/**"
   push:
-    branches: [main]
+    branches: [main, deploy/rearch]
     tags: ["v*.*.*"]
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: images-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  PUBLISH: ${{ vars.PUBLISH_IMAGES == 'true' && github.event_name != 'pull_request' }}
+  PUBLISH: ${{ github.event_name != 'pull_request' }}
 
 jobs:
   cerea:
@@ -54,23 +57,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Refuse to overwrite a released version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if docker buildx imagetools inspect "ghcr.io/${{ github.repository_owner }}/cerea:${GITHUB_REF_NAME#v}" >/dev/null 2>&1; then
+            echo "::error::cerea:${GITHUB_REF_NAME#v} already exists; a release tag is immutable"; exit 1
+          fi
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/cerea
           flavor: latest=false
           tags: |
-            type=sha,prefix=sha-,format=short
-            type=edge,branch=main
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=rearch,enable=${{ github.ref == 'refs/heads/deploy/rearch' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=ref,event=pr
           labels: |
             org.opencontainers.image.title=cerea
             org.opencontainers.image.licenses=Apache-2.0
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -82,5 +92,21 @@ jobs:
           push: ${{ env.PUBLISH == 'true' }}
           cache-from: type=gha,scope=cerea
           cache-to: type=gha,mode=max,scope=cerea
-          provenance: ${{ env.PUBLISH == 'true' && 'mode=max' || 'false' }}
-          sbom: ${{ env.PUBLISH == 'true' }}
+          provenance: false
+          sbom: false
+
+      - name: Record the digest (what Pystino's release.env pins)
+        if: env.PUBLISH == 'true'
+        run: echo "CEREA_IMAGE=ghcr.io/${{ github.repository_owner }}/cerea@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    needs: cerea
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: cerea
+          package-type: container
+          delete-only-untagged-versions: "true"
+          min-versions-to-keep: 5
