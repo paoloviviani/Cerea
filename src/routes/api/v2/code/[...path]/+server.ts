@@ -31,6 +31,7 @@ import { z } from "zod";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
+import { buildHandoffHistory } from "$lib/server/code/handoff";
 import { logger } from "$lib/server/logger";
 import { promptAttachments } from "$lib/server/code/promptAttachments";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
@@ -38,14 +39,15 @@ import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { OpError, type Session, type Workspace } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
-import type {
-	CodeAgentSession,
-	CodeFileChange,
-	CodeProviderMode,
-	CodeProviderModel,
-	CodeSubagent,
-	CodeTurnState,
-	CodeWorkspace,
+import {
+	HANDOFF_TITLE_PREFIX,
+	type CodeAgentSession,
+	type CodeFileChange,
+	type CodeProviderMode,
+	type CodeProviderModel,
+	type CodeSubagent,
+	type CodeTurnState,
+	type CodeWorkspace,
 } from "$lib/types/CodeAgent";
 import type { CodeProviderFeature } from "$lib/codeApi";
 
@@ -68,6 +70,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents/${ID}/timeline$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/handoff$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
@@ -350,6 +353,22 @@ const messageSchema = z.object({
 	messageId: z.string().trim().min(1).max(128).optional(),
 });
 
+// A fork handoff (parity plan §4.2(a)): a new session, on the caller's own
+// source device by default or another of their own paired devices, seeded
+// with a prompt and — when `carry` — the source transcript as a markdown
+// attachment. `targetDevice` and `workspaceId` are ids the machine(s) issued;
+// their own `${ID}`-shaped validation happens where they are used, same as
+// every other id this route decodes from a path segment.
+const handoffSchema = z.object({
+	prompt: z.string().trim().min(1).max(16_000),
+	targetDevice: z.string().trim().min(1).max(200).optional(),
+	workspaceId: z.string().trim().min(1).max(200).optional(),
+	modeId: z.string().trim().min(1).max(120).optional(),
+	modelId: z.string().trim().min(1).max(200).optional(),
+	carry: z.boolean(),
+	uptoMessageId: z.string().trim().min(1).max(128).optional(),
+});
+
 const modeSchema = z.object({
 	modeId: z.string().trim().min(1).max(120),
 });
@@ -457,6 +476,81 @@ export const POST: RequestHandler = async (event) => {
 			})
 		);
 		return superjsonResponse({ ok: true });
+	}
+
+	// A fork handoff (parity plan §4.2(a)): sync the source for its snapshot,
+	// curate it into a "chat history" attachment when carrying, create the
+	// child on the chosen (default: source) device/workspace, and send the
+	// prompt with that attachment. No lineage label exists on this wire — the
+	// child's header instead reads its own title (`AgentView`'s "Handed off
+	// from ‹title›", a title-based link, per the spec's "keep it simple").
+	const handoffMatch = new RegExp(`^v1/agents/(${ID})/handoff$`).exec(path);
+	if (handoffMatch) {
+		const parsed = handoffSchema.safeParse(body);
+		if (!parsed.success) {
+			error(
+				400,
+				"Expected { prompt, carry, targetDevice?, workspaceId?, modeId?, modelId?, uptoMessageId? }."
+			);
+		}
+		const sourceSessionId = decodeURIComponent(handoffMatch[1]);
+		const targetDevice = parsed.data.targetDevice
+			? await getPairedDevice(event.locals, parsed.data.targetDevice)
+			: device;
+		const targetLink =
+			targetDevice._id.toString() === device._id.toString()
+				? link
+				: new MachineLink(targetDevice._id.toString());
+
+		if (parsed.data.modelId && !allowsModel(targetDevice, parsed.data.modelId)) {
+			error(403, "The target machine was enrolled without --allow-free-models.");
+		}
+
+		const { session: sourceSession } = await callOp(() =>
+			link.sessionGet({ sessionId: sourceSessionId })
+		);
+
+		let attachments: Array<{ type: "file"; mime: string; filename: string; url: string }> = [];
+		if (parsed.data.carry) {
+			const sync = await callOp(() => link.sessionSync({ sessionId: sourceSessionId }));
+			if ("snapshot" in sync) {
+				const { markdown } = buildHandoffHistory(sync.snapshot, parsed.data.uptoMessageId);
+				if (markdown.trim()) {
+					const base64 = Buffer.from(markdown, "utf8").toString("base64");
+					attachments = [
+						{
+							type: "file",
+							mime: "text/markdown",
+							filename: "chat-history.md",
+							url: `data:text/markdown;base64,${base64}`,
+						},
+					];
+				}
+			}
+		}
+
+		const { session } = await callOp(() =>
+			targetLink.sessionCreate({
+				workspaceId: parsed.data.workspaceId ?? sourceSession.workspaceId,
+				backend: sourceSession.backend,
+				title: `${HANDOFF_TITLE_PREFIX}${sourceSession.title}`.slice(0, 120),
+				...(parsed.data.modeId ? { modeId: parsed.data.modeId } : {}),
+				...(parsed.data.modelId ? { modelId: parsed.data.modelId } : {}),
+			})
+		);
+
+		await callOp(() =>
+			targetLink.sessionPrompt({
+				sessionId: session.id,
+				text: parsed.data.prompt,
+				...(attachments.length ? { attachments } : {}),
+			})
+		);
+
+		return superjsonResponse({
+			agent: toSession(session),
+			deviceId: targetDevice._id.toString(),
+		});
 	}
 
 	const modeMatch = new RegExp(`^v1/agents/(${ID})/mode$`).exec(path);

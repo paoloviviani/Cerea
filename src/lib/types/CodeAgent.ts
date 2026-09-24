@@ -103,11 +103,29 @@ export interface AgentCompactionUpdate {
 	auto?: boolean;
 }
 
+/**
+ * The machine's own id for the wire message a turn's content is about to
+ * carry (spec §7's `message` event / a snapshot's `Transcript.messages[].message.id`)
+ * — a pure boundary marker, side-channel like `usage`/`compaction`: it opens
+ * no turn and closes none. Its only consumer is `consumeAgentUpdates`, which
+ * stamps the next message it opens/pushes with this id
+ * (`Message.machineMessageId`) so a later action anchored on that message —
+ * the fork handoff's "carry up to here" (parity plan §4.2(a)) — can name a
+ * point in the machine's own transcript rather than the browser's locally
+ * generated one.
+ */
+export interface AgentMessageBoundaryUpdate {
+	type: "messageBoundary";
+	role: "user" | "assistant";
+	messageId: string;
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
 	| AgentResetUpdate
 	| AgentUsageUpdate
 	| AgentCompactionUpdate
+	| AgentMessageBoundaryUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -123,6 +141,7 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"reset",
 	"usage",
 	"compaction",
+	"messageBoundary",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.Plan,
@@ -254,6 +273,14 @@ export interface CodeWorkspace {
 	name: string;
 	path: string;
 }
+
+/**
+ * The fork handoff's own title convention (parity plan §4.2(a)): no lineage
+ * label exists on this wire, so a handed-off session's header ("Handed off
+ * from ‹title›") is read straight off its own title rather than a fetched
+ * link — deliberately a title-based convention, not a protocol field.
+ */
+export const HANDOFF_TITLE_PREFIX = "Handoff: ";
 
 /** A coding session on a device. Lives on the daemon; never mirrored here. */
 export interface CodeAgentSession {
