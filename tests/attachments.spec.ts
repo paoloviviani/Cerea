@@ -12,6 +12,8 @@
  * path's cleanup.
  */
 import { test, expect, installSession, E2E_APP_URL } from "./fixtures";
+import { randomUUID as deviceIdSeed } from "node:crypto";
+import { seedUser } from "./machineHarness";
 import { ObjectId } from "mongodb";
 import superjson from "superjson";
 
@@ -79,10 +81,13 @@ test.describe("/code attachment routes", () => {
 		session,
 		browser,
 	}) => {
+		// The /code surface needs a signed-in user (C6), and devices are user-owned.
+		const userId = await seedUser(db, session.sessionId, `e2e-${deviceIdSeed()}`);
 		const deviceId = new ObjectId();
 		await db.collection("codeDevices").insertOne({
 			_id: deviceId,
-			sessionId: session.sessionId,
+			userId,
+			machineId: deviceIdSeed(),
 			name: "e2e box",
 			status: "paired",
 			createdAt: new Date(),
@@ -126,8 +131,10 @@ test.describe("/code attachment routes", () => {
 		}, `${base}/${files[0].value}`);
 		expect(width).toBe(1);
 
+		// Another signed-in person: the device is not theirs, so it does not exist for them.
 		const stranger = await browser.newContext();
-		await installSession(stranger);
+		const strangerSession = await installSession(stranger);
+		await seedUser(db, strangerSession.sessionId, `stranger-${deviceIdSeed()}`);
 		for (const url of [`${base}?messageId=msg-e2e`, `${base}/${files[0].value}`]) {
 			expect((await stranger.request.get(url)).status()).toBe(404);
 		}
