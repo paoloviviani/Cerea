@@ -145,8 +145,10 @@ Smart routing via Arch-Router model. Configured with:
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
-- `codeDevices` - Paired coding-agent machines (ADR 0085). Pairing records
-  only — name, daemon `serverId`, its public key, one owner. No agent state
+- `codeDevices` - Paired coding-agent machines (ADR 0086). Pairing records
+  only: name, the machine's own `machineId`, its OIDC `sub`/`iss`, one owner,
+  the backends/policy/credential health it last reported. Nothing
+  capability-bearing; a revoked machine stays as a tombstone. No agent state
 
 ## Where a model's capabilities come from
 
