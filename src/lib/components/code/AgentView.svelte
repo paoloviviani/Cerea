@@ -22,7 +22,7 @@
 	person's message back, and the stream is the transcript's source of truth.
 -->
 <script lang="ts">
-	import { onMount, untrack } from "svelte";
+	import { untrack } from "svelte";
 	import { goto } from "$app/navigation";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import {
@@ -117,6 +117,26 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities.usage ?? false
 	);
 
+	/** The device's own row from the shared poll (`codeDeviceList`) says it
+	 * is unreachable. Read directly from that store rather than the agent
+	 * snapshot: an address opened straight from a link or a stale tab never
+	 * goes through `CodeNavTree`'s own offline gate (X4), so this view has
+	 * to make the same call itself — before it ever asks the daemon for
+	 * anything, not after the 502 comes back. */
+	let deviceOffline = $derived(
+		codeDeviceList.devices.find((d) => d.id === deviceId)?.online === false
+	);
+	/** Whether the poll has answered at all yet for this device. The poll's
+	 * first fetch is still in flight on a fresh mount, so `deviceOffline`
+	 * alone reads `false` for an "unknown" device exactly as it would for a
+	 * known-online one — every fetch below would race the poll and fire
+	 * before it ever had a chance to say "offline". Holding those fetches
+	 * until the row is known (one poll tick, imperceptible) is what actually
+	 * closes that race; the offline banner stays keyed on `deviceOffline`
+	 * alone so it never flashes for a device that turns out to be online. */
+	let deviceKnown = $derived(codeDeviceList.devices.some((d) => d.id === deviceId));
+	let skipMachineFetches = $derived(!deviceKnown || deviceOffline);
+
 	/** Whether the backend takes files and images with a prompt (`hello`
 	 * capabilities); the composer offers no attachment picker otherwise. */
 	let filesSupported = $derived.by(() => {
@@ -147,7 +167,15 @@
 		return () => sidePane.reset();
 	});
 
-	onMount(() => {
+	// Tracked on `deviceOffline`, not a one-shot `onMount`: an address can be
+	// opened straight at an already-offline device (a link, a stale tab), and
+	// a device that goes offline mid-session and reconnects needs its
+	// snapshot and workspace re-read the same way a fresh mount would — the
+	// daemon is never even asked while `deviceOffline` is known true, which
+	// is what keeps this from generating a 502 (and a server-side log line)
+	// on every poll tick of an offline machine.
+	$effect(() => {
+		if (skipMachineFetches) return;
 		refreshAgent();
 		(async () => {
 			if (!workspaceId) return;
@@ -193,7 +221,14 @@
 	// whole subscription, and reading it tracked here would re-run this effect
 	// on the very frames it folds — tearing the stream down mid-transcript.
 	// The device and agent ids stay tracked: a new address restarts the replay.
+	// `deviceOffline` is tracked too: no subscription is opened at all while
+	// the device is known unreachable, so an offline machine never drives
+	// `EventSource`'s own reconnect loop into hammering the stream endpoint
+	// (and its `session.sync` failure) on a timer. The last transcript this
+	// view had just sits there under the offline banner; going back online
+	// re-runs this effect and replays the daemon's log fresh.
 	$effect(() => {
+		if (skipMachineFetches) return;
 		messages = [];
 		pending = false;
 		usage = null;
@@ -339,6 +374,7 @@
 	// "running" here rather than faking a boundary at each hold.
 	let rosterPhase: "none" | "running" | "settled" = "none";
 	$effect(() => {
+		if (skipMachineFetches) return;
 		const phase =
 			shownState === "running" || shownState === "waiting-permission"
 				? ("running" as const)
@@ -529,7 +565,17 @@
 		{/if}
 	</div>
 
-	{#if failure}
+	{#if deviceOffline}
+		<!-- The clean state this replaces: with no gate here, the strip's
+		     pills just vanished (an agent snapshot the daemon never got asked
+		     for), the transcript sat on "Ready when you are" as if nothing had
+		     ever run, and only a send attempt surfaced anything was wrong. -->
+		<div
+			class="pointer-events-auto mx-4 mb-2 flex items-center gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+		>
+			This machine is offline. It will pick back up here once it reconnects.
+		</div>
+	{:else if failure}
 		<div class="pointer-events-auto {s.ERROR} mx-4 mb-2">{failure}</div>
 	{/if}
 
@@ -572,6 +618,7 @@
 					cwd={agentCwd}
 					running={loading}
 					{enrollmentExpired}
+					offline={deviceOffline}
 					onsend={handleSend}
 					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}

@@ -79,6 +79,10 @@
 		 * dead: the send is doomed, so it is refused here rather than left
 		 * to fail after the person typed something. */
 		enrollmentExpired?: boolean;
+		/** Set when the device's own row (`codeDeviceList`) currently reports
+		 * it unreachable: the send is refused here, before it can fail on a
+		 * 502 the daemon was never asked to answer. */
+		offline?: boolean;
 		/** Called synchronously with the submit, before the POST — the view
 		 * engages the column's follow and raises its pending placeholder. */
 		onsend: (text: string, files: File[]) => Promise<void>;
@@ -113,6 +117,7 @@
 		cwd = null,
 		running = false,
 		enrollmentExpired = false,
+		offline = false,
 		onsend,
 		mimeTypes = [],
 		onstop,
@@ -129,7 +134,7 @@
 	let busy = $state(false);
 
 	async function submit() {
-		if (enrollmentExpired) return;
+		if (enrollmentExpired || offline) return;
 		const message = draft.trim();
 		if (!message || busy) return;
 		busy = true;
@@ -505,7 +510,14 @@
 							</span>
 						{/if}
 
-						{#if enrollmentExpired}
+						{#if offline}
+							<span
+								class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+							>
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate">This machine is offline.</span>
+							</span>
+						{:else if enrollmentExpired}
 							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
 								<IconWarning class="size-3 shrink-0" />
 								<span class="min-w-0 truncate">
@@ -540,7 +552,7 @@
 					class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
 						? ''
 						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-					disabled={!draft.trim() || busy || enrollmentExpired}
+					disabled={!draft.trim() || busy || enrollmentExpired || offline}
 					type="submit"
 					aria-label="Send message"
 					name="submit"
