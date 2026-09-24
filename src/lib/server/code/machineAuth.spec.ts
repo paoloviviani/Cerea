@@ -3,11 +3,7 @@ import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { ready } from "$lib/server/database";
 import { createTestUser, cleanupTestData } from "$lib/server/api/__tests__/testHelpers";
-import {
-	authenticateMachineRequest,
-	MachineAuthError,
-	validateMachineToken,
-} from "./machineAuth";
+import { authenticateMachineRequest, MachineAuthError, validateMachineToken } from "./machineAuth";
 
 /**
  * Local JWT validation (spec §3, review C1) — a locally generated keypair and
@@ -153,9 +149,7 @@ describe("authenticateMachineRequest", () => {
 			authorization: `Bearer ${token}`,
 			"x-pystino-machine-id": "machine-1",
 		});
-		expect(result).toEqual(
-			expect.objectContaining({ ok: false, status: 403 })
-		);
+		expect(result).toEqual(expect.objectContaining({ ok: false, status: 403 }));
 	});
 
 	it("answers 401 with no Authorization header", async () => {

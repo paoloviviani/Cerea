@@ -163,7 +163,10 @@ test("an offline device never reads as a dead credential, and its tree is never 
 	// never calls it at all for an offline device (X4).
 	await page.route("**/api/v2/code/v1/workspaces?*", (route) => {
 		workspacesRequested = true;
-		return route.fulfill({ contentType: "application/json", body: superjsonBody({ workspaces: [] }) });
+		return route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({ workspaces: [] }),
+		});
 	});
 
 	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
@@ -179,7 +182,10 @@ test.describe("live lists", () => {
 	test("an agent created elsewhere appears in the tree without a reload", async ({ page }) => {
 		await installBaseStubs(page);
 		await page.route("**/api/v2/code/devices", (route) =>
-			route.fulfill({ contentType: "application/json", body: superjsonBody({ devices: [deviceRow()] }) })
+			route.fulfill({
+				contentType: "application/json",
+				body: superjsonBody({ devices: [deviceRow()] }),
+			})
 		);
 
 		let revealed = false;
@@ -213,7 +219,10 @@ test.describe("live lists", () => {
 			route.fulfill({
 				contentType: "application/json",
 				body: superjsonBody({
-					devices: [deviceRow(), ...(paired ? [deviceRow({ id: DEVICE2, name: "second box" })] : [])],
+					devices: [
+						deviceRow(),
+						...(paired ? [deviceRow({ id: DEVICE2, name: "second box" })] : []),
+					],
 				}),
 			})
 		);
