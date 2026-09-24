@@ -82,4 +82,4 @@ export function artifactsEnabledForTurn(input: {
  * reads the tool list — both together, not pages apart.
  */
 export const ARTIFACT_TOOL_RULE =
-	"Do not call tools while creating or editing an artifact: emit the artifact in your reply first, then use tools in a later turn if needed.";
+	"Never call a tool in the step that creates or edits an artifact: emit the artifact first, use tools in a later turn.";
