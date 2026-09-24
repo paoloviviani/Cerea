@@ -210,6 +210,29 @@ describe("the forwarder over a live machine link", () => {
 		machine.close();
 	});
 
+	it("calls session.compact for the /compact route (M3)", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const compactArgs: unknown[] = [];
+		machine.onOp("session.compact", (args: unknown) => {
+			compactArgs.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/compact?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({}), locals: user.locals }
+		);
+		expect(res.status).toBe(200);
+		expect(compactArgs).toEqual([{ sessionId: agent.id }]);
+
+		machine.close();
+	});
+
 	it("rejects a non-JSON POST body before it ever reaches the machine (C5)", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;
