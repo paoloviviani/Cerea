@@ -496,6 +496,7 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 								{ value: "npm", label: "npm", description: undefined },
 								{ value: "pnpm", label: "pnpm", description: "faster installs" },
 							],
+							allowOther: true,
 						},
 					],
 				},
@@ -518,6 +519,22 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 		expect(request.message).toBe("Pick one\n\nPick any");
 		expect(request.fields).toHaveLength(2);
 		expect(request.fields[1]).toMatchObject({ name: "q1", multiple: true });
+	});
+
+	it("offers free text, as opencode tells the model, unless the question turns `custom` off", () => {
+		const updates = eventToUpdates({
+			kind: "question.asked",
+			request: {
+				id: "q-3",
+				questions: [
+					{ question: "Default", options: [{ label: "a" }, { label: "b" }] },
+					{ question: "Closed", options: [{ label: "a" }, { label: "b" }], custom: false },
+				],
+			},
+		});
+		const request = (updates[0] as { request: { fields: unknown[] } }).request;
+		expect(request.fields[0]).toMatchObject({ allowOther: true });
+		expect(request.fields[1]).toMatchObject({ allowOther: false });
 	});
 
 	it("maps question.resolved (accept) to a resolved elicitation carrying the chosen labels", () => {
