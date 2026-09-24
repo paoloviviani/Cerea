@@ -3,7 +3,7 @@
  * `pystino-agent` supervising a real `opencode serve`, only the LLM and the IdP mocked).
  * Each test pairs its own machine, so a policy set for one never leaks into another.
  */
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
@@ -30,6 +30,8 @@ test.describe("owned machine agent: parity", () => {
 				body: machine.logs(),
 				contentType: "text/plain",
 			});
+			// Also on disk: an attachment's body lives only in the report.
+			writeFileSync(testInfo.outputPath("pystino-agent.log"), machine.logs());
 		}
 		await machine?.stop();
 		machine = null;

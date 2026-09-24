@@ -341,6 +341,7 @@
 				placeholder="Follow up with the agent…"
 				bind:value={draft}
 				{mimeTypes}
+				chatTools={false}
 				bind:files
 				onsubmit={submit}
 				bind:focused
