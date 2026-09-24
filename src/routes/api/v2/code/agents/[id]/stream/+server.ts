@@ -29,14 +29,16 @@
  */
 
 import { error, type RequestHandler } from "@sveltejs/kit";
-import { MachineLink, subscribeSessionEvents } from "$lib/server/code/machines";
+import { MachineLink, subscribeSessionTree } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import {
 	eventToUpdates,
 	foldEnvelopeEvents,
 	lastAssistantErrorOf,
+	permissionRequestToUpdate,
 	snapshotToUpdates,
 	userMessageIdsOf,
+	type ChildContext,
 } from "$lib/server/code/machineTimeline";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import { OpError, type Envelope } from "$lib/types/machineProtocol";
@@ -57,17 +59,43 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	const link = new MachineLink(deviceId);
 
 	// Subscribe first and buffer, so events fired while `session.sync` is in
-	// flight are queued rather than lost at the seam.
+	// flight are queued rather than lost at the seam. The subscription is
+	// on the whole session tree (not just this session): a subagent's
+	// approval or question must surface in the parent's view mid-turn,
+	// which a parent-id-only subscription would drop.
 	const buffered: Envelope[] = [];
 	let wake: (() => void) | null = null;
 	const notify = () => {
 		wake?.();
 		wake = null;
 	};
-	const unsubscribe = subscribeSessionEvents(deviceId, sessionId, (envelope) => {
+	const unsubscribe = subscribeSessionTree(deviceId, sessionId, (envelope) => {
 		buffered.push(envelope);
 		notify();
 	});
+
+	// A subagent's title for its cards' "Subagent ‹title›" label — the
+	// roster when it answers, a `session` event when one names it, else
+	// the bare "Subagent:" fallback the fold applies.
+	const childTitles = new Map<string, string | null>();
+	const childOf = (id: string): ChildContext | undefined =>
+		id === sessionId ? undefined : { childId: id, childTitle: childTitles.get(id) ?? null };
+	const learnTitle = (envelope: Envelope) => {
+		if (
+			envelope.sessionId !== sessionId &&
+			envelope.event.kind === "session" &&
+			typeof envelope.event.session.title === "string"
+		) {
+			childTitles.set(envelope.sessionId, envelope.event.session.title);
+		}
+	};
+	try {
+		const { sessions } = await link.sessionChildren({ sessionId });
+		for (const child of sessions) childTitles.set(child.id, child.title);
+	} catch {
+		// The roster is a label nicety, not the stream: without it the
+		// cards still arrive, just under the untitled fallback.
+	}
 
 	const lastEventId = request.headers.get("last-event-id");
 	let clientEpoch: string | undefined;
@@ -114,13 +142,69 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		userMessageIds = folded.userMessageIds;
 	}
 
+	// Seed the cards for approvals already waiting on a subagent: opening
+	// the view mid-turn (or re-opening it after an SSE reconnect, whose
+	// cursor only covers the parent) must show the same card the live tail
+	// would have carried. Questions have no snapshot field, so only
+	// permissions seed here — a waiting question re-announces on the
+	// child's next event.
+	const seenChildAsks = new Set<string>();
+	for (const [childId, title] of childTitles) {
+		try {
+			const childSync = await link.sessionSync({ sessionId: childId });
+			if (!("snapshot" in childSync)) continue;
+			for (const permission of childSync.snapshot.permissions ?? []) {
+				if (seenChildAsks.has(permission.id)) continue;
+				seenChildAsks.add(permission.id);
+				initial.push(permissionRequestToUpdate(permission, { childId, childTitle: title }));
+			}
+		} catch {
+			// One child's history failing to load must not fail the parent's
+			// stream — the live tail still carries whatever it asks next.
+		}
+	}
+
+	// An ask the seed already turned into a card must not fold a second
+	// time when its live envelope drains below: the ask was emitted before
+	// this subscription started, but it is still pending, so the child's
+	// own sync (taken above) and the buffered live tail can both name it.
+	const askIdOf = (envelope: Envelope): string | null => {
+		if (envelope.sessionId === sessionId) return null;
+		const event = envelope.event;
+		if (event.kind === "permission.asked") return event.request.id;
+		if (event.kind === "question.asked") return event.request.id;
+		return null;
+	};
+	const dedupeSeeded = (envelopes: Envelope[]): Envelope[] =>
+		envelopes.filter((envelope) => {
+			const id = askIdOf(envelope);
+			if (id === null) return true;
+			if (seenChildAsks.has(id)) return false;
+			seenChildAsks.add(id);
+			return true;
+		});
+
 	// Drain the buffer: only what arrived strictly after the sync's own
 	// cursor, in the same epoch — anything ≤ sync.seq is already covered by
 	// `initial`, and a different epoch here means the machine has already
 	// moved on again since the sync answered (rare, handled below like any
-	// other mid-stream epoch change).
-	const drainedNow = buffered.splice(0).filter((e) => e.epoch === sync.epoch && e.seq > sync.seq);
-	const drainedFolded = foldEnvelopeEvents(drainedNow, lastAssistantError, userMessageIds);
+	// other mid-stream epoch change). The sync's cursor is the parent
+	// session's own: a child's envelope is ordered on the child's own
+	// sequence, so every same-epoch child envelope buffered here is new.
+	const drainedNow = buffered
+		.splice(0)
+		.filter((e) =>
+			e.sessionId === sessionId
+				? e.epoch === sync.epoch && e.seq > sync.seq
+				: e.epoch === sync.epoch
+		);
+	for (const envelope of drainedNow) learnTitle(envelope);
+	const drainedFolded = foldEnvelopeEvents(
+		dedupeSeeded(drainedNow),
+		lastAssistantError,
+		userMessageIds,
+		childOf
+	);
 	lastAssistantError = drainedFolded.lastAssistantError;
 	userMessageIds = drainedFolded.userMessageIds;
 
@@ -149,8 +233,14 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			let lastEmit = Date.now();
 			let currentEpoch = sync.epoch;
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
-			const emit = (id: string, update: AgentStreamUpdate) => {
-				enc(`id: ${id}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
+			// `id` is the watched session's own (epoch, seq) cursor, which the
+			// client echoes back as Last-Event-ID to resume. A subagent's
+			// frames are ordered on the subagent's sequence, not this one, so
+			// they go out with no id: an SSE event without one leaves the
+			// client's last event id where the parent's last frame put it.
+			const emit = (id: string | null, update: AgentStreamUpdate) => {
+				const idLine = id === null ? "" : `id: ${id}\n`;
+				enc(`${idLine}event: update\ndata: ${JSON.stringify(update)}\n\n`);
 				lastEmit = Date.now();
 			};
 			// A reset travels the ordinary `update` channel (a frame the
@@ -218,19 +308,31 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							// mislabel the new epoch's own first frames.
 							lastAssistantError = undefined;
 							userMessageIds = new Map();
-							emitReset(id);
+							seenChildAsks.clear();
+							// A subagent's envelope can be the first to show the new
+							// epoch; its seq is not this session's cursor.
+							emit(next.sessionId === sessionId ? id : null, { type: "reset" });
 						}
-						if (next.event.kind === "message") {
+						learnTitle(next);
+						const child = childOf(next.sessionId);
+						if (!child && next.event.kind === "message") {
 							if (next.event.message.role === "assistant") {
 								lastAssistantError = next.event.message.error;
 							} else if (next.event.message.clientMessageId) {
 								userMessageIds.set(next.event.message.id, next.event.message.clientMessageId);
 							}
 						}
-						const updates = eventToUpdates(next.event, lastAssistantError, (messageId) =>
-							userMessageIds.get(messageId)
+						// A re-announced ask this connection already carded
+						// folds once — its resolutions still flow, only the
+						// duplicate request is dropped.
+						if (dedupeSeeded([next]).length === 0) continue;
+						const updates = eventToUpdates(
+							next.event,
+							lastAssistantError,
+							(messageId) => userMessageIds.get(messageId),
+							child
 						);
-						for (const update of updates) emit(id, await withFiles(update));
+						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;
 					}
 					await new Promise<void>((resolve) => {

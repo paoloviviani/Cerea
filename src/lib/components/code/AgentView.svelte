@@ -251,6 +251,7 @@
 						onTurnEvent: () => (pending = false),
 						onUsage: (u) => (usage = keepReportedUsage(usage, u)),
 						onCompaction: (c) => (lastCompaction = c),
+						onChildActivity: (childId) => noteChildActivity(childId),
 						onReset: () => {
 							usage = null;
 							lastCompaction = null;
@@ -339,6 +340,10 @@
 	// have no anchor and are not rendered: the transcript has nowhere honest
 	// to put them.
 	let subagentRoster = $state<CodeSubagent[]>([]);
+	/** `childActivity` side-channel ticks per subagent id, from the parent
+	 * stream — each expanded card re-syncs its child's timeline on its
+	 * own ticks, throttled (see `SubagentCard`). */
+	let childActivity = $state<Record<string, number>>({});
 
 	let subagentsByCallId = $derived.by(() => {
 		const byCallId = new Map<string, CodeSubagent>();
@@ -391,6 +396,12 @@
 		rosterPhase = phase;
 		void pollSubagents();
 	});
+
+	/** A `childActivity` frame arrived for one subagent: count it, so that
+	 * subagent's expanded card re-syncs its timeline (the card throttles). */
+	function noteChildActivity(childId: string) {
+		childActivity[childId] = (childActivity[childId] ?? 0) + 1;
+	}
 
 	/** The claim ChatMessage asks per tool call: does a subagent own this
 	 * row? The polled roster rules; a task-named call anchors pre-pairing. */
@@ -470,7 +481,9 @@
 	 * elicitation endpoint — the daemon owns the request's lifetime. `scope`
 	 * is only ever `"always"` (the card's "Always allow" button); "once" is
 	 * the default accept, and any non-accept action is a reject regardless
-	 * of scope. */
+	 * of scope. A subagent's card (labelled with its session by the bridge)
+	 * answers through the same call with the child's session, so the reply
+	 * reaches the child's own waiting request. */
 	async function answerPermission(
 		request: ElicitationRequestPayload,
 		action: ElicitationAction,
@@ -481,7 +494,8 @@
 				deviceId,
 				agentId,
 				request.elicitationId,
-				action === "accept" ? (scope === "always" ? "always" : "once") : "reject"
+				action === "accept" ? (scope === "always" ? "always" : "once") : "reject",
+				request.childSessionId
 			);
 			return { ok: true };
 		} catch (err) {
@@ -524,7 +538,8 @@
 				agentId,
 				requestId,
 				action === "accept" ? "accept" : "decline",
-				answers
+				answers,
+				askQuestion.request.childSessionId
 			);
 			return { ok: true };
 		} catch (err) {
@@ -560,7 +575,7 @@
      row, the fallback title, and the transcript fetch, and ChatMessage stays
      free of any panel import. -->
 {#snippet subagentCard(anchor: CodeSubagentAnchor)}
-	<SubagentCard {anchor} />
+	<SubagentCard {anchor} activity={childActivity[anchor.subagent?.id ?? ""] ?? 0} />
 {/snippet}
 
 <!-- The "Hand off…" action ChatMessage opens per completed assistant

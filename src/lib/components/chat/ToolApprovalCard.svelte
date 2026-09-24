@@ -74,6 +74,18 @@
 
 	let showArgs = $state(false);
 
+	/**
+	 * Who is asking: a subagent's approval carries the child's session (set
+	 * by the coding-agent stream bridge, never by chat) — the card names it
+	 * ("Subagent ‹title›"), since the tool and its args alone do not say
+	 * which session is blocked on this click.
+	 */
+	let subagentLabel = $derived.by(() => {
+		if (!request.childSessionId) return null;
+		const title = request.childTitle?.trim();
+		return title ? `Subagent ${title}` : "Subagent";
+	});
+
 	let settledLabel = $derived.by(() => {
 		if (outcome === "accept") return "Allowed";
 		if (outcome === "decline") return "Denied";
@@ -135,7 +147,8 @@
 				<span
 					class="shrink-0 text-sm font-medium text-gray-500 transition-colors group-hover/header:text-gray-600 dark:text-gray-400 dark:group-hover/header:text-gray-300"
 				>
-					{settledLabel}
+					{#if subagentLabel}{subagentLabel} ·
+					{/if}{settledLabel}
 				</span>
 				<code
 					class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
@@ -165,7 +178,10 @@
 			class="rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-700 dark:bg-gray-800/40"
 		>
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"> Tool approval </span>
+				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
+					>{#if subagentLabel}{subagentLabel} ·
+					{/if}Tool approval</span
+				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					wants to call <code
 						class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"

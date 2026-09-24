@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,11 +25,22 @@ type ToolCall struct {
 }
 
 // Scenario scripts every following completion until the next one is set.
+// Routes lets one scenario serve a whole subagent tree: when the request's
+// messages contain Contains, that route's Scenario answers instead of the
+// top level (e.g. the parent's prompt gets a task tool call, while the
+// child's own prompt — which echoes the task text — gets a bash call).
 type Scenario struct {
 	Content      []string   `json:"content"`
 	ChunkDelayMs int        `json:"chunkDelayMs"`
 	ToolCalls    []ToolCall `json:"toolCalls"`
 	FinishReason string     `json:"finishReason"`
+	Routes       []Route    `json:"routes"`
+}
+
+// Route is one content-based override inside a Scenario.
+type Route struct {
+	Contains string   `json:"contains"`
+	Scenario Scenario `json:"scenario"`
 }
 
 var defaultScenario = Scenario{Content: []string{"Hello", " from", " the", " mock", " server", "."}, ChunkDelayMs: 10, FinishReason: "stop"}
@@ -96,6 +108,12 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	sc := s.scenario
 	s.mu.Unlock()
+	// Content-based routing first: a subagent's own prompt echoes the task
+	// text that spawned it, which is what distinguishes its requests from
+	// its parent's when both hit the same mock.
+	if routed, ok := sc.route(req.Messages); ok {
+		sc = routed
+	}
 	// Once a tool result is in the history the call has happened: answer with
 	// text, or the client loops forever.
 	toolResultSeen := false
@@ -154,6 +172,25 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	if flusher != nil {
 		flusher.Flush()
 	}
+}
+
+// route returns the first route whose Contains marker appears anywhere in
+// the request's messages (matched against their JSON, so text, tool names
+// and tool arguments all count).
+func (sc Scenario) route(messages []map[string]any) (Scenario, bool) {
+	if len(sc.Routes) == 0 {
+		return Scenario{}, false
+	}
+	raw, err := json.Marshal(messages)
+	if err != nil {
+		return Scenario{}, false
+	}
+	for _, r := range sc.Routes {
+		if r.Contains != "" && strings.Contains(string(raw), r.Contains) {
+			return r.Scenario, true
+		}
+	}
+	return Scenario{}, false
 }
 
 func wireCalls(calls []ToolCall) []map[string]any {

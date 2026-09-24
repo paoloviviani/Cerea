@@ -254,7 +254,7 @@ func TestPublishEventSendsFrame(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if err := l.PublishEvent("s1", "epoch1", 3, json.RawMessage(`{"kind":"status","status":"busy"}`)); err != nil {
+	if err := l.PublishEvent("s1", "epoch1", 3, "root1", json.RawMessage(`{"kind":"status","status":"busy"}`)); err != nil {
 		t.Fatalf("PublishEvent: %v", err)
 	}
 
@@ -268,5 +268,8 @@ func TestPublishEventSendsFrame(t *testing.T) {
 	}
 	if seq, _ := gotEvent["seq"].(float64); seq != 3 {
 		t.Errorf("event.seq = %v, want 3", gotEvent["seq"])
+	}
+	if gotEvent["rootSessionId"] != "root1" {
+		t.Errorf("event.rootSessionId = %v, want root1", gotEvent["rootSessionId"])
 	}
 }
