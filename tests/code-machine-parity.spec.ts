@@ -1,6 +1,6 @@
 /**
  * Parity milestones against a real machine (the same chain as the P0 spec: the real
- * `pystino-agent` supervising a real `opencode serve`, only the LLM and the IdP mocked).
+ * `galopin` supervising a real `opencode serve`, only the LLM and the IdP mocked).
  * Each test pairs its own machine, so a policy set for one never leaks into another.
  */
 import { existsSync, writeFileSync } from "node:fs";
@@ -33,12 +33,12 @@ test.describe("owned machine agent: parity", () => {
 	// eslint-disable-next-line no-empty-pattern
 	test.afterEach(async ({}, testInfo) => {
 		if (machine && testInfo.status !== testInfo.expectedStatus) {
-			await testInfo.attach("pystino-agent.log", {
+			await testInfo.attach("galopin.log", {
 				body: machine.logs(),
 				contentType: "text/plain",
 			});
 			// Also on disk: an attachment's body lives only in the report.
-			writeFileSync(testInfo.outputPath("pystino-agent.log"), machine.logs());
+			writeFileSync(testInfo.outputPath("galopin.log"), machine.logs());
 			writeFileSync(testInfo.outputPath("browser-console.log"), consoleLines.join("\n"));
 		}
 		await machine?.stop();

@@ -374,7 +374,7 @@ test.describe("the auto-accept toggle", () => {
 		page,
 	}) => {
 		const VETO_NOTE =
-			"This machine's policy vetoes auto-accept: re-run `pystino-agent enroll … --allow-auto-accept`, then restart `run`.";
+			"This machine's policy vetoes auto-accept: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
 		const h = await installStubs(page, {
 			snapshot: {
 				id: AGENT,

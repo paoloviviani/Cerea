@@ -228,7 +228,7 @@ export interface CodeFileChange {
 }
 
 /**
- * A paired machine: somebody's own box, running `pystino-agent`, dialled in
+ * A paired machine: somebody's own box, running `galopin`, dialled in
  * over the machine link (`reports/2026-09-24-thin-agent-protocol.md`).
  *
  * Nothing capability-bearing lives here — the row names a machine and records

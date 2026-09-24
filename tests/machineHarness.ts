@@ -1,23 +1,24 @@
 /**
- * Runs a real machine for the /code e2e: the `pystino-agent` binary (Pystino
- * `deploy/agent`), which supervises a real `opencode serve` whose only provider is
- * the hermetic mock-openai, and dials the app's `/api/v2/code/machine` with a
- * token minted by the mock issuer. Nothing in the chain between the browser and
- * opencode is stubbed; only the LLM and the IdP are.
+ * Runs a real machine for the /code e2e: the `galopin` binary, built from
+ * this repository's own `agent/`, which supervises a real `opencode serve`
+ * whose only provider is the hermetic mock-openai, and dials the app's
+ * `/api/v2/code/machine` with a token minted by the mock issuer. Nothing in
+ * the chain between the browser and opencode is stubbed; only the LLM and
+ * the IdP are.
  *
- * The binary comes from `PYSTINO_AGENT_BIN`, or is built from `PYSTINO_AGENT_SRC`
- * (default: the sibling Pystino worktree) once per run.
+ * The binary comes from `GALOPIN_BIN`, or is built once per run from
+ * `agent/` in this checkout.
  */
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { Db, ObjectId } from "mongodb";
 import { E2E_APP_URL, MOCK_OIDC_ISSUER, MOCK_OPENAI_BASE_URL } from "./fixtures.ts";
 
-const AGENT_SRC =
-	process.env.PYSTINO_AGENT_SRC ?? "/home/ubuntu/.paseo/worktrees/thin-pystino/deploy/agent";
+const AGENT_SRC = fileURLToPath(new URL("../agent", import.meta.url));
 const GO =
 	process.env.GO_BIN ?? (existsSync("/usr/local/go/bin/go") ? "/usr/local/go/bin/go" : "go");
 
@@ -27,9 +28,9 @@ export const MACHINE_MODEL = "pystino/mock-model";
 let builtBinary: string | null = null;
 
 export function agentBinary(): string {
-	if (process.env.PYSTINO_AGENT_BIN) return process.env.PYSTINO_AGENT_BIN;
+	if (process.env.GALOPIN_BIN) return process.env.GALOPIN_BIN;
 	if (builtBinary) return builtBinary;
-	const out = join(tmpdir(), `pystino-agent-e2e-${process.pid}`);
+	const out = join(tmpdir(), `galopin-e2e-${process.pid}`);
 	execFileSync(GO, ["build", "-o", out, "."], { cwd: AGENT_SRC, stdio: "pipe" });
 	builtBinary = out;
 	return out;

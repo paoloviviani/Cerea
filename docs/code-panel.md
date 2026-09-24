@@ -3,10 +3,10 @@
 The Agents panel drives **coding agents running on people's own machines**
 from the chat's sidebar. Nothing about it runs model inference here, and
 nothing about it stores code here: the agent is `opencode`, supervised by a
-one-binary agent (`pystino-agent`) on the person's own machine, which dials
-**out** to this deployment over WSS and authenticates with its own OIDC
-enrollment credential — no relay, no daemon, no paseo (see
-`reports/2026-09-24-thin-agent-protocol.md` for the wire protocol).
+one-binary agent (`galopin`, this repository's `agent/`) on the person's own
+machine, which dials **out** to this deployment over WSS and authenticates
+with its own OIDC enrollment credential — no relay, no daemon, no paseo (see
+`agent/PROTOCOL.md` for the wire protocol).
 
 This page is for whoever deploys it. The person sitting in front of the panel
 wants [Agent machines](agent-machines.md) instead.
@@ -23,9 +23,9 @@ beyond the one this deployment already exposes.
 
 At install time, `pystino init --agents`; on an existing deployment,
 `./pystino set CODE_AGENTS_ENABLED=true` and `docker compose up -d --wait`.
-The stack side is described in Pystino's `docs/deployment.md`; machines are set
-up with `pystino-agent enroll` and `pystino-agent run` (Pystino's
-`docs/coding-agents.md`). There is no relay and nothing else to deploy.
+The stack side is described in Pystino's `docs/deployment.md`; machines are
+set up with `galopin enroll` and `galopin run` (this repository's
+`docs/agent-machines.md`). There is no relay and nothing else to deploy.
 
 The chat reads:
 
@@ -189,7 +189,7 @@ it when your backend deletes a session. The deletions match on
 
 ## What the panel does
 
-Every feature below is one or more typed machine ops (Pystino `deploy/agent/PROTOCOL.md` §6). An affordance shows only when the session's backend advertised the capability in its `hello`, and the machine's own policy (`policy.json`, set by `pystino-agent enroll` flags, never writable over the link) is a veto the panel cannot override.
+Every feature below is one or more typed machine ops (`agent/PROTOCOL.md` §6). An affordance shows only when the session's backend advertised the capability in its `hello`, and the machine's own policy (`policy.json`, set by `galopin enroll` flags, never writable over the link) is a veto the panel cannot override.
 
 | Feature                  | What the person sees                                                                | How it works                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -205,7 +205,7 @@ Every feature below is one or more typed machine ops (Pystino `deploy/agent/PROT
 | Handoffs                 | "Hand off…" on a finished assistant message                                         | `POST v1/agents/:id/handoff`: a new session (same machine or another of the person's paired machines, any allowed mode/model), prompted with the person's text plus, optionally, the conversation up to that turn as a `chat-history.md` attachment. The new session is titled `Handoff: …` and says where it came from.                                                        |
 | Workspaces and worktrees | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
 
-A machine can run a backend other than opencode: `pystino-agent run --backend acp --acp-command "<agent>"` drives any ACP agent (opencode's own `opencode acp`, Gemini CLI, Claude Code or Codex through their ACP adapters, Pi through `pi-acp`). Such a backend reports fewer capabilities (no usage, compaction or subagents), and the panel hides those affordances.
+A machine can run a backend other than opencode: `galopin run --backend acp --acp-command "<agent>"` drives any ACP agent (opencode's own `opencode acp`, Gemini CLI, Claude Code or Codex through their ACP adapters, Pi through `pi-acp`). Such a backend reports fewer capabilities (no usage, compaction or subagents), and the panel hides those affordances.
 
 ## What the browser may ask the machine to do
 
