@@ -85,8 +85,7 @@ export function artifactsEnabledForTurn(input: {
  * replaced by {@link ARTIFACT_TOOL_POINTER}.
  */
 export const ARTIFACT_TOOL_RULE =
-<<<<<<< HEAD
-	"Do not call tools while creating or editing an artifact: emit the artifact in your reply first, then use tools in a later turn if needed.";
+	"Never call a tool in the step that creates or edits an artifact: emit the artifact first, use tools in a later turn.";
 
 /** Per-model artifact surface: the `artifact` tool, or inline `<artifact>` tags. */
 export type ArtifactsMode = "tool" | "tags";
@@ -132,6 +131,3 @@ export const ARTIFACT_TOOL_GUIDANCE =
 	`Sandbox: live previews (html/react) run in a sandboxed iframe with no same-origin access — localStorage, sessionStorage and cookies are unavailable and throw; keep state in in-memory JS variables. Allowed: pointer lock (request in a click handler), fullscreen, device motion/orientation sensors (request permission from a tap where defined), gamepad input, clipboard writes, media autoplay. Blocked — never build features depending on them: popups (window.open returns null), file downloads, camera, microphone, geolocation, alert/confirm/prompt (silent no-ops; render status with in-page UI). ` +
 	`Deliver first: briefly tell the user what you built or changed in plain text, and never follow an artifact call with ask_user_question in the same step — deliver, and let the user reply in chat. ` +
 	`Earlier artifacts appear in the conversation as <artifact> blocks; change them with update (small edits: old_str must occur exactly once in the latest version, copied verbatim) or rewrite (larger changes, same identifier), never by writing tags yourself.`;
-=======
-	"Never call a tool in the step that creates or edits an artifact: emit the artifact first, use tools in a later turn.";
->>>>>>> origin/main

@@ -124,7 +124,9 @@ test("a streamed-arguments draft is visible before the call completes", async ({
 }) => {
 	await useModel(db, session, TOOL_MODEL);
 	const marker = "STREAMED_MARKER_ABCDEF";
-	const longContent = `# Big Doc\n\n${"Filler line.\n".repeat(60)}${marker}\n`;
+	// Long enough that argument streaming lasts several seconds: the draft
+	// must still be in flight when the assertions below run.
+	const longContent = `# Big Doc\n\n${"Filler line.\n".repeat(200)}${marker}\n`;
 	await mockOpenAI.setDefaultScenario({
 		toolCalls: [
 			{
@@ -140,7 +142,7 @@ test("a streamed-arguments draft is visible before the call completes", async ({
 			},
 		],
 		content: ["Done", "."],
-		chunkDelayMs: 60,
+		chunkDelayMs: 120,
 		toolCallArgChunkSize: 40,
 	});
 
@@ -218,5 +220,9 @@ test("tags inside thinking are ignored", async ({ page, mockOpenAI, db, session 
 		{ timeout: 30_000 }
 	);
 	// No card, no panel entry: the rehearsal inside reasoning never parsed.
-	await expect(page.locator('[aria-label^="Open artifact"]')).toHaveCount(0, { timeout: 30_000 });
+	// (The header's "Open artifacts panel" button always exists, so match card
+	// labels only.)
+	await expect(page.locator('[aria-label^="Open artifact: "]')).toHaveCount(0, {
+		timeout: 30_000,
+	});
 });
