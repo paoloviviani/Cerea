@@ -44,6 +44,16 @@ export interface Workspace {
 	name: string;
 	path: string;
 	createdAt: string;
+	isGitRepo: boolean;
+	worktreeOf?: string;
+	branch?: string;
+}
+
+/** One `workspace.suggest` result: a directory autocomplete candidate. */
+export interface Directory {
+	path: string;
+	name: string;
+	isGitRepo: boolean;
 }
 
 export type SessionStatus = "idle" | "busy" | "retry" | "error";
@@ -208,6 +218,7 @@ export interface Envelope {
 /** Every op name a Cerea→machine `req` frame may carry. */
 export type OpName =
 	| "workspace.list"
+	| "workspace.suggest"
 	| "workspace.create"
 	| "workspace.rename"
 	| "workspace.archive"
