@@ -321,23 +321,8 @@ describe("eventToUpdates: one live event at a time", () => {
 		]);
 	});
 
-	it("drops bookkeeping kinds with no panel shape (message, usage, session)", () => {
+	it("drops bookkeeping kinds with no panel shape (message, session)", () => {
 		expect(eventToUpdates({ kind: "message", message: assistantMessage("a1") })).toEqual([]);
-		expect(
-			eventToUpdates({
-				kind: "usage",
-				usage: {
-					input: 1,
-					output: 1,
-					reasoning: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					cost: 0,
-					contextUsed: 0,
-					contextMax: null,
-				},
-			})
-		).toEqual([]);
 	});
 
 	it("resolves a part event's clientMessageId through the caller's resolver", () => {
@@ -347,5 +332,104 @@ describe("eventToUpdates: one live event at a time", () => {
 			(messageId) => (messageId === "m1" ? "cmid-1" : undefined)
 		);
 		expect(updates).toEqual([{ type: "user", text: "hi", messageId: "cmid-1" }]);
+	});
+});
+
+describe("usage and compaction: a side channel that re-converges (M3)", () => {
+	it("maps a live usage event to Cerea's own field names, contextMax present", () => {
+		const updates = eventToUpdates({
+			kind: "usage",
+			usage: {
+				input: 300,
+				output: 80,
+				reasoning: 5,
+				cacheRead: 20,
+				cacheWrite: 0,
+				cost: 0.01,
+				contextUsed: 405,
+				contextMax: 1000,
+			},
+		});
+		expect(updates).toEqual([
+			{
+				type: "usage",
+				usage: { used: 405, max: 1000, input: 300, output: 80, cacheRead: 20, reasoning: 5 },
+			},
+		]);
+	});
+
+	it("omits `max` rather than inventing one when contextMax is null", () => {
+		const updates = eventToUpdates({
+			kind: "usage",
+			usage: {
+				input: 10,
+				output: 5,
+				reasoning: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: 0,
+				contextUsed: 15,
+				contextMax: null,
+			},
+		});
+		expect(updates).toEqual([
+			{ type: "usage", usage: { used: 15, input: 10, output: 5, cacheRead: 0, reasoning: 0 } },
+		]);
+		expect(updates[0]).not.toHaveProperty("usage.max");
+	});
+
+	it("maps a compaction part to a compaction frame carrying `auto`", () => {
+		const part: Part = {
+			id: "p1",
+			messageId: "m1",
+			role: "assistant",
+			type: "compaction",
+			auto: true,
+		};
+		expect(eventToUpdates({ kind: "part", part })).toEqual([{ type: "compaction", auto: true }]);
+	});
+
+	it("snapshotToUpdates emits the transcript's usage once, after the rest of history", () => {
+		const transcript: Transcript = {
+			messages: [
+				{ message: assistantMessage("a1"), parts: [textPart("p1", "a1", "assistant", "done")] },
+			],
+			permissions: [],
+			status: "idle",
+			usage: {
+				input: 1,
+				output: 1,
+				reasoning: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: 0,
+				contextUsed: 2,
+				contextMax: 100,
+			},
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		const usageIndex = updates.findIndex((u) => u.type === "usage");
+		expect(usageIndex).toBe(updates.length - 1);
+		expect(updates[usageIndex]).toEqual({
+			type: "usage",
+			usage: { used: 2, max: 100, input: 1, output: 1, cacheRead: 0, reasoning: 0 },
+		});
+	});
+
+	it("snapshotToUpdates emits no usage frame when the transcript carries none", () => {
+		const transcript: Transcript = {
+			messages: [],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		expect(snapshotToUpdates(transcript).some((u) => u.type === "usage")).toBe(false);
+	});
+
+	it("frameKey never de-duplicates usage or compaction frames — last write wins", () => {
+		expect(frameKey({ type: "usage", usage: { used: 1 } })).toBeNull();
+		expect(frameKey({ type: "compaction", auto: true })).toBeNull();
 	});
 });
