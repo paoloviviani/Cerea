@@ -73,7 +73,7 @@ test.beforeEach(async ({ page }) => {
 				},
 				features: [],
 				cwd: "/repo",
-			})
+			}),
 		})
 	);
 

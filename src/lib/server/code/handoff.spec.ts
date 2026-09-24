@@ -37,7 +37,10 @@ describe("buildHandoffHistory", () => {
 	it("renders user and assistant text under role headings", () => {
 		const transcript: Transcript = {
 			messages: [
-				{ message: userMessage("m1"), parts: [textPart("p1", "m1", "user", "please refactor this") ] },
+				{
+					message: userMessage("m1"),
+					parts: [textPart("p1", "m1", "user", "please refactor this")],
+				},
 				{ message: assistantMessage("m2"), parts: [textPart("p2", "m2", "assistant", "on it")] },
 			],
 			permissions: [],
@@ -55,7 +58,13 @@ describe("buildHandoffHistory", () => {
 			messages: [
 				{
 					message: assistantMessage("m1"),
-					parts: [toolPart("p1", "m1", { tool: "bash", input: { command: "ls -la" }, output: "a.txt\nb.txt" })],
+					parts: [
+						toolPart("p1", "m1", {
+							tool: "bash",
+							input: { command: "ls -la" },
+							output: "a.txt\nb.txt",
+						}),
+					],
 				},
 			],
 			permissions: [],
@@ -73,7 +82,11 @@ describe("buildHandoffHistory", () => {
 				{
 					message: assistantMessage("m1"),
 					parts: [
-						toolPart("p1", "m1", { status: "error", error: "permission denied", output: undefined }),
+						toolPart("p1", "m1", {
+							status: "error",
+							error: "permission denied",
+							output: undefined,
+						}),
 					],
 				},
 			],
@@ -111,7 +124,10 @@ describe("buildHandoffHistory", () => {
 			messages: [
 				{ message: userMessage("m1"), parts: [textPart("p1", "m1", "user", "first")] },
 				{ message: assistantMessage("m2"), parts: [textPart("p2", "m2", "assistant", "second")] },
-				{ message: userMessage("m3"), parts: [textPart("p3", "m3", "user", "third — after the boundary")] },
+				{
+					message: userMessage("m3"),
+					parts: [textPart("p3", "m3", "user", "third — after the boundary")],
+				},
 			],
 			permissions: [],
 			status: "idle",
