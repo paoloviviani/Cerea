@@ -9,6 +9,7 @@ import {
 import type { RequestEvent } from "@sveltejs/kit";
 import { addHours, addWeeks, differenceInMinutes, subMinutes } from "date-fns";
 import { config } from "$lib/server/config";
+import { discoverViaInternal, withForwardedHeaders } from "$lib/server/oidcBackchannel";
 import { sha256 } from "$lib/utils/sha256";
 import { z } from "zod";
 import { dev } from "$app/environment";
@@ -44,6 +45,9 @@ export const OIDConfig = z
 		CLIENT_ID: stringWithDefault(config.OPENID_CLIENT_ID),
 		CLIENT_SECRET: stringWithDefault(config.OPENID_CLIENT_SECRET),
 		PROVIDER_URL: stringWithDefault(config.OPENID_PROVIDER_URL),
+		// Where this server reaches the issuer when that is not PROVIDER_URL
+		// (the bundled Authelia on the compose network). Empty: use PROVIDER_URL.
+		INTERNAL_URL: stringWithDefault(config.OPENID_INTERNAL_URL),
 		SCOPES: stringWithDefault(config.OPENID_SCOPES),
 		NAME_CLAIM: stringWithDefault(config.OPENID_NAME_CLAIM).refine(
 			(el) => !["preferred_username", "email", "picture", "sub"].includes(el),
@@ -281,7 +285,16 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 		lastIssuerFetchedAt = null;
 	}
 	if (!lastIssuer) {
-		lastIssuer = await Issuer.discover(OIDConfig.PROVIDER_URL);
+		if (OIDConfig.INTERNAL_URL) {
+			// Back-channel over the compose network (oidcBackchannel.ts): no
+			// hairpin through the proxy, so no CA bundle to keep in step.
+			const metadata = await discoverViaInternal(OIDConfig.PROVIDER_URL, OIDConfig.INTERNAL_URL);
+			lastIssuer = new Issuer(metadata);
+			// JWKS is fetched by the issuer, so it needs the headers too.
+			lastIssuer[custom.http_options] = withForwardedHeaders(OIDConfig.PROVIDER_URL);
+		} else {
+			lastIssuer = await Issuer.discover(OIDConfig.PROVIDER_URL);
+		}
 		lastIssuerFetchedAt = new Date();
 	}
 
@@ -332,7 +345,13 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 			: alg_supported[0];
 	}
 
-	return new issuer.Client(client_config);
+	const client = new issuer.Client(client_config);
+	if (OIDConfig.INTERNAL_URL) {
+		// Token and userinfo requests are the client's: same headers, so the
+		// IdP mints tokens whose `iss` is the public issuer.
+		client[custom.http_options] = withForwardedHeaders(OIDConfig.PROVIDER_URL);
+	}
+	return client;
 }
 
 export async function getOIDCAuthorizationUrl(
