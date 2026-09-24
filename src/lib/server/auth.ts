@@ -62,9 +62,22 @@ export const secure = z
 	.default(!(dev || config.ALLOW_INSECURE_COOKIES === "true"))
 	.parse(config.COOKIE_SECURE === "" ? undefined : config.COOKIE_SECURE === "true");
 
+// `none` is only needed when the session cookie must ride along on a
+// cross-site request — the one case here is the app being embedded in
+// someone else's iframe (the HuggingFace Space heritage this fork carries:
+// HF Spaces frame the chat cross-origin, and a `lax` cookie is dropped on
+// that third-party navigation). `ALLOW_IFRAME=true` is that deployment's own
+// signal that it still needs the iframe, so only that case keeps the old
+// `none` default; every other deployment defaults to `lax`, which also
+// closes a CSRF gap a cross-site POST could otherwise ride a `none` cookie
+// into (see the Origin/Content-Type checks in hooks/handle.ts).
 export const sameSite = z
 	.enum(["lax", "none", "strict"])
-	.default(!secure || dev || config.ALLOW_INSECURE_COOKIES === "true" ? "lax" : "none")
+	.default(
+		config.ALLOW_IFRAME === "true" && secure && !dev && config.ALLOW_INSECURE_COOKIES !== "true"
+			? "none"
+			: "lax"
+	)
 	.parse(config.COOKIE_SAMESITE === "" ? undefined : config.COOKIE_SAMESITE);
 
 export function sanitizeReturnPath(path: string | undefined | null): string | undefined {
