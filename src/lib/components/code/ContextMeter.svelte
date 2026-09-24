@@ -11,12 +11,30 @@
 	Hidden entirely when the backend lacks the `usage` capability (the
 	caller's job to decide, via `supported`) or before any usage frame has
 	arrived — a meter with nothing to show would just be a blank ring.
+
+	Below the context/compaction content, the popup also carries the
+	person's Pystino quotas (queued item,
+	`reports/2026-09-24-thin-agent-progress.md`): every section of
+	`GET /api/v2/usage`, rendered with the same `UsageBar` the Settings →
+	Usage page uses, plus a link to that page. Cerea does not know which
+	group this machine bills to (`x-bill-to` is chosen at enroll), so every
+	section is shown and none is singled out. Fetched when the popup opens
+	and again after each completed turn while it stays open — never on a
+	timer — and derived through `contextMeterQuotas.ts` so the "no
+	quotas"/"fetch failed"/"sections" split is unit-tested without mounting
+	this component.
 -->
 <script lang="ts">
 	import { DropdownMenu } from "bits-ui";
 	import IconWarning from "~icons/carbon/warning-filled";
+	import { base } from "$app/paths";
 	import { CodeApiError, compactAgent } from "$lib/codeApi";
+	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import type { AgentCompactionUpdate, AgentUsageUpdate } from "$lib/types/CodeAgent";
+	import type { UsageReport, UsageSection } from "$lib/types/UsageReport";
+	import UsageBar from "$lib/components/settings/UsageBar.svelte";
+	import { deriveQuotaDisplay } from "./contextMeterQuotas";
+	import CarbonArrowUpRight from "~icons/carbon/arrow-up-right";
 
 	interface Props {
 		deviceId: string;
@@ -30,12 +48,59 @@
 		/** Whether the backend advertised the `usage` capability in `hello` —
 		 * the meter renders nothing at all when it did not. */
 		supported: boolean;
+		/** Whether a turn is live — the same value the composer's send button
+		 * swap uses. A falling edge while the popup is open re-fetches quotas. */
+		running?: boolean;
 		/** The daemon's state changed (a compaction landed) — the same signal
 		 * the mode/model pills use to ask the parent to re-read the snapshot. */
 		onchanged?: () => void;
 	}
 
-	let { deviceId, agentId, usage, lastCompaction, supported, onchanged }: Props = $props();
+	let {
+		deviceId,
+		agentId,
+		usage,
+		lastCompaction,
+		supported,
+		running = false,
+		onchanged,
+	}: Props = $props();
+
+	const apiClient = useAPIClient();
+
+	let quotaSections = $state<UsageSection[] | null>(null);
+	let quotaError = $state<string | null>(null);
+	let quotaPopupOpen = $state(false);
+	let quotaDisplay = $derived(deriveQuotaDisplay(quotaSections, quotaError));
+
+	async function loadQuotas() {
+		quotaError = null;
+		try {
+			const report = (await apiClient.usage.get().then(handleResponse)) as UsageReport | null;
+			quotaSections = report?.sections ?? [];
+		} catch {
+			quotaError = "Could not load quotas.";
+		}
+	}
+
+	function onPopupOpenChange(open: boolean) {
+		quotaPopupOpen = open;
+		if (open) void loadQuotas();
+	}
+
+	// A completed turn while the popup is open — the falling edge of
+	// `running`, the same signal the send button's stop-control swap uses.
+	// `previousRunning` starts undefined (never a completed turn yet) rather
+	// than snapshotting `running` outside the effect, which Svelte can't tell
+	// apart from a stale read.
+	let previousRunning: boolean | undefined;
+	$effect(() => {
+		const wasRunning = previousRunning;
+		previousRunning = running;
+		if (wasRunning && !running && quotaPopupOpen) {
+			void loadQuotas();
+		}
+	});
 
 	let compacting = $state(false);
 	let compactFailure = $state<string | null>(null);
@@ -106,7 +171,7 @@
 </script>
 
 {#if supported && usage}
-	<DropdownMenu.Root>
+	<DropdownMenu.Root onOpenChange={onPopupOpenChange}>
 		<DropdownMenu.Trigger
 			class="ml-auto flex h-7 flex-none items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
 			title="Context usage"
@@ -183,6 +248,44 @@
 						>
 							{compacting ? "Compacting…" : "Compact now"}
 						</button>
+					{/if}
+
+					{#if quotaDisplay.kind !== "hidden"}
+						<div class="mt-1 border-t border-gray-200 pt-2 dark:border-gray-700">
+							<div class="mb-1 font-medium text-gray-800 dark:text-gray-100">Quotas</div>
+							{#if quotaDisplay.kind === "error"}
+								<div class="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+									<IconWarning class="size-3 shrink-0" />
+									<span>{quotaDisplay.message}</span>
+								</div>
+							{:else}
+								<div class="-mx-3 divide-y divide-gray-200 px-3 dark:divide-gray-700">
+									{#each quotaDisplay.sections as section (section.title)}
+										<div class="py-1.5">
+											<div class="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+												{section.title}
+											</div>
+											{#if section.error}
+												<p class="text-[11px] text-amber-600 dark:text-amber-400">
+													{section.error}
+												</p>
+											{:else}
+												{#each section.entries as entry (entry.label)}
+													<UsageBar {entry} />
+												{/each}
+											{/if}
+										</div>
+									{/each}
+								</div>
+								<a
+									href="{base}/settings/usage"
+									class="flex items-center gap-1 text-[12px] text-blue-600 hover:underline dark:text-blue-400"
+								>
+									Settings → Usage
+									<CarbonArrowUpRight class="text-xs" />
+								</a>
+							{/if}
+						</div>
 					{/if}
 				</div>
 			</DropdownMenu.Content>
