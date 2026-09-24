@@ -51,6 +51,7 @@ test.describe("owned machine agent (P0)", () => {
 
 		// ── Pair: the machine appears pending; the person confirms it ──────────
 		await page.goto("/code");
+		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		const pending = page.getByText(machine.name);
 		await expect(pending).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: "Confirm this machine" }).click();
