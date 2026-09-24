@@ -124,6 +124,12 @@ export interface Message {
 	modelId?: string;
 	completedAt?: string;
 	error?: string;
+	/** Echoed back on the user message the machine creates from a
+	 * `session.prompt` call — always present on a message this deployment
+	 * originated, since `session.prompt` always carries one (minted
+	 * server-side when the browser's request omits it). The key later
+	 * attachments (images/files) key off, once the attachment store lands. */
+	clientMessageId?: string;
 }
 
 export type Part =

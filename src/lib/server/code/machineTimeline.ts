@@ -78,14 +78,17 @@ function toolErrorUpdate(callId: string, message: string): MessageToolErrorUpdat
 
 /** One part → zero or more panel frames. A part upserts in place on the
  * wire (spec §7's text contract); folded here as its current, whole value —
- * a snapshot read and a live `part` event both call this the same way. */
-function partToUpdates(part: Part): AgentStreamUpdate[] {
+ * a snapshot read and a live `part` event both call this the same way.
+ * `clientMessageId` (the owning message's, when it is a user message) rides
+ * onto the `user` frame — the key attachments will use once the attachment
+ * store lands; the fold ignores it for now. */
+function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[] {
 	switch (part.type) {
 		case "text":
 			if (part.synthetic) return [];
 			if (!part.text) return [];
 			return part.role === "user"
-				? [{ type: "user", text: part.text }]
+				? [{ type: "user", text: part.text, ...(clientMessageId ? { messageId: clientMessageId } : {}) }]
 				: [{ type: MessageUpdateType.Stream, token: part.text }];
 		case "tool": {
 			const call = toolCallUpdate(part.callId, part.tool, part.input);
@@ -173,16 +176,23 @@ function statusToTurnState(
 
 /** One live normalized event → zero or more panel frames. `lastAssistantError`
  * is the bridge's own tiny bit of tracked state (spec §8), consulted only for
- * a `status: "idle"` event. */
+ * a `status: "idle"` event. `resolveClientMessageId` is the same idea for a
+ * user part's owning message — a `part` event carries only `messageId`, not
+ * the message's `clientMessageId`, so the caller (which has already seen the
+ * `message` event that named it) supplies the lookup. */
 export function eventToUpdates(
 	event: NormalizedEvent,
-	lastAssistantError?: string
+	lastAssistantError?: string,
+	resolveClientMessageId?: (messageId: string) => string | undefined
 ): AgentStreamUpdate[] {
 	switch (event.kind) {
 		case "message":
 			return []; // metadata only; text arrives as a part event on the same message.
 		case "part":
-			return partToUpdates(event.part);
+			return partToUpdates(
+				event.part,
+				event.part.role === "user" ? resolveClientMessageId?.(event.part.messageId) : undefined
+			);
 		case "delta":
 			return event.field === "text" ? [{ type: MessageUpdateType.Stream, token: event.delta }] : [];
 		case "part.removed":
@@ -212,7 +222,8 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	let lastAssistantError: string | undefined;
 	for (const { message, parts } of transcript.messages) {
-		for (const part of parts) updates.push(...partToUpdates(part));
+		const clientMessageId = message.role === "user" ? message.clientMessageId : undefined;
+		for (const part of parts) updates.push(...partToUpdates(part, clientMessageId));
 		if (message.role === "assistant") lastAssistantError = message.error;
 	}
 	for (const permission of transcript.permissions) {
@@ -236,24 +247,51 @@ export function lastAssistantErrorOf(transcript: Transcript): string | undefined
 	return lastAssistantError;
 }
 
+/** Every user message's `clientMessageId`, by message id — what a caller
+ * holding a live connection open past this snapshot should seed its own
+ * tracked lookup with, so a `part` event arriving later for a message this
+ * snapshot already carried still resolves its `clientMessageId` (a `part`
+ * event names only `messageId`, never the owning message's own fields). */
+export function userMessageIdsOf(transcript: Transcript): Map<string, string> {
+	const ids = new Map<string, string>();
+	for (const { message } of transcript.messages) {
+		if (message.role === "user" && message.clientMessageId) {
+			ids.set(message.id, message.clientMessageId);
+		}
+	}
+	return ids;
+}
+
 /** A replayed run of envelopes (`session.sync`'s `events` branch, when the
  * machine's ring buffer still holds the gap) → panel frames, threading
- * `lastAssistantError` across them the same way a live tail would. Returns
- * the final tracked error too, so the caller can keep tracking it for
- * whatever arrives after. */
+ * `lastAssistantError` and the user-message-id lookup across them the same
+ * way a live tail would. Returns both tracked values too, so the caller can
+ * keep tracking them for whatever arrives after. */
 export function foldEnvelopeEvents(
 	envelopes: Envelope[],
-	initialLastAssistantError?: string
-): { updates: AgentStreamUpdate[]; lastAssistantError: string | undefined } {
+	initialLastAssistantError?: string,
+	initialUserMessageIds?: Map<string, string>
+): {
+	updates: AgentStreamUpdate[];
+	lastAssistantError: string | undefined;
+	userMessageIds: Map<string, string>;
+} {
 	let lastAssistantError = initialLastAssistantError;
+	const userMessageIds = new Map(initialUserMessageIds ?? []);
 	const updates: AgentStreamUpdate[] = [];
 	for (const { event } of envelopes) {
-		if (event.kind === "message" && event.message.role === "assistant") {
-			lastAssistantError = event.message.error;
+		if (event.kind === "message") {
+			if (event.message.role === "assistant") {
+				lastAssistantError = event.message.error;
+			} else if (event.message.clientMessageId) {
+				userMessageIds.set(event.message.id, event.message.clientMessageId);
+			}
 		}
-		updates.push(...eventToUpdates(event, lastAssistantError));
+		updates.push(
+			...eventToUpdates(event, lastAssistantError, (messageId) => userMessageIds.get(messageId))
+		);
 	}
-	return { updates, lastAssistantError };
+	return { updates, lastAssistantError, userMessageIds };
 }
 
 /** A frame's identity for seam de-duplication (the SSE bridge, spec §8):

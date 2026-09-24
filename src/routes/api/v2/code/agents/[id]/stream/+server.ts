@@ -36,6 +36,7 @@ import {
 	foldEnvelopeEvents,
 	lastAssistantErrorOf,
 	snapshotToUpdates,
+	userMessageIdsOf,
 } from "$lib/server/code/machineTimeline";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type { Envelope } from "$lib/types/machineProtocol";
@@ -91,13 +92,16 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	const epochChangedAtOpen = clientEpoch !== undefined && clientEpoch !== sync.epoch;
 	let initial: AgentStreamUpdate[];
 	let lastAssistantError: string | undefined;
+	let userMessageIds: Map<string, string>;
 	if ("snapshot" in sync) {
 		initial = snapshotToUpdates(sync.snapshot);
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
+		userMessageIds = userMessageIdsOf(sync.snapshot);
 	} else {
 		const folded = foldEnvelopeEvents(sync.events);
 		initial = folded.updates;
 		lastAssistantError = folded.lastAssistantError;
+		userMessageIds = folded.userMessageIds;
 	}
 
 	// Drain the buffer: only what arrived strictly after the sync's own
@@ -106,8 +110,9 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// moved on again since the sync answered (rare, handled below like any
 	// other mid-stream epoch change).
 	const drainedNow = buffered.splice(0).filter((e) => e.epoch === sync.epoch && e.seq > sync.seq);
-	const drainedFolded = foldEnvelopeEvents(drainedNow, lastAssistantError);
+	const drainedFolded = foldEnvelopeEvents(drainedNow, lastAssistantError, userMessageIds);
 	lastAssistantError = drainedFolded.lastAssistantError;
+	userMessageIds = drainedFolded.userMessageIds;
 
 	const encoder = new TextEncoder();
 
@@ -182,12 +187,23 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						const id = `${next.epoch}:${next.seq}`;
 						if (next.epoch !== currentEpoch) {
 							currentEpoch = next.epoch;
+							// A fresh epoch's message/session ids are unrelated to the
+							// old one's — carrying either tracked value over could
+							// mislabel the new epoch's own first frames.
+							lastAssistantError = undefined;
+							userMessageIds = new Map();
 							emitReset(id);
 						}
-						if (next.event.kind === "message" && next.event.message.role === "assistant") {
-							lastAssistantError = next.event.message.error;
+						if (next.event.kind === "message") {
+							if (next.event.message.role === "assistant") {
+								lastAssistantError = next.event.message.error;
+							} else if (next.event.message.clientMessageId) {
+								userMessageIds.set(next.event.message.id, next.event.message.clientMessageId);
+							}
 						}
-						const updates = eventToUpdates(next.event, lastAssistantError);
+						const updates = eventToUpdates(next.event, lastAssistantError, (messageId) =>
+							userMessageIds.get(messageId)
+						);
 						for (const update of updates) emit(id, update);
 						continue;
 					}

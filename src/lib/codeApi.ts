@@ -300,7 +300,11 @@ export type PermissionDecision = "approve" | "deny";
 export async function sendFollowUp(
 	deviceId: string,
 	agentId: string,
-	text: string
+	text: string,
+	/** The client's own id for the user message this creates — the key
+	 * attachments (images/files) will key off once the attachment store
+	 * lands. Left unset, the server mints one. */
+	messageId?: string
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
@@ -308,7 +312,7 @@ export async function sendFollowUp(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ text }),
+				body: JSON.stringify({ text, ...(messageId ? { messageId } : {}) }),
 			}
 		)
 	);

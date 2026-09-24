@@ -532,7 +532,8 @@
 	{@const dialogWorkspace = agentDialogFor}
 	{@const dialogDevice =
 		selectedDeviceId ??
-		devices.find((d) => trees[d.id]?.workspaces.some((w) => w.id === dialogWorkspace.id))?.id ??
+		codeDeviceList.devices.find((d) => trees[d.id]?.workspaces.some((w) => w.id === dialogWorkspace.id))
+			?.id ??
 		""}
 	<AgentDialog
 		deviceId={dialogDevice}
