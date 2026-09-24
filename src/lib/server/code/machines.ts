@@ -23,6 +23,7 @@ import {
 	opDeadlineMs,
 	OpError,
 	type Backend,
+	type Directory,
 	type Envelope,
 	type FileDiff,
 	type Mode,
@@ -163,13 +164,24 @@ export class MachineLink {
 	workspaceList(): Promise<{ workspaces: Workspace[] }> {
 		return this.call("workspace.list", {});
 	}
-	workspaceCreate(args: { path: string; title?: string }): Promise<{ workspace: Workspace }> {
+	workspaceSuggest(args: { prefix: string }): Promise<{ directories: Directory[] }> {
+		return this.call("workspace.suggest", args);
+	}
+	workspaceCreate(args: {
+		path?: string;
+		title?: string;
+		worktree?: { from: string; branch: string; base?: string };
+	}): Promise<{ workspace: Workspace }> {
 		return this.call("workspace.create", args);
 	}
 	workspaceRename(args: { workspaceId: string; title: string }): Promise<{ workspace: Workspace }> {
 		return this.call("workspace.rename", args);
 	}
-	workspaceArchive(args: { workspaceId: string }): Promise<Record<string, never>> {
+	workspaceArchive(args: {
+		workspaceId: string;
+		removeWorktree?: boolean;
+		force?: boolean;
+	}): Promise<Record<string, never>> {
 		return this.call("workspace.archive", args);
 	}
 	sessionList(args: { workspaceId?: string } = {}): Promise<{ sessions: Session[] }> {
