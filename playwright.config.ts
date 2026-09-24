@@ -121,7 +121,11 @@ export default defineConfig({
 				process.env.E2E_SKIP_BUILD === "1" && existsSync("build/handler.js")
 					? "node server.js"
 					: "npm run build && node server.js",
-			url: E2E_APP_URL,
+			// `/healthcheck` rather than the bare root: under `E2E_APP_BASE` a
+			// request outside the base 404s, which Playwright's readiness probe
+			// treats as "not up yet" forever. `/healthcheck` is base-relative and
+			// exempt from auth (`hooks/handle.ts`), so it answers 200 either way.
+			url: `${E2E_APP_URL}/healthcheck`,
 			reuseExistingServer: !isCI,
 			timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 600_000),
 			// Request logging at info level buries the test results; errors still reach stderr.
@@ -136,7 +140,16 @@ export default defineConfig({
 				MONGODB_URL: E2E_MONGO_URL,
 				MONGODB_DB_NAME: E2E_DB_NAME,
 				MONGODB_DIRECT_CONNECTION: "true",
-				PUBLIC_ORIGIN: E2E_APP_URL,
+				// The compile-time base path (svelte.config.js): unset unless
+				// `E2E_APP_BASE` is given, which only matters for the build step
+				// (`E2E_SKIP_BUILD=1` runs use a `build/` already compiled with it).
+				APP_BASE: E2E_APP_BASE,
+				// Bare origin, deliberately never `E2E_APP_URL`: live's compose sets
+				// `PUBLIC_ORIGIN` bare too and only `ORIGIN` (adapter-node's own,
+				// unused here — no proxy sits in front of this webServer, so the
+				// Host header the browser sends is already correct) carries the
+				// base path suffix.
+				PUBLIC_ORIGIN: E2E_APP_ORIGIN,
 				PUBLIC_APP_ASSETS: "chatui",
 				COOKIE_NAME: "hf-chat",
 				// A production build defaults `secure` to true and the app re-sets the session
