@@ -80,6 +80,8 @@ export interface Session {
 	modelId: string | null;
 	autoAccept: boolean;
 	parentId: string | null;
+	/** For a child session (session.children): the parent's tool call that spawned it. */
+	parentToolCallId?: string;
 	createdAt: string;
 	updatedAt: string;
 	usage: Usage | null;

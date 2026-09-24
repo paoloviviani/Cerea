@@ -91,10 +91,10 @@ export async function revokeDevice(id: string): Promise<{ revoked: boolean }> {
 	);
 }
 
-// -- live daemon state, through the relay, per paired device -----------------
+// -- live machine state, over its link, per paired device --------------------
 //
 // Every call names its device (`?device=`); the server checks the row
-// belongs to the caller, then reaches that machine through the relay. These
+// belongs to the caller, then reaches that machine over its live link. These
 // 404 when the device is unknown, and 502 when the daemon behind it cannot
 // be reached. Callers treat both as "the daemon is not connected" rather
 // than a failure: the panel reads cleanly on a flag-on/daemon-off

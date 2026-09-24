@@ -1,0 +1,88 @@
+# Publish the Cerea image — from main and release tags only (GitHub free plan:
+# PRs never build it; this is the most expensive build either repository has,
+# about 15 minutes with the pyodide sync, so it runs only when the chat's
+# inputs changed).
+#
+# Private while the repository is: pulling needs `docker login ghcr.io` with
+# a read:packages token; going public is the package's own setting later.
+# Tags: main → edge; vX.Y.Z → X.Y.Z, X.Y (never overwritten). Pystino pins the
+# image by digest (ADR 0087), so no per-commit tag exists. Built with
+# APP_BASE=/chat (compile-time in SvelteKit). No attestations: pruning their
+# untagged manifests would break the image.
+name: images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "tests/**"
+      - "deploy/ci/**"
+      - "scripts/*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cerea:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite a released version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if docker buildx imagetools inspect "ghcr.io/${{ github.repository_owner }}/cerea:${GITHUB_REF_NAME#v}" >/dev/null 2>&1; then
+            echo "::error::cerea:${GITHUB_REF_NAME#v} already exists; a release tag is immutable"; exit 1
+          fi
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/cerea
+          flavor: latest=false
+          tags: |
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=cerea
+            org.opencontainers.image.licenses=Apache-2.0
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: |
+            APP_BASE=/chat
+            PUBLIC_COMMIT_SHA=${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          cache-from: type=gha,scope=cerea
+          cache-to: type=gha,mode=max,scope=cerea
+          provenance: false
+          sbom: false
+      - name: Record the digest (what Pystino's release.env pins)
+        run: echo "CEREA_IMAGE=ghcr.io/${{ github.repository_owner }}/cerea@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+      # A step, not a second job: every job is billed rounded up to a minute.
+      - uses: actions/delete-package-versions@v5
+        with:
+          {
+            package-name: cerea,
+            package-type: container,
+            delete-only-untagged-versions: "true",
+            min-versions-to-keep: 5,
+          }

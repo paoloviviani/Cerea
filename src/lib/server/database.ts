@@ -35,7 +35,6 @@ import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
-import type { TokenCache } from "$lib/types/TokenCache";
 import { onExit } from "./exitHandler";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -158,7 +157,6 @@ export class Database {
 		const parkedCalls = db.collection<ParkedCall>("parkedCalls");
 		const nestedAgentCalls = db.collection<NestedAgentCall>("nestedAgentCalls");
 		const semaphores = db.collection<Semaphore>("semaphores");
-		const tokenCaches = db.collection<TokenCache>("tokens");
 		const configCollection = db.collection<ConfigKey>("config");
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
 		const sharedConversations = db.collection<SharedConversation>("sharedConversations");
@@ -199,6 +197,9 @@ export class Database {
 		// the pairing completed.
 		const codeDevices = db.collection<CodeDevice>("codeDevices");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
+		// The bucket's own file documents, for indexing only — reads and
+		// deletes go through `bucket`, which also handles the chunks.
+		const bucketFiles = db.collection("files.files");
 		// Computed `execute_code` deliverables (ADR 0073's amendment): a separate
 		// bucket from message attachments so a conversation's deliverables can be
 		// listed and wiped as a unit (deletion, TTL sweep) without a collection
@@ -249,11 +250,11 @@ export class Database {
 			sessions,
 			messageEvents,
 			bucket,
+			bucketFiles,
 			codeExecutionOutputs,
 			codeOutputBucket,
 			migrationResults,
 			semaphores,
-			tokenCaches,
 			tools,
 			config: configCollection,
 		};
@@ -289,9 +290,9 @@ export class Database {
 			sessions,
 			messageEvents,
 			semaphores,
-			tokenCaches,
 			config,
 			codeExecutionOutputs,
+			bucketFiles,
 		} = this.getCollections();
 
 		conversations
@@ -627,12 +628,6 @@ export class Database {
 		semaphores
 			.createIndex({ deleteAt: 1 }, { expireAfterSeconds: 1 })
 			.catch((e) => logger.error(e, "Error creating index for semaphores by deleteAt"));
-		tokenCaches
-			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 5 * 60 })
-			.catch((e) => logger.error(e, "Error creating index for tokenCaches by createdAt"));
-		tokenCaches
-			.createIndex({ tokenHash: 1 })
-			.catch((e) => logger.error(e, "Error creating index for tokenCaches by tokenHash"));
 		conversations
 			.createIndex({
 				"messages.from": 1,
@@ -694,6 +689,15 @@ export class Database {
 		codeDevices
 			.createIndex({ userId: 1, machineId: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating unique index for codeDevices by machineId"));
+
+		// Attachments by owner tag (and, for owner-keyed surfaces, the message
+		// they were sent with): `attachmentStore.findAttachments` runs once per
+		// user message on every transcript load, and both it and the deletions
+		// by owner — chat's `deleteConversationAttachments`, a device revoke's
+		// anchored-prefix delete — would otherwise scan the whole bucket.
+		bucketFiles
+			.createIndex({ "metadata.conversation": 1, "metadata.messageId": 1 })
+			.catch((e) => logger.error(e, "Error creating index for attachment owner tags"));
 	}
 }
 
