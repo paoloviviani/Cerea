@@ -167,23 +167,46 @@ function toSession(session: Session): CodeAgentSession {
 	};
 }
 
+/** The exact fix for a machine enrolled without the flag — carried on the
+ * disabled toggle rather than left for someone to discover only after
+ * wondering where auto-accept went. */
+const AUTO_ACCEPT_VETO_NOTE =
+	"This machine's policy vetoes auto-accept: re-run `pystino-agent enroll … --allow-auto-accept`, then restart `run`.";
+
 /** The single feature this deployment offers: opencode's auto-accept,
- * backed directly by `session.setAutoAccept` (spec §8). Absent — not
- * disabled, the existing UI has no tri-state for a toggle — when the
- * backend lacks the capability, or the machine's own policy vetoes it
- * (C4's veto: the panel cannot override a `denied` policy). */
+ * backed directly by `session.setAutoAccept` (spec §8). Absent — the
+ * existing UI has no tri-state for a toggle it never heard of — only when
+ * the backend itself lacks the capability. A policy veto (C4: the panel
+ * cannot override a `denied` policy) still ships the toggle, disabled, with
+ * `blockedReason` naming the fix: hiding it entirely reads as "there is no
+ * such feature," not "your machine turned it off," which is what sent
+ * someone looking for a setting that was never there to find. */
 function autoAcceptCatalog(device: CodeDevice, backendId: string): CodeProviderFeature[] {
 	const backend = device.backends.find((b) => b.id === backendId);
 	if (!backend?.capabilities.autoAccept) return [];
-	if (device.policy.autoAccept === "denied") return [];
-	return [{ id: "auto_accept", label: "Auto-accept", value: false }];
+	const vetoed = device.policy.autoAccept === "denied";
+	return [
+		{
+			id: "auto_accept",
+			label: "Auto-accept",
+			value: false,
+			...(vetoed ? { blockedReason: AUTO_ACCEPT_VETO_NOTE } : {}),
+		},
+	];
 }
 
 function autoAcceptLive(device: CodeDevice, session: Session): CodeProviderFeature[] {
 	const backend = device.backends.find((b) => b.id === session.backend);
 	if (!backend?.capabilities.autoAccept) return [];
-	if (device.policy.autoAccept === "denied") return [];
-	return [{ id: "auto_accept", label: "Auto-accept", value: session.autoAccept }];
+	const vetoed = device.policy.autoAccept === "denied";
+	return [
+		{
+			id: "auto_accept",
+			label: "Auto-accept",
+			value: session.autoAccept,
+			...(vetoed ? { blockedReason: AUTO_ACCEPT_VETO_NOTE } : {}),
+		},
+	];
 }
 
 function toSubagent(session: Session): CodeSubagent {
@@ -694,13 +717,18 @@ export const POST: RequestHandler = async (event) => {
 
 	const permissionMatch = new RegExp(`^v1/agents/(${ID})/permissions/(${ID})$`).exec(path);
 	if (permissionMatch) {
-		const parsed = z.object({ decision: z.enum(["approve", "deny"]) }).safeParse(body);
-		if (!parsed.success) error(400, "Expected { decision: 'approve' | 'deny' }.");
+		// The card's own three buttons, unmediated: "once" and "always" both
+		// answer through the same call the daemon's tool is waiting on, and
+		// only differ in whether the grant outlives this one call
+		// (`permission.reply`, spec §8). There is no fourth option to invent
+		// here — the daemon owns the scoping, not this route.
+		const parsed = z.object({ decision: z.enum(["once", "always", "reject"]) }).safeParse(body);
+		if (!parsed.success) error(400, "Expected { decision: 'once' | 'always' | 'reject' }.");
 		await callOp(() =>
 			link.permissionReply({
 				sessionId: decodeURIComponent(permissionMatch[1]),
 				requestId: decodeURIComponent(permissionMatch[2]),
-				decision: parsed.data.decision === "approve" ? "once" : "reject",
+				decision: parsed.data.decision,
 			})
 		);
 		return superjsonResponse({ ok: true });

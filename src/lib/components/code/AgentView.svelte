@@ -459,17 +459,21 @@
 	}
 
 	/** The agent's approval card answers through the forwarder, not the chat's
-	 * elicitation endpoint — the daemon owns the request's lifetime. */
+	 * elicitation endpoint — the daemon owns the request's lifetime. `scope`
+	 * is only ever `"always"` (the card's "Always allow" button); "once" is
+	 * the default accept, and any non-accept action is a reject regardless
+	 * of scope. */
 	async function answerPermission(
 		request: ElicitationRequestPayload,
-		action: ElicitationAction
+		action: ElicitationAction,
+		scope?: "always"
 	): Promise<{ ok: boolean; error?: string }> {
 		try {
 			await respondPermission(
 				deviceId,
 				agentId,
 				request.elicitationId,
-				action === "accept" ? "approve" : "deny"
+				action === "accept" ? (scope === "always" ? "always" : "once") : "reject"
 			);
 			return { ok: true };
 		} catch (err) {
