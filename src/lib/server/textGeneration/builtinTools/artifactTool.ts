@@ -331,16 +331,23 @@ export function createArtifactTool(params: { turnBlocks?: string[] } = {}): Buil
 						{ projection: { messages: 1 } }
 					);
 					const stored = (conv?.messages ?? []) as Array<Pick<Message, "id" | "from" | "content">>;
-					history = stored.filter((m) => m?.from === "assistant");
+					// The message this turn writes into may already be stored with
+					// this turn's earlier blocks in it; those come from `turnBlocks`
+					// below instead, so they are counted once, and in order.
+					history = stored.filter((m) => m?.from === "assistant" && m.id !== ctx.messageId);
 				}
 			} catch (err) {
 				logger.warn({ err: String(err) }, "[artifact] failed to load conversation history");
 				return { error: "The conversation history could not be read. Retry the call." };
 			}
-			if (ctx.messageId && turnBlocks.length > 0) {
+			if (turnBlocks.length > 0) {
 				history = [
 					...history,
-					{ id: ctx.messageId, from: "assistant" as const, content: turnBlocks.join("\n\n") },
+					{
+						id: ctx.messageId ?? "current-turn",
+						from: "assistant" as const,
+						content: turnBlocks.join("\n\n"),
+					},
 				];
 			}
 			const resolved = resolveArtifactOp(history, parsed.data);

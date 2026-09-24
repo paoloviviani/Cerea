@@ -977,6 +977,15 @@ export async function* runMcpFlow({
 						for (const [indexStr, state] of Object.entries(toolCallState)) {
 							if (state.name !== ARTIFACT_TOOL_NAME || !state.id) continue;
 							const index = Number(indexStr);
+							// Throttle the parse, not only the emit: the arguments are
+							// re-decoded from the start each time, so parsing on every
+							// chunk would be quadratic over a long artifact.
+							if (
+								lastDraftSig[index] !== undefined &&
+								nowMs - (draftEmitAt[index] ?? 0) < ARTIFACT_DRAFT_THROTTLE_MS
+							) {
+								continue;
+							}
 							const draft = extractArtifactDraft(state.arguments);
 							if (!draft) {
 								if (!emptyDraftSent[index]) {

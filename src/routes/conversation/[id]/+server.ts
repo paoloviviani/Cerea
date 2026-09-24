@@ -604,7 +604,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				// actually generated, not the padded wire form. Without this the
 				// reattach endpoint has no events to replay and materializedSeq never
 				// advances past zero.
-				writer.push(event);
+				// Drafts are a live preview only: each carries the whole content so
+				// far, so logging them would store an artifact once per emission.
+				if (event.type !== MessageUpdateType.ArtifactDraft) writer.push(event);
 
 				// Avoid remote keylogging attack executed by watching packet lengths
 				// by padding the text with null chars to a fixed length
