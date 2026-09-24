@@ -350,7 +350,11 @@ export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
 	credential: z.object({ state: z.enum(["ok", "expiring", "expired"]) }),
 });
 
-export const resFrameSchema: z.ZodType<ResFrame> = z.union([
+// Not annotated `z.ZodType<ResFrame>`: zod infers an object's `unknown`-typed
+// field as optional (it accepts `undefined`), which the strict `ResFrame`
+// union (`result: unknown`, always present) then rejects on assignment.
+// `parseMachineFrame` below casts through the runtime check instead.
+export const resFrameSchema = z.union([
 	z.object({ type: z.literal("res"), id: z.string(), ok: z.literal(true), result: z.unknown() }),
 	z.object({
 		type: z.literal("res"),
