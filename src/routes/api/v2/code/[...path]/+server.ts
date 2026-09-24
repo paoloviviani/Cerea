@@ -30,6 +30,7 @@ import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
+import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { OpError, type Session, type Workspace } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
@@ -261,13 +262,15 @@ export const GET: RequestHandler = async (event) => {
 
 	const modelsMatch = new RegExp(`^v1/providers/(${ID})/models$`).exec(path);
 	if (modelsMatch) {
-		const { models } = await callOp(() => link.backendModels({ backend: modelsMatch[1] }));
+		const listed = await callOp(() => link.backendModels({ backend: modelsMatch[1] }));
+		const { models, hidden } = filterModels(device, listed.models);
 		const mapped: CodeProviderModel[] = models.map((model) => ({
 			id: model.id,
 			label: model.label,
 			...(model.isDefault ? { isDefault: true } : {}),
 		}));
-		return superjsonResponse({ models: mapped });
+		// `hidden` lets the pill say why the list is short rather than look broken.
+		return superjsonResponse({ models: mapped, hidden });
 	}
 
 	// The third live option list, beside modes and models: this deployment's
@@ -360,6 +363,8 @@ const featureSchema = z.object({
 const createSchema = z.object({
 	provider: z.string().trim().min(1).max(64).default("opencode"),
 	posture: z.enum(["plan", "write"]).default("plan"),
+	modeId: z.string().trim().min(1).max(120).optional(),
+	modelId: z.string().trim().min(1).max(200).optional(),
 	title: z.string().trim().max(120).optional(),
 	workspaceId: z.string().trim().min(1).max(120),
 });
@@ -401,12 +406,20 @@ export const POST: RequestHandler = async (event) => {
 
 	if (path === "v1/agents") {
 		const parsed = createSchema.safeParse(body);
-		if (!parsed.success) error(400, "Expected { workspaceId, provider?, posture?, title? }.");
+		if (!parsed.success) {
+			error(400, "Expected { workspaceId, provider?, posture?, modeId?, modelId?, title? }.");
+		}
+		if (parsed.data.modelId && !allowsModel(device, parsed.data.modelId)) {
+			error(403, "This machine was enrolled without --allow-free-models.");
+		}
 		const { session } = await callOp(() =>
 			link.sessionCreate({
 				workspaceId: parsed.data.workspaceId,
 				backend: parsed.data.provider,
-				modeId: parsed.data.posture === "write" ? "build" : "plan",
+				// A live mode id from the machine's list wins; the posture pair is the
+				// fallback for callers that only know plan/write (opencode's ids).
+				modeId: parsed.data.modeId ?? (parsed.data.posture === "write" ? "build" : "plan"),
+				...(parsed.data.modelId ? { modelId: parsed.data.modelId } : {}),
 				...(parsed.data.title ? { title: parsed.data.title } : {}),
 			})
 		);
@@ -445,6 +458,9 @@ export const POST: RequestHandler = async (event) => {
 		const parsed = modelSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { modelId: string | null }.");
 		if (parsed.data.modelId) {
+			if (!allowsModel(device, parsed.data.modelId)) {
+				error(403, "This machine was enrolled without --allow-free-models.");
+			}
 			await callOp(() =>
 				link.sessionSetModel({
 					sessionId: decodeURIComponent(modelMatch[1]),

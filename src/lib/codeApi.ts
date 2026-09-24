@@ -169,7 +169,7 @@ export async function listProviderModes(
 export async function listProviderModels(
 	deviceId: string,
 	provider: string
-): Promise<{ models: CodeProviderModel[] }> {
+): Promise<{ models: CodeProviderModel[]; hidden?: number }> {
 	return unwrap(
 		await fetch(
 			`${root()}/v1/providers/${encodeURIComponent(provider)}/models?device=${encodeURIComponent(deviceId)}`

@@ -98,8 +98,7 @@ async function forwarder(
 		method: opts.method,
 		path: urlPath,
 		body: opts.body,
-		headers:
-			opts.json === false ? { origin: TEST_ORIGIN } : { "content-type": "application/json" },
+		headers: opts.json === false ? { origin: TEST_ORIGIN } : { "content-type": "application/json" },
 		locals: opts.locals,
 		signal: opts.signal,
 		params: { path: restPath },
@@ -239,6 +238,48 @@ describe("the forwarder over a live machine link", () => {
 		});
 		expect(res.status).toBe(502);
 		expect(Date.now() - start).toBeLessThan(2000);
+	});
+
+	it("hides non-gateway models and refuses them unless the machine allows free models", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+		machine.onOp("backend.models", () => ({
+			models: [
+				{ id: "pystino/coder", label: "Coder", providerId: "pystino", isDefault: true },
+				{ id: "opencode/free-model", label: "Free", providerId: "opencode" },
+			],
+		}));
+		const setModelCalls: unknown[] = [];
+		machine.onOp("session.setModel", (args: unknown) => {
+			setModelCalls.push(args);
+			return { session: {} };
+		});
+
+		const list = await forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/providers/opencode/models?device=${deviceId}`,
+			{ locals: user.locals }
+		);
+		expect(list.status).toBe(200);
+		const listed = await parse<{ models: Array<{ id: string }>; hidden: number }>(list);
+		expect(listed.models.map((m) => m.id)).toEqual(["pystino/coder"]);
+		expect(listed.hidden).toBe(1);
+
+		const refused = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/model?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ modelId: "opencode/free-model" }),
+				locals: user.locals,
+			}
+		);
+		expect(refused.status).toBe(403);
+		expect(setModelCalls).toHaveLength(0);
+
+		machine.close();
 	});
 
 	it("refuses a device that belongs to a different user", async () => {
