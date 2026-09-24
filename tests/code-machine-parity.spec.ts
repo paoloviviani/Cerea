@@ -279,5 +279,11 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByText("Thanks for answering.")).toBeVisible({ timeout: 60_000 });
 		// The tool call itself settles rather than hanging pending forever.
 		await expect(page.getByText("wants to call")).toHaveCount(0);
+		// It collapses to what was asked and chosen, not the "server" (it read
+		// "Answered pystino" for every question).
+		await expect(page.getByText("Approach → A").first()).toBeVisible();
+		await expect(page.getByText(/Answered\s*pystino/i)).toHaveCount(0);
+		await page.reload();
+		await expect(page.getByText("Approach → A").first()).toBeVisible({ timeout: 30_000 });
 	});
 });

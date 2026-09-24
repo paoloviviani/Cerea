@@ -3,7 +3,7 @@
  * model's call pauses the turn on the question card, the card survives a reload, and the
  * answer resumes the turn with the choice in the tool result the model sees.
  */
-import { test, expect } from "./fixtures.ts";
+import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 
 const QUESTION = {
 	questions: [
@@ -30,7 +30,7 @@ test("a question card pauses the turn, survives a reload, and the answer resumes
 		finishReason: "stop",
 	});
 
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 	await page.getByPlaceholder("Ask anything").fill("summarise this for me");
 	await page.getByRole("button", { name: "Send message" }).click();
 	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
@@ -50,6 +50,11 @@ test("a question card pauses the turn, survives a reload, and the answer resumes
 		"Here are the bullets.",
 		{ timeout: 30_000 }
 	);
+	// The answered question collapses to what was asked and chosen, and reads the
+	// same after a reload, rehydrated from the stored answer.
+	await expect(page.getByText("Format → Bullet points").first()).toBeVisible();
+	await page.reload();
+	await expect(page.getByText("Format → Bullet points").first()).toBeVisible({ timeout: 30_000 });
 	// The model saw the choice: the follow-up request carries it in the tool result.
 	const requests = await mockOpenAI.requests();
 	expect(
