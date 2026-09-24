@@ -32,6 +32,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import type {
 	AgentCompactionUpdate,
+	AgentMessageBoundaryUpdate,
 	AgentStreamUpdate,
 	AgentUsageUpdate,
 } from "$lib/types/CodeAgent";
@@ -239,8 +240,17 @@ export function eventToUpdates(
 	resolveClientMessageId?: (messageId: string) => string | undefined
 ): AgentStreamUpdate[] {
 	switch (event.kind) {
-		case "message":
-			return []; // metadata only; text arrives as a part event on the same message.
+		case "message": {
+			// A pure boundary marker (see `AgentMessageBoundaryUpdate`): the
+			// message's own text/tool content still arrives as `part` events on
+			// the same message, this only names it.
+			const boundary: AgentMessageBoundaryUpdate = {
+				type: "messageBoundary",
+				role: event.message.role,
+				messageId: event.message.id,
+			};
+			return [boundary];
+		}
 		case "part":
 			return partToUpdates(
 				event.part,
@@ -278,6 +288,7 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	// empty one (Go's nil slices) must degrade to "nothing", not a 500.
 	for (const { message, parts } of transcript.messages ?? []) {
 		const clientMessageId = message.role === "user" ? message.clientMessageId : undefined;
+		updates.push({ type: "messageBoundary", role: message.role, messageId: message.id });
 		for (const part of parts ?? []) updates.push(...partToUpdates(part, clientMessageId));
 		if (message.role === "assistant") lastAssistantError = message.error;
 	}

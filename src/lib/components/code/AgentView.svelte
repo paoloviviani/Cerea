@@ -23,20 +23,22 @@
 -->
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
+	import { goto } from "$app/navigation";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import {
 		MessageToolUpdateType,
 		MessageUpdateType,
 		type MessageTurnStateUpdate,
 	} from "$lib/types/MessageUpdate";
-	import type {
-		AgentCompactionUpdate,
-		AgentUsageUpdate,
-		CodeAgentSession,
-		CodeSubagent,
-		CodeSubagentAnchor,
-		CodeTurnState,
-		CodeWorkspace,
+	import {
+		HANDOFF_TITLE_PREFIX,
+		type AgentCompactionUpdate,
+		type AgentUsageUpdate,
+		type CodeAgentSession,
+		type CodeSubagent,
+		type CodeSubagentAnchor,
+		type CodeTurnState,
+		type CodeWorkspace,
 	} from "$lib/types/CodeAgent";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import type { Message } from "$lib/types/Message";
@@ -64,11 +66,13 @@
 	import AgentDiff from "./AgentDiff.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
+	import HandoffDialog from "./HandoffDialog.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconDiff from "~icons/lucide/diff";
+	import IconFork from "~icons/carbon/fork";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -441,6 +445,23 @@
 	}
 
 	let column: ChatMessageColumn | undefined = $state();
+
+	// ── Fork handoff (parity plan §4.2(a)) ───────────────────────────────
+	//
+	// No lineage label exists on this wire (unlike paseo's), so the link back
+	// is read straight off the child's own title — set once at creation by
+	// the forwarder's handoff route, never touched again — rather than a
+	// fetched reference. A title collision (someone renames a session to
+	// start the same way) is the one false positive this accepts; the spec
+	// calls that an acceptable "keep it simple" tradeoff.
+	let handedOffFromTitle = $derived(
+		agent?.title?.startsWith(HANDOFF_TITLE_PREFIX)
+			? agent.title.slice(HANDOFF_TITLE_PREFIX.length)
+			: null
+	);
+
+	/** The message "Hand off…" was clicked on — open state for the dialog. */
+	let handoffFor = $state<Message | null>(null);
 </script>
 
 <!-- The subagent card is the panel's own renderer for the slots ChatMessage
@@ -451,6 +472,20 @@
 	<SubagentCard {anchor} />
 {/snippet}
 
+<!-- The "Hand off…" action ChatMessage opens per completed assistant
+     message (an optional prop/snippet, so chat itself stays unchanged) —
+     opens this view's own HandoffDialog below. -->
+{#snippet messageActions(message: Message)}
+	<button
+		class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
+		title="Hand off…"
+		type="button"
+		onclick={() => (handoffFor = message)}
+	>
+		<IconFork />
+	</button>
+{/snippet}
+
 <!-- pointer-events-none on every wrapper above the column, the ChatWindow
      contract: the column paints at z-[-1] (its own contract, see
      ChatMessageColumn), so any pointer-enabled ancestor between it and the
@@ -458,30 +493,40 @@
      locked while the rest stayed responsive. The column, the strip, the
      failure banner and the side pane re-enable pointer events themselves. -->
 <div class="pointer-events-none flex h-full min-h-0 flex-1 flex-col">
-	<div class="pointer-events-auto flex items-center gap-2 px-4 pt-3 pb-2">
-		<IconCode class="size-4 shrink-0 text-ink-muted" />
-		{#if workspaceName}
-			<span class="min-w-0 truncate text-sm font-medium text-ink" title={workspace?.path}>
-				{workspaceName}
+	<div class="pointer-events-auto flex flex-col gap-0.5 px-4 pt-3 pb-2">
+		<div class="flex items-center gap-2">
+			<IconCode class="size-4 shrink-0 text-ink-muted" />
+			{#if workspaceName}
+				<span class="min-w-0 truncate text-sm font-medium text-ink" title={workspace?.path}>
+					{workspaceName}
+				</span>
+			{/if}
+			<span class="min-w-0 flex-1"></span>
+			{#if agent}
+				<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.provider}</span>
+				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}">{shownState}</span>
+			{/if}
+			<button
+				type="button"
+				class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {sidePane.open &&
+				sidePane.view === 'diff'
+					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				onclick={() => sidePane.toggleDiff()}
+				title="Files this agent changed, as diffs"
+			>
+				<IconDiff class="size-3.5" />
+				Changes
+			</button>
+		</div>
+		{#if handedOffFromTitle}
+			<!-- A title-based link, not a fetched one (spec's "keep it simple") —
+			     see the `handedOffFromTitle` derivation above. -->
+			<span class="flex items-center gap-1 truncate pl-6 text-xs text-ink-muted">
+				<IconFork class="size-3 shrink-0" />
+				Handed off from {handedOffFromTitle}
 			</span>
 		{/if}
-		<span class="min-w-0 flex-1"></span>
-		{#if agent}
-			<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.provider}</span>
-			<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}">{shownState}</span>
-		{/if}
-		<button
-			type="button"
-			class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {sidePane.open &&
-			sidePane.view === 'diff'
-				? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-				: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-			onclick={() => sidePane.toggleDiff()}
-			title="Files this agent changed, as diffs"
-		>
-			<IconDiff class="size-3.5" />
-			Changes
-		</button>
 	</div>
 
 	{#if failure}
@@ -505,6 +550,7 @@
 			onanswerElicitation={answerPermission}
 			{subagentFor}
 			{subagentCard}
+			{messageActions}
 			bind:this={column}
 		>
 			{#snippet introduction()}
@@ -555,5 +601,24 @@
 	<PairDeviceDialog
 		onclose={() => (showReenroll = false)}
 		onpaired={() => (showReenroll = false)}
+	/>
+{/if}
+
+{#if handoffFor && agent}
+	<HandoffDialog
+		{deviceId}
+		{agentId}
+		agentTitle={agent.title}
+		workspace={workspace ?? { id: agent.workspaceId, name: workspaceName || agent.workspaceId, path: agentCwd ?? "" }}
+		provider={agent.provider}
+		modeId={agent.modeId}
+		modelId={agent.modelId}
+		uptoMessageId={handoffFor.machineMessageId}
+		onclose={() => (handoffFor = null)}
+		onhandoff={(result) => {
+			void goto(`${base}/code?device=${result.deviceId}&ws=${result.agent.workspaceId}&agent=${result.agent.id}`, {
+				keepFocus: true,
+			});
+		}}
 	/>
 {/if}
