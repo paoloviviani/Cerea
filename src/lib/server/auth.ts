@@ -10,6 +10,7 @@ import type { RequestEvent } from "@sveltejs/kit";
 import { addHours, addWeeks, differenceInMinutes, subMinutes } from "date-fns";
 import { config } from "$lib/server/config";
 import { discoverViaInternal, withForwardedHeaders } from "$lib/server/oidcBackchannel";
+import { forgetGatewaySession, gatewaySessionCheck } from "$lib/server/gatewaySession";
 import { sha256 } from "$lib/utils/sha256";
 import { z } from "zod";
 import { dev } from "$app/environment";
@@ -562,6 +563,22 @@ export async function authenticateRequest(
 
 		const result = await findUser(sessionId, await getCoupledCookieHash(cookie), url);
 
+		// The gateway decides admin and whether the account is still active
+		// (gatewaySession.ts): a 401 on the session's own token ends it here,
+		// which is how a directory deprovisioning reaches the chat within a
+		// minute. Null — no gateway, a shared key, or the gateway unreachable —
+		// changes nothing.
+		const gateway =
+			result.user && result.oauth?.token?.value
+				? await gatewaySessionCheck(sessionId, result.oauth.token.value)
+				: null;
+		if (gateway && !gateway.valid) {
+			forgetGatewaySession(sessionId);
+			await collections.sessions.deleteOne({ sessionId });
+			result.user = null;
+			result.invalidateSession = true;
+		}
+
 		if (result.invalidateSession) {
 			secretSessionId = crypto.randomUUID();
 			sessionId = await sha256(secretSessionId);
@@ -576,7 +593,7 @@ export async function authenticateRequest(
 			token: result.oauth?.token?.value,
 			sessionId,
 			secretSessionId,
-			isAdmin: result.user?.isAdmin || adminTokenManager.isAdmin(sessionId),
+			isAdmin: (gateway?.valid === true && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
 		};
 	}
 
