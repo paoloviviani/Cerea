@@ -42,7 +42,6 @@
 	let transcript = $state<Message[] | null>(null);
 	let fetchedFor: { id: string; updatedAt: string } | null = null;
 
-	let subagent = $derived(anchor.subagent);
 	let title = $derived(anchor.subagent?.title || anchor.fallbackTitle || "Subagent");
 	let status = $derived<CodeSubagentStatus>(anchor.subagent?.status ?? "running");
 	let subtitle = $derived(anchor.subagent?.subtitle ?? "");
