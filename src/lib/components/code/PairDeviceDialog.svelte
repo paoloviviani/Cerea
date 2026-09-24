@@ -126,10 +126,9 @@
 			{/each}
 		</div>
 		<p class="mt-2 text-xs text-ink-muted">
-			Don't have <code class="font-mono">galopin</code> yet? Ask whoever runs this deployment for
-			a download, or build it yourself from the Cerea repository's <code class="font-mono"
-				>agent/</code
-			> (see its README).
+			Don't have <code class="font-mono">galopin</code> yet? Ask whoever runs this deployment for a
+			download, or build it yourself from the Cerea repository's
+			<code class="font-mono">agent/</code> (see its README).
 		</p>
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
