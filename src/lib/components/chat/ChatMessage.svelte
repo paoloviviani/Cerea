@@ -105,6 +105,14 @@
 		 * conversation's. Unset, chat's page-relative `…/output` is used.
 		 */
 		fileBaseUrl?: string;
+		/**
+		 * Extra per-message actions in the assistant footer, next to Copy and
+		 * Retry — the coding-agent panel's "Hand off…" (see `AgentView`). Shown
+		 * only once the message's own turn is done, the same "completed"
+		 * reading `turnStateOf` already gives the rest of this footer. Absent,
+		 * the footer is exactly what it always was; chat itself stays unchanged.
+		 */
+		messageActions?: Snippet<[Message]>;
 	}
 
 	let {
@@ -122,6 +130,7 @@
 		subagentFor,
 		subagentCard,
 		fileBaseUrl,
+		messageActions,
 	}: Props = $props();
 
 	let contentEl: HTMLElement | undefined = $state();
@@ -935,6 +944,9 @@
 						>
 							<CarbonRotate360 />
 						</button>
+					{/if}
+					{#if messageActions && turnStateOf(message)?.state === "done"}
+						{@render messageActions(message)}
 					{/if}
 					{#if alternatives.length > 1 && editMsdgId === null}
 						<Alternatives

@@ -318,6 +318,181 @@ describe("the forwarder over a live machine link", () => {
 	});
 });
 
+describe("the handoff route (parity plan §4.2(a))", () => {
+	it("hands off to a new session on the same device, carrying the chat history as an attachment", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent: source } = await createSession(machine, deviceId, workspace.id);
+
+		machine.model.transcripts.set(source.id, {
+			messages: [
+				{
+					message: { id: "m1", role: "user", createdAt: new Date().toISOString() },
+					parts: [
+						{
+							id: "p1",
+							messageId: "m1",
+							role: "user",
+							type: "text",
+							text: "please refactor this",
+						},
+					],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		});
+
+		const promptArgs: Array<{
+			text: string;
+			attachments?: Array<{ mime: string; filename: string; url: string }>;
+		}> = [];
+		machine.onOp("session.prompt", (args: (typeof promptArgs)[number]) => {
+			promptArgs.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${source.id}/handoff?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ prompt: "keep going", carry: true }),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(200);
+		const { agent, deviceId: answeredDeviceId } = await parse<{
+			agent: { id: string; title: string; workspaceId: string };
+			deviceId: string;
+		}>(res);
+		expect(answeredDeviceId).toBe(deviceId);
+		expect(agent.title).toBe("Handoff: New session");
+		expect(agent.workspaceId).toBe(workspace.id);
+		expect(agent.id).not.toBe(source.id);
+
+		expect(promptArgs).toHaveLength(1);
+		expect(promptArgs[0].text).toBe("keep going");
+		expect(promptArgs[0].attachments).toHaveLength(1);
+		const attachment = promptArgs[0].attachments?.[0];
+		expect(attachment?.mime).toBe("text/markdown");
+		expect(attachment?.filename).toBe("chat-history.md");
+		const [, base64] = attachment?.url.split(",") ?? [];
+		expect(Buffer.from(base64 ?? "", "base64").toString("utf8")).toContain("please refactor this");
+
+		machine.close();
+	});
+
+	it("hands off across the caller's own paired devices", async () => {
+		const source = await connectAndPair();
+		// Two devices for the same user, so each needs its own machine id —
+		// `connectAndPair` reuses whatever `principal.machineId` `beforeEach`
+		// minted, which a second call without this would collide on and
+		// resolve to the first device's already-`paired` row instead of a
+		// fresh `pending` one.
+		principal = { ...principal, machineId: randomUUID() };
+		const target = await connectAndPair();
+		const sourceDeviceId = source.deviceId as string;
+		const targetDeviceId = target.deviceId as string;
+		const { workspace: sourceWs } = await createWorkspace(source, sourceDeviceId);
+		const { agent: sourceAgent } = await createSession(source, sourceDeviceId, sourceWs.id);
+		const { workspace: targetWs } = await createWorkspace(target, targetDeviceId);
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${sourceAgent.id}/handoff?device=${sourceDeviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					prompt: "continue on this box",
+					carry: false,
+					targetDevice: targetDeviceId,
+					workspaceId: targetWs.id,
+				}),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(200);
+		const { agent, deviceId: answeredDeviceId } = await parse<{
+			agent: { id: string; workspaceId: string };
+			deviceId: string;
+		}>(res);
+		expect(answeredDeviceId).toBe(targetDeviceId);
+		expect(agent.workspaceId).toBe(targetWs.id);
+		expect(target.model.sessions.map((s) => s.id)).toContain(agent.id);
+		expect(source.model.sessions.map((s) => s.id)).not.toContain(agent.id);
+
+		source.close();
+		target.close();
+	});
+
+	it("refuses a target device owned by a different user", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const otherUser = await createTestUser();
+		principal = { ...principal, userId: otherUser.user._id };
+		const foreign = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(foreign);
+		const { deviceId: foreignDeviceId } = await foreign.hello();
+		await testRequest(devicesPATCH, {
+			method: "PATCH",
+			path: `/api/v2/code/devices?id=${foreignDeviceId}`,
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ action: "confirm" }),
+			locals: otherUser.locals,
+		});
+		await foreign.waitForPaired();
+		principal = { ...principal, userId: user.user._id };
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/handoff?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ prompt: "steal this", carry: false, targetDevice: foreignDeviceId }),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(404);
+
+		machine.close();
+		foreign.close();
+	});
+
+	it("refuses a model the target device's policy disallows", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const createArgs: unknown[] = [];
+		machine.onOp("session.create", (args: unknown) => {
+			createArgs.push(args);
+			return { session: {} };
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/handoff?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ prompt: "go", carry: false, modelId: "opencode/free-model" }),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(403);
+		expect(createArgs).toHaveLength(0);
+
+		machine.close();
+	});
+});
+
 describe("the SSE bridge over a live machine link", () => {
 	it("emits a session.sync's snapshot on connect, and a live event on the tail", async () => {
 		const machine = await connectAndPair();
