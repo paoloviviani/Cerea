@@ -169,7 +169,9 @@ test("an offline device never reads as a dead credential, and its tree is never 
 		});
 	});
 
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	// The device alone, no agent: an open AgentView looks up its own
+	// workspace, which is not the tree's load this scenario is about.
+	await page.goto(`/code?device=${DEVICE}`);
 	await openAgentsPanel(page);
 
 	await expect(page.getByText("Offline.", { exact: true })).toBeVisible();
