@@ -1,5 +1,6 @@
 import {
 	MessageReasoningUpdateType,
+	MessageToolUpdateType,
 	MessageUpdateStatus,
 	MessageUpdateType,
 	type MessageUpdate,
@@ -157,6 +158,18 @@ export function applyUpdateToMessage(
 			}
 		}
 		message.content += event.token;
+	} else if (event.type === MessageUpdateType.ArtifactDraft) {
+		// Ephemeral preview only: newer drafts replace older ones from the same
+		// call (bounding what is persisted), and the transcript content is left
+		// alone — the executed call's canonical block is what persists there.
+		message.updates ??= [];
+		const prev = message.updates.findIndex(
+			(u) => u.type === MessageUpdateType.ArtifactDraft && u.toolCallId === event.toolCallId
+		);
+		if (prev !== -1) message.updates[prev] = event;
+		else message.updates.push(event);
+		message.updatedAt = new Date();
+		return { skipped: false, titleChanged, finalAnswerReceived };
 	} else if (
 		event.type === MessageUpdateType.Reasoning &&
 		event.subtype === MessageReasoningUpdateType.Stream &&
@@ -223,6 +236,21 @@ export function applyUpdateToMessage(
 				model: message.routerMetadata?.model || "",
 				provider: event.provider,
 			};
+		}
+	}
+
+	// A draft previews a call still streaming its arguments; once any call's
+	// result lands, or the turn ends, the executed calls' canonical blocks are
+	// in the content, and a stored draft would only hold the same content a
+	// second time.
+	if (
+		(event.type === MessageUpdateType.Tool &&
+			(event.subtype === MessageToolUpdateType.Result ||
+				event.subtype === MessageToolUpdateType.Error)) ||
+		event.type === MessageUpdateType.FinalAnswer
+	) {
+		if (message.updates?.some((u) => u.type === MessageUpdateType.ArtifactDraft)) {
+			message.updates = message.updates.filter((u) => u.type !== MessageUpdateType.ArtifactDraft);
 		}
 	}
 

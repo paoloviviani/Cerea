@@ -44,6 +44,9 @@ import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { withUpstreamRetry } from "../utils/upstreamRetry";
 import { stripThink } from "$lib/utils/stripThink";
 import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
+import { ARTIFACT_TOOL_NAME } from "../builtinTools/artifactTool";
+import { artifactsEnabledForTurn, artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
+import { extractArtifactDraft } from "./artifactDraft";
 import { EXECUTE_CODE_TOOL_NAME } from "../builtinTools/executeCodeTool";
 import { findSearchModelIds } from "../builtinTools/gatewaySearchTool";
 import {
@@ -66,6 +69,7 @@ export type RunMcpFlowContext = Pick<
 	| "provider"
 	| "reasoningEffort"
 	| "reasoningOverride"
+	| "artifactsOverride"
 	| "locals"
 	| "generationId"
 	| "messageId"
@@ -130,6 +134,7 @@ export async function* runMcpFlow({
 	provider,
 	reasoningEffort,
 	reasoningOverride,
+	artifactsOverride,
 	locals,
 	generationId,
 	messageId,
@@ -137,20 +142,11 @@ export async function* runMcpFlow({
 	abortSignal,
 	abortController,
 	promptedAt,
-	artifactsEnabled,
 }: RunMcpFlowContext & {
 	preprompt?: string;
 	abortSignal?: AbortSignal;
 	abortController?: AbortController;
 	promptedAt?: Date;
-	/**
-	 * Whether this turn carries the artifacts prompt (preset force-enables it,
-	 * otherwise per-model opt-in with user override). Decided by the caller from
-	 * the same inputs as `resolvePreprompt` so the tool preprompt can repeat the
-	 * artifact/tool rule beside the tool guidance — the one place the model
-	 * reads the tool list.
-	 */
-	artifactsEnabled?: boolean;
 }): AsyncGenerator<MessageUpdate, McpFlowResult, undefined> {
 	// Helper to check if generation should be aborted via DB polling
 	// Also triggers the abort controller to cancel active streams/requests
@@ -225,6 +221,35 @@ export async function* runMcpFlow({
 	// is the right answer anyway — there is nowhere durable to write a fact.
 	const { memoryEnabled } = await import("$lib/server/memoryEnabled");
 	const memoryAllowed = memoryEnabled() && serverSettings?.memoryEnabled === true;
+	// Read once: the preset decides the servers, the round budget and which tool
+	// doctrine is sent, and they must all agree within a run. Read here — ahead
+	// of the builtin list — because the artifact tool's tool-vs-tags gating
+	// needs the same answer.
+	const mlAssistant = isMlAssistantConversation(conv);
+	const modelSupportsTools = Boolean(
+		(model as unknown as { supportsTools?: boolean }).supportsTools
+	);
+	// Canonical blocks this turn's artifact calls already appended, in order.
+	// Later rounds validate against earlier rounds' blocks through this, since
+	// those blocks are not in the database yet.
+	const artifactTurnBlocks: string[] = [];
+	// Tool mode needs tools on: in the preset that means the model supports
+	// them; elsewhere the per-model override wins in both directions.
+	const artifactToolsEnabled = mlAssistant
+		? modelSupportsTools
+		: ((forceTools ?? modelSupportsTools) as boolean);
+	const artifactsEnabled = artifactsEnabledForTurn({
+		mlAssistant,
+		artifactsOverride,
+		supportsArtifacts: (model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts,
+	});
+	const artifactsMode: ArtifactsMode = artifactsModeForTurn({
+		mlAssistant,
+		artifactsOverride,
+		supportsArtifacts: (model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts,
+		toolsEnabled: artifactToolsEnabled,
+		artifactsMode: (model as unknown as { artifactsMode?: ArtifactsMode }).artifactsMode,
+	});
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		memoryEnabled: memoryAllowed,
@@ -243,6 +268,14 @@ export async function* runMcpFlow({
 		playwrightReachable,
 		toolApprovalPolicy,
 		approvedTools,
+		artifactsOverride,
+		modelArtifacts: {
+			supportsArtifacts: (model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts,
+			supportsTools: modelSupportsTools,
+			artifactsMode: (model as unknown as { artifactsMode?: ArtifactsMode }).artifactsMode,
+		},
+		toolsEnabled: artifactToolsEnabled,
+		artifactTurnBlocks,
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through
@@ -258,8 +291,9 @@ export async function* runMcpFlow({
 		await includeSkillLoadBuiltin(builtinTools, skillsUserId);
 	}
 	// Read once: the preset decides the servers, the round budget and which tool
-	// doctrine is sent, and they must all agree within a run.
-	const mlAssistant = isMlAssistantConversation(conv);
+	// doctrine is sent, and they must all agree within a run. Computed above
+	// (ahead of the builtin list) because the artifact tool's gating needs the
+	// same answer; reused here.
 
 	// Every mode conversation is gated — one without a stored budget is a zero
 	// budget, not an ungated one. Settle already ran this turn
@@ -672,7 +706,8 @@ export async function* runMcpFlow({
 		// which is the inverse of the preset's doctrine.
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {
 			mlAssistant,
-			artifacts: artifactsEnabled,
+			artifacts: artifactsEnabled && artifactsMode === "tags",
+			artifactsMode,
 		});
 		const prepromptPieces: string[] = [];
 		if (toolPreprompt.trim().length > 0) {
@@ -885,6 +920,14 @@ export async function* runMcpFlow({
 			let sawToolCall = false;
 			let tokenCount = 0;
 			let finishReason: string | null | undefined;
+			// Streaming artifact preview: last emission per tool-call index, what
+			// it carried, and whether the "Writing…" placeholder went out. Per
+			// round — a new round brings new calls.
+			const draftEmitAt: Record<number, number> = {};
+			const lastDraftSig: Record<number, string> = {};
+			const emptyDraftSent: Record<number, boolean> = {};
+			// Throttle for ArtifactDraft emissions while arguments stream.
+			const ARTIFACT_DRAFT_THROTTLE_MS = 250;
 			for await (const chunk of completionStream) {
 				const choice = chunk.choices?.[0];
 				// Before the delta guard: the terminal chunk can carry only a finish_reason.
@@ -922,6 +965,58 @@ export async function* runMcpFlow({
 							);
 							firstToolDeltaLogged = true;
 						} catch {}
+					}
+					// Streaming artifact preview (tool mode only): while an
+					// `artifact` call's arguments stream in, emit a throttled
+					// ArtifactDraft the panel shows as a growing block. The
+					// executed call's canonical block replaces it; an `update`
+					// draft (no content) renders as an "Editing…" placeholder,
+					// and a call with no parsed args yet as "Writing…".
+					if (artifactsMode === "tool") {
+						const nowMs = Date.now();
+						for (const [indexStr, state] of Object.entries(toolCallState)) {
+							if (state.name !== ARTIFACT_TOOL_NAME || !state.id) continue;
+							const index = Number(indexStr);
+							// Throttle the parse, not only the emit: the arguments are
+							// re-decoded from the start each time, so parsing on every
+							// chunk would be quadratic over a long artifact.
+							if (
+								lastDraftSig[index] !== undefined &&
+								nowMs - (draftEmitAt[index] ?? 0) < ARTIFACT_DRAFT_THROTTLE_MS
+							) {
+								continue;
+							}
+							const draft = extractArtifactDraft(state.arguments);
+							if (!draft) {
+								if (!emptyDraftSent[index]) {
+									emptyDraftSent[index] = true;
+									draftEmitAt[index] = nowMs;
+									yield {
+										type: MessageUpdateType.ArtifactDraft,
+										toolCallId: state.id,
+										content: "",
+									};
+								}
+								continue;
+							}
+							const sig = JSON.stringify(draft);
+							if (sig === lastDraftSig[index]) continue;
+							const first = lastDraftSig[index] === undefined;
+							if (!first && nowMs - (draftEmitAt[index] ?? 0) < ARTIFACT_DRAFT_THROTTLE_MS) {
+								continue;
+							}
+							lastDraftSig[index] = sig;
+							draftEmitAt[index] = nowMs;
+							yield {
+								type: MessageUpdateType.ArtifactDraft,
+								toolCallId: state.id,
+								...(draft.command ? { command: draft.command } : {}),
+								...(draft.identifier ? { identifier: draft.identifier } : {}),
+								...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
+								...(draft.title ? { title: draft.title } : {}),
+								content: draft.content,
+							};
+						}
 					}
 				}
 

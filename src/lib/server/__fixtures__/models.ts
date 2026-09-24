@@ -24,6 +24,18 @@ export const MODELS_FIXTURE = {
 			providers: [{ provider: "test-provider", supports_tools: false }],
 			architecture: { input_modalities: ["text"] },
 		},
+		{
+			id: "test-org/artifact-tool",
+			description: "Deterministic test model with artifact tool support",
+			providers: [{ provider: "test-provider", supports_tools: true, context_length: 262144 }],
+			architecture: { input_modalities: ["text", "image"] },
+		},
+		{
+			id: "test-org/artifact-tags",
+			description: "Deterministic test model with inline artifact tags only, no tools",
+			providers: [{ provider: "test-provider", supports_tools: false }],
+			architecture: { input_modalities: ["text"] },
+		},
 	],
 } as const;
 

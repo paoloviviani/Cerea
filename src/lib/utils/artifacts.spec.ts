@@ -662,4 +662,34 @@ describe("think blocks are ignored by the registry", () => {
 		expect(registry.artifacts.get("app")?.versions).toHaveLength(1);
 		expect(registry.streaming).toBeUndefined();
 	});
+
+	it("renders tags outside <think> as versions while tags inside never parse (fallback)", () => {
+		// The inline parser stays as the fallback: old conversations, tags
+		// mode, and a tool-mode model that emits tags anyway all render — but
+		// never from inside reasoning.
+		const registry = collectArtifacts([
+			{
+				id: "m1",
+				from: "assistant",
+				content: `<think><artifact identifier="draft" type="html" title="Draft">rehearsal</artifact></think>`,
+			},
+		]);
+		expect(registry.artifacts.size).toBe(0);
+
+		const withFallback = collectArtifacts([
+			{
+				id: "m1",
+				from: "assistant",
+				content: `<think><artifact identifier="draft" type="html" title="Draft">rehearsal</artifact></think>`,
+			},
+			{
+				id: "m2",
+				from: "assistant",
+				content: `Here it is:\n\n<artifact identifier="doc" type="markdown" title="Doc">body</artifact>`,
+			},
+		]);
+		expect(withFallback.artifacts.get("doc")?.versions).toHaveLength(1);
+		expect(withFallback.artifacts.get("doc")?.versions[0].content).toBe("body");
+		expect(withFallback.artifacts.has("draft")).toBe(false);
+	});
 });

@@ -15,7 +15,6 @@ import { settleMlBudget } from "$lib/server/mlBudget/settle";
 import { reservedMicroUsd } from "$lib/utils/mlBudget";
 import { logger } from "$lib/server/logger";
 import { resolvePreprompt } from "./preprompt";
-import { artifactsEnabledForTurn } from "./artifacts";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
 
@@ -126,6 +125,9 @@ async function* textGenerationWithoutTitle(
 		mlAssistant,
 		artifactsOverride: ctx.artifactsOverride,
 		supportsArtifacts: ctx.model.supportsArtifacts,
+		supportsTools: (ctx.model as unknown as { supportsTools?: boolean }).supportsTools,
+		forceTools: ctx.forceTools,
+		artifactsMode: (ctx.model as unknown as { artifactsMode?: "tool" | "tags" }).artifactsMode,
 		username: ctx.username,
 		timezone: (ctx.locals as unknown as { timezone?: string } | undefined)?.timezone,
 		budget: conv.mlBudget,
@@ -212,16 +214,9 @@ async function* textGenerationWithoutTitle(
 			provider: ctx.provider,
 			reasoningEffort: ctx.reasoningEffort,
 			reasoningOverride: ctx.reasoningOverride,
+			artifactsOverride: ctx.artifactsOverride,
 			locals: ctx.locals,
 			preprompt,
-			// Same decision `resolvePreprompt` made above about the artifacts
-			// instructions, so the tool loop repeats the artifact/tool rule next
-			// to the tool guidance exactly on the turns that carry them.
-			artifactsEnabled: artifactsEnabledForTurn({
-				mlAssistant,
-				artifactsOverride: ctx.artifactsOverride,
-				supportsArtifacts: ctx.model.supportsArtifacts,
-			}),
 			abortSignal: ctx.abortController.signal,
 			abortController: ctx.abortController,
 			promptedAt: ctx.promptedAt,

@@ -358,3 +358,31 @@ describe("streaming a new step after tools", () => {
 		expect(m.content).toBe("play with trails.<think>weighing options</think>\n\nThat one's on me.");
 	});
 });
+
+describe("artifact drafts", () => {
+	const draft = (content: string): MessageUpdate => ({
+		type: MessageUpdateType.ArtifactDraft,
+		toolCallId: "call_a",
+		identifier: "demo",
+		content,
+	});
+
+	it("keeps only the latest draft per call, and drops it once a call's result lands", () => {
+		const m = message();
+		applyUpdateToMessage(draft("<p>he"), ctx(m));
+		applyUpdateToMessage(draft("<p>hello"), ctx(m));
+		expect(m.updates?.filter((u) => u.type === MessageUpdateType.ArtifactDraft)).toHaveLength(1);
+		expect(m.content).toBe("");
+
+		applyUpdateToMessage(
+			{
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Result,
+				uuid: "u1",
+				result: { status: "success", call: { name: "artifact", parameters: {} }, outputs: [] },
+			} as unknown as MessageUpdate,
+			ctx(m)
+		);
+		expect(m.updates?.some((u) => u.type === MessageUpdateType.ArtifactDraft)).toBe(false);
+	});
+});
