@@ -116,6 +116,31 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByText("out.txt").first()).toBeVisible({ timeout: 20_000 });
 	});
 
+	test("files: an attached file reaches the agent and renders on the user message", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario({
+			content: ["Read", " it", "."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await page.locator('input[type="file"]').setInputFiles({
+			name: "notes.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from("marker-7f3a lives in the notes\n"),
+		});
+		await send(page, "read the notes");
+		await expect(page.getByText("Read it.")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText("notes.txt").first()).toBeVisible();
+		// The bytes went through the store, over the machine's socket, into opencode's prompt.
+		const requests = await mockOpenAI.requests();
+		expect(requests.some((r) => JSON.stringify(r.body).includes("marker-7f3a"))).toBe(true);
+	});
+
 	test("subagents: a task call renders as a subagent card in the parent transcript", async ({
 		page,
 		db,
