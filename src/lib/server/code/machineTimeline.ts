@@ -199,6 +199,10 @@ export function questionRequestedToUpdate(event: {
 		required: true,
 		multiple: q.multiple ?? false,
 		options: q.options.map((o) => ({ value: o.label, label: o.label, description: o.description })),
+		// opencode tells the model the user can type their own answer unless
+		// `custom` is off, so the card has to offer it; the typed text goes back
+		// as the answer's label, which opencode relays to the model verbatim.
+		allowOther: q.custom !== false,
 	}));
 	return {
 		type: MessageUpdateType.Elicitation,
