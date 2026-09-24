@@ -249,8 +249,10 @@ test("New Chat keeps its address and carries the switcher's small icon idiom", a
 	const newChat = page.getByRole("link", { name: "New Chat" });
 	await expect(newChat).toBeVisible();
 	// Same address and shortcut tooltip as before; the icon is the
-	// switcher's own affordance (an svg inside the link).
-	await expect(newChat).toHaveAttribute("href", "/");
+	// switcher's own affordance (an svg inside the link). The href carries
+	// the base path (`${base}/`), not a bare "/" — missed by the base-path
+	// e2e switch because this assertion is not a `page.goto` call.
+	await expect(newChat).toHaveAttribute("href", `${E2E_APP_BASE}/`);
 	await expect(newChat).toHaveAttribute("title", "Ctrl/Cmd + Shift + O");
 	await expect(newChat.locator("svg")).toHaveCount(1);
 });
