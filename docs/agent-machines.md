@@ -48,7 +48,29 @@ its own enrollment token, and a person confirms it in the `/code` panel
 
 ## Getting the binary
 
-**Building it** needs Go 1.24+ and nothing else:
+**From your deployment (the usual way).** Every Cerea image builds the four
+binaries from `agent/` and serves them itself, with no sign-in needed, so
+nothing has to be published anywhere. On the machine:
+
+```sh
+curl -fsSL https://llm.example.org/chat/galopin/install.sh | sh
+```
+
+(Use your deployment's origin and base path; the `/code` pairing dialog
+shows the exact line.) The script picks the binary for this OS and CPU
+(Linux or macOS, amd64 or arm64), downloads it and `SHA256SUMS` from the same
+origin, **refuses to install on a checksum mismatch**, installs to
+`~/.local/bin/galopin` (`GALOPIN_INSTALL_DIR` overrides), clears macOS's
+quarantine flag, and prints the `galopin enroll` command for this
+deployment. It needs `curl` or `wget`, and `sha256sum` or `shasum`.
+
+The same files are there to fetch by hand (the pairing dialog's "Download
+manually" lists them): `<base>/galopin/galopin-<os>-<arch>`,
+`<base>/galopin/SHA256SUMS` and `<base>/galopin/version`. Nothing else under
+that path is served. The binaries are revalidated on every use (ETag), so a
+cache in between never pairs an old binary with a new checksum file.
+
+**Building it yourself** needs Go 1.24+ and nothing else:
 
 ```bash
 agent/packaging/build-dist.sh ~/galopin-dist
@@ -64,17 +86,17 @@ OS/architecture), plus a manifest:
 | `SHA256SUMS`                                                            | for `sha256sum -c SHA256SUMS` (macOS: `shasum -a 256 -c SHA256SUMS`)        |
 | `galopin.service`, `org.cerea.galopin.plist`                            | the user-service files below, from `agent/packaging/`                       |
 
-**Where people get them.** There is no published release yet. Until there
-is, the directory is the release: copy it somewhere your users can fetch
-from (an internal file share, `scp` from the build host), and give them the
-checksum file with it. Anyone with a checkout and Go can instead run
-`go build -o galopin .` in `agent/`.
+Use this for a machine that cannot reach the deployment, or to build from
+a checkout you changed; anyone with Go can also run `go build -o galopin .`
+in `agent/`.
 
 ## Installing on a machine (Linux or macOS)
 
 **Prerequisite:** `opencode` on the PATH, either `npm i -g opencode-ai` or
 `curl -fsSL https://opencode.ai/install | bash`. `galopin run` supervises
 `opencode serve`, and it is the only runtime dependency.
+
+With the installer above, skip to `enroll`. From a build of your own:
 
 ```sh
 install -d ~/.local/bin

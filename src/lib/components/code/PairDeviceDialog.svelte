@@ -51,6 +51,16 @@
 		(publicConfig.PUBLIC_ORIGIN || page.url.origin).replace(/\/+$/, "") + base
 	);
 	const commands = $derived([`galopin enroll --cerea ${origin}`, "galopin run"]);
+	// This deployment serves galopin itself (`{base}/galopin/*`, no sign-in
+	// needed): the installer checks the download against SHA256SUMS.
+	const installCommand = $derived(`curl -fsSL ${origin}/galopin/install.sh | sh`);
+	const downloads = [
+		{ name: "galopin-linux-amd64", label: "Linux x86-64" },
+		{ name: "galopin-linux-arm64", label: "Linux ARM64" },
+		{ name: "galopin-darwin-arm64", label: "macOS Apple silicon" },
+		{ name: "galopin-darwin-amd64", label: "macOS Intel" },
+		{ name: "SHA256SUMS", label: "SHA256SUMS" },
+	];
 
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
@@ -110,6 +120,35 @@
 			</div>
 		{/if}
 
+		<p class="{s.LABEL} mb-2">1. Install galopin</p>
+		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+			<p class="min-w-0 flex-1 font-mono text-xs break-all text-ink" data-testid="galopin-install">
+				{installCommand}
+			</p>
+			<CopyToClipBoardBtn
+				classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+				value={installCommand}
+			/>
+		</div>
+		<details class="mb-4 text-xs text-ink-muted">
+			<summary class="cursor-pointer">Download manually</summary>
+			<ul class="mt-2 flex flex-col gap-1 pl-2">
+				{#each downloads as download (download.name)}
+					<li>
+						<a
+							class="text-blue-600 hover:underline dark:text-blue-400"
+							href="{base}/galopin/{download.name}">{download.label}</a
+						>
+						<span class="font-mono">({download.name})</span>
+					</li>
+				{/each}
+			</ul>
+			<p class="mt-2">
+				Or build it from the Cerea repository's <code class="font-mono">agent/</code> (see its README).
+			</p>
+		</details>
+
+		<p class="{s.LABEL} mb-2">2. Enroll and run it</p>
 		<div class="mb-4 flex items-center gap-2 rounded-lg bg-sunken p-4">
 			<p class="min-w-0 flex-1 text-xs text-ink-muted">
 				`enroll` signs the machine into your account with this deployment's identity provider; `run`
@@ -125,11 +164,6 @@
 				<p class="font-mono text-xs break-all text-ink">{command}</p>
 			{/each}
 		</div>
-		<p class="mt-2 text-xs text-ink-muted">
-			Don't have <code class="font-mono">galopin</code> yet? Ask whoever runs this deployment for a
-			download, or build it yourself from the Cerea repository's
-			<code class="font-mono">agent/</code> (see its README).
-		</p>
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
 		{#if pending.length === 0}
