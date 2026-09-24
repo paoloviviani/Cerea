@@ -29,6 +29,7 @@
 	import IconLaptop from "~icons/carbon/laptop";
 	import IconFolder from "~icons/carbon/folder";
 	import IconCode from "~icons/carbon/code";
+	import IconBranch from "~icons/carbon/branch";
 	import IconRenew from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconKebab from "~icons/lucide/ellipsis";
@@ -54,6 +55,7 @@
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
+	import WorktreeDialog from "./WorktreeDialog.svelte";
 	import AgentRenameDialog from "./AgentRenameDialog.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
@@ -72,6 +74,8 @@
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
 	let renameFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
+	/** The repo workspace a "New worktree…" dialog is open for, with its device. */
+	let worktreeFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
 	/** The agent whose rename dialog is open, with its device. */
 	let renameAgentFor = $state<{ device: CodeDeviceView; agent: CodeAgentSession } | null>(null);
 	/** A removal waiting for its confirmation: which row, on which device. */
@@ -186,8 +190,12 @@
 		return agent?.workspaceId === workspaceId;
 	}
 
-	async function handleArchiveWorkspace(device: CodeDeviceView, workspace: CodeWorkspace) {
-		await archiveWorkspace(device.id, workspace.id);
+	async function handleArchiveWorkspace(
+		device: CodeDeviceView,
+		workspace: CodeWorkspace,
+		removeWorktree: boolean
+	) {
+		await archiveWorkspace(device.id, workspace.id, removeWorktree ? { removeWorktree: true } : {});
 		if (addressOnWorkspace(device.id, workspace.id)) {
 			void goto(`${base}/code?device=${device.id}`, { keepFocus: true });
 		}
@@ -365,6 +373,19 @@
 									<span class="min-w-0 {row(wsActive && !selectedAgentId)} pl-4">
 										<IconFolder class="size-3 shrink-0" />
 										<span class="min-w-0 flex-1 truncate">{ws.name}</span>
+										{#if ws.branch}
+											<!-- Worktree workspaces sit beside their source repo in
+											     this same flat list (not nested under it) — the
+											     branch badge is what marks the relationship, kept
+											     simple rather than building a second tree level. -->
+											<span
+												class="flex shrink-0 items-center gap-0.5 text-[10px] text-gray-400"
+												title="git worktree on {ws.branch}"
+											>
+												<IconBranch class="size-2.5" />
+												{ws.branch}
+											</span>
+										{/if}
 									</span>
 									<button
 										class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
@@ -413,6 +434,18 @@
 													<IconEdit class="size-4 opacity-90 dark:opacity-80" />
 													Rename
 												</DropdownMenu.Item>
+												{#if ws.isGitRepo}
+													<!-- Only a git repo can be branched into a worktree;
+													     a plain directory workspace has no repo to run
+													     `git worktree add` against. -->
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+														onSelect={() => (worktreeFor = { device, workspace: ws })}
+													>
+														<IconBranch class="size-4 opacity-90 dark:opacity-80" />
+														New worktree…
+													</DropdownMenu.Item>
+												{/if}
 												<DropdownMenu.Item
 													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 													onSelect={() =>
@@ -579,7 +612,11 @@
 			message="The workspace and its sessions disappear from the daemon's active list, their transcripts archived with them. Local files on the device are untouched."
 			confirmLabel="Archive workspace"
 			busyLabel="Archiving…"
-			onconfirm={() => handleArchiveWorkspace(request.device, request.workspace)}
+			checkboxLabel={request.workspace.worktreeOf
+				? "Also remove the git worktree (refused if it has uncommitted changes)"
+				: undefined}
+			onconfirm={(removeWorktree) =>
+				handleArchiveWorkspace(request.device, request.workspace, removeWorktree)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{/if}
@@ -594,6 +631,25 @@
 			const id = renameFor?.device.id;
 			renameFor = null;
 			if (id) void reloadDevice(id);
+		}}
+	/>
+{/if}
+
+{#if worktreeFor}
+	{@const dialogDevice = worktreeFor.device}
+	{@const dialogWorkspace = worktreeFor.workspace}
+	<WorktreeDialog
+		deviceId={dialogDevice.id}
+		workspace={dialogWorkspace}
+		onclose={() => (worktreeFor = null)}
+		oncreated={(workspace) => {
+			// Read the block's consts before clearing worktreeFor: they are
+			// derived from it, and the {#if} tears down as soon as it is
+			// null, same trap AgentDialog's own oncreated hit first.
+			const deviceId = dialogDevice.id;
+			worktreeFor = null;
+			void reloadDevice(deviceId);
+			void goto(`${base}/code?device=${deviceId}&ws=${workspace.id}`, { keepFocus: true });
 		}}
 	/>
 {/if}

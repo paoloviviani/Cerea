@@ -17,6 +17,7 @@ import { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
 import type {
 	Backend,
+	Directory,
 	Envelope,
 	HelloFrame,
 	Mode,
@@ -32,6 +33,9 @@ import type {
 
 export interface FakeMachineModel {
 	workspaces: Workspace[];
+	/** What `workspace.suggest` answers with, regardless of prefix — tests
+	 * set this directly rather than the fake walking a real filesystem. */
+	directories: Directory[];
 	sessions: Session[];
 	/** Per-session transcript, for `session.sync`'s snapshot branch. */
 	transcripts: Map<string, Transcript>;
@@ -45,6 +49,7 @@ export interface FakeMachineModel {
 export function emptyModel(): FakeMachineModel {
 	return {
 		workspaces: [],
+		directories: [],
 		sessions: [],
 		transcripts: new Map(),
 		epoch: randomUUID(),
@@ -248,13 +253,37 @@ export class FakeMachine {
 		switch (op) {
 			case "workspace.list":
 				return { workspaces: model.workspaces };
+			case "workspace.suggest": {
+				const { prefix } = args as { prefix: string };
+				return { directories: model.directories.filter((d) => d.path.startsWith(prefix)) };
+			}
 			case "workspace.create": {
-				const { path, title } = args as { path: string; title?: string };
+				const a = args as {
+					path?: string;
+					title?: string;
+					worktree?: { from: string; branch: string; base?: string };
+				};
+				if (a.worktree) {
+					const from = requireWorkspace(model, a.worktree.from);
+					const workspace: Workspace = {
+						id: randomUUID(),
+						name: a.title ?? a.worktree.branch,
+						path: `${from.path}.worktrees/${a.worktree.branch}`,
+						createdAt: new Date().toISOString(),
+						isGitRepo: true,
+						worktreeOf: from.id,
+						branch: a.worktree.branch,
+					};
+					model.workspaces.push(workspace);
+					return { workspace };
+				}
+				const path = a.path as string;
 				const workspace: Workspace = {
 					id: randomUUID(),
-					name: title ?? path.split("/").filter(Boolean).pop() ?? path,
+					name: a.title ?? path.split("/").filter(Boolean).pop() ?? path,
 					path,
 					createdAt: new Date().toISOString(),
+					isGitRepo: false,
 				};
 				model.workspaces.push(workspace);
 				return { workspace };
