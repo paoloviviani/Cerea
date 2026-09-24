@@ -179,7 +179,8 @@ function toSubagent(session: Session): CodeSubagent {
 		status,
 		createdAt: session.createdAt,
 		updatedAt: session.updatedAt,
-		toolCallId: null,
+		// The anchor in the parent transcript: without it the card has nowhere to render.
+		toolCallId: session.parentToolCallId ?? null,
 		cwd: null,
 		subtitle: null,
 	};
