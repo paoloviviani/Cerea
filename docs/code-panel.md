@@ -26,10 +26,13 @@ consumer. Paths into this checkout ride `$CHAT_REPO`.
 
 ## Turning it on
 
-Through the installer, which is the supported path:
+At install time, `pystino init --agents` (or, on an existing deployment,
+`./pystino set CODE_AGENTS_ENABLED=true` and `docker compose up -d --wait`).
+The stack side is described in Pystino's `docs/deployment.md`; what follows is
+the installer-era description, kept until the thin agent's docs replace it:
 
 ```bash
-./installer/install.sh --components code-panel=on
+./installer/install.sh --components code-panel=on   # historical
 ```
 
 `code-panel=on|off` is the component switch. It is deliberately **not** a

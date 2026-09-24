@@ -108,9 +108,8 @@ one upgrade path (see Pystino's `deploy/stack/`).
 them — `pystino init --mode dev --cerea-src <this checkout>` from a Pystino
 checkout — with the same configuration and the same `docker compose up`.
 
-The bash installer under `installer/` is the previous entry point, kept only
-until existing installs have been carried over (`pystino adopt`); do not start
-new installs with it.
+Installs made by the previous bash installer move over with `pystino adopt`
+(it reads the old deployment, carries every secret, and prints the cutover).
 
 ## What this fork adds
 
