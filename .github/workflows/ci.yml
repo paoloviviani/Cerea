@@ -20,7 +20,6 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
-      - "deploy/ci/github-workflows/README.md"
   workflow_dispatch:
   schedule:
     - cron: "41 4 * * 1" # Mondays: the client project
@@ -61,6 +60,10 @@ jobs:
       - run: npm run lint
       - run: npm run check
       # One shared Mongo, no per-file isolation: the files run serially.
+      # pyodide.worker.integration.spec.ts skips here: it needs the ~325 MB
+      # vendored Pyodide dist (not fetched, to keep PR runs short) and is a
+      # known pre-existing failure even with it — tracked in
+      # reports/2026-09-24-thin-agent-progress.md ("Known CI exclusions").
       - run: npx vitest run --project=server --project=ssr --no-file-parallelism
 
   go:
