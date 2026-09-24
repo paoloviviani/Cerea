@@ -38,6 +38,14 @@ export interface ScenarioScript {
 	/** Tool calls, emitted before content on the first turn only. */
 	toolCalls?: ToolCallSpec[];
 	/**
+	 * When set, each tool call's JSON arguments are split into slices of this
+	 * many characters and streamed as one SSE chunk per slice (the first
+	 * carrying id+name, the rest arguments only — like OpenAI). Lets a test
+	 * observe argument streaming (e.g. an artifact draft) before the call
+	 * completes. Unset sends each call's arguments whole in a single chunk.
+	 */
+	toolCallArgChunkSize?: number;
+	/**
 	 * Emit `toolCalls` for the first tool-offering request only, across every
 	 * conversation. An agent that spawns a subagent (opencode's `task`) replays
 	 * the default scenario in the child, which would otherwise call the tool again.
@@ -153,9 +161,9 @@ interface ChunkDelta {
 	reasoning_content?: string;
 	tool_calls?: Array<{
 		index: number;
-		id: string;
-		type: "function";
-		function: { name: string; arguments: string };
+		id?: string;
+		type?: "function";
+		function: { name?: string; arguments?: string };
 	}>;
 }
 
@@ -288,11 +296,24 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			}
 
 			// The app echoes tool results back as `role: "tool"` messages. Once one
-			// is present the tool call has already happened, so answer with text
-			// instead — otherwise the flow loops forever.
+			// is present for the current turn the tool call has already happened,
+			// so answer with text instead — otherwise the flow loops forever. A
+			// result from an EARLIER turn (before the last user message) does
+			// not count: each new turn may make its own tool calls.
 			const messages = Array.isArray(body.messages) ? body.messages : [];
+			let lastUserIdx = -1;
+			for (let i = 0; i < messages.length; i += 1) {
+				const m = messages[i];
+				if (typeof m === "object" && m !== null && (m as { role?: string }).role === "user") {
+					lastUserIdx = i;
+				}
+			}
 			const toolResultSeen = messages.some(
-				(m) => typeof m === "object" && m !== null && (m as { role?: string }).role === "tool"
+				(m, i) =>
+					i > lastUserIdx &&
+					typeof m === "object" &&
+					m !== null &&
+					(m as { role?: string }).role === "tool"
 			);
 			const offersTools = Array.isArray(body.tools) && body.tools.length > 0;
 			const once = script as ScenarioScript & { spent?: boolean };
@@ -355,8 +376,34 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			}
 
 			if (emitToolCalls) {
+				const argChunkSize =
+					(script as ScenarioScript & { toolCallArgChunkSize?: number }).toolCallArgChunkSize ?? 0;
 				for (const [index, tool] of (script.toolCalls ?? []).entries()) {
 					if (aborted) return;
+					if (argChunkSize > 0 && tool.arguments.length > argChunkSize) {
+						// Streamed arguments, OpenAI-style: the first chunk carries
+						// id+name and the first slice, the rest carry slices only.
+						for (let at = 0; at < tool.arguments.length; at += argChunkSize) {
+							if (aborted) return;
+							const slice = tool.arguments.slice(at, at + argChunkSize);
+							send(
+								chunk(model, {
+									tool_calls: [
+										at === 0
+											? {
+													index,
+													id: tool.id,
+													type: "function",
+													function: { name: tool.name, arguments: slice },
+												}
+											: { index, function: { arguments: slice } },
+									],
+								})
+							);
+							if (script.chunkDelayMs) await sleep(script.chunkDelayMs);
+						}
+						continue;
+					}
 					send(
 						chunk(model, {
 							tool_calls: [

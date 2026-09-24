@@ -16,6 +16,7 @@ export type MessageUpdate =
 	| MessageTitleUpdate
 	| MessageToolUpdate
 	| MessageStreamUpdate
+	| MessageArtifactDraftUpdate
 	| MessageFileUpdate
 	| MessageFinalAnswerUpdate
 	| MessageReasoningUpdate
@@ -32,6 +33,7 @@ export enum MessageUpdateType {
 	Title = "title",
 	Tool = "tool",
 	Stream = "stream",
+	ArtifactDraft = "artifactDraft",
 	File = "file",
 	FinalAnswer = "finalAnswer",
 	Reasoning = "reasoning",
@@ -85,6 +87,26 @@ export interface MessageStreamUpdate {
 	token: string;
 	/** Length of the original token. Used for compressed/persisted stream markers where token is empty. */
 	len?: number;
+}
+
+/**
+ * Live preview of an `artifact` tool call while its arguments stream in.
+ * Ephemeral by design: it never touches `message.content` — the executed
+ * call's canonical `<artifact>` block (a Stream update) is the only thing
+ * that persists into the transcript. The panel shows the latest draft per
+ * tool call as a streaming block until that canonical block replaces it; an
+ * `update` draft (no content) renders as an "Editing…" placeholder, and a
+ * draft with no fields yet renders as "Writing…".
+ */
+export interface MessageArtifactDraftUpdate {
+	type: MessageUpdateType.ArtifactDraft;
+	/** Provider-issued tool_call id, so newer drafts replace older ones. */
+	toolCallId: string;
+	command?: string;
+	identifier?: string;
+	artifactType?: string;
+	title?: string;
+	content: string;
 }
 
 // Tool updates (for MCP and function calling)

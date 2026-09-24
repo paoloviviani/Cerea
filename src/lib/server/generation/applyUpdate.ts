@@ -54,6 +54,18 @@ export function applyUpdateToMessage(
 	if (event.type === MessageUpdateType.Stream) {
 		if (event.token === "") return SKIPPED;
 		message.content += event.token;
+	} else if (event.type === MessageUpdateType.ArtifactDraft) {
+		// Ephemeral preview only: newer drafts replace older ones from the same
+		// call (bounding what is persisted), and the transcript content is left
+		// alone — the executed call's canonical block is what persists there.
+		message.updates ??= [];
+		const prev = message.updates.findIndex(
+			(u) => u.type === MessageUpdateType.ArtifactDraft && u.toolCallId === event.toolCallId
+		);
+		if (prev !== -1) message.updates[prev] = event;
+		else message.updates.push(event);
+		message.updatedAt = new Date();
+		return { skipped: false, titleChanged, finalAnswerReceived };
 	} else if (
 		event.type === MessageUpdateType.Reasoning &&
 		event.subtype === MessageReasoningUpdateType.Stream &&

@@ -1,5 +1,7 @@
 import type { OpenAiTool } from "$lib/server/mcp/tools";
 import type { BuiltinTool } from "../builtinTools/types";
+import { ARTIFACT_TOOL_POINTER, ARTIFACT_TOOL_RULE } from "../artifacts";
+import type { ArtifactsMode } from "../artifacts";
 import {
 	ML_ASSISTANT_TOOL_DOCTRINE,
 	mlAssistantToolDoctrineBlocks,
@@ -16,8 +18,19 @@ export function buildToolPreprompt(
 	 * tool list, the clock, per-builtin guidance, the image rules) has to reach
 	 * the model either way, and a parallel copy silently loses whatever is added
 	 * to this one next.
+	 *
+	 * `artifacts` repeats the artifact/tool rule beside the tool guidance. The
+	 * full artifacts instructions travel in the conversation preprompt, which the
+	 * caller merges AFTER this text — so without this the model reads the tool
+	 * list first and the "don't call tools while emitting an artifact" rule much
+	 * later, and drafts artifacts inside a tool-called turn. Set it exactly when
+	 * the turn carries the artifacts prompt in tags mode; with no tools on offer
+	 * this whole builder returns "" anyway, so the rule can never appear
+	 * tool-less. In tool mode (`artifactsMode: "tool"`) the tag grammar is gone
+	 * and the contract lives on the artifact tool's description, so the rule is
+	 * replaced by a one-line pointer to the tool instead.
 	 */
-	options?: { mlAssistant?: boolean }
+	options?: { mlAssistant?: boolean; artifacts?: boolean; artifactsMode?: ArtifactsMode }
 ): string {
 	if (!Array.isArray(tools) || tools.length === 0) return "";
 	const names = tools
@@ -69,6 +82,15 @@ export function buildToolPreprompt(
 		`You have access to these tools: ${names.join(", ")}.`,
 		`Current date and time: ${currentDateTime} (${isoDate}).${locationLine}`,
 		restraint,
+		// Right after the restraint paragraph, never anywhere else: the rule only
+		// works read together with the tool guidance, not restated pages later.
+		// Tool mode replaces the tags rule with a pointer — the contract lives
+		// on the tool description and the model must never write tags.
+		...(options?.artifactsMode === "tool"
+			? [ARTIFACT_TOOL_POINTER]
+			: options?.artifacts
+				? [ARTIFACT_TOOL_RULE]
+				: []),
 		...builtinGuidance,
 		`PARALLEL TOOL CALLS: When multiple tool calls are needed and they are independent of each other (i.e., one does not need the result of another), call them all at once in a single response instead of one at a time. Only chain tool calls sequentially when a later call depends on an earlier call's output.`,
 		...(mlAssistant

@@ -88,6 +88,13 @@ const modelConfig = z.object({
 	// Opt-in artifacts: when true, the model is instructed to emit <artifact>
 	// blocks rendered in the side panel. Set per model via MODELS overrides.
 	supportsArtifacts: z.boolean().default(false),
+	/**
+	 * Which artifact surface the model uses once artifacts are enabled for the
+	 * turn: the `artifact` tool, or inline `<artifact>` tags. Absent means the
+	 * default — `"tool"` when the model also supports tools, else `"tags"`.
+	 * Set per model via MODELS overrides; presets may override per turn.
+	 */
+	artifactsMode: z.enum(["tool", "tags"]).optional(),
 	unlisted: z.boolean().default(false),
 	embeddingModel: z.never().optional(),
 	/** Used to enable/disable system prompt usage */

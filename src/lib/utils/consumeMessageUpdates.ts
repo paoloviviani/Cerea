@@ -117,6 +117,20 @@ export async function consumeMessageUpdates(
 				} else {
 					updatesBuffer = [...updatesBuffer, update];
 				}
+			} else if (update.type === MessageUpdateType.ArtifactDraft) {
+				// Ephemeral preview: newer drafts replace older ones from the same
+				// call, and nothing is added to the content buffer — the executed
+				// call's canonical block arrives separately as Stream tokens.
+				const prev = updatesBuffer.findIndex(
+					(u) => u.type === MessageUpdateType.ArtifactDraft && u.toolCallId === update.toolCallId
+				);
+				if (prev !== -1)
+					updatesBuffer = [
+						...updatesBuffer.slice(0, prev),
+						update,
+						...updatesBuffer.slice(prev + 1),
+					];
+				else updatesBuffer = [...updatesBuffer, update];
 			} else {
 				updatesBuffer = [...updatesBuffer, update];
 			}

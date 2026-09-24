@@ -1,5 +1,7 @@
 import type { Conversation } from "$lib/types/Conversation";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
+import { artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
+import { createArtifactTool } from "./artifactTool";
 import { askUserQuestionBuiltin, askUserQuestionPlainBuiltin } from "./askUserQuestion";
 import { githubGroundingBuiltins } from "./githubGrounding";
 import { createPlanTool } from "./planTool";
@@ -18,6 +20,7 @@ import type { BuiltinTool } from "./types";
 
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 export { PLAN_TOOL_NAME } from "./planTool";
+export { ARTIFACT_TOOL_NAME } from "./artifactTool";
 export { RESEARCH_TOOL_NAME, isResearchTool } from "./researchTool";
 export { SANDBOX_TOOL_NAME, isSandboxTool } from "./sandboxTool";
 export { JOB_CHECK_TOOL_NAME, isJobCheckTool } from "./jobCheckTool";
@@ -75,8 +78,53 @@ export function getEnabledBuiltinTools(params: {
 	 * probe) is deliberately not.
 	 */
 	playwrightReachable?: boolean;
+	/**
+	 * Per-model user override for artifacts; wins over the model's
+	 * supportsArtifacts flag in both directions. Resolved by the caller like
+	 * `memoryEnabled`.
+	 */
+	artifactsOverride?: boolean;
+	/**
+	 * The turn's model capabilities for artifact gating: `supportsArtifacts`
+	 * opts into artifacts, `supportsTools` decides tool-vs-tags mode, and an
+	 * explicit `artifactsMode` wins over the default. Absent means no artifact
+	 * surface at all — which is also what callers without a model get.
+	 */
+	modelArtifacts?: {
+		supportsArtifacts?: boolean;
+		supportsTools?: boolean;
+		artifactsMode?: ArtifactsMode;
+	};
+	/**
+	 * Effective tool-calling for the turn (`forceTools ?? supportsTools`),
+	 * resolved by the caller. Decides tool-vs-tags mode alongside
+	 * `modelArtifacts`. Absent counts as tools off, so the tool is withheld.
+	 */
+	toolsEnabled?: boolean;
+	/**
+	 * Canonical blocks this turn already appended, in order. Created fresh per
+	 * turn by the caller (runMcpFlow) and shared with the artifact tool, so a
+	 * later round of the same turn validates against earlier rounds' blocks —
+	 * which are not in the database yet — instead of reporting them unknown.
+	 */
+	artifactTurnBlocks?: string[];
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
+
+	const mlAssistant = isMlAssistantConversation(params.conv);
+	const artifactsMode = artifactsModeForTurn({
+		mlAssistant,
+		artifactsOverride: params.artifactsOverride,
+		supportsArtifacts: params.modelArtifacts?.supportsArtifacts,
+		toolsEnabled: params.toolsEnabled,
+		artifactsMode: params.modelArtifacts?.artifactsMode,
+	});
+	// Tool mode only: the tool writes the canonical inline blocks, so the tag
+	// grammar stays out of the system prompt. Tags mode keeps today's prompt
+	// and parser with no tool on offer.
+	if (artifactsMode === "tool") {
+		tools.push(createArtifactTool({ turnBlocks: params.artifactTurnBlocks }));
+	}
 
 	if (isMlAssistantConversation(params.conv)) {
 		// The GitHub tools carry a second condition of their own — they withhold
