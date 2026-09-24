@@ -303,7 +303,16 @@ export function acceptMachineConnection(
 			return; // malformed JSON: ignored, not fatal (forward-compat rule)
 		}
 		const frame = parseMachineFrame(parsed);
-		if (!frame) return;
+		if (!frame) {
+			// Dropping unknown frames is the forward-compat rule, but a first frame
+			// that claims to be a hello and fails validation is a contract break
+			// that would otherwise surface only as a 4000 close after the timer.
+			if (!helloReceived && (parsed as { type?: unknown } | null)?.type === "hello") {
+				logger.warn({ machineId: principal.machineId }, "machine link: hello failed validation");
+				ws.close(4000, "the hello frame did not match the protocol");
+			}
+			return;
+		}
 
 		if (!helloReceived) {
 			if (frame.type !== "hello") {
@@ -312,9 +321,15 @@ export function acceptMachineConnection(
 			}
 			helloReceived = true;
 			clearTimeout(helloTimer);
-			void onHello(ws, principal, frame).then((created) => {
-				state = created;
-			});
+			void onHello(ws, principal, frame).then(
+				(created) => {
+					state = created;
+				},
+				(err) => {
+					logger.error({ err, machineId: principal.machineId }, "machine link: hello failed");
+					ws.close(1011, "could not register this machine");
+				}
+			);
 			return;
 		}
 
