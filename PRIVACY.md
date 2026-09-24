@@ -58,8 +58,8 @@ Two things the gateway does on the way:
   WebAssembly sandbox with no network access. Nothing is uploaded, and the
   deployment spends no compute on it.
 - **Coding agents**, if this deployment offers the `/code` panel. The agent
-  runs on your own machine; the traffic between it and this server is encrypted
-  end to end, and the relay in the middle sees only ciphertext. Your code, your
+  runs on your own machine, which connects to this server over TLS with its
+  own sign-in; the chat relays your prompts and the agent's answers. Your code, your
   working tree and the agent's session live on your machine and are not stored
   here.
 

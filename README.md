@@ -123,11 +123,10 @@ OpenAI client:
   (ADR 0055), whose local backend runs markitdown with its NLP engine switched
   off, so a `.docx` or a text-layer PDF never leaves the deployment.
 - **The `/code` Agents panel** (ADR 0085) — coding agents running on people's
-  own machines, driven from the sidebar. A paseo daemon on the machine dials
-  out to a relay this deployment hosts at the origin's `/ws` path; Cerea is a
-  client of that relay, end-to-end encrypted, and stores nothing but the
-  pairing record. Off unless `CODE_AGENTS_ENABLED=true` and the relay overlay
-  is deployed — `--components code-panel=on`. See
+  own machines, driven from the sidebar. `pystino-agent` on the machine dials
+  out to the chat over WSS with its own OIDC credential; Cerea stores nothing
+  but the pairing record. Off unless `CODE_AGENTS_ENABLED=true`
+  (`pystino init --agents`). See
   [docs/code-panel.md](docs/code-panel.md) for deploying it and
   [docs/agent-machines.md](docs/agent-machines.md) for using it.
 
@@ -162,7 +161,7 @@ which resolves wherever the file lives.
 ## Documentation
 
 - [docs/code-panel.md](docs/code-panel.md) — deploying the `/code` Agents
-  panel: the relay, the flags, the `/ws` route.
+  panel: the flags, the machine link, what is stored.
 - [docs/agent-machines.md](docs/agent-machines.md) — pairing a machine, and
   what the panel does.
 - [docs/pyodide.md](docs/pyodide.md) — client-side Python execution, its
