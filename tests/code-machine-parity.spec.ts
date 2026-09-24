@@ -271,6 +271,8 @@ test.describe("owned machine agent: parity", () => {
 		await send(page, "ask me something");
 
 		await expect(page.getByText("Which approach?")).toBeVisible({ timeout: 60_000 });
+		// opencode tells the model a typed answer is always possible, so the card offers one.
+		await expect(page.getByRole("button", { name: /Something else/ })).toHaveCount(1);
 		// The option row's accessible name is its whole content ("A" plus its
 		// description), so match on the description to pick the right one.
 		await page.getByRole("button").filter({ hasText: "Do A" }).click();
@@ -285,5 +287,54 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByText(/Answered\s*pystino/i)).toHaveCount(0);
 		await page.reload();
 		await expect(page.getByText("Approach → A").first()).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("questions: a typed answer reaches the model through opencode verbatim", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{
+					id: "call_q",
+					name: "question",
+					arguments: JSON.stringify({
+						questions: [
+							{
+								question: "Which approach?",
+								header: "Approach",
+								options: [
+									{ label: "A", description: "Do A" },
+									{ label: "B", description: "Do B" },
+								],
+							},
+						],
+					}),
+				},
+			],
+			toolCallsOnce: true,
+			content: ["Doing", " C."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await send(page, "ask me something");
+
+		await expect(page.getByText("Which approach?")).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: /Something else/ }).click();
+		await page.getByRole("textbox", { name: "Your own answer" }).fill("Neither, do C");
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+
+		await expect(page.getByText("Doing C.")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText("Approach → Other: Neither, do C").first()).toBeVisible();
+		// opencode's own tool result quotes the answer: `"<question>"="<answer>"`.
+		const requests = await mockOpenAI.requests();
+		expect(
+			requests.some((r) =>
+				JSON.stringify(r.body).includes('\\"Which approach?\\"=\\"Neither, do C\\"')
+			)
+		).toBe(true);
 	});
 });
