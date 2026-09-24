@@ -3,7 +3,12 @@ import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { ready } from "$lib/server/database";
 import { createTestUser, cleanupTestData } from "$lib/server/api/__tests__/testHelpers";
-import { authenticateMachineRequest, MachineAuthError, validateMachineToken } from "./machineAuth";
+import {
+	authenticateMachineRequest,
+	MachineAuthError,
+	resetMachineDiscoveryCacheForTests,
+	validateMachineToken,
+} from "./machineAuth";
 
 /**
  * Local JWT validation (spec §3, review C1) — a locally generated keypair and
@@ -17,6 +22,8 @@ const AUDIENCE = "pystino-api";
 const CLIENT_ID = "opencode-enrollment";
 
 let server: Server;
+/** What the discovery document claims as its issuer; a test flips it to impersonate. */
+let advertisedIssuer = ISSUER_URL;
 let privateKey: CryptoKey;
 let publicJwk: Awaited<ReturnType<typeof exportJWK>>;
 
@@ -32,7 +39,7 @@ beforeAll(async () => {
 	server = createServer((req, res) => {
 		if (req.url === "/.well-known/openid-configuration") {
 			res.setHeader("content-type", "application/json");
-			res.end(JSON.stringify({ issuer: ISSUER_URL, jwks_uri: `${ISSUER_URL}/jwks` }));
+			res.end(JSON.stringify({ issuer: advertisedIssuer, jwks_uri: `${ISSUER_URL}/jwks` }));
 			return;
 		}
 		if (req.url === "/jwks") {
@@ -110,6 +117,17 @@ describe("validateMachineToken", () => {
 	it("rejects a token that looks like an ID token", async () => {
 		const token = await signToken({ sub: "hf-user-1" }, { header: { typ: "id_token" } });
 		await expect(validateMachineToken(token)).rejects.toBeInstanceOf(MachineAuthError);
+	});
+
+	it("refuses keys from a discovery document that names another issuer", async () => {
+		resetMachineDiscoveryCacheForTests();
+		advertisedIssuer = "https://impostor.example";
+		try {
+			await expect(validateMachineToken(await signToken({}))).rejects.toThrow(/names issuer/);
+		} finally {
+			advertisedIssuer = ISSUER_URL;
+			resetMachineDiscoveryCacheForTests();
+		}
 	});
 
 	it("rejects a token from a different issuer", async () => {
