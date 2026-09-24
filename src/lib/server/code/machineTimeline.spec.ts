@@ -458,3 +458,101 @@ describe("usage and compaction: a side channel that re-converges (M3)", () => {
 		expect(frameKey({ type: "compaction", auto: true })).toBeNull();
 	});
 });
+
+describe("the agent-initiated question tool: opencode's native question, folded through elicitation", () => {
+	it("maps question.asked to a lifted elicitation request, one select field per question", () => {
+		const updates = eventToUpdates({
+			kind: "question.asked",
+			request: {
+				id: "q-1",
+				questions: [
+					{
+						question: "Which package manager?",
+						header: "Setup",
+						options: [{ label: "npm" }, { label: "pnpm", description: "faster installs" }],
+					},
+				],
+			},
+		});
+		expect(updates).toEqual([
+			{
+				type: MessageUpdateType.Elicitation,
+				subtype: "request",
+				request: {
+					elicitationId: "q-1",
+					server: "pystino",
+					mode: "form",
+					source: "assistant",
+					message: "Which package manager?",
+					fields: [
+						{
+							kind: "select",
+							name: "q0",
+							title: "Setup",
+							description: "Which package manager?",
+							required: true,
+							multiple: false,
+							options: [
+								{ value: "npm", label: "npm", description: undefined },
+								{ value: "pnpm", label: "pnpm", description: "faster installs" },
+							],
+						},
+					],
+				},
+			},
+		]);
+	});
+
+	it("carries `multiple` through and joins several questions' text for the summary message", () => {
+		const updates = eventToUpdates({
+			kind: "question.asked",
+			request: {
+				id: "q-2",
+				questions: [
+					{ question: "Pick one", options: [{ label: "a" }] },
+					{ question: "Pick any", options: [{ label: "b" }, { label: "c" }], multiple: true },
+				],
+			},
+		});
+		const request = (updates[0] as { request: { message: string; fields: unknown[] } }).request;
+		expect(request.message).toBe("Pick one\n\nPick any");
+		expect(request.fields).toHaveLength(2);
+		expect(request.fields[1]).toMatchObject({ name: "q1", multiple: true });
+	});
+
+	it("maps question.resolved (accept) to a resolved elicitation carrying the chosen labels", () => {
+		const updates = eventToUpdates({
+			kind: "question.resolved",
+			requestId: "q-1",
+			answers: [["npm"]],
+		});
+		expect(updates).toEqual([
+			{
+				type: MessageUpdateType.Elicitation,
+				subtype: "resolved",
+				elicitationId: "q-1",
+				action: "accept",
+				resolution: "user",
+				content: { q0: ["npm"] },
+			},
+		]);
+	});
+
+	it("maps question.resolved (rejected) to a declined elicitation with no content", () => {
+		const updates = eventToUpdates({
+			kind: "question.resolved",
+			requestId: "q-1",
+			rejected: true,
+		});
+		expect(updates).toEqual([
+			{
+				type: MessageUpdateType.Elicitation,
+				subtype: "resolved",
+				elicitationId: "q-1",
+				action: "decline",
+				resolution: "user",
+			},
+		]);
+		expect(updates[0]).not.toHaveProperty("content");
+	});
+});
