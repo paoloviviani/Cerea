@@ -23,6 +23,7 @@ import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import type { User } from "$lib/types/User";
 import { logger } from "$lib/server/logger";
+import { forwardedHeaders } from "$lib/server/oidcBackchannel";
 
 function normalizeIssuer(raw: string): string {
 	return raw.trim().replace(/\/+$/, "");
@@ -53,7 +54,7 @@ function machineClientId(): string {
  * `OPENID_INTERNAL_URL` (`http://authelia:9091/authelia`). Fetching the public
  * URL from here hairpins through the proxy's TLS listener, which needed a CA
  * bundle that decayed; the browser login already uses the internal URL
- * (`oidcBackchannel.ts` on deploy/rearch), and machine tokens come from the
+ * (`oidcBackchannel.ts`), and machine tokens come from the
  * same issuer, so they follow the same rule. Authelia derives its issuer from
  * `X-Forwarded-Proto/Host` and answers nothing on its internal address without
  * them. Only applies when the machine issuer *is* the browser issuer — a
@@ -67,11 +68,7 @@ export function machineBackchannel(
 ): { base: string; headers: Record<string, string> } | null {
 	const internal = internalUrl?.trim();
 	if (!internal || issuer !== normalizeIssuer(providerUrl ?? "")) return null;
-	const url = new URL(issuer);
-	return {
-		base: normalizeIssuer(internal),
-		headers: { "x-forwarded-proto": url.protocol.replace(/:$/, ""), "x-forwarded-host": url.host },
-	};
+	return { base: normalizeIssuer(internal), headers: forwardedHeaders(issuer) };
 }
 
 interface DiscoveryDoc {
