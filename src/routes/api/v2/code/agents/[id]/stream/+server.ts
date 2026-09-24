@@ -233,8 +233,14 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			let lastEmit = Date.now();
 			let currentEpoch = sync.epoch;
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
-			const emit = (id: string, update: AgentStreamUpdate) => {
-				enc(`id: ${id}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
+			// `id` is the watched session's own (epoch, seq) cursor, which the
+			// client echoes back as Last-Event-ID to resume. A subagent's
+			// frames are ordered on the subagent's sequence, not this one, so
+			// they go out with no id: an SSE event without one leaves the
+			// client's last event id where the parent's last frame put it.
+			const emit = (id: string | null, update: AgentStreamUpdate) => {
+				const idLine = id === null ? "" : `id: ${id}\n`;
+				enc(`${idLine}event: update\ndata: ${JSON.stringify(update)}\n\n`);
 				lastEmit = Date.now();
 			};
 			// A reset travels the ordinary `update` channel (a frame the
@@ -303,7 +309,9 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							lastAssistantError = undefined;
 							userMessageIds = new Map();
 							seenChildAsks.clear();
-							emitReset(id);
+							// A subagent's envelope can be the first to show the new
+							// epoch; its seq is not this session's cursor.
+							emit(next.sessionId === sessionId ? id : null, { type: "reset" });
 						}
 						learnTitle(next);
 						const child = childOf(next.sessionId);
@@ -324,7 +332,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							(messageId) => userMessageIds.get(messageId),
 							child
 						);
-						for (const update of updates) emit(id, await withFiles(update));
+						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;
 					}
 					await new Promise<void>((resolve) => {

@@ -397,10 +397,8 @@
 		void pollSubagents();
 	});
 
-	/** A `childActivity` frame arrived for one subagent: count it for its
-	 * card's live re-sync, and re-poll the roster (throttled by the turn
-	 * boundaries' own cadence — this only hurries a pairing that a
-	 * boundary poll would have found anyway). */
+	/** A `childActivity` frame arrived for one subagent: count it, so that
+	 * subagent's expanded card re-syncs its timeline (the card throttles). */
 	function noteChildActivity(childId: string) {
 		childActivity[childId] = (childActivity[childId] ?? 0) + 1;
 	}
