@@ -202,6 +202,96 @@ test.describe("owned machine agent: parity", () => {
 		expect(requests.some((r) => JSON.stringify(r.body).includes("marker-7f3a"))).toBe(true);
 	});
 
+	/**
+	 * One scenario serving a whole subagent tree: the parent's prompt gets
+	 * a `task` call, while the child's own prompt — which echoes the task
+	 * text — routes to a `bash` call that needs a permission. The mock
+	 * answers tool results with text (its `role: "tool"` check), so neither
+	 * side loops.
+	 */
+	const subagentApprovalScenario = {
+		toolCalls: [
+			{
+				id: "call_task",
+				name: "task",
+				arguments: JSON.stringify({
+					description: "Inspect the repo",
+					prompt: "List what is in the repo.",
+					subagent_type: "general",
+				}),
+			},
+		],
+		toolCallsOnce: true,
+		content: ["Parent", " done", "."],
+		chunkDelayMs: 10,
+		finishReason: "stop" as const,
+		routes: [
+			{
+				contains: "List what is in the repo.",
+				scenario: {
+					toolCalls: [
+						{
+							id: "call_child_bash",
+							name: "bash",
+							arguments: JSON.stringify({
+								command: "echo child-marker > child.txt",
+								description: "write child file",
+							}),
+						},
+					],
+					toolCallsOnce: true,
+					content: ["Child", " done", "."],
+					chunkDelayMs: 10,
+					finishReason: "stop" as const,
+				},
+			},
+		],
+	};
+
+	test("subagent approvals: a child's bash permission surfaces as a labelled card mid-turn, and approving lets the child finish", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		const m = await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario(subagentApprovalScenario);
+		await send(page, "delegate this");
+
+		// The card arrives mid-turn (the turn is still held on it), labelled
+		// as the subagent's — a parent's own ask never says "Subagent".
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText(/Subagent/).first()).toBeVisible({ timeout: 30_000 });
+		await page.getByRole("button", { name: "Allow once" }).click();
+
+		// Approving lets the child run to completion: its file lands and its
+		// output streams into the subagent card, not the parent transcript.
+		// (The expand button's name carries the roster's live title, so it
+		// is matched by prefix — the paired title gains a suffix.)
+		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
+		await expect(page.getByText("Child done.")).toBeVisible({ timeout: 60_000 });
+		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
+	});
+
+	test("subagent approvals: with auto-accept on, a child's tools run without asking", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		const m = await openSession(page, db, session.sessionId, { autoAccept: "allowed" });
+		await page.getByRole("button", { name: /auto.?accept/i }).click();
+		await mockOpenAI.setDefaultScenario(subagentApprovalScenario);
+		await send(page, "delegate this");
+
+		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
+		await expect(page.getByText("Child done.")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText("wants to call")).toHaveCount(0);
+		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
+	});
+
 	test("subagents: a task call renders as a subagent card in the parent transcript", async ({
 		page,
 		db,

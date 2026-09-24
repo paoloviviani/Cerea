@@ -126,6 +126,29 @@ async function resolveWorkspace(link: MachineLink, workspaceId: string): Promise
 	return found;
 }
 
+/** Where an approval/question reply goes: the watched session itself, or
+ * — for a subagent's ask, labelled with the child's session id by the
+ * stream bridge — that child. The child must live on this same machine
+ * (a `session.get` through this same link, already scoped to the caller's
+ * paired device, proves it); anything else 404s rather than reaching
+ * across to a session this route was never asked about. */
+async function resolveReplyTarget(
+	link: MachineLink,
+	parentSessionId: string,
+	childSessionId: string | undefined
+): Promise<string> {
+	if (!childSessionId || childSessionId === parentSessionId) return parentSessionId;
+	// A child that lives nowhere on this machine is a 404 here, whatever
+	// the machine's own error code for it would have been — this route
+	// asked about a session it was never shown, not a malformed op.
+	try {
+		const { session } = await link.sessionGet({ sessionId: childSessionId });
+		return session.id;
+	} catch {
+		error(404, "No such session on this machine.");
+	}
+}
+
 function toWorkspace(workspace: Workspace): CodeWorkspace {
 	return {
 		id: workspace.id,
@@ -723,11 +746,26 @@ export const POST: RequestHandler = async (event) => {
 		// only differ in whether the grant outlives this one call
 		// (`permission.reply`, spec §8). There is no fourth option to invent
 		// here — the daemon owns the scoping, not this route.
-		const parsed = z.object({ decision: z.enum(["once", "always", "reject"]) }).safeParse(body);
-		if (!parsed.success) error(400, "Expected { decision: 'once' | 'always' | 'reject' }.");
+		//
+		// `childSessionId` carries a subagent's ask: the card's elicitation
+		// id is only unique per session, so the parent's stream labels the
+		// child's asks with the session the reply must reach. It is
+		// validated to live on this same machine (a `session.get` on this
+		// link — the link itself is already scoped to the caller's paired
+		// device) before anything is forwarded to it.
+		const parsed = z
+			.object({
+				decision: z.enum(["once", "always", "reject"]),
+				childSessionId: z.string().trim().min(1).max(200).optional(),
+			})
+			.safeParse(body);
+		if (!parsed.success)
+			error(400, "Expected { decision: 'once' | 'always' | 'reject', childSessionId? }.");
+		const parentSessionId = decodeURIComponent(permissionMatch[1]);
+		const targetSessionId = await resolveReplyTarget(link, parentSessionId, parsed.data.childSessionId);
 		await callOp(() =>
 			link.permissionReply({
-				sessionId: decodeURIComponent(permissionMatch[1]),
+				sessionId: targetSessionId,
 				requestId: decodeURIComponent(permissionMatch[2]),
 				decision: parsed.data.decision,
 			})
@@ -745,13 +783,19 @@ export const POST: RequestHandler = async (event) => {
 			.object({
 				decision: z.enum(["accept", "decline"]),
 				answers: z.array(z.array(z.string())).optional(),
+				childSessionId: z.string().trim().min(1).max(200).optional(),
 			})
 			.safeParse(body);
 		if (!parsed.success)
-			error(400, "Expected { decision: 'accept' | 'decline', answers?: string[][] }.");
+			error(
+				400,
+				"Expected { decision: 'accept' | 'decline', answers?: string[][], childSessionId? }."
+			);
+		const parentSessionId = decodeURIComponent(questionMatch[1]);
+		const targetSessionId = await resolveReplyTarget(link, parentSessionId, parsed.data.childSessionId);
 		await callOp(() =>
 			link.questionReply({
-				sessionId: decodeURIComponent(questionMatch[1]),
+				sessionId: targetSessionId,
 				requestId: decodeURIComponent(questionMatch[2]),
 				decision: parsed.data.decision === "accept" ? "answer" : "reject",
 				...(parsed.data.answers ? { answers: parsed.data.answers } : {}),

@@ -234,6 +234,11 @@ export interface Envelope {
 	sessionId: string;
 	epoch: string;
 	seq: number;
+	/** The top-level ancestor of `sessionId` (itself for a top-level
+	 * session) — what lets a root's watchers receive a subagent's
+	 * envelopes mid-turn. Absent from machines that predate the field;
+	 * those fall back to matching `sessionId` (see `machines.ts`). */
+	rootSessionId?: string;
 	event: NormalizedEvent;
 }
 
@@ -332,6 +337,10 @@ export interface EventFrame {
 	sessionId: string;
 	epoch: string;
 	seq: number;
+	/** The top-level ancestor of `sessionId` (itself for a top-level
+	 * session). Optional for forward compatibility: older machines omit
+	 * it and Cerea falls back to `sessionId`. */
+	rootSessionId?: string;
 	event: NormalizedEvent;
 }
 
