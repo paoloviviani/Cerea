@@ -70,13 +70,9 @@
 		agentId: string;
 		/** The workspace the address named, so the strip can name it without guessing. */
 		workspaceId?: string;
-		/** The device's own display name, for the re-enroll dialog's copy and
-		 * its setup command's `--name` — unknown only in the brief window
-		 * before the device list has loaded. */
-		deviceName?: string;
 	}
 
-	let { deviceId, agentId, workspaceId, deviceName }: Props = $props();
+	let { deviceId, agentId, workspaceId }: Props = $props();
 
 	/** Whether `CodePanel`'s probe (on agent open, on device switch) last
 	 * found this device's enrollment expired — the composer refuses to send
@@ -504,5 +500,8 @@
 	     is a new pending row to confirm, not an update to this one — the
 	     expired row here still needs revoking separately once the new
 	     machine is up. -->
-	<PairDeviceDialog onclose={() => (showReenroll = false)} onpaired={() => (showReenroll = false)} />
+	<PairDeviceDialog
+		onclose={() => (showReenroll = false)}
+		onpaired={() => (showReenroll = false)}
+	/>
 {/if}

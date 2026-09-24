@@ -69,11 +69,21 @@ function toolResultUpdate(
 		outputs: output ? [{ text: output }] : [],
 		display: true,
 	};
-	return { type: MessageUpdateType.Tool, subtype: MessageToolUpdateType.Result, uuid: callId, result };
+	return {
+		type: MessageUpdateType.Tool,
+		subtype: MessageToolUpdateType.Result,
+		uuid: callId,
+		result,
+	};
 }
 
 function toolErrorUpdate(callId: string, message: string): MessageToolErrorUpdate {
-	return { type: MessageUpdateType.Tool, subtype: MessageToolUpdateType.Error, uuid: callId, message };
+	return {
+		type: MessageUpdateType.Tool,
+		subtype: MessageToolUpdateType.Error,
+		uuid: callId,
+		message,
+	};
 }
 
 /** One part → zero or more panel frames. A part upserts in place on the
@@ -88,12 +98,19 @@ function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[
 			if (part.synthetic) return [];
 			if (!part.text) return [];
 			return part.role === "user"
-				? [{ type: "user", text: part.text, ...(clientMessageId ? { messageId: clientMessageId } : {}) }]
+				? [
+						{
+							type: "user",
+							text: part.text,
+							...(clientMessageId ? { messageId: clientMessageId } : {}),
+						},
+					]
 				: [{ type: MessageUpdateType.Stream, token: part.text }];
 		case "tool": {
 			const call = toolCallUpdate(part.callId, part.tool, part.input);
 			if (part.status === "pending" || part.status === "running") return [call];
-			if (part.status === "error") return [call, toolErrorUpdate(part.callId, part.error ?? "The call failed.")];
+			if (part.status === "error")
+				return [call, toolErrorUpdate(part.callId, part.error ?? "The call failed.")];
 			return [call, toolResultUpdate(part.callId, part.tool, part.input, part.output)];
 		}
 		// reasoning: no panel shape yet. file/subtask: the diff pane and the
@@ -104,7 +121,9 @@ function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[
 	}
 }
 
-export function permissionRequestToUpdate(request: PermissionRequest): MessageElicitationRequestUpdate {
+export function permissionRequestToUpdate(
+	request: PermissionRequest
+): MessageElicitationRequestUpdate {
 	return {
 		type: MessageUpdateType.Elicitation,
 		subtype: MessageElicitationUpdateType.Request,
@@ -150,8 +169,16 @@ function todoToUpdate(todos: Todo[]): MessagePlanUpdate {
 	};
 }
 
-function turnStateUpdate(state: MessageTurnStateUpdate["state"], reason?: string): MessageTurnStateUpdate {
-	return { type: MessageUpdateType.TurnState, state, serverNow: Date.now(), ...(reason ? { reason } : {}) };
+function turnStateUpdate(
+	state: MessageTurnStateUpdate["state"],
+	reason?: string
+): MessageTurnStateUpdate {
+	return {
+		type: MessageUpdateType.TurnState,
+		state,
+		serverNow: Date.now(),
+		...(reason ? { reason } : {}),
+	};
 }
 
 /** `status` → turn state (spec §8): `busy`/`retry` are running, `idle` is

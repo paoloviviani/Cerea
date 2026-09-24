@@ -113,7 +113,7 @@
 	// freeze the tree behind `Promise.all`), and never for one still
 	// `pending`, which has no subtree to show yet.
 	const loadableDevices = $derived(
-		codeDeviceList.devices.filter((device) => device.status === "paired" && device.online)
+		codeDeviceList.devices.filter((device) => device.status === "paired" && device.online !== false)
 	);
 	const TREE_POLL_MS = 8000;
 	async function refreshTrees() {
@@ -299,22 +299,23 @@
 							<IconClose class="size-3.5" />
 						</button>
 					{:else}
+						{@const online = device.online !== false}
 						<span
 							class="shrink-0 rounded-full px-1.5 text-[.65rem] {device.credentialState ===
 							'expired'
 								? 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
-								: device.online
+								: online
 									? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
 									: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}"
 							title={device.credentialState === "expired"
 								? "This machine's gateway credential expired or was revoked."
-								: device.online
+								: online
 									? "Connected"
 									: "Not connected"}
 						>
 							{device.credentialState === "expired"
 								? "credential expired"
-								: device.online
+								: online
 									? "online"
 									: "offline"}
 						</span>
@@ -326,7 +327,7 @@
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
 							title="Add a workspace to this device"
-							disabled={!device.online}
+							disabled={!online}
 							onclick={() => (workspaceDialogFor = device.id)}
 						>
 							<IconAdd class="size-3.5" />
@@ -341,7 +342,7 @@
 					{/if}
 				</div>
 				{#if device.status === "paired"}
-					{#if !device.online || tree?.off}
+					{#if device.online === false || tree?.off}
 						<!-- Offline renders as a plain label, never a spinner (X4):
 						     an unreachable machine is never even asked for its
 						     tree (see `loadableDevices` above), so there is
@@ -532,8 +533,9 @@
 	{@const dialogWorkspace = agentDialogFor}
 	{@const dialogDevice =
 		selectedDeviceId ??
-		codeDeviceList.devices.find((d) => trees[d.id]?.workspaces.some((w) => w.id === dialogWorkspace.id))
-			?.id ??
+		codeDeviceList.devices.find((d) =>
+			trees[d.id]?.workspaces.some((w) => w.id === dialogWorkspace.id)
+		)?.id ??
 		""}
 	<AgentDialog
 		deviceId={dialogDevice}

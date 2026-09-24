@@ -77,7 +77,6 @@
 					deviceId={selectedDeviceId}
 					agentId={selectedAgentId}
 					workspaceId={selectedWorkspaceId}
-					deviceName={selected?.name}
 				/>
 			{:else if codeDeviceList.loading}
 				<div class="pointer-events-auto {s.EMPTY}">

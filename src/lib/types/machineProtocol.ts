@@ -227,12 +227,7 @@ export type OpName =
 	| "backend.models";
 
 export type ErrorCode =
-	| "not_found"
-	| "invalid"
-	| "forbidden"
-	| "unavailable"
-	| "backend"
-	| "unsupported";
+	"not_found" | "invalid" | "forbidden" | "unavailable" | "backend" | "unsupported";
 
 export class OpError extends Error {
 	constructor(
@@ -400,9 +395,7 @@ export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 	if (typeof raw !== "object" || raw === null || !("type" in raw)) return null;
 	switch ((raw as { type: unknown }).type) {
 		case "hello":
-			return helloFrameSchema.safeParse(raw).success
-				? (raw as unknown as HelloFrame)
-				: null;
+			return helloFrameSchema.safeParse(raw).success ? (raw as unknown as HelloFrame) : null;
 		case "res":
 			return resFrameSchema.safeParse(raw).success ? (raw as unknown as ResFrame) : null;
 		case "event":

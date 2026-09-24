@@ -74,6 +74,20 @@ vi.mock("$env/dynamic/public", () => ({
 	env: publicEnv,
 }));
 
+// The machine link's local JWT validation (`machineAuth.ts`) reads its
+// issuer/audience/client id through `config.ts`, which snapshots this mocked
+// env once per worker — a spec cannot override it at runtime (setting
+// `config.X` throws in test mode, and `process.env` isn't read live here
+// either), so `machineAuth.spec.ts`'s local discovery/JWKS server binds this
+// exact fixed port and these exact values rather than random ones.
+const TEST_CODE_MACHINE_ISSUER = "http://127.0.0.1:18999";
+const TEST_CODE_MACHINE_AUDIENCE = "pystino-api";
+const TEST_CODE_MACHINE_CLIENT_ID = "opencode-enrollment";
+// `.env` ships this off (it needs a machine actually dialling in, ADR 0085's
+// old wording); every `/code` server spec needs it on, or `requireCodeAgents`
+// 404s before the handler under test ever runs.
+const TEST_CODE_AGENTS_ENABLED = "true";
+
 vi.mock("$env/dynamic/private", async () => {
 	// A CPU without AVX cannot run the memory server's binary (MongoDB 5.0+
 	// requires it), and neither can a locked-down CI. `TEST_MONGODB_URL` opts
@@ -87,6 +101,10 @@ vi.mock("$env/dynamic/private", async () => {
 				// Pin the model registry at the intercepted fixture host. Must stay in sync with
 				// the intercept above.
 				OPENAI_BASE_URL: TEST_OPENAI_BASE_URL,
+				CODE_MACHINE_ISSUER: TEST_CODE_MACHINE_ISSUER,
+				CODE_MACHINE_AUDIENCE: TEST_CODE_MACHINE_AUDIENCE,
+				CODE_MACHINE_CLIENT_ID: TEST_CODE_MACHINE_CLIENT_ID,
+				CODE_AGENTS_ENABLED: TEST_CODE_AGENTS_ENABLED,
 			},
 		};
 	}
@@ -100,6 +118,10 @@ vi.mock("$env/dynamic/private", async () => {
 			// Pin the model registry at the intercepted fixture host. Must stay in sync with
 			// the intercept above.
 			OPENAI_BASE_URL: TEST_OPENAI_BASE_URL,
+			CODE_MACHINE_ISSUER: TEST_CODE_MACHINE_ISSUER,
+			CODE_MACHINE_AUDIENCE: TEST_CODE_MACHINE_AUDIENCE,
+			CODE_MACHINE_CLIENT_ID: TEST_CODE_MACHINE_CLIENT_ID,
+			CODE_AGENTS_ENABLED: TEST_CODE_AGENTS_ENABLED,
 		},
 	};
 });
