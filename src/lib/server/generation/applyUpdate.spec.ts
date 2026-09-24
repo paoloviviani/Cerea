@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyUpdateToMessage, joinStepText, startsNewStepSegment } from "./applyUpdate";
+import { applyUpdateToMessage, joinStepText } from "./applyUpdate";
 import {
 	MessageReasoningUpdateType,
 	MessageToolUpdateType,
@@ -227,27 +227,6 @@ describe("joinStepText", () => {
 	});
 });
 
-describe("startsNewStepSegment", () => {
-	it("is false with no history or with visible text since any tool", () => {
-		expect(startsNewStepSegment(undefined)).toBe(false);
-		expect(startsNewStepSegment([])).toBe(false);
-		expect(startsNewStepSegment([stream("hello")])).toBe(false);
-		expect(startsNewStepSegment([stream("a"), toolCall, stream("b")])).toBe(false);
-	});
-
-	it("is true when a tool ran since the last visible stream", () => {
-		expect(startsNewStepSegment([stream("a"), toolCall])).toBe(true);
-	});
-
-	it("skips pure-reasoning chunks on both sides of the boundary", () => {
-		// The step thought before speaking: the think chunks are not segments.
-		expect(startsNewStepSegment([stream("a"), toolCall, stream("<think>hmm")])).toBe(true);
-		expect(
-			startsNewStepSegment([stream("<think>draft</think>"), toolCall, stream("<think>hmm")])
-		).toBe(true);
-	});
-});
-
 describe("streaming a new step after tools", () => {
 	it("separates consecutive steps' text, in content and in the forwarded token", () => {
 		const m = message();
@@ -301,6 +280,73 @@ describe("streaming a new step after tools", () => {
 		applyUpdateToMessage(stream("That one's on me."), ctx(m));
 
 		expect(m.content).toBe("play with trails.\n\nThat one's on me.");
+	});
+
+	it("waits out a step's reasoning streamed token by token, then breaks before its answer", () => {
+		const m = message();
+		applyUpdateToMessage(stream("play with trails."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		const tokens = [
+			"<think>",
+			"The user",
+			" wants",
+			" a fix",
+			"</think>",
+			"That one's",
+			" on me.",
+		].map(stream);
+		for (const t of tokens) applyUpdateToMessage(t, ctx(m));
+
+		expect(m.content).toBe(
+			"play with trails.<think>The user wants a fix</think>\n\nThat one's on me."
+		);
+		// Only the answer's first token carries the break; the reasoning is untouched.
+		expect(tokens.map((t) => t.token)).toEqual([
+			"<think>",
+			"The user",
+			" wants",
+			" a fix",
+			"</think>",
+			"\n\nThat one's",
+			" on me.",
+		]);
+	});
+
+	it("reads a think tag split across tokens as a tag, not as the answer", () => {
+		const m = message();
+		applyUpdateToMessage(stream("one."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		for (const t of ["<thi", "nk>pondering</th", "ink>", "Two."]) {
+			applyUpdateToMessage(stream(t), ctx(m));
+		}
+
+		expect(m.content).toBe("one.<think>pondering</think>\n\nTwo.");
+	});
+
+	it("stays linear over a long reasoning step after a tool", () => {
+		const m = message();
+		applyUpdateToMessage(stream("one."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("<think>"), ctx(m));
+		const started = performance.now();
+		for (let i = 0; i < 30_000; i++) applyUpdateToMessage(stream("thinking hard "), ctx(m));
+		applyUpdateToMessage(stream("</think>Two."), ctx(m));
+		// Rescanning the whole message per token took seconds here; one pass per
+		// token is milliseconds.
+		expect(performance.now() - started).toBeLessThan(2_000);
+		expect(m.content.endsWith("</think>\n\nTwo.")).toBe(true);
+	});
+
+	it("breaks once per step, again after the next tool", () => {
+		const m = message();
+		applyUpdateToMessage(stream("one."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("two"), ctx(m));
+		applyUpdateToMessage(stream(" still two."), ctx(m));
+		applyUpdateToMessage(toolCall, ctx(m));
+		applyUpdateToMessage(stream("three."), ctx(m));
+
+		expect(m.content).toBe("one.\n\ntwo still two.\n\nthree.");
 	});
 
 	it("puts the break after the think markup when the step opens with reasoning", () => {
