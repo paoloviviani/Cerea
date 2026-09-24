@@ -444,7 +444,13 @@ async function onHello(
 	}
 
 	// A newer connection for the same machine replaces an older one (§3).
+	// Its event listeners move to the new connection first (the same Map
+	// instance, so every `subscribeSessionEvents` closure the SSE bridge
+	// holds keeps working with no re-subscribe) — otherwise an open bridge
+	// silently goes quiet across a machine reconnect, since the fresh
+	// connection would start with an empty listener map of its own.
 	const previous = registry.get(deviceId);
+	const listeners = previous?.listeners ?? new Map();
 	if (previous) closeConnection(previous, 4409, "a newer connection replaced this one");
 
 	const state: ConnectionState = {
@@ -454,7 +460,7 @@ async function onHello(
 		backends: hello.backends,
 		policy: hello.policy,
 		pending: new Map(),
-		listeners: new Map(),
+		listeners,
 		authDeadline: null,
 		pingInterval: null,
 		lastPongAt: Date.now(),
