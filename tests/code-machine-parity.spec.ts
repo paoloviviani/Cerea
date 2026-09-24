@@ -3,7 +3,7 @@
  * `pystino-agent` supervising a real `opencode serve`, only the LLM and the IdP mocked).
  * Each test pairs its own machine, so a policy set for one never leaks into another.
  */
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
@@ -22,6 +22,13 @@ test.describe("owned machine agent: parity", () => {
 	test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 	let machine: Machine | null = null;
+	let consoleLines: string[] = [];
+
+	test.beforeEach(({ page }) => {
+		consoleLines = [];
+		page.on("console", (msg) => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
+		page.on("pageerror", (err) => consoleLines.push(`[pageerror] ${err.stack ?? err.message}`));
+	});
 
 	// eslint-disable-next-line no-empty-pattern
 	test.afterEach(async ({}, testInfo) => {
@@ -30,6 +37,9 @@ test.describe("owned machine agent: parity", () => {
 				body: machine.logs(),
 				contentType: "text/plain",
 			});
+			// Also on disk: an attachment's body lives only in the report.
+			writeFileSync(testInfo.outputPath("pystino-agent.log"), machine.logs());
+			writeFileSync(testInfo.outputPath("browser-console.log"), consoleLines.join("\n"));
 		}
 		await machine?.stop();
 		machine = null;
@@ -114,6 +124,31 @@ test.describe("owned machine agent: parity", () => {
 
 		await page.getByRole("button", { name: "Changes" }).click();
 		await expect(page.getByText("out.txt").first()).toBeVisible({ timeout: 20_000 });
+	});
+
+	test("files: an attached file reaches the agent and renders on the user message", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario({
+			content: ["Read", " it", "."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await page.locator('input[type="file"]').setInputFiles({
+			name: "notes.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from("marker-7f3a lives in the notes\n"),
+		});
+		await send(page, "read the notes");
+		await expect(page.getByText("Read it.")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText("notes.txt").first()).toBeVisible();
+		// The bytes went through the store, over the machine's socket, into opencode's prompt.
+		const requests = await mockOpenAI.requests();
+		expect(requests.some((r) => JSON.stringify(r.body).includes("marker-7f3a"))).toBe(true);
 	});
 
 	test("subagents: a task call renders as a subagent card in the parent transcript", async ({

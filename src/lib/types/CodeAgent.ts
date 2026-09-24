@@ -1,4 +1,5 @@
 import type { ObjectId } from "mongodb";
+import type { MessageFile } from "$lib/types/Message";
 import type { Backend, CredentialState, Policy } from "$lib/types/machineProtocol";
 import {
 	MessageUpdateType,
@@ -52,10 +53,12 @@ import {
 export interface AgentUserMessageUpdate {
 	type: "user";
 	text: string;
-	/** The machine's echo of `Message.clientMessageId` (spec) — the key
-	 * attachments (images/files) will key off once the attachment store
-	 * lands. The fold may ignore it for now. */
+	/** The machine's echo of `Message.clientMessageId` (spec): the id the
+	 * person's attachments were uploaded under. */
 	messageId?: string;
+	/** Those attachments, as the store returns them (`findAttachments`),
+	 * added by the bridge; the fold puts them on the user message. */
+	files?: MessageFile[];
 }
 
 /**

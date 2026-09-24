@@ -86,6 +86,19 @@ describe("consumeAgentUpdates", () => {
 		expect(isConversationGenerationActive(messages)).toBe(false);
 	});
 
+	it("puts a user frame's attachments on the user message, and nothing else moves", async () => {
+		const files = [{ type: "hash" as const, value: "abc", mime: "image/png", name: "shot.png" }];
+		const messages = await run([
+			{ type: "user", text: "look at this", messageId: "m1", files },
+			token("Seen."),
+			done(),
+		]);
+		expect(messages).toHaveLength(2);
+		expect(messages[0]).toMatchObject({ from: "user", content: "look at this", files });
+		expect(messages[1]).toMatchObject({ from: "assistant", content: "Seen." });
+		expect(messages[1].files).toBeUndefined();
+	});
+
 	it("pairs a live tool's running and completed frames once", async () => {
 		const messages = await run([user("run it"), running(), call("t1"), result("t1"), done()]);
 		const updates = messages[1].updates ?? [];

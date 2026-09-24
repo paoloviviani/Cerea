@@ -74,6 +74,10 @@
 		// Settings hold *defaults*, a chat holds *per-chat state* — this never
 		// writes to `Settings.webSearchEnabled`.
 		webSearch?: boolean;
+		/** Chat's own tools in the attach row (MCP servers, knowledge bases,
+		 * web search, tool approval). Off for a composer that only wants the
+		 * file picker, such as an agent's: those tools do nothing there. */
+		chatTools?: boolean;
 		// Tool-approval policy override for THIS conversation (ADR 0075).
 		// Bindable per-chat state: the toggle flips it and PATCHes the
 		// conversation when one exists. `true` means gated calls (web_fetch,
@@ -101,6 +105,7 @@
 		showMlPill = false,
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
+		chatTools = true,
 		autoApproveTools = $bindable(false),
 		children,
 		onPaste,
@@ -698,188 +703,192 @@
 									</DropdownMenu.SubContent>
 								</DropdownMenu.Sub>
 
-								<!-- MCP Servers submenu: legacy env-configured base servers
+								{#if chatTools}
+									<!-- MCP Servers submenu: legacy env-configured base servers
 							     plus the person's connectors (ADR 0064) in one flyout.
 							     Connectors refresh when the submenu opens so one added
 							     moments ago is offered immediately. Signed-out visitors
 							     get a 401 ("none") and see only the base rows. -->
-								<DropdownMenu.Sub
-									onOpenChange={(open) => {
-										if (open) void refreshConnectors();
-									}}
-								>
-									<DropdownMenu.SubTrigger
-										class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
+									<DropdownMenu.Sub
+										onOpenChange={(open) => {
+											if (open) void refreshConnectors();
+										}}
 									>
-										<div class="flex items-center gap-1">
-											<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
-											MCP Servers
-										</div>
-										<div class="ml-auto flex items-center">
-											<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
-										</div>
-									</DropdownMenu.SubTrigger>
-									<DropdownMenu.SubContent
-										class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-										side={narrowViewport.current ? "bottom" : "right"}
-										align={narrowViewport.current ? "start" : "center"}
-										sideOffset={10}
-										collisionPadding={8}
-										sticky="always"
-										trapFocus={false}
-										onCloseAutoFocus={(e) => e.preventDefault()}
-										interactOutsideBehavior="defer-otherwise-close"
-									>
-										{#each $allMcpServers as server (server.id)}
-											<DropdownMenu.CheckboxItem
-												checked={$selectedServerIds.has(server.id)}
-												onCheckedChange={() => toggleServer(server.id)}
-												closeOnSelect={false}
-												class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-											>
-												{#snippet children({ checked })}
-													<img
-														src={getMcpServerFaviconUrl(server.url)}
-														alt=""
-														class="size-4 flex-shrink-0 rounded-sm"
-													/>
-													<span class="max-w-52 truncate py-1">{server.name}</span>
-													<div class="ml-auto flex items-center">
-														<!-- Toggle visual -->
-														<span
-															class={[
-																"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-																checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-															]}
-														>
+										<DropdownMenu.SubTrigger
+											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
+										>
+											<div class="flex items-center gap-1">
+												<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
+												MCP Servers
+											</div>
+											<div class="ml-auto flex items-center">
+												<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
+											</div>
+										</DropdownMenu.SubTrigger>
+										<DropdownMenu.SubContent
+											class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+											side={narrowViewport.current ? "bottom" : "right"}
+											align={narrowViewport.current ? "start" : "center"}
+											sideOffset={10}
+											collisionPadding={8}
+											sticky="always"
+											trapFocus={false}
+											onCloseAutoFocus={(e) => e.preventDefault()}
+											interactOutsideBehavior="defer-otherwise-close"
+										>
+											{#each $allMcpServers as server (server.id)}
+												<DropdownMenu.CheckboxItem
+													checked={$selectedServerIds.has(server.id)}
+													onCheckedChange={() => toggleServer(server.id)}
+													closeOnSelect={false}
+													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+												>
+													{#snippet children({ checked })}
+														<img
+															src={getMcpServerFaviconUrl(server.url)}
+															alt=""
+															class="size-4 flex-shrink-0 rounded-sm"
+														/>
+														<span class="max-w-52 truncate py-1">{server.name}</span>
+														<div class="ml-auto flex items-center">
+															<!-- Toggle visual -->
 															<span
 																class={[
-																	"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-																	checked ? "translate-x-[14px]" : "translate-x-0.5",
+																	"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+																	checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
 																]}
-															></span>
-														</span>
-													</div>
-												{/snippet}
-											</DropdownMenu.CheckboxItem>
-										{/each}
+															>
+																<span
+																	class={[
+																		"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+																		checked ? "translate-x-[14px]" : "translate-x-0.5",
+																	]}
+																></span>
+															</span>
+														</div>
+													{/snippet}
+												</DropdownMenu.CheckboxItem>
+											{/each}
 
-										{#if $allMcpServers.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || $connectors.length > 0)}
-											<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
-										{/if}
+											{#if $allMcpServers.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || $connectors.length > 0)}
+												<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
+											{/if}
 
-										{#if signedIn}
-											{#if !$connectorsLoaded}
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-													disabled
-												>
-													Loading connectors…
-												</DropdownMenu.Item>
-											{:else if $connectorsFailed}
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-													disabled
-												>
-													Could not load connectors
-												</DropdownMenu.Item>
-											{:else if $connectors.length === 0}
-												<!-- Only when there is nothing else to toggle: a
-											     deployment with base servers needs no lecture. -->
-												{#if $allMcpServers.length === 0}
+											{#if signedIn}
+												{#if !$connectorsLoaded}
 													<DropdownMenu.Item
-														class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 														disabled
 													>
-														No connectors yet. Add one from Manage MCP Servers.
+														Loading connectors…
 													</DropdownMenu.Item>
-												{/if}
-											{:else}
-												{#each $connectors as connector (connector.id)}
-													{#if connector.connected}
-														<DropdownMenu.CheckboxItem
-															checked={$selectedConnectorIds.has(connector.id)}
-															onCheckedChange={() => toggleConnector(connector.id)}
-															closeOnSelect={false}
-															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+												{:else if $connectorsFailed}
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+														disabled
+													>
+														Could not load connectors
+													</DropdownMenu.Item>
+												{:else if $connectors.length === 0}
+													<!-- Only when there is nothing else to toggle: a
+											     deployment with base servers needs no lecture. -->
+													{#if $allMcpServers.length === 0}
+														<DropdownMenu.Item
+															class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+															disabled
 														>
-															{#snippet children({ checked })}
+															No connectors yet. Add one from Manage MCP Servers.
+														</DropdownMenu.Item>
+													{/if}
+												{:else}
+													{#each $connectors as connector (connector.id)}
+														{#if connector.connected}
+															<DropdownMenu.CheckboxItem
+																checked={$selectedConnectorIds.has(connector.id)}
+																onCheckedChange={() => toggleConnector(connector.id)}
+																closeOnSelect={false}
+																class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+															>
+																{#snippet children({ checked })}
+																	<img
+																		src={getMcpServerFaviconUrl(connector.url)}
+																		alt=""
+																		class="size-4 flex-shrink-0 rounded-sm"
+																	/>
+																	<span class="max-w-52 truncate py-1">{connector.name}</span>
+																	<div class="ml-auto flex items-center">
+																		<!-- Toggle visual -->
+																		<span
+																			class={[
+																				"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+																				checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
+																			]}
+																		>
+																			<span
+																				class={[
+																					"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+																					checked ? "translate-x-[14px]" : "translate-x-0.5",
+																				]}
+																			></span>
+																		</span>
+																	</div>
+																{/snippet}
+															</DropdownMenu.CheckboxItem>
+														{:else}
+															<!-- Not connected (OAuth sign-in pending): it
+													     contributes no tools, so there is nothing to
+													     toggle. Tapping opens the manager, where the
+													     sign-in lives, instead of selecting a no-op. -->
+															<DropdownMenu.Item
+																class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+																title="Sign in from Manage MCP Servers"
+																onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
+															>
 																<img
 																	src={getMcpServerFaviconUrl(connector.url)}
 																	alt=""
 																	class="size-4 flex-shrink-0 rounded-sm"
 																/>
-																<span class="max-w-52 truncate py-1">{connector.name}</span>
+																<span class="max-w-32 truncate py-1">{connector.name}</span>
+																<span
+																	class="truncate py-1 text-xs text-gray-500 dark:text-gray-400"
+																>
+																	Not signed in
+																</span>
 																<div class="ml-auto flex items-center">
-																	<!-- Toggle visual -->
+																	<!-- Toggle visual, visibly off -->
 																	<span
-																		class={[
-																			"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-																			checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-																		]}
+																		class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
 																	>
 																		<span
-																			class={[
-																				"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-																				checked ? "translate-x-[14px]" : "translate-x-0.5",
-																			]}
+																			class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
 																		></span>
 																	</span>
 																</div>
-															{/snippet}
-														</DropdownMenu.CheckboxItem>
-													{:else}
-														<!-- Not connected (OAuth sign-in pending): it
-													     contributes no tools, so there is nothing to
-													     toggle. Tapping opens the manager, where the
-													     sign-in lives, instead of selecting a no-op. -->
-														<DropdownMenu.Item
-															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-															title="Sign in from Manage MCP Servers"
-															onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
-														>
-															<img
-																src={getMcpServerFaviconUrl(connector.url)}
-																alt=""
-																class="size-4 flex-shrink-0 rounded-sm"
-															/>
-															<span class="max-w-32 truncate py-1">{connector.name}</span>
-															<span class="truncate py-1 text-xs text-gray-500 dark:text-gray-400">
-																Not signed in
-															</span>
-															<div class="ml-auto flex items-center">
-																<!-- Toggle visual, visibly off -->
-																<span
-																	class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
-																>
-																	<span
-																		class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
-																	></span>
-																</span>
-															</div>
-														</DropdownMenu.Item>
-													{/if}
-												{/each}
+															</DropdownMenu.Item>
+														{/if}
+													{/each}
+												{/if}
 											{/if}
-										{/if}
 
-										{#if $allMcpServers.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && $connectors.length > 0)}
-											<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
-										{/if}
-										<DropdownMenu.Item
-											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-											onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
-										>
-											Manage MCP Servers
-										</DropdownMenu.Item>
-									</DropdownMenu.SubContent>
-								</DropdownMenu.Sub>
+											{#if $allMcpServers.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && $connectors.length > 0)}
+												<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
+											{/if}
+											<DropdownMenu.Item
+												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+												onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
+											>
+												Manage MCP Servers
+											</DropdownMenu.Item>
+										</DropdownMenu.SubContent>
+									</DropdownMenu.Sub>
+								{/if}
 
 								<!-- Knowledge bases submenu: attach to THIS conversation, in
 							     addition to any bases its project carries. Signed-in only,
 							     since retrieval runs as the reader — and hidden entirely
 							     when the deployment switch says the pipeline is off. -->
-								{#if signedIn && page.data.knowledgeEnabled !== false}
+								{#if chatTools && signedIn && page.data.knowledgeEnabled !== false}
 									<DropdownMenu.Sub
 										onOpenChange={(open) => {
 											if (open) void loadKnowledgeStores();
@@ -975,7 +984,7 @@
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
 
-					{#if $totalEnabledMcpCount > 0}
+					{#if chatTools && $totalEnabledMcpCount > 0}
 						<div
 							class="ml-1.5 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
 							class:grayscale={!modelSupportsTools}
@@ -1028,42 +1037,44 @@
 				</div>
 			{/if}
 
-			<!-- Web search through the gateway's own backends (ADR 0058's plan,
+			{#if chatTools}
+				<!-- Web search through the gateway's own backends (ADR 0058's plan,
 		     phase 2). The toggle is the user's consent to spend; the tool
 		     itself only exists when the console has granted a search tier,
 		     so a toggle with nothing behind it costs nothing and changes
 		     nothing. -->
-			<button
-				type="button"
-				class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
-					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-				aria-pressed={webSearch}
-				title="Search the web through this deployment's search backends (this chat only)"
-				onclick={toggleWebSearch}
-			>
-				<CarbonEarth class="size-3.5" />
-				Web search
-			</button>
+				<button
+					type="button"
+					class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
+						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+					aria-pressed={webSearch}
+					title="Search the web through this deployment's search backends (this chat only)"
+					onclick={toggleWebSearch}
+				>
+					<CarbonEarth class="size-3.5" />
+					Web search
+				</button>
 
-			<!-- Chat-local override of the tool-approval policy (ADR 0075).
+				<!-- Chat-local override of the tool-approval policy (ADR 0075).
 			     Inside a conversation this PATCHes the override; on the home
 			     page there is no conversation yet, so it only flips the local
 			     state that rides into the create request. -->
-			<button
-				type="button"
-				class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
-					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-				aria-pressed={autoApproveTools}
-				title={autoApproveTools
-					? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
-					: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
-				onclick={toggleAutoApproveTools}
-			>
-				<LucideShieldCheck class="size-3.5" />
-				{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
-			</button>
+				<button
+					type="button"
+					class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
+						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+					aria-pressed={autoApproveTools}
+					title={autoApproveTools
+						? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
+						: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
+					onclick={toggleAutoApproveTools}
+				>
+					<LucideShieldCheck class="size-3.5" />
+					{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
+				</button>
+			{/if}
 
 			{#if showMlPill}
 				<MlInternPill />

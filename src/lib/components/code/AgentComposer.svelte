@@ -31,6 +31,7 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { DropdownMenu } from "bits-ui";
+	import ComposerFileChips from "$lib/components/chat/ComposerFileChips.svelte";
 	import ChatInput from "$lib/components/chat/ChatInput.svelte";
 	import StopGeneratingBtn from "$lib/components/StopGeneratingBtn.svelte";
 	import IconArrowUp from "~icons/lucide/arrow-up";
@@ -80,7 +81,9 @@
 		enrollmentExpired?: boolean;
 		/** Called synchronously with the submit, before the POST — the view
 		 * engages the column's follow and raises its pending placeholder. */
-		onsend: (text: string) => Promise<void>;
+		onsend: (text: string, files: File[]) => Promise<void>;
+		/** What the picker, paste and chips accept; empty hides the picker. */
+		mimeTypes?: string[];
 		/** Stops the live turn. The transcript records the ending; this only
 		 * carries the request to the daemon. */
 		onstop?: () => void;
@@ -111,6 +114,7 @@
 		running = false,
 		enrollmentExpired = false,
 		onsend,
+		mimeTypes = [],
 		onstop,
 		onchanged,
 		onreenroll,
@@ -120,6 +124,7 @@
 	}: Props = $props();
 
 	let draft = $state("");
+	let files = $state<File[]>([]);
 	let focused = $state(false);
 	let busy = $state(false);
 
@@ -129,10 +134,11 @@
 		if (!message || busy) return;
 		busy = true;
 		try {
-			await onsend(message);
-			// Cleared only on a landed send: a refused follow-up keeps its text,
-			// like every composer here.
+			await onsend(message, files);
+			// Cleared only on a landed send: a refused follow-up keeps its text
+			// and its files, like every composer here.
 			draft = "";
+			files = [];
 		} finally {
 			busy = false;
 		}
@@ -330,10 +336,13 @@
 >
 	<div class="flex w-full items-center">
 		<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
+			<ComposerFileChips bind:files />
 			<ChatInput
 				placeholder="Follow up with the agent…"
 				bind:value={draft}
-				mimeTypes={[]}
+				{mimeTypes}
+				chatTools={false}
+				bind:files
 				onsubmit={submit}
 				bind:focused
 			>
