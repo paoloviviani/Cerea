@@ -1,14 +1,18 @@
 # The one PR workflow for Cerea (it folds in the checks thin-agent/main parked
-# here as ci.yml: check, lint, vitest).
+# here as ci.yml: check, lint, vitest), plus galopin's own Go checks now that
+# it lives here as agent/.
 #
 # Sized for the GitHub free plan's Action minutes:
 #   - PRs and manual runs only, docs excluded, no matrix, cancel-in-progress;
 #   - ONE job for lint + check + the server/ssr suite, so `npm ci` (the
 #     slowest step) is paid once per run instead of once per job;
+#   - a second, independent job for gofmt/vet/test in agent/, since it needs
+#     no Node and would otherwise wait behind npm ci for nothing;
 #   - the client project (a real Chromium in the Playwright image, the
 #     costliest suite) runs weekly and on demand, not on every PR.
 # Image builds are images.yml (main and tags); the gateway contract is
-# contract.yml.
+# contract.yml; galopin's real-opencode IT against opencode's latest release
+# is opencode-latest.yml (weekly, non-blocking).
 name: ci
 
 on:
@@ -61,6 +65,24 @@ jobs:
       # known pre-existing failure even with it — tracked in
       # reports/2026-09-24-thin-agent-progress.md ("Known CI exclusions").
       - run: npx vitest run --project=server --project=ssr --no-file-parallelism
+
+  go:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
 
   client:
     if: github.event_name != 'pull_request'

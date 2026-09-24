@@ -200,8 +200,8 @@ test.describe("the pair dialog's setup commands", () => {
 
 		// No naming step and no pasted offer any more: the machine enrolls
 		// and dials in on its own, against this deployment's own origin.
-		await expect(dialog.getByText(`pystino-agent enroll --cerea ${E2E_APP_URL}`)).toBeVisible();
-		await expect(dialog.getByText("pystino-agent run")).toBeVisible();
+		await expect(dialog.getByText(`galopin enroll --cerea ${E2E_APP_URL}`)).toBeVisible();
+		await expect(dialog.getByText("galopin run")).toBeVisible();
 		await expect(dialog.getByText("No machine has checked in yet.")).toBeVisible();
 
 		// The commands never clip on a phone.

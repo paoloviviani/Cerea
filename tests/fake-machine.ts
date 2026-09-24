@@ -1,5 +1,5 @@
 /**
- * A fake `pystino-agent`: a small Node WebSocket client that speaks the
+ * A fake `galopin`: a small Node WebSocket client that speaks the
  * thin machine agent protocol (`reports/2026-09-24-thin-agent-protocol.md`)
  * well enough to drive Cerea's server-side plumbing (`machines.ts`, the
  * forwarder, the SSE bridge) in tests, without a real Go binary or a real

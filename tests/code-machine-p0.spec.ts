@@ -1,6 +1,6 @@
 /**
  * P0 of the owned machine agent, end to end with nothing stubbed between the
- * browser and opencode: the real `pystino-agent` dials the app over WSS with a
+ * browser and opencode: the real `galopin` dials the app over WSS with a
  * token from the mock issuer, the person confirms the machine in /code, adds a
  * workspace, starts a session, sends a prompt and watches the reply stream in,
  * approves a permission (the tool really runs on disk), and stops a running turn.
@@ -25,12 +25,12 @@ test.describe("owned machine agent (P0)", () => {
 	// eslint-disable-next-line no-empty-pattern
 	test.afterEach(async ({}, testInfo) => {
 		if (machine && testInfo.status !== testInfo.expectedStatus) {
-			await testInfo.attach("pystino-agent.log", {
+			await testInfo.attach("galopin.log", {
 				body: machine.logs(),
 				contentType: "text/plain",
 			});
 			// Also on disk: an attachment's body lives only in the report.
-			writeFileSync(testInfo.outputPath("pystino-agent.log"), machine.logs());
+			writeFileSync(testInfo.outputPath("galopin.log"), machine.logs());
 		}
 		await machine?.stop();
 		machine = null;

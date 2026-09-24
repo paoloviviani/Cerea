@@ -101,7 +101,7 @@ export interface FeatureFlags {
 	/**
 	 * The chat's own OIDC issuer (`OPENID_PROVIDER_URL`) — the bundled
 	 * Authelia or whatever external IdP the deployment points at: the
-	 * `--issuer` a machine's `pystino-agent enroll` needs, so its OIDC lands on
+	 * `--issuer` a machine's `galopin enroll` needs, so its OIDC lands on
 	 * the provider that actually issued the deployment's tokens, rather than a
 	 * path only the bundled Authelia serves.
 	 */
