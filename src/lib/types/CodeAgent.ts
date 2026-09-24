@@ -250,6 +250,18 @@ export interface CodeWorkspace {
 	id: string;
 	name: string;
 	path: string;
+	isGitRepo: boolean;
+	/** Set when this workspace is a `git worktree` of another workspace. */
+	worktreeOf?: string;
+	branch?: string;
+}
+
+/** One `workspace.suggest` result: a directory autocomplete candidate for
+ * the "Add workspace" dialog's path input. */
+export interface CodeDirectory {
+	path: string;
+	name: string;
+	isGitRepo: boolean;
 }
 
 /** A coding session on a device. Lives on the daemon; never mirrored here. */
