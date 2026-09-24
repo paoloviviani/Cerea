@@ -17,6 +17,8 @@ import { test as base, expect, type APIRequestContext, type BrowserContext } fro
 import { createHash, randomUUID } from "node:crypto";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { pathToFileURL } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import superjson from "superjson";
 import { MOCK_OPENAI_PORT, type ScenarioSelector } from "./mock-openai.ts";
 import { MOCK_MCP_PORT, type RecordedToolCall } from "./mock-mcp.ts";
@@ -53,6 +55,10 @@ export const E2E_APP_BASE = process.env.E2E_APP_BASE ?? "";
  */
 export const E2E_APP_ORIGIN = `http://127.0.0.1:${E2E_APP_PORT}`;
 export const E2E_APP_URL = `${E2E_APP_ORIGIN}${E2E_APP_BASE}`;
+/** Where the app serves galopin's public downloads from in the e2e stack;
+ * `tests/galopin-dist.spec.ts` builds galopin into it. */
+export const E2E_GALOPIN_DIST_DIR =
+	process.env.E2E_GALOPIN_DIST_DIR ?? join(tmpdir(), `galopin-e2e-dist-${E2E_APP_PORT}`);
 export const E2E_MONGO_URL = `mongodb://127.0.0.1:${E2E_MONGO_PORT}`;
 export const MOCK_OPENAI_ORIGIN = `http://127.0.0.1:${MOCK_OPENAI_PORT}`;
 export const MOCK_OPENAI_BASE_URL = `${MOCK_OPENAI_ORIGIN}/v1`;

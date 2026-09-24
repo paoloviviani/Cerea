@@ -56,6 +56,24 @@ COPY --link --chown=1000 . .
 RUN git config --global --add safe.directory /app && \
     npm run build
 
+# galopin, the machine agent (agent/): the four binaries the deployment
+# serves at {base}/galopin/*, built with the same flags as
+# agent/packaging/build-dist.sh (static, CGO off, trimpath, stripped).
+FROM golang:1.24 AS galopin
+WORKDIR /src/agent
+COPY --link agent/go.mod agent/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY --link agent/ ./
+ARG PUBLIC_COMMIT_SHA=
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    set -eu; mkdir -p /out; \
+    for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
+        os=${target%/*}; arch=${target#*/}; \
+        CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags='-s -w' -o /out/galopin-$os-$arch .; \
+    done; \
+    echo "built from Cerea ${PUBLIC_COMMIT_SHA:-unknown}" > /out/REVISION; \
+    cd /out && sha256sum galopin-* > SHA256SUMS
+
 # mongo image
 FROM mongo:7 AS mongo
 
@@ -91,5 +109,6 @@ ENV BODY_SIZE_LIMIT=15728640
 COPY --from=builder --chown=1000 /app/build /app/build
 COPY --from=builder --chown=1000 /app/node_modules /app/node_modules
 COPY --from=builder --chown=1000 /app/server.js /app/server.js
+COPY --from=galopin --chown=1000 /out /app/galopin-dist
 
 CMD ["/bin/bash", "-c", "/app/entrypoint.sh"]
