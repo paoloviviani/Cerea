@@ -6,7 +6,11 @@ import {
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import type { Message } from "$lib/types/Message";
-import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
+import type {
+	AgentCompactionUpdate,
+	AgentStreamUpdate,
+	AgentUsageUpdate,
+} from "$lib/types/CodeAgent";
 
 /**
  * Apply the agent frame stream to a reactive `Message[]` the UI renders.
@@ -34,6 +38,15 @@ export interface AgentConsumeContext {
 	onAbort: () => void;
 	/** A turn-state frame arrived; the view drops its pending placeholder. */
 	onTurnEvent: () => void;
+	/** The machine's epoch changed (`reset`): the transcript was just
+	 * discarded and rebuilt, and the side channel's tracked usage/compaction
+	 * are stale the same way — the caller clears them here. */
+	onReset?: () => void;
+	/** A `usage` side-channel frame arrived. Never touches turn structure —
+	 * the latest value simply replaces whatever the view is holding. */
+	onUsage?: (usage: AgentUsageUpdate["usage"]) => void;
+	/** A `compaction` side-channel frame arrived. Same discipline as `onUsage`. */
+	onCompaction?: (update: AgentCompactionUpdate) => void;
 }
 
 export async function consumeAgentUpdates(
@@ -203,9 +216,37 @@ export async function consumeAgentUpdates(
 		}
 
 		switch (update.type) {
+			case "reset": {
+				// The machine's process restarted (a new epoch): every id
+				// before this point is gone, so the whole transcript is
+				// discarded and rebuilt from what follows — a plain clear,
+				// not a close, since the same iterator keeps yielding.
+				messages.length = 0;
+				current = null;
+				buffer = "";
+				updatesBuffer = [];
+				updatesDirty = false;
+				toolOpen.clear();
+				toolClosed.clear();
+				ctx.onTurnEvent();
+				ctx.onReset?.();
+				break;
+			}
 			case "user": {
 				closeTurn();
 				messages.push({ id: v4(), from: "user", content: update.text, children: [] });
+				break;
+			}
+			// Side channel (M3): never opens/closes a turn, never touches
+			// current/buffer/updatesBuffer — the latest value simply replaces
+			// whatever the view is holding, so a replayed history re-delivering
+			// these in order is correct without any de-duplication.
+			case "usage": {
+				ctx.onUsage?.(update.usage);
+				break;
+			}
+			case "compaction": {
+				ctx.onCompaction?.(update);
 				break;
 			}
 			case MessageUpdateType.Stream: {

@@ -167,7 +167,18 @@ type ExtraConfigKeys =
 	| "EXA_API_KEY"
 	| "GITHUB_TOKEN"
 	/** The relay the `/code` panel's daemons are reached through (ADR 0085). */
-	| "CODE_RELAY_URL";
+	| "CODE_RELAY_URL"
+	/** The issuer a machine link's bearer must carry (`iss`, exact match after
+	 * trailing-slash normalization). Defaults to `OPENID_PROVIDER_URL` so a
+	 * normal deployment needs nothing extra; set separately so a test harness
+	 * can point machine tokens at a mock issuer without touching the browser
+	 * login's OIDC config. */
+	| "CODE_MACHINE_ISSUER"
+	/** The audience (`aud`) a machine link's bearer must carry. */
+	| "CODE_MACHINE_AUDIENCE"
+	/** The authorized party (`azp`/`client_id`) a machine link's bearer must
+	 * carry — the enrollment CLI's OAuth client id. */
+	| "CODE_MACHINE_CLIENT_ID";
 
 type ConfigProxy = ConfigManager & { [K in ConfigKey | ExtraConfigKeys]: string };
 
