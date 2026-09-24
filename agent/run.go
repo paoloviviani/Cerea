@@ -24,19 +24,19 @@ import (
 	"galopin/internal/workspaces"
 )
 
-// agentVersion is pystino-agent's own version. Bumped by hand until a
+// agentVersion is galopin's own version. Bumped by hand until a
 // release process assigns it from a tag.
 const agentVersion = "0.1.0"
 
-const runUsage = `pystino-agent run — supervise opencode and dial out to Cerea.
+const runUsage = `galopin run — supervise opencode and dial out to Cerea.
 
 Usage:
-  pystino-agent run [--cerea URL] [options]
+  galopin run [--cerea URL] [options]
 
   --cerea URL         Cerea origin to dial (default: the origin recorded at
                       enroll time, if any — see 'enroll --cerea').
-  --creds PATH        Credential file (default <config-dir>/opencode/
-                      pystino-credentials.json).
+  --creds PATH        Credential file (default <config-dir>/galopin/
+                      credentials.json).
   --state-dir PATH    Directory for this run's own state: policy.json,
                       the workspace registry, the machine id, the opencode
                       mode/model overlay (default: beside --creds).
@@ -94,10 +94,15 @@ func runRun(args []string) error {
 }
 
 func logf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "pystino-agent: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "galopin: "+format+"\n", args...)
 }
 
 func runAgent(ctx context.Context, opts *runOptions) error {
+	if !migrationDisabled(opts.credsPath, opts.stateDir) {
+		if err := migrateLegacyState(); err != nil {
+			return err
+		}
+	}
 	credsPath := opts.credsPath
 	if credsPath == "" {
 		path, err := defaultCredsPath()
@@ -124,7 +129,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		cereaOrigin = creds.CereaOrigin
 	}
 	if cereaOrigin == "" {
-		return fmt.Errorf("no Cerea origin: pass --cerea, or re-run 'pystino-agent enroll --cerea <origin>'")
+		return fmt.Errorf("no Cerea origin: pass --cerea, or re-run 'galopin enroll --cerea <origin>'")
 	}
 	cereaOrigin = strings.TrimSuffix(cereaOrigin, "/")
 
@@ -171,10 +176,10 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	var shimServer *http.Server
 	if !opts.noShim {
 		if creds.Gateway == "" {
-			return fmt.Errorf("creds file has no gateway: re-run 'pystino-agent enroll' (the shim has nothing to forward to)")
+			return fmt.Errorf("creds file has no gateway: re-run 'galopin enroll' (the shim has nothing to forward to)")
 		}
 		mux := http.NewServeMux()
-		mux.HandleFunc("/pystino/health", sh.requireLocalAuth(sh.healthHandler))
+		mux.HandleFunc("/galopin/health", sh.requireLocalAuth(sh.healthHandler))
 		mux.HandleFunc("/", sh.requireLocalAuth(sh.handler))
 		addr := fmt.Sprintf("127.0.0.1:%d", shimPort)
 		shimServer = &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -417,8 +422,8 @@ const revokedHelp = `
 This machine was revoked in the chat's /code panel, so its machine id is refused
 for good. To connect it again, re-enroll (which mints a new machine id):
 
-  pystino-agent enroll ... --cerea <chat origin>   # same flags as before
-  pystino-agent run
+  galopin enroll ... --cerea <chat origin>   # same flags as before
+  galopin run
 
 or delete the machine id file (it lives next to the credentials, as "machine-id")
 and start 'run' again; the machine then shows up as a new pending device to confirm.

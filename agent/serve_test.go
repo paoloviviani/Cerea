@@ -294,7 +294,7 @@ func TestHandlerTransientRefusalStays502(t *testing.T) {
 	}
 }
 
-// TestHealthHandlerReflectsStatus checks that GET /pystino/health serves
+// TestHealthHandlerReflectsStatus checks that GET /galopin/health serves
 // exactly the status the last refresh recorded.
 func TestHealthHandlerReflectsStatus(t *testing.T) {
 	tokenServer, _ := deadTokenServer(t)
@@ -310,7 +310,7 @@ func TestHealthHandlerReflectsStatus(t *testing.T) {
 		t.Fatal("expected the dead credential to fail refresh")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/pystino/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/galopin/health", nil)
 	rec := httptest.NewRecorder()
 	s.healthHandler(rec, req)
 

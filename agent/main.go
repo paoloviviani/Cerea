@@ -1,4 +1,4 @@
-// Command pystino-agent authenticates a human to the Pystino gateway through
+// Command galopin authenticates a human to the Pystino gateway through
 // the bundled IdP (ADR 0084), wires up opencode, and (via `run`) supervises
 // opencode and a WSS link to Cerea that drives coding sessions through this
 // machine. See PROTOCOL.md for the wire protocol `run` speaks to Cerea.
@@ -18,10 +18,10 @@ import (
 	"os"
 )
 
-const usage = `pystino-agent — authenticate to the Pystino gateway and run opencode for Cerea.
+const usage = `galopin — authenticate to the Pystino gateway and run opencode for Cerea.
 
 Usage:
-  pystino-agent <command> [options]
+  galopin <command> [options]
 
 Commands:
   enroll    Run the OAuth flow, pick a billing group, write opencode.json
@@ -30,7 +30,7 @@ Commands:
             the shim injects a fresh access token plus x-bill-to per request.
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
 
-Run 'pystino-agent <command> -h' for that command's options.
+Run 'galopin <command> -h' for that command's options.
 `
 
 func main() {

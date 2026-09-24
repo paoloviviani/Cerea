@@ -35,8 +35,8 @@ type credentials struct {
 	// request rather than silently running unauthenticated.
 	ShimSecret string `json:"shim_secret,omitempty"`
 	// CereaOrigin is the Cerea origin `run` dials by default (PROTOCOL.md
-	// §3): recorded at enroll time so a plain `pystino-agent run` (no
-	// --cerea) works the same way `pystino-agent serve` already needs no
+	// §3): recorded at enroll time so a plain `galopin run` (no
+	// --cerea) works the same way `galopin serve` already needs no
 	// flags beyond what enroll wrote.
 	CereaOrigin string `json:"cerea_origin,omitempty"`
 }
@@ -63,14 +63,44 @@ func (c *credentials) accessExpiry() time.Time {
 	return time.Unix(c.ObtainedAt, 0).Add(time.Duration(lifetime) * time.Second)
 }
 
-// defaultCredsPath keeps the secret next to opencode's own state: the global
-// config dir opencode already uses, so one machine means one enrollment.
-func defaultCredsPath() (string, error) {
+// credentialsFileName is credentials.json's name inside defaultStateDir —
+// no "pystino-" prefix needed now that it lives in its own directory rather
+// than beside opencode's own files.
+const credentialsFileName = "credentials.json"
+
+// defaultStateDir is where galopin keeps everything it writes on its own
+// behalf: credentials.json, machine-id, policy.json, revoked,
+// opencode-overlay.json, workspaces.json and the status file. One directory
+// per machine, no longer shared with opencode's own config (see migrate.go
+// for what moves a pre-galopin install's files here).
+func defaultStateDir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("locating config dir: %w", err)
 	}
-	return filepath.Join(dir, "opencode", "pystino-credentials.json"), nil
+	return filepath.Join(dir, "galopin"), nil
+}
+
+// legacyStateDir is where enroll/run/serve kept every one of those same
+// files before the move into defaultStateDir: beside opencode's own
+// config, each name prefixed pystino- to avoid colliding with opencode's
+// own files in that shared directory (see migrate.go).
+func legacyStateDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("locating config dir: %w", err)
+	}
+	return filepath.Join(dir, "opencode"), nil
+}
+
+// defaultCredsPath is credentials.json in defaultStateDir — one directory,
+// one enrollment per machine.
+func defaultCredsPath() (string, error) {
+	dir, err := defaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, credentialsFileName), nil
 }
 
 // saveCredentials writes the file at 0600, atomically (R8): a crash, a full
@@ -92,7 +122,7 @@ func saveCredentials(path string, creds *credentials) error {
 func loadCredentials(path string) (*credentials, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading creds (run 'pystino-agent enroll' first): %w", err)
+		return nil, fmt.Errorf("reading creds (run 'galopin enroll' first): %w", err)
 	}
 	var creds credentials
 	if err := json.Unmarshal(body, &creds); err != nil {
@@ -104,7 +134,7 @@ func loadCredentials(path string) (*credentials, error) {
 	// gateway to forward to at all (its opencode points straight at a
 	// caller-provided config, e.g. a mock LLM in tests).
 	if creds.RefreshToken == "" || creds.TokenEndpoint == "" {
-		return nil, fmt.Errorf("creds file is incomplete: re-run 'pystino-agent enroll'")
+		return nil, fmt.Errorf("creds file is incomplete: re-run 'galopin enroll'")
 	}
 	return &creds, nil
 }
