@@ -79,6 +79,10 @@
 		 * dead: the send is doomed, so it is refused here rather than left
 		 * to fail after the person typed something. */
 		enrollmentExpired?: boolean;
+		/** Set when the device's own row (`codeDeviceList`) currently reports
+		 * it unreachable: the send is refused here, before it can fail on a
+		 * 502 the daemon was never asked to answer. */
+		offline?: boolean;
 		/** Called synchronously with the submit, before the POST — the view
 		 * engages the column's follow and raises its pending placeholder. */
 		onsend: (text: string, files: File[]) => Promise<void>;
@@ -113,6 +117,7 @@
 		cwd = null,
 		running = false,
 		enrollmentExpired = false,
+		offline = false,
 		onsend,
 		mimeTypes = [],
 		onstop,
@@ -129,7 +134,7 @@
 	let busy = $state(false);
 
 	async function submit() {
-		if (enrollmentExpired) return;
+		if (enrollmentExpired || offline) return;
 		const message = draft.trim();
 		if (!message || busy) return;
 		busy = true;
@@ -287,8 +292,8 @@
 	 * agent snapshot, which `onchanged` re-reads — so the label claims the
 	 * new value only when the refreshed snapshot agrees, and a refusal
 	 * leaves it exactly as the daemon last reported. */
-	async function applyFeature(feature: { id: string; value: boolean }) {
-		if (applying) return;
+	async function applyFeature(feature: { id: string; value: boolean; blockedReason?: string }) {
+		if (applying || feature.blockedReason) return;
 		applying = feature.id;
 		applyFailure = null;
 		try {
@@ -467,7 +472,11 @@
 						     toggle pills (web search, tool approval): blue when on,
 						     gray when off, `aria-pressed` carrying the state. The
 						     value is the agent snapshot's word; a toggle the
-						     snapshot is silent on renders disabled. -->
+						     snapshot is silent on renders disabled. A toggle whose
+						     machine policy vetoes it (`blockedReason`) stays visible
+						     rather than vanishing — a missing feature and a
+						     forbidden one read as the same "no such thing here"
+						     otherwise, and only one of those has a fix. -->
 						{#each featurePills as feature (feature.id)}
 							<button
 								type="button"
@@ -475,16 +484,29 @@
 									? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
 									: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'} disabled:opacity-60"
 								aria-pressed={feature.value}
-								disabled={applying === feature.id || !feature.reported}
-								title={feature.reported
-									? (feature.description ??
-										(feature.value ? "On. Click to turn off." : "Off. Click to turn on."))
-									: "Waiting for the daemon's word on this agent"}
+								disabled={applying === feature.id ||
+									!feature.reported ||
+									Boolean(feature.blockedReason)}
+								title={feature.blockedReason ??
+									(feature.reported
+										? (feature.description ??
+											(feature.value ? "On. Click to turn off." : "Off. Click to turn on."))
+										: "Waiting for the daemon's word on this agent")}
 								onclick={() => void applyFeature(feature)}
 							>
 								<LucideShieldCheck class="size-3.5" />
 								{feature.label}
 							</button>
+						{/each}
+						{#each featurePills.filter((feature) => feature.blockedReason) as feature (feature.id)}
+							<span
+								class="flex min-w-0 basis-full items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
+							>
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate" title={feature.blockedReason}>
+									{feature.blockedReason}
+								</span>
+							</span>
 						{/each}
 
 						<ContextMeter
@@ -505,7 +527,14 @@
 							</span>
 						{/if}
 
-						{#if enrollmentExpired}
+						{#if offline}
+							<span
+								class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+							>
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate">This machine is offline.</span>
+							</span>
+						{:else if enrollmentExpired}
 							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
 								<IconWarning class="size-3 shrink-0" />
 								<span class="min-w-0 truncate">
@@ -540,7 +569,7 @@
 					class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
 						? ''
 						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-					disabled={!draft.trim() || busy || enrollmentExpired}
+					disabled={!draft.trim() || busy || enrollmentExpired || offline}
 					type="submit"
 					aria-label="Send message"
 					name="submit"

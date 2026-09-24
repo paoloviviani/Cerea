@@ -17,9 +17,15 @@
  *   claims the new value once the refreshed snapshot agrees — the same
  *   never-an-optimistic-splice discipline the mode pill runs on;
  * - a feature the snapshot is silent on renders but does not take a click:
- *   existence is known from the provider's list, a state is not.
+ *   existence is known from the provider's list, a state is not;
+ * - a machine policy veto (`blockedReason`) still ships the toggle, visible
+ *   and disabled, carrying the re-enroll fix rather than disappearing as if
+ *   the feature never existed;
+ * - the approval card's three buttons post the daemon's own vocabulary:
+ *   "Allow once" is `{ decision: "once" }`, "Always allow" is
+ *   `{ decision: "always" }`, "Deny" is `{ decision: "reject" }`.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -65,6 +71,7 @@ async function installStubs(page: Page, options: { snapshot?: Record<string, unk
 	const cancelBodies: unknown[] = [];
 	const featureBodies: unknown[] = [];
 	const featureQueries: string[] = [];
+	const permissionBodies: unknown[] = [];
 	const frames: unknown[] = [];
 	const agent: Record<string, unknown> = options.snapshot ?? {
 		id: AGENT,
@@ -148,6 +155,17 @@ async function installStubs(page: Page, options: { snapshot?: Record<string, unk
 		});
 	});
 
+	// The approval card: record the decision the daemon's own vocabulary
+	// carries verbatim (once / always / reject), answer ok. The card settles
+	// from the stream's own resolved frame, never from this response.
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/permissions/*?*`, async (route) => {
+		permissionBodies.push(route.request().postDataJSON());
+		await route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({ ok: true }),
+		});
+	});
+
 	// The stop: record the body, answer ok. The turn's end travels on the
 	// stream, never on this response.
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}/cancel?*`, async (route) => {
@@ -181,10 +199,11 @@ async function installStubs(page: Page, options: { snapshot?: Record<string, unk
 		await route.fulfill({ status: 200, contentType: "text/event-stream", body });
 	});
 
-	return { frames, cancelBodies, featureBodies, featureQueries, agent };
+	return { frames, cancelBodies, featureBodies, featureQueries, permissionBodies, agent };
 }
 
-const goto = (page: Page) => page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+const goto = (page: Page) =>
+	page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 test.describe("the stop control", () => {
 	test("a live turn shows it; stopping ends the turn when the stream says so", async ({ page }) => {
@@ -212,6 +231,67 @@ test.describe("the stop control", () => {
 			timeout: 10_000,
 		});
 		await expect(page.getByRole("button", { name: "Stop generating" })).toHaveCount(0);
+	});
+
+	test("Allow once posts { decision: 'once' }", async ({ page }) => {
+		const h = await installStubs(page);
+		h.frames.push({ type: "user", text: "Clean the build" }, running(), PERMISSION_REQUEST);
+		await goto(page);
+
+		await page.getByRole("button", { name: "Allow once" }).click();
+		await expect
+			.poll(() => h.permissionBodies, { timeout: 10_000 })
+			.toEqual([{ decision: "once" }]);
+
+		h.frames.push(
+			{
+				type: "elicitation",
+				subtype: "resolved",
+				elicitationId: PERMISSION_REQUEST.request.elicitationId,
+				action: "accept",
+				resolution: "user",
+			},
+			done()
+		);
+		await expect(page.getByText("Allowed")).toBeVisible({ timeout: 10_000 });
+	});
+
+	test("Always allow posts { decision: 'always' }", async ({ page }) => {
+		const h = await installStubs(page);
+		h.frames.push({ type: "user", text: "Clean the build" }, running(), PERMISSION_REQUEST);
+		await goto(page);
+
+		await expect(page.getByRole("button", { name: "Always allow" })).toBeVisible();
+		await page.getByRole("button", { name: "Always allow" }).click();
+		await expect
+			.poll(() => h.permissionBodies, { timeout: 10_000 })
+			.toEqual([{ decision: "always" }]);
+
+		h.frames.push(
+			{
+				type: "elicitation",
+				subtype: "resolved",
+				elicitationId: PERMISSION_REQUEST.request.elicitationId,
+				action: "accept",
+				resolution: "user",
+			},
+			done()
+		);
+		await expect(page.getByText("Allowed")).toBeVisible({ timeout: 10_000 });
+	});
+
+	test("Deny posts { decision: 'reject' }", async ({ page }) => {
+		const h = await installStubs(page);
+		h.frames.push({ type: "user", text: "Clean the build" }, running(), PERMISSION_REQUEST);
+		await goto(page);
+
+		await page.getByRole("button", { name: "Deny" }).click();
+		await expect
+			.poll(() => h.permissionBodies, { timeout: 10_000 })
+			.toEqual([{ decision: "reject" }]);
+
+		h.frames.push(permissionDenied(), done());
+		await expect(page.getByText("Denied")).toBeVisible({ timeout: 10_000 });
 	});
 
 	test("stopping mid-permission-prompt settles the card", async ({ page }) => {
@@ -288,5 +368,38 @@ test.describe("the auto-accept toggle", () => {
 		const pill = page.getByRole("button", { name: "Auto Accept" });
 		await expect(pill).toBeVisible();
 		await expect(pill).toBeDisabled();
+	});
+
+	test("a machine policy veto keeps the toggle visible, disabled, with the re-enroll fix", async ({
+		page,
+	}) => {
+		const VETO_NOTE =
+			"This machine's policy vetoes auto-accept: re-run `pystino-agent enroll … --allow-auto-accept`, then restart `run`.";
+		const h = await installStubs(page, {
+			snapshot: {
+				id: AGENT,
+				title: "e2e agent",
+				provider: "opencode",
+				state: "idle",
+				workspaceId: WS,
+				modeId: "plan",
+				modelId: "pystino/coder-large",
+				cwd: "/repo",
+				features: [{ ...AUTO_ACCEPT, blockedReason: VETO_NOTE }],
+			},
+		});
+		await goto(page);
+
+		// Absent under the old behaviour (the catalog dropped the feature
+		// entirely once policy denied it); visible and disabled now, with the
+		// exact fix carried alongside it rather than left implicit.
+		const pill = page.getByRole("button", { name: "Auto Accept" });
+		await expect(pill).toBeVisible();
+		await expect(pill).toBeDisabled();
+		await expect(page.getByText(VETO_NOTE)).toBeVisible();
+
+		await pill.click({ force: true });
+		await page.waitForTimeout(300);
+		expect(h.featureBodies).toEqual([]);
 	});
 });

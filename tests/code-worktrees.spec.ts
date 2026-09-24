@@ -5,7 +5,7 @@
  * debounced autocomplete, CodeNavTree's "New worktree…" action, and
  * WorktreeDialog's create call — are the real ones, with no real machine.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -62,7 +62,7 @@ test.describe("path suggestions in the Add workspace dialog", () => {
 			});
 		});
 
-		await page.goto(`/code?device=${DEVICE}`);
+		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 		await page.locator("button[title='Add a workspace to this device']").click();
 
 		const dialog = page.getByRole("dialog");
@@ -107,7 +107,7 @@ test.describe("creating a worktree workspace", () => {
 			});
 		});
 
-		await page.goto(`/code?device=${DEVICE}`);
+		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 
 		await page.getByRole("button", { name: "Workspace actions" }).click();
 		await expect(page.getByRole("menuitem", { name: "New worktree…" })).toBeVisible();

@@ -9,7 +9,7 @@
  * value after the refreshed snapshot says so — the apply never trusts its
  * own request.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -112,7 +112,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the pills show the snapshot's values and apply a mode switch live", async ({ page }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// Both pills render inside the prompt box, labelled from the snapshot.
 	const modePill = page.getByRole("button", { name: "Plan" });
@@ -136,7 +136,7 @@ test("the pills show the snapshot's values and apply a mode switch live", async 
 });
 
 test("the model pill lists the provider's models and applies a switch", async ({ page }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	await page.getByRole("button", { name: "Coder Large" }).click();
 	const menu = page.getByRole("menu");
