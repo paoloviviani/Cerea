@@ -32,7 +32,10 @@ export interface HandoffHistory {
  * itself when it does — the receiving agent has no other way to know its
  * briefing was cut short.
  */
-export function buildHandoffHistory(transcript: Transcript, uptoMessageId?: string): HandoffHistory {
+export function buildHandoffHistory(
+	transcript: Transcript,
+	uptoMessageId?: string
+): HandoffHistory {
 	const sections: string[] = [];
 	for (const { message, parts } of transcript.messages ?? []) {
 		const rendered = renderMessage(message, parts ?? []);

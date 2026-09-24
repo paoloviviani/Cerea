@@ -498,7 +498,9 @@ export const POST: RequestHandler = async (event) => {
 			? await getPairedDevice(event.locals, parsed.data.targetDevice)
 			: device;
 		const targetLink =
-			targetDevice._id.toString() === device._id.toString() ? link : new MachineLink(targetDevice._id.toString());
+			targetDevice._id.toString() === device._id.toString()
+				? link
+				: new MachineLink(targetDevice._id.toString());
 
 		if (parsed.data.modelId && !allowsModel(targetDevice, parsed.data.modelId)) {
 			error(403, "The target machine was enrolled without --allow-free-models.");
@@ -545,7 +547,10 @@ export const POST: RequestHandler = async (event) => {
 			})
 		);
 
-		return superjsonResponse({ agent: toSession(session), deviceId: targetDevice._id.toString() });
+		return superjsonResponse({
+			agent: toSession(session),
+			deviceId: targetDevice._id.toString(),
+		});
 	}
 
 	const modeMatch = new RegExp(`^v1/agents/(${ID})/mode$`).exec(path);
