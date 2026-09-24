@@ -46,7 +46,8 @@
 		/** Pluggable approval-card answer path, threaded to ChatMessage (see it). */
 		onanswerElicitation?: (
 			request: ElicitationRequestPayload,
-			action: ElicitationAction
+			action: ElicitationAction,
+			scope?: "always"
 		) => Promise<{ ok: boolean; error?: string }>;
 		/**
 		 * The coding-agent panel's subagent claim and its card, threaded to
