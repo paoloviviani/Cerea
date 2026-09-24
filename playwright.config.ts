@@ -22,6 +22,7 @@ import {
 	E2E_APP_PORT,
 	E2E_APP_URL,
 	E2E_DB_NAME,
+	E2E_GALOPIN_DIST_DIR,
 	E2E_MONGO_PORT,
 	E2E_MONGO_URL,
 	MOCK_MCP_ORIGIN,
@@ -193,6 +194,8 @@ export default defineConfig({
 				OPENID_PROVIDER_URL: "http://127.0.0.1:9/authelia",
 				// Machine tokens come from the mock issuer; the browser login stays unconfigured.
 				CODE_MACHINE_ISSUER: MOCK_OIDC_ISSUER,
+				// galopin's public downloads (`{base}/galopin/*`), filled by galopin-dist.spec.ts.
+				GALOPIN_DIST_DIR: E2E_GALOPIN_DIST_DIR,
 				ALLOW_IFRAME: "true",
 				NODE_ENV: "production",
 			},
