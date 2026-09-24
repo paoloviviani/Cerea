@@ -82,6 +82,7 @@ const DEFAULT_BACKEND: Backend = {
 		files: true,
 		worktrees: false,
 		autoAccept: true,
+		questions: true,
 	},
 };
 
@@ -380,6 +381,8 @@ export class FakeMachine {
 				return { session };
 			}
 			case "permission.reply":
+				return {};
+			case "question.reply":
 				return {};
 			case "session.sync": {
 				const { sessionId } = args as { sessionId: string; epoch?: string; afterSeq?: number };

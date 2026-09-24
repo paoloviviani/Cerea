@@ -39,7 +39,7 @@ import {
 	userMessageIdsOf,
 } from "$lib/server/code/machineTimeline";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
-import type { Envelope } from "$lib/types/machineProtocol";
+import { OpError, type Envelope } from "$lib/types/machineProtocol";
 import { logger } from "$lib/server/logger";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { findAttachments } from "$lib/server/files/attachmentStore";
@@ -88,7 +88,14 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		});
 	} catch (err) {
 		unsubscribe();
-		logger.warn({ err, deviceId, sessionId }, "agent stream: session.sync failed");
+		// `unavailable` is the routine "this machine is not connected right
+		// now" case (R1): `EventSource` reconnects on its own timer, so an
+		// offline machine would otherwise warn-log on every single retry for
+		// as long as it stays offline. Anything else is unexpected and stays
+		// at `warn`.
+		if (!(err instanceof OpError) || err.code !== "unavailable") {
+			logger.warn({ err, deviceId, sessionId }, "agent stream: session.sync failed");
+		}
 		error(502, "The paired machine could not be reached.");
 	}
 

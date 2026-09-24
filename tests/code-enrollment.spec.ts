@@ -18,7 +18,7 @@
  *   machine's own reconnect) appears in the tree once the tab's quiet poll
  *   or its focus refetch runs, with no page reload.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -127,7 +127,7 @@ test.describe("a machine reporting an expired credential", () => {
 	test("shows a credential-expired pill and refuses the send before any message", async ({
 		page,
 	}) => {
-		await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 		await openAgentsPanel(page);
 
 		// The device's own row in the Agents panel: neither "online" nor
@@ -171,7 +171,7 @@ test("an offline device never reads as a dead credential, and its tree is never 
 
 	// The device alone, no agent: an open AgentView looks up its own
 	// workspace, which is not the tree's load this scenario is about.
-	await page.goto(`/code?device=${DEVICE}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 	await openAgentsPanel(page);
 
 	await expect(page.getByText("Offline.", { exact: true })).toBeVisible();
@@ -198,7 +198,7 @@ test.describe("live lists", () => {
 			})
 		);
 
-		await page.goto(`/code?device=${DEVICE}&ws=${WS}`);
+		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}`);
 		await openAgentsPanel(page);
 		await expect(page.getByText("No agents yet.")).toBeVisible();
 		await expect(page.getByText("e2e agent")).toHaveCount(0);
@@ -235,7 +235,7 @@ test.describe("live lists", () => {
 			route.fulfill({ contentType: "application/json", body: superjsonBody({ agents: [] }) })
 		);
 
-		await page.goto("/code");
+		await page.goto(`${E2E_APP_BASE}/code`);
 		await openAgentsPanel(page);
 		await expect(page.getByText("e2e box")).toBeVisible();
 		await expect(page.getByText("second box")).toHaveCount(0);
