@@ -1,4 +1,5 @@
-import { injectArtifactsPrompt } from "./artifacts";
+import { artifactsEnabledForTurn, artifactsModeForTurn, injectArtifactsPrompt } from "./artifacts";
+import type { ArtifactsMode } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
 import {
 	ML_ASSISTANT_BUDGET_RULES,
@@ -17,6 +18,15 @@ export interface PrepromptInput {
 	artifactsOverride?: boolean;
 	/** Whether the model advertises artifact support (supportsArtifacts). */
 	supportsArtifacts?: boolean;
+	/** Whether the model advertises tool calling (supportsTools). Decides tool-vs-tags mode. */
+	supportsTools?: boolean;
+	/** Per-model user override for tool calling; wins over supportsTools in both directions. */
+	forceTools?: boolean;
+	/**
+	 * Explicit per-model artifact surface override. Wins over the default
+	 * (`"tool"` when tools are on, else `"tags"`); presets may set one.
+	 */
+	artifactsMode?: ArtifactsMode;
 	/** Signed-in user's Hub username. The preset's namespace rule reads it back. */
 	username?: string;
 	/** IANA zone from the request, so the stamped time is the user's. */
@@ -38,16 +48,22 @@ export interface PrepromptInput {
 /**
  * The system prompt for one generation.
  *
- * Artifacts are unchanged by the preset: outside it they stay opt-in per model
- * with a per-model user override, exactly as before. The preset force-enables
- * them on top of that — it is not a gate, and a conversation that would have got
- * the artifacts prompt still gets it whether or not the mode exists.
+ * Artifacts are unchanged by the preset outside tool mode: outside it they
+ * stay opt-in per model with a per-model user override, exactly as before.
+ * The preset force-enables them on top of that — it is not a gate, and a
+ * conversation that would have got the artifacts prompt still gets it whether
+ * or not the mode exists. In tool mode the tag grammar is dropped entirely:
+ * the tool description carries the contract, and the model must never write
+ * tags.
  */
 export function resolvePreprompt({
 	conversationPreprompt,
 	mlAssistant,
 	artifactsOverride,
 	supportsArtifacts,
+	supportsTools,
+	forceTools,
+	artifactsMode,
 	username,
 	timezone,
 	now,
@@ -55,11 +71,22 @@ export function resolvePreprompt({
 	skillsPreprompt,
 }: PrepromptInput): string | undefined {
 	const base = mlAssistant ? ML_ASSISTANT_PREPROMPT : conversationPreprompt;
-	const artifacts = mlAssistant || (artifactsOverride ?? supportsArtifacts);
+	const artifacts = artifactsEnabledForTurn({ mlAssistant, artifactsOverride, supportsArtifacts });
+	// In tool mode the grammar leaves the system message: the tool description
+	// teaches the contract instead, which is also what keeps the ML-preset
+	// ceiling test green.
+	const mode = artifactsModeForTurn({
+		mlAssistant,
+		artifactsOverride,
+		supportsArtifacts,
+		toolsEnabled: mlAssistant ? (supportsTools ?? false) : (forceTools ?? supportsTools ?? false),
+		artifactsMode,
+	});
+	const withArtifacts = artifacts && mode === "tags" ? injectArtifactsPrompt(base) : base;
 	// Execution is a client capability, so the prompt is unconditional: models
 	// must know python blocks auto-run in the browser and that they never see
 	// the output themselves.
-	const resolved = injectExecutionPrompt(artifacts ? injectArtifactsPrompt(base) : base);
+	const resolved = injectExecutionPrompt(withArtifacts);
 	// Skills ride on top of the execution contract: a skill body is a
 	// procedure the model carries out through those same channels, never
 	// execution of its own.

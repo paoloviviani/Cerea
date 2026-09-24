@@ -785,6 +785,9 @@ describe("runMcpFlow offering the question tool", () => {
 		const { result } = await runFlow(inMlMode);
 		expect(result).toBe("completed");
 		expect(toolNames()).toEqual([
+			// Tool mode in the preset (the model supports tools): the artifact
+			// tool joins every conversation, not only the mode's own set.
+			"artifact",
 			"ask_user_question",
 			"update_plan",
 			"wait",

@@ -160,6 +160,14 @@ export default defineConfig({
 				// Deterministic surface: no DB-driven config, no router, no ambient MCP servers.
 				ENABLE_CONFIG_MANAGER: "false",
 				MCP_SERVERS: "[]",
+				// Artifact surfaces for the tool-based artifacts spec: the tool
+				// model gets the `artifact` tool (tools + artifacts), the tags
+				// model keeps inline `<artifact>` tags (artifacts without
+				// tools). Every other spec's model is untouched.
+				MODELS: JSON.stringify([
+					{ id: "test-org/artifact-tool", supportsArtifacts: true },
+					{ id: "test-org/artifact-tags", supportsArtifacts: true },
+				]),
 				// Without this the SSRF guard drops every loopback MCP URL a spec passes.
 				MCP_ALLOW_INSECURE_URLS: "true",
 				// Scaled down together (production is 60000 / 90000 / 10000) so a reaper

@@ -3,6 +3,7 @@
 	import DOMPurify from "isomorphic-dompurify";
 
 	import type { ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
+	import type { MessageArtifactDraftUpdate } from "$lib/types/MessageUpdate";
 	import type { PaneItem } from "$lib/utils/paneItems";
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
 	import { artifactRunKey } from "$lib/utils/execution/keys";
@@ -59,6 +60,13 @@
 		/** Everything the pane can show, for the cross-item nav in the header. */
 		items: PaneItem[];
 		loading?: boolean;
+		/**
+		 * Live `artifact`-tool drafts for the message currently receiving
+		 * tokens (latest per tool call, stale ones already filtered out by the
+		 * caller). Shown as a streaming block until the executed call's
+		 * canonical block replaces them.
+		 */
+		drafts?: MessageArtifactDraftUpdate[];
 		/** Whether the current model accepts image attachments (enables screenshot-to-chat) */
 		canScreenshot?: boolean;
 		/**
@@ -69,7 +77,14 @@
 		onsend?: (text: string) => boolean;
 	}
 
-	let { registry, items, loading = false, canScreenshot = false, onsend }: Props = $props();
+	let {
+		registry,
+		items,
+		loading = false,
+		drafts = [],
+		canScreenshot = false,
+		onsend,
+	}: Props = $props();
 
 	let artifact = $derived(
 		sidePane.identifier ? registry.artifacts.get(sidePane.identifier) : undefined
@@ -82,6 +97,25 @@
 		artifact && displayVersionNumber > 0 ? artifact.versions[displayVersionNumber - 1] : undefined
 	);
 	let isStreamingVersion = $derived(!!version && !version.complete);
+	// Live tool-mode drafts for the open artifact: a create/rewrite still
+	// streaming (no finalized version yet), an update in flight ("Editing…"),
+	// or a call with no parsed args yet ("Writing…").
+	let openDraft = $derived(
+		sidePane.identifier ? drafts.findLast((d) => d.identifier === sidePane.identifier) : undefined
+	);
+	let pendingDraft = $derived(
+		openDraft &&
+			!artifact &&
+			(openDraft.command === "create" || openDraft.command === "rewrite" || !openDraft.command)
+			? openDraft
+			: undefined
+	);
+	let editingDraft = $derived(
+		openDraft && artifact && openDraft.command === "update" ? openDraft : undefined
+	);
+	let writingDraft = $derived(
+		!version && !pendingDraft && drafts.some((d) => !d.identifier) ? true : false
+	);
 	let previewable = $derived(!!version && isPreviewableKind(version.type));
 	let effectiveTab = $derived<"preview" | "code">(
 		!previewable || isStreamingVersion ? "code" : sidePane.tab
@@ -110,6 +144,9 @@
 	// so without the check a vanishing artifact would close someone else's pane.
 	$effect(() => {
 		if (sidePane.open && sidePane.view === "artifact" && sidePane.identifier && !artifact) {
+			// A tool-mode draft for an artifact with no finalized version yet is
+			// not a disappearance — the version is still streaming in.
+			if (pendingDraft || writingDraft) return;
 			const timer = setTimeout(() => sidePane.close(), 300);
 			return () => clearTimeout(timer);
 		}
@@ -557,13 +594,25 @@
 	>
 		<PaneItemNav {items} />
 		<div class="flex min-w-0 flex-1 items-center gap-2">
-			{#if isStreamingVersion}
+			{#if isStreamingVersion || pendingDraft || editingDraft}
 				<EosIconsLoading class="flex-none text-sm text-gray-400" />
 			{/if}
 			<h2 class="truncate text-sm font-semibold text-gray-800 dark:text-gray-200">
-				{version?.title ?? sidePane.identifier}
+				{version?.title ?? pendingDraft?.title ?? pendingDraft?.identifier ?? sidePane.identifier}
 			</h2>
-			{#if totalVersions > 1}
+			{#if editingDraft}
+				<span
+					class="flex-none rounded-sm bg-gray-100 px-1 py-px text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+				>
+					Editing {editingDraft.title ?? sidePane.identifier}…
+				</span>
+			{:else if pendingDraft}
+				<span
+					class="flex-none rounded-sm bg-gray-100 px-1 py-px text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+				>
+					Streaming…
+				</span>
+			{:else if totalVersions > 1}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
@@ -652,9 +701,31 @@
 
 	<!-- body -->
 	<div class="relative min-h-0 flex-1 bg-white dark:bg-gray-900">
-		{#if !version}
+		{#if !version && pendingDraft}
+			<div class="flex h-full flex-col">
+				<div class="relative min-h-0 flex-1">
+					<div
+						class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
+					>
+						<!-- Draft streams unhighlighted: the executed call's canonical
+						     block gets the full highlight pass once it lands. -->
+						<!-- eslint-disable svelte/no-at-html-tags -->
+						<pre class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono"><code
+								class="block">{@html escapeHTML(pendingDraft.content)}</code
+							></pre>
+					</div>
+					<div
+						class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-white/90 to-transparent dark:from-gray-900/90"
+					></div>
+				</div>
+			</div>
+		{:else if !version}
 			<div class="flex h-full items-center justify-center text-sm text-gray-400">
-				No artifact selected
+				{#if writingDraft}
+					Writing…
+				{:else}
+					No artifact selected
+				{/if}
 			</div>
 		{:else if effectiveTab === "preview"}
 			{#if version.type === "markdown"}

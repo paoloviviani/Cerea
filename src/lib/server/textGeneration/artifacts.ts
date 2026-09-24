@@ -58,3 +58,76 @@ export function injectArtifactsPrompt(preprompt?: string): string {
 	const base = preprompt?.trim();
 	return base ? `${base}\n\n${ARTIFACTS_SYSTEM_PROMPT}` : ARTIFACTS_SYSTEM_PROMPT;
 }
+
+/**
+ * Whether this turn carries the artifacts instructions: the ML Assistant
+ * preset force-enables them, otherwise they stay opt-in per model with a
+ * per-model user override. Single source of truth for both the system-prompt
+ * assembly (`resolvePreprompt`) and the tool loop, which needs to know the
+ * same answer to place the artifact/tool rule next to the tool guidance.
+ */
+export function artifactsEnabledForTurn(input: {
+	mlAssistant: boolean;
+	artifactsOverride?: boolean;
+	supportsArtifacts?: boolean;
+}): boolean {
+	return input.mlAssistant || (input.artifactsOverride ?? input.supportsArtifacts ?? false);
+}
+
+/**
+ * One-sentence restatement of the artifact/tool rule for the tool preprompt.
+ * The full instruction lives in {@link ARTIFACTS_SYSTEM_PROMPT} (buried in
+ * the conversation preprompt, after the tool guidance in the merged system
+ * message), so a turn that offers tools repeats the rule where the model
+ * reads the tool list — both together, not pages apart.
+ *
+ * Tags mode only. In tool mode the model must never write tags, so this is
+ * replaced by {@link ARTIFACT_TOOL_POINTER}.
+ */
+export const ARTIFACT_TOOL_RULE =
+	"Do not call tools while creating or editing an artifact: emit the artifact in your reply first, then use tools in a later turn if needed.";
+
+/** Per-model artifact surface: the `artifact` tool, or inline `<artifact>` tags. */
+export type ArtifactsMode = "tool" | "tags";
+
+/**
+ * Which artifact surface this turn uses. An explicit per-model `artifactsMode`
+ * wins; otherwise `"tool"` when artifacts are enabled for the turn and tools
+ * are enabled too, else `"tags"`. The ML Assistant preset force-enables
+ * artifacts, and tool mode applies there too when the model supports tools.
+ */
+export function artifactsModeForTurn(input: {
+	mlAssistant: boolean;
+	artifactsOverride?: boolean;
+	supportsArtifacts?: boolean;
+	/** Effective tool-calling for the turn (`forceTools ?? supportsTools`). */
+	toolsEnabled?: boolean;
+	/** Explicit per-model override; presets may set one. */
+	artifactsMode?: ArtifactsMode;
+}): ArtifactsMode {
+	if (input.artifactsMode === "tool" || input.artifactsMode === "tags") return input.artifactsMode;
+	if (!artifactsEnabledForTurn(input)) return "tags";
+	return input.toolsEnabled ? "tool" : "tags";
+}
+
+/**
+ * One-line pointer shown next to the tool guidance in tool mode, where the
+ * full contract lives on the tool description and the model must never write
+ * tags. Tags mode shows {@link ARTIFACT_TOOL_RULE} instead.
+ */
+export const ARTIFACT_TOOL_POINTER =
+	"Use the artifact tool to create or edit artifacts; never emit <artifact> tags directly.";
+
+/**
+ * The tool description in tool mode. Carries what the tag grammar used to:
+ * when to make an artifact, the types, the sandbox allow/block list, deliver
+ * first (never followed by `ask_user_question` in the same step), and that
+ * earlier artifacts appear as `<artifact>` blocks to change with
+ * update/rewrite, never by writing tags.
+ */
+export const ARTIFACT_TOOL_GUIDANCE =
+	`When to make an artifact: substantial, self-contained content (apps, pages, components, documents, diagrams, longer code) the user is likely to edit, iterate on, or reuse — over ~15 lines. Do NOT use it for short snippets, explanations, lists, or answers that depend on the conversation context; keep those in your normal reply. ` +
+	`Types: "html" (a complete self-contained page with inline CSS/JS; script sources from cdn.tailwindcss.com, unpkg.com and cdn.jsdelivr.net are allowed, any other host is blocked), "react" (a single React function component with export default; hooks without imports, Tailwind classes, no other libraries), "svg" (an SVG image with an <svg> root), "mermaid" (a Mermaid diagram), "code" (any language; set language="..."; Python cells auto-run in the user's browser via Pyodide, other languages are highlighted only), "markdown" (a formatted document). ` +
+	`Sandbox: live previews (html/react) run in a sandboxed iframe with no same-origin access — localStorage, sessionStorage and cookies are unavailable and throw; keep state in in-memory JS variables. Allowed: pointer lock (request in a click handler), fullscreen, device motion/orientation sensors (request permission from a tap where defined), gamepad input, clipboard writes, media autoplay. Blocked — never build features depending on them: popups (window.open returns null), file downloads, camera, microphone, geolocation, alert/confirm/prompt (silent no-ops; render status with in-page UI). ` +
+	`Deliver first: briefly tell the user what you built or changed in plain text, and never follow an artifact call with ask_user_question in the same step — deliver, and let the user reply in chat. ` +
+	`Earlier artifacts appear in the conversation as <artifact> blocks; change them with update (small edits: old_str must occur exactly once in the latest version, copied verbatim) or rewrite (larger changes, same identifier), never by writing tags yourself.`;
