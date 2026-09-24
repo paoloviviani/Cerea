@@ -6,6 +6,8 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Message } from "$lib/types/Message";
+import { isMessageToolUpdate } from "$lib/utils/messageUpdates";
+import { stripThink } from "$lib/utils/stripThink";
 
 export interface ApplyUpdateContext {
 	/** The assistant message this turn writes into. Mutated in place. */
@@ -32,6 +34,52 @@ export interface AppliedUpdate {
 
 const SKIPPED: AppliedUpdate = { skipped: true, titleChanged: false, finalAnswerReceived: false };
 
+const THINK_CLOSE = "</think>";
+
+/**
+ * Join two consecutive tool-loop steps' text with a paragraph break.
+ *
+ * Pure concatenation is what glued "…play with trails." to "That one's on me…"
+ * with no separator, in the persisted message (which the Markdown export
+ * reads) and in the streamed tokens the UI renders. Empty segments never earn
+ * a break, and neither does a boundary that already has one — so streaming
+ * stays incremental (the break rides on the next step's first token) and
+ * breaks never double.
+ */
+export function joinStepText(existing: string, next: string): string {
+	return existing + stepSeparator(existing, next) + next;
+}
+
+/** The break {@link joinStepText} inserts: `"\n\n"` or `""`. */
+export function stepSeparator(existing: string, next: string): string {
+	// Visible text is what counts: a step of pure `<think>` reasoning is an
+	// empty segment, and so is a message that holds nothing but reasoning.
+	if (stripThink(existing).trim().length === 0) return "";
+	if (stripThink(next).trim().length === 0) return "";
+	if (/\n\n$/.test(existing) || /^\n/.test(next)) return "";
+	return "\n\n";
+}
+
+/**
+ * Whether this stream token starts a new step's text: a tool update ran since
+ * the last stream token that carried visible text. Pure-reasoning chunks
+ * (`<think>` without visible text yet) are neither a segment nor a boundary —
+ * they are skipped so a step that thinks before it speaks still gets its break
+ * when the visible words arrive.
+ */
+export function startsNewStepSegment(updates: readonly MessageUpdate[] | undefined): boolean {
+	if (!updates) return false;
+	for (let i = updates.length - 1; i >= 0; i--) {
+		const update = updates[i];
+		if (update.type === MessageUpdateType.Stream) {
+			if (update.token && stripThink(update.token).trim().length > 0) return false;
+			continue;
+		}
+		if (isMessageToolUpdate(update)) return true;
+	}
+	return false;
+}
+
 /**
  * Fold one update into the message a turn is building.
  *
@@ -53,6 +101,25 @@ export function applyUpdateToMessage(
 
 	if (event.type === MessageUpdateType.Stream) {
 		if (event.token === "") return SKIPPED;
+		if (startsNewStepSegment(message.updates)) {
+			// A step that opens with reasoning yields `<think>…</think>` ahead of
+			// its visible words (sometimes in this very token): the break goes
+			// after the think markup, not before it, or the UI renders it inside
+			// the collapsed reasoning block where nobody sees it.
+			const closeAt = event.token.lastIndexOf(THINK_CLOSE);
+			const head = closeAt >= 0 ? event.token.slice(0, closeAt + THINK_CLOSE.length) : "";
+			const tail = closeAt >= 0 ? event.token.slice(closeAt + THINK_CLOSE.length) : event.token;
+			const gap = stepSeparator(message.content + head, tail);
+			if (gap) {
+				// Mutating the event (not just `message.content`) keeps every
+				// downstream consumer consistent: the updates log the route
+				// persists, the generation-event writer, and the SSE token the
+				// client appends to its live view — UI and export read the same
+				// bytes. Streaming stays incremental: nothing is buffered, the
+				// break simply rides on the step's first visible token.
+				event.token = head + gap + tail;
+			}
+		}
 		message.content += event.token;
 	} else if (
 		event.type === MessageUpdateType.Reasoning &&
