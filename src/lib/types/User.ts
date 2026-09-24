@@ -9,6 +9,10 @@ export interface User extends Timestamps {
 	email?: string;
 	avatarUrl: string | undefined;
 	hfUserId: string;
+	/** The OIDC issuer that minted `hfUserId` (absent on accounts from before it was recorded). */
+	issuer?: string;
+	/** The previous `sub`, when a login moved this account to a new issuer. */
+	migratedFromSub?: string;
 	isAdmin?: boolean;
 	isEarlyAccess?: boolean;
 }

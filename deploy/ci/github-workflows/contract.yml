@@ -1,0 +1,64 @@
+# The gateway contract (ADR 0087): this chat's assumptions about Pystino's API,
+# checked against a real gateway.
+#   - PRs touching the gateway-facing code: the PINNED gateway version only
+#     (deploy/ci/pystino-contract.env);
+#   - weekly: `edge`, non-blocking, to see gateway changes before they land.
+# Pulling the gateway image needs its private package to grant this
+# repository read access (Pystino package settings → Manage Actions access).
+name: contract
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/server/admin.ts"
+      - "src/lib/server/gatewaySession.ts"
+      - "src/lib/server/usage/**"
+      - "src/lib/server/models.ts"
+      - "src/routes/api/v2/gateway/**"
+      - "src/lib/server/__contract__/**"
+      - "deploy/ci/pystino-contract.env"
+      - ".github/workflows/contract.yml"
+  schedule:
+    - cron: "23 5 * * 1"  # Mondays, against edge
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: ${{ github.event_name == 'schedule' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
+      - name: Start a gateway at the version under test
+        run: |
+          set -eu
+          version=$(sed -n 's/^PYSTINO_CONTRACT_VERSION=//p' deploy/ci/pystino-contract.env)
+          [ "${{ github.event_name }}" = schedule ] && version=edge
+          img="ghcr.io/${{ github.repository_owner }}/pystino-gateway:$version"
+          docker network create gw
+          docker run -d --name pg --network gw -e POSTGRES_USER=gateway -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=gateway pgvector/pgvector:pg18
+          docker run -d --name valkey --network gw valkey/valkey:8-alpine
+          until docker exec pg pg_isready -U gateway -d gateway >/dev/null 2>&1; do sleep 1; done
+          env="-e GATEWAY_DATABASE_URL=postgresql+asyncpg://gateway:pw@pg:5432/gateway -e GATEWAY_VALKEY_URL=redis://valkey:6379/0 -e GATEWAY_SECRET_KEY=contract -e GATEWAY_SESSION_SECRET=contract"
+          docker run --rm --network gw $env "$img" alembic -c apps/gateway/alembic.ini upgrade head
+          docker run -d --name gateway --network gw -p 127.0.0.1:8000:8000 $env "$img"
+          until curl -fsS http://127.0.0.1:8000/healthz >/dev/null; do sleep 1; done
+          key=$(docker exec gateway gateway seed | grep -o 'gwk_[A-Za-z0-9_-]*' | head -n 1)
+          echo "GATEWAY_CONTRACT_KEY=$key" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm}
+      - run: npm ci
+      - name: The contract
+        env:
+          GATEWAY_CONTRACT_URL: http://127.0.0.1:8000/v1
+        run: npx vitest run --project=server src/lib/server/__contract__/
