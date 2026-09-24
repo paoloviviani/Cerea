@@ -31,14 +31,20 @@ lifetime.
 
 ## Pairing a machine
 
-On the machine:
+On the machine, with `opencode` on the PATH and `pystino-agent` installed
+(Pystino's `docs/agent-machines.md` covers getting the binary, the flags and
+the user service that keeps it running):
 
 ```bash
-pystino-agent enroll --cerea <this deployment's origin>
+pystino-agent enroll --issuer https://llm.example.org/authelia \
+  --gateway https://llm.example.org --cerea https://llm.example.org/chat
 pystino-agent run
 ```
 
-`enroll` signs the machine into your account through this deployment's
+`--cerea` is the chat's address **including its base path** (`/chat` behind the
+Pystino stack): the machine dials `<cerea>/api/v2/code/machine`. The pairing
+dialog prints it that way; `enroll` asks for the issuer and the gateway when
+they are not given. `enroll` signs the machine into your account through this deployment's
 identity provider (the same login the chat uses) and writes a local
 credential; `run` starts the agent, which dials out here and appears in the
 sidebar's **Agents** panel, in **Pending**, as soon as it checks in.
