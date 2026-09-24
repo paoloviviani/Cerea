@@ -55,6 +55,9 @@
 		sendFollowUp,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
+	import { base } from "$app/paths";
+	import { uploadComposerFiles } from "$lib/utils/composerFiles";
+	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
@@ -108,6 +111,21 @@
 		codeDeviceList.devices
 			.find((d) => d.id === deviceId)
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities.usage ?? false
+	);
+
+	/** Whether the backend takes files and images with a prompt (`hello`
+	 * capabilities); the composer offers no attachment picker otherwise. */
+	let filesSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.files || caps?.images);
+	});
+	/** The session's slot in the attachment store (owner key
+	 * `code:<device>:<session>`): where the composer uploads, and where the
+	 * transcript's user files are served from. */
+	let attachmentsUrl = $derived(
+		`${base}/api/v2/code/attachments/${encodeURIComponent(`code:${deviceId}:${agentId}`)}`
 	);
 
 	// The mobile top bar names the screen it is on; chats get their title
@@ -353,7 +371,7 @@
 	// strip simply carries the pills.
 	let workspaceName = $derived(workspace?.name ?? "");
 
-	async function handleSend(text: string) {
+	async function handleSend(text: string, files: File[] = []) {
 		// The composer already refuses to submit on a known-expired
 		// enrollment; this is the backstop for a send that raced ahead of
 		// the probe's answer (Enter fired before `enrollmentExpired` landed).
@@ -366,7 +384,12 @@
 		// The send is the request to see the exchange — same contract as chat.
 		column?.notifySend();
 		try {
-			await sendFollowUp(deviceId, agentId, text);
+			// Files go up first, under the id the prompt then carries: the server
+			// finds them by it, hands them to the machine, and the transcript
+			// renders them from the store after the machine echoes the id back.
+			const messageId = crypto.randomUUID();
+			if (files.length) await uploadComposerFiles(attachmentsUrl, messageId, files);
+			await sendFollowUp(deviceId, agentId, text, messageId);
 		} catch (err) {
 			pending = false;
 			// A 401 here is the forwarder's own word that the daemon's
@@ -478,6 +501,7 @@
 			{pending}
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
+			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
 			{subagentFor}
 			{subagentCard}
@@ -509,6 +533,7 @@
 					{usage}
 					{lastCompaction}
 					{usageSupported}
+					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}
 				/>
 			{/snippet}
 		</ChatMessageColumn>

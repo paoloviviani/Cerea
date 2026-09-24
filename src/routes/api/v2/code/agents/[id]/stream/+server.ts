@@ -41,6 +41,9 @@ import {
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type { Envelope } from "$lib/types/machineProtocol";
 import { logger } from "$lib/server/logger";
+import { codeAttachmentKey } from "$lib/server/codeAttachments";
+import { findAttachments } from "$lib/server/files/attachmentStore";
+import type { MessageFile } from "$lib/types/Message";
 
 const HEARTBEAT_AFTER_MS = 15_000;
 const MAX_LIFETIME_MS = 30 * 60_000;
@@ -114,6 +117,22 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	lastAssistantError = drainedFolded.lastAssistantError;
 	userMessageIds = drainedFolded.userMessageIds;
 
+	// A user frame carries its clientMessageId; the files uploaded under that id
+	// (the attachment store) ride on the frame so the transcript renders them,
+	// after a reload as much as live. Looked up once per message.
+	const ownerKey = codeAttachmentKey(deviceId, sessionId);
+	const filesByMessage = new Map<string, Promise<MessageFile[]>>();
+	const withFiles = async (update: AgentStreamUpdate): Promise<AgentStreamUpdate> => {
+		if (update.type !== "user" || !update.messageId) return update;
+		let files = filesByMessage.get(update.messageId);
+		if (!files) {
+			files = findAttachments(ownerKey, update.messageId).catch(() => []);
+			filesByMessage.set(update.messageId, files);
+		}
+		const found = await files;
+		return found.length ? { ...update, files: found } : update;
+	};
+
 	const encoder = new TextEncoder();
 
 	const stream = new ReadableStream({
@@ -167,11 +186,11 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				if (epochChangedAtOpen) emitReset(openId);
 				for (const update of initial) {
 					if (closed) return;
-					emit(openId, update);
+					emit(openId, await withFiles(update));
 				}
 				for (const update of drainedFolded.updates) {
 					if (closed) return;
-					emit(openId, update);
+					emit(openId, await withFiles(update));
 				}
 				// Live tail: every subsequent envelope gets its own id. An
 				// epoch change here means the machine's process restarted —
@@ -204,7 +223,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						const updates = eventToUpdates(next.event, lastAssistantError, (messageId) =>
 							userMessageIds.get(messageId)
 						);
-						for (const update of updates) emit(id, update);
+						for (const update of updates) emit(id, await withFiles(update));
 						continue;
 					}
 					await new Promise<void>((resolve) => {
