@@ -248,15 +248,18 @@ export function eventToUpdates(
 export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	let lastAssistantError: string | undefined;
-	for (const { message, parts } of transcript.messages) {
+	// The protocol types these lists as arrays, but a machine that omits an
+	// empty one (Go's nil slices) must degrade to "nothing", not a 500.
+	for (const { message, parts } of transcript.messages ?? []) {
 		const clientMessageId = message.role === "user" ? message.clientMessageId : undefined;
-		for (const part of parts) updates.push(...partToUpdates(part, clientMessageId));
+		for (const part of parts ?? []) updates.push(...partToUpdates(part, clientMessageId));
 		if (message.role === "assistant") lastAssistantError = message.error;
 	}
-	for (const permission of transcript.permissions) {
+	for (const permission of transcript.permissions ?? []) {
 		updates.push(permissionRequestToUpdate(permission));
 	}
-	if (transcript.todos.length) updates.push(todoToUpdate(transcript.todos));
+	const todos = transcript.todos ?? [];
+	if (todos.length) updates.push(todoToUpdate(todos));
 	updates.push(statusToTurnState(transcript.status, lastAssistantError));
 	return updates;
 }
@@ -268,7 +271,7 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
  * state. */
 export function lastAssistantErrorOf(transcript: Transcript): string | undefined {
 	let lastAssistantError: string | undefined;
-	for (const { message } of transcript.messages) {
+	for (const { message } of transcript.messages ?? []) {
 		if (message.role === "assistant") lastAssistantError = message.error;
 	}
 	return lastAssistantError;
@@ -281,7 +284,7 @@ export function lastAssistantErrorOf(transcript: Transcript): string | undefined
  * event names only `messageId`, never the owning message's own fields). */
 export function userMessageIdsOf(transcript: Transcript): Map<string, string> {
 	const ids = new Map<string, string>();
-	for (const { message } of transcript.messages) {
+	for (const { message } of transcript.messages ?? []) {
 		if (message.role === "user" && message.clientMessageId) {
 			ids.set(message.id, message.clientMessageId);
 		}
