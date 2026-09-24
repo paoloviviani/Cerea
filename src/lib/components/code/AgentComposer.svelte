@@ -31,6 +31,7 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { DropdownMenu } from "bits-ui";
+	import ComposerFileChips from "$lib/components/chat/ComposerFileChips.svelte";
 	import ChatInput from "$lib/components/chat/ChatInput.svelte";
 	import StopGeneratingBtn from "$lib/components/StopGeneratingBtn.svelte";
 	import IconArrowUp from "~icons/lucide/arrow-up";
@@ -49,7 +50,12 @@
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
-	import type { CodeAgentSession } from "$lib/types/CodeAgent";
+	import type {
+		AgentCompactionUpdate,
+		AgentUsageUpdate,
+		CodeAgentSession,
+	} from "$lib/types/CodeAgent";
+	import ContextMeter from "./ContextMeter.svelte";
 
 	interface Props {
 		deviceId: string;
@@ -75,7 +81,9 @@
 		enrollmentExpired?: boolean;
 		/** Called synchronously with the submit, before the POST — the view
 		 * engages the column's follow and raises its pending placeholder. */
-		onsend: (text: string) => Promise<void>;
+		onsend: (text: string, files: File[]) => Promise<void>;
+		/** What the picker, paste and chips accept; empty hides the picker. */
+		mimeTypes?: string[];
 		/** Stops the live turn. The transcript records the ending; this only
 		 * carries the request to the daemon. */
 		onstop?: () => void;
@@ -88,6 +96,13 @@
 		 * offers, reached here because the composer is where the dead send
 		 * would otherwise be discovered. */
 		onreenroll?: () => void;
+		/** The latest usage/compaction side-channel frames (M3), tracked by
+		 * the view's own fold — null until the first one arrives. */
+		usage?: AgentUsageUpdate["usage"] | null;
+		lastCompaction?: AgentCompactionUpdate | null;
+		/** Whether the backend advertised the `usage` capability in `hello` —
+		 * the meter renders nothing at all when it did not. */
+		usageSupported?: boolean;
 	}
 
 	let {
@@ -99,12 +114,17 @@
 		running = false,
 		enrollmentExpired = false,
 		onsend,
+		mimeTypes = [],
 		onstop,
 		onchanged,
 		onreenroll,
+		usage = null,
+		lastCompaction = null,
+		usageSupported = false,
 	}: Props = $props();
 
 	let draft = $state("");
+	let files = $state<File[]>([]);
 	let focused = $state(false);
 	let busy = $state(false);
 
@@ -114,10 +134,11 @@
 		if (!message || busy) return;
 		busy = true;
 		try {
-			await onsend(message);
-			// Cleared only on a landed send: a refused follow-up keeps its text,
-			// like every composer here.
+			await onsend(message, files);
+			// Cleared only on a landed send: a refused follow-up keeps its text
+			// and its files, like every composer here.
 			draft = "";
+			files = [];
 		} finally {
 			busy = false;
 		}
@@ -133,6 +154,8 @@
 	let modesFailure = $state<string | null>(null);
 	let models = $state<CodeProviderModel[] | null>(null);
 	let modelsFailure = $state<string | null>(null);
+	/** Models the machine listed but its enrollment policy keeps off the panel. */
+	let modelsHidden = $state(0);
 	/** What toggles the provider offers at all — the descriptor list, not
 	 * the values. The live values come from the agent's snapshot
 	 * (`features`), so this only ever decides that a toggle exists and
@@ -171,7 +194,10 @@
 			}
 			try {
 				const result = await listProviderModels(deviceId, provider);
-				if (token === listsToken) models = result.models;
+				if (token === listsToken) {
+					models = result.models;
+					modelsHidden = result.hidden ?? 0;
+				}
 			} catch (err) {
 				if (token === listsToken) {
 					modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
@@ -310,10 +336,13 @@
 >
 	<div class="flex w-full items-center">
 		<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
+			<ComposerFileChips bind:files />
 			<ChatInput
 				placeholder="Follow up with the agent…"
 				bind:value={draft}
-				mimeTypes={[]}
+				{mimeTypes}
+				chatTools={false}
+				bind:files
 				onsubmit={submit}
 				bind:focused
 			>
@@ -423,6 +452,12 @@
 												</span>
 											</DropdownMenu.Item>
 										{/each}
+										{#if modelsHidden > 0}
+											<DropdownMenu.Item class={menuNoteClass} disabled>
+												{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
+												machine was enrolled without --allow-free-models.
+											</DropdownMenu.Item>
+										{/if}
 									{/if}
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
@@ -451,6 +486,15 @@
 								{feature.label}
 							</button>
 						{/each}
+
+						<ContextMeter
+							{deviceId}
+							{agentId}
+							{usage}
+							{lastCompaction}
+							supported={usageSupported}
+							{onchanged}
+						/>
 
 						{#if applyFailure}
 							<span

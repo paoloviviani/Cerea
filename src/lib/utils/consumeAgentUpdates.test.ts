@@ -86,6 +86,19 @@ describe("consumeAgentUpdates", () => {
 		expect(isConversationGenerationActive(messages)).toBe(false);
 	});
 
+	it("puts a user frame's attachments on the user message, and nothing else moves", async () => {
+		const files = [{ type: "hash" as const, value: "abc", mime: "image/png", name: "shot.png" }];
+		const messages = await run([
+			{ type: "user", text: "look at this", messageId: "m1", files },
+			token("Seen."),
+			done(),
+		]);
+		expect(messages).toHaveLength(2);
+		expect(messages[0]).toMatchObject({ from: "user", content: "look at this", files });
+		expect(messages[1]).toMatchObject({ from: "assistant", content: "Seen." });
+		expect(messages[1].files).toBeUndefined();
+	});
+
 	it("pairs a live tool's running and completed frames once", async () => {
 		const messages = await run([user("run it"), running(), call("t1"), result("t1"), done()]);
 		const updates = messages[1].updates ?? [];
@@ -192,5 +205,67 @@ describe("consumeAgentUpdates", () => {
 		// the abort check saw first is not folded.
 		expect(messages).toHaveLength(2);
 		expect(messages[1].content).toBe("half ");
+	});
+
+	describe("usage and compaction: a side channel that never touches turn structure (M3)", () => {
+		it("calls onUsage without opening a turn, disturbing the pending message, or affecting the transcript", async () => {
+			const messages: Message[] = [];
+			const onUsage = vi.fn();
+			await consumeAgentUpdates(of([{ type: "usage", usage: { used: 10, max: 100 } }]), messages, {
+				isAborted: () => false,
+				onAbort: vi.fn(),
+				onTurnEvent: vi.fn(),
+				onUsage,
+			});
+			expect(onUsage).toHaveBeenCalledWith({ used: 10, max: 100 });
+			// No message was opened or closed — a bare usage frame with no
+			// surrounding turn leaves the transcript exactly empty.
+			expect(messages).toHaveLength(0);
+		});
+
+		it("calls onCompaction the same way, and interleaved with an ordinary turn neither disturbs the other", async () => {
+			const onUsage = vi.fn();
+			const onCompaction = vi.fn();
+			const messages: Message[] = [];
+			await consumeAgentUpdates(
+				of([
+					user("compact please"),
+					running(),
+					token("On it."),
+					{ type: "usage", usage: { used: 50, max: 100 } },
+					{ type: "compaction", auto: false },
+					done(),
+				]),
+				messages,
+				{ isAborted: () => false, onAbort: vi.fn(), onTurnEvent: vi.fn(), onUsage, onCompaction }
+			);
+			expect(onUsage).toHaveBeenCalledWith({ used: 50, max: 100 });
+			expect(onCompaction).toHaveBeenCalledWith({ type: "compaction", auto: false });
+
+			// The ordinary turn folded exactly as it would without the side
+			// channel interleaved: one user message, one assistant message
+			// carrying only the turn's own updates (stream + turn state) —
+			// the usage/compaction frames left no trace on it.
+			expect(messages).toHaveLength(2);
+			expect(messages[0]).toMatchObject({ from: "user", content: "compact please" });
+			const assistant = messages[1];
+			expect(assistant.content).toBe("On it.");
+			const kinds = (assistant.updates ?? []).map((u) => u.type);
+			expect(kinds).toEqual(["turnState", "stream", "turnState"]);
+		});
+
+		it("a missing onUsage/onCompaction callback is a silent no-op, not a throw", async () => {
+			const messages: Message[] = [];
+			await expect(
+				consumeAgentUpdates(
+					of([
+						{ type: "usage", usage: { used: 1 } },
+						{ type: "compaction", auto: true },
+					]),
+					messages,
+					{ isAborted: () => false, onAbort: vi.fn(), onTurnEvent: vi.fn() }
+				)
+			).resolves.toBeUndefined();
+		});
 	});
 });
