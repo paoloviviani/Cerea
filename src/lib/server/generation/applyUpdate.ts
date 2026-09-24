@@ -1,5 +1,6 @@
 import {
 	MessageReasoningUpdateType,
+	MessageToolUpdateType,
 	MessageUpdateStatus,
 	MessageUpdateType,
 	type MessageUpdate,
@@ -235,6 +236,21 @@ export function applyUpdateToMessage(
 				model: message.routerMetadata?.model || "",
 				provider: event.provider,
 			};
+		}
+	}
+
+	// A draft previews a call still streaming its arguments; once any call's
+	// result lands, or the turn ends, the executed calls' canonical blocks are
+	// in the content, and a stored draft would only hold the same content a
+	// second time.
+	if (
+		(event.type === MessageUpdateType.Tool &&
+			(event.subtype === MessageToolUpdateType.Result ||
+				event.subtype === MessageToolUpdateType.Error)) ||
+		event.type === MessageUpdateType.FinalAnswer
+	) {
+		if (message.updates?.some((u) => u.type === MessageUpdateType.ArtifactDraft)) {
+			message.updates = message.updates.filter((u) => u.type !== MessageUpdateType.ArtifactDraft);
 		}
 	}
 

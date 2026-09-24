@@ -267,6 +267,27 @@ describe("resolveArtifactOp", () => {
 		expect(updated.resultText).toBe("updated snake-game → v2");
 	});
 
+	it("counts a same-turn block once when the live message is already stored with it", async () => {
+		const turnBlocks: string[] = [];
+		const tool = createArtifactTool({ turnBlocks });
+		const ctx = {
+			uuid: "u1",
+			toolCallId: "call_1",
+			conversationId: "conv" as never,
+			messageId: "m-live",
+		};
+		findOne.mockResolvedValue({ messages: [] });
+		await tool.execute({ ...CREATE_HTML }, ctx);
+		// The route persisted the in-progress message with this turn's block in it.
+		findOne.mockResolvedValue({ messages: [msg("m-live", `\n\n${turnBlocks[0]}`)] });
+		const rewritten = await tool.execute(
+			{ command: "rewrite", identifier: "snake-game", content: "<p>v2</p>" },
+			{ ...ctx, toolCallId: "call_2", uuid: "u2" }
+		);
+		if (!("resultText" in rewritten)) throw new Error("expected rewrite to succeed");
+		expect(rewritten.resultText).toBe("rewrote snake-game → v2");
+	});
+
 	it("appends the canonical block as a Stream extra update with a short result", async () => {
 		findOne.mockResolvedValue({ messages: [] });
 		const tool = createArtifactTool();
