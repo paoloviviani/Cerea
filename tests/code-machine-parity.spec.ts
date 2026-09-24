@@ -143,5 +143,10 @@ test.describe("owned machine agent: parity", () => {
 		await send(page, "delegate this");
 		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByText("Subagent done.").first()).toBeVisible({ timeout: 60_000 });
+
+		// Expanding the card loads the child session's own transcript through the
+		// machine: its first message is the prompt the parent's task call gave it.
+		await page.getByRole("button", { name: "Expand Inspect the repo" }).click();
+		await expect(page.getByText("List what is in the repo.")).toBeVisible({ timeout: 30_000 });
 	});
 });
