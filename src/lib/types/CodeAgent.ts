@@ -1,4 +1,6 @@
 import type { ObjectId } from "mongodb";
+import type { MessageFile } from "$lib/types/Message";
+import type { Backend, CredentialState, Policy } from "$lib/types/machineProtocol";
 import {
 	MessageUpdateType,
 	type MessageElicitationRequestUpdate,
@@ -51,10 +53,61 @@ import {
 export interface AgentUserMessageUpdate {
 	type: "user";
 	text: string;
+	/** The machine's echo of `Message.clientMessageId` (spec): the id the
+	 * person's attachments were uploaded under. */
+	messageId?: string;
+	/** Those attachments, as the store returns them (`findAttachments`),
+	 * added by the bridge; the fold puts them on the user message. */
+	files?: MessageFile[];
+}
+
+/**
+ * The machine's process restarted mid-session (its `epoch` changed, spec
+ * §7-§8): every seq before this point is gone, so the fold must discard the
+ * whole transcript and rebuild from what follows — the frames right after a
+ * `reset` are exactly the fresh epoch's own history. Travels the ordinary
+ * `update` channel (never a separate SSE event type) so the client needs no
+ * new plumbing beyond one more case in `consumeAgentUpdates`.
+ */
+export interface AgentResetUpdate {
+	type: "reset";
+}
+
+/**
+ * Context/usage, a side channel (M3): never touches the turn structure a
+ * `user`/turn-state frame builds, folds independently of it, and re-converges
+ * on the latest value rather than accumulating (a live `usage` event and the
+ * snapshot's own `usage` both land here the same way). Field names are
+ * Cerea's own, mapped from the machine's `Usage` shape in one place
+ * (`machineTimeline.ts`) so an upstream rename there is a one-line fix.
+ */
+export interface AgentUsageUpdate {
+	type: "usage";
+	usage: {
+		used?: number;
+		max?: number;
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		reasoning?: number;
+	};
+}
+
+/**
+ * A compaction marker (M3), mapped from the machine's `compaction` part
+ * (spec §7). `auto` distinguishes opencode's own context-overflow trigger
+ * from a person's "Compact now" — undefined when the source is silent on it.
+ */
+export interface AgentCompactionUpdate {
+	type: "compaction";
+	auto?: boolean;
 }
 
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
+	| AgentResetUpdate
+	| AgentUsageUpdate
+	| AgentCompactionUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -67,6 +120,9 @@ export type AgentStreamUpdate =
 /** Frame `type` values the bridge may emit, for the client's backstop check. */
 export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"user",
+	"reset",
+	"usage",
+	"compaction",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.Plan,
@@ -152,39 +208,41 @@ export interface CodeFileChange {
 	newText: string;
 }
 
-/** A paired device: somebody's machine running the paseo daemon. */
-export type CodeDeviceStatus = "pending" | "paired";
+/**
+ * A paired machine: somebody's own box, running `pystino-agent`, dialled in
+ * over the machine link (`reports/2026-09-24-thin-agent-protocol.md`).
+ *
+ * Nothing capability-bearing lives here — the row names a machine and records
+ * what it last reported about itself; the only thing that can actually reach
+ * it is a live socket in the in-process registry (`$lib/server/code/machines.ts`),
+ * which a Mongo dump cannot hold. Revoking is real: the socket is closed
+ * (4403) and a `machineId` marked `revoked` is refused at the next connect,
+ * unlike the old daemon capability tuple this replaces.
+ */
+export type CodeDeviceStatus = "pending" | "paired" | "revoked";
 
 export interface CodeDevice {
 	_id: ObjectId;
-	userId?: ObjectId;
-	sessionId?: string;
+	userId: ObjectId;
+	/** The machine's own generated id (`X-Pystino-Machine-Id`); stable across
+	 * reconnects, but a fresh one for every re-enroll. Unique per user. */
+	machineId: string;
 	name: string;
 	status: CodeDeviceStatus;
-	/**
-	 * The short code shown at pairing time. The person runs `paseo daemon
-	 * pair` on their machine and pastes the pairing link it prints back into
-	 * the panel; the code alone proves the person saw this row, and the pasted
-	 * offer carries the daemon's relay identity. Cleared once paired — it is
-	 * single-use by design.
-	 */
-	pairingCode?: string;
-	/** Daemon-reported device id, recorded when the pairing completes. */
-	daemonId?: string;
-	/**
-	 * The daemon's Curve25519 public key, from the pairing offer the person
-	 * pasted at claim time. This is half of the E2EE channel key material:
-	 * the offer as a whole is the bearer capability for the daemon (paseo
-	 * treats its QR code like a password), so it is stored with the same
-	 * care as a credential and never leaves the server.
-	 */
-	daemonPublicKey?: string;
-	/**
-	 * When an unclaimed pairing stops existing. Set only while `pending` —
-	 * a paired row carries no expiry, so the TTL index below can never
-	 * delete a live device. Cleared by `claim` alongside `pairingCode`.
-	 */
-	expiresAt?: Date;
+	/** The OIDC subject the machine's bearer carried when it first connected
+	 * (or last reconnected) — recorded for audit, never used for ownership:
+	 * ownership is `userId`, decided once at connect time by `machineAuth.ts`. */
+	sub: string;
+	/** The issuer that minted the bearer, trailing-slash normalized. */
+	iss: string;
+	/** The backends `hello` reported (opencode, later others). */
+	backends: Backend[];
+	/** The machine's own policy (`hello`), shown so the UI can explain a
+	 * refusal — the panel cannot override it; it is the machine's veto. */
+	policy: Policy;
+	/** The gateway/enrollment credential's last reported health. */
+	credentialState: CredentialState;
+	lastSeenAt?: Date;
 	createdAt: Date;
 	updatedAt: Date;
 	pairedAt?: Date;

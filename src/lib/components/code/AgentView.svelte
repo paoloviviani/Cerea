@@ -30,12 +30,15 @@
 		type MessageTurnStateUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type {
+		AgentCompactionUpdate,
+		AgentUsageUpdate,
 		CodeAgentSession,
 		CodeSubagent,
 		CodeSubagentAnchor,
 		CodeTurnState,
 		CodeWorkspace,
 	} from "$lib/types/CodeAgent";
+	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
@@ -52,6 +55,9 @@
 		sendFollowUp,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
+	import { base } from "$app/paths";
+	import { uploadComposerFiles } from "$lib/utils/composerFiles";
+	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
@@ -70,13 +76,9 @@
 		agentId: string;
 		/** The workspace the address named, so the strip can name it without guessing. */
 		workspaceId?: string;
-		/** The device's own display name, for the re-enroll dialog's copy and
-		 * its setup command's `--name` — unknown only in the brief window
-		 * before the device list has loaded. */
-		deviceName?: string;
 	}
 
-	let { deviceId, agentId, workspaceId, deviceName }: Props = $props();
+	let { deviceId, agentId, workspaceId }: Props = $props();
 
 	/** Whether `CodePanel`'s probe (on agent open, on device switch) last
 	 * found this device's enrollment expired — the composer refuses to send
@@ -97,6 +99,34 @@
 	let messages = $state<Message[]>([]);
 	let pending = $state(false);
 	let failure = $state<string | null>(null);
+	/** The latest usage/compaction side-channel frames (M3) — the fold's
+	 * onUsage/onCompaction never touch `messages`, so these track separately. */
+	let usage = $state<AgentUsageUpdate["usage"] | null>(null);
+	let lastCompaction = $state<AgentCompactionUpdate | null>(null);
+
+	/** Whether this agent's backend advertised the `usage` capability in
+	 * `hello` — the meter hides entirely otherwise. `codeDeviceList` is the
+	 * same shared poll the sidebar tree reads its device rows from. */
+	let usageSupported = $derived(
+		codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities.usage ?? false
+	);
+
+	/** Whether the backend takes files and images with a prompt (`hello`
+	 * capabilities); the composer offers no attachment picker otherwise. */
+	let filesSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.files || caps?.images);
+	});
+	/** The session's slot in the attachment store (owner key
+	 * `code:<device>:<session>`): where the composer uploads, and where the
+	 * transcript's user files are served from. */
+	let attachmentsUrl = $derived(
+		`${base}/api/v2/code/attachments/${encodeURIComponent(`code:${deviceId}:${agentId}`)}`
+	);
 
 	// The mobile top bar names the screen it is on; chats get their title
 	// from the conversations store, and an agent is not one — it reports
@@ -162,6 +192,8 @@
 	$effect(() => {
 		messages = [];
 		pending = false;
+		usage = null;
+		lastCompaction = null;
 		const abort = new AbortController();
 		untrack(() => {
 			(async () => {
@@ -170,6 +202,12 @@
 						isAborted: () => abort.signal.aborted,
 						onAbort: () => abort.abort(),
 						onTurnEvent: () => (pending = false),
+						onUsage: (u) => (usage = u),
+						onCompaction: (c) => (lastCompaction = c),
+						onReset: () => {
+							usage = null;
+							lastCompaction = null;
+						},
 					});
 				} catch (err) {
 					if (!abort.signal.aborted) {
@@ -273,7 +311,7 @@
 				if (update.type !== MessageUpdateType.Tool) continue;
 				if (update.subtype !== MessageToolUpdateType.Call) continue;
 				if (update.call.name.toLowerCase() !== "task") continue;
-				const description = update.call.parameters["description"];
+				const description = update.call.parameters?.["description"];
 				calls.set(update.uuid, typeof description === "string" ? description : "");
 			}
 		}
@@ -333,7 +371,7 @@
 	// strip simply carries the pills.
 	let workspaceName = $derived(workspace?.name ?? "");
 
-	async function handleSend(text: string) {
+	async function handleSend(text: string, files: File[] = []) {
 		// The composer already refuses to submit on a known-expired
 		// enrollment; this is the backstop for a send that raced ahead of
 		// the probe's answer (Enter fired before `enrollmentExpired` landed).
@@ -346,7 +384,12 @@
 		// The send is the request to see the exchange — same contract as chat.
 		column?.notifySend();
 		try {
-			await sendFollowUp(deviceId, agentId, text);
+			// Files go up first, under the id the prompt then carries: the server
+			// finds them by it, hands them to the machine, and the transcript
+			// renders them from the store after the machine echoes the id back.
+			const messageId = crypto.randomUUID();
+			if (files.length) await uploadComposerFiles(attachmentsUrl, messageId, files);
+			await sendFollowUp(deviceId, agentId, text, messageId);
 		} catch (err) {
 			pending = false;
 			// A 401 here is the forwarder's own word that the daemon's
@@ -458,6 +501,7 @@
 			{pending}
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
+			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
 			{subagentFor}
 			{subagentCard}
@@ -486,6 +530,10 @@
 					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}
 					onreenroll={() => (showReenroll = true)}
+					{usage}
+					{lastCompaction}
+					{usageSupported}
+					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}
 				/>
 			{/snippet}
 		</ChatMessageColumn>
@@ -500,15 +548,12 @@
 
 {#if showReenroll}
 	<!-- The same pairing dialog the sidebar's device pill opens (see
-	     CodeNavTree), not a second flow: `reenroll` skips the naming step
-	     and watches this device's own row for its `pairedAt` to advance,
-	     rather than watching for a new device id. -->
+	     CodeNavTree). A re-enroll mints a fresh machine id (spec §3), so it
+	     is a new pending row to confirm, not an update to this one — the
+	     expired row here still needs revoking separately once the new
+	     machine is up. -->
 	<PairDeviceDialog
-		reenroll={{ deviceId, name: deviceName ?? "" }}
 		onclose={() => (showReenroll = false)}
-		onpaired={() => {
-			codeEnrollment[deviceId] = "ok";
-			showReenroll = false;
-		}}
+		onpaired={() => (showReenroll = false)}
 	/>
 {/if}

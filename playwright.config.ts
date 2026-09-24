@@ -14,6 +14,7 @@
  * Raising `PLAYWRIGHT_WORKERS` also means scoping scenarios per conversation and rethinking the
  * wipe.
  */
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "playwright/test";
 import {
 	E2E_APP_PORT,
@@ -22,6 +23,7 @@ import {
 	E2E_MONGO_PORT,
 	E2E_MONGO_URL,
 	MOCK_MCP_ORIGIN,
+	MOCK_OIDC_ISSUER,
 	MOCK_OPENAI_BASE_URL,
 	MOCK_OPENAI_ORIGIN,
 } from "./tests/fixtures.ts";
@@ -82,6 +84,15 @@ export default defineConfig({
 			stderr: "pipe",
 		},
 		{
+			// The issuer of machine tokens: the agent's WSS bearer is validated against its JWKS.
+			command: `${NODE_TS} tests/mock-oidc.ts`,
+			url: `${MOCK_OIDC_ISSUER}/__control/health`,
+			reuseExistingServer: !isCI,
+			timeout: 30_000,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+		{
 			command: `${NODE_TS} tests/mock-mcp.ts`,
 			url: `${MOCK_MCP_ORIGIN}/health`,
 			reuseExistingServer: !isCI,
@@ -95,10 +106,16 @@ export default defineConfig({
 			// `application/jsonl` unbuffered, and it loads no vite/svelte config, so the
 			// `dotenv.config({ override: true })` in svelte.config.js cannot replace the hermetic
 			// values below with whatever a developer has in `.env.local`.
-			command: `npm run build && node server.js`,
+			// E2E_SKIP_BUILD=1 serves an existing `build/` as is. On a small box the
+			// production build (~2 GB) plus the stack it tests can exceed memory, so
+			// build once alone (`npm run build`), then run specs against it.
+			command:
+				process.env.E2E_SKIP_BUILD === "1" && existsSync("build/handler.js")
+					? "node server.js"
+					: "npm run build && node server.js",
 			url: E2E_APP_URL,
 			reuseExistingServer: !isCI,
-			timeout: 300_000,
+			timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 600_000),
 			// Request logging at info level buries the test results; errors still reach stderr.
 			stdout: "ignore",
 			stderr: "pipe",
@@ -138,8 +155,15 @@ export default defineConfig({
 				// The machine pairing endpoint validates its bearer against the
 				// issuer; the e2e stack has none, so point discovery at a port
 				// nothing listens on — the failure is instant and local, which
-				// is what the endpoint's 401 spec asserts on.
+				// is what the endpoint's 401 spec asserts on. The pairing
+				// dialog's printed --issuer also reads this value (via the
+				// feature-flags endpoint), which is why it is deliberately not
+				// PUBLIC_ORIGIN-shaped: a spec asserting on the printed command
+				// then catches a regression back to a hardcoded origin-derived
+				// issuer.
 				OPENID_PROVIDER_URL: "http://127.0.0.1:9/authelia",
+				// Machine tokens come from the mock issuer; the browser login stays unconfigured.
+				CODE_MACHINE_ISSUER: MOCK_OIDC_ISSUER,
 				ALLOW_IFRAME: "true",
 				NODE_ENV: "production",
 			},

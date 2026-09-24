@@ -1449,6 +1449,52 @@ run_compose() { # run_compose <env-file> <args...>
 	fi
 }
 
+# Whether the proxy already has a running container. Its own compose config
+# comes from just the base file plus the exposure overlay ("Proxy shape
+# needs nothing" — see ensure_edge_idp_route above, the IdP and redaction
+# overlays only add proxy's route, never its service definition), so that
+# pair is enough to resolve the project and the service without recomputing
+# the full overlay set the caller may not have built yet at this point.
+edge_proxy_running() { # edge_proxy_running <env-file>
+	local envfile="$1"
+	local out
+	out="$(cd "$PYSTINO_ROOT" && "${SCRUB[@]}" compose --env-file "$envfile" \
+		-f deploy/compose/docker-compose.yml -f "deploy/compose/docker-compose.${EXPOSURE}.yml" \
+		ps --status running --services 2>/dev/null)" || return 1
+	printf '%s\n' "$out" | grep -qx proxy
+}
+
+# Caddyfile.netbird is bind-mounted into the proxy and rewritten in place by
+# ensure_edge_idp_route/ensure_edge_relay_route via `mv` — which swaps the
+# inode, so a proxy that already has the old one open keeps serving it. `up
+# -d` does not help: neither function changes the proxy service's compose
+# config, so compose sees nothing to recreate. A stack not up yet needs
+# nothing here either — the `up -d` that follows starts the proxy reading
+# the file this run just wrote. Only the case in between — the proxy already
+# running when the file changed — is stale until restarted, which is what
+# left `--phase2 --components code-panel=on` against a live stack serving
+# /ws as a 404 until someone restarted the proxy by hand.
+#
+# `was_running` is read from the caller rather than queried here, and must
+# be captured BEFORE the `up -d` that follows this call in phase_two(_standalone):
+# queried after, the proxy is always running (this run's own `up -d` either
+# started it or left it running), which would restart it on every fresh
+# install too. `was_running` is also never queried in a dry run — `ps` needs
+# a live docker daemon, and a dry run promises it needs none.
+maybe_restart_edge_proxy() { # maybe_restart_edge_proxy <env-file> <was_running: 0|1>
+	local envfile="$1" was_running="$2"
+	[ "$EDGE_ROUTE_WRITTEN" = "1" ] || return 0
+	if [ "$DRY_RUN" = "1" ]; then
+		note "[dry-run] would restart the proxy if it was already running, so it picks up the rewritten Caddyfile.netbird"
+		return
+	fi
+	if [ "$was_running" = "1" ]; then
+		echo "Restarting the proxy so it picks up the rewritten Caddyfile.netbird ..."
+		run_compose "$envfile" -f deploy/compose/docker-compose.yml \
+			-f "deploy/compose/docker-compose.${EXPOSURE}.yml" restart proxy
+	fi
+}
+
 # Ask overlays.sh for the -f list. The installer never restates the mapping:
 # profile sets go through profile_overlays, deviated sets through
 # custom_overlays. Sourced in a subshell so its functions and positional
@@ -1656,6 +1702,12 @@ ensure_idp_trust() { # ensure_idp_trust <env-file> <flags...>
 # nothing (the overlay mounts into conf.d). Idempotent behind a marker; if
 # the sites no longer match the shape below, stop with manual instructions
 # rather than writing a file Caddy refuses.
+#
+# Reports whether it actually wrote by setting the global EDGE_ROUTE_WRITTEN
+# to 1 (never resetting it to 0, so a caller running this alongside
+# ensure_edge_relay_route sees either write) — maybe_restart_edge_proxy reads
+# it to decide whether an already-running proxy needs restarting, since the
+# `mv` below swaps Caddyfile.netbird's inode and `up -d` alone never notices.
 ensure_edge_idp_route() {
 	if [ -z "${VALUES[IDP_BUNDLED]:-}" ]; then return; fi
 	if [ "${EXPOSURE:-}" != "edge" ]; then return; fi
@@ -1664,6 +1716,7 @@ ensure_edge_idp_route() {
 	local marker="# installer: bundled $kind route (deploy/compose/docker-compose.idp-$kind.yml)"
 	if [ "$DRY_RUN" = "1" ]; then
 		note "[dry-run] would append the bundled $kind route to deploy/caddy/Caddyfile.netbird (shared snippet, both sites)"
+		EDGE_ROUTE_WRITTEN=1
 		return
 	fi
 	if grep -q "installer: bundled .* route" "$netbird" 2>/dev/null; then
@@ -1707,6 +1760,7 @@ ensure_edge_idp_route() {
 	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import idp-routes|' "$tmp_nb"
 	mv -f "$tmp_nb" "$netbird"
 	note "Bundled $kind route inserted above the sites in Caddyfile.netbird (both sites import it)."
+	EDGE_ROUTE_WRITTEN=1
 }
 
 # Edge shape: Caddyfile.netbird has no conf.d import, so the relay's /ws
@@ -1715,6 +1769,9 @@ ensure_edge_idp_route() {
 # name so the two never mistake each other. Proxy shape needs nothing (the
 # code-relay overlay mounts into conf.d). Idempotent; same fail-closed
 # shape checks as the IdP version.
+#
+# Reports whether it actually wrote the same way ensure_edge_idp_route does
+# (the global EDGE_ROUTE_WRITTEN, set but never reset to 0 here).
 ensure_edge_relay_route() {
 	if [ "${VALUES[CODE_AGENTS_ENABLED]:-}" != "true" ]; then return; fi
 	if [ "${EXPOSURE:-}" != "edge" ]; then return; fi
@@ -1722,6 +1779,7 @@ ensure_edge_relay_route() {
 	local marker="# installer: relay /ws route (chat deploy/compose/docker-compose.code-relay.yml)"
 	if [ "$DRY_RUN" = "1" ]; then
 		note "[dry-run] would append the relay /ws route to deploy/caddy/Caddyfile.netbird (shared snippet, both sites)"
+		EDGE_ROUTE_WRITTEN=1
 		return
 	fi
 	if grep -q "installer: relay /ws route" "$netbird" 2>/dev/null; then
@@ -1749,6 +1807,7 @@ ensure_edge_relay_route() {
 	sed -i 's|^\(\t*\)import origin-routes$|\1import origin-routes\n\1import relay-routes|' "$tmp_nb"
 	mv -f "$tmp_nb" "$netbird"
 	note "Relay /ws route inserted above the sites in Caddyfile.netbird (both sites import it)."
+	EDGE_ROUTE_WRITTEN=1
 }
 
 # Escape a value for the sed replacement half (delimiter |): backslashes,
@@ -2608,6 +2667,11 @@ main() {
 		# hand edit) otherwise serves a stack whose /authelia and /ws fall
 		# through to the gateway's 404. Both functions are idempotent
 		# behind their markers and dry-run aware.
+		EDGE_ROUTE_WRITTEN=0
+		local edge_proxy_was_running=0
+		if [ "${EXPOSURE:-}" = "edge" ] && [ "$DRY_RUN" != "1" ] && edge_proxy_running "$ENV_FILE"; then
+			edge_proxy_was_running=1
+		fi
 		if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
 			ensure_edge_idp_route
 		fi
@@ -2620,6 +2684,11 @@ main() {
 		else
 			phase_two "$ENV_FILE"
 		fi
+		# This is precisely the shape that left a running stack's /ws a 404
+		# after `--phase2 --components code-panel=on`: the route above landed
+		# in Caddyfile.netbird, but the proxy was already running and `up -d`
+		# alone never noticed the rewritten file.
+		maybe_restart_edge_proxy "$ENV_FILE" "$edge_proxy_was_running"
 		emit_compose_wrapper
 		if [ "$DRY_RUN" = "1" ]; then
 			title "Dry run complete"
@@ -2795,6 +2864,11 @@ main() {
 		fi
 	fi
 
+	EDGE_ROUTE_WRITTEN=0
+	local edge_proxy_was_running=0
+	if [ "${EXPOSURE:-}" = "edge" ] && [ "$DRY_RUN" != "1" ] && edge_proxy_running "$ENV_FILE"; then
+		edge_proxy_was_running=1
+	fi
 	if [ -n "${VALUES[IDP_BUNDLED]:-}" ]; then
 		ensure_edge_idp_route
 	fi
@@ -2809,6 +2883,10 @@ main() {
 		phase_one "$ENV_FILE"
 		phase_two "$ENV_FILE"
 	fi
+	# A fresh stack is not running yet (edge_proxy_was_running stays 0), so
+	# this is a no-op there; it only fires when a full re-run lands on top
+	# of an already-running deployment.
+	maybe_restart_edge_proxy "$ENV_FILE" "$edge_proxy_was_running"
 	# The recorded command line, last: the wrapper describes the deployment
 	# as it now stands (the phase-2 shape), written for real, printed on a
 	# dry run.

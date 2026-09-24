@@ -16,7 +16,6 @@ import { redirect, type Cookies } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
 import JSON5 from "json5";
 import { logger } from "$lib/server/logger";
-import { ObjectId } from "mongodb";
 import { adminTokenManager } from "./adminToken";
 import type { User } from "$lib/types/User";
 import type { Session } from "$lib/types/Session";
@@ -62,9 +61,22 @@ export const secure = z
 	.default(!(dev || config.ALLOW_INSECURE_COOKIES === "true"))
 	.parse(config.COOKIE_SECURE === "" ? undefined : config.COOKIE_SECURE === "true");
 
+// `none` is only needed when the session cookie must ride along on a
+// cross-site request — the one case here is the app being embedded in
+// someone else's iframe (the HuggingFace Space heritage this fork carries:
+// HF Spaces frame the chat cross-origin, and a `lax` cookie is dropped on
+// that third-party navigation). `ALLOW_IFRAME=true` is that deployment's own
+// signal that it still needs the iframe, so only that case keeps the old
+// `none` default; every other deployment defaults to `lax`, which also
+// closes a CSRF gap a cross-site POST could otherwise ride a `none` cookie
+// into (see the Origin/Content-Type checks in hooks/handle.ts).
 export const sameSite = z
 	.enum(["lax", "none", "strict"])
-	.default(!secure || dev || config.ALLOW_INSECURE_COOKIES === "true" ? "lax" : "none")
+	.default(
+		config.ALLOW_IFRAME === "true" && secure && !dev && config.ALLOW_INSECURE_COOKIES !== "true"
+			? "none"
+			: "lax"
+	)
 	.parse(config.COOKIE_SAMESITE === "" ? undefined : config.COOKIE_SAMESITE);
 
 export function sanitizeReturnPath(path: string | undefined | null): string | undefined {
@@ -487,7 +499,6 @@ export async function validateAndParseCsrfToken(
 }
 
 type CookieRecord = Cookies;
-type HeaderRecord = Headers;
 
 export async function getCoupledCookieHash(cookie: CookieRecord): Promise<string | undefined> {
 	if (!config.COUPLE_SESSION_WITH_COOKIE_NAME) {
@@ -504,38 +515,13 @@ export async function getCoupledCookieHash(cookie: CookieRecord): Promise<string
 }
 
 export async function authenticateRequest(
-	headers: HeaderRecord,
 	cookie: CookieRecord,
-	url: URL,
-	isApi?: boolean
+	url: URL
 ): Promise<App.Locals & { secretSessionId: string }> {
 	const token = cookie.get(config.COOKIE_NAME);
 
-	let email = null;
-	if (config.TRUSTED_EMAIL_HEADER) {
-		email = headers.get(config.TRUSTED_EMAIL_HEADER);
-	}
-
 	let secretSessionId: string | null = null;
 	let sessionId: string | null = null;
-
-	if (email) {
-		secretSessionId = sessionId = await sha256(email);
-		return {
-			user: {
-				_id: new ObjectId(sessionId.slice(0, 24)),
-				name: email,
-				email,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				hfUserId: email,
-				avatarUrl: "",
-			},
-			sessionId,
-			secretSessionId,
-			isAdmin: adminTokenManager.isAdmin(sessionId),
-		};
-	}
 
 	if (token) {
 		secretSessionId = token;
@@ -559,59 +545,6 @@ export async function authenticateRequest(
 			secretSessionId,
 			isAdmin: result.user?.isAdmin || adminTokenManager.isAdmin(sessionId),
 		};
-	}
-
-	if (isApi) {
-		const authorization = headers.get("Authorization");
-		if (authorization?.startsWith("Bearer ")) {
-			const token = authorization.slice(7);
-			const hash = await sha256(token);
-			sessionId = secretSessionId = hash;
-
-			const cacheHit = await collections.tokenCaches.findOne({ tokenHash: hash });
-			if (cacheHit) {
-				const user = await collections.users.findOne({ hfUserId: cacheHit.userId });
-				if (!user) {
-					throw new Error("User not found");
-				}
-				return {
-					user,
-					sessionId,
-					token,
-					secretSessionId,
-					isAdmin: user.isAdmin || adminTokenManager.isAdmin(sessionId),
-				};
-			}
-
-			const response = await fetch("https://huggingface.co/api/whoami-v2", {
-				headers: { Authorization: `Bearer ${token}` },
-			});
-
-			if (!response.ok) {
-				throw new Error("Unauthorized");
-			}
-
-			const data = await response.json();
-			const user = await collections.users.findOne({ hfUserId: data.id });
-			if (!user) {
-				throw new Error("User not found");
-			}
-
-			await collections.tokenCaches.insertOne({
-				tokenHash: hash,
-				userId: data.id,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			});
-
-			return {
-				user,
-				sessionId,
-				secretSessionId,
-				token,
-				isAdmin: user.isAdmin || adminTokenManager.isAdmin(sessionId),
-			};
-		}
 	}
 
 	// Generate new session if none exists
