@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { questionSummary } from "$lib/utils/questionSummary";
 	import { MAX_OTHER_CHARS } from "$lib/types/McpElicitation";
 	import type {
 		ElicitationAction,
@@ -248,6 +249,8 @@
 	/** What was submitted: from this session if we just sent it, else from the transcript. */
 	let answered = $derived(resolved?.content ?? (submitted === "accept" ? payload() : undefined));
 
+	let summary = $derived(questionSummary(request, answered));
+
 	let settledLabel = $derived.by(() => {
 		if (outcome === "accept") return request.mode === "url" ? "Opened link" : "Answered";
 		if (outcome === "decline") return "Declined";
@@ -281,12 +284,18 @@
 				<span
 					class="shrink-0 text-sm font-medium text-gray-500 transition-colors group-hover/header:text-gray-600 dark:text-gray-400 dark:group-hover/header:text-gray-300"
 				>
-					{settledLabel}
+					{settledLabel}{summary && outcome === "accept" ? ":" : ""}
 				</span>
-				<code
-					class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
-					>{request.server}</code
-				>
+				{#if summary}
+					<!-- The assistant's own question: say what was asked and chosen, not
+					     which "server" asked (chat's has none; an agent's was "pystino"). -->
+					<span class="min-w-0 truncate text-sm text-gray-600 dark:text-gray-300">{summary}</span>
+				{:else}
+					<code
+						class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+						>{request.server}</code
+					>
+				{/if}
 				<CarbonChevronRight
 					class="size-3.5 shrink-0 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {showAnswers
 						? 'rotate-90 text-gray-600 dark:text-gray-300'

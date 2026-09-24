@@ -1,6 +1,6 @@
 import type { Conversation } from "$lib/types/Conversation";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
-import { askUserQuestionBuiltin } from "./askUserQuestion";
+import { askUserQuestionBuiltin, askUserQuestionPlainBuiltin } from "./askUserQuestion";
 import { githubGroundingBuiltins } from "./githubGrounding";
 import { createPlanTool } from "./planTool";
 import { waitBuiltin } from "./waitTool";
@@ -100,7 +100,7 @@ export function getEnabledBuiltinTools(params: {
 	// Every conversation can put a decision to the person as options they
 	// click; the ML Assistant preset already carries the tool above.
 	if (params.askUserQuestionEnabled && !isMlAssistantConversation(params.conv)) {
-		tools.push(askUserQuestionBuiltin);
+		tools.push(askUserQuestionPlainBuiltin);
 	}
 
 	// Gated on the deployment-level flag alone: absent flag = fences only,
