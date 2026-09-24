@@ -103,6 +103,7 @@
 		"htmlparser2": "^10.0.0",
 		"ip-address": "^9.0.5",
 		"isomorphic-dompurify": "^3.8.0",
+		"jose": "6.2.3",
 		"json5": "^2.2.3",
 		"katex": "^0.16.21",
 		"marked": "^12.0.1",
@@ -128,6 +129,7 @@
 		"undici": "^7.18.2",
 		"uuid": "^10.0.0",
 		"web-haptics": "^0.0.6",
+		"ws": "8.21.1",
 		"zod": "^3.22.3"
 	},
 	"overrides": {
