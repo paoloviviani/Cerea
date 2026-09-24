@@ -12,8 +12,8 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import IconFolder from "~icons/carbon/folder";
 	import IconWarning from "~icons/carbon/warning-filled";
-	import { createWorkspace } from "$lib/codeApi";
-	import type { CodeWorkspace } from "$lib/types/CodeAgent";
+	import { createWorkspace, suggestWorkspaceDirectories } from "$lib/codeApi";
+	import type { CodeDirectory, CodeWorkspace } from "$lib/types/CodeAgent";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -29,10 +29,52 @@
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 
+	// Debounced directory autocomplete: a keystroke schedules a lookup, and
+	// only the *last* scheduled one is still pending by the time it fires —
+	// an in-flight response for a stale prefix is simply never requested.
+	let suggestions = $state<CodeDirectory[]>([]);
+	let suggestOpen = $state(false);
+	let suggestTimer: ReturnType<typeof setTimeout> | undefined;
+	const SUGGEST_DEBOUNCE_MS = 250;
+
+	function scheduleSuggest(prefix: string) {
+		clearTimeout(suggestTimer);
+		if (!prefix.trim()) {
+			suggestions = [];
+			suggestOpen = false;
+			return;
+		}
+		suggestTimer = setTimeout(() => void runSuggest(prefix), SUGGEST_DEBOUNCE_MS);
+	}
+
+	async function runSuggest(prefix: string) {
+		try {
+			const { directories } = await suggestWorkspaceDirectories(deviceId, prefix);
+			// The field may have moved on while this was in flight; only the
+			// still-current prefix's answer gets shown.
+			if (path !== prefix) return;
+			suggestions = directories;
+			suggestOpen = directories.length > 0;
+		} catch {
+			// Autocomplete is a nicety, not the form's own validation — a failed
+			// lookup just leaves the list empty rather than surfacing a failure
+			// banner over someone still typing.
+			suggestions = [];
+			suggestOpen = false;
+		}
+	}
+
+	function selectSuggestion(dir: CodeDirectory) {
+		path = dir.path;
+		suggestOpen = false;
+		suggestions = [];
+	}
+
 	async function handleCreate() {
 		if (!path.trim() || busy) return;
 		busy = true;
 		failure = null;
+		suggestOpen = false;
 		try {
 			const created = await createWorkspace(deviceId, {
 				path: path.trim(),
@@ -77,14 +119,55 @@
 			}}
 		>
 			<label class={s.LABEL} for="workspace-path">Directory on the machine</label>
-			<input
-				id="workspace-path"
-				class={s.INPUT}
-				placeholder="/home/you/checkouts/myrepo"
-				maxlength={1024}
-				bind:value={path}
-				disabled={busy}
-			/>
+			<div class="relative">
+				<input
+					id="workspace-path"
+					class={s.INPUT}
+					placeholder="/home/you/checkouts/myrepo"
+					maxlength={1024}
+					autocomplete="off"
+					role="combobox"
+					aria-expanded={suggestOpen}
+					aria-controls="workspace-path-listbox"
+					bind:value={path}
+					oninput={() => scheduleSuggest(path)}
+					onfocus={() => {
+						if (suggestions.length > 0) suggestOpen = true;
+					}}
+					onblur={() => {
+						// A click on a suggestion fires onblur first (mousedown before
+						// blur); pointerdown below cancels that native blur, so this
+						// only ever closes the list for an unrelated blur.
+						suggestOpen = false;
+					}}
+					disabled={busy}
+				/>
+				{#if suggestOpen}
+					<div
+						id="workspace-path-listbox"
+						role="listbox"
+						aria-label="Matching directories"
+						class="absolute z-20 mt-1 scrollbar-custom max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-sm shadow-lg dark:border-gray-700 dark:bg-gray-900"
+					>
+						{#each suggestions as dir (dir.path)}
+							<button
+								type="button"
+								role="option"
+								aria-selected="false"
+								class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-gray-800 hover:bg-gray-50 focus:outline-hidden dark:text-gray-200 dark:hover:bg-gray-800/60"
+								onpointerdown={(e) => e.preventDefault()}
+								onclick={() => selectSuggestion(dir)}
+							>
+								<IconFolder class="size-3.5 shrink-0 text-gray-400" />
+								<span class="min-w-0 flex-1 truncate">{dir.path}</span>
+								{#if dir.isGitRepo}
+									<span class="shrink-0 text-[10px] text-gray-400">git</span>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
 			<p class={s.HINT}>Absolute path, as the daemon sees it — not this browser.</p>
 			<label class="{s.LABEL} mt-4" for="workspace-name">Title (optional)</label>
 			<input

@@ -18,6 +18,7 @@ import type { CodeDeviceView } from "$lib/server/codeDevices";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
 	CodeAgentSession,
+	CodeDirectory,
 	CodeFileChange,
 	CodeProviderMode,
 	CodeProviderModel,
@@ -104,10 +105,26 @@ export async function listWorkspaces(deviceId: string): Promise<{ workspaces: Co
 	return unwrap(await fetch(`${root()}/v1/workspaces?device=${encodeURIComponent(deviceId)}`));
 }
 
-/** A workspace backed by an existing directory on the daemon's machine. */
+/** Directory autocomplete for the "Add workspace" dialog's path field, as
+ * the daemon sees its own filesystem. */
+export async function suggestWorkspaceDirectories(
+	deviceId: string,
+	prefix: string
+): Promise<{ directories: CodeDirectory[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/workspaces/suggest?prefix=${encodeURIComponent(prefix)}&device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** A workspace backed by an existing directory on the daemon's machine, or
+ * a fresh `git worktree` of another workspace. */
 export async function createWorkspace(
 	deviceId: string,
-	input: { path: string; title?: string }
+	input:
+		| { path: string; title?: string }
+		| { worktree: { from: string; branch: string; base?: string }; title?: string }
 ): Promise<{ workspace: CodeWorkspace }> {
 	return unwrap(
 		await fetch(`${root()}/v1/workspaces?device=${encodeURIComponent(deviceId)}`, {
@@ -451,15 +468,23 @@ export async function archiveAgent(deviceId: string, agentId: string): Promise<{
 	);
 }
 
-/** Delete (archive) a workspace: its sessions go with it, local files stay. */
+/** Delete (archive) a workspace: its sessions go with it, local files stay.
+ * `removeWorktree` additionally runs `git worktree remove` on the daemon
+ * (only meaningful for a workspace that is itself a worktree); `force`
+ * overrides git's own refusal when it has uncommitted changes. */
 export async function archiveWorkspace(
 	deviceId: string,
-	workspaceId: string
+	workspaceId: string,
+	options?: { removeWorktree?: boolean; force?: boolean }
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
 			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/archive?device=${encodeURIComponent(deviceId)}`,
-			{ method: "POST", headers: { "content-type": "application/json" } }
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(options ?? {}),
+			}
 		)
 	);
 }

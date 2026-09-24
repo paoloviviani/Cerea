@@ -316,6 +316,64 @@ describe("the forwarder over a live machine link", () => {
 		expect(res.status).toBe(404);
 		machine.close();
 	});
+
+	it("suggests directories from the machine, filtered by prefix (M8)", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		machine.model.directories = [
+			{ path: "/home/you/repo-a", name: "repo-a", isGitRepo: true },
+			{ path: "/home/you/repo-b", name: "repo-b", isGitRepo: false },
+			{ path: "/home/you/other", name: "other", isGitRepo: false },
+		];
+
+		const res = await forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/workspaces/suggest?prefix=${encodeURIComponent("/home/you/repo")}&device=${deviceId}`,
+			{ locals: user.locals }
+		);
+		expect(res.status).toBe(200);
+		const { directories } = await parse<{
+			directories: Array<{ name: string; isGitRepo: boolean }>;
+		}>(res);
+		expect(directories.map((d) => d.name).sort()).toEqual(["repo-a", "repo-b"]);
+		expect(directories.find((d) => d.name === "repo-a")?.isGitRepo).toBe(true);
+
+		machine.close();
+	});
+
+	it("creates a git worktree workspace, and archives it with removeWorktree (M8)", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+
+		const wtRes = await forwarder(forwarderPOST, `/api/v2/code/v1/workspaces?device=${deviceId}`, {
+			method: "POST",
+			body: JSON.stringify({ worktree: { from: workspace.id, branch: "feature/x" } }),
+			locals: user.locals,
+		});
+		expect(wtRes.status).toBe(200);
+		const { workspace: worktree } = await parse<{
+			workspace: { id: string; worktreeOf?: string; branch?: string; isGitRepo: boolean };
+		}>(wtRes);
+		expect(worktree.worktreeOf).toBe(workspace.id);
+		expect(worktree.branch).toBe("feature/x");
+		expect(worktree.isGitRepo).toBe(true);
+		expect(machine.model.workspaces).toHaveLength(2);
+
+		const archiveRes = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/workspaces/${worktree.id}/archive?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ removeWorktree: true }),
+				locals: user.locals,
+			}
+		);
+		expect(archiveRes.status).toBe(200);
+		expect(machine.model.workspaces.map((w) => w.id)).not.toContain(worktree.id);
+
+		machine.close();
+	});
 });
 
 describe("the handoff route (parity plan §4.2(a))", () => {

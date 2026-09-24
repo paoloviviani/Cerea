@@ -22,14 +22,28 @@
 		message: string;
 		confirmLabel: string;
 		busyLabel?: string;
-		onconfirm: () => Promise<void>;
+		/** An extra opt-in the question can carry, e.g. "also remove the
+		 * worktree" — unset when the question has nothing beyond the removal
+		 * itself. `onconfirm` receives whatever it was last set to. */
+		checkboxLabel?: string;
+		onconfirm: (checked: boolean) => Promise<void>;
 		onclose: () => void;
 	}
 
-	let { title, target, message, confirmLabel, busyLabel, onconfirm, onclose }: Props = $props();
+	let {
+		title,
+		target,
+		message,
+		confirmLabel,
+		busyLabel,
+		checkboxLabel,
+		onconfirm,
+		onclose,
+	}: Props = $props();
 
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
+	let checked = $state(false);
 	let confirmButtonEl = $state<HTMLButtonElement | undefined>();
 
 	async function confirm() {
@@ -37,7 +51,7 @@
 		busy = true;
 		failure = null;
 		try {
-			await onconfirm();
+			await onconfirm(checked);
 			onclose();
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "The daemon refused.";
@@ -82,6 +96,13 @@
 		{/if}
 
 		<p class="text-sm text-ink-muted">{message}</p>
+
+		{#if checkboxLabel}
+			<label class="mt-3 flex items-center gap-2 text-sm text-ink-muted">
+				<input type="checkbox" bind:checked disabled={busy} />
+				{checkboxLabel}
+			</label>
+		{/if}
 
 		<div class="mt-4 flex justify-end gap-2">
 			<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}> Cancel </button>
