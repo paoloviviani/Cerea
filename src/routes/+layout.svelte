@@ -193,6 +193,7 @@
 
 			await fetch(`${base}/api/user/validate-token`, {
 				method: "POST",
+				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ token }),
 			}).then(() => {
 				goto(`${base}/`, { invalidateAll: true });
