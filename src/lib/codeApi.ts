@@ -303,8 +303,8 @@ export async function fetchSubagentTimeline(
 // -- control: follow-ups and approvals (Phase 3) ----------------------------
 
 /** How much licence a new agent starts with. Creation-time only: the live
- * switch is the mode pill on the open agent (ADR 0085's panel drives the
- * daemon's own mode vocabulary). */
+ * switch is the mode pill on the open agent, which lists the machine's own
+ * modes (ADR 0089). */
 export type AgentPosture = "plan" | "write";
 
 export type PermissionDecision = "approve" | "deny";

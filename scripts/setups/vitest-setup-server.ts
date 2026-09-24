@@ -83,8 +83,7 @@ vi.mock("$env/dynamic/public", () => ({
 const TEST_CODE_MACHINE_ISSUER = "http://127.0.0.1:18999";
 const TEST_CODE_MACHINE_AUDIENCE = "pystino-api";
 const TEST_CODE_MACHINE_CLIENT_ID = "opencode-enrollment";
-// `.env` ships this off (it needs a machine actually dialling in, ADR 0085's
-// old wording); every `/code` server spec needs it on, or `requireCodeAgents`
+// `.env` ships this off (it needs a machine actually dialling in, ADR 0089); every `/code` server spec needs it on, or `requireCodeAgents`
 // 404s before the handler under test ever runs.
 const TEST_CODE_AGENTS_ENABLED = "true";
 
