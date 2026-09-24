@@ -11,7 +11,7 @@
 	What remains agent-specific, by the operator's design: a slim strip above
 	the column carrying the workspace name and the provider/state pills, and
 	the daemon's permission requests, which render as the chat's approval card
-	answering through the relay forwarder. Git changes live in the shared side
+	answering through the machine link. Git changes live in the shared side
 	pane; the composer carries the agent's mode and model as pills, switched
 	live on the daemon rather than per send.
 

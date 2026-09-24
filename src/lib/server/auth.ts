@@ -9,6 +9,8 @@ import {
 import type { RequestEvent } from "@sveltejs/kit";
 import { addHours, addWeeks, differenceInMinutes, subMinutes } from "date-fns";
 import { config } from "$lib/server/config";
+import { discoverViaInternal, withForwardedHeaders } from "$lib/server/oidcBackchannel";
+import { forgetGatewaySession, gatewaySessionCheck } from "$lib/server/gatewaySession";
 import { sha256 } from "$lib/utils/sha256";
 import { z } from "zod";
 import { dev } from "$app/environment";
@@ -43,6 +45,9 @@ export const OIDConfig = z
 		CLIENT_ID: stringWithDefault(config.OPENID_CLIENT_ID),
 		CLIENT_SECRET: stringWithDefault(config.OPENID_CLIENT_SECRET),
 		PROVIDER_URL: stringWithDefault(config.OPENID_PROVIDER_URL),
+		// Where this server reaches the issuer when that is not PROVIDER_URL
+		// (the bundled Authelia on the compose network). Empty: use PROVIDER_URL.
+		INTERNAL_URL: stringWithDefault(config.OPENID_INTERNAL_URL),
 		SCOPES: stringWithDefault(config.OPENID_SCOPES),
 		NAME_CLAIM: stringWithDefault(config.OPENID_NAME_CLAIM).refine(
 			(el) => !["preferred_username", "email", "picture", "sub"].includes(el),
@@ -293,7 +298,16 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 		lastIssuerFetchedAt = null;
 	}
 	if (!lastIssuer) {
-		lastIssuer = await Issuer.discover(OIDConfig.PROVIDER_URL);
+		if (OIDConfig.INTERNAL_URL) {
+			// Back-channel over the compose network (oidcBackchannel.ts): no
+			// hairpin through the proxy, so no CA bundle to keep in step.
+			const metadata = await discoverViaInternal(OIDConfig.PROVIDER_URL, OIDConfig.INTERNAL_URL);
+			lastIssuer = new Issuer(metadata);
+			// JWKS is fetched by the issuer, so it needs the headers too.
+			lastIssuer[custom.http_options] = withForwardedHeaders(OIDConfig.PROVIDER_URL);
+		} else {
+			lastIssuer = await Issuer.discover(OIDConfig.PROVIDER_URL);
+		}
 		lastIssuerFetchedAt = new Date();
 	}
 
@@ -344,7 +358,13 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 			: alg_supported[0];
 	}
 
-	return new issuer.Client(client_config);
+	const client = new issuer.Client(client_config);
+	if (OIDConfig.INTERNAL_URL) {
+		// Token and userinfo requests are the client's: same headers, so the
+		// IdP mints tokens whose `iss` is the public issuer.
+		client[custom.http_options] = withForwardedHeaders(OIDConfig.PROVIDER_URL);
+	}
+	return client;
 }
 
 export async function getOIDCAuthorizationUrl(
@@ -529,6 +549,22 @@ export async function authenticateRequest(
 
 		const result = await findUser(sessionId, await getCoupledCookieHash(cookie), url);
 
+		// The gateway decides admin and whether the account is still active
+		// (gatewaySession.ts): a 401 on the session's own token ends it here,
+		// which is how a directory deprovisioning reaches the chat within a
+		// minute. Null — no gateway, a shared key, or the gateway unreachable —
+		// changes nothing.
+		const gateway =
+			result.user && result.oauth?.token?.value
+				? await gatewaySessionCheck(sessionId, result.oauth.token.value)
+				: null;
+		if (gateway && !gateway.valid) {
+			forgetGatewaySession(sessionId);
+			await collections.sessions.deleteOne({ sessionId });
+			result.user = null;
+			result.invalidateSession = true;
+		}
+
 		if (result.invalidateSession) {
 			secretSessionId = crypto.randomUUID();
 			sessionId = await sha256(secretSessionId);
@@ -543,7 +579,7 @@ export async function authenticateRequest(
 			token: result.oauth?.token?.value,
 			sessionId,
 			secretSessionId,
-			isAdmin: result.user?.isAdmin || adminTokenManager.isAdmin(sessionId),
+			isAdmin: (gateway?.valid === true && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
 		};
 	}
 

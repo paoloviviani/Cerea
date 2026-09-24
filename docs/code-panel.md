@@ -21,7 +21,13 @@ beyond the one this deployment already exposes.
 
 ## Turning it on
 
-Two env vars:
+At install time, `pystino init --agents`; on an existing deployment,
+`./pystino set CODE_AGENTS_ENABLED=true` and `docker compose up -d --wait`.
+The stack side is described in Pystino's `docs/deployment.md`; machines are set
+up with `pystino-agent enroll` and `pystino-agent run` (Pystino's
+`docs/coding-agents.md`). There is no relay and nothing else to deploy.
+
+The chat reads:
 
 | Var                      | What                                                                                                                                                                                                                |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -180,7 +186,6 @@ session's files is `deleteAttachments(key)`. Nothing calls that yet, so call
 it when your backend deletes a session. The deletions match on
 `metadata.conversation`, never on the filename, and a prefix must end at a
 `:`, so `code:abc:` never matches `code:abcdef:…`.
-
 
 ## What the browser may ask the machine to do
 

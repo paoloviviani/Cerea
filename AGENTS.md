@@ -104,7 +104,6 @@ src/
 │   │   ├── models.ts     # Model registry from OPENAI_BASE_URL/models
 │   │   └── auth.ts       # OpenID Connect authentication
 │   ├── types/            # TypeScript interfaces (Conversation, Message, User, Model, etc.)
-│   │   codeDaemon.ts     # the relay client: one E2EE connection per paired device
 │   │   codeDevices.ts    # pairing records, and the per-person scope on them
 │   │   codeEnabled.ts    # the CODE_AGENTS_ENABLED gate
 │   ├── stores/           # Svelte stores for reactive state
