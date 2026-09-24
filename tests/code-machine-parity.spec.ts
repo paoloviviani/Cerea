@@ -22,6 +22,13 @@ test.describe("owned machine agent: parity", () => {
 	test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 	let machine: Machine | null = null;
+	let consoleLines: string[] = [];
+
+	test.beforeEach(({ page }) => {
+		consoleLines = [];
+		page.on("console", (msg) => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
+		page.on("pageerror", (err) => consoleLines.push(`[pageerror] ${err.stack ?? err.message}`));
+	});
 
 	// eslint-disable-next-line no-empty-pattern
 	test.afterEach(async ({}, testInfo) => {
@@ -32,6 +39,7 @@ test.describe("owned machine agent: parity", () => {
 			});
 			// Also on disk: an attachment's body lives only in the report.
 			writeFileSync(testInfo.outputPath("pystino-agent.log"), machine.logs());
+			writeFileSync(testInfo.outputPath("browser-console.log"), consoleLines.join("\n"));
 		}
 		await machine?.stop();
 		machine = null;
