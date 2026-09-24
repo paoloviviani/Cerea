@@ -144,19 +144,130 @@ differs in the minor rather than guessing at message shapes.
 
 ## What Cerea stores, and what it does not
 
-Cerea persists **pairing records only**, in the `codeDevices` collection: a
+Cerea persists **pairing records**, in the `codeDevices` collection: a
 name, the daemon's `serverId` (the relay's route key, stored as `daemonId`),
-its Curve25519 public key, and an owner. Live agent state — workspaces,
-sessions, transcripts, the code itself — stays on the daemon.
+its Curve25519 public key, and an owner. It also keeps the **files a person
+attaches** to an agent message, in chat's own attachment store (next
+section), so they still render after a reload. Everything else that is live —
+workspaces, sessions, transcripts, the code itself — stays on the agent's
+machine.
 
-That is why revoking a device is a row deletion and nothing more: without the
-pairing, the daemon is unreachable from here, which is all a revocation needs
-to do.
+That is why revoking a device is a row deletion plus its attachments, and
+nothing more: without the pairing, the machine is unreachable from here, and
+nothing could authorize reading those files again.
 
 Every row is scoped to one person (`userId`, or `sessionId` for an anonymous
 session), and every `/code` endpoint filters on that scope. The relay is
 identity-blind — it bridges WebSocket sessions and never sees a token, a
 password or plaintext content — so Cerea has to broker pairing itself.
+
+## Attachments: what a surface uploads, keeps and renders
+
+The images and files a person sends an agent live in **chat's attachment
+store**: the same GridFS bucket (`files`), the same writer, the same limits
+and the same once-at-upload document extraction as a chat message. There is
+no second store. Only the owner tag differs. A chat file is tagged with its
+conversation id; an agent file is tagged with an **owner key**:
+
+```
+code:<deviceId>:<sessionId>
+```
+
+`deviceId` is the `codeDevices` row (24 hex characters). `sessionId` is
+whatever id your backend gives the session, `[A-Za-z0-9_.:~-]{1,200}`, and
+nothing interprets it. The store itself (`src/lib/server/files/attachmentStore.ts`)
+is surface-agnostic: any key of the form `<surface>:<rest>` works. A
+conversation id never contains a colon, so an owner key can never reach a
+chat's files, and chat's routes can never reach an owner-keyed file.
+
+Nothing here depends on the agent transport. The contract is only the key and
+a `messageId` that you choose.
+
+### 1. Upload before you send
+
+Pick a `messageId` for the outgoing message (for example the client message
+id you will hand the agent), then upload its files:
+
+```
+POST /api/v2/code/attachments/<urlencoded key>
+multipart/form-data: messageId=<id>, files=<File> (repeat, at most 10)
+→ superjson { files: MessageFile[] }
+```
+
+The rules:
+
+- **Limits.** 10 MB per file (`MAX_ATTACHMENT_BYTES`, chat's limit), which
+  answers 413. The declared type must match `AGENT_ATTACHMENT_MIME_ALLOWLIST`
+  (chat's text and document lists, png/jpeg/gif/webp, and chat's long-paste
+  type `application/vnd.chatui.clipboard`, which a transport should treat as
+  `text/plain`). Anything else answers 400.
+- **Documents.** PDFs and office files are extracted once, at upload, through
+  the gateway and billed to the caller, exactly as in chat. The returned
+  `MessageFile.extracted.value` is the sha of the markdown.
+- **Ownership.** The key's device must be one of the **caller's paired**
+  devices. Somebody else's device, or one that does not exist, answers 404;
+  a pending device answers 409; a malformed key answers 400.
+
+From the browser, `uploadComposerFiles(endpoint, messageId, files)` in
+`$lib/utils/composerFiles` does this and throws the server's message on
+refusal.
+
+### 2. Keep the `MessageFile` references
+
+Each `MessageFile` is `{type: "hash", value: <sha256>, mime, name,
+extracted?}`, the same shape as a chat message's `files`. Put them on the
+user message you render. After a reload you can get them back from either
+side:
+
+- **Server** (for example your bridge, when it replays a user frame):
+  `findAttachments(key, messageId)` from `attachmentStore.ts`. It returns the
+  same `MessageFile[]`, in upload order, with extracted text folded in.
+- **Browser**: `GET /api/v2/code/attachments/<key>?messageId=<id>`, which
+  returns superjson `{ files: MessageFile[] }`.
+
+To hand bytes to the agent, the server calls `readAttachment(sha, key)`,
+which returns the base64 value and the sniffed mime.
+
+### 3. Render them
+
+`ChatMessageColumn` and `ChatMessage` take an optional `fileBaseUrl`, which
+`UploadedFile` uses for user files as `<fileBaseUrl>/<sha>`. Pass:
+
+```ts
+fileBaseUrl = `${base}/api/v2/code/attachments/${encodeURIComponent(key)}`;
+```
+
+That route (`GET …/<key>/<sha256>`) makes the same device check, then serves
+the bytes with chat's headers: `Content-Disposition: attachment` and a
+sandbox CSP. An `<img>` still displays it; opening it in a tab downloads it.
+Leave the prop unset on chat. Chat's page-relative
+`/conversation/<id>/output/<sha>` is the default and has not changed.
+
+### The composer pieces (M2a)
+
+Chat's attachment affordances are reusable pieces, and each takes your own
+MIME allowlist:
+
+- **picking**: `ChatInput`, with `mimeTypes` set and a bindable `files`. An
+  empty `mimeTypes` hides the button, which is what `AgentComposer` does
+  today;
+- **pasting**: `pastedAttachments(clipboardData, {mimeTypes, directPaste})`,
+  which turns a long paste into a clipboard chip and filters pasted files;
+- **dropping**: `FileDrag` (`$lib/utils/fileDrag.svelte`) on
+  `<svelte:window ondragenter ondragleave>`, plus `FileDropzone` with
+  `bind:onDrag={drag.active}`;
+- **chips**: `ComposerFileChips`, with a bindable `files`.
+
+`ChatWindow` wires the same pieces for chat.
+
+### Cleanup
+
+`DELETE /api/v2/code/devices?id=` deletes every file under `code:<deviceId>:`
+after it deletes the row (`deleteCodeDeviceAttachments`). Deleting one
+session's files is `deleteAttachments(key)`. Nothing calls that yet, so call
+it when your backend deletes a session. The deletions match on
+`metadata.conversation`, never on the filename, and a prefix must end at a
+`:`, so `code:abc:` never matches `code:abcdef:…`.
 
 ## The pairing paths
 
