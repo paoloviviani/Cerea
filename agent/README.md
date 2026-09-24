@@ -25,6 +25,10 @@ go build -o galopin .              # this machine's OS/arch
 GOOS=linux GOARCH=arm64 go build -o galopin-linux-arm64 .   # cross-compile
 ```
 
+Deployments serve these binaries themselves: the Cerea image builds them
+into `/app/galopin-dist` and `<base>/galopin/install.sh` installs one
+(checksum-verified). See `docs/agent-machines.md`.
+
 `packaging/build-dist.sh [OUT_DIR]` (default `./galopin-dist`) cross-builds
 all four targets people run this on (`linux/amd64`, `linux/arm64`,
 `darwin/amd64`, `darwin/arm64`) as static binaries (`CGO_ENABLED=0`), and

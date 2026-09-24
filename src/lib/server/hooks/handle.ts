@@ -36,6 +36,15 @@ function getClientAddressSafe(event: RequestEvent): string | undefined {
 const MACHINE_ADMIN_ROUTES = new Set(["/admin/export", "/admin/stats/compute"]);
 const MACHINE_ADMIN_PATHS = ["/admin/export", "/admin/stats/compute"];
 
+/**
+ * Routes anyone may fetch with no session: galopin's binaries and installer
+ * (`/galopin/[file]`), fetched by `curl` on a machine that has never signed
+ * in. Matched by route id, not path prefix, so nothing else that happens to
+ * live under the path inherits the exemption; the route itself serves only a
+ * fixed allowlist of names (`galopinDist.ts`).
+ */
+const PUBLIC_ROUTES = new Set(["/galopin/[file]"]);
+
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
 	const requestId = crypto.randomUUID();
@@ -101,7 +110,12 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 
 			event.locals.sessionId = auth.sessionId;
 
-			if (loginEnabled && !auth.user && !event.url.pathname.startsWith(`${base}/.well-known/`)) {
+			if (
+				loginEnabled &&
+				!auth.user &&
+				!event.url.pathname.startsWith(`${base}/.well-known/`) &&
+				!PUBLIC_ROUTES.has(event.route.id ?? "")
+			) {
 				if (config.AUTOMATIC_LOGIN === "true") {
 					// AUTOMATIC_LOGIN: always redirect to OAuth flow (unless already on login or healthcheck pages)
 					if (
