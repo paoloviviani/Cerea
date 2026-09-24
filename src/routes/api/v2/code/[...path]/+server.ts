@@ -32,10 +32,11 @@ import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
-import { OpError, type Session, type Workspace } from "$lib/types/machineProtocol";
+import { OpError, type Directory, type Session, type Workspace } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import type {
 	CodeAgentSession,
+	CodeDirectory,
 	CodeFileChange,
 	CodeProviderMode,
 	CodeProviderModel,
@@ -50,6 +51,7 @@ const ID = "[A-Za-z0-9_.:~-]+";
 const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: /^v1\/workspaces$/ },
 	{ method: "POST", pattern: /^v1\/workspaces$/ },
+	{ method: "GET", pattern: /^v1\/workspaces\/suggest$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/title$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
@@ -75,6 +77,10 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
 ];
+
+/** `workspace.suggest`'s `?prefix=` — a path someone is mid-typing, so it
+ * needs no shape beyond a sane length cap. */
+const suggestPrefixSchema = z.string().max(1024);
 
 /** Every `OpError` the machine can answer with, mapped to the HTTP status
  * the browser sees. `unavailable` covers both an offline machine (the
@@ -113,7 +119,18 @@ async function resolveWorkspace(link: MachineLink, workspaceId: string): Promise
 }
 
 function toWorkspace(workspace: Workspace): CodeWorkspace {
-	return { id: workspace.id, name: workspace.name, path: workspace.path };
+	return {
+		id: workspace.id,
+		name: workspace.name,
+		path: workspace.path,
+		isGitRepo: workspace.isGitRepo,
+		...(workspace.worktreeOf ? { worktreeOf: workspace.worktreeOf } : {}),
+		...(workspace.branch ? { branch: workspace.branch } : {}),
+	};
+}
+
+function toDirectory(dir: Directory): CodeDirectory {
+	return { path: dir.path, name: dir.name, isGitRepo: dir.isGitRepo };
 }
 
 function toSession(session: Session): CodeAgentSession {
@@ -214,6 +231,16 @@ export const GET: RequestHandler = async (event) => {
 	if (path === "v1/workspaces") {
 		const { workspaces } = await callOp(() => link.workspaceList());
 		return superjsonResponse({ workspaces: workspaces.map(toWorkspace) });
+	}
+
+	// Checked ahead of the generic single-workspace GET below — "suggest"
+	// would otherwise match that route's `[^/]+` id capture and 404 as "no
+	// such workspace" instead of answering the autocomplete.
+	if (path === "v1/workspaces/suggest") {
+		const parsed = suggestPrefixSchema.safeParse(event.url.searchParams.get("prefix") ?? "");
+		if (!parsed.success) error(400, "Expected ?prefix= with a reasonable length.");
+		const { directories } = await callOp(() => link.workspaceSuggest({ prefix: parsed.data }));
+		return superjsonResponse({ directories: directories.map(toDirectory) });
 	}
 
 	const workspaceMatch = /^v1\/workspaces\/([^/]+)$/.exec(path);
@@ -373,20 +400,35 @@ const createSchema = z.object({
 	workspaceId: z.string().trim().min(1).max(120),
 });
 
-const workspaceSchema = z.object({
-	// An absolute directory on the machine (a checkout the person can see
-	// there). Relative paths would resolve against whatever cwd the
-	// machine process was born with — unguessable from here, so refused.
-	path: z
-		.string()
-		.trim()
-		.min(1)
-		.max(1024)
-		.refine(
-			(p) => p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p),
-			"Expected an absolute path on the machine."
-		),
-	title: z.string().trim().max(120).optional(),
+// An absolute directory on the machine (a checkout the person can see
+// there). Relative paths would resolve against whatever cwd the machine
+// process was born with — unguessable from here, so refused.
+const absolutePathSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(1024)
+	.refine(
+		(p) => p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p),
+		"Expected an absolute path on the machine."
+	);
+
+const worktreeSchema = z.object({
+	from: z.string().trim().min(1).max(120),
+	branch: z.string().trim().min(1).max(200),
+	base: z.string().trim().min(1).max(200).optional(),
+});
+
+// Either an existing directory, or a git worktree of an existing workspace
+// — mirrors workspace.create's two forms (PROTOCOL.md §6).
+const workspaceSchema = z.union([
+	z.object({ path: absolutePathSchema, title: z.string().trim().max(120).optional() }),
+	z.object({ worktree: worktreeSchema, title: z.string().trim().max(120).optional() }),
+]);
+
+const archiveWorkspaceSchema = z.object({
+	removeWorktree: z.boolean().optional(),
+	force: z.boolean().optional(),
 });
 
 export const POST: RequestHandler = async (event) => {
@@ -403,7 +445,12 @@ export const POST: RequestHandler = async (event) => {
 
 	if (path === "v1/workspaces") {
 		const parsed = workspaceSchema.safeParse(body);
-		if (!parsed.success) error(400, "Expected { path, title? } with an absolute path.");
+		if (!parsed.success) {
+			error(
+				400,
+				"Expected { path, title? } with an absolute path, or { worktree: { from, branch, base? }, title? }."
+			);
+		}
 		const { workspace } = await callOp(() => link.workspaceCreate(parsed.data));
 		return superjsonResponse({ workspace: toWorkspace(workspace) });
 	}
@@ -560,8 +607,14 @@ export const POST: RequestHandler = async (event) => {
 
 	const archiveWorkspaceMatch = new RegExp(`^v1/workspaces/(${ID})/archive$`).exec(path);
 	if (archiveWorkspaceMatch) {
+		const parsed = archiveWorkspaceSchema.safeParse(body ?? {});
+		if (!parsed.success) error(400, "Expected { removeWorktree?, force? }.");
 		await callOp(() =>
-			link.workspaceArchive({ workspaceId: decodeURIComponent(archiveWorkspaceMatch[1]) })
+			link.workspaceArchive({
+				workspaceId: decodeURIComponent(archiveWorkspaceMatch[1]),
+				...(parsed.data.removeWorktree ? { removeWorktree: true } : {}),
+				...(parsed.data.force ? { force: true } : {}),
+			})
 		);
 		return superjsonResponse({ ok: true });
 	}
