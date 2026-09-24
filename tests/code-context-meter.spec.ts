@@ -172,7 +172,7 @@ test("a new message that has not reported usage yet does not drop the meter to 0
 	);
 	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByRole("button", { name: "40%" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "0%" })).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "0%", exact: true })).toHaveCount(0);
 });
 
 test("the meter is hidden when the backend has no usage capability", async ({ page }) => {
