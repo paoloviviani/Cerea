@@ -37,10 +37,16 @@ export function buildHandoffHistory(
 	uptoMessageId?: string
 ): HandoffHistory {
 	const sections: string[] = [];
+	// The boundary names the bubble the person clicked, which the panel folds
+	// from a whole turn: opencode writes one assistant message per step, and
+	// the bubble carries the first one's id. So "up to here" means through the
+	// end of that turn, i.e. until the next user message.
+	let reachedBoundary = false;
 	for (const { message, parts } of transcript.messages ?? []) {
+		if (reachedBoundary && message.role === "user") break;
 		const rendered = renderMessage(message, parts ?? []);
 		if (rendered) sections.push(rendered);
-		if (uptoMessageId && message.id === uptoMessageId) break;
+		if (uptoMessageId && message.id === uptoMessageId) reachedBoundary = true;
 	}
 	const full = sections.join("\n\n");
 	if (full.length <= HANDOFF_HISTORY_CHAR_CAP) {

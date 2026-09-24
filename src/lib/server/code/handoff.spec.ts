@@ -139,6 +139,24 @@ describe("buildHandoffHistory", () => {
 		expect(markdown).toBe("**User:**\nfirst\n\n**Assistant:**\nsecond");
 	});
 
+	it("carries the rest of the boundary's turn: opencode writes one assistant message per step", () => {
+		const transcript: Transcript = {
+			messages: [
+				{ message: userMessage("m1"), parts: [textPart("p1", "m1", "user", "first")] },
+				{ message: assistantMessage("m2"), parts: [textPart("p2", "m2", "assistant", "step one")] },
+				{ message: assistantMessage("m3"), parts: [textPart("p3", "m3", "assistant", "step two")] },
+				{ message: userMessage("m4"), parts: [textPart("p4", "m4", "user", "next turn")] },
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const { markdown } = buildHandoffHistory(transcript, "m2");
+		expect(markdown).toContain("step two");
+		expect(markdown).not.toContain("next turn");
+	});
+
 	it("caps the result at 200k characters and notes the truncation inside the text", () => {
 		const huge = "x".repeat(HANDOFF_HISTORY_CHAR_CAP + 5000);
 		const transcript: Transcript = {
