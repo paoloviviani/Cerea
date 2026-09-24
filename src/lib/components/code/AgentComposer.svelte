@@ -49,7 +49,12 @@
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
-	import type { CodeAgentSession } from "$lib/types/CodeAgent";
+	import type {
+		AgentCompactionUpdate,
+		AgentUsageUpdate,
+		CodeAgentSession,
+	} from "$lib/types/CodeAgent";
+	import ContextMeter from "./ContextMeter.svelte";
 
 	interface Props {
 		deviceId: string;
@@ -88,6 +93,13 @@
 		 * offers, reached here because the composer is where the dead send
 		 * would otherwise be discovered. */
 		onreenroll?: () => void;
+		/** The latest usage/compaction side-channel frames (M3), tracked by
+		 * the view's own fold — null until the first one arrives. */
+		usage?: AgentUsageUpdate["usage"] | null;
+		lastCompaction?: AgentCompactionUpdate | null;
+		/** Whether the backend advertised the `usage` capability in `hello` —
+		 * the meter renders nothing at all when it did not. */
+		usageSupported?: boolean;
 	}
 
 	let {
@@ -102,6 +114,9 @@
 		onstop,
 		onchanged,
 		onreenroll,
+		usage = null,
+		lastCompaction = null,
+		usageSupported = false,
 	}: Props = $props();
 
 	let draft = $state("");
@@ -462,6 +477,15 @@
 								{feature.label}
 							</button>
 						{/each}
+
+						<ContextMeter
+							{deviceId}
+							{agentId}
+							{usage}
+							{lastCompaction}
+							supported={usageSupported}
+							{onchanged}
+						/>
 
 						{#if applyFailure}
 							<span

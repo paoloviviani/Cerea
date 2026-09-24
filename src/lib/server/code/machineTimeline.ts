@@ -30,7 +30,11 @@ import {
 	type MessageToolResultUpdate,
 	type MessageTurnStateUpdate,
 } from "$lib/types/MessageUpdate";
-import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
+import type {
+	AgentCompactionUpdate,
+	AgentStreamUpdate,
+	AgentUsageUpdate,
+} from "$lib/types/CodeAgent";
 import { ToolResultStatus, type ToolResult } from "$lib/types/Tool";
 import type {
 	Envelope,
@@ -40,6 +44,7 @@ import type {
 	SessionStatus,
 	Todo,
 	Transcript,
+	Usage,
 } from "$lib/types/machineProtocol";
 
 let planVersion = 0;
@@ -86,6 +91,23 @@ function toolErrorUpdate(callId: string, message: string): MessageToolErrorUpdat
 	};
 }
 
+/** The machine's `Usage` (spec §6) → Cerea's own side-channel shape. The
+ * mapping lives here, in one place, so an upstream field rename is a
+ * one-line fix rather than a hunt through every caller. */
+function usageToUpdate(usage: Usage): AgentUsageUpdate {
+	return {
+		type: "usage",
+		usage: {
+			used: usage.contextUsed,
+			...(usage.contextMax != null ? { max: usage.contextMax } : {}),
+			input: usage.input,
+			output: usage.output,
+			cacheRead: usage.cacheRead,
+			reasoning: usage.reasoning,
+		},
+	};
+}
+
 /** One part → zero or more panel frames. A part upserts in place on the
  * wire (spec §7's text contract); folded here as its current, whole value —
  * a snapshot read and a live `part` event both call this the same way.
@@ -112,6 +134,10 @@ function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[
 			if (part.status === "error")
 				return [call, toolErrorUpdate(part.callId, part.error ?? "The call failed.")];
 			return [call, toolResultUpdate(part.callId, part.tool, part.input, part.output)];
+		}
+		case "compaction": {
+			const update: AgentCompactionUpdate = { type: "compaction", auto: part.auto };
+			return [update];
 		}
 		// reasoning: no panel shape yet. file/subtask: the diff pane and the
 		// polled subagent roster are the panel's surfaces for those, not the
@@ -231,7 +257,7 @@ export function eventToUpdates(
 		case "permission.replied":
 			return [permissionResolvedToUpdate(event.requestId, event.decision)];
 		case "usage":
-			return []; // a side channel (M3), no chat frame shape yet.
+			return [usageToUpdate(event.usage)];
 		case "session":
 			return []; // metadata changed; the panel re-reads via its own poll.
 		case "error":
@@ -261,6 +287,10 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	const todos = transcript.todos ?? [];
 	if (todos.length) updates.push(todoToUpdate(todos));
 	updates.push(statusToTurnState(transcript.status, lastAssistantError));
+	// After history, never before it: a fresh mount's first paint should show
+	// the transcript before the meter, same order a live turn would deliver
+	// them in (the usage event trails the turn's own parts).
+	if (transcript.usage) updates.push(usageToUpdate(transcript.usage));
 	return updates;
 }
 

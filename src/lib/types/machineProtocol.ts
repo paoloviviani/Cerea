@@ -156,7 +156,8 @@ export type Part =
 			sessionId?: string;
 			description?: string;
 			agent?: string;
-	  });
+	  })
+	| ({ id: string; messageId: string; role: string; type: "compaction" } & { auto: boolean });
 
 export interface PermissionRequest {
 	id: string;
@@ -223,6 +224,7 @@ export type OpName =
 	| "session.sync"
 	| "session.diff"
 	| "session.children"
+	| "session.compact"
 	| "backend.modes"
 	| "backend.models";
 
