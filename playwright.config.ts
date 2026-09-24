@@ -17,6 +17,8 @@
 import { existsSync } from "node:fs";
 import { defineConfig, devices } from "playwright/test";
 import {
+	E2E_APP_BASE,
+	E2E_APP_ORIGIN,
 	E2E_APP_PORT,
 	E2E_APP_URL,
 	E2E_DB_NAME,
@@ -51,7 +53,13 @@ export default defineConfig({
 		: [["list"]],
 
 	use: {
-		baseURL: E2E_APP_URL,
+		// The origin only, never `E2E_APP_URL` (which folds in `E2E_APP_BASE`):
+		// `page.goto`/`page.request` resolve a leading `/path` as absolute,
+		// discarding whatever path a `baseURL` carries, so a base-path spec
+		// splices `E2E_APP_BASE` onto its own navigation string instead (see
+		// `tests/fixtures.ts`). A `baseURL` with a path would just be dead
+		// weight here, never actually applied.
+		baseURL: E2E_APP_ORIGIN,
 		trace: "on-first-retry",
 		screenshot: "only-on-failure",
 		video: "retain-on-failure",
