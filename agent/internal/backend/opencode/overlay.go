@@ -3,8 +3,8 @@ package opencode
 import (
 	"encoding/json"
 
-	"pystino-agent/internal/backend"
-	"pystino-agent/internal/fsutil"
+	"galopin/internal/backend"
+	"galopin/internal/fsutil"
 )
 
 // Mode and model are per-prompt in opencode (there is no server-side memory

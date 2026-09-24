@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // Config is everything needed to spawn and speak ACP to one agent process.

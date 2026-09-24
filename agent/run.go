@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"pystino-agent/internal/backend"
-	backendacp "pystino-agent/internal/backend/acp"
-	backendopencode "pystino-agent/internal/backend/opencode"
-	"pystino-agent/internal/fsutil"
-	"pystino-agent/internal/link"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
-	"pystino-agent/internal/workspaces"
+	"galopin/internal/backend"
+	backendacp "galopin/internal/backend/acp"
+	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/fsutil"
+	"galopin/internal/link"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
+	"galopin/internal/workspaces"
 )
 
 // agentVersion is pystino-agent's own version. Bumped by hand until a

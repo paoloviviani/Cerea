@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"pystino-agent/internal/policy"
+	"galopin/internal/policy"
 )
 
 // Cerea validates the hello strictly and silently drops one it cannot parse,

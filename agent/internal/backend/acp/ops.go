@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // Compile-time check: Backend must satisfy the floor interface. Unlike

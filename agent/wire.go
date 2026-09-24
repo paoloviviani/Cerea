@@ -1,7 +1,7 @@
 package main
 
 import (
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // eventToWire renders a normalized backend.Event into the wire shape

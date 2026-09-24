@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"pystino-agent/internal/backend"
-	backendopencode "pystino-agent/internal/backend/opencode"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
+	"galopin/internal/backend"
+	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
 )
 
 // TestOpencodeQuestionIntegration spawns a real, pinned opencode (1.18.31)
@@ -22,10 +22,10 @@ import (
 // answering it through the Asker capability resolves it as question.resolved
 // with the chosen labels, the tool call itself completes, and the turn
 // resumes with the model's own follow-up text. Gated behind
-// PYSTINO_AGENT_OPENCODE_IT=1, same as opencode_it_test.go.
+// GALOPIN_OPENCODE_IT=1, same as opencode_it_test.go.
 func TestOpencodeQuestionIntegration(t *testing.T) {
-	if os.Getenv("PYSTINO_AGENT_OPENCODE_IT") != "1" {
-		t.Skip("set PYSTINO_AGENT_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
+	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
+		t.Skip("set GALOPIN_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
 	}
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skipf("opencode not on PATH: %v", err)

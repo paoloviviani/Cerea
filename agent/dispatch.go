@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"sync"
 
-	"pystino-agent/internal/backend"
-	"pystino-agent/internal/checkout"
-	"pystino-agent/internal/link"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
-	"pystino-agent/internal/workspaces"
+	"galopin/internal/backend"
+	"galopin/internal/checkout"
+	"galopin/internal/link"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
+	"galopin/internal/workspaces"
 )
 
 // machine ties every internal package together into the one thing the

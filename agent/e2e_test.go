@@ -11,11 +11,11 @@ import (
 
 	"github.com/coder/websocket"
 
-	"pystino-agent/internal/backend"
-	"pystino-agent/internal/link"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
-	"pystino-agent/internal/workspaces"
+	"galopin/internal/backend"
+	"galopin/internal/link"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
+	"galopin/internal/workspaces"
 )
 
 // e2eFakeBackend is a minimal backend.Backend driven entirely by the test:

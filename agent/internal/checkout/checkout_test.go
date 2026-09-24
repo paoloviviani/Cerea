@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 func run(t *testing.T, dir string, args ...string) {

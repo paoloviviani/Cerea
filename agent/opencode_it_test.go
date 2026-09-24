@@ -13,12 +13,20 @@ import (
 	"testing"
 	"time"
 
-	"pystino-agent/internal/backend"
-	backendopencode "pystino-agent/internal/backend/opencode"
-	"pystino-agent/internal/mockllm"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
+	"galopin/internal/backend"
+	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/mockllm"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
 )
+
+// itEnabled reports whether an integration-test gate is set, checking the
+// current env var name first and falling back to the pre-rename name so a
+// script or CI config still keying off the old PYSTINO_AGENT_* names keeps
+// working.
+func itEnabled(name, legacyName string) bool {
+	return os.Getenv(name) == "1" || os.Getenv(legacyName) == "1"
+}
 
 // itFreePort picks a free loopback port without holding the listener open
 // — the same small race every test in this codebase that needs to hand a
@@ -96,11 +104,12 @@ func isIdle(ev backend.Event) bool {
 // idle; a tool call surfaces a permission ask that, once replied "once",
 // lets the tool run; and a cancel mid-stream reaches idle well before the
 // scripted stream would finish on its own. Gated behind
-// PYSTINO_AGENT_OPENCODE_IT=1 — it needs the opencode and node binaries,
-// and a sibling thin-cerea checkout for the mock's script.
+// GALOPIN_OPENCODE_IT=1 (alias: PYSTINO_AGENT_OPENCODE_IT) — it needs the
+// opencode and node binaries, and a sibling thin-cerea checkout for the
+// mock's script.
 func TestOpencodeIntegration(t *testing.T) {
-	if os.Getenv("PYSTINO_AGENT_OPENCODE_IT") != "1" {
-		t.Skip("set PYSTINO_AGENT_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
+	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
+		t.Skip("set GALOPIN_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
 	}
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skipf("opencode not on PATH: %v", err)

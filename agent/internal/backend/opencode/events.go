@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 const (

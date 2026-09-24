@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"pystino-agent/internal/backend"
-	"pystino-agent/internal/policy"
+	"galopin/internal/backend"
+	"galopin/internal/policy"
 )
 
 // fakeBackend is the minimal backend.Backend a materializer test needs:

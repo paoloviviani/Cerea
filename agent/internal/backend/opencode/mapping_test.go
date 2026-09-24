@@ -3,7 +3,7 @@ package opencode
 import (
 	"testing"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 func TestSessionFromMap(t *testing.T) {
