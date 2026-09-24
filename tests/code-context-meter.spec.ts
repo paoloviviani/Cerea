@@ -156,6 +156,25 @@ test("Compact now calls the forwarder's compact route and the popover reflects i
 	await expect.poll(() => compactCalls).toBe(1);
 });
 
+test("a new message that has not reported usage yet does not drop the meter to 0", async ({
+	page,
+}) => {
+	await routeCommon(page, [BACKEND_WITH_USAGE]);
+	// A finished turn at 40%, then the next turn starts: opencode's new assistant
+	// message carries zero tokens until its step ends.
+	const stream = [
+		frame({ type: "usage", usage: { used: 400, max: 1000 } }),
+		frame({ type: "turnState", state: "running", serverNow: Date.now() }),
+		frame({ type: "usage", usage: { used: 0, max: 1000, input: 0, output: 0 } }),
+	].join("");
+	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, (route) =>
+		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
+	);
+	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await expect(page.getByRole("button", { name: "40%" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "0%" })).toHaveCount(0);
+});
+
 test("the meter is hidden when the backend has no usage capability", async ({ page }) => {
 	await routeCommon(page, [BACKEND_NO_USAGE]);
 	const stream = [frame({ type: "turnState", state: "done", serverNow: Date.now() })].join("");

@@ -59,6 +59,7 @@
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import { base } from "$app/paths";
 	import { uploadComposerFiles } from "$lib/utils/composerFiles";
+	import { keepReportedUsage } from "$lib/utils/agentUsage";
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
@@ -206,7 +207,7 @@
 						isAborted: () => abort.signal.aborted,
 						onAbort: () => abort.abort(),
 						onTurnEvent: () => (pending = false),
-						onUsage: (u) => (usage = u),
+						onUsage: (u) => (usage = keepReportedUsage(usage, u)),
 						onCompaction: (c) => (lastCompaction = c),
 						onReset: () => {
 							usage = null;
