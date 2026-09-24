@@ -99,6 +99,12 @@
 		 */
 		subagentFor?: (callId: string) => CodeSubagentAnchor | undefined;
 		subagentCard?: Snippet<[CodeSubagentAnchor]>;
+		/**
+		 * Where the person's own attachments are served from (`UploadedFile`'s
+		 * `fileBaseUrl`) — for a surface whose page path is not a
+		 * conversation's. Unset, chat's page-relative `…/output` is used.
+		 */
+		fileBaseUrl?: string;
 	}
 
 	let {
@@ -115,6 +121,7 @@
 		onanswerElicitation,
 		subagentFor,
 		subagentCard,
+		fileBaseUrl,
 	}: Props = $props();
 
 	let contentEl: HTMLElement | undefined = $state();
@@ -960,7 +967,7 @@
 			{#if message.files?.length}
 				<div class="flex w-fit gap-4 px-5">
 					{#each message.files as file}
-						<UploadedFile {file} canClose={false} />
+						<UploadedFile {file} canClose={false} {fileBaseUrl} />
 					{/each}
 				</div>
 			{/if}
