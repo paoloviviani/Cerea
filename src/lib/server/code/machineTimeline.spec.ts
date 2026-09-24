@@ -37,7 +37,8 @@ describe("snapshotToUpdates", () => {
 			todos: [],
 		};
 		const updates = snapshotToUpdates(transcript);
-		expect(updates[0]).toEqual({ type: "user", text: "hello there", messageId: "client-msg-1" });
+		expect(updates[0]).toEqual({ type: "messageBoundary", role: "user", messageId: "m1" });
+		expect(updates[1]).toEqual({ type: "user", text: "hello there", messageId: "client-msg-1" });
 	});
 
 	it("maps an assistant text part to a Stream update, and a tool part to call+result", () => {
@@ -136,6 +137,28 @@ describe("snapshotToUpdates", () => {
 			expect.objectContaining({ type: MessageUpdateType.Elicitation, subtype: "request" })
 		);
 		expect(updates).toContainEqual(expect.objectContaining({ type: MessageUpdateType.Plan }));
+	});
+});
+
+describe("messageBoundary: the machine's own message id, for later actions to anchor on", () => {
+	it("emits one boundary per message, immediately before that message's own frames", () => {
+		const transcript: Transcript = {
+			messages: [
+				{ message: userMessage("m1"), parts: [textPart("p1", "m1", "user", "first")] },
+				{ message: assistantMessage("m2"), parts: [textPart("p2", "m2", "assistant", "second")] },
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(updates.slice(0, 4)).toEqual([
+			{ type: "messageBoundary", role: "user", messageId: "m1" },
+			{ type: "user", text: "first" },
+			{ type: "messageBoundary", role: "assistant", messageId: "m2" },
+			{ type: MessageUpdateType.Stream, token: "second" },
+		]);
 	});
 });
 
@@ -321,8 +344,10 @@ describe("eventToUpdates: one live event at a time", () => {
 		]);
 	});
 
-	it("drops bookkeeping kinds with no panel shape (message, session)", () => {
-		expect(eventToUpdates({ kind: "message", message: assistantMessage("a1") })).toEqual([]);
+	it("maps a message event to a pure boundary marker, and drops session (no panel shape)", () => {
+		expect(eventToUpdates({ kind: "message", message: assistantMessage("a1") })).toEqual([
+			{ type: "messageBoundary", role: "assistant", messageId: "a1" },
+		]);
 	});
 
 	it("resolves a part event's clientMessageId through the caller's resolver", () => {
