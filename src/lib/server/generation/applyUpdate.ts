@@ -61,23 +61,59 @@ export function stepSeparator(existing: string, next: string): string {
 }
 
 /**
- * Whether this stream token starts a new step's text: a tool update ran since
- * the last stream token that carried visible text. Pure-reasoning chunks
- * (`<think>` without visible text yet) are neither a segment nor a boundary —
- * they are skipped so a step that thinks before it speaks still gets its break
- * when the visible words arrive.
+ * A tool-loop step whose first visible words have not arrived yet: whether
+ * the message is inside a `<think>` block right now, and any tag prefix a
+ * token ended on ("<thi"), which only the next token can settle. Set when a
+ * tool update passes, dropped once that step's answer starts. Kept beside the
+ * message and advanced one token at a time, never recomputed from the whole
+ * message: a step may reason for tens of thousands of tokens before it speaks,
+ * and rescanning the content per token would make that quadratic. A message
+ * object that outlives this map (a resumed turn) simply gets no break.
  */
-export function startsNewStepSegment(updates: readonly MessageUpdate[] | undefined): boolean {
-	if (!updates) return false;
-	for (let i = updates.length - 1; i >= 0; i--) {
-		const update = updates[i];
-		if (update.type === MessageUpdateType.Stream) {
-			if (update.token && stripThink(update.token).trim().length > 0) return false;
-			continue;
+interface PendingStep {
+	inThink: boolean;
+	carry: string;
+}
+const pendingSteps = new WeakMap<Message, PendingStep>();
+
+const THINK_OPEN = "<think>";
+
+/**
+ * Advance `step` over `token`; the index in `token` where the step's first
+ * visible (non-blank, outside `<think>`) character lands, or -1 while it is
+ * still reasoning or blank. The same case-sensitive tags {@link stripThink}
+ * recognises, so the two agree on what is visible.
+ */
+function firstVisibleIndex(step: PendingStep, token: string): number {
+	const text = step.carry + token;
+	const offset = step.carry.length;
+	step.carry = "";
+	let i = 0;
+	while (i < text.length) {
+		if (text[i] === "<") {
+			const rest = text.slice(i, i + THINK_CLOSE.length);
+			if (rest.startsWith(THINK_OPEN)) {
+				step.inThink = true;
+				i += THINK_OPEN.length;
+				continue;
+			}
+			if (rest.startsWith(THINK_CLOSE)) {
+				step.inThink = false;
+				i += THINK_CLOSE.length;
+				continue;
+			}
+			if (
+				i + rest.length === text.length &&
+				(THINK_OPEN.startsWith(rest) || THINK_CLOSE.startsWith(rest))
+			) {
+				step.carry = rest;
+				return -1;
+			}
 		}
-		if (isMessageToolUpdate(update)) return true;
+		if (!step.inThink && text[i].trim() !== "") return Math.max(0, i - offset);
+		i++;
 	}
-	return false;
+	return -1;
 }
 
 /**
@@ -101,23 +137,23 @@ export function applyUpdateToMessage(
 
 	if (event.type === MessageUpdateType.Stream) {
 		if (event.token === "") return SKIPPED;
-		if (startsNewStepSegment(message.updates)) {
-			// A step that opens with reasoning yields `<think>…</think>` ahead of
-			// its visible words (sometimes in this very token): the break goes
-			// after the think markup, not before it, or the UI renders it inside
-			// the collapsed reasoning block where nobody sees it.
-			const closeAt = event.token.lastIndexOf(THINK_CLOSE);
-			const head = closeAt >= 0 ? event.token.slice(0, closeAt + THINK_CLOSE.length) : "";
-			const tail = closeAt >= 0 ? event.token.slice(closeAt + THINK_CLOSE.length) : event.token;
-			const gap = stepSeparator(message.content + head, tail);
-			if (gap) {
+		const step = pendingSteps.get(message);
+		if (step) {
+			// The break goes where the new step's answer starts: after any
+			// reasoning it opens with (else the UI renders it inside the collapsed
+			// reasoning block), never mid-reasoning, and only once.
+			const at = firstVisibleIndex(step, event.token);
+			if (at >= 0) {
+				pendingSteps.delete(message);
+				const head = event.token.slice(0, at);
+				const tail = event.token.slice(at);
+				const gap = stepSeparator(message.content + head, tail);
 				// Mutating the event (not just `message.content`) keeps every
 				// downstream consumer consistent: the updates log the route
 				// persists, the generation-event writer, and the SSE token the
-				// client appends to its live view — UI and export read the same
-				// bytes. Streaming stays incremental: nothing is buffered, the
-				// break simply rides on the step's first visible token.
-				event.token = head + gap + tail;
+				// client appends to its live view. Nothing is buffered: the break
+				// rides on the step's first visible token.
+				if (gap) event.token = head + gap + tail;
 			}
 		}
 		message.content += event.token;
@@ -188,6 +224,16 @@ export function applyUpdateToMessage(
 				provider: event.provider,
 			};
 		}
+	}
+
+	// A tool ran: whatever streams next starts a new step's text, which gets
+	// a paragraph break from the previous step's once its visible words arrive.
+	if (isMessageToolUpdate(event) && !pendingSteps.has(message)) {
+		const content = message.content;
+		pendingSteps.set(message, {
+			inThink: content.lastIndexOf(THINK_OPEN) > content.lastIndexOf(THINK_CLOSE),
+			carry: "",
+		});
 	}
 
 	// Append updates for audit/replay (streams too, to preserve ordering)
