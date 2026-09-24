@@ -21,6 +21,7 @@ import { collections } from "$lib/server/database";
 import { redirect } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
 import { sameSite, secure, getOIDCLogoutUrl } from "$lib/server/auth";
+import { cookiesToClear } from "$lib/server/oidcLogout";
 
 export async function POST({ locals, cookies, url }) {
 	// Read before the session row goes: the id token identifies the session
@@ -37,6 +38,11 @@ export async function POST({ locals, cookies, url }) {
 		secure,
 		httpOnly: true,
 	});
+	// The other applications on this origin (the Pystino console): one
+	// sign-out, not a chat signed out beside a console still signed in.
+	for (const cookie of cookiesToClear(config.LOGOUT_ALSO_CLEAR_COOKIES ?? "")) {
+		cookies.delete(cookie.name, { path: cookie.path, secure, httpOnly: true });
+	}
 
 	const origin = config.PUBLIC_ORIGIN || url.origin;
 	const home = `${origin}${base}/`;
