@@ -1,0 +1,40 @@
+# PR checks: lint, svelte-check, unit tests (server + ssr) — one job, npm cache,
+# superseded runs cancelled (GitHub free plan). The client (browser) project
+# and Playwright e2e are not run here: they need a browser image and cost the
+# most minutes; run them locally or via workflow_dispatch.
+name: ci
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "deploy/ci/github-workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm}
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+      - name: Unit tests (server + ssr)
+        env:
+          TEST_MONGODB_URL: mongodb://127.0.0.1:27017/
+        run: npx vitest run --project=server --project=ssr --no-file-parallelism
