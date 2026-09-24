@@ -1,3 +1,4 @@
+import { findLoginUser, IssuerMismatchError, normalizeIssuer } from "$lib/server/loginIdentity";
 import {
 	getCoupledCookieHash,
 	refreshSessionCookie,
@@ -201,9 +202,10 @@ export async function updateUser(params: {
 		},
 		"user login"
 	);
-	// if using huggingface as auth provider, check orgs for earl access and amin rights
-	const isAdmin =
-		(config.HF_ORG_ADMIN && orgs?.some((org) => org.sub === config.HF_ORG_ADMIN)) || false;
+	// Administrators are the gateway's decision (ADR 0069/0088), read per
+	// session from GET /v1/me (gatewaySession.ts). The HuggingFace-organisation
+	// path this replaced said nothing about who runs this deployment.
+	const isAdmin = false;
 	const isEarlyAccess =
 		(config.HF_ORG_EARLY_ACCESS && orgs?.some((org) => org.sub === config.HF_ORG_EARLY_ACCESS)) ||
 		false;
@@ -217,8 +219,29 @@ export async function updateUser(params: {
 		`Updating user ${hfUserId}`
 	);
 
-	// check if user already exists
-	const existingUser = await collections.users.findOne({ hfUserId });
+	// Which account is this? Keyed on (issuer, sub): a sub already recorded
+	// under another issuer is refused, and CHAT_MIGRATE_ISSUER_FROM carries
+	// accounts across an identity-provider move by verified email.
+	let issuer = OIDConfig.PROVIDER_URL;
+	try {
+		const claimed = token.claims().iss;
+		if (typeof claimed === "string" && claimed) issuer = claimed;
+	} catch {
+		// No ID token claims to read: the configured issuer is the one.
+	}
+	let existingUser;
+	try {
+		existingUser = await findLoginUser(collections.users, {
+			sub: hfUserId,
+			issuer,
+			email,
+			emailVerified: (userData as Record<string, unknown>).email_verified,
+			migrateFrom: config.CHAT_MIGRATE_ISSUER_FROM,
+		});
+	} catch (err) {
+		if (err instanceof IssuerMismatchError) error(403, err.message);
+		throw err;
+	}
 	let userId = existingUser?._id;
 
 	// update session cookie on login
@@ -270,6 +293,7 @@ export async function updateUser(params: {
 			email,
 			avatarUrl,
 			hfUserId,
+			issuer: normalizeIssuer(issuer),
 			isAdmin,
 			isEarlyAccess,
 		});
