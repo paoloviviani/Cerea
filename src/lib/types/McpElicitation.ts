@@ -90,6 +90,15 @@ export interface ElicitationRequestPayload {
 	 * persists through the existing elicitation-answer machinery.
 	 */
 	toolApproval?: { tool: string; args: Record<string, unknown> };
+	/**
+	 * Set when the asker is a subagent rather than the watched session
+	 * itself: the child session id the reply must be forwarded to (the
+	 * elicitation id alone is only unique per session), and the child's
+	 * title for the card's "Subagent ‹title›" label. Absent for the
+	 * session's own asks — the reply then targets the watched session.
+	 */
+	childSessionId?: string;
+	childTitle?: string | null;
 }
 
 /** In the database because the pod serving the answer need not be the one waiting on it. */

@@ -462,8 +462,10 @@ func (l *Link) sendError(ctx context.Context, id, code, message string) {
 // PublishEvent sends one event frame. Best-effort: if there is no live
 // connection, it returns an error and the caller drops it — the
 // materializer's ring buffer and session.sync are the actual gap-recovery
-// path (PROTOCOL.md §7), not this send succeeding.
-func (l *Link) PublishEvent(sessionID, epoch string, seq int64, event json.RawMessage) error {
+// path (PROTOCOL.md §7), not this send succeeding. rootSessionID names
+// the session's top-level ancestor (itself for a top-level session), so
+// Cerea can fan a child's envelopes out to its root's watchers.
+func (l *Link) PublishEvent(sessionID, epoch string, seq int64, rootSessionID string, event json.RawMessage) error {
 	l.mu.Lock()
 	ctx := l.connCtx
 	l.mu.Unlock()
@@ -471,7 +473,7 @@ func (l *Link) PublishEvent(sessionID, epoch string, seq int64, event json.RawMe
 		return errors.New("link: not connected")
 	}
 	return l.writeFrame(ctx, map[string]any{
-		"type": "event", "sessionId": sessionID, "epoch": epoch, "seq": seq, "event": json.RawMessage(event),
+		"type": "event", "sessionId": sessionID, "epoch": epoch, "seq": seq, "rootSessionId": rootSessionID, "event": json.RawMessage(event),
 	})
 }
 
