@@ -8,7 +8,7 @@
  * The LLM is the hermetic mock-openai, scripted through its default scenario:
  * opencode sends no conversation header, so per-conversation keys don't apply.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test, expect } from "./fixtures";
@@ -29,6 +29,8 @@ test.describe("owned machine agent (P0)", () => {
 				body: machine.logs(),
 				contentType: "text/plain",
 			});
+			// Also on disk: an attachment's body lives only in the report.
+			writeFileSync(testInfo.outputPath("pystino-agent.log"), machine.logs());
 		}
 		await machine?.stop();
 		machine = null;
