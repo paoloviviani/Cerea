@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"pystino-agent/internal/fsutil"
+	"galopin/internal/fsutil"
 )
 
 // writeFileAtomic is the package-main name for fsutil.WriteFileAtomic (R8),

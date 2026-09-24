@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // doJSONTimeout bounds every control-plane call doJSON makes. All of them

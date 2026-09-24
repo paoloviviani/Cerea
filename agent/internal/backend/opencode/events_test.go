@@ -3,7 +3,7 @@ package opencode
 import (
 	"testing"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // A compaction part rides the ordinary message.part.updated SSE event, like

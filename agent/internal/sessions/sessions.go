@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"pystino-agent/internal/backend"
-	"pystino-agent/internal/policy"
+	"galopin/internal/backend"
+	"galopin/internal/policy"
 )
 
 // ringCapacity is how many envelopes each session's ring buffer keeps

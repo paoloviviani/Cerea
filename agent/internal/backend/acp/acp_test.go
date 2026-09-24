@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // fakeAgent is an in-process ACP agent: it speaks the same rpcConn wire

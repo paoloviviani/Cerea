@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // This file reads ACP's JSON shapes defensively (multiple candidate keys,

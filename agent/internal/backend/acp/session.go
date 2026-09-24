@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // pendingPermission is one outstanding session/request_permission the agent

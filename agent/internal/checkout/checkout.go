@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // Limits keep one pathological checkout (a build dir, a binary blob) from

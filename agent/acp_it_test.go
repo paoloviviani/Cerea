@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"pystino-agent/internal/backend"
-	backendacp "pystino-agent/internal/backend/acp"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
+	"galopin/internal/backend"
+	backendacp "galopin/internal/backend/acp"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
 )
 
 // TestACPIntegration proves the generic ACP adapter (internal/backend/acp)
@@ -25,12 +25,13 @@ import (
 // mock LLM and the same opencode binary, spoken to over a different wire
 // protocol, driving the identical internal/backend.Backend contract.
 //
-// Gated behind PYSTINO_AGENT_ACP_IT=1 (needs opencode and node on PATH,
-// plus the sibling thin-cerea checkout for the mock's script — see
-// startMockLLM in opencode_it_test.go, the in-process internal/mockllm).
+// Gated behind GALOPIN_ACP_IT=1 (alias: PYSTINO_AGENT_ACP_IT; needs opencode
+// and node on PATH, plus the sibling thin-cerea checkout for the mock's
+// script — see startMockLLM in opencode_it_test.go, the in-process
+// internal/mockllm).
 func TestACPIntegration(t *testing.T) {
-	if os.Getenv("PYSTINO_AGENT_ACP_IT") != "1" {
-		t.Skip("set PYSTINO_AGENT_ACP_IT=1 to run (spawns real `opencode acp` + a mock LLM)")
+	if !itEnabled("GALOPIN_ACP_IT", "PYSTINO_AGENT_ACP_IT") {
+		t.Skip("set GALOPIN_ACP_IT=1 to run (spawns real `opencode acp` + a mock LLM)")
 	}
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skipf("opencode not on PATH: %v", err)

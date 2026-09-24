@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pystino-agent/internal/fsutil"
+	"galopin/internal/fsutil"
 )
 
 // AutoAccept is a string, not a bool, because the wire (PROTOCOL.md §5

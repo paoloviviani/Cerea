@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // Subscribe returns the channel every normalized event this backend

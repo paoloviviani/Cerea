@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pystino-agent/internal/policy"
+	"galopin/internal/policy"
 )
 
 // Directory is one entry in workspace.suggest's answer (PROTOCOL.md §6):

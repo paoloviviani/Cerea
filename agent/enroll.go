@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"pystino-agent/internal/policy"
+	"galopin/internal/policy"
 )
 
 const enrollUsage = `pystino-agent enroll — sign in and write the opencode setup.

@@ -1,4 +1,4 @@
-module pystino-agent
+module galopin
 
 go 1.24
 

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"pystino-agent/internal/backend"
-	"pystino-agent/internal/policy"
-	"pystino-agent/internal/sessions"
-	"pystino-agent/internal/workspaces"
+	"galopin/internal/backend"
+	"galopin/internal/policy"
+	"galopin/internal/sessions"
+	"galopin/internal/workspaces"
 )
 
 // fakeBackend is the minimal backend.Backend these tests need — every

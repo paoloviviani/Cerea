@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"pystino-agent/internal/fsutil"
-	"pystino-agent/internal/policy"
+	"galopin/internal/fsutil"
+	"galopin/internal/policy"
 )
 
 // Workspace is one registry entry (PROTOCOL.md §6 Types). WorktreeOf and

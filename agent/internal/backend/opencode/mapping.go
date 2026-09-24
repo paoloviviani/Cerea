@@ -3,7 +3,7 @@ package opencode
 import (
 	"time"
 
-	"pystino-agent/internal/backend"
+	"galopin/internal/backend"
 )
 
 // millisToTime converts an opencode epoch-millisecond timestamp (0 = unset)
