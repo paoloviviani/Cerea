@@ -133,6 +133,8 @@
 	let modesFailure = $state<string | null>(null);
 	let models = $state<CodeProviderModel[] | null>(null);
 	let modelsFailure = $state<string | null>(null);
+	/** Models the machine listed but its enrollment policy keeps off the panel. */
+	let modelsHidden = $state(0);
 	/** What toggles the provider offers at all — the descriptor list, not
 	 * the values. The live values come from the agent's snapshot
 	 * (`features`), so this only ever decides that a toggle exists and
@@ -171,7 +173,10 @@
 			}
 			try {
 				const result = await listProviderModels(deviceId, provider);
-				if (token === listsToken) models = result.models;
+				if (token === listsToken) {
+					models = result.models;
+					modelsHidden = result.hidden ?? 0;
+				}
 			} catch (err) {
 				if (token === listsToken) {
 					modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
@@ -423,6 +428,12 @@
 												</span>
 											</DropdownMenu.Item>
 										{/each}
+										{#if modelsHidden > 0}
+											<DropdownMenu.Item class={menuNoteClass} disabled>
+												{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
+												machine was enrolled without --allow-free-models.
+											</DropdownMenu.Item>
+										{/if}
 									{/if}
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
