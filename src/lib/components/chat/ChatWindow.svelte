@@ -6,7 +6,8 @@
 	import PreviewPane from "./PreviewPane.svelte";
 	import TrackioPane from "./TrackioPane.svelte";
 	import DeliverablesPanel from "./DeliverablesPanel.svelte";
-	import { collectArtifacts } from "$lib/utils/artifacts";
+	import { collectArtifacts, splitArtifactSegments } from "$lib/utils/artifacts";
+	import { MessageUpdateType, type MessageArtifactDraftUpdate } from "$lib/types/MessageUpdate";
 	import { setArtifactsContext } from "$lib/utils/artifactsContext";
 	import { collectTrackioDashboards } from "$lib/utils/trackio";
 	import { trackioStatus } from "$lib/stores/trackioStatus.svelte";
@@ -234,6 +235,38 @@
 		const streaming = artifactRegistry.streaming;
 		if (!streaming || !loading) return;
 		sidePane.maybeAutoOpen(streaming.identifier, streaming.version);
+	});
+
+	// Live `artifact`-tool drafts (tool mode): the latest draft per tool call
+	// from the message currently receiving tokens. Shown in the panel as a
+	// streaming block until the executed call's canonical block replaces it. A
+	// draft is dropped once the live message already carries a closed block
+	// for its identifier — the final arrived and the draft is stale.
+	let artifactDrafts = $derived.by(() => {
+		if (!loading) return [] as MessageArtifactDraftUpdate[];
+		const live = messages.at(-1);
+		if (!live) return [] as MessageArtifactDraftUpdate[];
+		const byCall = new Map<string, MessageArtifactDraftUpdate>();
+		for (const u of live.updates ?? []) {
+			if (u.type === MessageUpdateType.ArtifactDraft) byCall.set(u.toolCallId, u);
+		}
+		if (byCall.size === 0) return [] as MessageArtifactDraftUpdate[];
+		const closed = new Set<string>();
+		for (const segment of splitArtifactSegments(live.content ?? "")) {
+			if (segment.type === "artifact" && segment.op.closed) closed.add(segment.op.identifier);
+		}
+		return [...byCall.values()].filter((d) => !d.identifier || !closed.has(d.identifier));
+	});
+
+	// Auto-open the panel for a draft too, so a streamed-arguments preview is
+	// visible before the call completes.
+	$effect(() => {
+		if (!loading) return;
+		for (const draft of artifactDrafts) {
+			if (!draft.identifier) continue;
+			const known = artifactRegistry.artifacts.get(draft.identifier)?.versions.length ?? 0;
+			sidePane.maybeAutoOpen(draft.identifier, known + 1);
+		}
 	});
 
 	// Trackio dashboards a training run printed into its job logs, read back out
@@ -1192,6 +1225,7 @@
 		registry={artifactRegistry}
 		items={paneItems}
 		{loading}
+		drafts={artifactDrafts}
 		canScreenshot={!shared && !isReadOnly && mimeMatchesAllowlist("image/png", activeMimeTypes)}
 		onsend={canSendFix ? sendFixRequest : undefined}
 	/>
