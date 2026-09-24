@@ -4,7 +4,7 @@
  * off…" action, the dialog's prefill, the POST body, and the post-handoff
  * navigation — are the real ones, without a paired machine.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -150,7 +150,7 @@ test.beforeEach(async ({ page }) => {
 test("hands off a completed reply to a new session, carrying the history up to it", async ({
 	page,
 }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
@@ -185,7 +185,7 @@ test("hands off a completed reply to a new session, carrying the history up to i
 });
 
 test("carrying can be turned off, and the prompt is required", async ({ page }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
 	await page.getByRole("button", { name: "Hand off…" }).click();
