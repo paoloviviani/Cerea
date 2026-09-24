@@ -922,7 +922,9 @@
 	</footer>
 {/snippet}
 
-{#if sidePane.open && sidePane.view === "artifact" && artifact}
+<!-- A tool-mode draft of a new artifact has no registry entry until its call
+     runs; it still mounts the pane, so the preview streams in while it is written. -->
+{#if sidePane.open && sidePane.view === "artifact" && (artifact || pendingDraft || writingDraft)}
 	<SidePane label="Artifact panel" escapeDisabled={fullscreenOpen || loading}>
 		{#snippet children(resizing)}
 			{@render panelContent(resizing)}
