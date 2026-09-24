@@ -171,7 +171,7 @@ test("a new message that has not reported usage yet does not drop the meter to 0
 	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, (route) =>
 		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
 	);
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByRole("button", { name: "40%" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "0%", exact: true })).toHaveCount(0);
 });
