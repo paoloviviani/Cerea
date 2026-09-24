@@ -1,23 +1,22 @@
 /**
- * Enrollment liveness: detecting a dead machine grant before the first
- * send, and keeping the sidebar's device/agent lists live without a reload.
+ * Credential health and keeping the sidebar's device/agent lists live without
+ * a reload.
  *
- * The daemon's stored IdP tokens (minted by `enroll enroll` on the paired
- * machine) can go dead between sessions; today the person only learns this
- * from a 502 System Error after they type a message. This suite pins:
+ * Unlike the paseo-era daemon this replaces, the machine reports its own
+ * credential health directly (`hello`/`credential` frames, spec §5) — there
+ * is no separate network probe to run before the first send, and no
+ * dedicated "re-enroll" flow (a fresh `pystino-agent enroll` mints a new
+ * machine id, so re-enrolling is just pairing again). This suite pins:
  *
- * - opening a device/agent whose enrollment the daemon reports as expired
- *   (an `invalid_grant`-class refusal from `listAvailableProviders`, this
- *   deployment's cheapest proxy for "the stored credentials still work" —
- *   see `checkEnrollment` in `codeApi.ts`) turns the sidebar's paired pill
- *   into a clickable "re-enroll" control and disables the composer's send,
- *   before any message is sent;
- * - a merely unreachable daemon (a network failure, no `invalid_grant`
- *   anywhere in it) must never be reported the same way — the pill stays
- *   "paired";
+ * - a paired device whose row reports `credentialState: "expired"` shows a
+ *   "credential expired" pill instead of "online"/"paired", and the
+ *   composer refuses to send before any message is typed;
+ * - an offline device (`online: false`) never claims a dead credential —
+ *   the two are independent facts — and the tree never even tries to load
+ *   its workspaces/agents (X4: it is never asked, so it cannot hang);
  * - a device paired, or an agent created, from elsewhere (another tab, the
- *   daemon's own CLI) appears in the tree once the tab's quiet poll or its
- *   focus refetch runs, with no page reload.
+ *   machine's own reconnect) appears in the tree once the tab's quiet poll
+ *   or its focus refetch runs, with no page reload.
  */
 import { test, expect } from "./fixtures";
 import type { Page } from "playwright/test";
@@ -45,26 +44,36 @@ const AGENT_SNAPSHOT = {
 	workspaceId: WS,
 	modeId: "plan",
 	modelId: "pystino/coder-large",
-	cwd: "/repo",
-	features: [],
 };
 
+function deviceRow(overrides: Record<string, unknown> = {}) {
+	return {
+		id: DEVICE,
+		name: "e2e box",
+		status: "paired",
+		online: true,
+		credentialState: "ok",
+		backends: [],
+		policy: { autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+		createdAt: new Date(),
+		...overrides,
+	};
+}
+
 /** The pill/panel's shared plumbing every scenario below needs: the device
- * row, its workspace, its agent's snapshot and the pills' option lists —
- * everything BUT the providers probe, which each test supplies itself. */
-async function installBaseStubs(page: Page) {
-	await page.route("**/api/v2/code/devices", (route) =>
-		route.fulfill({
-			contentType: "application/json",
-			body: superjsonBody({
-				devices: [{ id: DEVICE, name: "e2e box", status: "paired" }],
-			}),
-		})
-	);
+ * row, its workspace, its agent's snapshot and the pills' option lists.
+ * Each scenario supplies its own `devices` route so it can vary
+ * `credentialState`/`online`. */
+async function installBaseStubs(page: Page, agentEnrollmentExpired = false) {
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
-			body: superjsonBody({ agent: AGENT_SNAPSHOT, features: [], cwd: AGENT_SNAPSHOT.cwd }),
+			body: superjsonBody({
+				agent: AGENT_SNAPSHOT,
+				features: [],
+				cwd: "/repo",
+				enrollmentExpired: agentEnrollmentExpired,
+			}),
 		})
 	);
 	await page.route("**/api/v2/code/v1/workspaces?*", (route) =>
@@ -99,37 +108,32 @@ async function installBaseStubs(page: Page) {
 		route.fulfill({
 			status: 200,
 			contentType: "text/event-stream",
-			body:
-				`event: update\ndata: ${JSON.stringify({ type: "turnState", state: "done", serverNow: Date.now() })}\n\n` +
-				"event: end\ndata: {}\n\n",
+			body: `id: e1:1\nevent: update\ndata: ${JSON.stringify({ type: "turnState", state: "done", serverNow: Date.now() })}\n\n`,
 		})
 	);
 }
 
-test.describe("an expired enrollment", () => {
+test.describe("a machine reporting an expired credential", () => {
 	test.beforeEach(async ({ page }) => {
-		await installBaseStubs(page);
-		await page.route("**/api/v2/code/v1/providers?*", (route) =>
+		await installBaseStubs(page, true);
+		await page.route("**/api/v2/code/devices", (route) =>
 			route.fulfill({
 				contentType: "application/json",
-				body: superjsonBody({
-					providers: [{ id: "opencode", available: false, enrollmentExpired: true }],
-				}),
+				body: superjsonBody({ devices: [deviceRow({ credentialState: "expired" })] }),
 			})
 		);
 	});
 
-	test("turns the sidebar pill into a clickable re-enroll control before any message", async ({
+	test("shows a credential-expired pill and refuses the send before any message", async ({
 		page,
 	}) => {
 		await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 		await openAgentsPanel(page);
 
-		// The device's own row in the Agents panel: "paired" is gone, replaced
-		// by a control naming the fix, not just the symptom.
-		const reenrollPill = page.getByRole("button", { name: "re-enroll", exact: true });
-		await expect(reenrollPill).toBeVisible();
-		await expect(page.getByText("paired", { exact: true })).toHaveCount(0);
+		// The device's own row in the Agents panel: neither "online" nor
+		// "paired" claims a good credential once the machine says otherwise.
+		await expect(page.getByText("credential expired", { exact: true })).toBeVisible();
+		await expect(page.getByText("online", { exact: true })).toHaveCount(0);
 
 		// The composer refuses the send it knows is doomed — before the
 		// person has typed anything, let alone pressed enter.
@@ -137,46 +141,50 @@ test.describe("an expired enrollment", () => {
 		await page.getByPlaceholder("Follow up with the agent…").fill("are you there?");
 		await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 
-		// The pill opens the same clone + setup-agent.sh instructions the
-		// original pairing dialog uses — re-running the script re-enrolls.
-		await reenrollPill.click();
-		await expect(page.getByRole("heading", { name: "Re-enroll this machine" })).toBeVisible();
-		await expect(page.getByText(/setup-agent\.sh/)).toBeVisible();
-	});
-
-	test("the composer's own re-enroll link opens the same dialog", async ({ page }) => {
-		await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+		// Its own re-enroll link opens the pairing dialog — a fresh
+		// enrollment is a new pending machine, not an in-place fix.
 		await page.getByRole("button", { name: "Re-enroll", exact: true }).click();
-		await expect(page.getByRole("heading", { name: "Re-enroll this machine" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Pair a machine" })).toBeVisible();
 	});
 });
 
-test("an unreachable daemon is never reported as an expired enrollment", async ({ page }) => {
+test("an offline device never reads as a dead credential, and its tree is never even asked", async ({
+	page,
+}) => {
+	let workspacesRequested = false;
 	await installBaseStubs(page);
-	// A relay hiccup / offline daemon: the probe's request itself fails,
-	// with nothing resembling `invalid_grant` anywhere in it.
-	await page.route("**/api/v2/code/v1/providers?*", (route) => route.abort("connectionfailed"));
+	await page.route("**/api/v2/code/devices", (route) =>
+		route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({ devices: [deviceRow({ online: false })] }),
+		})
+	);
+	// Overrides installBaseStubs' handler: this scenario asserts the tree
+	// never calls it at all for an offline device (X4).
+	await page.route("**/api/v2/code/v1/workspaces?*", (route) => {
+		workspacesRequested = true;
+		return route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({ workspaces: [] }),
+		});
+	});
 
 	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await openAgentsPanel(page);
 
-	// The strip renders (the agent snapshot read is unaffected); the pill
-	// side of the panel must still call this device "paired", never
-	// "re-enroll" — an offline probe is not evidence of a dead grant.
-	await expect(page.getByRole("button", { name: "re-enroll", exact: true })).toHaveCount(0);
-	await expect(page.getByText("paired", { exact: true })).toBeVisible();
+	await expect(page.getByText("Offline.", { exact: true })).toBeVisible();
+	await expect(page.getByText("credential expired", { exact: true })).toHaveCount(0);
 	await expect(page.getByText(/enrollment expired or was revoked/i)).toHaveCount(0);
+	expect(workspacesRequested).toBe(false);
 });
 
 test.describe("live lists", () => {
 	test("an agent created elsewhere appears in the tree without a reload", async ({ page }) => {
 		await installBaseStubs(page);
-		await page.route("**/api/v2/code/v1/providers?*", (route) =>
+		await page.route("**/api/v2/code/devices", (route) =>
 			route.fulfill({
 				contentType: "application/json",
-				body: superjsonBody({
-					providers: [{ id: "opencode", available: true, enrollmentExpired: false }],
-				}),
+				body: superjsonBody({ devices: [deviceRow()] }),
 			})
 		);
 
@@ -193,10 +201,10 @@ test.describe("live lists", () => {
 		await expect(page.getByText("No agents yet.")).toBeVisible();
 		await expect(page.getByText("e2e agent")).toHaveCount(0);
 
-		// The daemon's own CLI (or another tab) started a session on this
-		// workspace; nothing here navigated, so only the tree's own refetch
-		// (the tab regaining focus, one of its two live-list triggers) can
-		// surface it.
+		// The machine's own reconnect (or another tab) started a session on
+		// this workspace; nothing here navigated, so only the tree's own
+		// refetch (the tab regaining focus, one of its two live-list
+		// triggers) can surface it.
 		revealed = true;
 		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 
@@ -212,8 +220,8 @@ test.describe("live lists", () => {
 				contentType: "application/json",
 				body: superjsonBody({
 					devices: [
-						{ id: DEVICE, name: "e2e box", status: "paired" },
-						...(paired ? [{ id: DEVICE2, name: "second box", status: "paired" }] : []),
+						deviceRow(),
+						...(paired ? [deviceRow({ id: DEVICE2, name: "second box" })] : []),
 					],
 				}),
 			})

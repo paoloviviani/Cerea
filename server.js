@@ -86,6 +86,23 @@ server.listen(listenOptions, () => {
 	console.log(`Listening on ${path || `http://${host}:${port}`}`);
 });
 
+// The machine link (`/api/v2/code/machine`) is a WebSocket the app upgrades
+// itself, in `noServer` mode — adapter-node's `handler` only speaks HTTP, so
+// the upgrade has to be wired at this layer, above it. The app registers its
+// upgrade function on this well-known global symbol from its server init
+// hook (`src/lib/server/hooks/init.ts`), once `ws` and the machine registry
+// are ready; before that (or for any other path) the socket is destroyed
+// rather than left to hang.
+const MACHINE_UPGRADE = Symbol.for("cerea.machineUpgrade");
+server.server.on("upgrade", (req, socket, head) => {
+	const upgradeHandler = globalThis[MACHINE_UPGRADE];
+	if (typeof upgradeHandler === "function") {
+		upgradeHandler(req, socket, head);
+		return;
+	}
+	socket.destroy();
+});
+
 let shutdownTimeoutId;
 
 // Without this, SIGTERM during a rolling deploy kills in-flight requests immediately
