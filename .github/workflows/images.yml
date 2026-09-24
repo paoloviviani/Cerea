@@ -11,16 +11,12 @@
 # untagged manifests would break the image.
 name: images
 
+# Publishing is ON HOLD until the image is ready to be the release artefact
+# (a few more days of development, 2026-09-24): manual runs only. To publish
+# on every push to main and on release tags, replace the two `on:` lines below
+# with this one line:
+# on: {workflow_dispatch: {}, push: {branches: [main], tags: ["v*.*.*"], paths-ignore: [docs/**, "**/*.md", tests/**, deploy/ci/**, scripts/*.py, .github/workflows/ci.yml, .github/workflows/contract.yml, .github/workflows/opencode-latest.yml]}}
 on:
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "tests/**"
-      - "deploy/ci/**"
-      - "scripts/*.py"
   workflow_dispatch:
 
 permissions:
@@ -56,6 +52,7 @@ jobs:
           flavor: latest=false
           tags: |
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
           labels: |
