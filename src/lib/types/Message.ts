@@ -32,6 +32,14 @@ export type Message = Partial<Timestamps> & {
 	files?: MessageFile[];
 	interrupted?: boolean;
 
+	/**
+	 * The coding-agent panel's own id for this message, on the machine's own
+	 * transcript (`consumeAgentUpdates`, from an `AgentMessageBoundaryUpdate`).
+	 * Absent for an ordinary chat message — nothing sets it outside `/code`.
+	 * What a fork handoff's "carry up to here" names (parity plan §4.2(a)).
+	 */
+	machineMessageId?: string;
+
 	// Router metadata when using llm-router
 	routerMetadata?: {
 		route: string;
