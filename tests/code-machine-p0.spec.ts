@@ -53,19 +53,16 @@ test.describe("owned machine agent (P0)", () => {
 		await page.goto("/code");
 		const pending = page.getByText(machine.name);
 		await expect(pending).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: "Confirm" }).click();
+		await page.getByRole("button", { name: "Confirm this machine" }).click();
 
 		// ── Workspace + session ────────────────────────────────────────────────
-		await page.getByRole("button", { name: "Add workspace" }).first().click();
+		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
 		await page.getByLabel("Directory on the machine").fill(machine.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
-		await page.getByRole("button", { name: "Add workspace" }).last().click();
+		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
 
-		await page
-			.getByRole("button", { name: /new (agent|session)/i })
-			.first()
-			.click();
+		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
 		await page.getByRole("button", { name: "Write" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 
