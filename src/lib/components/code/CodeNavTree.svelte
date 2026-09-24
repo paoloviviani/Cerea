@@ -643,11 +643,13 @@
 		workspace={dialogWorkspace}
 		onclose={() => (worktreeFor = null)}
 		oncreated={(workspace) => {
-			// Same pattern as WorkspaceDialog's oncreated: the daemon owns the
-			// truth, so reload and land the person on the worktree just made.
+			// Read the block's consts before clearing worktreeFor: they are
+			// derived from it, and the {#if} tears down as soon as it is
+			// null, same trap AgentDialog's own oncreated hit first.
+			const deviceId = dialogDevice.id;
 			worktreeFor = null;
-			void reloadDevice(dialogDevice.id);
-			void goto(`${base}/code?device=${dialogDevice.id}&ws=${workspace.id}`, { keepFocus: true });
+			void reloadDevice(deviceId);
+			void goto(`${base}/code?device=${deviceId}&ws=${workspace.id}`, { keepFocus: true });
 		}}
 	/>
 {/if}

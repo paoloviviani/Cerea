@@ -126,5 +126,6 @@ test.describe("creating a worktree workspace", () => {
 		// also "feature/x" here, so this is scoped to the badge specifically
 		// rather than any text match).
 		await expect(page.getByTitle("git worktree on feature/x")).toBeVisible();
+		await expect(page).toHaveURL(new RegExp(`ws=ws_e2e_worktree`));
 	});
 });
