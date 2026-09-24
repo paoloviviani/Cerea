@@ -51,10 +51,15 @@ async function pairedDevice(owner: App.Locals, status: "paired" | "pending" = "p
 	devices.push(_id);
 	await collections.codeDevices.insertOne({
 		_id,
-		userId: owner.user?._id,
+		userId: owner.user?._id as ObjectId,
 		machineId: new ObjectId().toHexString(),
 		name: "box",
 		status,
+		sub: "sub",
+		iss: "https://idp.example",
+		backends: [],
+		policy: { autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+		credentialState: "ok",
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	});
