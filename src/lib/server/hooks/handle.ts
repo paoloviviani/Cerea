@@ -205,6 +205,43 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				}
 			}
 
+			// Every /api body must say what it is. The Origin check above only
+			// looks at the *native form* content types a <form> can produce; a
+			// cross-site `fetch(url, { mode: "no-cors", body: new Blob([json]) })`
+			// needs no preflight and — because a typeless Blob gets no
+			// Content-Type header at all — carries neither an Origin header this
+			// hook demands nor a content-type the old check recognized, and
+			// sailed through with the cookie attached regardless. A request with
+			// an actual body now has to name a type this app understands.
+			//
+			// Routes with their own raw-body contract (checked against their own
+			// allow-list downstream) are named here rather than widening the
+			// types accepted everywhere: `/api/transcribe` takes the recorded
+			// clip's own MIME type (audio/webm, audio/wav, ...), never JSON or a
+			// form.
+			const RAW_BODY_API_PATHS = new Set([`${base}/api/transcribe`]);
+
+			if (
+				event.url.pathname.startsWith(`${base}/api/`) &&
+				!["GET", "HEAD", "OPTIONS"].includes(event.request.method) &&
+				!RAW_BODY_API_PATHS.has(event.url.pathname)
+			) {
+				const contentLength = event.request.headers.get("content-length");
+				const hasBody =
+					(contentLength !== null && contentLength !== "0") ||
+					event.request.headers.get("transfer-encoding") !== null;
+
+				if (hasBody) {
+					const type = requestContentType.toLowerCase();
+					if (type !== "application/json" && type !== "multipart/form-data") {
+						return errorResponse(
+							415,
+							"Unsupported Media Type: /api requests with a body need Content-Type: application/json (or multipart/form-data for uploads)"
+						);
+					}
+				}
+			}
+
 			if (
 				event.request.method === "POST" ||
 				event.url.pathname.startsWith(`${base}/login`) ||
