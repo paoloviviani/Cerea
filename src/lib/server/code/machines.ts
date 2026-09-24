@@ -241,7 +241,7 @@ export class MachineLink {
 	}
 	backendModels(
 		args: { backend?: string; workspaceId?: string } = {}
-	): Promise<{ models: Model[] }> {
+	): Promise<{ models: Model[]; hidden?: number }> {
 		return this.call("backend.models", args);
 	}
 }

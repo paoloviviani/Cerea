@@ -79,7 +79,18 @@ export interface Machine {
 	stop(): Promise<void>;
 }
 
-export async function startMachine(input: { sub: string; name?: string }): Promise<Machine> {
+/** The machine's own policy (`policy.json`, what `enroll` flags would write). */
+export interface MachinePolicy {
+	autoAccept?: "allowed" | "denied";
+	allowFreeModels?: boolean;
+	workspaceRoots?: string[];
+}
+
+export async function startMachine(input: {
+	sub: string;
+	name?: string;
+	policy?: MachinePolicy;
+}): Promise<Machine> {
 	const name = input.name ?? `e2e-box-${randomUUID().slice(0, 6)}`;
 	const root = mkdtempSync(join(tmpdir(), "pystino-machine-"));
 	const workspace = join(root, "repo");
@@ -124,6 +135,14 @@ export async function startMachine(input: { sub: string; name?: string }): Promi
 					options: { baseURL: MOCK_OPENAI_BASE_URL, apiKey: "e2e" },
 					models: { [modelId]: { name: "Mock Model", limit: { context: 128000, output: 8192 } } },
 				},
+				// A non-gateway provider: listed by opencode, but off the panel unless the
+				// machine allows free models.
+				freebie: {
+					npm: "@ai-sdk/openai-compatible",
+					name: "Free (mock)",
+					options: { baseURL: MOCK_OPENAI_BASE_URL, apiKey: "e2e" },
+					models: { "free-model": { name: "Free Model" } },
+				},
 			},
 			model: MACHINE_MODEL,
 			small_model: MACHINE_MODEL,
@@ -137,13 +156,25 @@ export async function startMachine(input: { sub: string; name?: string }): Promi
 	// developer's own sessions, auth or config.
 	const home = join(root, "home");
 	mkdirSync(home);
+	const stateDir = join(root, "state");
+	mkdirSync(stateDir);
+	if (input.policy) {
+		writeFileSync(
+			join(stateDir, "policy.json"),
+			JSON.stringify({
+				autoAccept: input.policy.autoAccept ?? "denied",
+				allowFreeModels: input.policy.allowFreeModels ?? false,
+				workspaceRoots: input.policy.workspaceRoots ?? [],
+			})
+		);
+	}
 	let output = "";
 	const child: ChildProcess = spawn(
 		agentBinary(),
 		[
 			"run",
 			"--state-dir",
-			join(root, "state"),
+			stateDir,
 			"--creds",
 			creds,
 			"--cerea",
