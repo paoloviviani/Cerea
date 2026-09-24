@@ -762,7 +762,11 @@ export const POST: RequestHandler = async (event) => {
 		if (!parsed.success)
 			error(400, "Expected { decision: 'once' | 'always' | 'reject', childSessionId? }.");
 		const parentSessionId = decodeURIComponent(permissionMatch[1]);
-		const targetSessionId = await resolveReplyTarget(link, parentSessionId, parsed.data.childSessionId);
+		const targetSessionId = await resolveReplyTarget(
+			link,
+			parentSessionId,
+			parsed.data.childSessionId
+		);
 		await callOp(() =>
 			link.permissionReply({
 				sessionId: targetSessionId,
@@ -792,7 +796,11 @@ export const POST: RequestHandler = async (event) => {
 				"Expected { decision: 'accept' | 'decline', answers?: string[][], childSessionId? }."
 			);
 		const parentSessionId = decodeURIComponent(questionMatch[1]);
-		const targetSessionId = await resolveReplyTarget(link, parentSessionId, parsed.data.childSessionId);
+		const targetSessionId = await resolveReplyTarget(
+			link,
+			parentSessionId,
+			parsed.data.childSessionId
+		);
 		await callOp(() =>
 			link.questionReply({
 				sessionId: targetSessionId,

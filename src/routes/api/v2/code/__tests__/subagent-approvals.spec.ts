@@ -123,7 +123,10 @@ async function createWorkspace(
 	return parse(res);
 }
 
-async function createSession(deviceId: string, workspaceId: string): Promise<{ agent: { id: string } }> {
+async function createSession(
+	deviceId: string,
+	workspaceId: string
+): Promise<{ agent: { id: string } }> {
 	const res = await forwarder(forwarderPOST, `/api/v2/code/v1/agents?device=${deviceId}`, {
 		method: "POST",
 		body: JSON.stringify({ workspaceId, provider: "opencode", posture: "plan" }),

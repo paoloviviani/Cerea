@@ -147,7 +147,8 @@
 				<span
 					class="shrink-0 text-sm font-medium text-gray-500 transition-colors group-hover/header:text-gray-600 dark:text-gray-400 dark:group-hover/header:text-gray-300"
 				>
-					{#if subagentLabel}{subagentLabel} · {/if}{settledLabel}
+					{#if subagentLabel}{subagentLabel} ·
+					{/if}{settledLabel}
 				</span>
 				<code
 					class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
@@ -178,7 +179,8 @@
 		>
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
-					>{#if subagentLabel}{subagentLabel} · {/if}Tool approval</span
+					>{#if subagentLabel}{subagentLabel} ·
+					{/if}Tool approval</span
 				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					wants to call <code

@@ -179,9 +179,7 @@ export function permissionRequestToUpdate(
 			mode: "form",
 			message: child ? `${subagentLabel(child)}${request.title}` : request.title,
 			toolApproval: { tool: request.tool, args: request.metadata },
-			...(child
-				? { childSessionId: child.childId, childTitle: child.childTitle ?? null }
-				: {}),
+			...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
 		},
 	};
 }
@@ -239,9 +237,7 @@ export function questionRequestedToUpdate(
 				? `${subagentLabel(child)}${event.questions.map((q) => q.question).join("\n\n")}`
 				: event.questions.map((q) => q.question).join("\n\n"),
 			fields,
-			...(child
-				? { childSessionId: child.childId, childTitle: child.childTitle ?? null }
-				: {}),
+			...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
 		},
 	};
 }

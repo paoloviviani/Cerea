@@ -403,10 +403,7 @@ export function acceptMachineConnection(
 				const root = frame.rootSessionId ?? frame.sessionId;
 				const listeners = state.listeners.get(frame.sessionId);
 				const treeListeners = state.rootListeners.get(root);
-				if (
-					(!listeners || listeners.size === 0) &&
-					(!treeListeners || treeListeners.size === 0)
-				)
+				if ((!listeners || listeners.size === 0) && (!treeListeners || treeListeners.size === 0))
 					return;
 				const envelope: Envelope = {
 					sessionId: frame.sessionId,
