@@ -253,7 +253,10 @@ test.describe("owned machine agent: parity", () => {
 							{
 								question: "Which approach?",
 								header: "Approach",
-								options: [{ label: "A", description: "Do A" }, { label: "B", description: "Do B" }],
+								options: [
+									{ label: "A", description: "Do A" },
+									{ label: "B", description: "Do B" },
+								],
 								multiple: false,
 							},
 						],
