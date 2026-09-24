@@ -35,7 +35,6 @@ import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
-import type { TokenCache } from "$lib/types/TokenCache";
 import { onExit } from "./exitHandler";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -158,7 +157,6 @@ export class Database {
 		const parkedCalls = db.collection<ParkedCall>("parkedCalls");
 		const nestedAgentCalls = db.collection<NestedAgentCall>("nestedAgentCalls");
 		const semaphores = db.collection<Semaphore>("semaphores");
-		const tokenCaches = db.collection<TokenCache>("tokens");
 		const configCollection = db.collection<ConfigKey>("config");
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
 		const sharedConversations = db.collection<SharedConversation>("sharedConversations");
@@ -253,7 +251,6 @@ export class Database {
 			codeOutputBucket,
 			migrationResults,
 			semaphores,
-			tokenCaches,
 			tools,
 			config: configCollection,
 		};
@@ -289,7 +286,6 @@ export class Database {
 			sessions,
 			messageEvents,
 			semaphores,
-			tokenCaches,
 			config,
 			codeExecutionOutputs,
 		} = this.getCollections();
@@ -627,12 +623,6 @@ export class Database {
 		semaphores
 			.createIndex({ deleteAt: 1 }, { expireAfterSeconds: 1 })
 			.catch((e) => logger.error(e, "Error creating index for semaphores by deleteAt"));
-		tokenCaches
-			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 5 * 60 })
-			.catch((e) => logger.error(e, "Error creating index for tokenCaches by createdAt"));
-		tokenCaches
-			.createIndex({ tokenHash: 1 })
-			.catch((e) => logger.error(e, "Error creating index for tokenCaches by tokenHash"));
 		conversations
 			.createIndex({
 				"messages.from": 1,
