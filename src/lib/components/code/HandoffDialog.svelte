@@ -14,7 +14,12 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import IconFork from "~icons/carbon/fork";
 	import IconWarning from "~icons/carbon/warning-filled";
-	import { handoffAgent, listProviderModels, listProviderModes, listWorkspaces } from "$lib/codeApi";
+	import {
+		handoffAgent,
+		listProviderModels,
+		listProviderModes,
+		listWorkspaces,
+	} from "$lib/codeApi";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import type {
 		CodeAgentSession,

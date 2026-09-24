@@ -605,20 +605,24 @@
 {/if}
 
 {#if handoffFor && agent}
+	{@const fallbackWorkspace = {
+		id: agent.workspaceId,
+		name: workspaceName || agent.workspaceId,
+		path: agentCwd ?? "",
+	}}
 	<HandoffDialog
 		{deviceId}
 		{agentId}
 		agentTitle={agent.title}
-		workspace={workspace ?? { id: agent.workspaceId, name: workspaceName || agent.workspaceId, path: agentCwd ?? "" }}
+		workspace={workspace ?? fallbackWorkspace}
 		provider={agent.provider}
 		modeId={agent.modeId}
 		modelId={agent.modelId}
 		uptoMessageId={handoffFor.machineMessageId}
 		onclose={() => (handoffFor = null)}
 		onhandoff={(result) => {
-			void goto(`${base}/code?device=${result.deviceId}&ws=${result.agent.workspaceId}&agent=${result.agent.id}`, {
-				keepFocus: true,
-			});
+			const dest = `${base}/code?device=${result.deviceId}&ws=${result.agent.workspaceId}&agent=${result.agent.id}`;
+			void goto(dest, { keepFocus: true });
 		}}
 	/>
 {/if}
