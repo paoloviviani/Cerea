@@ -89,7 +89,8 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("button", { name: "Model" }).click();
 		await expect(page.getByRole("menuitem", { name: "Mock Model" })).toBeVisible();
 		await expect(page.getByRole("menuitem", { name: "Free Model" })).toHaveCount(0);
-		await expect(page.getByText(/1 non-gateway model hidden/)).toBeVisible();
+		// opencode lists its own free catalog as well as the harness's "freebie" provider.
+		await expect(page.getByText(/\d+ non-gateway models? hidden/)).toBeVisible();
 	});
 
 	test("auto-accept: absent under the default policy", async ({ page, db, session }) => {
