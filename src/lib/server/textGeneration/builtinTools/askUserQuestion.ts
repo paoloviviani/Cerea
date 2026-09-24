@@ -1,6 +1,7 @@
 import {
 	ASK_USER_QUESTION_TOOL_NAME,
 	askUserQuestionTool,
+	askUserQuestionToolPlain,
 	openAskPrompt,
 } from "$lib/server/askUserQuestion";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
@@ -15,7 +16,9 @@ export const askUserQuestionBuiltin: BuiltinTool = {
 		`Asking in prose instead does not count — a question in your reply cannot be answered with a click, and the user may not be there to read it. ` +
 		`Tool calls happen only through the function-calling mechanism — writing <${ASK_USER_QUESTION_TOOL_NAME}> tags into reply text calls nothing and shows the user broken markup. ` +
 		`Give 2-4 concrete options, each with a short note on what picking it means, and set multiSelect when more than one can apply together. ` +
+		`An "Other" free-text choice is added automatically; never add your own. ` +
 		`Ask once, then get on with the work using what you are told. ` +
+		`Never use it to confirm ("did it work?"), nor in the same step as delivering content (an artifact, code): deliver first; the user replies in chat. ` +
 		`Do not use it for something you can look up, for a choice with an obvious default, or when the user has already said what they want.`,
 	mayPark: true,
 	// One call carries several questions, so say that instead of asking twice.
@@ -52,4 +55,13 @@ export const askUserQuestionBuiltin: BuiltinTool = {
 		// Answering is the only way this call finishes, so a silent skip would hang it.
 		return { error: `The question could not be shown (${opened.reason}).` };
 	},
+};
+
+/**
+ * The same tool for an ordinary conversation: the schema leaves out the ML
+ * Assistant preset's `setBudgetUsd`, which means nothing outside it.
+ */
+export const askUserQuestionPlainBuiltin: BuiltinTool = {
+	...askUserQuestionBuiltin,
+	definition: askUserQuestionToolPlain,
 };

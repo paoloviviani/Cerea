@@ -176,6 +176,80 @@ test("a new message that has not reported usage yet does not drop the meter to 0
 	await expect(page.getByRole("button", { name: "0%", exact: true })).toHaveCount(0);
 });
 
+test("the popup's Quotas section lists every usage report section in order, with a Settings link", async ({
+	page,
+}) => {
+	await routeCommon(page, [BACKEND_WITH_USAGE]);
+	const stream = [
+		frame({ type: "turnState", state: "done", serverNow: Date.now() }),
+		frame({ type: "usage", usage: { used: 400, max: 1000 } }),
+	].join("");
+	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, (route) =>
+		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
+	);
+	let usageCalls = 0;
+	await page.route("**/api/v2/usage", async (route) => {
+		usageCalls += 1;
+		await route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({
+				sections: [
+					{ title: "You — this month", entries: [{ label: "Tokens", used: 100, unit: "tokens" }] },
+					{
+						title: "Team",
+						entries: [{ label: "Requests", used: 5, limit: 10, unit: "requests" }],
+					},
+				],
+			}),
+		});
+	});
+
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+
+	const trigger = page.getByRole("button", { name: "40%" });
+	await trigger.click();
+	const menu = page.getByRole("menu");
+	await expect(menu.getByText("Quotas")).toBeVisible();
+	await expect.poll(() => usageCalls).toBe(1);
+
+	await expect(menu.getByText("Tokens", { exact: true })).toBeVisible();
+	await expect(menu.getByText("Requests", { exact: true })).toBeVisible();
+
+	// Section order matches the report's own order.
+	const menuText = (await menu.innerText()).replace(/\s+/g, " ");
+	expect(menuText.indexOf("You — this month")).toBeLessThan(menuText.indexOf("Team"));
+
+	const settingsLink = menu.getByRole("link", { name: /Settings.*Usage/ });
+	await expect(settingsLink).toBeVisible();
+	await expect(settingsLink).toHaveAttribute("href", `${E2E_APP_BASE}/settings/usage`);
+});
+
+test("the Quotas section is hidden cleanly when the gateway reports no quotas", async ({
+	page,
+}) => {
+	await routeCommon(page, [BACKEND_WITH_USAGE]);
+	const stream = [
+		frame({ type: "turnState", state: "done", serverNow: Date.now() }),
+		frame({ type: "usage", usage: { used: 400, max: 1000 } }),
+	].join("");
+	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, (route) =>
+		route.fulfill({ status: 200, contentType: "text/event-stream", body: stream })
+	);
+	await page.route("**/api/v2/usage", (route) =>
+		route.fulfill({ contentType: "application/json", body: superjsonBody({ sections: [] }) })
+	);
+
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+
+	const trigger = page.getByRole("button", { name: "40%" });
+	await trigger.click();
+	const menu = page.getByRole("menu");
+	await expect(menu).toBeVisible();
+	// The rest of the popup still renders; only the Quotas heading is absent.
+	await expect(menu.getByText("400 / 1000 tokens")).toBeVisible();
+	await expect(menu.getByText("Quotas")).toHaveCount(0);
+});
+
 test("the meter is hidden when the backend has no usage capability", async ({ page }) => {
 	await routeCommon(page, [BACKEND_NO_USAGE]);
 	const stream = [frame({ type: "turnState", state: "done", serverNow: Date.now() })].join("");
