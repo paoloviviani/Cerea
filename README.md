@@ -70,74 +70,47 @@ Two operational consequences worth knowing before deploying this:
   first provider through `GATEWAY_OIDC__*` env seeding; the console owns every
   provider after that (ADR 0051).
 
-## Deploying (the installer is the entry point)
+## Deploying: `cerea init`
 
 ```bash
-./installer/install.sh [--pystino <path>] [--phase2] [--dry-run]
-# or, through npm (the same script):
-#   npm run setup
+mkdir my-cerea && cd my-cerea
+/path/to/Cerea/scripts/cerea init --origin https://chat.example.org --admin-email you@example.org
+./cerea doctor && docker compose up -d --wait
 ```
 
-**The host needs docker, and does not need node.** The installer is bash:
-its only dependencies beyond a POSIX userland are `openssl` (secret
-generation), `git` (the clone offer) and `docker compose` — no runtime,
-no auxiliary container, no `npm install`. Everything it decides can be
-inspected before anything is run: `--dry-run` resolves the whole flow,
-writes the `.env` it would write (and a sample IdP signing key) to a temp
-directory, prints the exact `docker compose` command lines it would run,
-validates the file against compose's own parser, and exits.
+**The host needs Docker and nothing else** — no checkout, no node. `cerea init`
+asks at most a handful of questions, mints every secret into one `.env` (mode
+0600), and writes a `compose.yaml` and a `./cerea` helper into the directory.
+The images are pulled, versioned, from `ghcr.io/paoloviviani/` (private while
+the repositories are: `docker login ghcr.io` once with a token holding
+`read:packages`; `init` tells you if it is missing). Upgrading is
+`./cerea upgrade <version>` followed by the same `docker compose up`.
 
-The IdP signing key is a **file**, not an env value: the installer generates
-a P-256 PEM at `<pystino>/deploy/idp-signing-key.pem` (mode 600) and writes
-two single-line variables — `IDP_SIGNING_KEY_HOST_PATH` for the host path the
-base compose file mounts read-only into the gateway, and
-`GATEWAY_IDP__SIGNING_KEY_FILE` for the path inside the container. It never
-writes `GATEWAY_IDP__SIGNING_KEY`: an inline key and a key file together are
-refused at gateway startup. Every value in `deploy/.env` is single-line,
-which is what makes the file round-trippable in bash at all.
+Two shapes, picked for you:
 
-The terminal installer proposes five deployment profiles (see Pystino's
-`deploy/profiles/`): three full stacks with a local gateway — `homelab`,
-`team`, `enterprise` — plus two standalone chat-only profiles with no gateway
-on the box, `satellite` (against a central Pystino, no stored key — every
-call carries the signed-in person's own token) and `generic` (against any
-OpenAI-compatible third party, a shared key, user-token mode forced off). For
-a gateway profile, it lets you toggle components within the chosen one,
-generates every secret locally, writes Pystino's `deploy/.env`, and brings
-the stack up in two phases (database and gateway first, because the admin
-password and the chat database cannot exist before they run); nothing is
-minted for the chat to boot with — it reads Pystino's public model list with
-no key (ADR 0081). The standalone profiles skip the gateway phase entirely.
-It needs a Pystino checkout, which it validates or offers to clone. Pystino
-itself ships a simpler `install.sh` for gateway-first operators.
+- **Against a Pystino gateway** (`--central-url https://llm.example.org`, the
+  *satellite* preset): the chat uses the gateway's `/v1` and signs in against
+  its identity provider; every call carries the signed-in person's own token,
+  and no key is stored on the box (one is refused — it would bill a whole site
+  to one account).
+- **Against any OpenAI-compatible endpoint** (the *generic* preset; export
+  `PYSTINO_UPSTREAM_API_KEY` first): one shared key, user-token mode forced off
+  (it would send the person's IdP token to a third party), and a bundled
+  Authelia for sign-in unless you bring your own OIDC provider.
 
-Two safety guards are code, not documentation, and both run against the
-final `.env` — fresh or resumed: `satellite` refuses a file that carries an
-`OPENAI_API_KEY` (a stored key would bill an entire site to one account),
-and `generic` forces `USE_USER_TOKEN=false` and refuses a file that sets it
-true (user-token mode would send the signed-in person's IdP access token out
-as a Bearer to the third party — a credential leak).
+Want the gateway too — accounting, quotas, redaction, per-user billing? That
+is a full Pystino stack, set up the same way with `pystino init`; the chat is
+part of it. Both commands are the same tool: it ships inside the Pystino
+gateway image, so a Cerea-only install and a full stack are one topology and
+one upgrade path (see Pystino's `deploy/stack/`).
 
-Taking it back down again is here too, since this is where it was put up:
+**Development** builds the images from local checkouts instead of pulling
+them — `pystino init --mode dev --cerea-src <this checkout>` from a Pystino
+checkout — with the same configuration and the same `docker compose up`.
 
-```sh
-./installer/teardown.sh [--backup] [--images] [--env] [--yes]
-```
-
-Containers, named volumes and networks of the `llm-platform` project. Shell,
-like its sibling: removing containers needs nothing but Docker, and neither
-does installing them. It finds the Pystino checkout by asking Docker where the
-running deployment's compose files came from — `--pystino <path>` if nothing is
-running — and then hands over to that checkout's `deploy/teardown.sh`, which
-is the one implementation.
-`--backup` saves `deploy/.env`, the profile fragments and database dumps
-first; **`deploy/.env` is gitignored and exists nowhere else**, and the
-`CHAT_SECRET_KEY` in it decrypts the stored connector credentials, so a
-database restored without it is a database with unreadable connectors in it.
-`--env` deletes that file as well, for a next install that starts from
-nothing — it leaves `deploy/profiles/*.env` alone, because those are what the
-installer builds a new `.env` _from_ and they are gitignored too, so removing
-them would leave a checkout the installer refuses to run against.
+The bash installer under `installer/` is the previous entry point, kept only
+until existing installs have been carried over (`pystino adopt`); do not start
+new installs with it.
 
 ## What this fork adds
 
