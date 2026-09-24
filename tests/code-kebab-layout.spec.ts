@@ -11,7 +11,7 @@
  * glyph, not the vertical one the workspace/session rows used to carry. And
  * a device that already has a workspace still gets a + to add another one.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Locator, Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -65,7 +65,7 @@ async function stubCodePanel(page: Page) {
 }
 
 async function openAgentsPanel(page: Page) {
-	await page.goto(`/code?device=${DEVICE}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 	await page.getByRole("button", { name: "Open Agents panel" }).click();
 }
 
