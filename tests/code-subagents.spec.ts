@@ -8,7 +8,7 @@
  * at the network layer. The roster is served once (the view polls it on
  * turn boundaries); the subagent timeline is served on expansion.
  */
-import { test, expect } from "./fixtures";
+import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
 
 const DEVICE = "srv_e2e_device";
@@ -144,7 +144,7 @@ test.beforeEach(async ({ page }) => {
 test("a spawned subagent anchors at its task call with an expandable transcript", async ({
 	page,
 }) => {
-	await page.goto(`/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// The roster pairs the Task call: the card carries the subagent's title
 	// and subtitle instead of the generic tool row.

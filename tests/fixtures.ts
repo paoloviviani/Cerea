@@ -31,10 +31,28 @@ export const E2E_MONGO_PORT = Number(process.env.E2E_MONGO_PORT ?? 8790);
 export const E2E_DB_NAME = process.env.E2E_DB_NAME ?? "chat-ui-e2e";
 
 /**
+ * The app's base path (`APP_BASE`/`kit.paths.base`), unset by default. Set
+ * `E2E_APP_BASE=/chat` to run the suite against a build compiled for that base —
+ * live serves Cerea there (`APP_BASE=/chat`), and code behind it (the machine
+ * WS upgrade, the pairing command, cookie/CSRF handling) has broken silently
+ * before because the default e2e run never exercises a base path at all.
+ * `page.goto`/`page.request` resolve a leading `/path` against `baseURL` with
+ * `new URL(path, baseURL)`, which treats an absolute path as replacing the
+ * whole pathname — so a `/code-suite` spec has to splice `${E2E_APP_BASE}`
+ * onto its own navigation strings rather than relying on `baseURL` to carry it.
+ */
+export const E2E_APP_BASE = process.env.E2E_APP_BASE ?? "";
+
+/**
  * Always an IP literal, never `localhost`: `ssrfSafeFetch` blocks `localhost` (it resolves to
  * `::1`) but allows literals, since undici only runs its `lookup` hook for hostnames needing DNS.
+ *
+ * Includes `E2E_APP_BASE` when set, so callers that build a full URL by string
+ * concatenation (attachments' `origin` header, `machineHarness`'s `--cerea`) get
+ * the base for free.
  */
-export const E2E_APP_URL = `http://127.0.0.1:${E2E_APP_PORT}`;
+export const E2E_APP_ORIGIN = `http://127.0.0.1:${E2E_APP_PORT}`;
+export const E2E_APP_URL = `${E2E_APP_ORIGIN}${E2E_APP_BASE}`;
 export const E2E_MONGO_URL = `mongodb://127.0.0.1:${E2E_MONGO_PORT}`;
 export const MOCK_OPENAI_ORIGIN = `http://127.0.0.1:${MOCK_OPENAI_PORT}`;
 export const MOCK_OPENAI_BASE_URL = `${MOCK_OPENAI_ORIGIN}/v1`;

@@ -57,8 +57,13 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 
 export async function listDevices(locals: App.Locals): Promise<CodeDeviceView[]> {
 	if (!locals.user) error(401, "Login required");
+	// A revoked row is a tombstone kept only so `onHello` can refuse the same
+	// `machineId` reconnecting (queried there directly, not through this
+	// list) — it must never resurface here, or a revoked device just sits in
+	// the tree forever looking exactly like a live one, since nothing else
+	// distinguishes "revoked" from "paired" in the UI.
 	const devices = await collections.codeDevices
-		.find({ userId: locals.user._id })
+		.find({ userId: locals.user._id, status: { $ne: "revoked" } })
 		.sort({ updatedAt: -1 })
 		.toArray();
 	return devices.map((device) => deviceView(device, isMachineOnline(device._id.toString())));

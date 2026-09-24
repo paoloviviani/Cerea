@@ -36,6 +36,11 @@ export interface CodeProviderFeature {
 	label: string;
 	description?: string;
 	value: boolean;
+	/** Set when the machine's own policy vetoes this feature (C4: the panel
+	 * cannot override it) — the toggle still renders, disabled, carrying
+	 * this as the exact fix rather than disappearing as if the feature
+	 * never existed. */
+	blockedReason?: string;
 }
 
 export class CodeApiError extends Error {
@@ -307,7 +312,10 @@ export async function fetchSubagentTimeline(
  * modes (ADR 0089). */
 export type AgentPosture = "plan" | "write";
 
-export type PermissionDecision = "approve" | "deny";
+/** The daemon's own `permission.reply` vocabulary (spec §8), carried through
+ * unmediated: "once" answers this call only, "always" grants the rest of
+ * the session, "reject" denies it. */
+export type PermissionDecision = "once" | "always" | "reject";
 
 /** Send a follow-up to a running session. The reply arrives on the timeline
  * stream. No licence rides along: the agent's mode — paseo's permission
@@ -444,6 +452,29 @@ export async function respondPermission(
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ decision }),
+			}
+		)
+	);
+}
+
+/** The user-question tool design's own approval — the SAME "accept"/
+ * "decline" vocabulary AskQuestion.svelte's onanswer prop already emits;
+ * answers (one array of chosen labels per question, in order) only on
+ * accept. */
+export async function respondQuestion(
+	deviceId: string,
+	agentId: string,
+	requestId: string,
+	decision: "accept" | "decline",
+	answers?: string[][]
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/questions/${encodeURIComponent(requestId)}?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ decision, ...(answers ? { answers } : {}) }),
 			}
 		)
 	);

@@ -22,9 +22,13 @@
 	person's message back, and the stream is the transcript's source of truth.
 -->
 <script lang="ts">
-	import { onMount, untrack } from "svelte";
+	import { untrack } from "svelte";
 	import { goto } from "$app/navigation";
-	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
+	import type {
+		ElicitationAction,
+		ElicitationRequestPayload,
+		ElicitationValue,
+	} from "$lib/types/McpElicitation";
 	import {
 		MessageToolUpdateType,
 		MessageUpdateType,
@@ -54,11 +58,13 @@
 		listSubagents,
 		listWorkspaces,
 		respondPermission,
+		respondQuestion,
 		sendFollowUp,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import { base } from "$app/paths";
 	import { uploadComposerFiles } from "$lib/utils/composerFiles";
+	import { keepReportedUsage } from "$lib/utils/agentUsage";
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
@@ -67,6 +73,8 @@
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
+	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
+	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
@@ -117,6 +125,26 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities.usage ?? false
 	);
 
+	/** The device's own row from the shared poll (`codeDeviceList`) says it
+	 * is unreachable. Read directly from that store rather than the agent
+	 * snapshot: an address opened straight from a link or a stale tab never
+	 * goes through `CodeNavTree`'s own offline gate (X4), so this view has
+	 * to make the same call itself — before it ever asks the daemon for
+	 * anything, not after the 502 comes back. */
+	let deviceOffline = $derived(
+		codeDeviceList.devices.find((d) => d.id === deviceId)?.online === false
+	);
+	/** Whether the poll has answered at all yet for this device. The poll's
+	 * first fetch is still in flight on a fresh mount, so `deviceOffline`
+	 * alone reads `false` for an "unknown" device exactly as it would for a
+	 * known-online one — every fetch below would race the poll and fire
+	 * before it ever had a chance to say "offline". Holding those fetches
+	 * until the row is known (one poll tick, imperceptible) is what actually
+	 * closes that race; the offline banner stays keyed on `deviceOffline`
+	 * alone so it never flashes for a device that turns out to be online. */
+	let deviceKnown = $derived(codeDeviceList.devices.some((d) => d.id === deviceId));
+	let skipMachineFetches = $derived(!deviceKnown || deviceOffline);
+
 	/** Whether the backend takes files and images with a prompt (`hello`
 	 * capabilities); the composer offers no attachment picker otherwise. */
 	let filesSupported = $derived.by(() => {
@@ -147,7 +175,15 @@
 		return () => sidePane.reset();
 	});
 
-	onMount(() => {
+	// Tracked on `deviceOffline`, not a one-shot `onMount`: an address can be
+	// opened straight at an already-offline device (a link, a stale tab), and
+	// a device that goes offline mid-session and reconnects needs its
+	// snapshot and workspace re-read the same way a fresh mount would — the
+	// daemon is never even asked while `deviceOffline` is known true, which
+	// is what keeps this from generating a 502 (and a server-side log line)
+	// on every poll tick of an offline machine.
+	$effect(() => {
+		if (skipMachineFetches) return;
 		refreshAgent();
 		(async () => {
 			if (!workspaceId) return;
@@ -193,7 +229,14 @@
 	// whole subscription, and reading it tracked here would re-run this effect
 	// on the very frames it folds — tearing the stream down mid-transcript.
 	// The device and agent ids stay tracked: a new address restarts the replay.
+	// `deviceOffline` is tracked too: no subscription is opened at all while
+	// the device is known unreachable, so an offline machine never drives
+	// `EventSource`'s own reconnect loop into hammering the stream endpoint
+	// (and its `session.sync` failure) on a timer. The last transcript this
+	// view had just sits there under the offline banner; going back online
+	// re-runs this effect and replays the daemon's log fresh.
 	$effect(() => {
+		if (skipMachineFetches) return;
 		messages = [];
 		pending = false;
 		usage = null;
@@ -206,7 +249,7 @@
 						isAborted: () => abort.signal.aborted,
 						onAbort: () => abort.abort(),
 						onTurnEvent: () => (pending = false),
-						onUsage: (u) => (usage = u),
+						onUsage: (u) => (usage = keepReportedUsage(usage, u)),
 						onCompaction: (c) => (lastCompaction = c),
 						onReset: () => {
 							usage = null;
@@ -339,6 +382,7 @@
 	// "running" here rather than faking a boundary at each hold.
 	let rosterPhase: "none" | "running" | "settled" = "none";
 	$effect(() => {
+		if (skipMachineFetches) return;
 		const phase =
 			shownState === "running" || shownState === "waiting-permission"
 				? ("running" as const)
@@ -423,23 +467,70 @@
 	}
 
 	/** The agent's approval card answers through the forwarder, not the chat's
-	 * elicitation endpoint — the daemon owns the request's lifetime. */
+	 * elicitation endpoint — the daemon owns the request's lifetime. `scope`
+	 * is only ever `"always"` (the card's "Always allow" button); "once" is
+	 * the default accept, and any non-accept action is a reject regardless
+	 * of scope. */
 	async function answerPermission(
 		request: ElicitationRequestPayload,
-		action: ElicitationAction
+		action: ElicitationAction,
+		scope?: "always"
 	): Promise<{ ok: boolean; error?: string }> {
 		try {
 			await respondPermission(
 				deviceId,
 				agentId,
 				request.elicitationId,
-				action === "accept" ? "approve" : "deny"
+				action === "accept" ? (scope === "always" ? "always" : "once") : "reject"
 			);
 			return { ok: true };
 		} catch (err) {
 			return {
 				ok: false,
 				error: err instanceof Error ? err.message : "Could not answer the request.",
+			};
+		}
+	}
+
+	/** The agent-initiated question tool (user-question design): the SAME
+	 * global store and card chat's own `ask_user_question` uses, keyed on
+	 * this agent's id instead of a conversation id — `questionRequestedToUpdate`
+	 * on the server side is what actually registers one, via the ordinary
+	 * elicitation fold `consumeAgentUpdates` already runs. */
+	let questionStore = $derived(firstQuestionFor(agentId));
+	let askQuestion = $derived($questionStore);
+
+	/** `content` keys are `q0`, `q1`, … in question order (see
+	 * `questionRequestedToUpdate`); each value is the option label(s) picked
+	 * for that question, and `respondQuestion` wants them back the same way
+	 * `questionResolvedToUpdate` will read them off the resolved event. */
+	async function answerQuestion(
+		action: ElicitationAction,
+		content?: Record<string, ElicitationValue>
+	): Promise<{ ok: boolean; error?: string }> {
+		if (!askQuestion) return { ok: false, error: "No question is open." };
+		const requestId = askQuestion.request.elicitationId;
+		try {
+			const answers = content
+				? Object.keys(content)
+						.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+						.map((key) => {
+							const value = content[key];
+							return (Array.isArray(value) ? value : [value]).map(String);
+						})
+				: undefined;
+			await respondQuestion(
+				deviceId,
+				agentId,
+				requestId,
+				action === "accept" ? "accept" : "decline",
+				answers
+			);
+			return { ok: true };
+		} catch (err) {
+			return {
+				ok: false,
+				error: err instanceof Error ? err.message : "Could not answer the question.",
 			};
 		}
 	}
@@ -529,7 +620,17 @@
 		{/if}
 	</div>
 
-	{#if failure}
+	{#if deviceOffline}
+		<!-- The clean state this replaces: with no gate here, the strip's
+		     pills just vanished (an agent snapshot the daemon never got asked
+		     for), the transcript sat on "Ready when you are" as if nothing had
+		     ever run, and only a send attempt surfaced anything was wrong. -->
+		<div
+			class="pointer-events-auto mx-4 mb-2 flex items-center gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+		>
+			This machine is offline. It will pick back up here once it reconnects.
+		</div>
+	{:else if failure}
 		<div class="pointer-events-auto {s.ERROR} mx-4 mb-2">{failure}</div>
 	{/if}
 
@@ -546,6 +647,7 @@
 			{pending}
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
+			conversationId={agentId}
 			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
 			{subagentFor}
@@ -564,6 +666,13 @@
 				</div>
 			{/snippet}
 			{#snippet composer()}
+				{#if askQuestion}
+					<AskQuestion
+						conversationId={askQuestion.conversationId}
+						request={askQuestion.request}
+						onanswer={answerQuestion}
+					/>
+				{/if}
 				<AgentComposer
 					{deviceId}
 					{agentId}
@@ -572,6 +681,7 @@
 					cwd={agentCwd}
 					running={loading}
 					{enrollmentExpired}
+					offline={deviceOffline}
 					onsend={handleSend}
 					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}
