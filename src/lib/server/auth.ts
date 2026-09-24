@@ -6,6 +6,7 @@ import {
 	custom,
 	generators,
 } from "openid-client";
+import { fillLogoutTemplate } from "$lib/server/oidcLogout";
 import type { RequestEvent } from "@sveltejs/kit";
 import { addHours, addWeeks, differenceInMinutes, subMinutes } from "date-fns";
 import { config } from "$lib/server/config";
@@ -48,6 +49,9 @@ export const OIDConfig = z
 		// Where this server reaches the issuer when that is not PROVIDER_URL
 		// (the bundled Authelia on the compose network). Empty: use PROVIDER_URL.
 		INTERNAL_URL: stringWithDefault(config.OPENID_INTERNAL_URL),
+		// The provider's logout page when it publishes no end_session_endpoint
+		// (the bundled Authelia); `{redirect}` is where to land. See oidcLogout.ts.
+		LOGOUT_URL: stringWithDefault(config.OPENID_LOGOUT_URL),
 		SCOPES: stringWithDefault(config.OPENID_SCOPES),
 		NAME_CLAIM: stringWithDefault(config.OPENID_NAME_CLAIM).refine(
 			(el) => !["preferred_username", "email", "picture", "sub"].includes(el),
@@ -415,6 +419,12 @@ export async function getOIDCLogoutUrl(
 	params: { url: URL; idToken?: string; postLogoutRedirectUri: string }
 ): Promise<string | null> {
 	if (!loginEnabled) return null;
+	// Configured first, like the gateway's per-provider override: it is how a
+	// provider without an end_session_endpoint (Authelia) is signed out of at
+	// all, and it needs no discovery round trip.
+	if (OIDConfig.LOGOUT_URL) {
+		return fillLogoutTemplate(OIDConfig.LOGOUT_URL, params.postLogoutRedirectUri);
+	}
 	try {
 		const client = await getOIDCClient(settings, params.url);
 		if (!client.issuer.metadata.end_session_endpoint) return null;
