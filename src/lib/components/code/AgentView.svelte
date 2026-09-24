@@ -609,6 +609,9 @@
 		id: agent.workspaceId,
 		name: workspaceName || agent.workspaceId,
 		path: agentCwd ?? "",
+		// Unknown until the workspace list loads; the handoff dialog never offers
+		// git-only actions, so false is the safe reading.
+		isGitRepo: false,
 	}}
 	<HandoffDialog
 		{deviceId}
