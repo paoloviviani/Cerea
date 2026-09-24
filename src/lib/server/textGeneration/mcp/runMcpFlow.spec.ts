@@ -42,6 +42,8 @@ const mocks = vi.hoisted(() => ({
 	// live deployment (where the recovery path is reachable), "false" pins the
 	// flag-off behavior.
 	codeToolEnabled: "true",
+	// The ask_user_question deployment switch: undefined means on, "false" off.
+	askQuestionEnabled: undefined as string | undefined,
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
@@ -70,6 +72,9 @@ vi.mock("$lib/server/config", () => ({
 		// mocks.codeToolEnabled), and the mocked config object is shared.
 		get CHAT_CODE_TOOL_ENABLED() {
 			return mocks.codeToolEnabled;
+		},
+		get CHAT_ASK_USER_QUESTION_ENABLED() {
+			return mocks.askQuestionEnabled;
 		},
 	},
 }));
@@ -260,6 +265,7 @@ beforeEach(() => {
 	mocks.multimodalFlags = [];
 	mocks.servers = [{ name: "hf", url: "https://example.test/mcp" }];
 	mocks.codeToolEnabled = "true";
+	mocks.askQuestionEnabled = undefined;
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
 });
@@ -754,7 +760,14 @@ describe("runMcpFlow offering the question tool", () => {
 		expect(toolNames()).toContain("ask_user_question");
 	});
 
-	it("withholds it from a conversation outside the mode", async () => {
+	it("offers it outside the mode too, unless the deployment switch is off", async () => {
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		expect(toolNames()).toContain("ask_user_question");
+	});
+
+	it("withholds it from a conversation outside the mode when the switch is off", async () => {
+		mocks.askQuestionEnabled = "false";
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
 		// execute_code rides on the deployment flag alone, outside the mode
@@ -791,6 +804,7 @@ describe("runMcpFlow offering the question tool", () => {
 		// engages with exactly the skill loaders. "Truly nothing to offer" now
 		// needs the kill-switch as well (covered in the skills service spec).
 		mocks.codeToolEnabled = "false";
+		mocks.askQuestionEnabled = "false";
 		mocks.servers = [];
 		scriptRounds([{ content: "the answer" }]);
 		const { result } = await runFlow();
