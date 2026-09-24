@@ -190,70 +190,52 @@ test.describe("the pair dialog's setup commands", () => {
 		await page.setViewportSize({ width: 360, height: 740 });
 	});
 
-	test("shows the clone and setup commands with the deployment's origin, and closes when the machine checks in", async ({
+	test("shows the enroll/run commands with this deployment's origin, and confirming a pending machine closes it", async ({
 		page,
 	}) => {
-		// The enroll start is recorded and answers a pending row, the way
-		// Cerea's own broker does.
-		const enrollBodies: unknown[] = [];
-		await page.route("**/api/v2/code/enroll", async (route) => {
-			enrollBodies.push(route.request().postDataJSON());
-			return route.fulfill({
-				contentType: "application/json",
-				body: superjsonBody({
-					device: {
-						id: "dev_pending",
-						name: "test box",
-						status: "pending",
-						pairingCode: "ABC234",
-						createdAt: new Date(),
-					},
-				}),
-			});
-		});
-
 		await openAgentsPanel(page);
 		await visibleTreeButton(page, "Pair a new device").click();
-		await expect(page.getByRole("dialog")).toBeVisible();
-		await page.getByLabel("Device name").fill("test box");
-		await page.getByRole("button", { name: "Start pairing" }).click();
-
-		// The paste step is gone; the setup commands carry this deployment's
-		// own origin (the e2e stack's PUBLIC_ORIGIN), its real OIDC issuer
-		// (OPENID_PROVIDER_URL, which the e2e stack deliberately points off
-		// the app's own origin so a hardcoded `${origin}/authelia` guess
-		// cannot pass this assertion by accident) and the typed name.
 		const dialog = page.getByRole("dialog");
-		await expect(
-			dialog.getByText("git clone https://github.com/paoloviviani/Pystino.git")
-		).toBeVisible();
-		await expect(dialog.getByText("cd Pystino/deploy/opencode")).toBeVisible();
-		const relay = new URL(E2E_APP_URL).host;
-		await expect(
-			dialog.getByText(
-				`./setup-agent.sh --relay ${relay} --gateway ${E2E_APP_URL} --issuer http://127.0.0.1:9/authelia --name "test box" --yes`
-			)
-		).toBeVisible();
-		await expect(dialog.getByLabel("Pairing link")).toHaveCount(0);
-		expect(enrollBodies).toEqual([{ action: "start", name: "test box" }]);
+		await expect(dialog).toBeVisible();
+
+		// No naming step and no pasted offer any more: the machine enrolls
+		// and dials in on its own, against this deployment's own origin.
+		await expect(dialog.getByText(`pystino-agent enroll --cerea ${E2E_APP_URL}`)).toBeVisible();
+		await expect(dialog.getByText("pystino-agent run")).toBeVisible();
+		await expect(dialog.getByText("No machine has checked in yet.")).toBeVisible();
 
 		// The commands never clip on a phone.
 		const overflow = await dialog.evaluate((el) => el.scrollWidth - el.clientWidth);
 		expect(overflow).toBeLessThanOrEqual(0);
 
-		// The machine pairs itself: the row arrives as `paired` through the
-		// machine endpoint, and the dialog closes onto it without a paste.
-		deviceRows = [
-			{
-				id: "dev_new",
-				name: "test box",
-				status: "paired",
-				daemonId: "srv_new",
-				createdAt: new Date(),
-				pairedAt: new Date(),
-			},
-		];
+		// The machine checks in on its own — a pending row, no code to type.
+		deviceRows = [{ id: "dev_new", name: "test box", status: "pending", createdAt: new Date() }];
+		await expect(dialog.getByText("test box")).toBeVisible({ timeout: 15_000 });
+
+		// Confirm is the fresh human approval (review C2): the browser's own
+		// click, not anything the machine could have produced by itself.
+		const confirmActions: unknown[] = [];
+		await page.route("**/api/v2/code/devices?id=dev_new", async (route) => {
+			if (route.request().method() !== "PATCH") return route.fallback();
+			confirmActions.push(route.request().postDataJSON());
+			deviceRows = [
+				{
+					id: "dev_new",
+					name: "test box",
+					status: "paired",
+					createdAt: new Date(),
+					pairedAt: new Date(),
+				},
+			];
+			return route.fulfill({
+				contentType: "application/json",
+				body: JSON.stringify({ confirmed: true }),
+			});
+		});
+
+		await dialog.getByRole("button", { name: "Confirm" }).click();
 		await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+		expect(confirmActions).toEqual([{ action: "confirm" }]);
 		expect(page.url()).toContain(`device=dev_new`);
 	});
 });

@@ -33,6 +33,10 @@ export interface TestRequestOptions {
 	headers?: HeadersInit;
 	params?: Record<string, string>;
 	locals?: Partial<App.Locals>;
+	/** For a streaming handler (SSE): abort this to end the read and let the
+	 * handler's own cleanup (`signal.addEventListener("abort", …)`) run,
+	 * instead of leaving its timers open past the test. */
+	signal?: AbortSignal;
 }
 
 type CookieSetOptions = Parameters<Cookies["set"]>[2];
@@ -152,6 +156,7 @@ export async function testRequest(
 		method,
 		headers: opts.headers,
 		...(hasBody ? { body: opts.body } : {}),
+		...(opts.signal ? { signal: opts.signal } : {}),
 	});
 
 	const { cookies, setCookieHeaders } = createCookies(request);

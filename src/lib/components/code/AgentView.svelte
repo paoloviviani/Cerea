@@ -70,13 +70,9 @@
 		agentId: string;
 		/** The workspace the address named, so the strip can name it without guessing. */
 		workspaceId?: string;
-		/** The device's own display name, for the re-enroll dialog's copy and
-		 * its setup command's `--name` — unknown only in the brief window
-		 * before the device list has loaded. */
-		deviceName?: string;
 	}
 
-	let { deviceId, agentId, workspaceId, deviceName }: Props = $props();
+	let { deviceId, agentId, workspaceId }: Props = $props();
 
 	/** Whether `CodePanel`'s probe (on agent open, on device switch) last
 	 * found this device's enrollment expired — the composer refuses to send
@@ -500,15 +496,12 @@
 
 {#if showReenroll}
 	<!-- The same pairing dialog the sidebar's device pill opens (see
-	     CodeNavTree), not a second flow: `reenroll` skips the naming step
-	     and watches this device's own row for its `pairedAt` to advance,
-	     rather than watching for a new device id. -->
+	     CodeNavTree). A re-enroll mints a fresh machine id (spec §3), so it
+	     is a new pending row to confirm, not an update to this one — the
+	     expired row here still needs revoking separately once the new
+	     machine is up. -->
 	<PairDeviceDialog
-		reenroll={{ deviceId, name: deviceName ?? "" }}
 		onclose={() => (showReenroll = false)}
-		onpaired={() => {
-			codeEnrollment[deviceId] = "ok";
-			showReenroll = false;
-		}}
+		onpaired={() => (showReenroll = false)}
 	/>
 {/if}

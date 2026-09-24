@@ -684,28 +684,16 @@ export class Database {
 			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for codeExecutionOutputs"));
 
-		// A person's paired devices, newest first. Two partial indexes rather
-		// than one compound: a row carries exactly one of the two owner keys.
+		// A person's paired machines, newest first.
 		codeDevices
-			.createIndex(
-				{ userId: 1, updatedAt: -1 },
-				{ partialFilterExpression: { userId: { $exists: true } } }
-			)
+			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for codeDevices by userId"));
+		// One row per (user, machine): a machine reconnecting with the same
+		// `X-Pystino-Machine-Id` updates its existing row rather than
+		// spawning a second one (`machines.ts`'s `onHello`).
 		codeDevices
-			.createIndex(
-				{ sessionId: 1, updatedAt: -1 },
-				{ partialFilterExpression: { sessionId: { $exists: true } } }
-			)
-			.catch((e) => logger.error(e, "Error creating index for codeDevices by sessionId"));
-		// An unclaimed pairing expires 15 minutes after it starts
-		// (`expiresAt`, set by `enroll`'s start and cleared by its claim, with
-		// `expireAfterSeconds: 0` meaning "when the date in the field
-		// passes"). Only pending rows carry the field, so a paired device —
-		// which must never be TTL-deleted — is untouched by this index.
-		codeDevices
-			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
-			.catch((e) => logger.error(e, "Error creating TTL index for codeDevices by expiresAt"));
+			.createIndex({ userId: 1, machineId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating unique index for codeDevices by machineId"));
 	}
 }
 

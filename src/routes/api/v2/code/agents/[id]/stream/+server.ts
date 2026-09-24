@@ -1,193 +1,138 @@
 /**
- * The agent timeline as server-sent events, translated live from the daemon.
+ * The agent (session) timeline as server-sent events, translated live from
+ * the paired machine — rebuilt on the machine's own `epoch`/`seq` cursor
+ * (spec §8), replacing the paseo-era bridge's invented replay counter (R3)
+ * and its content-keyed seam de-duplication (R4).
  *
- * The browser holds one `EventSource` on this endpoint; the server holds the
- * one subscription to the daemon — through the caller's relay link
- * (`codeDaemon.ts`), never a browser-reachable URL. Frames are translated,
- * not relayed: daemon timeline items and stream events go through
- * `codeTimeline.ts` into the chat's update shapes, and anything without a
- * panel representation is dropped rather than invented into one.
+ * The browser holds one `EventSource` on this endpoint; the server holds one
+ * subscription to the session's live events (`subscribeSessionEvents`,
+ * `machines.ts`) plus one `session.sync` call for history. Sequence:
+ * subscribe first (buffering), then `session.sync` with the browser's
+ * `Last-Event-ID` (`<epoch>:<seq>`), emit the sync's answer (a snapshot or a
+ * replayed run of envelopes), then drain whatever the subscription buffered
+ * during that round trip, filtered to `seq > sync.seq` in the same epoch —
+ * the seam a fixed cursor makes safe to filter by identity rather than
+ * content.
  *
- * History then live: the daemon's timeline is fetched (a bounded tail) and
- * mapped first; the subscription — opened before the fetch, buffering — is
- * drained afterwards, with frames the history already delivered dropped by
- * their stable keys. The seam between the two sources therefore cannot
- * double-render a frame in either direction. Tool keys carry the status on
- * purpose: history holds the call as it stood at fetch time, and the live
- * completion that lands in the buffer must survive the seam instead of being
- * keyed away by the stale entry. The agent's own status joins as a synthetic
- * turn state, so a mount mid-run renders live without waiting for a turn
- * event that has already fired.
+ * SSE `id` is `<epoch>:<seq>` of the envelope a frame came from, so
+ * `EventSource` resumes correctly on any reconnect. An epoch change — the
+ * machine's process restarted, so its in-memory session state (and this
+ * connection's whole cursor) is gone — sends a plain `reset` event; the
+ * client (`codeAgentStream.ts`) re-folds the transcript from scratch on it.
+ * Listener migration across a machine reconnect (`machines.ts`'s `onHello`)
+ * means this same open connection keeps tailing without the browser having
+ * to reconnect, so a reset here never needs to close the stream.
  *
- * SSE: `event: update` carries one `AgentStreamUpdate`, tagged `id: <seq>` so
- * EventSource resumes via Last-Event-ID on reconnect. The seq counts a
- * deterministic replay (the daemon's timeline is the same list on every
- * fetch), so a resumed connection skips exactly the frames the browser
- * already has and continues the count from there; frames the old connection
- * saw live but that history has not absorbed yet are re-derived — permission
- * requests come from the agent's snapshot, which is upsert-safe in the
- * transcript, and turn-state markers are cosmetic. `event: end` never fires
- * from here: the bridge's lifetime cap and aborts close the stream plainly,
- * which is the client's reconnect signal.
+ * No per-frame `logger.info` (R6): the old bridge's "trace the SSE bridge"
+ * commit left three of them running at token rate, thousands of lines per
+ * turn. Only connection-level failures are logged here.
  */
 
 import { error, type RequestHandler } from "@sveltejs/kit";
-import { linkForDevice } from "$lib/server/codeDaemon";
+import { MachineLink, subscribeSessionEvents } from "$lib/server/code/machines";
+import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import {
-	agentStatusTurnState,
-	permissionRequestToUpdate,
-	streamEventToUpdate,
-	timelineEntryToUpdate,
-} from "$lib/server/codeTimeline";
-import { requireCodeAgents } from "$lib/server/codeDevices";
-import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+	eventToUpdates,
+	foldEnvelopeEvents,
+	lastAssistantErrorOf,
+	snapshotToUpdates,
+	userMessageIdsOf,
+} from "$lib/server/code/machineTimeline";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
+import type { Envelope } from "$lib/types/machineProtocol";
 import { logger } from "$lib/server/logger";
 
-const MAX_LIFETIME_MS = 5 * 60_000;
 const HEARTBEAT_AFTER_MS = 15_000;
-
-/** A frame's identity for seam de-duplication: the same item never twice. */
-function frameKey(update: AgentStreamUpdate): string | null {
-	switch (update.type) {
-		case "user":
-			return `u:${update.text}`;
-		case MessageUpdateType.Stream:
-			return `s:${update.token}`;
-		case MessageUpdateType.Tool:
-			return `t:${update.uuid}:${update.subtype}`;
-		case MessageUpdateType.Plan:
-			return `p:${update.goal}:${update.steps.map((step) => `${step.step}:${step.status}`).join("|")}`;
-		case MessageUpdateType.Elicitation:
-			return update.subtype === MessageElicitationUpdateType.Request
-				? `q:${update.request.elicitationId}`
-				: `r:${update.elicitationId}`;
-		default:
-			// Turn states are cosmetic re-convergences, never de-duplicated.
-			return null;
-	}
-}
+const MAX_LIFETIME_MS = 30 * 60_000;
 
 export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	requireCodeAgents(locals);
-	const agentId = params.id ?? "";
-	if (!/^[A-Za-z0-9_.:~-]+$/.test(agentId)) error(400, "Not a valid agent id.");
-	const link = await linkForDevice(locals, url.searchParams.get("device"));
-	const client = await link.ensureReady();
+	const sessionId = params.id ?? "";
+	if (!/^[A-Za-z0-9_.:~-]+$/.test(sessionId)) error(400, "Not a valid agent id.");
+	const device = await getPairedDevice(locals, url.searchParams.get("device"));
+	const deviceId = device._id.toString();
+	const link = new MachineLink(deviceId);
 
-	// Subscribe first and buffer, so events fired while history is being
-	// fetched are queued rather than lost at the seam.
-	const buffered: AgentStreamUpdate[] = [];
+	// Subscribe first and buffer, so events fired while `session.sync` is in
+	// flight are queued rather than lost at the seam.
+	const buffered: Envelope[] = [];
 	let wake: (() => void) | null = null;
 	const notify = () => {
 		wake?.();
 		wake = null;
 	};
-	// The handler receives the consumerMessage envelope — the event is
-	// payload.event, never a sibling of `type` (reading message.event here
-	// once dropped every live frame, and live delivery only ever worked
-	// through the history replay).
-	const unsubscribe = client.subscribeAgentTimeline(agentId, (message) => {
-		if (message.type !== "agent_stream") return;
-		const event = message.payload.event;
-		if (!event) return;
-		try {
-			const updates = streamEventToUpdate(event as Parameters<typeof streamEventToUpdate>[0]);
-			if (updates.length) {
-				logger.info(
-					{ agentId, event: event.type, frames: updates.length },
-					"agent stream: live frame received"
-				);
-				buffered.push(...updates);
-				notify();
-			}
-		} catch (err) {
-			logger.warn({ err, agentId }, "dropping an unmappable agent stream event");
-		}
+	const unsubscribe = subscribeSessionEvents(deviceId, sessionId, (envelope) => {
+		buffered.push(envelope);
+		notify();
 	});
 
-	const agent = await client.fetchAgent(agentId).catch(() => null);
-	if (!agent) {
-		unsubscribe();
-		error(404, "No such agent on this daemon.");
-	}
-
-	let history: AgentStreamUpdate[] = [];
-	try {
-		const timeline = await link.fetchTimeline(agentId);
-		history = timeline.entries.flatMap(timelineEntryToUpdate);
-	} catch (err) {
-		logger.warn({ err, agentId }, "timeline history fetch failed; streaming live only");
-	}
-
-	// Drain the buffer, dropping what history already delivered.
-	const seen = new Set<string>();
-	for (const update of history) {
-		const key = frameKey(update);
-		if (key) seen.add(key);
-	}
-	const drained: AgentStreamUpdate[] = [];
-	for (const update of buffered) {
-		const key = frameKey(update);
-		if (key && seen.has(key)) continue;
-		if (key) seen.add(key);
-		drained.push(update);
-	}
-	buffered.length = 0;
-
-	// Permissions live outside the timeline: surface whatever is still
-	// pending so a fresh mount shows the blocking card. A request the
-	// subscription already delivered is skipped here, not rendered twice —
-	// the transcript's approval card is keyed by request id and the fold
-	// does not upsert request blocks. A replayed resolution overtakes them
-	// safely.
-	const pending = (agent.agent.pendingPermissions ?? [])
-		.map(permissionRequestToUpdate)
-		.filter((update) => {
-			const key = frameKey(update);
-			if (key && seen.has(key)) return false;
-			if (key) seen.add(key);
-			return true;
-		});
-
-	// The snapshot's status, adopted as a turn state — but never ahead of a
-	// live turn state the subscription already delivered in the drain
-	// window (subscribe-before-fetch means the buffer is the fresher
-	// signal; a synthetic "running" that overrides a drained "done" is the
-	// stuck-loading shape). Pending permissions render after it either way:
-	// a waiting card is not a state, it is a hold to answer.
-	const statusFrame = drained.some((update) => update.type === MessageUpdateType.TurnState)
-		? undefined
-		: agentStatusTurnState(agent.agent.status);
-	const initial: AgentStreamUpdate[] = [
-		...history,
-		...drained,
-		...(statusFrame ? [statusFrame] : []),
-		...pending,
-	];
-
 	const lastEventId = request.headers.get("last-event-id");
-	const resumeFrom =
-		Number.parseInt(lastEventId ?? url.searchParams.get("fromSeq") ?? "0", 10) || 0;
+	let clientEpoch: string | undefined;
+	let clientSeq: number | undefined;
+	if (lastEventId) {
+		const sep = lastEventId.indexOf(":");
+		if (sep > 0) {
+			clientEpoch = lastEventId.slice(0, sep);
+			clientSeq = Number.parseInt(lastEventId.slice(sep + 1), 10);
+		}
+	}
+
+	let sync;
+	try {
+		sync = await link.sessionSync({
+			sessionId,
+			...(clientEpoch ? { epoch: clientEpoch, afterSeq: clientSeq } : {}),
+		});
+	} catch (err) {
+		unsubscribe();
+		logger.warn({ err, deviceId, sessionId }, "agent stream: session.sync failed");
+		error(502, "The paired machine could not be reached.");
+	}
+
+	const epochChangedAtOpen = clientEpoch !== undefined && clientEpoch !== sync.epoch;
+	let initial: AgentStreamUpdate[];
+	let lastAssistantError: string | undefined;
+	let userMessageIds: Map<string, string>;
+	if ("snapshot" in sync) {
+		initial = snapshotToUpdates(sync.snapshot);
+		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
+		userMessageIds = userMessageIdsOf(sync.snapshot);
+	} else {
+		const folded = foldEnvelopeEvents(sync.events);
+		initial = folded.updates;
+		lastAssistantError = folded.lastAssistantError;
+		userMessageIds = folded.userMessageIds;
+	}
+
+	// Drain the buffer: only what arrived strictly after the sync's own
+	// cursor, in the same epoch — anything ≤ sync.seq is already covered by
+	// `initial`, and a different epoch here means the machine has already
+	// moved on again since the sync answered (rare, handled below like any
+	// other mid-stream epoch change).
+	const drainedNow = buffered.splice(0).filter((e) => e.epoch === sync.epoch && e.seq > sync.seq);
+	const drainedFolded = foldEnvelopeEvents(drainedNow, lastAssistantError, userMessageIds);
+	lastAssistantError = drainedFolded.lastAssistantError;
+	userMessageIds = drainedFolded.userMessageIds;
 
 	const encoder = new TextEncoder();
-	let seq = 0;
 
 	const stream = new ReadableStream({
 		async start(controller) {
 			const signal = request.signal;
 			let closed = false;
 			let lastEmit = Date.now();
+			let currentEpoch = sync.epoch;
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
-			const emit = (update: AgentStreamUpdate) => {
-				seq += 1;
-				enc(`id: ${seq}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
+			const emit = (id: string, update: AgentStreamUpdate) => {
+				enc(`id: ${id}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`);
 				lastEmit = Date.now();
-				logger.info({ agentId, seq, type: update.type }, "agent stream: frame emitted to browser");
 			};
+			// A reset travels the ordinary `update` channel (a frame the
+			// client already knows how to route to `consumeAgentUpdates`'s
+			// fold), not a distinct SSE event type — one fewer thing the
+			// client has to know how to parse.
+			const emitReset = (id: string) => emit(id, { type: "reset" });
 
-			// Idempotent teardown, called exactly once per connection no
-			// matter which of abort, deadline or error wins the race.
 			const finish = () => {
 				if (closed) return;
 				closed = true;
@@ -204,20 +149,13 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			};
 			const onAbort = () => finish();
 			signal.addEventListener("abort", onAbort, { once: true });
-			// The 5-minute cap as an exact timer rather than a per-tick
-			// check: a silent daemon holds the pump below forever, and a
-			// check that only runs when data flows would never fire.
 			const lifetime = setTimeout(finish, MAX_LIFETIME_MS);
-			// The heartbeat is a separate timer, not a race against the
-			// pump: it fires only when the line has been quiet for
-			// HEARTBEAT_AFTER_MS, and writes reset `lastEmit`.
 			const heartbeat = setInterval(() => {
 				if (closed) return;
 				if (Date.now() - lastEmit >= HEARTBEAT_AFTER_MS) {
 					try {
 						enc(": heartbeat\n\n");
 						lastEmit = Date.now();
-						logger.info({ agentId }, "agent stream: heartbeat sent");
 					} catch {
 						finish();
 					}
@@ -225,20 +163,48 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			}, 1000);
 
 			try {
+				const openId = `${sync.epoch}:${sync.seq}`;
+				if (epochChangedAtOpen) emitReset(openId);
 				for (const update of initial) {
 					if (closed) return;
-					// Deterministic replay: the browser has everything up to
-					// its last event id, so skip exactly that prefix.
-					if (seq + 1 > resumeFrom) emit(update);
-					else seq += 1;
+					emit(openId, update);
 				}
-				// From here the subscription is the only source: every
-				// mapped frame continues the same count.
+				for (const update of drainedFolded.updates) {
+					if (closed) return;
+					emit(openId, update);
+				}
+				// Live tail: every subsequent envelope gets its own id. An
+				// epoch change here means the machine's process restarted —
+				// its session state (and every seq before this point) is
+				// gone — so the client re-folds from scratch, but the
+				// connection itself stays open (listener migration in
+				// `machines.ts` means a reconnected machine keeps pushing
+				// through this same subscription).
 				for (;;) {
 					if (closed) return;
 					const next = buffered.shift();
 					if (next !== undefined) {
-						emit(next);
+						const id = `${next.epoch}:${next.seq}`;
+						if (next.epoch !== currentEpoch) {
+							currentEpoch = next.epoch;
+							// A fresh epoch's message/session ids are unrelated to the
+							// old one's — carrying either tracked value over could
+							// mislabel the new epoch's own first frames.
+							lastAssistantError = undefined;
+							userMessageIds = new Map();
+							emitReset(id);
+						}
+						if (next.event.kind === "message") {
+							if (next.event.message.role === "assistant") {
+								lastAssistantError = next.event.message.error;
+							} else if (next.event.message.clientMessageId) {
+								userMessageIds.set(next.event.message.id, next.event.message.clientMessageId);
+							}
+						}
+						const updates = eventToUpdates(next.event, lastAssistantError, (messageId) =>
+							userMessageIds.get(messageId)
+						);
+						for (const update of updates) emit(id, update);
 						continue;
 					}
 					await new Promise<void>((resolve) => {
@@ -246,9 +212,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 					});
 				}
 			} catch (err) {
-				// Transient — fall through to a plain close so the client
-				// reconnects with its Last-Event-ID.
-				logger.warn({ err, agentId }, "agent timeline bridge ended");
+				logger.warn({ err, deviceId, sessionId }, "agent stream: bridge ended");
 			}
 			finish();
 		},
