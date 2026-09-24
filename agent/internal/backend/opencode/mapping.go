@@ -22,7 +22,7 @@ func millisToTime(ms float64) time.Time {
 // absence) rather than via strict structs: opencode's server API is not
 // covered by a stability guarantee the way its wire protocol version is,
 // and a renamed or added field should degrade gracefully instead of
-// breaking decoding outright. The IT test (PYSTINO_AGENT_OPENCODE_IT=1)
+// breaking decoding outright. The IT test (GALOPIN_OPENCODE_IT=1)
 // against a real, pinned opencode is what actually pins these shapes; this
 // mapping is written from PROTOCOL.md §2's live-verified endpoint notes and
 // corrected against that test as needed.

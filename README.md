@@ -123,14 +123,14 @@ OpenAI client:
   (ADR 0055), whose local backend runs markitdown with its NLP engine switched
   off, so a `.docx` or a text-layer PDF never leaves the deployment.
 - **The `/code` Agents panel** (ADR 0089, superseding 0085) — coding agents running on people's
-  own machines, driven from the sidebar. `pystino-agent` on the machine dials
-  out to the chat over WSS with its own OIDC credential; Cerea stores nothing
-  but the pairing record. Off unless `CODE_AGENTS_ENABLED=true`
+  own machines, driven from the sidebar. `galopin` (`agent/`, first-party
+  code under this repository's own `LICENCE`) on the machine dials out to
+  the chat over WSS with its own OIDC credential; Cerea stores nothing but
+  the pairing record. Off unless `CODE_AGENTS_ENABLED=true`
   (`pystino init --agents`). See
   [docs/code-panel.md](docs/code-panel.md) for deploying it and
-  [docs/agent-machines.md](docs/agent-machines.md) for using it; building,
-  distributing and installing `pystino-agent` on a machine is Pystino's
-  `docs/agent-machines.md`.
+  [docs/agent-machines.md](docs/agent-machines.md) for building, installing
+  and using `galopin` on a machine.
 
 ## Licensing
 

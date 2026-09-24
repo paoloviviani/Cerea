@@ -2,7 +2,7 @@
 	Pair a machine: run the agent, then confirm it here.
 
 	The old two-step dialog (name it, wait for a pasted offer) is gone with
-	paseo. `pystino-agent` enrolls itself against this deployment's own OIDC
+	paseo. `galopin` enrolls itself against this deployment's own OIDC
 	issuer and dials out with that credential (spec §3-4) — there is nothing
 	to paste. It appears below as soon as it checks in, in `pending`; nothing
 	is forwarded to it until this dialog's Confirm click flips it to
@@ -50,7 +50,7 @@
 	const origin = $derived(
 		(publicConfig.PUBLIC_ORIGIN || page.url.origin).replace(/\/+$/, "") + base
 	);
-	const commands = $derived([`pystino-agent enroll --cerea ${origin}`, "pystino-agent run"]);
+	const commands = $derived([`galopin enroll --cerea ${origin}`, "galopin run"]);
 
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
@@ -125,6 +125,12 @@
 				<p class="font-mono text-xs break-all text-ink">{command}</p>
 			{/each}
 		</div>
+		<p class="mt-2 text-xs text-ink-muted">
+			Don't have <code class="font-mono">galopin</code> yet? Ask whoever runs this deployment for
+			a download, or build it yourself from the Cerea repository's <code class="font-mono"
+				>agent/</code
+			> (see its README).
+		</p>
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
 		{#if pending.length === 0}
