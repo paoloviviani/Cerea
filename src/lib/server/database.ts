@@ -199,6 +199,9 @@ export class Database {
 		// the pairing completed.
 		const codeDevices = db.collection<CodeDevice>("codeDevices");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
+		// The bucket's own file documents, for indexing only — reads and
+		// deletes go through `bucket`, which also handles the chunks.
+		const bucketFiles = db.collection("files.files");
 		// Computed `execute_code` deliverables (ADR 0073's amendment): a separate
 		// bucket from message attachments so a conversation's deliverables can be
 		// listed and wiped as a unit (deletion, TTL sweep) without a collection
@@ -249,6 +252,7 @@ export class Database {
 			sessions,
 			messageEvents,
 			bucket,
+			bucketFiles,
 			codeExecutionOutputs,
 			codeOutputBucket,
 			migrationResults,
@@ -292,6 +296,7 @@ export class Database {
 			tokenCaches,
 			config,
 			codeExecutionOutputs,
+			bucketFiles,
 		} = this.getCollections();
 
 		conversations
@@ -694,6 +699,15 @@ export class Database {
 		codeDevices
 			.createIndex({ userId: 1, machineId: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating unique index for codeDevices by machineId"));
+
+		// Attachments by owner tag (and, for owner-keyed surfaces, the message
+		// they were sent with): `attachmentStore.findAttachments` runs once per
+		// user message on every transcript load, and both it and the deletions
+		// by owner — chat's `deleteConversationAttachments`, a device revoke's
+		// anchored-prefix delete — would otherwise scan the whole bucket.
+		bucketFiles
+			.createIndex({ "metadata.conversation": 1, "metadata.messageId": 1 })
+			.catch((e) => logger.error(e, "Error creating index for attachment owner tags"));
 	}
 }
 
