@@ -392,8 +392,73 @@ def pbkdf2_digest(secret: str, *, rounds: int = PBKDF2_ROUNDS, salt: bytes | Non
     return f"$pbkdf2-sha512${rounds}${_ab64(salt)}${_ab64(raw)}"
 
 
+_CRYPT64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+# glibc's byte order for SHA512-crypt's output: 21 triples, then byte 63.
+_SHA512_CRYPT_ORDER = [(i, (i + 21) % 63, (i + 42) % 63) for i in (0, 22, 44, 3, 25, 47, 6, 28, 50, 9,
+                                                                   31, 53, 12, 34, 56, 15, 37, 59, 18, 40, 62)]
+SHA512_CRYPT_ROUNDS = 100000
+
+
+def sha512_crypt(secret: str, *, rounds: int = SHA512_CRYPT_ROUNDS, salt: str | None = None) -> str:
+    """A `$6$` (SHA512-crypt) digest, Ulrich Drepper's algorithm.
+
+    For the first Authelia password: the gateway's bootstrap accepts argon2 or
+    `$6$` there, and argon2 is not in the standard library (`crypt` left it
+    in Python 3.13). Authelia verifies it as sha2crypt.
+    """
+    if salt is None:
+        salt = "".join(secrets.choice(_CRYPT64) for _ in range(16))
+    key, salt_b = secret.encode(), salt.encode()[:16]
+    sha = hashlib.sha512
+    b = sha(key + salt_b + key).digest()
+    a = sha(key + salt_b)
+    n = len(key)
+    while n > 64:
+        a.update(b)
+        n -= 64
+    a.update(b[:n])
+    n = len(key)
+    while n:
+        a.update(b if n & 1 else key)
+        n >>= 1
+    a_digest = a.digest()
+    p = (sha(key * len(key)).digest() * (len(key) // 64 + 1))[: len(key)]
+    s = (sha(salt_b * (16 + a_digest[0])).digest() * (len(salt_b) // 64 + 1))[: len(salt_b)]
+    c = a_digest
+    for i in range(rounds):
+        h = sha(p if i & 1 else c)
+        if i % 3:
+            h.update(s)
+        if i % 7:
+            h.update(p)
+        h.update(c if i & 1 else p)
+        c = h.digest()
+    out = []
+    for i, j, k in _SHA512_CRYPT_ORDER:
+        w = (c[i] << 16) | (c[j] << 8) | c[k]
+        for _ in range(4):
+            out.append(_CRYPT64[w & 0x3F])
+            w >>= 6
+    w = c[63]
+    for _ in range(2):
+        out.append(_CRYPT64[w & 0x3F])
+        w >>= 6
+    prefix = "$6$" if rounds == 5000 else f"$6$rounds={rounds}$"
+    return f"{prefix}{salt_b.decode()}${''.join(out)}"
+
+
 def digest_matches(secret: str, digest: str) -> bool | None:
-    """True/False for a pbkdf2-sha512 digest; None for a scheme we cannot check."""
+    """True/False for a digest we can verify ($6$, pbkdf2-sha512); None otherwise."""
+    if digest.startswith("$6$"):
+        parts = digest.split("$")
+        rounds = 5000
+        if len(parts) == 5 and parts[2].startswith("rounds="):
+            rounds, salt = int(parts[2][len("rounds="):]), parts[3]
+        elif len(parts) == 4:
+            salt = parts[2]
+        else:
+            return False
+        return hmac.compare_digest(sha512_crypt(secret, rounds=rounds, salt=salt), digest)
     parts = digest.split("$")
     if len(parts) != 5 or parts[1] != "pbkdf2-sha512":
         return None
@@ -697,11 +762,12 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
         if answers.admin_name:
             values["AUTHELIA_ADMIN_NAME"] = answers.admin_name
         values["AUTHELIA_ADMIN_NAME"] = values.get("AUTHELIA_ADMIN_NAME") or values["AUTHELIA_ADMIN_USER"]
+        # $6$, not pbkdf2: the gateway's bootstrap accepts only argon2 or $6$ here.
         if answers.admin_password:
-            values["AUTHELIA_ADMIN_PASSWORD_DIGEST"] = pbkdf2_digest(answers.admin_password)
+            values["AUTHELIA_ADMIN_PASSWORD_DIGEST"] = sha512_crypt(answers.admin_password)
         elif not values.get("AUTHELIA_ADMIN_PASSWORD_DIGEST"):
             password = secrets.token_urlsafe(18)
-            values["AUTHELIA_ADMIN_PASSWORD_DIGEST"] = pbkdf2_digest(password)
+            values["AUTHELIA_ADMIN_PASSWORD_DIGEST"] = sha512_crypt(password)
             result.admin_password = password
     else:
         if idp_changed:

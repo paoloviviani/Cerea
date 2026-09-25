@@ -114,6 +114,26 @@ class TestDigests(unittest.TestCase):
         self.assertNotIn("+", digest)
         self.assertNotIn("=", digest)
 
+    def test_sha512_crypt_reference_vectors(self):
+        # From Drepper's specification; openssl passwd -6 and Authelia agree.
+        self.assertEqual(
+            cfg.sha512_crypt("Hello world!", rounds=5000, salt="saltstring"),
+            "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1",
+        )
+        self.assertEqual(
+            cfg.sha512_crypt("Hello world!", rounds=10000, salt="saltstringsaltstring"),
+            "$6$rounds=10000$saltstringsaltst$OW1/O6BYHV6BcXZu8QVeXbDWra3Oeqh0sbHbbMCVNSnCM/UrjmM0Dp8vOuZeHBy/YTBmSK6H9qs/y3RnOaw5v.",
+        )
+
+    def test_sha512_crypt_round_trip(self):
+        digest = cfg.sha512_crypt("s3cret", rounds=1000)
+        self.assertIs(cfg.digest_matches("s3cret", digest), True)
+        self.assertIs(cfg.digest_matches("other", digest), False)
+
+    def test_the_admin_password_digest_is_one_bootstrap_accepts(self):
+        # The gateway image's bootstrap takes argon2 or $6$ for this one.
+        self.assertTrue(build().values["AUTHELIA_ADMIN_PASSWORD_DIGEST"].startswith("$6$"))
+
     def test_argon2_digests_are_left_alone(self):
         self.assertIsNone(cfg.digest_matches("x", "$argon2id$v=19$m=65536,t=3,p=4$abc$def"))
 
