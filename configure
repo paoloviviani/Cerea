@@ -48,6 +48,7 @@ ROOT = Path(__file__).resolve().parent
 CONFIG_VERSION = "1"
 MIN_COMPOSE = (2, 24)
 AUTHELIA_INTERNAL = "http://authelia:9091/authelia"
+PLAYWRIGHT_ENDPOINT = "ws://playwright:3000/"
 DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
@@ -649,6 +650,13 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
         profiles.append("authelia")
     profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
     values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
+    # The chat's renderer address follows the fetch profile. An address that
+    # is not ours (a renderer elsewhere) is left alone.
+    if "fetch" in profiles:
+        values.setdefault("PLAYWRIGHT_WS_ENDPOINT", PLAYWRIGHT_ENDPOINT)
+        values["PLAYWRIGHT_WS_ENDPOINT"] = values["PLAYWRIGHT_WS_ENDPOINT"] or PLAYWRIGHT_ENDPOINT
+    elif values.get("PLAYWRIGHT_WS_ENDPOINT") in ("", PLAYWRIGHT_ENDPOINT):
+        values.pop("PLAYWRIGHT_WS_ENDPOINT", None)
     values["PYSTINO_PRESET"] = preset.name
     if preset_changed:
         values.update(preset.values)
@@ -954,6 +962,23 @@ def check_values(values: dict, report: Report) -> None:
                 "OIDC_LOGOUT_URL is empty: signing out of the chat will not end the Authelia "
                 f"session. Set OIDC_LOGOUT_URL='{origin}/authelia/logout?rd={{redirect}}'"
             )
+    endpoint = values.get("PLAYWRIGHT_WS_ENDPOINT", "")
+    if "fetch" in profiles and not endpoint:
+        report.warnings.append(
+            "the fetch profile is on but PLAYWRIGHT_WS_ENDPOINT is empty: the chat cannot reach the "
+            f"renderer. Set PLAYWRIGHT_WS_ENDPOINT='{PLAYWRIGHT_ENDPOINT}'"
+        )
+    elif "fetch" not in profiles and endpoint == PLAYWRIGHT_ENDPOINT:
+        report.warnings.append(
+            f"PLAYWRIGHT_WS_ENDPOINT points at {PLAYWRIGHT_ENDPOINT} but the fetch profile is off: "
+            "the admin screen will report the renderer unreachable. Unset it, or add fetch to "
+            "COMPOSE_PROFILES"
+        )
+    if values.get("FETCH_BACKEND") == "playwright" and not endpoint:
+        report.warnings.append(
+            "FETCH_BACKEND=playwright with no renderer (PLAYWRIGHT_WS_ENDPOINT empty): web fetch "
+            "will fail. Turn on the fetch profile, or set FETCH_BACKEND='direct'"
+        )
     if values.get("REDACTION_NLP_ENGINE") == "spacy" and "redaction" in profiles:
         if not values.get("REDACTION_IMAGE", "").endswith("-ner"):
             report.errors.append(

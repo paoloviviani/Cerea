@@ -238,6 +238,33 @@ class TestFreshInstall(unittest.TestCase):
         self.assertEqual((v["CHAT_OPENAI_API_KEY"], v["CHAT_USE_USER_TOKEN"]), ("k", "false"))
         self.assertEqual(v["GATEWAY_UPSTREAM__API_KEY"], "")
 
+    def test_the_renderer_address_follows_the_fetch_profile(self):
+        self.assertEqual(build(preset="enterprise").values["PLAYWRIGHT_WS_ENDPOINT"], cfg.PLAYWRIGHT_ENDPOINT)
+        self.assertNotIn("PLAYWRIGHT_WS_ENDPOINT", build(preset="team").values)
+        first = build(preset="enterprise").values
+        self.assertNotIn("PLAYWRIGHT_WS_ENDPOINT", build(existing=first, preset="team").values)
+        # Added by hand to a team install: the address comes with it.
+        by_hand = dict(build().values)
+        by_hand["COMPOSE_PROFILES"] += ",fetch"
+        self.assertEqual(build(existing=by_hand).values["PLAYWRIGHT_WS_ENDPOINT"], cfg.PLAYWRIGHT_ENDPOINT)
+        # A renderer elsewhere is not ours to remove.
+        remote = dict(build().values, PLAYWRIGHT_WS_ENDPOINT="ws://browser.internal:3000/")
+        self.assertEqual(build(existing=remote).values["PLAYWRIGHT_WS_ENDPOINT"], "ws://browser.internal:3000/")
+
+    def test_check_warns_when_profile_and_address_disagree(self):
+        values = dict(build().values, PLAYWRIGHT_WS_ENDPOINT=cfg.PLAYWRIGHT_ENDPOINT)
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("fetch profile is off" in w for w in report.warnings), report.warnings)
+        values = dict(build(preset="enterprise").values, REDACTION_IMAGE="local/x-ner")
+        values.pop("PLAYWRIGHT_WS_ENDPOINT")
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("PLAYWRIGHT_WS_ENDPOINT is empty" in w for w in report.warnings), report.warnings)
+        report = cfg.Report()
+        cfg.check_values(build(preset="enterprise").values | {"REDACTION_IMAGE": "local/x-ner"}, report)
+        self.assertFalse(any("PLAYWRIGHT" in w for w in report.warnings), report.warnings)
+
     def test_agents_switch(self):
         self.assertEqual(build(agents=True).values["CODE_AGENTS_ENABLED"], "true")
         self.assertEqual(build().values["CODE_AGENTS_ENABLED"], "")

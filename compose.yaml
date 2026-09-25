@@ -314,7 +314,10 @@ services:
       AUTOMATIC_LOGIN: "true"
       CHAT_PG_URL: postgresql://chat:${CHAT_PG_PASSWORD:-}@postgres:5432/chat
       FETCH_BACKEND: ${FETCH_BACKEND:-direct}
-      PLAYWRIGHT_WS_ENDPOINT: ws://playwright:3000/
+      # Set only while the fetch profile runs the renderer (./configure keeps
+      # the two in step). Empty: the chat reports "not configured" instead of
+      # probing a service that is not there.
+      PLAYWRIGHT_WS_ENDPOINT: ${PLAYWRIGHT_WS_ENDPOINT:-}
       CHAT_CODE_TOOL_ENABLED: ${CHAT_CODE_TOOL_ENABLED-true}
       CHAT_USAGE_ENABLED: ${CHAT_USAGE_ENABLED-true}
       CHAT_CONSOLE_ENABLED: ${CHAT_CONSOLE_ENABLED-true}
@@ -327,6 +330,9 @@ services:
       # audience pystino-api), validated locally against the same issuer as
       # the browser login, over the same back-channel. No relay.
       CODE_AGENTS_ENABLED: ${CODE_AGENTS_ENABLED-}
+      # The browser terminal in /code: off unless exactly "true", and even then
+      # only for machines enrolled with --allow-terminal.
+      CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}
       CODE_MACHINE_ISSUER: ${CODE_MACHINE_ISSUER:-}
       CODE_MACHINE_AUDIENCE: ${CODE_MACHINE_AUDIENCE:-pystino-api}
       CODE_MACHINE_CLIENT_ID: ${CODE_MACHINE_CLIENT_ID:-opencode-enrollment}
