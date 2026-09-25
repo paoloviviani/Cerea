@@ -188,6 +188,9 @@ function toSession(session: Session): CodeAgentSession {
 		updatedAt: session.updatedAt,
 		modeId: session.modeId,
 		modelId: session.modelId,
+		parentId: session.parentId ?? null,
+		...(session.rootId ? { rootId: session.rootId } : {}),
+		...(session.childSummary ? { childSummary: session.childSummary } : {}),
 	};
 }
 

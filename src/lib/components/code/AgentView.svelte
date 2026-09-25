@@ -220,6 +220,23 @@
 		}
 	}
 
+	// A subagent's view names where it came from, with a link back: the
+	// parent's own row (title, workspace), read once per parent id.
+	let parentAgent = $state<CodeAgentSession | null>(null);
+	let parentFetchedFor: string | null = null;
+	$effect(() => {
+		const parentId = agent?.parentId ?? null;
+		if (parentId === parentFetchedFor) return;
+		parentFetchedFor = parentId;
+		parentAgent = null;
+		if (!parentId) return;
+		void getAgent(deviceId, parentId)
+			.then((detail) => {
+				if (parentFetchedFor === parentId) parentAgent = detail.agent;
+			})
+			.catch(() => {});
+	});
+
 	// Mounting this iterator IS the history fetch (a fresh subscription replays
 	// the daemon's log before tailing), so the transcript assembles itself from
 	// one source and needs no snapshot call. The fold is the chat's own turn
@@ -600,6 +617,21 @@
      failure banner and the side pane re-enable pointer events themselves. -->
 <div class="pointer-events-none flex h-full min-h-0 flex-1 flex-col">
 	<div class="pointer-events-auto flex flex-col gap-0.5 px-4 pt-3 pb-2">
+		{#if agent?.parentId}
+			<a
+				class="flex min-w-0 items-center gap-1 text-xs text-ink-muted hover:text-ink"
+				href="{base}/code?device={deviceId}&ws={parentAgent?.workspaceId ??
+					workspaceId ??
+					''}&agent={agent.parentId}"
+				data-testid="subagent-of"
+			>
+				<span
+					class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium uppercase dark:bg-gray-700"
+					>sub</span
+				>
+				<span class="truncate">Subagent of {parentAgent?.title ?? "its parent session"}</span>
+			</a>
+		{/if}
 		<div class="flex items-center gap-2">
 			<IconCode class="size-4 shrink-0 text-ink-muted" />
 			{#if workspaceName}
