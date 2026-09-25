@@ -14,15 +14,17 @@
 
 	Below the context/compaction content, the popup also carries the
 	person's Pystino quotas (queued item,
-	`reports/2026-09-24-thin-agent-progress.md`): every section of
-	`GET /api/v2/usage`, rendered with the same `UsageBar` the Settings →
-	Usage page uses, plus a link to that page. Cerea does not know which
-	group this machine bills to (`x-bill-to` is chosen at enroll), so every
-	section is shown and none is singled out. Fetched when the popup opens
-	and again after each completed turn while it stays open — never on a
-	timer — and derived through `contextMeterQuotas.ts` so the "no
-	quotas"/"fetch failed"/"sections" split is unit-tested without mounting
-	this component.
+	`reports/2026-09-24-thin-agent-progress.md`): only the entries of
+	`GET /api/v2/usage` that carry a `limit` — the quotas the person is
+	actually subject to — rendered with the same `UsageBar` the Settings →
+	Usage page uses, plus a link to that page. The per-entry consumption list
+	(spend/requests/tokens with no limit) belongs on the Settings page, not
+	in a composer popup; this component fetches the same report the Settings
+	page does and filters client-side, since that page still shows every
+	section in full. Fetched when the popup opens and again after each
+	completed turn while it stays open — never on a timer — and derived
+	through `contextMeterQuotas.ts` so the "no quotas"/"fetch failed"/"quotas"
+	split is unit-tested without mounting this component.
 -->
 <script lang="ts">
 	import { DropdownMenu } from "bits-ui";
@@ -258,23 +260,12 @@
 									<IconWarning class="size-3 shrink-0" />
 									<span>{quotaDisplay.message}</span>
 								</div>
+							{:else if quotaDisplay.kind === "empty"}
+								<p class="text-gray-500 dark:text-gray-400">No quotas</p>
 							{:else}
 								<div class="-mx-3 divide-y divide-gray-200 px-3 dark:divide-gray-700">
-									{#each quotaDisplay.sections as section (section.title)}
-										<div class="py-1.5">
-											<div class="text-[11px] font-medium text-gray-600 dark:text-gray-300">
-												{section.title}
-											</div>
-											{#if section.error}
-												<p class="text-[11px] text-amber-600 dark:text-amber-400">
-													{section.error}
-												</p>
-											{:else}
-												{#each section.entries as entry (entry.label)}
-													<UsageBar {entry} />
-												{/each}
-											{/if}
-										</div>
+									{#each quotaDisplay.quotas as quota (quota.label)}
+										<UsageBar entry={quota} />
 									{/each}
 								</div>
 								<a
