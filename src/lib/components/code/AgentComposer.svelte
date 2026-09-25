@@ -54,6 +54,7 @@
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
+	import { resolveActiveModel } from "$lib/utils/activeModel";
 	import type {
 		AgentCompactionUpdate,
 		AgentUsageUpdate,
@@ -320,12 +321,10 @@
 		return modes?.find((mode) => mode.id === (agent?.modeId ?? null))?.label ?? agent.modeId;
 	});
 	/** The model the agent runs: its explicit one, else the backend's
-	 * default, so the pill names a real model rather than saying "Model". */
-	let currentModel = $derived(
-		agent?.modelId
-			? models?.find((model) => model.id === agent?.modelId)
-			: models?.find((model) => model.isDefault)
-	);
+	 * default, so the pill names a real model rather than saying "Model".
+	 * The same resolution the picker's checkmark uses (below), so the two
+	 * never disagree on which row is active. */
+	let currentModel = $derived(resolveActiveModel(agent?.modelId, models));
 	let modelLabel = $derived.by(() => {
 		if (agent?.modelId) return currentModel?.label ?? agent.modelId;
 		return currentModel?.label ?? "Model";
@@ -510,7 +509,7 @@
 											onSelect={() => void applyModel(model.id)}
 										>
 											<IconCheck
-												class="size-3.5 shrink-0 {model.id === (agent?.modelId ?? null)
+												class="size-3.5 shrink-0 {model.id === (currentModel?.id ?? null)
 													? 'opacity-100'
 													: 'opacity-0'}"
 											/>
