@@ -299,6 +299,10 @@ export type OpName =
 	| "session.children"
 	| "session.compact"
 	| "session.revert"
+	| "files.list"
+	| "files.stat"
+	| "files.read"
+	| "files.status"
 	| "session.setEffort"
 	| "session.unrevert"
 	| "backend.modes"
@@ -521,3 +525,45 @@ export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 /** WS subprotocol and endpoint path from the spec's §3. */
 export const MACHINE_PROTOCOL = "pystino-machine.v1";
 export const MACHINE_PATH = "/api/v2/code/machine";
+
+// -- machine powers: files (§9.3) --------------------------------------------
+
+export interface FileEntry {
+	name: string;
+	path: string;
+	type: "file" | "dir" | "symlink" | "other";
+	size: number;
+	mtime: string;
+	revision?: string;
+	hidden: boolean;
+	ignored: boolean;
+	redacted: boolean;
+	symlink?: { target: string; escapes: boolean; dangling: boolean };
+}
+
+export interface FilesListResult {
+	path: string;
+	entries: FileEntry[];
+	truncated: boolean;
+}
+
+export interface FilesReadResult {
+	path: string;
+	revision: string;
+	size: number;
+	offset: number;
+	length: number;
+	eof: boolean;
+	kind: "text" | "binary" | "image";
+	mime: string;
+	encoding: "utf-8" | "base64" | "none";
+	content?: string;
+}
+
+export interface FilesStatusResult {
+	isGitRepo: boolean;
+	branch?: string;
+	head?: string;
+	entries: Array<{ path: string; x: string; y: string; origPath?: string }>;
+	truncated: boolean;
+}

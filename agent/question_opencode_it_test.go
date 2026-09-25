@@ -83,6 +83,7 @@ func TestOpencodeQuestionIntegration(t *testing.T) {
 		"XDG_CONFIG_HOME=" + configDir,
 		"XDG_DATA_HOME=" + dataDir,
 		"XDG_CACHE_HOME=" + cacheDir,
+		"TMPDIR=" + itTmpDir(t),
 		"PATH=" + os.Getenv("PATH"),
 	}
 

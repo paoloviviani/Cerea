@@ -7,11 +7,10 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request as playwrightRequest } from "playwright/test";
 import { test, expect, E2E_APP_URL, E2E_GALOPIN_DIST_DIR } from "./fixtures.ts";
-import { agentBinary } from "./machineHarness.ts";
+import { agentBinary, e2eScratch } from "./machineHarness.ts";
 
 const hostName = `galopin-${process.platform === "darwin" ? "darwin" : "linux"}-${
 	process.arch === "arm64" ? "arm64" : "amd64"
@@ -56,7 +55,7 @@ test("install.sh installs a checksum-verified galopin with no session", async ()
 		}
 
 		// Run it for real, with the system's POSIX sh.
-		const installDir = mkdtempSync(join(tmpdir(), "galopin-install-"));
+		const installDir = mkdtempSync(join(e2eScratch(), "install-"));
 		const scriptPath = join(installDir, "install.sh");
 		writeFileSync(scriptPath, body);
 		try {
@@ -88,7 +87,7 @@ test("a tampered download is refused and nothing is installed", async () => {
 	const sumsPath = join(E2E_GALOPIN_DIST_DIR, "SHA256SUMS");
 	const original = readFileSync(sumsPath, "utf8");
 	writeFileSync(sumsPath, `${"0".repeat(64)}  ${hostName}\n`);
-	const installDir = mkdtempSync(join(tmpdir(), "galopin-install-"));
+	const installDir = mkdtempSync(join(e2eScratch(), "install-"));
 	try {
 		const body = await (await anon.get(`${E2E_APP_URL}/galopin/install.sh`)).text();
 		writeFileSync(join(installDir, "install.sh"), body);

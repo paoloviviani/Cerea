@@ -1,6 +1,6 @@
 import type { ObjectId } from "mongodb";
 import type { MessageFile } from "$lib/types/Message";
-import type { Backend, CredentialState, Policy } from "$lib/types/machineProtocol";
+import type { Backend, CredentialState, Machine, Policy } from "$lib/types/machineProtocol";
 import {
 	MessageUpdateType,
 	type MessageElicitationRequestUpdate,
@@ -273,6 +273,9 @@ export interface CodeDevice {
 	iss: string;
 	/** The backends `hello` reported (opencode, later others). */
 	backends: Backend[];
+	/** What this galopin build implements (`hello.machine`: files, terminal…);
+	 * absent for a machine that predates it. */
+	machine?: Machine;
 	/** The machine's own policy (`hello`), shown so the UI can explain a
 	 * refusal — the panel cannot override it; it is the machine's veto. */
 	policy: Policy;
@@ -349,4 +352,19 @@ export interface CodeAgentSession {
 	/** A parent's subagents: direct children, those running, and descendants
 	 * waiting on a permission reply. Absent when it spawned none. */
 	childSummary?: { children: number; running: number; waiting: number };
+}
+
+/** One audited /code action (ADR 0090): who did what, where, never content. */
+export interface CodeAuditEntry {
+	_id: ObjectId;
+	userId: ObjectId;
+	deviceId: ObjectId;
+	/** e.g. "files.raw", "files.refused". */
+	action: string;
+	workspaceId?: string;
+	path?: string;
+	bytes?: number;
+	ip?: string;
+	userAgent?: string;
+	at: Date;
 }
