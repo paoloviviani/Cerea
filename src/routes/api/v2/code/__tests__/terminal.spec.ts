@@ -111,9 +111,16 @@ afterEach(async () => {
 	openMachines = [];
 	for (const ws of openSockets) {
 		// A deliberately-refused connection (a bad Origin, an expired
-		// ticket…) never reaches OPEN — closing it while still CONNECTING
-		// throws in `ws`, and every such test leaves one here for this loop
-		// to reap.
+		// ticket…) never reaches OPEN, and every such test leaves one here
+		// for this loop to reap. `ws.terminate()` on a CONNECTING socket
+		// doesn't throw synchronously — it emits `"error"` (ws's own
+		// `abortHandshake`), and Node throws *that* as an uncaught exception
+		// when nothing is listening. The test's own one-shot `once("error",
+		// reject)` has already fired and detached by the time cleanup runs,
+		// so a throwaway listener here is what actually silences it.
+		ws.on("error", () => {
+			/* discarding this socket on purpose; nothing awaits its outcome */
+		});
 		if (ws.readyState === ws.CONNECTING) {
 			ws.terminate();
 		} else if (ws.readyState === ws.OPEN) {
@@ -214,6 +221,32 @@ async function mintTicket(deviceId: string, terminalId: string): Promise<string>
 	return ticket;
 }
 
+interface QueuedMessage {
+	text?: string;
+	binary?: Buffer;
+}
+
+/**
+ * `nextMessage` used to be a bare `ws.once("message", …)` per call — which
+ * loses data the instant more than one frame arrives in the same tick.
+ * `flushViewer` (fake-machine.ts) can synchronously `ws.send()` a whole
+ * burst of ≤32 KiB output frames in one call (draining a big credit
+ * window in one go), and Node's `ws` parses and emits every complete frame
+ * already sitting in the socket's read buffer as separate, *synchronous*
+ * `"message"` events before yielding back to the event loop. A `.once()`
+ * listener fires on the first of those and detaches immediately — so
+ * frames 2..N of that same burst have no listener at the moment they're
+ * emitted and are gone for good, long before the next `await nextMessage()`
+ * gets around to registering a fresh one. A persistent listener with its
+ * own FIFO queue (installed once, in `connectTerminalSocket`) is the fix:
+ * every message is captured the instant it arrives, in order, regardless
+ * of how many land in the same tick.
+ */
+const messageQueues = new WeakMap<
+	WebSocket,
+	{ queue: QueuedMessage[]; waiters: Array<(m: QueuedMessage) => void> }
+>();
+
 function connectTerminalSocket(ticket: string, origin: string, from?: number): WebSocket {
 	const query = new URLSearchParams({
 		ticket,
@@ -223,20 +256,44 @@ function connectTerminalSocket(ticket: string, origin: string, from?: number): W
 		headers: { origin },
 	});
 	openSockets.push(ws);
+	const state: { queue: QueuedMessage[]; waiters: Array<(m: QueuedMessage) => void> } = {
+		queue: [],
+		waiters: [],
+	};
+	messageQueues.set(ws, state);
+	ws.on("message", (data: Buffer | string, isBinary: boolean) => {
+		const msg: QueuedMessage = isBinary ? { binary: data as Buffer } : { text: data.toString() };
+		const waiter = state.waiters.shift();
+		if (waiter) waiter(msg);
+		else state.queue.push(msg);
+	});
 	return ws;
 }
 
-function nextMessage(ws: WebSocket): Promise<{ text?: string; binary?: Buffer }> {
+function nextMessage(ws: WebSocket): Promise<QueuedMessage> {
+	const state = messageQueues.get(ws);
+	if (!state) {
+		throw new Error(
+			"nextMessage: socket has no installed queue — connect it via connectTerminalSocket"
+		);
+	}
+	const queued = state.queue.shift();
+	if (queued) return Promise.resolve(queued);
 	return new Promise((resolve, reject) => {
 		// 15s, not a tighter value: the first message on a fresh connection
 		// waits on a real terminal.attach round trip through the machine
 		// link (opDeadlineMs's own default), and a loaded box can genuinely
 		// take longer than a couple of seconds for that.
-		const timer = setTimeout(() => reject(new Error("timed out waiting for a message")), 15_000);
-		ws.once("message", (data: Buffer | string, isBinary: boolean) => {
+		const timer = setTimeout(() => {
+			const idx = state.waiters.indexOf(onMessage);
+			if (idx >= 0) state.waiters.splice(idx, 1);
+			reject(new Error("timed out waiting for a message"));
+		}, 15_000);
+		const onMessage = (m: QueuedMessage): void => {
 			clearTimeout(timer);
-			resolve(isBinary ? { binary: data as Buffer } : { text: data.toString() });
-		});
+			resolve(m);
+		};
+		state.waiters.push(onMessage);
 	});
 }
 
@@ -482,13 +539,27 @@ describe("the terminal WebSocket", () => {
 		expect(decoded?.payload.toString()).toBe(secret);
 
 		// Ack it back, exercising the ack relay (browser -> Cerea -> machine).
+		const ackOffset = (decoded?.offset ?? 0) + secret.length;
 		ws.send(
 			encodeBinaryFrame({
 				kind: BIN_TERM_ACK,
 				channel: "x",
-				offset: (decoded?.offset ?? 0) + secret.length,
+				offset: ackOffset,
 				payload: Buffer.alloc(0),
 			})
+		);
+		// The ack travels browser -> Cerea -> machine asynchronously (real
+		// network hops even on loopback); waiting for the fake's own state to
+		// reflect it before pushing more output is what makes the credit math
+		// below exact, rather than racing the push against the ack's transit.
+		const terminalChannel = [...(machine.model.terminals.get(terminalId)?.viewers.keys() ?? [])][0];
+		await vi.waitFor(
+			() => {
+				expect(machine.model.terminals.get(terminalId)?.viewers.get(terminalChannel)?.acked).toBe(
+					ackOffset
+				);
+			},
+			{ timeout: 5000 }
 		);
 
 		// Credits: push more than the 256 KiB window in one go; only the
@@ -499,12 +570,12 @@ describe("the terminal WebSocket", () => {
 		let lastOffset = 0;
 		while (received < 256 * 1024) {
 			const msg = await nextMessage(ws);
-			const frame = decodeBinaryFrame(msg.binary as Buffer);
+			const frame = msg.binary ? decodeBinaryFrame(msg.binary) : null;
 			if (!frame) continue;
 			received += frame.payload.length;
 			lastOffset = frame.offset + frame.payload.length;
 		}
-		expect(received).toBeLessThanOrEqual(256 * 1024 + 32 * 1024); // frame-size slack
+		expect(received).toBe(256 * 1024); // acked before the push: exactly one credit window
 		// Nothing more arrives without an ack: a short race is a genuine failure
 		// (it would mean the credit window did nothing), so this is a real check.
 		const stalled = await Promise.race([
