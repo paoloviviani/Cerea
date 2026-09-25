@@ -120,6 +120,9 @@ export interface MachinePolicy {
 	autoAccept?: "allowed" | "denied";
 	allowFreeModels?: boolean;
 	workspaceRoots?: string[];
+	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
+	terminal?: "allowed" | "denied";
+	maxTerminals?: number;
 }
 
 export async function startMachine(input: {
@@ -215,6 +218,8 @@ export async function startMachine(input: {
 				autoAccept: input.policy.autoAccept ?? "denied",
 				allowFreeModels: input.policy.allowFreeModels ?? false,
 				workspaceRoots: input.policy.workspaceRoots ?? [],
+				...(input.policy.terminal ? { terminal: input.policy.terminal } : {}),
+				...(input.policy.maxTerminals ? { maxTerminals: input.policy.maxTerminals } : {}),
 			})
 		);
 	}

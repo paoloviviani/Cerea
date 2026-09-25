@@ -77,7 +77,9 @@
 	import HandoffDialog from "./HandoffDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 	import CodeFiles from "./CodeFiles.svelte";
+	import CodeTerminals from "./CodeTerminals.svelte";
 	import IconFolder from "~icons/carbon/folder";
+	import IconTerminal from "~icons/carbon/terminal";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -184,6 +186,23 @@
 		const state = shownState;
 		if (lastTurnState === "running" && state !== "running") filesTurnKey += 1;
 		lastTurnState = state;
+	});
+	/** The terminal (ADR 0090 §6.1): the double veto's two halves — the
+	 * deployment switch (hidden entirely when off) and the machine's own
+	 * policy (shown disabled, with the exact re-enroll fix, when off). */
+	let terminalOffered = $derived(
+		page.data.codeTerminalEnabled === true &&
+			codeDeviceList.devices.find((d) => d.id === deviceId)?.machine?.capabilities.terminal ===
+				true
+	);
+	let terminalVetoed = $derived(
+		codeDeviceList.devices.find((d) => d.id === deviceId)?.policy?.terminal !== "allowed"
+	);
+	let terminalAcknowledged = $state(false);
+	$effect(() => {
+		terminalAcknowledged = Boolean(
+			codeDeviceList.devices.find((d) => d.id === deviceId)?.terminalAckAt
+		);
 	});
 	let effortsSupported = $derived.by(() => {
 		const caps = codeDeviceList.devices
@@ -754,6 +773,23 @@
 					Files
 				</button>
 			{/if}
+			{#if terminalOffered && (workspace?.id ?? workspaceId)}
+				<button
+					type="button"
+					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
+					sidePane.view === 'terminal'
+						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+					disabled={terminalVetoed}
+					onclick={() => sidePane.toggleTerminal()}
+					title={terminalVetoed
+						? "This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here."
+						: "Open a shell on this workspace"}
+				>
+					<IconTerminal class="size-3.5" />
+					Terminal
+				</button>
+			{/if}
 		</div>
 		{#if handedOffFromTitle}
 			<!-- A title-based link, not a fetched one (spec's "keep it simple") —
@@ -856,6 +892,15 @@
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
 					turnKey={filesTurnKey}
+				/>
+			</SidePane>
+		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}
+			<SidePane label="Terminal">
+				<CodeTerminals
+					{deviceId}
+					workspaceId={(workspace?.id ?? workspaceId) as string}
+					machineName={codeDeviceList.devices.find((d) => d.id === deviceId)?.name ?? "this machine"}
+					bind:acknowledged={terminalAcknowledged}
 				/>
 			</SidePane>
 		{/if}

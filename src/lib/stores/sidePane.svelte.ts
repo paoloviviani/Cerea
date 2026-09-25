@@ -9,7 +9,8 @@ export const SIDE_PANE_MAX_WIDTH = 2400;
 export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
-export type SidePaneView = "artifact" | "trackio" | "library" | "preview" | "diff" | "files";
+export type SidePaneView =
+	"artifact" | "trackio" | "library" | "preview" | "diff" | "files" | "terminal";
 
 /**
  * A one-shot rendered view of a single fence or file: no registry entry, no
@@ -169,6 +170,24 @@ class SidePaneStore {
 			return;
 		}
 		this.openFiles();
+	}
+
+	/** The /code terminal: a full shell on the workspace, behind its own
+	 * double veto (ADR 0090). Like Files, this is per-workspace state the
+	 * panel itself (CodeTerminals.svelte) owns, not this store. */
+	openTerminal() {
+		this.view = "terminal";
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/** What the Terminal button does: open, or close what it already opened. */
+	toggleTerminal() {
+		if (this.open && this.view === "terminal") {
+			this.close();
+			return;
+		}
+		this.openTerminal();
 	}
 
 	/** What the Changes button does: open, or close what it already opened. */
