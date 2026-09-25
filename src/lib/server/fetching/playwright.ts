@@ -2,7 +2,7 @@
  * Fetch a URL by rendering it in a real browser.
  *
  * The renderer is a separate container on the compose network
- * (the `fetch` profile of the Pystino stack, `deploy/stack/compose.yaml`), reached over Playwright's
+ * (the `fetch` profile of the stack, cerea-deploy's `compose.yaml`), reached over Playwright's
  * `run-server` protocol. It runs no code of ours and publishes no port; see
  * `docs/browser.md` in the gateway repository for why it can never publish one.
  *
