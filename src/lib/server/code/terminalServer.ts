@@ -296,6 +296,17 @@ function acceptTerminalConnection(
 			for (const frame of backlog) send(frame);
 			if (backlog.length === 0) lastOffset = result.from;
 			audit("terminal.attach");
+			if (result.terminal.state === "exited") {
+				// Already dead by the time this attach landed (a stale tab
+				// reopened during ExitRetention): no live terminal.exit notice
+				// is coming for a transition that already happened, so this is
+				// the one place left to tell the browser — otherwise it would
+				// sit "attached" forever with a shell that will never answer.
+				sendJson({ t: "exit", code: result.terminal.exitCode ?? 0 });
+				teardownAttach?.();
+				teardownAttach = null;
+				currentChannel = null;
+			}
 		} catch (err) {
 			teardownAttach?.();
 			teardownAttach = null;
