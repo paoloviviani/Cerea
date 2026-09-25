@@ -16,13 +16,17 @@ import (
 type credentials struct {
 	Issuer        string `json:"issuer"`
 	TokenEndpoint string `json:"token_endpoint"`
-	ClientID      string `json:"client_id"`
-	Gateway       string `json:"gateway"`
-	Group         string `json:"group"`
-	RefreshToken  string `json:"refresh_token"`
-	AccessToken   string `json:"access_token"`
-	ExpiresIn     int    `json:"expires_in"`
-	ObtainedAt    int64  `json:"obtained_at_unix"`
+	// RevocationEndpoint is recorded at enroll so a revoked machine can
+	// revoke its refresh token without rediscovering the IdP; empty on a
+	// file written before this field, which falls back to discovery.
+	RevocationEndpoint string `json:"revocation_endpoint,omitempty"`
+	ClientID           string `json:"client_id"`
+	Gateway            string `json:"gateway"`
+	Group              string `json:"group"`
+	RefreshToken       string `json:"refresh_token"`
+	AccessToken        string `json:"access_token"`
+	ExpiresIn          int    `json:"expires_in"`
+	ObtainedAt         int64  `json:"obtained_at_unix"`
 	// ShimPort is the loopback port enroll chose and wrote into
 	// opencode.json's baseURL; serve honours it so the two ends agree without
 	// the human passing --port. Omitted (0) falls back to defaultShimPort.
@@ -102,6 +106,17 @@ func defaultCredsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, credentialsFileName), nil
+}
+
+// resolveDefaultCredsPath is the credential path enroll writes and run
+// reads when no --creds is given: always the galopin state dir, after moving
+// a pre-galopin install's files there, so the new file never lands beside a
+// stale legacy one and every later reader finds it in one place.
+func resolveDefaultCredsPath() (string, error) {
+	if err := migrateLegacyState(); err != nil {
+		return "", err
+	}
+	return defaultCredsPath()
 }
 
 // saveCredentials writes the file at 0600, atomically (R8): a crash, a full
