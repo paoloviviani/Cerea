@@ -446,6 +446,35 @@ describe("the terminal WebSocket", () => {
 		expect(rejection.statusCode).toBe(401);
 	});
 
+	it("closes with 1009 on an oversized frame, which never reaches the machine", async () => {
+		const { machine, deviceId, terminalId } = await terminalMachine();
+		const ticket = await mintTicket(deviceId, terminalId);
+		const ws = connectTerminalSocket(ticket, VALID_ORIGIN);
+		ws.binaryType = "nodebuffer";
+		await waitOpen(ws);
+		await waitForReset(ws);
+
+		// Well past MAX_WS_PAYLOAD (64 KiB): the ws-level maxPayload check
+		// must reject this before the application-level MAX_INPUT_FRAME_PAYLOAD
+		// check (or any machine op) ever sees it.
+		const oversized = encodeBinaryFrame({
+			kind: BIN_TERM_INPUT,
+			channel: "x",
+			offset: 0,
+			payload: Buffer.alloc(100 * 1024, 0x42),
+		});
+		const closeCode = await new Promise<number>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("socket never closed")), 5000);
+			ws.once("close", (code: number) => {
+				clearTimeout(timer);
+				resolve(code);
+			});
+			ws.send(oversized);
+		});
+		expect(closeCode).toBe(1009);
+		expect(machine.model.terminals.get(terminalId)?.history.length ?? 0).toBe(0);
+	});
+
 	it("refuses a ticket for a device that was revoked in the meantime", async () => {
 		const { deviceId, terminalId } = await terminalMachine();
 		const ticket = await mintTicket(deviceId, terminalId);
