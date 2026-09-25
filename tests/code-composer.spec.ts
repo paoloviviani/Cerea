@@ -180,9 +180,14 @@ test("the model picker checks the default model when the agent has no explicit c
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
 
+	// The unsearched short list is the current model alone (no recent picks
+	// yet, exactly like a fresh chat) — search brings the rest into view,
+	// same as the chat picker's own checkmark test.
 	const activeRow = menu.getByRole("menuitem", { name: "Coder Large" });
-	const otherRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
 	await expect(activeRow.locator("svg").first()).toHaveCSS("opacity", "1");
+
+	await page.getByRole("textbox", { name: "Search models" }).fill("GLM");
+	const otherRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
 	await expect(otherRow.locator("svg").first()).toHaveCSS("opacity", "0");
 });
 
@@ -202,7 +207,9 @@ test("the model picker checks the agent's explicit model, including a bare (non-
 	await expect(menu).toBeVisible();
 
 	const activeRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
-	const otherRow = menu.getByRole("menuitem", { name: "Coder Large" });
 	await expect(activeRow.locator("svg").first()).toHaveCSS("opacity", "1");
+
+	await page.getByRole("textbox", { name: "Search models" }).fill("Coder");
+	const otherRow = menu.getByRole("menuitem", { name: "Coder Large" });
 	await expect(otherRow.locator("svg").first()).toHaveCSS("opacity", "0");
 });
