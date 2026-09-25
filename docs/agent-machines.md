@@ -3,10 +3,8 @@
 The Agents panel in the sidebar drives coding agents that run **on your own
 machine**, not here. Your code never leaves it; the chat is a remote control.
 `galopin` is the one binary that makes that possible: it lives in this
-repository as `agent/` (first-party code under this repository's own
-`LICENCE`, not the upstream chat-ui code `LICENSE` covers), and this page is
-all three halves of using it — getting the binary, pairing a machine, and
-what the panel does once it is paired.
+repository as `agent/`, and this page covers using it: getting the binary,
+pairing a machine, and what the panel does once it is paired.
 
 If you are deploying the feature rather than using it, read
 [The `/code` panel](code-panel.md) first — none of this works until
@@ -31,9 +29,9 @@ authenticates its `/v1` calls to the gateway. There is no relay and no daemon
 process to run separately: revoking your account at the identity provider
 kills both the control link and the LLM link within one access-token
 lifetime. The wire protocol both ends speak is `agent/PROTOCOL.md`; the
-gateway facts galopin's enrollment relies on — the IdP client
-`opencode-enrollment`, its refresh-token lifetimes, `x-bill-to` — are
-Pystino's own, documented in Pystino `docs/coding-agents.md`.
+gateway facts galopin's enrollment relies on (the IdP client
+`opencode-enrollment`, its refresh-token lifetimes, `x-bill-to`) belong to
+the Pystino gateway and are documented there.
 
 ## One binary, two jobs
 
@@ -53,7 +51,7 @@ binaries from `agent/` and serves them itself, with no sign-in needed, so
 nothing has to be published anywhere. On the machine:
 
 ```sh
-curl -fsSL https://llm.example.org/chat/galopin/install.sh | sh
+curl -fsSL https://cerea.example.org/chat/galopin/install.sh | sh
 ```
 
 (Use your deployment's origin and base path; the `/code` pairing dialog
@@ -104,9 +102,9 @@ install -m 0755 galopin-darwin-arm64 ~/.local/bin/galopin   # the file for this 
 xattr -d com.apple.quarantine ~/.local/bin/galopin 2>/dev/null || true   # macOS only
 
 ~/.local/bin/galopin enroll \
-  --issuer https://llm.example.org/authelia \
-  --gateway https://llm.example.org \
-  --cerea https://llm.example.org/chat \
+  --issuer https://cerea.example.org/authelia \
+  --gateway https://cerea.example.org \
+  --cerea https://cerea.example.org/chat \
   --output ~/.config/opencode/opencode.json
 ~/.local/bin/galopin run
 ```
@@ -217,12 +215,39 @@ model picker is one accidental keypress from a 400.
 
 ## Setting up a machine
 
+Install galopin from your deployment, then enroll and run it. `<origin>` is
+your deployment's origin, for example `https://cerea.example.org`:
+
 ```sh
-galopin enroll --issuer https://llm.example.org/authelia \
-  --gateway https://llm.example.org --cerea https://llm.example.org/chat \
-  --output ~/.config/opencode/opencode.json [--device] [--allow-free-models]
+curl -fsSL <origin>/chat/galopin/install.sh | sh
+
+galopin enroll --issuer <origin>/authelia --gateway <origin> --cerea <origin>/chat \
+  [--allow-terminal] [--allow-auto-accept] [--workspace-root PATH] …
 galopin run
 ```
+
+(`--issuer` is your identity provider's issuer; `<origin>/authelia` is the
+bundled Authelia's.) Then confirm the machine in the `/code` panel.
+
+**The machine's vetoes.** These flags are fixed at enroll time and stored in
+the machine's own `policy.json`. The chat can never loosen them over the
+link: whatever the panel sends, the machine refuses what its policy denies.
+
+| Flag | Default | What it allows |
+|---|---|---|
+| `--allow-terminal` | denied | the `/code` panel may open a real shell on this machine (see below) |
+| `--max-terminals N` | 8 | how many terminals may be open at once |
+| `--allow-auto-accept` | denied | a session may run the model's commands without asking each time |
+| `--workspace-root PATH` | unrestricted | workspaces only under this path (repeatable) |
+| `--allow-free-models` | denied | models from providers other than the gateway's; by default only the gateway's, so spend lands in your account |
+| `--allow-opencode-provider` | denied | opencode's built-in providers stay enabled next to the gateway's |
+| `--no-files` | read-only browsing | no file explorer at all |
+| `--file-deny GLOB` | built-in secret list | redact more files from the explorer (repeatable) |
+| `--no-default-file-deny` | built-in list on | drop the built-in secret list, keeping only `--file-deny`'s |
+
+Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
+`--group NAME` to preselect the billing group, `--output PATH` for the
+opencode config, and `--yes` to overwrite without asking.
 
 `run` drives opencode by default (it supervises `opencode serve`). `run
 --backend acp --acp-command "<agent>"` drives any ACP agent instead:
@@ -253,9 +278,11 @@ boundary against the agent, which can read any file. Enroll flags:
 
 ### The terminal (off by default)
 
-`/code` can also open a real, interactive shell on the machine — but only
-once you say so. `enroll --allow-terminal` turns it on; without it, every
-`terminal.*` op is refused. Turning it on means exactly this: **anyone who
+`/code` can also open a real, interactive shell on the machine, but only
+when both sides say so. The machine must be enrolled with `--allow-terminal`
+(without it, every terminal request is refused), and the deployment must set
+`CODE_TERMINAL_ENABLED=true` (off by default). Opening a terminal also needs a
+sign-in to Cerea within the last 12 hours. Turning it on means exactly this: **anyone who
 controls your Cerea session can run commands as you on this machine.**
 There is no model and no permission rule standing in the way once a
 terminal is open — it is strictly more power than auto-accept, which only
@@ -323,7 +350,7 @@ cannot filter on exit code, so it restarts once, finds the machine id marked
 revoked, and exits 0 to end the loop — `launchctl kickstart` the job after
 re-enrolling.
 
-## The state directory, and migrating from a pre-galopin install
+## The state directory
 
 Credentials and everything else galopin writes on its own behalf —
 `credentials.json` (carries the shim secret), `machine-id`, `policy.json`,
@@ -340,15 +367,6 @@ itself cannot rewrite.
 emptied on every (re)start: opencode is a Bun binary that extracts its
 native libraries (~5 MB) into TMPDIR on each start and never removes them,
 which on a machine whose `/tmp` is tmpfs slowly fills RAM.
-
-A machine enrolled before this move kept those files beside opencode's own
-config, each name prefixed `pystino-` (`<config-dir>/opencode/pystino-credentials.json`
-and siblings). The first `run`, `enroll` or `serve` after upgrading migrates
-them into `<config-dir>/galopin/` automatically — atomic rename, mode kept,
-one line logged naming what moved — so nobody has to re-enroll just because
-of the rename. An explicit `--creds`/`--state-dir` opts out of the
-migration, and if both directories already have credentials the new one
-wins outright, with nothing overwritten.
 
 ## Removing a machine
 
@@ -370,8 +388,8 @@ wins outright, with nothing overwritten.
 On the machine, with `opencode` on the PATH and `galopin` installed:
 
 ```bash
-galopin enroll --issuer https://llm.example.org/authelia \
-  --gateway https://llm.example.org --cerea https://llm.example.org/chat
+galopin enroll --issuer https://cerea.example.org/authelia \
+  --gateway https://cerea.example.org --cerea https://cerea.example.org/chat
 galopin run
 ```
 
