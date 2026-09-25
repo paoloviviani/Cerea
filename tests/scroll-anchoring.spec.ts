@@ -7,7 +7,7 @@
  * padding, the anchor latch — that only the full page exercises.
  */
 import type { Page } from "playwright/test";
-import { test, expect } from "./fixtures.ts";
+import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 
 const CONTAINER = '[aria-label="Conversation messages"]';
 const ANCHOR_OFFSET_PX = 50;
@@ -47,7 +47,7 @@ test("send anchors the sent message and the reply fills reserved space without m
 		finishReason: "stop",
 	});
 	const id = await seedConversation({ title: "Scroll anchoring", messages: TALL_HISTORY });
-	await page.goto(`/conversation/${id.toString()}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${id.toString()}`);
 	await expect(page.getByText("earlier question")).toBeAttached();
 
 	await page.getByPlaceholder("Ask anything").fill("anchor me");
@@ -99,7 +99,7 @@ test("read mode past the reservation, wheel-up stays put, the jump button re-eng
 		finishReason: "stop",
 	});
 	const id = await seedConversation({ title: "Scroll detach", messages: TALL_HISTORY });
-	await page.goto(`/conversation/${id.toString()}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${id.toString()}`);
 	await expect(page.getByText("earlier question")).toBeAttached();
 
 	await page.getByPlaceholder("Ask anything").fill("stream long");
