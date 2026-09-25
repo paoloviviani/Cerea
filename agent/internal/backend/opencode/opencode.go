@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,12 @@ type Config struct {
 	// (opencode has no server-side memory of a session's chosen mode/model
 	// across prompts) across agent restarts.
 	OverlayPath string
+	// TmpDir, if set, is opencode's own TMPDIR, emptied before every start.
+	// opencode is a Bun single-file binary that extracts its native
+	// libraries (~5 MB of .so each start) into TMPDIR and never removes
+	// them; on a machine whose /tmp is tmpfs, a supervisor restarting it
+	// would slowly fill RAM. Nothing else lives there between starts.
+	TmpDir string
 	// StartupTimeout bounds Start's wait for the first health check
 	// (default 30s). A first run on a cold cache can be slower than that;
 	// the integration test overrides it rather than this package assuming
@@ -248,6 +255,22 @@ func (b *Backend) runOnce(ctx context.Context) error {
 		env = os.Environ()
 	}
 	env = append(append([]string{}, env...), "OPENCODE_SERVER_PASSWORD="+b.cfg.Password)
+	if b.cfg.TmpDir != "" {
+		// The previous start's extracted libraries are dead now: clear them.
+		if err := os.RemoveAll(b.cfg.TmpDir); err != nil {
+			return fmt.Errorf("clearing opencode's temp dir: %w", err)
+		}
+		if err := os.MkdirAll(b.cfg.TmpDir, 0o700); err != nil {
+			return fmt.Errorf("creating opencode's temp dir: %w", err)
+		}
+		kept := env[:0]
+		for _, kv := range env {
+			if !strings.HasPrefix(kv, "TMPDIR=") {
+				kept = append(kept, kv)
+			}
+		}
+		env = append(kept, "TMPDIR="+b.cfg.TmpDir)
+	}
 	if b.cfg.ConfigPath != "" {
 		env = append(env, "OPENCODE_CONFIG="+b.cfg.ConfigPath)
 	}

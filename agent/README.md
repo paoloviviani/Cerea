@@ -64,6 +64,11 @@ live in `<config-dir>/galopin/` (`~/.config/galopin` on Linux,
 `~/Library/Application Support/galopin` on macOS). opencode's own config
 keeps its own default, `~/.config/opencode/opencode.json`, unaffected.
 
+`opencode-tmp/` there is opencode's TMPDIR while galopin supervises it,
+emptied on every (re)start: opencode is a Bun binary that extracts its
+native libraries (~5 MB) into TMPDIR on each start and never removes them,
+which on a machine whose `/tmp` is tmpfs slowly fills RAM.
+
 A machine enrolled before this move kept those files beside opencode's own
 config, each name prefixed `pystino-` to avoid colliding with opencode's
 files in that shared directory. The first `run`, `enroll` or `serve` after

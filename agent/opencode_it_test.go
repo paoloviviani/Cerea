@@ -41,6 +41,27 @@ func itFreePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// itTmpDir is a per-test TMPDIR on disk, removed when the test ends.
+// opencode (a Bun binary) extracts ~5 MB of native libraries into TMPDIR on
+// every start and never removes them; on a box whose /tmp is tmpfs, the ITs
+// would otherwise leave that in RAM run after run.
+func itTmpDir(t *testing.T) string {
+	t.Helper()
+	base, err := os.UserCacheDir()
+	if err != nil {
+		base = os.TempDir()
+	}
+	if err := os.MkdirAll(filepath.Join(base, "galopin-it"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(filepath.Join(base, "galopin-it"), "run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // startMockLLM serves the in-process mock OpenAI upstream (internal/mockllm)
 // on port and returns its origin; opencode reaches it over loopback like any
 // provider. Closed in t.Cleanup.
@@ -168,12 +189,16 @@ func TestOpencodeIntegration(t *testing.T) {
 		"XDG_CONFIG_HOME=" + configDir,
 		"XDG_DATA_HOME=" + dataDir,
 		"XDG_CACHE_HOME=" + cacheDir,
+		"TMPDIR=" + itTmpDir(t),
 		"PATH=" + os.Getenv("PATH"),
 	}
 
 	ocBackend := backendopencode.New(backendopencode.Config{
-		ConfigPath:     configPath,
-		Env:            isolatedEnv,
+		ConfigPath: configPath,
+		Env:        isolatedEnv,
+		// The supervisor's own temp dir (what run.go sets for real
+		// machines) overrides the env's TMPDIR and is emptied per start.
+		TmpDir:         filepath.Join(itTmpDir(t), "opencode-tmp"),
 		StartupTimeout: 90 * time.Second,
 		Logf:           t.Logf,
 	})

@@ -10,8 +10,8 @@
  * `agent/` in this checkout.
  */
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -25,12 +25,48 @@ const GO =
 /** The gateway provider id: the agent's free-model filter only admits `pystino/*`. */
 export const MACHINE_MODEL = "pystino/mock-model";
 
+/**
+ * Everything the real-machine specs write (the built binary, machine roots,
+ * galopin's and opencode's TMPDIR) lives on disk under ~/.cache/galopin-e2e,
+ * never in /tmp: /tmp may be tmpfs, and opencode (a Bun binary) extracts
+ * ~5 MB of native libraries into TMPDIR on every start and never removes
+ * them. Each worker process gets its own `run-<pid>` dir, removed when it
+ * exits; dirs left by a worker that was killed are swept on the next run.
+ */
+export const E2E_CACHE_ROOT = join(homedir(), ".cache", "galopin-e2e");
+let scratchDir: string | null = null;
+
+export function e2eScratch(): string {
+	if (scratchDir) return scratchDir;
+	mkdirSync(E2E_CACHE_ROOT, { recursive: true });
+	for (const name of readdirSync(E2E_CACHE_ROOT)) {
+		const pid = /^run-(\d+)$/.exec(name)?.[1];
+		if (pid && !processAlive(Number(pid))) {
+			rmSync(join(E2E_CACHE_ROOT, name), { recursive: true, force: true });
+		}
+	}
+	const dir = join(E2E_CACHE_ROOT, `run-${process.pid}`);
+	mkdirSync(dir, { recursive: true });
+	process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+	scratchDir = dir;
+	return dir;
+}
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return (err as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
 let builtBinary: string | null = null;
 
 export function agentBinary(): string {
 	if (process.env.GALOPIN_BIN) return process.env.GALOPIN_BIN;
 	if (builtBinary) return builtBinary;
-	const out = join(tmpdir(), `galopin-e2e-${process.pid}`);
+	const out = join(e2eScratch(), "galopin");
 	execFileSync(GO, ["build", "-o", out, "."], { cwd: AGENT_SRC, stdio: "pipe" });
 	builtBinary = out;
 	return out;
@@ -92,7 +128,9 @@ export async function startMachine(input: {
 	policy?: MachinePolicy;
 }): Promise<Machine> {
 	const name = input.name ?? `e2e-box-${randomUUID().slice(0, 6)}`;
-	const root = mkdtempSync(join(tmpdir(), "pystino-machine-"));
+	const root = mkdtempSync(join(e2eScratch(), "machine-"));
+	const tmp = join(root, "tmp");
+	mkdirSync(tmp);
 	const workspace = join(root, "repo");
 	mkdirSync(workspace);
 	execFileSync("git", ["init", "-q"], { cwd: workspace });
@@ -204,10 +242,11 @@ export async function startMachine(input: {
 				XDG_CONFIG_HOME: join(home, ".config"),
 				XDG_DATA_HOME: join(home, ".local/share"),
 				XDG_STATE_HOME: join(home, ".local/state"),
+				TMPDIR: tmp,
 				// Shared across runs: opencode installs its provider packages here on first start,
 				// and a cold install per test would dominate the run.
 				XDG_CACHE_HOME:
-					process.env.PYSTINO_E2E_OPENCODE_CACHE ?? join(tmpdir(), "pystino-e2e-opencode-cache"),
+					process.env.PYSTINO_E2E_OPENCODE_CACHE ?? join(E2E_CACHE_ROOT, "opencode-cache"),
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		}

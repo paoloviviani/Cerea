@@ -90,6 +90,7 @@ func TestACPIntegration(t *testing.T) {
 		"XDG_CONFIG_HOME=" + configDir,
 		"XDG_DATA_HOME=" + dataDir,
 		"XDG_CACHE_HOME=" + cacheDir,
+		"TMPDIR=" + itTmpDir(t),
 		"OPENCODE_CONFIG=" + configPath,
 		"PATH=" + os.Getenv("PATH"),
 	}
