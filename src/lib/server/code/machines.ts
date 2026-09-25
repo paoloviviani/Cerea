@@ -260,6 +260,13 @@ export class MachineLink {
 	sessionChildren(args: { sessionId: string }): Promise<{ sessions: Session[] }> {
 		return this.call("session.children", args);
 	}
+	/** The thinking effort sent with this session's prompts (capability `efforts`). */
+	sessionSetEffort(args: {
+		sessionId: string;
+		effort: string | null;
+	}): Promise<{ session: Session }> {
+		return this.call("session.setEffort", args);
+	}
 	/** Roll back to just before a user message (capability `revert`). */
 	sessionRevert(args: { sessionId: string; messageId: string }): Promise<Record<string, never>> {
 		return this.call("session.revert", args);

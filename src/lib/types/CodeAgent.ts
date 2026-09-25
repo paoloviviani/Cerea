@@ -233,6 +233,8 @@ export interface CodeProviderModel {
 	label: string;
 	description?: string;
 	isDefault?: boolean;
+	/** Thinking-effort levels, low to high; absent when the model takes none. */
+	efforts?: string[];
 }
 
 export interface CodeFileChange {
@@ -338,6 +340,8 @@ export interface CodeAgentSession {
 	 */
 	modeId: string | null;
 	modelId: string | null;
+	/** The thinking effort chosen for this session, null for the model's default. */
+	effort?: string | null;
 	/** The session this one was spawned from, when it is a subagent. */
 	parentId?: string | null;
 	/** Its top-level ancestor (itself when it has no parent). */

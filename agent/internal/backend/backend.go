@@ -26,6 +26,9 @@ type Capabilities struct {
 	// changed (opencode: yes, from its per-step snapshots).
 	Revert      bool `json:"revert"`
 	RevertFiles bool `json:"revertFiles"`
+	// Efforts is a per-session thinking effort (session.setEffort), picked
+	// from the model's Efforts: opencode sends it as the prompt's variant.
+	Efforts bool `json:"efforts"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -119,6 +122,12 @@ type Childrener interface {
 type Reverter interface {
 	Revert(ctx context.Context, workspaceDir, sessionID, messageID string) error
 	Unrevert(ctx context.Context, workspaceDir, sessionID string) error
+}
+
+// EffortSetter is the optional "efforts" capability: remember a thinking
+// effort for a session ("" for the model's default), used on every prompt.
+type EffortSetter interface {
+	SetEffort(ctx context.Context, workspaceDir, sessionID, effort string) (Session, error)
 }
 
 // Compactor is the optional "compact" capability: manual context
