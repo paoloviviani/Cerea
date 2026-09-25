@@ -1093,8 +1093,19 @@
 						"opacity-30": isReadOnly,
 						"max-sm:mb-4": focused && isVirtualKeyboard(),
 					}}
-					style:--composer-actions-width={transcriptionEnabled && !loading ? "84px" : "44px"}
+					style:--composer-actions-width={narrowViewport.current
+						? transcriptionEnabled && !loading
+							? "84px"
+							: "44px"
+						: "120px"}
 				>
+					<!-- The pill row's own width cap (ChatInput.svelte) reserves
+					     this much for whatever trailingActions renders. Below `sm`
+					     that is unchanged (send is pinned outside this row
+					     entirely; the mic button when shown adds to the reserve).
+					     At `sm` and up, trailingActions now also carries the
+					     mic/send controls inline (item 2) — too little room here
+					     let the pill row grow wide enough to sit under them. -->
 					{#if ML_ASSISTANT_MODE}
 						<MlAssistantStrip
 							visible={mlStripVisible}
