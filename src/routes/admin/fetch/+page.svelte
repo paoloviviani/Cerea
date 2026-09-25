@@ -141,7 +141,14 @@
 						<span class="flex items-center gap-2">
 							<span class="text-sm font-medium">{meta.title}</span>
 							{#if value === "playwright" && playwrightHealth}
-								{#if playwrightHealth.reachable}
+								{#if playwrightHealth.reason === "not configured"}
+									<span
+										class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+										title="PLAYWRIGHT_WS_ENDPOINT is empty: the stack's fetch profile is off"
+									>
+										Not configured
+									</span>
+								{:else if playwrightHealth.reachable}
 									<span
 										class="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
 									>
