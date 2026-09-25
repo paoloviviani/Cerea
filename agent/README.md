@@ -9,11 +9,8 @@ protocol it speaks is `PROTOCOL.md`, in this same directory.
 
 ## Licensing
 
-This directory is **first-party code under Cerea's EUPL-1.2 `LICENCE`** (the
-one at the repository root), not the Apache-2.0 upstream chat-ui code that
-`LICENSE` covers. It moved here from Pystino's own repository with its
-history preserved (`git log -- agent/`), and its EUPL-1.2 origin travels
-with it.
+galopin is part of Cerea and shares its licence, the Apache License 2.0
+(`LICENSE` at the repository root).
 
 ## Building
 
@@ -67,13 +64,13 @@ veto that only `enroll` can loosen:
   `--no-default-file-deny` drops the defaults).
 - **A terminal**: a real, interactive shell, **off by default**.
   `enroll --allow-terminal` turns it on — and means exactly what it says:
-  *anyone who controls your Cerea session can run commands as you on this
-  machine.* There is no model and no permission rule in the way once a
+  _anyone who controls your Cerea session can run commands as you on this
+  machine._ There is no model and no permission rule in the way once a
   terminal is open, so treat it like handing out shell access, because
   that's what it is. `--max-terminals N` caps how many can be open at once
   (default 8). Enrolling with `--allow-terminal` but not
   `--allow-auto-accept` prints a warning (not a refusal) — you'd be denying
-  the *model* unattended commands while allowing a person a shell anyway.
+  the _model_ unattended commands while allowing a person a shell anyway.
 
 `galopin policy show` prints the current policy in plain words.
 `galopin policy set` can locally **tighten** it without a full re-enroll —

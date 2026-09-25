@@ -23,14 +23,14 @@ your browser.
 
 ## Limits
 
-| | |
-|---|---|
-| Time | 20 seconds per run, then the run is stopped and a fresh interpreter is started |
-| Output | 8,000 characters per stream (stdout, stderr) |
-| Files | 50 MB per file loaded into a run |
-| Memory | the WebAssembly heap; running out raises `MemoryError` |
-| Network | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge |
-| First run | loads the runtime (about 12 MB) once; later runs start immediately |
+|           |                                                                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------------------------- |
+| Time      | 20 seconds per run, then the run is stopped and a fresh interpreter is started                                    |
+| Output    | 8,000 characters per stream (stdout, stderr)                                                                      |
+| Files     | 50 MB per file loaded into a run                                                                                  |
+| Memory    | the WebAssembly heap; running out raises `MemoryError`                                                            |
+| Network   | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge |
+| First run | loads the runtime (about 12 MB) once; later runs start immediately                                                |
 
 ## Installing more packages
 

@@ -430,8 +430,7 @@ knowing before touching the model picker or writing another live check:
 `agent/PROTOCOL.md` (`reports/2026-09-24-thin-agent-protocol.md` is its
 design record) is the wire protocol (binding for both this app and the Go
 agent, `galopin`, which lives in this repository as `agent/` — moved from
-Pystino with its history preserved, first-party code under this repo's own
-`LICENCE`); it replaced paseo (daemon + relay + `@getpaseo` SDK) after
+Pystino with its history preserved; Apache-2.0 like the rest of the repository); it replaced paseo (daemon + relay + `@getpaseo` SDK) after
 `reports/2026-09-23-code-and-architecture-review.md` found paseo's trust
 model un-hardenable (Cerea held an irrevocable capability per machine) and
 its internal API a fast-churning, unsupported import. Coding agents run on

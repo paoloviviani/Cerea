@@ -233,17 +233,17 @@ bundled Authelia's.) Then confirm the machine in the `/code` panel.
 the machine's own `policy.json`. The chat can never loosen them over the
 link: whatever the panel sends, the machine refuses what its policy denies.
 
-| Flag | Default | What it allows |
-|---|---|---|
-| `--allow-terminal` | denied | the `/code` panel may open a real shell on this machine (see below) |
-| `--max-terminals N` | 8 | how many terminals may be open at once |
-| `--allow-auto-accept` | denied | a session may run the model's commands without asking each time |
-| `--workspace-root PATH` | unrestricted | workspaces only under this path (repeatable) |
-| `--allow-free-models` | denied | models from providers other than the gateway's; by default only the gateway's, so spend lands in your account |
-| `--allow-opencode-provider` | denied | opencode's built-in providers stay enabled next to the gateway's |
-| `--no-files` | read-only browsing | no file explorer at all |
-| `--file-deny GLOB` | built-in secret list | redact more files from the explorer (repeatable) |
-| `--no-default-file-deny` | built-in list on | drop the built-in secret list, keeping only `--file-deny`'s |
+| Flag                        | Default              | What it allows                                                                                                |
+| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `--allow-terminal`          | denied               | the `/code` panel may open a real shell on this machine (see below)                                           |
+| `--max-terminals N`         | 8                    | how many terminals may be open at once                                                                        |
+| `--allow-auto-accept`       | denied               | a session may run the model's commands without asking each time                                               |
+| `--workspace-root PATH`     | unrestricted         | workspaces only under this path (repeatable)                                                                  |
+| `--allow-free-models`       | denied               | models from providers other than the gateway's; by default only the gateway's, so spend lands in your account |
+| `--allow-opencode-provider` | denied               | opencode's built-in providers stay enabled next to the gateway's                                              |
+| `--no-files`                | read-only browsing   | no file explorer at all                                                                                       |
+| `--file-deny GLOB`          | built-in secret list | redact more files from the explorer (repeatable)                                                              |
+| `--no-default-file-deny`    | built-in list on     | drop the built-in secret list, keeping only `--file-deny`'s                                                   |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
 `--group NAME` to preselect the billing group, `--output PATH` for the
@@ -286,7 +286,7 @@ sign-in to Cerea within the last 12 hours. Turning it on means exactly this: **a
 controls your Cerea session can run commands as you on this machine.**
 There is no model and no permission rule standing in the way once a
 terminal is open — it is strictly more power than auto-accept, which only
-ever governs the *model's* unattended commands. `enroll` prints a warning
+ever governs the _model's_ unattended commands. `enroll` prints a warning
 (not a refusal) if you pass `--allow-terminal` without
 `--allow-auto-accept`, since that combination denies the model unattended
 commands while still handing a person a shell.
