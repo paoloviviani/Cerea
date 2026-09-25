@@ -42,6 +42,7 @@ galopin enroll   sign in, pick a billing group, write opencode.json,
                  store the refresh credential
 galopin serve    the local refreshing proxy shim alone (opencode with no /code panel)
 galopin run      serve, plus supervise opencode (or an ACP agent) and dial out to Cerea
+galopin policy   show, or locally tighten, this machine's policy.json
 ```
 
 ```sh
@@ -55,11 +56,38 @@ Full flag reference, keeping it running as a systemd user unit or a
 macOS LaunchAgent, revocation and re-enrollment: `docs/agent-machines.md` at
 the Cerea repository root.
 
+## Machine powers: files and a terminal (ADR 0090, PROTOCOL.md §9)
+
+Two more things `/code` can do on an enrolled machine, each behind its own
+veto that only `enroll` can loosen:
+
+- **Files**, read-only, confined to each workspace: on by default
+  (`enroll --no-files` turns it off), with a secret deny list (`.env`,
+  private keys, credentials files — `--file-deny GLOB` extends it,
+  `--no-default-file-deny` drops the defaults).
+- **A terminal**: a real, interactive shell, **off by default**.
+  `enroll --allow-terminal` turns it on — and means exactly what it says:
+  *anyone who controls your Cerea session can run commands as you on this
+  machine.* There is no model and no permission rule in the way once a
+  terminal is open, so treat it like handing out shell access, because
+  that's what it is. `--max-terminals N` caps how many can be open at once
+  (default 8). Enrolling with `--allow-terminal` but not
+  `--allow-auto-accept` prints a warning (not a refusal) — you'd be denying
+  the *model* unattended commands while allowing a person a shell anyway.
+
+`galopin policy show` prints the current policy in plain words.
+`galopin policy set` can locally **tighten** it without a full re-enroll —
+turn files or the terminal off, lower `--max-terminals`, or add a
+`--file-deny` entry — but never loosen it back; loosening always requires
+`enroll` again, since the policy is never writable over the link (§4).
+
 ## State directory
 
 Credentials and every other file galopin writes on its own behalf —
 `credentials.json` (carries the shim secret), `machine-id`, `policy.json`,
-`revoked`, `opencode-overlay.json`, `workspaces.json` and `status.json` —
+`revoked`, `opencode-overlay.json`, `workspaces.json`, `status.json` and
+`audit.log` (terminal opens/closes and policy refusals — never keystrokes,
+output, or file content: the local record Cerea itself cannot rewrite) —
 live in `<config-dir>/galopin/` (`~/.config/galopin` on Linux,
 `~/Library/Application Support/galopin` on macOS). opencode's own config
 keeps its own default, `~/.config/opencode/opencode.json`, unaffected.

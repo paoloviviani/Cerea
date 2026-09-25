@@ -251,6 +251,41 @@ boundary against the agent, which can read any file. Enroll flags:
   tail (`config/prod.yml`);
 - `--no-default-file-deny`: drop the built-in list, keeping only yours.
 
+### The terminal (off by default)
+
+`/code` can also open a real, interactive shell on the machine — but only
+once you say so. `enroll --allow-terminal` turns it on; without it, every
+`terminal.*` op is refused. Turning it on means exactly this: **anyone who
+controls your Cerea session can run commands as you on this machine.**
+There is no model and no permission rule standing in the way once a
+terminal is open — it is strictly more power than auto-accept, which only
+ever governs the *model's* unattended commands. `enroll` prints a warning
+(not a refusal) if you pass `--allow-terminal` without
+`--allow-auto-accept`, since that combination denies the model unattended
+commands while still handing a person a shell.
+
+- `--allow-terminal`: turn the terminal on (default: denied);
+- `--max-terminals N`: cap how many can be open at once (default 8).
+
+A terminal's shell starts in the workspace's own directory and never sees
+galopin's own secrets (the opencode server password, the shim secret, or
+anything shaped like a token or credential) — but once it's running, it is
+an ordinary shell: it is not sandboxed to the workspace the way file
+browsing is.
+
+Once a terminal is allowed, you can locally **tighten** its policy again
+without a full re-enroll:
+
+```sh
+galopin policy show                       # what this machine currently allows
+galopin policy set --no-terminal          # turn it back off
+galopin policy set --max-terminals 2      # lower the cap
+```
+
+`policy set` can only tighten — turn files or the terminal off, lower the
+cap, or add a `--file-deny` entry. Loosening anything back requires
+`enroll` again: the policy is never writable over the link.
+
 ### The permission posture
 
 opencode's permission rules live in the machine's own config. `enroll`
@@ -292,9 +327,14 @@ re-enrolling.
 
 Credentials and everything else galopin writes on its own behalf —
 `credentials.json` (carries the shim secret), `machine-id`, `policy.json`,
-`revoked`, `opencode-overlay.json`, `workspaces.json` and `status.json` —
-live in `<config-dir>/galopin/`. opencode's own config keeps its own
-default, `~/.config/opencode/opencode.json`, unaffected.
+`revoked`, `opencode-overlay.json`, `workspaces.json`, `status.json` and
+`audit.log` — live in `<config-dir>/galopin/`. opencode's own config keeps
+its own default, `~/.config/opencode/opencode.json`, unaffected.
+
+`audit.log` is the local record of terminal opens/closes and policy
+refusals — rotated JSON lines, never a byte of keystrokes, output, or file
+content. It is the one record of a machine's `/code` activity that Cerea
+itself cannot rewrite.
 
 `opencode-tmp/` there is opencode's TMPDIR while galopin supervises it,
 emptied on every (re)start: opencode is a Bun binary that extracts its
