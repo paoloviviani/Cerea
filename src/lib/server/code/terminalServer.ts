@@ -137,7 +137,14 @@ async function checkAuthorized(
 	return { ok: true, userId, deviceId };
 }
 
-const wss = new WebSocketServer({ noServer: true });
+// Well above MAX_INPUT_FRAME_PAYLOAD (16 KiB) plus the binary header (≤42
+// bytes), with slack for a resize JSON message — and well below `ws`'s own
+// 100 MiB default, which would otherwise let a signed-in browser make this
+// process buffer an enormous frame before the application-level payload
+// check (terminalServer.ts's own message handler) ever gets to reject it.
+const MAX_WS_PAYLOAD = 64 * 1024;
+
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
 
 export async function handleTerminalUpgrade(
 	req: IncomingMessage,
@@ -311,15 +318,21 @@ function acceptTerminalConnection(
 	}, PING_INTERVAL_MS);
 
 	const recheckInterval = setInterval(() => {
-		void checkAuthorized({ userId: binding.userId, sessionId, deviceId: binding.deviceId }).then(
-			(result) => {
+		checkAuthorized({ userId: binding.userId, sessionId, deviceId: binding.deviceId })
+			.then((result) => {
 				if (closed) return;
 				if (!result.ok) {
 					audit("terminal.refused");
 					ws.close(4403, "logged out, revoked or unpaired");
 				}
-			}
-		);
+			})
+			.catch((err: unknown) => {
+				// A transient DB error is not "logged out, revoked or
+				// unpaired" — closing on one would drop a live terminal over
+				// a blip Mongo itself will likely recover from before the
+				// next tick. Keep the socket; the next recheck tries again.
+				logger.warn({ err }, "terminal ws: recheck failed");
+			});
 	}, recheckIntervalMs);
 
 	ws.on("pong", () => {

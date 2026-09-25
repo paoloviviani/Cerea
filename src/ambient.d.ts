@@ -43,7 +43,7 @@ declare module "ws" {
 	}
 
 	export class WebSocketServer extends EventEmitter {
-		constructor(options: { noServer: true });
+		constructor(options: { noServer: true; maxPayload?: number });
 		close(callback?: (err?: Error) => void): void;
 		handleUpgrade(
 			request: IncomingMessage,
