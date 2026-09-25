@@ -55,6 +55,16 @@
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
 	import { resolveActiveModel } from "$lib/utils/activeModel";
+	import ModelEffortPicker from "$lib/components/chat/ModelEffortPicker.svelte";
+	import ModelPickerDialog from "$lib/components/ModelPickerDialog.svelte";
+	import TogglePill from "$lib/components/TogglePill.svelte";
+	import { error as errorToast } from "$lib/stores/errors";
+	import {
+		readRecent,
+		withRecent,
+		CODE_RECENT_MODELS_KEY,
+		type PickerModel,
+	} from "$lib/utils/modelEffortPicker";
 	import type {
 		AgentCompactionUpdate,
 		AgentUsageUpdate,
@@ -177,6 +187,19 @@
 	 * what it is called. */
 	let featureCatalog = $state<CodeProviderFeature[] | null>(null);
 
+	// The parent (`AgentView`) never patches the snapshot in place — every
+	// `onchanged()` reassigns `agent` wholesale from a fresh read. Reading
+	// `agent?.provider` straight off that prop would re-run these effects on
+	// EVERY such reassignment, not only ones that actually change the
+	// provider, because the dependency is the `agent` reference itself, not
+	// its `.provider` field. `$derived` breaks that: it recomputes on the
+	// same reassignments, but a same-valued string result does not mark this
+	// effect dirty, so a mode/model/effort/feature apply that leaves the
+	// provider alone leaves these lists (and the model/effort pill they
+	// feed) alone too — no refetch, no loading flash. `cwd` arrives as its
+	// own primitive prop already, so it needs no equivalent wrapper.
+	let provider = $derived(agent?.provider ?? null);
+
 	// Guards the in-flight fetches against a provider swap (the view remounts
 	// per address, so only a same-mount race exists): a stale answer must not
 	// paint over the fresh one. No snapshot yet means no provider known — the
@@ -191,7 +214,6 @@
 	// echoes of the agent's config).
 	let listsToken = 0;
 	$effect(() => {
-		const provider = agent?.provider;
 		if (!provider) return;
 		const token = ++listsToken;
 		modes = null;
@@ -223,7 +245,6 @@
 
 	let featuresToken = 0;
 	$effect(() => {
-		const provider = agent?.provider;
 		if (!provider || !cwd) return;
 		const token = ++featuresToken;
 		featureCatalog = null;
@@ -245,15 +266,46 @@
 		});
 	});
 
+	// A feature toggle's own optimistic value, keyed by feature id: flipped
+	// the instant it is clicked, the same discipline chat's own web-search
+	// and tool-approval pills use (`ChatInput.svelte`'s `toggleWebSearch`).
+	// Mode, model and effort stay snapshot-claimed (below) — those already
+	// change what the agent runs, so waiting for the daemon's word is the
+	// point — but a feature flip has no such ambiguity to wait out, and
+	// waiting was the whole reason it used to reroute through `onchanged()`:
+	// that re-fetches the agent snapshot wholesale (`AgentView.refreshAgent`
+	// replaces `agent` and `features` outright rather than patching them),
+	// which retriggered the models/modes effect above and flashed the
+	// model/effort pill for a change that had nothing to do with it. An
+	// override is dropped once the snapshot's own word agrees (the
+	// reconciling effect below), so a slower refresh from some other cause
+	// (a mode switch, the agent's own poll) still catches up to the truth.
+	let featureOverrides = $state<Record<string, boolean>>({});
+	$effect(() => {
+		let next: Record<string, boolean> | null = null;
+		for (const [id, optimistic] of Object.entries(featureOverrides)) {
+			const reported = features.find((feature) => feature.id === id);
+			if (reported && reported.value === optimistic) {
+				next ??= { ...featureOverrides };
+				delete next[id];
+			}
+		}
+		if (next) featureOverrides = next;
+	});
+
 	// The toggles the composer renders: the snapshot's features (value
-	// claimed) first, then anything the provider lists that the snapshot
-	// is silent on — rendered disabled, because existence is known but a
-	// state is not claimable, and a toggle that cannot show a claimed
-	// value must not take a click.
+	// claimed, an in-flight optimistic flip overriding it) first, then
+	// anything the provider lists that the snapshot is silent on — rendered
+	// disabled, because existence is known but a state is not claimable,
+	// and a toggle that cannot show a claimed value must not take a click.
 	let featurePills = $derived.by(() => {
 		const reported = new Map(features.map((feature) => [feature.id, feature]));
 		const pills: Array<CodeProviderFeature & { reported: boolean }> = [
-			...features.map((feature) => ({ ...feature, reported: true })),
+			...features.map((feature) => ({
+				...feature,
+				value: featureOverrides[feature.id] ?? feature.value,
+				reported: true,
+			})),
 		];
 		for (const feature of featureCatalog ?? []) {
 			if (reported.has(feature.id)) continue;
@@ -263,8 +315,7 @@
 	});
 
 	// One switch in flight at a time; a refusal lands here and the pill
-	// shows it, since the snapshot it labels from never changed. The
-	// feature toggles join the vocabulary: their key is the feature id.
+	// shows it, since the snapshot it labels from never changed.
 	let applying = $state<string | null>(null);
 	let applyFailure = $state<string | null>(null);
 
@@ -297,22 +348,21 @@
 		}
 	}
 
-	/** Flip a provider feature (the auto-accept toggle). Nothing is claimed
-	 * here: the POST is the request, and the pill reads its value from the
-	 * agent snapshot, which `onchanged` re-reads — so the label claims the
-	 * new value only when the refreshed snapshot agrees, and a refusal
-	 * leaves it exactly as the daemon last reported. */
+	/** Flip a provider feature (the auto-accept toggle): optimistic, like
+	 * chat's own toggle pills — claimed at once, rolled back with a toast if
+	 * the daemon refuses. No `onchanged()`: a feature flip does not need the
+	 * whole agent snapshot re-read to know it landed, and re-reading it
+	 * anyway was what flashed the model/effort pill on every auto-accept
+	 * click (see the effects above). */
 	async function applyFeature(feature: { id: string; value: boolean; blockedReason?: string }) {
-		if (applying || feature.blockedReason) return;
-		applying = feature.id;
-		applyFailure = null;
+		if (feature.blockedReason) return;
+		const next = !feature.value;
+		featureOverrides = { ...featureOverrides, [feature.id]: next };
 		try {
-			await setAgentFeature(deviceId, agentId, feature.id, !feature.value);
-			onchanged();
+			await setAgentFeature(deviceId, agentId, feature.id, next);
 		} catch (err) {
-			applyFailure = err instanceof Error ? err.message : "The daemon refused the feature.";
-		} finally {
-			applying = null;
+			featureOverrides = { ...featureOverrides, [feature.id]: feature.value };
+			errorToast.set(err instanceof Error ? err.message : "The daemon refused the feature.");
 		}
 	}
 
@@ -330,13 +380,39 @@
 		return currentModel?.label ?? "Model";
 	});
 
-	/** The effort pill: only for a backend that takes one and a model with levels. */
+	/** The effort submenu inside the model/effort pill: only for a backend
+	 * that takes one and a model with levels — the same guard the old
+	 * standalone Effort pill used, now feeding `ModelEffortPicker`'s
+	 * `efforts` prop instead of a pill of its own. */
 	let effortLevels = $derived(
 		effortsSupported && currentModel?.efforts?.length ? currentModel.efforts : null
 	);
-	let effortLabel = $derived(
-		agent?.effort ? agent.effort.charAt(0).toUpperCase() + agent.effort.slice(1) : "Default"
+
+	// The shared model/effort pill (`ModelEffortPicker.svelte`, the chat
+	// composer's own): the daemon's model list adapted to the picker's
+	// `PickerModel` shape (no logo — the /code catalog carries none), and a
+	// /code-only recency memory so the short list favours what this device's
+	// person actually picks, separate from chat's (`readRecent`/`withRecent`
+	// are the pure parts the pill's own utils module keeps, not chat-only).
+	let pickerModels = $derived<PickerModel[]>(
+		(models ?? []).map((model) => ({
+			id: model.id,
+			name: model.label,
+			description: model.description,
+		}))
 	);
+	let codeRecentIds = $state<string[]>([]);
+	$effect(() => {
+		codeRecentIds = readRecent(globalThis.localStorage, CODE_RECENT_MODELS_KEY);
+	});
+	function rememberCodeModel(id: string) {
+		codeRecentIds = withRecent(codeRecentIds, id);
+		globalThis.localStorage?.setItem(CODE_RECENT_MODELS_KEY, JSON.stringify(codeRecentIds));
+	}
+	/** "More models": the full searchable dialog (`ModelPickerDialog`, shared
+	 * with chat's own "More models"), for a catalog longer than the pill's
+	 * six-row short list. */
+	let modelDialogOpen = $state(false);
 
 	// Below `sm` there is no hover to carry a machine-policy veto's reason, so
 	// a vetoed feature pill there stays tappable (not `disabled`) and opens a
@@ -471,105 +547,52 @@
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
 
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger
-							class={pillClass}
-							disabled={applying === "model"}
-							title="The model this agent runs"
+					<!-- The model/effort pill: the chat composer's own
+					     `ModelEffortPicker`, not a /code-only dropdown — same
+					     look, same short list, same checkmark resolution
+					     (`resolveActiveModel`, above). The daemon's loading and
+					     failure states have no row to render inside an empty
+					     menu, so they stay a plain disabled pill beside it
+					     rather than forcing a fork of the shared menu's
+					     internals for a state chat never has. -->
+					{#if models === null && !modelsFailure}
+						<span class="{pillClass} opacity-60" aria-disabled="true">
+							<span class="max-sm:max-w-12 max-sm:truncate">Loading models…</span>
+						</span>
+					{:else if modelsFailure}
+						<span class="{pillClass} opacity-60" title={modelsFailure}>
+							<span class="max-w-48 truncate max-sm:max-w-20">Could not load models</span>
+						</span>
+					{:else if !models?.length}
+						<span class="{pillClass} opacity-60">
+							<span class="max-sm:max-w-12 max-sm:truncate">The daemon lists no models.</span>
+						</span>
+					{:else}
+						<ModelEffortPicker
+							models={pickerModels}
+							currentId={currentModel?.id ?? agent?.modelId ?? ""}
+							recentIds={codeRecentIds}
+							efforts={effortLevels}
+							effort={agent?.effort ?? undefined}
+							onpickModel={(id) => {
+								rememberCodeModel(id);
+								void applyModel(id);
+							}}
+							onpickEffort={(level) => void applyEffort(level ?? null)}
+							onmore={() => (modelDialogOpen = true)}
+							disabled={applying === "model" || applying === "effort"}
+							triggerClass={pillClass}
 						>
 							<span class="max-w-48 truncate max-sm:max-w-20" title={modelLabel}>{modelLabel}</span>
-							<IconChevronDown class={chevronClass} />
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Portal>
-							<DropdownMenu.Content
-								class="{menuContentClass} scrollbar-custom max-h-64 overflow-y-auto"
-								side="top"
-								align="start"
-								sideOffset={8}
-								trapFocus={false}
-								onCloseAutoFocus={(e) => e.preventDefault()}
-								interactOutsideBehavior="defer-otherwise-close"
-							>
-								{#if models === null && !modelsFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Loading models…
-									</DropdownMenu.Item>
-								{:else if modelsFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Could not load models: {modelsFailure}
-									</DropdownMenu.Item>
-								{:else if !models?.length}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										The daemon lists no models.
-									</DropdownMenu.Item>
-								{:else}
-									{#each models as model (model.id)}
-										<DropdownMenu.Item
-											class={menuItemClass}
-											onSelect={() => void applyModel(model.id)}
-										>
-											<IconCheck
-												class="size-3.5 shrink-0 {model.id === (currentModel?.id ?? null)
-													? 'opacity-100'
-													: 'opacity-0'}"
-											/>
-											<span class="max-w-64 truncate" title={model.description}>
-												{model.label}
-											</span>
-										</DropdownMenu.Item>
-									{/each}
-									{#if modelsHidden > 0}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
-											machine was enrolled without --allow-free-models.
-										</DropdownMenu.Item>
-									{/if}
+							{#snippet footer()}
+								{#if modelsHidden > 0}
+									<div class={menuNoteClass}>
+										{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
+										machine was enrolled without --allow-free-models.
+									</div>
 								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Portal>
-					</DropdownMenu.Root>
-
-					{#if effortLevels}
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger
-								class={pillClass}
-								disabled={applying === "effort"}
-								title="How hard the model thinks"
-								aria-label="Thinking effort"
-							>
-								<span class="whitespace-nowrap"
-									><span class="max-sm:hidden">Effort: </span>{effortLabel}</span
-								>
-								<IconChevronDown class={chevronClass} />
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Content
-									class={menuContentClass}
-									side="top"
-									align="start"
-									sideOffset={8}
-									trapFocus={false}
-									onCloseAutoFocus={(e) => e.preventDefault()}
-									interactOutsideBehavior="defer-otherwise-close"
-								>
-									{#each [null, ...effortLevels] as level (level ?? "default")}
-										<DropdownMenu.Item
-											class={menuItemClass}
-											onSelect={() => void applyEffort(level)}
-										>
-											<IconCheck
-												class="size-3.5 shrink-0 {level === (agent?.effort ?? null)
-													? 'opacity-100'
-													: 'opacity-0'}"
-											/>
-											<span class="whitespace-nowrap"
-												>{level ? level.charAt(0).toUpperCase() + level.slice(1) : "Default"}</span
-											>
-										</DropdownMenu.Item>
-									{/each}
-								</DropdownMenu.Content>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
+							{/snippet}
+						</ModelEffortPicker>
 					{/if}
 
 					<!-- The provider's feature toggles, drawn like chat's own
@@ -618,15 +641,11 @@
 								</DropdownMenu.Portal>
 							</DropdownMenu.Root>
 						{:else}
-							<button
-								type="button"
-								class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors max-sm:h-6 max-sm:gap-0.5 max-sm:px-1.5 {feature.value
-									? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-									: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'} disabled:opacity-60"
-								aria-pressed={feature.value}
-								disabled={applying === feature.id ||
-									!feature.reported ||
-									Boolean(feature.blockedReason)}
+							<TogglePill
+								compact
+								pressed={feature.value}
+								label={feature.label}
+								disabled={!feature.reported || Boolean(feature.blockedReason)}
 								title={feature.blockedReason ??
 									(feature.reported
 										? (feature.description ??
@@ -634,15 +653,16 @@
 										: "Waiting for the daemon's word on this agent")}
 								onclick={() => void applyFeature(feature)}
 							>
-								{#if feature.blockedReason}
-									<LucideShieldOff class="size-3.5" />
-								{:else if feature.value}
-									<LucideShieldCheck class="size-3.5" />
-								{:else}
-									<LucideShield class="size-3.5" />
-								{/if}
-								<span class="max-sm:sr-only">{feature.label}</span>
-							</button>
+								{#snippet icon()}
+									{#if feature.blockedReason}
+										<LucideShieldOff class="size-3.5" />
+									{:else if feature.value}
+										<LucideShieldCheck class="size-3.5" />
+									{:else}
+										<LucideShield class="size-3.5" />
+									{/if}
+								{/snippet}
+							</TogglePill>
 						{/if}
 					{/each}
 					{#each featurePills.filter((feature) => feature.blockedReason && !narrowViewport.current) as feature (feature.id)}
@@ -726,6 +746,21 @@
 		</div>
 	</div>
 </form>
+
+{#if modelDialogOpen}
+	<ModelPickerDialog
+		models={pickerModels}
+		currentId={currentModel?.id ?? agent?.modelId ?? ""}
+		title="Switch model"
+		subtitle="Changes this agent only."
+		onchoose={(id) => {
+			modelDialogOpen = false;
+			rememberCodeModel(id);
+			void applyModel(id);
+		}}
+		onclose={() => (modelDialogOpen = false)}
+	/>
+{/if}
 
 {#snippet sendControl(pinned: boolean)}
 	{#if running}

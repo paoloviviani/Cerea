@@ -13,9 +13,15 @@
  *   settles ("Denied"), and no dots hang;
  * - the auto-accept toggle renders from the agent snapshot's own feature
  *   word, the provider's feature list is read with the agent's working
- *   directory, and a flip posts `{ featureId, value }` while the label only
- *   claims the new value once the refreshed snapshot agrees — the same
- *   never-an-optimistic-splice discipline the mode pill runs on;
+ *   directory, and a click flips it optimistically — the same discipline
+ *   chat's own web-search and tool-approval pills use — posting
+ *   `{ featureId, value }` in the background and rolling back with a toast
+ *   if the daemon refuses. Unlike mode/model/effort (which stay
+ *   snapshot-claimed: those change what the agent runs, so waiting for the
+ *   daemon's word is the point), a feature flip does not need the whole
+ *   agent snapshot re-read to know it landed — and re-reading it anyway
+ *   used to flash the model/effort pill on every click, since the parent
+ *   replaces the snapshot wholesale rather than patching it;
  * - a feature the snapshot is silent on renders but does not take a click:
  *   existence is known from the provider's list, a state is not;
  * - a machine policy veto (`blockedReason`) still ships the toggle, visible
@@ -67,7 +73,10 @@ const permissionDenied = () => ({
 	resolution: "user",
 });
 
-async function installStubs(page: Page, options: { snapshot?: Record<string, unknown> } = {}) {
+async function installStubs(
+	page: Page,
+	options: { snapshot?: Record<string, unknown>; featureFails?: boolean } = {}
+) {
 	const cancelBodies: unknown[] = [];
 	const featureBodies: unknown[] = [];
 	const featureQueries: string[] = [];
@@ -140,11 +149,25 @@ async function installStubs(page: Page, options: { snapshot?: Record<string, unk
 		});
 	});
 
-	// The feature flip: record the body, then answer as the daemon would, so
-	// the refetch the apply triggers reports the applied state.
+	// The feature flip: record the body, then answer as the daemon would. The
+	// apply is optimistic now (no refetch rides on this response), but the
+	// stub still updates its own snapshot so a later, unrelated refresh
+	// would agree with what was already shown.
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}/feature?*`, async (route) => {
 		const body = route.request().postDataJSON() as { featureId: string; value: boolean };
 		featureBodies.push(body);
+		if (options.featureFails) {
+			// A small delay: the flip must be visible as claimed before the
+			// refusal rolls it back, and a same-tick mocked round trip would
+			// let a poll-based assertion miss that entirely.
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			await route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: JSON.stringify({ message: "The daemon refused the feature." }),
+			});
+			return;
+		}
 		const listed = agent.features as Array<Record<string, unknown>>;
 		agent.features = listed.map((feature) =>
 			feature.id === body.featureId ? { ...feature, value: body.value } : feature
@@ -320,7 +343,7 @@ test.describe("the stop control", () => {
 });
 
 test.describe("the auto-accept toggle", () => {
-	test("reads the provider's features with the agent's cwd, flips live, claims on snapshot", async ({
+	test("reads the provider's features with the agent's cwd, and a click flips it optimistically", async ({
 		page,
 	}) => {
 		const h = await installStubs(page);
@@ -337,13 +360,60 @@ test.describe("the auto-accept toggle", () => {
 		expect(h.featureQueries.some((url) => url.includes("cwd=%2Frepo"))).toBe(true);
 
 		await pill.click();
-		await expect
-			.poll(() => h.featureBodies, { timeout: 10_000 })
-			.toEqual([{ featureId: "auto_accept", value: true }]);
 
-		// The label claims the new value only when the refreshed snapshot
-		// agrees — the apply itself never flips anything locally.
-		await expect(pill).toHaveAttribute("aria-pressed", "true", { timeout: 10_000 });
+		// Claimed at once — no wait for a refreshed snapshot, unlike mode or
+		// model. The default `expect` timeout is generous; the point this
+		// pins is that the flip does not depend on the feature POST's
+		// response landing first (`h.featureBodies` is asserted after).
+		await expect(pill).toHaveAttribute("aria-pressed", "true");
+		expect(h.featureBodies).toEqual([{ featureId: "auto_accept", value: true }]);
+	});
+
+	test("a refused flip rolls back and shows a toast, without touching the sibling pills", async ({
+		page,
+	}) => {
+		const h = await installStubs(page, { featureFails: true });
+		await goto(page);
+
+		const pill = page.getByRole("button", { name: "Auto Accept" });
+		const mode = page.getByRole("button", { name: "Plan" });
+		await expect(pill).toHaveAttribute("aria-pressed", "false");
+
+		await pill.click();
+		await expect(pill).toHaveAttribute("aria-pressed", "true");
+
+		// The daemon's refusal rolls the optimistic flip back and surfaces a
+		// toast — the same rollback chat's own toggles use — rather than
+		// leaving the pill claiming a state the server never accepted.
+		await expect(page.getByText("The daemon refused the feature.")).toBeVisible();
+		await expect(pill).toHaveAttribute("aria-pressed", "false");
+		await expect(mode).toBeVisible();
+		expect(h.featureBodies).toEqual([{ featureId: "auto_accept", value: true }]);
+	});
+
+	test("toggling auto-accept does not remount the sibling pills", async ({ page }) => {
+		await installStubs(page);
+		await goto(page);
+
+		const pill = page.getByRole("button", { name: "Auto Accept" });
+		const mode = page.getByRole("button", { name: "Plan" });
+		const model = page.getByRole("button", { name: "Model and effort" });
+		await expect(pill).toBeVisible();
+		await expect(mode).toBeVisible();
+		await expect(model).toBeVisible();
+
+		// A marker written straight onto the live DOM node: a remount tears
+		// the node down and builds a fresh one, which drops anything set on
+		// it directly like this — a prop or text update, the healthy case,
+		// never does.
+		await mode.evaluate((el) => el.setAttribute("data-remount-probe", "1"));
+		await model.evaluate((el) => el.setAttribute("data-remount-probe", "1"));
+
+		await pill.click();
+		await expect(pill).toHaveAttribute("aria-pressed", "true");
+
+		await expect(mode).toHaveAttribute("data-remount-probe", "1");
+		await expect(model).toHaveAttribute("data-remount-probe", "1");
 	});
 
 	test("a feature the snapshot is silent on renders but does not take a click", async ({

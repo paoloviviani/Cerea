@@ -336,15 +336,15 @@ test.describe("owned machine agent: parity", () => {
 		mockOpenAI,
 	}) => {
 		await openSession(page, db, session.sessionId);
-		// The model pill names the backend's default model, not "Model".
-		await expect(page.getByTitle("The model this agent runs")).toContainText("Mock Model", {
-			timeout: 30_000,
-		});
-		const effort = page.getByRole("button", { name: "Thinking effort" });
-		await expect(effort).toContainText("Default");
-		await effort.click();
-		await page.getByRole("menuitem", { name: "High" }).click();
-		await expect(effort).toContainText("High", { timeout: 30_000 });
+		// The model/effort pill — the chat composer's own `ModelEffortPicker`
+		// — names the backend's default model, not "Model".
+		const pill = page.getByRole("button", { name: "Model and effort" });
+		await expect(pill).toContainText("Mock Model", { timeout: 30_000 });
+		await expect(pill).toContainText("Default");
+		await pill.click();
+		await page.getByRole("menuitem", { name: /Effort/ }).click();
+		await page.getByRole("menuitem", { name: "High", exact: true }).click();
+		await expect(pill).toContainText("High", { timeout: 30_000 });
 
 		await mockOpenAI.setDefaultScenario({ content: ["Thought", " hard."], chunkDelayMs: 5 });
 		await send(page, "think about it");
