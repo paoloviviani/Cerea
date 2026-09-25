@@ -23,6 +23,7 @@
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
+	import { browser } from "$app/environment";
 	import { goto } from "$app/navigation";
 	import type {
 		ElicitationAction,
@@ -236,6 +237,39 @@
 	$effect(() => {
 		sidePane.reset();
 		return () => sidePane.reset();
+	});
+
+	// Reattach on reload: the side pane itself is ephemeral UI state
+	// (sidePane.svelte.ts), wiped by the reset above on every mount like
+	// every other view here (Changes, Files) — a full page reload is a
+	// fresh mount. The terminal alone remembers it was open, in
+	// sessionStorage keyed by this agent, and reopens once the device/
+	// policy data terminalOffered depends on has loaded (which the reset
+	// above cannot wait for, since it must always run once regardless).
+	function terminalOpenKey(): string {
+		return `code-terminal-open:${agentId}`;
+	}
+	let terminalRestoreChecked = false;
+	$effect(() => {
+		if (!browser || terminalRestoreChecked || !terminalOffered) return;
+		terminalRestoreChecked = true;
+		if (sessionStorage.getItem(terminalOpenKey()) === "1") {
+			sidePane.openTerminal();
+		}
+	});
+	$effect(() => {
+		// Gated on the restore effect having run at least once: on mount the
+		// pane is briefly closed (the reset effect above) before
+		// terminalOffered's async data arrives, and without this gate that
+		// transient "closed" state would clear the marker before the
+		// restore effect ever got to read it — every reload would look
+		// like a fresh close.
+		if (!browser || !terminalRestoreChecked) return;
+		if (sidePane.open && sidePane.view === "terminal") {
+			sessionStorage.setItem(terminalOpenKey(), "1");
+		} else {
+			sessionStorage.removeItem(terminalOpenKey());
+		}
 	});
 
 	// Tracked on `deviceOffline`, not a one-shot `onMount`: an address can be

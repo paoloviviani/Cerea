@@ -792,16 +792,36 @@ export async function mintTerminalTicket(deviceId: string, terminalId: string): 
 		`${root()}/v1/terminals/${encodeURIComponent(terminalId)}/ticket?device=${encodeURIComponent(deviceId)}`,
 		{ method: "POST", headers: { "content-type": "application/json" }, body: "{}" }
 	);
+	// A body's response stream can only be read once — `response.text()`
+	// below is the one read for this whole function, branch-independent, so
+	// a 401 that isn't the reauth shape still falls through to a normal
+	// CodeApiError instead of crashing on a second read.
+	const text = await response.text();
 	if (response.status === 401) {
+		// The reauth body is a normal superjsonResponse (like every other
+		// success-shaped payload from this forwarder — it's a 401 status
+		// with an ordinary body, not a SvelteKit `error()` throw), so it
+		// needs superjson.parse, not a bare JSON.parse.
 		let code: string | undefined;
 		try {
-			code = (JSON.parse(await response.text()) as { code?: string }).code;
+			code = (superjson.parse(text) as { code?: string }).code;
 		} catch {
-			/* fall through to the generic unwrap failure below */
+			/* not the reauth shape — falls through to the generic failure below */
 		}
 		if (code === "reauth_required") throw new TerminalReauthRequired();
 	}
-	const { ticket } = await unwrap<{ ticket: string }>(response);
+	if (!response.ok) {
+		// Every other non-2xx here is a SvelteKit `error()` throw (plain
+		// JSON `{message}`), same as `unwrap`'s own error branch.
+		let message = text || `The request failed with status ${response.status}.`;
+		try {
+			message = (JSON.parse(text) as { message?: string }).message ?? message;
+		} catch {
+			/* not JSON — the raw text is the best available */
+		}
+		throw new CodeApiError(message, response.status);
+	}
+	const { ticket } = (text ? superjson.parse(text) : null) as { ticket: string };
 	return ticket;
 }
 
