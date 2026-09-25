@@ -16,6 +16,7 @@ import type {
 	FilesListResult,
 	FilesReadResult,
 	FilesStatusResult,
+	Terminal,
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
 import { base } from "$app/paths";
@@ -696,4 +697,144 @@ export async function renameAgent(
 			}
 		)
 	);
+}
+
+// -- the terminal (ADR 0090, PROTOCOL.md §9) ----------------------------------
+
+/** Raised only by `mintTerminalTicket`, when the session's OIDC `auth_time`
+ * is stale or missing (ADR 0090 D6): the UI's cue to send the person
+ * through the existing login (with a return URL) instead of showing a
+ * generic failure. */
+export class TerminalReauthRequired extends Error {
+	constructor() {
+		super("Sign in again to open a terminal.");
+		this.name = "TerminalReauthRequired";
+	}
+}
+
+export async function listWorkspaceTerminals(
+	deviceId: string,
+	workspaceId: string
+): Promise<{ terminals: Terminal[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/terminals?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+export async function openTerminal(
+	deviceId: string,
+	workspaceId: string,
+	input: { cols: number; rows: number; cwd?: string; title?: string }
+): Promise<{ terminal: Terminal }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/terminals?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+			}
+		)
+	);
+}
+
+export async function renameTerminal(
+	deviceId: string,
+	terminalId: string,
+	title: string
+): Promise<{ terminal: Terminal }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/terminals/${encodeURIComponent(terminalId)}/name?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ title }),
+			}
+		)
+	);
+}
+
+export async function closeTerminal(
+	deviceId: string,
+	terminalId: string,
+	force = false
+): Promise<{ ok: true }> {
+	const query = new URLSearchParams({ device: deviceId, ...(force ? { force: "true" } : {}) });
+	return unwrap(
+		await fetch(`${root()}/v1/terminals/${encodeURIComponent(terminalId)}?${query}`, {
+			method: "DELETE",
+		})
+	);
+}
+
+/** The one-time-per-machine "a terminal is a full shell" acknowledgement. */
+export async function acknowledgeTerminal(deviceId: string): Promise<{ ok: true }> {
+	return unwrap(
+		await fetch(`${root()}/v1/terminals/acknowledge?device=${encodeURIComponent(deviceId)}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: "{}",
+		})
+	);
+}
+
+/**
+ * Mints a single-use, 30s terminal connect ticket. Throws
+ * `TerminalReauthRequired` when the session's `auth_time` is stale — the
+ * caller sends the person through `${base}/login?next=<here>` and retries
+ * once they're back, rather than showing this as an ordinary failure.
+ */
+export async function mintTerminalTicket(deviceId: string, terminalId: string): Promise<string> {
+	const response = await fetch(
+		`${root()}/v1/terminals/${encodeURIComponent(terminalId)}/ticket?device=${encodeURIComponent(deviceId)}`,
+		{ method: "POST", headers: { "content-type": "application/json" }, body: "{}" }
+	);
+	// A body's response stream can only be read once — `response.text()`
+	// below is the one read for this whole function, branch-independent, so
+	// a 401 that isn't the reauth shape still falls through to a normal
+	// CodeApiError instead of crashing on a second read.
+	const text = await response.text();
+	if (response.status === 401) {
+		// The reauth body is a normal superjsonResponse (like every other
+		// success-shaped payload from this forwarder — it's a 401 status
+		// with an ordinary body, not a SvelteKit `error()` throw), so it
+		// needs superjson.parse, not a bare JSON.parse.
+		let code: string | undefined;
+		try {
+			code = (superjson.parse(text) as { code?: string }).code;
+		} catch {
+			/* not the reauth shape — falls through to the generic failure below */
+		}
+		if (code === "reauth_required") throw new TerminalReauthRequired();
+	}
+	if (!response.ok) {
+		// Every other non-2xx here is a SvelteKit `error()` throw (plain
+		// JSON `{message}`), same as `unwrap`'s own error branch.
+		let message = text || `The request failed with status ${response.status}.`;
+		try {
+			message = (JSON.parse(text) as { message?: string }).message ?? message;
+		} catch {
+			/* not JSON — the raw text is the best available */
+		}
+		throw new CodeApiError(message, response.status);
+	}
+	const { ticket } = (text ? superjson.parse(text) : null) as { ticket: string };
+	return ticket;
+}
+
+/**
+ * The WebSocket URL for one terminal ticket, built the same base-aware way
+ * the machine link's own endpoint is (ADR 0090 §5): `wss:`/`ws:` swapped in
+ * for the page's own scheme, so it survives `APP_BASE=/chat` and a proxied
+ * `https:` origin without any separate configuration.
+ */
+export function terminalSocketUrl(ticket: string, from?: number): string {
+	const url = new URL(`${base}/api/v2/code/terminal`, location.href);
+	url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+	url.searchParams.set("ticket", ticket);
+	if (from !== undefined) url.searchParams.set("from", String(from));
+	return url.toString();
 }

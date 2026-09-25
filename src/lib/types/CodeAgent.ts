@@ -285,6 +285,10 @@ export interface CodeDevice {
 	createdAt: Date;
 	updatedAt: Date;
 	pairedAt?: Date;
+	/** When the owner acknowledged this machine's terminal warning ("a
+	 * terminal is a full shell on ‹machine›…", ADR 0090 §2.3/§6.2) — once per
+	 * machine, so a later ticket mint for the same device never asks again. */
+	terminalAckAt?: Date;
 }
 
 /** A working directory the daemon serves agents from. Lives on the daemon. */
@@ -359,11 +363,14 @@ export interface CodeAuditEntry {
 	_id: ObjectId;
 	userId: ObjectId;
 	deviceId: ObjectId;
-	/** e.g. "files.raw", "files.refused". */
+	/** e.g. "files.raw", "files.refused", "terminal.open", "terminal.attach",
+	 * "terminal.close", "terminal.refused", "terminal.ticket_failed". */
 	action: string;
 	workspaceId?: string;
 	path?: string;
 	bytes?: number;
+	/** A terminal action's target — never its content or keystrokes. */
+	terminalId?: string;
 	ip?: string;
 	userAgent?: string;
 	at: Date;

@@ -29,9 +29,12 @@ import { randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
-import { codeFilesEnabled } from "$lib/server/codeEnabled";
+import { collections } from "$lib/server/database";
+import { codeFilesEnabled, codeTerminalEnabled } from "$lib/server/codeEnabled";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
+import { sessionAuthFresh } from "$lib/server/code/stepUp";
+import { mintTerminalTicket } from "$lib/server/code/terminalTickets";
 import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
 import { buildHandoffHistory } from "$lib/server/code/handoff";
 import { logger } from "$lib/server/logger";
@@ -67,6 +70,12 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 		method: "GET",
 		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status))?$`),
 	},
+	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/name$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/ticket$`) },
+	{ method: "POST", pattern: /^v1\/terminals\/acknowledge$/ },
+	{ method: "DELETE", pattern: new RegExp(`^v1/terminals/${ID}$`) },
 	{ method: "GET", pattern: /^v1\/agents$/ },
 	{ method: "POST", pattern: /^v1\/agents$/ },
 	{ method: "GET", pattern: /^v1\/providers$/ },
@@ -215,6 +224,34 @@ function toSession(session: Session): CodeAgentSession {
  * wondering where auto-accept went. */
 const AUTO_ACCEPT_VETO_NOTE =
 	"This machine's policy vetoes auto-accept: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
+
+/** The exact fix text for a machine that vetoes terminals — carried on the
+ * disabled Terminal tab (ADR 0090 §2.3), the same idiom as the auto-accept
+ * veto above. */
+const TERMINAL_VETO_NOTE =
+	"This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here.";
+
+/**
+ * The terminal's double veto (ADR 0090 §6.1): the deployment switch first
+ * (404, "not enabled here" — matches `codeFilesEnabled`'s own 404 shape),
+ * then the machine's own policy (403, the exact re-enroll fix, audited as a
+ * refusal). Checked before every terminal.* op this route forwards; galopin
+ * enforces the policy again on its side regardless.
+ */
+async function requireTerminalAllowed(
+	event: Parameters<typeof recordCodeAudit>[0],
+	device: CodeDevice,
+	deviceId: string,
+	scope: { workspaceId?: string; terminalId?: string } = {}
+): Promise<void> {
+	if (!codeTerminalEnabled()) {
+		error(404, "The terminal is not enabled in this deployment.");
+	}
+	if (device.policy?.terminal !== "allowed") {
+		await recordCodeAudit(event, { action: "terminal.refused", deviceId, ...scope });
+		error(403, TERMINAL_VETO_NOTE);
+	}
+}
 
 /** The single feature this deployment offers: opencode's auto-accept,
  * backed directly by `session.setAutoAccept` (spec §8). Absent — the
@@ -388,6 +425,17 @@ export const GET: RequestHandler = async (event) => {
 				});
 			}
 		}
+	}
+
+	// The terminal (ADR 0090, PROTOCOL.md §9): a machine op behind the double
+	// veto (the deployment switch, checked here; the machine's own policy,
+	// checked here and again by galopin) — `requireTerminalAllowed` above.
+	const terminalsListMatch = new RegExp(`^v1/workspaces/(${ID})/terminals$`).exec(path);
+	if (terminalsListMatch) {
+		const workspaceId = decodeURIComponent(terminalsListMatch[1]);
+		await requireTerminalAllowed(event, device, deviceId, { workspaceId });
+		const { terminals } = await callOp(() => link.terminalList({ workspaceId }));
+		return superjsonResponse({ terminals });
 	}
 
 	const workspaceMatch = /^v1\/workspaces\/([^/]+)$/.exec(path);
@@ -598,6 +646,15 @@ const archiveWorkspaceSchema = z.object({
 	force: z.boolean().optional(),
 });
 
+const terminalOpenSchema = z.object({
+	cols: z.number().int().min(1).max(2000),
+	rows: z.number().int().min(1).max(2000),
+	cwd: z.string().trim().max(4096).optional(),
+	title: z.string().trim().max(120).optional(),
+});
+
+const terminalNameSchema = z.object({ title: z.string().trim().min(1).max(120) });
+
 export const POST: RequestHandler = async (event) => {
 	requireCodeAgents(event.locals);
 	requireJsonBody(event.request);
@@ -607,8 +664,82 @@ export const POST: RequestHandler = async (event) => {
 		error(404, "Not available through this endpoint.");
 	}
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
-	const link = new MachineLink(device._id.toString());
+	const deviceId = device._id.toString();
+	const link = new MachineLink(deviceId);
 	const body = await readJson(event.request);
+
+	const terminalOpenMatch = new RegExp(`^v1/workspaces/(${ID})/terminals$`).exec(path);
+	if (terminalOpenMatch) {
+		const workspaceId = decodeURIComponent(terminalOpenMatch[1]);
+		await requireTerminalAllowed(event, device, deviceId, { workspaceId });
+		const parsed = terminalOpenSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { cols, rows, cwd?, title? }.");
+		const { terminal } = await callOp(() => link.terminalOpen({ workspaceId, ...parsed.data }));
+		await recordCodeAudit(event, {
+			action: "terminal.open",
+			deviceId,
+			workspaceId,
+			terminalId: terminal.id,
+		});
+		return superjsonResponse({ terminal });
+	}
+
+	const terminalNameMatch = new RegExp(`^v1/terminals/(${ID})/name$`).exec(path);
+	if (terminalNameMatch) {
+		const terminalId = decodeURIComponent(terminalNameMatch[1]);
+		await requireTerminalAllowed(event, device, deviceId, { terminalId });
+		const parsed = terminalNameSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { title }.");
+		const { terminal } = await callOp(() =>
+			link.terminalRename({ terminalId, title: parsed.data.title })
+		);
+		return superjsonResponse({ terminal });
+	}
+
+	// The terminal connect ticket (ADR 0090 §5, PROTOCOL.md §9.6): minted
+	// only through the ordinary hooks (this route), never at the WebSocket
+	// upgrade itself. Step-up (D6) gates minting on the session's OIDC
+	// auth_time; a stale or missing one answers 401 with a reauth hint
+	// rather than the veto's 403, so the UI can tell "sign in again" apart
+	// from "this machine doesn't allow terminals".
+	const terminalTicketMatch = new RegExp(`^v1/terminals/(${ID})/ticket$`).exec(path);
+	if (terminalTicketMatch) {
+		const terminalId = decodeURIComponent(terminalTicketMatch[1]);
+		await requireTerminalAllowed(event, device, deviceId, { terminalId });
+		if (!(await sessionAuthFresh(event.locals.sessionId))) {
+			await recordCodeAudit(event, { action: "terminal.ticket_failed", deviceId, terminalId });
+			return superjsonResponse(
+				{ code: "reauth_required", message: "Sign in again to open a terminal." },
+				{ status: 401 }
+			);
+		}
+		// `locals.user` is guaranteed by requireCodeAgents (called at the top
+		// of this handler); this re-check is only to satisfy the type checker.
+		if (!event.locals.user) error(401, "Login required");
+		const ticket = mintTerminalTicket({
+			userId: event.locals.user._id.toString(),
+			sessionId: event.locals.sessionId,
+			deviceId,
+			terminalId,
+		});
+		await recordCodeAudit(event, { action: "terminal.ticket_minted", deviceId, terminalId });
+		return superjsonResponse({ ticket });
+	}
+
+	// The one-time-per-machine acknowledgement (ADR 0090 §2.3/§6.2): "a
+	// terminal is a full shell on this machine". Recorded on the device row
+	// so it never asks again for this machine, from any of the owner's
+	// sessions or browsers, and audited — the one required audit action that
+	// isn't otherwise a machine op.
+	if (path === "v1/terminals/acknowledge") {
+		if (!codeTerminalEnabled()) error(404, "The terminal is not enabled in this deployment.");
+		await collections.codeDevices.updateOne(
+			{ _id: device._id },
+			{ $set: { terminalAckAt: new Date() } }
+		);
+		await recordCodeAudit(event, { action: "terminal.acknowledged", deviceId });
+		return superjsonResponse({ ok: true });
+	}
 
 	if (path === "v1/workspaces") {
 		const parsed = workspaceSchema.safeParse(body);
@@ -977,12 +1108,25 @@ export const DELETE: RequestHandler = async (event) => {
 	requireCodeAgents(event.locals);
 	const path = event.params.path ?? "";
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
-	if (!agentMatch) {
+	const terminalMatch = new RegExp(`^v1/terminals/(${ID})$`).exec(path);
+	if (!agentMatch && !terminalMatch) {
 		error(404, "Not available through this endpoint.");
 	}
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
-	const link = new MachineLink(device._id.toString());
-	const sessionId = decodeURIComponent(agentMatch[1]);
+	const deviceId = device._id.toString();
+	const link = new MachineLink(deviceId);
+
+	if (terminalMatch) {
+		const terminalId = decodeURIComponent(terminalMatch[1]);
+		await requireTerminalAllowed(event, device, deviceId, { terminalId });
+		const force = event.url.searchParams.get("force") === "true";
+		await callOp(() => link.terminalClose({ terminalId, ...(force ? { force: true } : {}) }));
+		await recordCodeAudit(event, { action: "terminal.close", deviceId, terminalId });
+		return superjsonResponse({ ok: true });
+	}
+
+	// agentMatch is guaranteed here: the guard above requires one of the two.
+	const sessionId = decodeURIComponent((agentMatch as RegExpExecArray)[1]);
 	await callOp(() => link.sessionDelete({ sessionId }));
 	// The session is gone on the machine; what it was sent goes with it.
 	await deleteAttachments(codeAttachmentKey(device._id.toHexString(), sessionId)).catch((err) =>

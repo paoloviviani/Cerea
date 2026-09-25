@@ -23,6 +23,7 @@
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
+	import { browser } from "$app/environment";
 	import { goto } from "$app/navigation";
 	import type {
 		ElicitationAction,
@@ -77,7 +78,9 @@
 	import HandoffDialog from "./HandoffDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 	import CodeFiles from "./CodeFiles.svelte";
+	import CodeTerminals from "./CodeTerminals.svelte";
 	import IconFolder from "~icons/carbon/folder";
+	import IconTerminal from "~icons/carbon/terminal";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -185,6 +188,22 @@
 		if (lastTurnState === "running" && state !== "running") filesTurnKey += 1;
 		lastTurnState = state;
 	});
+	/** The terminal (ADR 0090 §6.1): the double veto's two halves — the
+	 * deployment switch (hidden entirely when off) and the machine's own
+	 * policy (shown disabled, with the exact re-enroll fix, when off). */
+	let terminalOffered = $derived(
+		page.data.codeTerminalEnabled === true &&
+			codeDeviceList.devices.find((d) => d.id === deviceId)?.machine?.capabilities.terminal === true
+	);
+	let terminalVetoed = $derived(
+		codeDeviceList.devices.find((d) => d.id === deviceId)?.policy?.terminal !== "allowed"
+	);
+	let terminalAcknowledged = $state(false);
+	$effect(() => {
+		terminalAcknowledged = Boolean(
+			codeDeviceList.devices.find((d) => d.id === deviceId)?.terminalAckAt
+		);
+	});
 	let effortsSupported = $derived.by(() => {
 		const caps = codeDeviceList.devices
 			.find((d) => d.id === deviceId)
@@ -218,6 +237,39 @@
 	$effect(() => {
 		sidePane.reset();
 		return () => sidePane.reset();
+	});
+
+	// Reattach on reload: the side pane itself is ephemeral UI state
+	// (sidePane.svelte.ts), wiped by the reset above on every mount like
+	// every other view here (Changes, Files) — a full page reload is a
+	// fresh mount. The terminal alone remembers it was open, in
+	// sessionStorage keyed by this agent, and reopens once the device/
+	// policy data terminalOffered depends on has loaded (which the reset
+	// above cannot wait for, since it must always run once regardless).
+	function terminalOpenKey(): string {
+		return `code-terminal-open:${agentId}`;
+	}
+	let terminalRestoreChecked = false;
+	$effect(() => {
+		if (!browser || terminalRestoreChecked || !terminalOffered) return;
+		terminalRestoreChecked = true;
+		if (sessionStorage.getItem(terminalOpenKey()) === "1") {
+			sidePane.openTerminal();
+		}
+	});
+	$effect(() => {
+		// Gated on the restore effect having run at least once: on mount the
+		// pane is briefly closed (the reset effect above) before
+		// terminalOffered's async data arrives, and without this gate that
+		// transient "closed" state would clear the marker before the
+		// restore effect ever got to read it — every reload would look
+		// like a fresh close.
+		if (!browser || !terminalRestoreChecked) return;
+		if (sidePane.open && sidePane.view === "terminal") {
+			sessionStorage.setItem(terminalOpenKey(), "1");
+		} else {
+			sessionStorage.removeItem(terminalOpenKey());
+		}
 	});
 
 	// Tracked on `deviceOffline`, not a one-shot `onMount`: an address can be
@@ -754,6 +806,23 @@
 					Files
 				</button>
 			{/if}
+			{#if terminalOffered && (workspace?.id ?? workspaceId)}
+				<button
+					type="button"
+					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
+					sidePane.view === 'terminal'
+						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+					disabled={terminalVetoed}
+					onclick={() => sidePane.toggleTerminal()}
+					title={terminalVetoed
+						? "This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here."
+						: "Open a shell on this workspace"}
+				>
+					<IconTerminal class="size-3.5" />
+					Terminal
+				</button>
+			{/if}
 		</div>
 		{#if handedOffFromTitle}
 			<!-- A title-based link, not a fetched one (spec's "keep it simple") —
@@ -856,6 +925,16 @@
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
 					turnKey={filesTurnKey}
+				/>
+			</SidePane>
+		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}
+			<SidePane label="Terminal">
+				<CodeTerminals
+					{deviceId}
+					workspaceId={(workspace?.id ?? workspaceId) as string}
+					machineName={codeDeviceList.devices.find((d) => d.id === deviceId)?.name ??
+						"this machine"}
+					bind:acknowledged={terminalAcknowledged}
 				/>
 			</SidePane>
 		{/if}

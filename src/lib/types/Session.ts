@@ -11,6 +11,16 @@ export interface Session extends Timestamps {
 	expiresAt: Date;
 	admin?: boolean;
 	coupledCookieHash?: string;
+	/**
+	 * The OIDC ID token's `auth_time` claim, captured once at login (never
+	 * updated by a token refresh, which re-proves the *client* to the
+	 * provider but not the person). This is when the person actually
+	 * authenticated — what the terminal's step-up rule reads (ADR 0090 D6):
+	 * minting a terminal ticket needs this within the last 12h, else the
+	 * browser is sent through a fresh login. Absent when the provider omits
+	 * the claim, which counts as stale (never fresh) rather than exempt.
+	 */
+	authTime?: Date;
 
 	oauth?: {
 		token: {
