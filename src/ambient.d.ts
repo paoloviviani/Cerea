@@ -17,7 +17,11 @@ declare module "ws" {
 	export class WebSocket extends EventEmitter {
 		constructor(address: string, options?: { headers?: Record<string, string> });
 		readonly readyState: number;
+		readonly CONNECTING: number;
 		readonly OPEN: number;
+		readonly CLOSING: number;
+		readonly CLOSED: number;
+		binaryType: string;
 		send(data: string | Buffer): void;
 		close(code?: number, reason?: string): void;
 		terminate(): void;
@@ -27,6 +31,12 @@ declare module "ws" {
 		on(event: "pong", listener: (data: Buffer) => void): this;
 		on(event: "close", listener: (code: number, reason: Buffer) => void): this;
 		on(event: "error", listener: (err: Error) => void): this;
+		// `res` is Node's own `http.IncomingMessage` on this event, but only
+		// `statusCode` is used anywhere this shim's callers read it from.
+		on(
+			event: "unexpected-response",
+			listener: (req: unknown, res: { statusCode?: number }) => void
+		): this;
 		on(event: string, listener: (...args: unknown[]) => void): this;
 		off(event: "message", listener: (data: Buffer | string, isBinary: boolean) => void): this;
 		off(event: string, listener: (...args: unknown[]) => void): this;

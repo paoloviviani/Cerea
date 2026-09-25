@@ -261,6 +261,22 @@ export class FakeMachine {
 	}
 
 	/**
+	 * Simulates the shell process exiting on its own (`exit` typed inside
+	 * it, or a killed job) — not a `terminal.close` op, which is Cerea
+	 * asking to end it. A real PTY can exit independent of any request;
+	 * this fake has no real PTY to do that, so a hermetic "the exit state"
+	 * case drives it through here instead.
+	 */
+	exitTerminal(terminalId: string, exitCode: number): void {
+		const t = requireTerminal(this.model, terminalId);
+		t.snapshot = { ...t.snapshot, state: "exited", exitCode };
+		for (const channel of t.viewers.keys()) this.channelTerminal.delete(channel);
+		t.viewers.clear();
+		t.backlog.clear();
+		this.pushNotice({ terminalId }, { kind: "terminal.exit", exitCode });
+	}
+
+	/**
 	 * Appends `data` to a terminal's history and pushes it to every attached
 	 * viewer that has credit, exactly like a script's output or an echoed
 	 * keystroke would arrive from a real PTY. Frames are capped at 32 KiB
@@ -284,21 +300,28 @@ export class FakeMachine {
 		const t = this.model.terminals.get(terminalId);
 		if (!t) return;
 		const viewer = t.viewers.get(channel);
-		const backlog = t.backlog.get(channel);
-		if (!viewer || !backlog || backlog.length === 0) return;
-		const available = TERMINAL_CREDIT_WINDOW - (viewer.sentUpTo - viewer.acked);
-		if (available <= 0) return;
-		const chunk = backlog.subarray(
-			0,
-			Math.min(backlog.length, available, TERMINAL_MAX_OUTPUT_FRAME)
-		);
-		if (chunk.length === 0) return;
-		const offset = viewer.sentUpTo;
-		viewer.sentUpTo += chunk.length;
-		t.backlog.set(channel, backlog.subarray(chunk.length));
-		this.ws.send(
-			encodeBinaryFrame({ kind: BIN_TERM_OUTPUT, channel, offset, payload: Buffer.from(chunk) })
-		);
+		if (!viewer) return;
+		// Drains the whole backlog in as many ≤32 KiB frames as the credit
+		// window allows right now, not just one — a single push (or a single
+		// ack that frees up a lot of room at once) must not need a second,
+		// unrelated trigger to keep draining.
+		for (;;) {
+			const backlog = t.backlog.get(channel);
+			if (!backlog || backlog.length === 0) return;
+			const available = TERMINAL_CREDIT_WINDOW - (viewer.sentUpTo - viewer.acked);
+			if (available <= 0) return;
+			const chunk = backlog.subarray(
+				0,
+				Math.min(backlog.length, available, TERMINAL_MAX_OUTPUT_FRAME)
+			);
+			if (chunk.length === 0) return;
+			const offset = viewer.sentUpTo;
+			viewer.sentUpTo += chunk.length;
+			t.backlog.set(channel, backlog.subarray(chunk.length));
+			this.ws.send(
+				encodeBinaryFrame({ kind: BIN_TERM_OUTPUT, channel, offset, payload: Buffer.from(chunk) })
+			);
+		}
 	}
 
 	/** Simulates ring eviction: content before `newStart` is gone, so a
