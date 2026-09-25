@@ -192,8 +192,7 @@
 	 * policy (shown disabled, with the exact re-enroll fix, when off). */
 	let terminalOffered = $derived(
 		page.data.codeTerminalEnabled === true &&
-			codeDeviceList.devices.find((d) => d.id === deviceId)?.machine?.capabilities.terminal ===
-				true
+			codeDeviceList.devices.find((d) => d.id === deviceId)?.machine?.capabilities.terminal === true
 	);
 	let terminalVetoed = $derived(
 		codeDeviceList.devices.find((d) => d.id === deviceId)?.policy?.terminal !== "allowed"
@@ -899,7 +898,8 @@
 				<CodeTerminals
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
-					machineName={codeDeviceList.devices.find((d) => d.id === deviceId)?.name ?? "this machine"}
+					machineName={codeDeviceList.devices.find((d) => d.id === deviceId)?.name ??
+						"this machine"}
 					bind:acknowledged={terminalAcknowledged}
 				/>
 			</SidePane>

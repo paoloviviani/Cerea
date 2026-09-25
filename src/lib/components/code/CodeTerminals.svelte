@@ -179,8 +179,7 @@
 	>
 		{#each terminals as t (t.id)}
 			<div
-				class="group flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs {activeId ===
-				t.id
+				class="group flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs {activeId === t.id
 					? 'bg-gray-100 dark:bg-gray-800'
 					: 'hover:bg-gray-50 dark:hover:bg-gray-800/60'}"
 			>
@@ -279,7 +278,12 @@
 </div>
 
 {#if showAck}
-	<Modal width="max-w-md" closeButton labelledBy="terminal-ack-title" onclose={() => (showAck = false)}>
+	<Modal
+		width="max-w-md"
+		closeButton
+		labelledBy="terminal-ack-title"
+		onclose={() => (showAck = false)}
+	>
 		<div class="p-6">
 			<div class="mb-4 flex items-center gap-3">
 				<div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger/15">
