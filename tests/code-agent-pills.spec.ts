@@ -8,6 +8,10 @@
  * calls the forwarder's mode/model switch; and the pill only claims the new
  * value after the refreshed snapshot says so — the apply never trusts its
  * own request.
+ *
+ * The model pill is the chat composer's own `ModelEffortPicker`
+ * (`aria-label="Model and effort"`) rather than a /code-only pill named
+ * after the model, since the two composers now share it.
  */
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import superjson from "superjson";
@@ -117,7 +121,9 @@ test("the pills show the snapshot's values and apply a mode switch live", async 
 	// Both pills render inside the prompt box, labelled from the snapshot.
 	const modePill = page.getByRole("button", { name: "Plan" });
 	await expect(modePill).toBeVisible();
-	await expect(page.getByRole("button", { name: "Coder Large" })).toBeVisible();
+	const modelPill = page.getByRole("button", { name: "Model and effort" });
+	await expect(modelPill).toBeVisible();
+	await expect(modelPill).toContainText("Coder Large");
 
 	// The mode menu lists the daemon's modes.
 	await modePill.click();
@@ -138,14 +144,19 @@ test("the pills show the snapshot's values and apply a mode switch live", async 
 test("the model pill lists the provider's models and applies a switch", async ({ page }) => {
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
-	await page.getByRole("button", { name: "Coder Large" }).click();
+	const modelPill = page.getByRole("button", { name: "Model and effort" });
+	await modelPill.click();
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
+
+	// The unsearched short list is the current model alone (no recent picks
+	// yet) — search brings the rest into view, like chat's own picker.
+	await page.getByRole("textbox", { name: "Search models" }).fill("Flash");
 	await expect(menu.getByRole("menuitem", { name: "Coder Flash" })).toBeVisible();
 
 	await menu.getByRole("menuitem", { name: "Coder Flash" }).click();
 	expect(modelBodies).toEqual([{ modelId: "pystino/coder-flash" }]);
 
-	await expect(page.getByRole("button", { name: "Coder Flash" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Coder Large" })).toHaveCount(0);
+	await expect(modelPill).toContainText("Coder Flash");
+	await expect(modelPill).not.toContainText("Coder Large");
 });

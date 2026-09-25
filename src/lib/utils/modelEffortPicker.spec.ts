@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { chatEffort, effortLabel, readRecent, shortList, withRecent } from "./modelEffortPicker";
+import {
+	CODE_RECENT_MODELS_KEY,
+	RECENT_MODELS_KEY,
+	chatEffort,
+	effortLabel,
+	readRecent,
+	shortList,
+	withRecent,
+} from "./modelEffortPicker";
 
 const models = [
 	{ id: "org/alpha", name: "Alpha", description: "Fast and small" },
@@ -49,5 +57,15 @@ describe("recent picks", () => {
 		expect(readRecent({ getItem: () => '["x","y"]' })).toEqual(["x", "y"]);
 		expect(readRecent({ getItem: () => "not json" })).toEqual([]);
 		expect(readRecent(undefined)).toEqual([]);
+	});
+
+	it("reads /code's own key, separate from chat's, when one is given", () => {
+		const store = new Map([
+			[RECENT_MODELS_KEY, '["chat-model"]'],
+			[CODE_RECENT_MODELS_KEY, '["code-model"]'],
+		]);
+		const storage = { getItem: (key: string) => store.get(key) ?? null };
+		expect(readRecent(storage)).toEqual(["chat-model"]);
+		expect(readRecent(storage, CODE_RECENT_MODELS_KEY)).toEqual(["code-model"]);
 	});
 });

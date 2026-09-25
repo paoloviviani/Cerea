@@ -7,10 +7,18 @@ export interface PickerModel {
 	id: string;
 	name: string;
 	description?: string;
+	/** The full "More models" dialog's row logo; the pill's own short list
+	 * never shows one, so callers without one (the /code catalog has none)
+	 * simply omit it. */
+	logoUrl?: string;
 }
 
 export const SHORT_LIST_MAX = 6;
 export const RECENT_MODELS_KEY = "chat.recentModels";
+/** /code's own recent-picks memory: a separate key, since the machine's
+ * model catalog is not the chat deployment's and the two lists should not
+ * reorder one another. */
+export const CODE_RECENT_MODELS_KEY = "code.recentModels";
 
 /**
  * With no query: the current model first, then recent picks still offered,
@@ -53,9 +61,12 @@ export function withRecent(recentIds: string[], id: string): string[] {
 	return [id, ...recentIds.filter((r) => r !== id)].slice(0, SHORT_LIST_MAX);
 }
 
-export function readRecent(storage: Pick<Storage, "getItem"> | undefined): string[] {
+export function readRecent(
+	storage: Pick<Storage, "getItem"> | undefined,
+	key: string = RECENT_MODELS_KEY
+): string[] {
 	try {
-		const raw = storage?.getItem(RECENT_MODELS_KEY);
+		const raw = storage?.getItem(key);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
 	} catch {

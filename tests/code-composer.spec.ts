@@ -159,6 +159,12 @@ async function stubModelPicker(
 	);
 }
 
+/**
+ * The /code composer now shares the chat composer's model/effort pill
+ * (`ModelEffortPicker.svelte`): one control, `aria-label="Model and
+ * effort"`, whatever the model's own label reads as beneath it — not a
+ * pill named after the model, like the /code-only dropdown it replaced.
+ */
 test("the model picker checks the default model when the agent has no explicit choice", async ({
 	page,
 }) => {
@@ -167,16 +173,24 @@ test("the model picker checks the default model when the agent has no explicit c
 
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT_DEFAULT}`);
 
-	const pill = page.getByRole("button", { name: "Coder Large" });
+	const pill = page.getByRole("button", { name: "Model and effort" });
 	await expect(pill).toBeVisible();
+	await expect(pill).toContainText("Coder Large");
 	await pill.click();
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
 
+	// The unsearched short list is the current model alone (no recent picks
+	// yet, exactly like a fresh chat) — search brings the rest into view,
+	// same as the chat picker's own checkmark test. The shared row only
+	// renders a checkmark icon at all for the current model — an
+	// unchecked row carries none, rather than one hidden at opacity 0.
 	const activeRow = menu.getByRole("menuitem", { name: "Coder Large" });
+	await expect(activeRow.locator("svg")).toHaveCount(1);
+
+	await page.getByRole("textbox", { name: "Search models" }).fill("GLM");
 	const otherRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
-	await expect(activeRow.locator("svg").first()).toHaveCSS("opacity", "1");
-	await expect(otherRow.locator("svg").first()).toHaveCSS("opacity", "0");
+	await expect(otherRow.locator("svg")).toHaveCount(0);
 });
 
 test("the model picker checks the agent's explicit model, including a bare (non-prefixed) id", async ({
@@ -187,14 +201,17 @@ test("the model picker checks the agent's explicit model, including a bare (non-
 
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT_EXPLICIT}`);
 
-	const pill = page.getByRole("button", { name: "GLM 5.3 Flash" });
+	const pill = page.getByRole("button", { name: "Model and effort" });
 	await expect(pill).toBeVisible();
+	await expect(pill).toContainText("GLM 5.3 Flash");
 	await pill.click();
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
 
 	const activeRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
+	await expect(activeRow.locator("svg")).toHaveCount(1);
+
+	await page.getByRole("textbox", { name: "Search models" }).fill("Coder");
 	const otherRow = menu.getByRole("menuitem", { name: "Coder Large" });
-	await expect(activeRow.locator("svg").first()).toHaveCSS("opacity", "1");
-	await expect(otherRow.locator("svg").first()).toHaveCSS("opacity", "0");
+	await expect(otherRow.locator("svg")).toHaveCount(0);
 });
