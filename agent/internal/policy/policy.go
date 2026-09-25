@@ -31,6 +31,45 @@ type Policy struct {
 	AutoAccept      AutoAccept `json:"autoAccept"`
 	WorkspaceRoots  []string   `json:"workspaceRoots"`
 	AllowFreeModels bool       `json:"allowFreeModels"`
+	// Files is the /code explorer's read access to workspace files: "read"
+	// (the default, confined and redacted) or "off" (`enroll --no-files`).
+	Files string `json:"files,omitempty"`
+	// FileDeny adds globs to the default secret deny list (`--file-deny`).
+	FileDeny []string `json:"fileDeny,omitempty"`
+	// NoDefaultFileDeny drops the default deny list (`--no-default-file-deny`),
+	// leaving only FileDeny.
+	NoDefaultFileDeny bool `json:"noDefaultFileDeny,omitempty"`
+}
+
+// FilesRead and FilesOff are Policy.Files's two values.
+const (
+	FilesRead = "read"
+	FilesOff  = "off"
+)
+
+// DefaultFileDeny is the secret deny list (PROTOCOL.md §9.4). A "!" entry
+// exempts what the entries before it matched. It is not a boundary against
+// the agent or a terminal; it keeps secrets off screens and out of logs.
+var DefaultFileDeny = []string{
+	".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template", ".envrc",
+	"*.pem", "*.key", "*.p12", "*.pfx", "*.kdbx",
+	"id_rsa*", "id_ecdsa*", "id_ed25519*",
+	".netrc", ".npmrc", ".pypirc", ".git-credentials",
+	".aws/credentials", ".docker/config.json", "*.tfstate", "secrets.y*ml",
+}
+
+// FilesAllowed reports whether the explorer may read this machine's
+// workspace files at all.
+func (p Policy) FilesAllowed() bool { return p.Files != FilesOff }
+
+// EffectiveFileDeny is the deny list in force: the defaults (unless
+// dropped), then the owner's own additions.
+func (p Policy) EffectiveFileDeny() []string {
+	var out []string
+	if !p.NoDefaultFileDeny {
+		out = append(out, DefaultFileDeny...)
+	}
+	return append(out, p.FileDeny...)
 }
 
 // GatewayProviderID is the provider id `enroll` writes into opencode.json
@@ -42,7 +81,7 @@ const GatewayProviderID = "pystino"
 // Default is what a machine with no policy.json at all gets: everything
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
-	return Policy{AutoAccept: AutoAcceptDenied, AllowFreeModels: false}
+	return Policy{AutoAccept: AutoAcceptDenied, AllowFreeModels: false, Files: FilesRead}
 }
 
 // Load reads policy.json, or returns Default() when the file does not
@@ -62,6 +101,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.AutoAccept == "" {
 		p.AutoAccept = AutoAcceptDenied
+	}
+	if p.Files == "" {
+		p.Files = FilesRead
 	}
 	return p, nil
 }

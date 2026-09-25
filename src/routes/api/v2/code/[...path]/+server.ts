@@ -114,6 +114,12 @@ async function callOp<T>(fn: () => Promise<T>): Promise<T> {
 				case "unsupported":
 					error(404, err.message);
 					break;
+				case "conflict":
+					error(409, err.message);
+					break;
+				case "too_large":
+					error(413, err.message);
+					break;
 				default:
 					error(502, err.message);
 			}
