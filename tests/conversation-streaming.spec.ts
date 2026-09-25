@@ -156,7 +156,7 @@ test("a second viewer of a live generation sees it stream and complete", async (
 		timeout: 20_000,
 	});
 	const page2 = await context.newPage();
-	await page2.goto(`/conversation/${convId}`);
+	await page2.goto(`${E2E_APP_BASE}/conversation/${convId}`);
 
 	// It must show partial content and then reach completion, without the starter tab.
 	await expect(page2.locator('[data-message-role="assistant"]').last()).toContainText("word", {
