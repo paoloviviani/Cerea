@@ -79,6 +79,9 @@ export interface Conversation extends Timestamps {
 	 * always-allow default. Settings hold the default; this is per-chat state.
 	 */
 	toolApprovalOverride?: "always-allow" | "manual";
+	/** Thinking effort chosen for this conversation; unset means the user's
+	 * per-model default (`settings.reasoningEffortOverrides`), then the model's. */
+	reasoningEffort?: "low" | "medium" | "high";
 
 	/**
 	 * Spaces this conversation's artifacts have been deployed to, keyed by the

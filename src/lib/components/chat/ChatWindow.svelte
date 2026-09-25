@@ -17,7 +17,6 @@
 	import IconOmni from "$lib/components/icons/IconOmni.svelte";
 	import IconCheap from "$lib/components/icons/IconCheap.svelte";
 	import IconFast from "$lib/components/icons/IconFast.svelte";
-	import CarbonCaretDown from "~icons/carbon/caret-down";
 	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import CarbonDirectionRight from "~icons/carbon/direction-right-01";
 	import IconArrowUp from "~icons/lucide/arrow-up";
@@ -40,7 +39,13 @@
 	} from "$lib/utils/resumeAfterFailure";
 	import { base } from "$app/paths";
 	import ChatMessageColumn from "./ChatMessageColumn.svelte";
-	import ThinkingEffortChip from "./ThinkingEffortChip.svelte";
+	import ModelEffortPicker from "./ModelEffortPicker.svelte";
+	import {
+		chatEffort,
+		readRecent,
+		withRecent,
+		RECENT_MODELS_KEY,
+	} from "$lib/utils/modelEffortPicker";
 	import { browser } from "$app/environment";
 	import SystemPromptModal from "../SystemPromptModal.svelte";
 	import ShareConversationModal from "../ShareConversationModal.svelte";
@@ -93,6 +98,8 @@
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { tap, error as hapticError } from "$lib/utils/haptics";
 	import { page } from "$app/state";
+	import { safeInvalidate } from "$lib/utils/safeInvalidate";
+	import { UrlDependency } from "$lib/types/UrlDependency";
 
 	// Only this conversation's question; the store outlives a navigation by a tick.
 	let questionStore = $derived(firstQuestionFor(page.params.id));
@@ -135,6 +142,8 @@
 		 * setting in either direction.
 		 */
 		autoApproveTools?: boolean;
+		/** This conversation's own thinking effort, when it has chosen one. */
+		conversationEffort?: "low" | "medium" | "high";
 		/** Conversation title, used for the Markdown export heading and filename. */
 		conversationTitle?: string;
 	}
@@ -158,6 +167,7 @@
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
 		autoApproveTools = $bindable(false),
+		conversationEffort,
 		conversationTitle = "",
 	}: Props = $props();
 
@@ -570,6 +580,84 @@
 	// short viewports, and while the recorder replaces the composer: the pill (and
 	// with it the first-run onboarding its CTA relies on) is unmounted then.
 	const convsStore = useConversationsStore();
+
+	// ── The composer's model/effort pill (ModelEffortPicker) ──────────────
+	let pickerModels = $derived(
+		models
+			.filter((m) => !m.unlisted)
+			.map((m) => ({ id: m.id, name: m.displayName ?? m.id, description: m.description }))
+	);
+	let recentIds = $state<string[]>([]);
+	$effect(() => {
+		recentIds = readRecent(globalThis.localStorage);
+	});
+	let modelThinks = $derived(
+		$settings.reasoningOverrides?.[currentModel.id] ?? currentModel.supportsReasoning ?? false
+	);
+	let effortLevels = $derived(modelThinks ? ["low", "medium", "high"] : null);
+	// The conversation's choice, as the page loaded it and as picked since.
+	let pickedEffort = $state<{ value: "low" | "medium" | "high" | null } | null>(null);
+	$effect(() => {
+		void page.params?.id;
+		pickedEffort = null;
+	});
+	let shownEffort = $derived(
+		chatEffort({
+			preset: mlModeOn ? ML_ASSISTANT_EFFORT : undefined,
+			conversation: pickedEffort ? (pickedEffort.value ?? undefined) : conversationEffort,
+			userDefault: $settings.reasoningEffortOverrides?.[currentModel.id],
+		})
+	);
+
+	function rememberModel(id: string) {
+		recentIds = withRecent(recentIds, id);
+		globalThis.localStorage?.setItem(RECENT_MODELS_KEY, JSON.stringify(recentIds));
+	}
+
+	async function pickModel(id: string) {
+		if (requireAuthUser()) return;
+		rememberModel(id);
+		const convId = page.params?.id;
+		if (!convId) {
+			settings.instantSet({ activeModel: id });
+			return;
+		}
+		const response = await fetch(`${base}/conversation/${convId}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: id }),
+		});
+		if (!response.ok) {
+			error.set("Could not switch model");
+			return;
+		}
+		await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
+	}
+
+	/** In a conversation, effort is that conversation's; on a new chat it is
+	 * the person's default for this model, which new chats start from. */
+	async function pickEffort(level: string | undefined) {
+		if (requireAuthUser()) return;
+		const value = (level ?? null) as "low" | "medium" | "high" | null;
+		const convId = page.params?.id;
+		if (!convId) {
+			const next = { ...($settings.reasoningEffortOverrides ?? {}) };
+			if (value === null) delete next[currentModel.id];
+			else next[currentModel.id] = value;
+			settings.instantSet({ reasoningEffortOverrides: next });
+			return;
+		}
+		const response = await fetch(`${base}/conversation/${convId}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ reasoningEffort: value }),
+		});
+		if (!response.ok) {
+			error.set("Could not change the effort");
+			return;
+		}
+		pickedEffort = { value };
+	}
 	const shortViewport = new MediaQuery("(max-height: 560px)");
 	const ML_SPOTLIGHT_KEY = "mlInternSpotlightDismissed";
 	// Hidden until the browser has been asked, so SSR and hydration agree.
@@ -1125,13 +1213,19 @@
 							     dialog is a management surface: it sets the *default* and edits
 							     per-model prompts, so reaching it from here meant the only way
 							     to move one conversation was to change every future one. -->
-							<button
-								type="button"
-								onclick={() => {
+							<ModelEffortPicker
+								models={pickerModels}
+								currentId={currentModel.id}
+								{recentIds}
+								efforts={effortLevels}
+								effort={shownEffort}
+								effortPinned={mlModeOn}
+								onpickModel={pickModel}
+								onpickEffort={pickEffort}
+								onmore={() => {
 									if (requireAuthUser()) return;
 									pickerOpen = true;
 								}}
-								class="inline-flex min-w-0 items-center gap-1 hover:underline"
 							>
 								{#if currentModel.isRouter}
 									<IconOmni />
@@ -1172,8 +1266,7 @@
 										</span>
 									{/if}
 								{/if}
-								<CarbonCaretDown class="-ml-0.5 shrink-0 text-xxs" />
-							</button>
+							</ModelEffortPicker>
 						{:else if showRouterDetails && streamingRouterMetadata?.route}
 							<div
 								class="mr-2 flex items-center gap-1.5 text-xs text-[.70rem] leading-none whitespace-nowrap text-gray-400 dark:text-gray-400"
@@ -1207,14 +1300,6 @@
 						<span class="max-sm:hidden"
 							>{publicConfig.PUBLIC_CAVEAT || "Generated content may be inaccurate or false."}</span
 						>
-					{/if}
-					{#if $settings.reasoningOverrides?.[currentModel.id] ?? currentModel.supportsReasoning}
-						<div class="ml-auto">
-							<ThinkingEffortChip
-								modelId={currentModel.id}
-								presetEffort={mlModeOn ? ML_ASSISTANT_EFFORT : undefined}
-							/>
-						</div>
 					{/if}
 				</div>
 			</div>

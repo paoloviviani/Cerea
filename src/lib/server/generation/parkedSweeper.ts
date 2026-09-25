@@ -1,3 +1,4 @@
+import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { randomUUID } from "crypto";
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
@@ -8,7 +9,6 @@ import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { textGeneration } from "$lib/server/textGeneration";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
-import { ML_ASSISTANT_EFFORT } from "$lib/constants/mlAssistant";
 import { waitResumeResultText } from "$lib/server/textGeneration/builtinTools/waitTool";
 import {
 	buildCodeExecutionResolvedUpdate,
@@ -354,9 +354,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 						? mlAssistantProviderFor(model.id, settings?.providerOverrides?.[model.id])
 						: settings?.providerOverrides?.[model.id]
 					: undefined,
-			reasoningEffort: isMlAssistantConversation(conv)
-				? ML_ASSISTANT_EFFORT
-				: settings?.reasoningEffortOverrides?.[model.id],
+			reasoningEffort: effectiveReasoningEffort(conv, settings, model.id),
 			reasoningOverride: settings?.reasoningOverrides?.[model.id],
 			artifactsOverride: settings?.artifactsOverrides?.[model.id],
 			locals,

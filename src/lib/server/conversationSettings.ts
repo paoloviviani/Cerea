@@ -8,6 +8,8 @@ import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 /** The mutable conversation settings both PATCH endpoints expose. */
 export interface ConversationSettingsUpdate {
 	title?: string;
+	/** This conversation's thinking effort; null clears it back to the user default. */
+	reasoningEffort?: "low" | "medium" | "high" | null;
 	model?: string;
 	/**
 	 * Knowledge bases attached to the conversation, replacing the previous
@@ -75,6 +77,12 @@ export async function applyConversationSettings(
 			toolApprovalOverride: values.toolApprovalOverride,
 		}),
 	};
+
+	if (values.reasoningEffort === null) {
+		await collections.conversations.updateOne(filter, { $unset: { reasoningEffort: "" } });
+	} else if (values.reasoningEffort !== undefined) {
+		Object.assign(updateValues, { reasoningEffort: values.reasoningEffort });
+	}
 
 	if (values.model === undefined) {
 		return collections.conversations.updateOne(filter, { $set: updateValues });
