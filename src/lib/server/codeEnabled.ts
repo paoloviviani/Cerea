@@ -25,3 +25,15 @@ export function codeAgentsEnabled(): boolean {
 export function codeFilesEnabled(): boolean {
 	return codeAgentsEnabled() && config.CODE_FILES_ENABLED !== "false";
 }
+
+/**
+ * The /code terminal (ADR 0090, PROTOCOL.md §9): the deployment half of the
+ * double veto. Off unless explicitly `"true"` — the opposite default from
+ * `codeFilesEnabled`, because a terminal is a full remote shell (D6/D7),
+ * not a read-only view. The other half is each machine's own policy
+ * (`--allow-terminal`), checked separately wherever a terminal op is
+ * forwarded.
+ */
+export function codeTerminalEnabled(): boolean {
+	return codeAgentsEnabled() && config.CODE_TERMINAL_ENABLED === "true";
+}

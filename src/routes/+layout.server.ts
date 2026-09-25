@@ -11,7 +11,7 @@
  * the link and nothing else — the panel's own gate still decides.
  */
 import { callerIdentity } from "$lib/server/admin";
-import { codeAgentsEnabled, codeFilesEnabled } from "$lib/server/codeEnabled";
+import { codeAgentsEnabled, codeFilesEnabled, codeTerminalEnabled } from "$lib/server/codeEnabled";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -24,5 +24,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		codeAgentsEnabled: codeAgentsEnabled(),
 		// The /code file explorer's deployment switch (the route 404s anyway).
 		codeFilesEnabled: codeFilesEnabled(),
+		// The /code terminal's deployment switch (default off, ADR 0090 §6.1);
+		// the Terminal tab reads it to hide entirely rather than show vetoed.
+		codeTerminalEnabled: codeTerminalEnabled(),
 	};
 };
