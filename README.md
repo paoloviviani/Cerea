@@ -1,180 +1,126 @@
 # Cerea
 
-A chat application over [Pystino](https://github.com/paoloviviani/Pystino),
-the gateway. **A fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui)**,
-merged with its history intact.
+A self-hosted chat for the models your gateway exposes, with knowledge bases,
+artifacts, Python in the browser, and coding agents on your own machines.
 
-## Why a fork, and why this one
+**The name.** _Cerea_ is a Turinese _modo di dire_: a historic, affectionate
+greeting that means both _buongiorno_ and _arrivederci_.
 
-Building a frontend from scratch was tried and abandoned. Of the candidates
-assessed — LibreChat, Thunderbird's Thunderbolt, Open WebUI frozen at its last
-BSD-licensed release, llms.py — chat-ui won on one measurement rather than on
-features: how much of it _duplicates the gateway_.
+![Cerea](docs/assets/cerea.png)
 
-|             | code                  | auth files | accounting | model config |
-| ----------- | --------------------- | ---------- | ---------- | ------------ |
-| **chat-ui** | 2.5 MB / 533 files    | **9**      | **2**      | **7**        |
-| LibreChat   | 35.7 MB / 3,829 files | 263        | 57         | 379          |
-| Thunderbolt | 5.3 MB / 1,121 files  | 119        | 17         | 35           |
+## Features
 
-Those three columns are the argument. Pystino owns identity, accounting and
-model access; a fork that ships its own must either be gutted or run in
-parallel, and both cost forever. Upstream chat-ui had already deleted its
-provider-specific code — it speaks **OpenAI-compatible APIs only**, via
-`OPENAI_BASE_URL`, discovering models from `/models`. That is Pystino's `/v1`
-contract verbatim, so there was nothing to gut.
+- **Chat over any model the gateway exposes**, signed in with OIDC; each call
+  carries the person's own token, so quotas and billing are theirs. The stack
+  currently signs the chat and the console in against one provider; to combine
+  several sources of users, federate them in your own IdP (Keycloak,
+  Authentik and the like).
+- **Web search**, run by the model provider through the gateway.
+- **File upload and extraction**: PDFs, Office documents, images and text,
+  read once at upload by the gateway, which can do it inside your deployment.
+- **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no
+  network access.
+- **Knowledge bases and projects**, shareable with people or groups, with an
+  optional project memory ([docs/rag.md](docs/rag.md)).
+- **Python in your browser**, in a WebAssembly sandbox with the scientific and
+  office libraries ([docs/pyodide.md](docs/pyodide.md)).
+- **The `/code` agents panel**: coding agents on your own machines through
+  **galopin**, with a file explorer and, off by default, a browser terminal.
 
-Open WebUI was disqualified on security rather than licence: v0.6.5 is the last
-BSD-3-Clause tag, but **240 of the project's 400 published advisories affect
-it** (4 critical, 108 high), it is 8,348 commits stale, and the licence change
-means those patches cannot be taken.
+## Quick start
 
-Thunderbolt is the more mature project and remains the better answer if a real
-iOS client is ever required — it already carries one, and that is a capability
-this side cannot manufacture. The trade taken here is a PWA instead, plus a
-desktop agent against this app.
+Cerea is deployed as part of a full stack: the chat, the Pystino gateway and
+console, a bundled identity provider, a TLS proxy and the add-ons. The
+**cerea-deploy** repository holds all of it: one `compose.yaml`, a documented
+`.env.example`, and a `./configure` script.
 
-## The one architectural rule, unchanged
-
-This is a **`/v1` client**. It imports nothing from the gateway: no shared
-database, no shared models, no Python package in common. If it ever needs
-something `/v1` does not expose, the fix is a gateway feature with an ADR, not
-an import.
-
-That rule is why upstream's history is merged here rather than snapshotted: the
-whole case for forking _this_ project was staying close to it, and that is only
-true while `git fetch upstream && git merge` keeps working.
-
-## Authentication
-
-**OIDC, and only OIDC.** The gateway's local email+password door (ADR 0043) is
-a development and administration tool; it is off by default
-(`LocalAuthSettings.enabled = False`) and a deployment with a directory should
-leave it off.
-
-chat-ui authenticates against `/v1` with an **OIDC access token**, not an API
-key. `_bearer_principal` resolves it, picks the provider by the unverified
-`iss` claim, verifies against that provider's keys, and produces a principal
-_indistinguishable from a key-authenticated one_ — quotas, model access,
-redaction scoping and the ledger all read the user and the group, and none of
-them cares which credential arrived (ADR 0040, ADR 0051).
-
-Two operational consequences worth knowing before deploying this:
-
-- `GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE` must be set or `/v1` rejects every
-  token — with the same message a bad API key gets, deliberately, so a prober
-  cannot learn that an identity provider exists.
-- **Disabling the local door removes the recovery door.** ADR 0056 records that
-  a local admin adopted by a directory which does not place them in an admin
-  group loses the flag, and that the recovery is the local door. Bootstrap the
-  first provider through `GATEWAY_OIDC__*` env seeding; the console owns every
-  provider after that (ADR 0051).
-
-## Deploying
-
-Deployments live in their own repository, **cerea-deploy**. It holds one
-`compose.yaml`, a documented `.env.example`, and `./configure`, which writes
-`.env` for you. It runs the whole stack: this chat, the Pystino gateway and
-console, the bundled Authelia, Caddy, and the add-ons.
-
-```bash
+```sh
 git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
 ./configure
 docker compose up -d
 ```
 
-(It is private for now, like this repository: clone it with credentials that
-can read it.) Everything is readable before anything runs. `./configure`
-mints every secret into `.env` (mode 0600), and `./configure --check` says
-what is wrong with an install. Upgrading is `git pull`, then
-`docker compose pull` and `docker compose up -d`: the image versions are
-pinned in its `compose.yaml`, so nobody types one.
+It also covers a chat-only install, against a central Pystino gateway
+(`--preset satellite`) or any OpenAI-compatible endpoint (`--preset generic`).
 
-The same repository covers a chat-only install, with no gateway on the box:
+## Configuration
 
-- **Against a Pystino gateway**, the _satellite_ preset:
-  `./configure --preset satellite --central-url https://llm.example.org`. The
-  chat uses the gateway's `/v1` and signs in against its identity provider.
-  Every call carries the signed-in person's own token, and no key is stored on
-  the box (one is refused, because it would bill a whole site to one account).
-- **Against any OpenAI-compatible endpoint** (`--preset generic`, with the key
-  passed through `--upstream-api-key-env`): one shared key, with user-token
-  mode forced off (it would send the person's IdP token to a third party). A
-  bundled Authelia handles sign-in unless you bring your own OIDC provider.
+Cerea reads its settings from the environment. The ones that matter most:
 
-**Development:** cerea-deploy's `dev/build.sh` builds the images from Pystino
-and Cerea sources (`--cerea-ref <branch or commit>`) and points `.env` at them.
-Installs made by the retired `pystino init`/`cerea init` move over as its
-README describes.
+| Variable                                                                                      | What                                                                        |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `OPENAI_BASE_URL`                                                                             | the OpenAI-compatible API the chat calls (the gateway's `/v1`)              |
+| `USE_USER_TOKEN`                                                                              | `true`: each call carries the signed-in person's own token                  |
+| `OPENID_PROVIDER_URL`, `OPENID_CLIENT_ID`, `OPENID_CLIENT_SECRET`                             | the OIDC sign-in                                                            |
+| `MONGODB_URL`                                                                                 | conversations, settings and pairing records                                 |
+| `CHAT_PG_URL`                                                                                 | PostgreSQL with pgvector, for knowledge-base passages                       |
+| `ORIGIN`, `PUBLIC_ORIGIN`                                                                     | the public URL of the chat, and of the whole site                           |
+| `CHAT_KNOWLEDGE_ENABLED`, `CHAT_MEMORY_ENABLED`, `CHAT_USAGE_ENABLED`, `CHAT_CONSOLE_ENABLED` | feature switches (`true` or empty)                                          |
+| `FETCH_BACKEND`                                                                               | `direct` (default) or `playwright`, the [headless browser](docs/browser.md) |
+| `CODE_AGENTS_ENABLED`, `CODE_TERMINAL_ENABLED`                                                | the `/code` panel, and its browser terminal                                 |
 
-## What this fork adds
+The deployment's full, commented list is cerea-deploy's `.env.example`; `.env`
+here lists every variable the app understands.
 
-Beyond upstream, and the reason it is Pystino-specific rather than a generic
-OpenAI client:
+## Agents
 
-- **Provider-side web search**, billed per search by the gateway (ADR 0058).
-  Upstream removed its own search helpers; the tool passes through the gateway
-  untouched, so this is request shaping rather than a search backend.
-- **File upload wired to the gateway's extraction surface** — `POST /v1/ocr`
-  (ADR 0055), whose local backend runs markitdown with its NLP engine switched
-  off, so a `.docx` or a text-layer PDF never leaves the deployment.
-- **The `/code` Agents panel** (ADR 0089, superseding 0085) — coding agents running on people's
-  own machines, driven from the sidebar. `galopin` (`agent/`, first-party
-  code under this repository's own `LICENCE`) on the machine dials out to
-  the chat over WSS with its own OIDC credential; Cerea stores nothing but
-  the pairing record. Off unless `CODE_AGENTS_ENABLED=true`
-  (`./configure --agents` in cerea-deploy). See
-  [docs/code-panel.md](docs/code-panel.md) for deploying it and
-  [docs/agent-machines.md](docs/agent-machines.md) for building, installing
-  and using `galopin` on a machine.
+galopin runs next to the agent on a person's machine, dials out to Cerea with
+its own OIDC credential, and is confirmed by its owner in `/code`. What a
+machine allows (auto-accept, workspace roots, files, the terminal) is fixed on
+the machine at enroll time; the terminal also needs `CODE_TERMINAL_ENABLED=true`
+on the deployment. See [docs/code-panel.md](docs/code-panel.md) (operators),
+[docs/agent-machines.md](docs/agent-machines.md) (users) and
+[agent/PROTOCOL.md](agent/PROTOCOL.md) (the wire protocol).
 
-## Licensing
+## Development
 
-Two licence files, on purpose:
+```sh
+npm ci
+cp .env .env.local        # then set OPENAI_BASE_URL, OPENAI_API_KEY and friends
+npm run dev               # http://localhost:5173
+npm run check && npm run lint
+```
 
-- `LICENSE` — Apache-2.0, upstream chat-ui's, covering the code inherited from
-  it. Not ours to change.
-- `LICENCE` — EUPL-1.2, for first-party additions, per ADR 0001.
+**Tests.** Vitest needs a MongoDB; on a CPU without AVX the in-memory one
+cannot start, so point it at a real one (4.4 works):
 
-The EUPL's compatibility matrix lists Apache-2.0 as upstream-compatible, so a
-combined work may be distributed under the EUPL; keeping both files records
-which half is which rather than asserting one answer over the whole tree.
-Apache-2.0 is OSI-approved, carries no CLA and is not open core, so it clears
-ADR 0001's gate — but the _combination_ is the one licensing question in this
-fork that has not been signed off.
+```sh
+TEST_MONGODB_URL=mongodb://127.0.0.1:27017/ npx vitest run --project=server --project=ssr --no-file-parallelism
+```
 
-## Not carried over
+End-to-end tests: `npx playwright test`, which builds the app and starts its
+own MongoDB. `E2E_APP_PORT`, `E2E_MONGO_PORT` and `E2E_APP_BASE` move them;
+`E2E_SKIP_BUILD=1` reuses an existing `build/`.
 
-The previous first-party attempt — `apps/chat-api` (30 files) and `apps/web`
-(37) — is not here. Its history is on the `archive/monorepo-chat` branch of the
-gateway's repository.
+**The image** fixes SvelteKit's base path at build time, and builds galopin
+too: `docker build --build-arg APP_BASE=/chat -t cerea .`
 
-## Decisions
+**galopin** needs Go 1.24+: `agent/packaging/build-dist.sh ~/galopin-dist`
+writes static Linux and macOS binaries with checksums; `cd agent && go test
+./...` runs its tests.
 
-The decision record is **not here**, and is deliberately never linked: it is
-one numbered series for the whole endeavour, it is private, and a URL into it
-promises a source the reader cannot open. Cite by number — `(ADR 0040)` —
-which resolves wherever the file lives.
+## Upstream
+
+Cerea began as a fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui),
+with its history intact, and is now mostly a hard fork. Upstream changes are
+merged by hand where they fit:
+
+```sh
+git remote add upstream https://github.com/huggingface/chat-ui.git
+git fetch upstream && git merge upstream/main
+```
 
 ## Documentation
 
-- [docs/code-panel.md](docs/code-panel.md) — deploying the `/code` Agents
-  panel: the flags, the machine link, what is stored.
-- [docs/agent-machines.md](docs/agent-machines.md) — pairing a machine, and
-  what the panel does.
-- [docs/pyodide.md](docs/pyodide.md) — client-side Python execution, its
-  sandbox and what it deliberately cannot do.
-- [docs/browser.md](docs/browser.md) — the headless browser behind
-  `FETCH_BACKEND=playwright`, and why it is never published.
-- [docs/rag.md](docs/rag.md) — knowledge bases: what is built and what the
-  decisions were.
-- [docs/desktop.md](docs/desktop.md) — the desktop shell: not started, and the
-  decisions already taken about it.
-- Upstream chat-ui's own documentation is under
-  [docs/source](docs/source) — read it as upstream's, not as this fork's.
+[code-panel](docs/code-panel.md) ·
+[agent-machines](docs/agent-machines.md) · [rag](docs/rag.md) ·
+[pyodide](docs/pyodide.md) · [browser](docs/browser.md) ·
+[PRIVACY](PRIVACY.md). [docs/source](docs/source) is **upstream chat-ui's**
+documentation, kept as upstream wrote it; parts of it do not apply to Cerea.
 
-## The name
+## Contributing, security, licence
 
-**Cerea** — a Turinese _modo di dire_: a historic, affectionate greeting that
-means both _buongiorno_ and _arrivederci_. The gateway keeps the name Pystino;
-this app now has its own.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities,
+[SECURITY.md](SECURITY.md). Cerea is licensed under the
+[Apache License 2.0](LICENSE); [NOTICE](NOTICE) records that it is based on
+huggingface/chat-ui, © Hugging Face.

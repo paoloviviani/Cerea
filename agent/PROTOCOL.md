@@ -72,7 +72,7 @@ We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent 
     - A local `galopin policy set` may only tighten these; loosening needs `enroll`.
   - The policy is reported in `hello` so the UI can explain refusals.
 
-What this achieves against review C4: no capability at rest in Cerea; per-device, per-user authority that ends on revoke (socket closed, machineId tombstoned) or on IdP revocation (≤ one token lifetime); the machine can veto auto-accept and confine workspaces. What it does **not** achieve: while a machine is connected and paired, a compromised Cerea process can still send prompts to it within the machine's policy (the panel is, by design, a remote control). Mitigations beyond that (per-prompt signing by the browser) are out of scope for v1.
+What this achieves: no capability at rest in Cerea; per-device, per-user authority that ends on revoke (socket closed, machineId tombstoned) or on IdP revocation (≤ one token lifetime); the machine can veto auto-accept and confine workspaces. What it does **not** achieve: while a machine is connected and paired, a compromised Cerea process can still send prompts to it within the machine's policy (the panel is, by design, a remote control). Mitigations beyond that (per-prompt signing by the browser) are out of scope for v1.
 
 ## 5. Framing
 

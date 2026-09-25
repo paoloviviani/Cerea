@@ -21,7 +21,7 @@ npm run test         # Run all tests (Vitest)
 ### Against a running stack
 
 ```bash
-set -a; . deploy/.env; set +a          # the gateway's deployment variables
+set -a; . /path/to/cerea-deploy/.env; set +a   # a running stack's variables
 ./scripts/test_projects_live.py        # projects: context, retrieval, memory
 ./scripts/test_attachments_live.py     # a document attachment, extracted once
 ./scripts/test_nav_live.py             # the sidebar tree, and signing out for real
@@ -64,6 +64,46 @@ Two things about running the suites in a container:
 - **`mongodb-memory-server` needs `libcurl4`**, which `node:*-slim` does not
   carry. Without it 49 test _files_ fail to start their in-memory Mongo and
   report as failures that have nothing to do with the code.
+- **If `mongodb-memory-server` dies with `SIGILL`**, the CPU lacks AVX (MongoDB
+  5.0+ needs it). Point the tests at a real MongoDB instead (4.4 works), and
+  run the files serially, because the tests share that database and their
+  clean-up helpers would otherwise wipe each other's collections. Only
+  `TEST_MONGODB_URL` is honoured (not `MONGODB_URL`):
+
+  ```bash
+  TEST_MONGODB_URL=mongodb://127.0.0.1:27017/ npx vitest run --project=server --project=ssr --no-file-parallelism
+  ```
+
+### End-to-end tests (Playwright)
+
+`npx playwright test` builds the app, starts its own MongoDB and drives
+Chromium. The `E2E_*` variables move it: `E2E_APP_PORT`, `E2E_MONGO_PORT`,
+`E2E_DB_NAME`, and `E2E_APP_BASE` for the base path. SvelteKit's base path is
+compiled in, so **a build is per base**: a `build/` made for one base cannot
+serve another. `E2E_SKIP_BUILD=1` serves an existing `build/` as is, which
+must have been built with the same `APP_BASE`; on a small machine, build once
+(`npm run build`) and then run the tests with `E2E_SKIP_BUILD=1`, so the build
+and the browsers do not compete for memory.
+
+## Merging from upstream
+
+Cerea is a fork of huggingface/chat-ui, now mostly a hard fork. Upstream
+changes are merged by hand where they fit:
+
+```bash
+git remote add upstream https://github.com/huggingface/chat-ui.git   # once
+git fetch upstream && git merge upstream/main
+```
+
+- Merge, never rebase: the fork keeps upstream's history intact.
+- Keep upstream's file layout where a file still exists in both, so the next
+  merge stays mechanical. New first-party code goes in new files where it can.
+- HuggingChat-only behaviour stays behind `publicConfig.isHuggingChat`; do not
+  delete it just because this deployment never takes that path, since that
+  turns every later upstream merge into a conflict.
+- Run `npm run check`, `npm run lint` and the tests after a merge, and read the
+  upstream changes to `src/lib/server/models.ts`, auth and the generation path
+  with care: those are where the fork differs most.
 
 ### Running a Single Test
 
@@ -140,12 +180,12 @@ Smart routing via Arch-Router model. Configured with:
 ### Database Collections
 
 - `conversations` - Chat sessions with nested messages
-- `projects` - Groups of conversations sharing standing context (ADR 0062)
+- `projects` - Groups of conversations sharing standing context
 - `users` - User accounts (OIDC-backed)
 - `sessions` - Session data
 - `sharedConversations` - Public share links
 - `settings` - User preferences
-- `codeDevices` - Paired coding-agent machines (ADR 0089). Pairing records
+- `codeDevices` - Paired coding-agent machines. Pairing records
   only: name, the machine's own `machineId`, its OIDC `sub`/`iss`, one owner,
   the backends/policy/credential health it last reported. Nothing
   capability-bearing; a revoked machine stays as a tombstone. No agent state
@@ -154,7 +194,7 @@ Smart routing via Arch-Router model. Configured with:
 
 **The gateway advertises them and this app must read its shape.** Each card on
 `GET /v1/models` carries flat `input_modalities`, `output_modalities` and
-`supported_features` (ADR 0031) — an open set of strings on purpose, because
+`supported_features` — an open set of strings on purpose, because
 the reference provider documents it as "current values include json_mode,
 reasoning and tools" and a boolean per feature would need a migration whenever
 a provider adds one. So `models.ts` matches by membership, not by field.
@@ -176,7 +216,7 @@ Two consequences worth knowing:
   any model through the console's `CapabilityPicker`;
 - **the switches are not gated on advertised support.** The advertised value is
   the default and the switch overrides it — the same judgement the gateway
-  makes about its own catalogue (ADR 0031): a claim rather than a contract,
+  makes about its own catalogue: a claim rather than a contract,
   editable by somebody who has found out otherwise. Gating them is how all four
   came to be invisible. Where switch and catalogue disagree, the row says what
   the gateway said.
@@ -212,8 +252,7 @@ Two things worth knowing:
 - **`providerOverrides` is not in the dialog, and is not a loss.** It picks
   which _HuggingFace Inference Provider_ serves a model — inherited from
   upstream, and meaningless in a gateway deployment, where every call goes to
-  the gateway and which upstream serves a model is the gateway's decision
-  (ADR 0032). Its UI was already hidden behind `isHuggingChat`. The
+  the gateway and which upstream serves a model is the gateway's decision. Its UI was already hidden behind `isHuggingChat`. The
   server-side plumbing is deliberately left in place, because it is live on the
   branch this fork came from.
 
@@ -270,9 +309,9 @@ Three things that follow, all found by running it:
   one purpose, `id_token_hint`. It was previously discarded;
 - **Keycloak answers 400 for an unregistered `post_logout_redirect_uri`**, and
   `post.logout.redirect.uris = +` registers only the _login_ callback — not the
-  app root the browser is sent back to. `deploy/keycloak/setup.sh` sets a
-  wildcard under the published origin instead, which is safe here only because
-  this deployment serves one origin (ADR 0035);
+  app root the browser is sent back to. Register a wildcard under the
+  published origin instead, which is safe only because the deployment serves
+  one origin;
 - **landing on a login prompt afterwards is the proof, not a fault.** The
   browser returns to `/chat/`, which is unauthenticated by then and bounces to
   the provider's login page.
@@ -331,7 +370,7 @@ with `Failed to parse URL from /chat/api/v2/...`. Every manager loads in
 
 ## Projects and knowledge bases
 
-The knowledge pipeline is **ours** since ADR 0070: bases, documents, chunks,
+The knowledge pipeline is **ours**: bases, documents, chunks,
 vectors, sharing and reindexing live in this application — Mongo for the
 things a person names, and a chat-owned Postgres (`CHAT_PG_URL`, pgvector) for
 the passages and vectors. The gateway kept only the two inference services the
@@ -398,7 +437,7 @@ else the first `kind: ocr` model the caller may use. **A deployment with no
 gateway at all skips that chain**: `CHAT_OCR_BASE_URL` (with
 `CHAT_OCR_API_KEY` and a required `CHAT_OCR_MODEL`) makes extraction post to
 `{base}/ocr` directly, which works because Pystino, Mistral and Cortecs serve
-one shape (ADR 0083). Set, it overrides the gateway path rather than falling
+one shape. Set, it overrides the gateway path rather than falling
 back to it, reads PDFs only, and caps a document at 10 MB — the base64 body of
 a 20 MB PDF is ~27 MB and no vendor's limit for it is known. Unset, nothing
 about the above changes. The deployment's own
@@ -427,14 +466,8 @@ knowing before touching the model picker or writing another live check:
 
 ## The /code Agents panel
 
-`agent/PROTOCOL.md` (`reports/2026-09-24-thin-agent-protocol.md` is its
-design record) is the wire protocol (binding for both this app and the Go
-agent, `galopin`, which lives in this repository as `agent/` — moved from
-Pystino with its history preserved, first-party code under this repo's own
-`LICENCE`); it replaced paseo (daemon + relay + `@getpaseo` SDK) after
-`reports/2026-09-23-code-and-architecture-review.md` found paseo's trust
-model un-hardenable (Cerea held an irrevocable capability per machine) and
-its internal API a fast-churning, unsupported import. Coding agents run on
+`agent/PROTOCOL.md` is the wire protocol, binding for both this app and the Go
+agent, `galopin`, which lives in this repository as `agent/`. Coding agents run on
 **the person's own machine**, supervised by one binary that dials **out** to
 this deployment over WSS with its own OIDC credential — no relay, no daemon
 process, nothing capability-bearing at rest in Cerea. `docs/code-panel.md`
@@ -451,7 +484,7 @@ changing the code:
   `globalThis[Symbol.for("cerea.machineUpgrade")]` from `initServer()`
   (`src/lib/server/code/machineServer.ts`). It never reaches
   `hooks/handle.ts` at all.
-- **The bearer is validated locally, never via userinfo (review C1).**
+- **The bearer is validated locally, never via userinfo.**
   `src/lib/server/code/machineAuth.ts`: JWKS from the issuer's discovery doc
   (cached), `iss`/`aud`/`azp`/`exp` checked, `sub` mapped to a Cerea user the
   same way the login callback does. No user → the upgrade is refused with a
@@ -459,10 +492,9 @@ changing the code:
 - **The registry (`src/lib/server/code/machines.ts`) is a plain in-process
   `Map`, lost on restart.** `MachineLink` is cheap to construct for any
   device id — every method looks the live connection up at call time, so a
-  link for an offline machine rejects instantly (`unavailable`), never hangs
-  (review R1). Pairing happens on first `hello` (a `pending` row); a browser
+  link for an offline machine rejects instantly (`unavailable`), never hangs. Pairing happens on first `hello` (a `pending` row); a browser
   confirm flips it to `paired` and pushes a `status` frame down the socket —
-  the fresh human approval review C2 calls for. Revoke tombstones the row
+  a fresh human approval of every new machine. Revoke tombstones the row
   (`status: "revoked"`) rather than deleting it, so a reconnect under the
   same `machineId` is refused.
 - **The browser never reaches the machine directly.** Every call goes to
