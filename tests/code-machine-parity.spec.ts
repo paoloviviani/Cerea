@@ -3,7 +3,8 @@
  * `galopin` supervising a real `opencode serve`, only the LLM and the IdP mocked).
  * Each test pairs its own machine, so a policy set for one never leaks into another.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
@@ -248,6 +249,84 @@ test.describe("owned machine agent: parity", () => {
 				},
 			},
 		],
+	});
+
+	test("files: the explorer lists the real workspace, badges and redacts, and refreshes after a turn", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		const m = await openSession(page, db, session.sessionId);
+		// A committed file then modified, a secret, and a link out of the root.
+		writeFileSync(join(m.workspace, "app.ts"), "export const a = 1;\n");
+		const git = (...args: string[]) =>
+			execFileSync("git", [
+				"-C",
+				m.workspace,
+				"-c",
+				"user.email=e@x",
+				"-c",
+				"user.name=e",
+				...args,
+			]);
+		git("add", "app.ts");
+		git("commit", "-q", "-m", "init");
+		writeFileSync(join(m.workspace, "app.ts"), "export const a = 2;\n");
+		writeFileSync(join(m.workspace, ".env"), "TOKEN=hunter2\n");
+		symlinkSync("/etc/hostname", join(m.workspace, "escape"));
+
+		await page.getByRole("button", { name: "Files" }).click();
+		const tree = page.getByRole("tree", { name: "Workspace files" });
+		await expect(tree).toBeVisible({ timeout: 30_000 });
+		const row = (name: string) => tree.getByRole("button", { name: new RegExp(`^${name}`) });
+		await expect(row("app.ts")).toContainText("M");
+		await expect(row(".env")).toBeVisible();
+		await expect(row(".env").getByLabel("Hidden by this machine's policy")).toBeVisible();
+
+		// Opening a file shows its content; the secret shows why it does not.
+		await row("app.ts").click();
+		await expect(page.getByTestId("file-viewer")).toContainText("export const a = 2;", {
+			timeout: 30_000,
+		});
+		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
+		await row(".env").click();
+		await expect(page.getByTestId("code-files")).toContainText("Hidden by this machine's policy");
+		await expect(page.getByTestId("code-files")).not.toContainText("hunter2");
+		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
+		// The link out of the workspace is listed but never read through.
+		await row("escape").click();
+		await expect(page.getByTestId("code-files")).toContainText(/leaves the workspace|forbidden/i, {
+			timeout: 30_000,
+		});
+		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
+
+		// A turn that writes a file: the tree shows it once the turn settles.
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{
+					id: "call_w",
+					name: "bash",
+					arguments: JSON.stringify({
+						command: "echo hi > made-by-agent.txt",
+						description: "write",
+					}),
+				},
+			],
+			toolCallsOnce: true,
+			content: ["Wrote", " it", "."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await send(page, "write a file");
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: "Allow once" }).click();
+		await expect(
+			page.locator('[data-message-role="assistant"]').getByText("Wrote it.")
+		).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(row("made-by-agent.txt")).toBeVisible({ timeout: 30_000 });
 	});
 
 	test("effort: the pill names the real model, and a picked effort reaches the model as reasoning_effort", async ({

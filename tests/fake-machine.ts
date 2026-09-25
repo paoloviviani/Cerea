@@ -29,6 +29,7 @@ import type {
 	SyncResult,
 	Transcript,
 	Workspace,
+	Machine,
 } from "../src/lib/types/machineProtocol";
 
 export interface FakeMachineModel {
@@ -65,6 +66,8 @@ export function emptyModel(): FakeMachineModel {
 export interface FakeMachineOptions {
 	backends?: Backend[];
 	policy?: Policy;
+	/** hello.machine (§9): e.g. { capabilities: { files: true } }. */
+	machine?: Machine;
 	credentialState?: "ok" | "expiring" | "expired";
 	agentVersion?: string;
 	hostname?: string;
@@ -138,6 +141,7 @@ export class FakeMachine {
 				hostname: this.options.hostname ?? "fake-machine",
 			},
 			backends: this.options.backends ?? [DEFAULT_BACKEND],
+			...(this.options.machine ? { machine: this.options.machine } : {}),
 			policy: this.options.policy ?? DEFAULT_POLICY,
 			credential: { state: this.options.credentialState ?? "ok" },
 		};

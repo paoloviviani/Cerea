@@ -296,6 +296,11 @@ Credentials and everything else galopin writes on its own behalf —
 live in `<config-dir>/galopin/`. opencode's own config keeps its own
 default, `~/.config/opencode/opencode.json`, unaffected.
 
+`opencode-tmp/` there is opencode's TMPDIR while galopin supervises it,
+emptied on every (re)start: opencode is a Bun binary that extracts its
+native libraries (~5 MB) into TMPDIR on each start and never removes them,
+which on a machine whose `/tmp` is tmpfs slowly fills RAM.
+
 A machine enrolled before this move kept those files beside opencode's own
 config, each name prefixed `pystino-` (`<config-dir>/opencode/pystino-credentials.json`
 and siblings). The first `run`, `enroll` or `serve` after upgrading migrates
