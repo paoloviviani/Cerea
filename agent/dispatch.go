@@ -10,6 +10,7 @@ import (
 
 	"galopin/internal/backend"
 	"galopin/internal/checkout"
+	"galopin/internal/files"
 	"galopin/internal/link"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
@@ -25,6 +26,7 @@ type machine struct {
 	back       backend.Backend
 	mat        *sessions.Materializer
 	pol        policy.Policy
+	files      *files.Service
 
 	mu                 sync.Mutex
 	sessionWorkspaceID map[string]string // sessionID -> workspace registry id
@@ -36,6 +38,7 @@ func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Ma
 		back:               back,
 		mat:                mat,
 		pol:                pol,
+		files:              files.New(pol.EffectiveFileDeny()),
 		sessionWorkspaceID: map[string]string{},
 	}
 }
@@ -87,6 +90,8 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 // Handle implements link.Handler: PROTOCOL.md §6's whole op table.
 func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
 	switch op {
+	case "files.list", "files.stat", "files.read", "files.status":
+		return mc.opFiles(ctx, op, args)
 	case "workspace.list":
 		return mc.opWorkspaceList()
 	case "workspace.suggest":
@@ -825,4 +830,59 @@ func orEmpty[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+// opFiles answers the read-only explorer's ops (PROTOCOL.md §9.3). They are
+// machine ops: handled before any backend, confined by os.Root to the
+// workspace's directory, and refused outright when the owner enrolled with
+// --no-files.
+func (mc *machine) opFiles(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
+	if !mc.pol.FilesAllowed() {
+		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to browse files here")
+	}
+	var a struct {
+		WorkspaceID string `json:"workspaceId"`
+		Path        string `json:"path"`
+		Ignored     *bool  `json:"ignored"`
+		Offset      int64  `json:"offset"`
+		Length      int64  `json:"length"`
+		As          string `json:"as"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	w, ok := mc.workspaces.Get(a.WorkspaceID)
+	if !ok {
+		return nil, notFound("workspace")
+	}
+	var (
+		res any
+		err error
+	)
+	switch op {
+	case "files.list":
+		res, err = mc.files.List(ctx, w.Path, a.Path, a.Ignored == nil || *a.Ignored)
+	case "files.stat":
+		var e files.Entry
+		e, err = mc.files.Stat(w.Path, a.Path)
+		res = map[string]any{"entry": e}
+	case "files.read":
+		res, err = mc.files.Read(w.Path, a.Path, a.Offset, a.Length, a.As)
+	case "files.status":
+		res, err = mc.files.Status(ctx, w.Path)
+	}
+	if err != nil {
+		return nil, filesErr(err)
+	}
+	return res, nil
+}
+
+func filesErr(err error) *link.OpError {
+	msg := err.Error()
+	for _, code := range []error{files.ErrInvalid, files.ErrForbidden, files.ErrNotFound, files.ErrTooLarge} {
+		if errors.Is(err, code) {
+			return &link.OpError{Code: code.Error(), Message: strings.TrimPrefix(msg, code.Error()+": ")}
+		}
+	}
+	return opErrf("unavailable", "%v", err)
 }
