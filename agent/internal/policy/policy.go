@@ -39,6 +39,14 @@ type Policy struct {
 	// NoDefaultFileDeny drops the default deny list (`--no-default-file-deny`),
 	// leaving only FileDeny.
 	NoDefaultFileDeny bool `json:"noDefaultFileDeny,omitempty"`
+	// Terminal gates every terminal.* op: "allowed" or "denied" (the
+	// default; `enroll --allow-terminal` opens it). ADR 0090: a terminal is
+	// a remote shell with no model and no permission rules in the way, so
+	// it stays off unless the owner explicitly opts in.
+	Terminal string `json:"terminal,omitempty"`
+	// MaxTerminals caps concurrently open terminals per machine (default 8).
+	// terminal.open beyond it answers invalid.
+	MaxTerminals int `json:"maxTerminals,omitempty"`
 }
 
 // FilesRead and FilesOff are Policy.Files's two values.
@@ -46,6 +54,15 @@ const (
 	FilesRead = "read"
 	FilesOff  = "off"
 )
+
+// TerminalAllowed and TerminalDenied are Policy.Terminal's two values.
+const (
+	TerminalAllowed = "allowed"
+	TerminalDenied  = "denied"
+)
+
+// DefaultMaxTerminals is Policy.MaxTerminals's value when unset (PROTOCOL.md §4/§9.3).
+const DefaultMaxTerminals = 8
 
 // DefaultFileDeny is the secret deny list (PROTOCOL.md §9.4). A "!" entry
 // exempts what the entries before it matched. It is not a boundary against
@@ -61,6 +78,18 @@ var DefaultFileDeny = []string{
 // FilesAllowed reports whether the explorer may read this machine's
 // workspace files at all.
 func (p Policy) FilesAllowed() bool { return p.Files != FilesOff }
+
+// TerminalAllowed reports whether this machine permits terminal.* ops at
+// all. Default denied: an owner opts in with `enroll --allow-terminal`.
+func (p Policy) TerminalAllowed() bool { return p.Terminal == TerminalAllowed }
+
+// EffectiveMaxTerminals is p.MaxTerminals, or DefaultMaxTerminals when unset.
+func (p Policy) EffectiveMaxTerminals() int {
+	if p.MaxTerminals <= 0 {
+		return DefaultMaxTerminals
+	}
+	return p.MaxTerminals
+}
 
 // EffectiveFileDeny is the deny list in force: the defaults (unless
 // dropped), then the owner's own additions.
@@ -81,7 +110,7 @@ const GatewayProviderID = "pystino"
 // Default is what a machine with no policy.json at all gets: everything
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
-	return Policy{AutoAccept: AutoAcceptDenied, AllowFreeModels: false, Files: FilesRead}
+	return Policy{AutoAccept: AutoAcceptDenied, AllowFreeModels: false, Files: FilesRead, Terminal: TerminalDenied}
 }
 
 // Load reads policy.json, or returns Default() when the file does not
@@ -104,6 +133,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.Files == "" {
 		p.Files = FilesRead
+	}
+	if p.Terminal == "" {
+		p.Terminal = TerminalDenied
 	}
 	return p, nil
 }

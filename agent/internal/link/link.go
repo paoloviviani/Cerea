@@ -58,6 +58,8 @@ type PolicyInfo struct {
 	AllowFreeModels bool     `json:"allowFreeModels"`
 	Files           string   `json:"files"`
 	FileDeny        []string `json:"fileDeny"`
+	Terminal        string   `json:"terminal"`
+	MaxTerminals    int      `json:"maxTerminals"`
 }
 
 // MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can
@@ -94,6 +96,16 @@ type Handler interface {
 	Handle(ctx context.Context, op string, args json.RawMessage) (result any, opErr *OpError)
 }
 
+// BinaryHandler routes inbound binary frames (PROTOCOL.md §9.2): term.input
+// and term.ack, both C→M. channel is whatever Cerea chose in the
+// terminal.attach that opened it; the handler (internal/terminal via
+// dispatch.go's machine) is what maps a channel back to its terminal.
+// Frames of an unrecognized kind are dropped before ever reaching this
+// (PROTOCOL.md: "unknown kinds are ignored").
+type BinaryHandler interface {
+	HandleBinary(kind byte, channel string, offset uint64, payload []byte)
+}
+
 // Config is everything one Link needs. Defaults are applied by New for
 // zero-valued timeouts/backoff so a caller only sets what it wants to
 // override.
@@ -108,6 +120,10 @@ type Config struct {
 	Cred        Credential
 	Hello       func() Hello
 	Handler     Handler
+	// Binary is consulted for every inbound binary frame (term.input,
+	// term.ack). Left nil on a build/config with no terminal support, in
+	// which case inbound binary frames are simply dropped.
+	Binary BinaryHandler
 
 	// DialTimeout bounds one connection attempt (default 10s, PROTOCOL.md §3).
 	DialTimeout time.Duration
@@ -153,7 +169,7 @@ type Link struct {
 	paired  bool
 	conn    *websocket.Conn
 	connCtx context.Context // valid only while conn != nil; for writes issued from other goroutines
-	writeMu sync.Mutex
+	sched   *scheduler      // the two-lane writer for the current connection; nil when not connected
 }
 
 func New(cfg Config) *Link {
@@ -292,17 +308,21 @@ func (l *Link) runOnce(ctx context.Context) error {
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
 
+	sched := newScheduler(conn)
 	l.mu.Lock()
 	l.conn = conn
 	l.connCtx = connCtx
+	l.sched = sched
 	l.paired = false
 	l.mu.Unlock()
 	defer func() {
 		l.mu.Lock()
 		l.conn = nil
+		l.sched = nil
 		l.paired = false
 		l.mu.Unlock()
 	}()
+	go sched.run(connCtx)
 
 	hello := l.cfg.Hello()
 	if err := l.writeFrame(connCtx, map[string]any{
@@ -391,7 +411,7 @@ func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 		var envelope struct {
 			Type string `json:"type"`
 		}
-		raw, err := l.readRaw(ctx, conn)
+		typ, raw, err := l.readTyped(ctx, conn)
 		if err != nil {
 			var closeErr websocket.CloseError
 			if errors.As(err, &closeErr) {
@@ -406,6 +426,10 @@ func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 				}
 			}
 			return err
+		}
+		if typ == websocket.MessageBinary {
+			l.handleBinaryFrame(raw)
+			continue
 		}
 		if err := json.Unmarshal(raw, &envelope); err != nil {
 			continue // malformed frame: ignore, per PROTOCOL.md §5 forward-compat rule
@@ -501,20 +525,51 @@ func (l *Link) PublishCredentialState(state, detail string) error {
 	return l.writeFrame(ctx, map[string]any{"type": "credential", "state": state, "detail": detail})
 }
 
+// writeFrame marshals v and sends it on the control lane (PROTOCOL.md §9.2:
+// res, event, notice, credential and auth are all control — always drained
+// before any queued term.output stream frame).
 func (l *Link) writeFrame(ctx context.Context, v any) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 	l.mu.Lock()
-	conn := l.conn
+	sched := l.sched
 	l.mu.Unlock()
-	if conn == nil {
+	if sched == nil {
 		return errors.New("link: not connected")
 	}
-	l.writeMu.Lock()
-	defer l.writeMu.Unlock()
-	return conn.Write(ctx, websocket.MessageText, body)
+	return sched.writeControl(ctx, websocket.MessageText, body)
+}
+
+// SendTerminalOutput sends one term.output binary frame on the stream lane
+// (PROTOCOL.md §9.2). payload must already be at most link.MaxOutputFrame;
+// internal/terminal's flushViewer is what guarantees that.
+func (l *Link) SendTerminalOutput(channel string, offset uint64, payload []byte) error {
+	l.mu.Lock()
+	sched := l.sched
+	ctx := l.connCtx
+	l.mu.Unlock()
+	if sched == nil || ctx == nil {
+		return errors.New("link: not connected")
+	}
+	frame, err := EncodeBinaryFrame(BinaryFrame{Kind: BinTermOutput, Channel: channel, Offset: offset, Payload: payload})
+	if err != nil {
+		return err
+	}
+	return sched.writeStream(ctx, websocket.MessageBinary, frame)
+}
+
+// PublishNotice sends a machine-level, lossy notice frame (PROTOCOL.md
+// §9.5): no epoch or seq, never replayed.
+func (l *Link) PublishNotice(scope map[string]string, event any) error {
+	l.mu.Lock()
+	ctx := l.connCtx
+	l.mu.Unlock()
+	if ctx == nil {
+		return errors.New("link: not connected")
+	}
+	return l.writeFrame(ctx, map[string]any{"type": "notice", "scope": scope, "event": event})
 }
 
 func (l *Link) readFrame(ctx context.Context, v any) error {
@@ -534,4 +589,27 @@ func (l *Link) readFrame(ctx context.Context, v any) error {
 func (l *Link) readRaw(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
 	_, raw, err := conn.Read(ctx)
 	return raw, err
+}
+
+func (l *Link) readTyped(ctx context.Context, conn *websocket.Conn) (websocket.MessageType, []byte, error) {
+	return conn.Read(ctx)
+}
+
+// handleBinaryFrame decodes and routes one inbound binary frame
+// (PROTOCOL.md §9.2): term.input and term.ack, both C→M. A malformed
+// header or an unrecognized kind is dropped silently, per spec ("unknown
+// kinds are ignored") — the same forward-compatibility rule unknown JSON
+// frame types get.
+func (l *Link) handleBinaryFrame(raw []byte) {
+	frame, err := DecodeBinaryFrame(raw)
+	if err != nil {
+		return
+	}
+	if frame.Kind != BinTermInput && frame.Kind != BinTermAck {
+		return
+	}
+	if l.cfg.Binary == nil {
+		return
+	}
+	l.cfg.Binary.HandleBinary(frame.Kind, frame.Channel, frame.Offset, frame.Payload)
 }
