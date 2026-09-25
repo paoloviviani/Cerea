@@ -1,14 +1,16 @@
 # The headless browser
 
-The stack's `fetch` profile (Pystino `deploy/stack/compose.yaml`) adds one service: a Playwright
+The stack's `fetch` profile (cerea-deploy's `compose.yaml`) adds one service: a Playwright
 `run-server` with Chromium, Firefox and WebKit behind it, speaking Playwright's
 own WebSocket protocol on port 3000 of the compose network.
 
 **It has a consumer now.** `FETCH_BACKEND=playwright` points the chat's fetch
 seam at it (`src/lib/server/fetching/playwright.ts`, reaching
-`PLAYWRIGHT_WS_ENDPOINT`, default `ws://playwright:3000/`); `direct` is the
-default and plain HTTPS. The `enterprise` preset turns on this profile, the
-others do not. It was deployed ahead of its consumer, which is why much of what
+`PLAYWRIGHT_WS_ENDPOINT`, which cerea-deploy sets to `ws://playwright:3000/`
+only while the `fetch` profile is on). Empty means no renderer is deployed:
+the admin screen then says "Not configured" rather than reporting an error.
+`direct` is the default and plain HTTPS. The `enterprise` preset turns on
+this profile, the others do not. It was deployed ahead of its consumer, which is why much of what
 follows is written as an argument for deploying it at all.
 
 ## What it is for

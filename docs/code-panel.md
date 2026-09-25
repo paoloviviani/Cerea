@@ -21,9 +21,10 @@ beyond the one this deployment already exposes.
 
 ## Turning it on
 
-At install time, `pystino init --agents`; on an existing deployment,
-`./pystino set CODE_AGENTS_ENABLED=true` and `docker compose up -d --wait`.
-The stack side is described in Pystino's `docs/deployment.md`; machines are
+At install time, `./configure --agents` in cerea-deploy. On an existing
+deployment, run `./configure --set CODE_AGENTS_ENABLED=true` and then
+`docker compose up -d`. The stack side is described in cerea-deploy's README.
+Machines are
 set up with `galopin enroll` and `galopin run` (this repository's
 `docs/agent-machines.md`). There is no relay and nothing else to deploy.
 

@@ -13,7 +13,7 @@
  *   service behind it, and changing behaviour for existing deployments on
  *   upgrade would be the wrong way round.
  * - `playwright` — the renderer in this deployment
- *   (the `fetch` profile of the Pystino stack, `deploy/stack/compose.yaml`). Needed because a growing
+ *   (the `fetch` profile of the stack, cerea-deploy's `compose.yaml`). Needed because a growing
  *   share of the web is an empty `<div>` to an HTTP client, returned with a 200
  *   and no error to say the page was never built.
  * - `pystino` — the gateway renders it. **Stubbed**: the surface does not exist
