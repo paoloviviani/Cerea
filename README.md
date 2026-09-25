@@ -86,17 +86,17 @@ docker compose up -d
 (It is private for now, like this repository: clone it with credentials that
 can read it.) Everything is readable before anything runs. `./configure`
 mints every secret into `.env` (mode 0600), and `./configure --check` says
-what is wrong with an install. Upgrading is `git pull`, `docker compose
-pull`, `docker compose up -d`: the image versions are pinned in its
-`compose.yaml`, so nobody types one.
+what is wrong with an install. Upgrading is `git pull`, then
+`docker compose pull` and `docker compose up -d`: the image versions are
+pinned in its `compose.yaml`, so nobody types one.
 
 The same repository covers a chat-only install, with no gateway on the box:
 
-- **Against a Pystino gateway** (`./configure --preset satellite --central-url
-  https://llm.example.org`): the chat uses the gateway's `/v1` and signs in
-  against its identity provider. Every call carries the signed-in person's own
-  token, and no key is stored on the box (one is refused, because it would bill
-  a whole site to one account).
+- **Against a Pystino gateway**, the _satellite_ preset:
+  `./configure --preset satellite --central-url https://llm.example.org`. The
+  chat uses the gateway's `/v1` and signs in against its identity provider.
+  Every call carries the signed-in person's own token, and no key is stored on
+  the box (one is refused, because it would bill a whole site to one account).
 - **Against any OpenAI-compatible endpoint** (`--preset generic`, with the key
   passed through `--upstream-api-key-env`): one shared key, with user-token
   mode forced off (it would send the person's IdP token to a third party). A

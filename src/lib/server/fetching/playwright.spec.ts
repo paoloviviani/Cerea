@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn() };
 vi.mock("$lib/server/logger", () => ({ logger }));
-vi.mock("$lib/server/config", () => ({ config: { PLAYWRIGHT_WS_ENDPOINT: "" } }));
+const config = { PLAYWRIGHT_WS_ENDPOINT: "ws://playwright:3000/" };
+vi.mock("$lib/server/config", () => ({ config }));
 
 const connect = vi.fn();
 vi.mock("playwright", () => ({ chromium: { connect } }));
@@ -221,9 +222,9 @@ describe("probePlaywrightHealth", () => {
 		respondWith(200);
 		const health = await probePlaywrightHealth();
 		expect(health).toEqual({ reachable: true });
-		// The mocked config falls back to ws://playwright:3000/ (see the
-		// top-of-file $lib/server/config mock) — same host the real connection
-		// targets, since both read it from the one config value.
+		// The mocked config names ws://playwright:3000/ (see the top-of-file
+		// $lib/server/config mock): the same host the real connection targets,
+		// since both read it from the one config value.
 		expect(httpGet).toHaveBeenCalledWith(
 			expect.objectContaining({ host: "playwright", port: 3000, path: "/" }),
 			expect.any(Function)
@@ -234,6 +235,21 @@ describe("probePlaywrightHealth", () => {
 		respondWith(503);
 		const health = await probePlaywrightHealth();
 		expect(health).toEqual({ reachable: false, reason: expect.stringContaining("503") });
+	});
+
+	it("reports not configured, without probing, when PLAYWRIGHT_WS_ENDPOINT is empty", async () => {
+		config.PLAYWRIGHT_WS_ENDPOINT = "";
+		try {
+			const health = await probePlaywrightHealth();
+			expect(health).toEqual({ reachable: false, reason: "not configured" });
+			expect(httpGet).not.toHaveBeenCalled();
+			await expect(renderWithPlaywright("https://example.org/")).rejects.toThrow(
+				/No page renderer is configured/
+			);
+			expect(connect).not.toHaveBeenCalled();
+		} finally {
+			config.PLAYWRIGHT_WS_ENDPOINT = "ws://playwright:3000/";
+		}
 	});
 
 	it("reports unreachable on a connection error", async () => {

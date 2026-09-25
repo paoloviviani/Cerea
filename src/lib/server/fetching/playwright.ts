@@ -30,10 +30,19 @@ import { logger } from "$lib/server/logger";
 import type { FetchedPage } from "./index";
 import type { Page } from "playwright";
 
-/** Where the renderer listens. Inside the compose network only. */
+/**
+ * Where the renderer listens, inside the compose network only. Empty means no
+ * renderer is deployed (the stack's `fetch` profile is off), not "try the
+ * usual address": a fallback there made the admin screen report the missing
+ * service as an error ("getaddrinfo ENOTFOUND playwright") instead of saying
+ * it is not configured.
+ */
 function endpoint(): string {
-	return (config.PLAYWRIGHT_WS_ENDPOINT || "ws://playwright:3000/").trim();
+	return (config.PLAYWRIGHT_WS_ENDPOINT || "").trim();
 }
+
+/** The reason reported when PLAYWRIGHT_WS_ENDPOINT is empty. */
+export const NOT_CONFIGURED = "not configured";
 
 export interface PlaywrightHealth {
 	reachable: boolean;
@@ -90,6 +99,9 @@ function probeOnce(host: string, port: number): Promise<PlaywrightHealth> {
  * one-off boot-time log line this does not replace.
  */
 export async function probePlaywrightHealth(): Promise<PlaywrightHealth> {
+	if (!endpoint()) {
+		return { reachable: false, reason: NOT_CONFIGURED };
+	}
 	const now = Date.now();
 	if (cachedHealth && now - cachedHealth.checkedAt < HEALTH_CACHE_MS) {
 		return { reachable: cachedHealth.reachable, reason: cachedHealth.reason };
@@ -203,6 +215,12 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 	// should fail when somebody chooses the feature rather than at boot.
 	const { chromium } = await import("playwright");
 
+	if (!endpoint()) {
+		throw new Error(
+			"No page renderer is configured (PLAYWRIGHT_WS_ENDPOINT is empty): the stack's " +
+				"fetch profile is off."
+		);
+	}
 	let browser;
 	try {
 		browser = await chromium.connect(endpoint(), { timeout: 15_000 });
