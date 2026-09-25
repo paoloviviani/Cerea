@@ -71,6 +71,14 @@ async function openTerminalTab(page: Page) {
 	await page.getByRole("button", { name: "Terminal", exact: true }).click();
 }
 
+/** Opening the Terminal tab only shows the (possibly empty) roster — a
+ * terminal only exists once "+ New" is clicked, which for the first one on
+ * a given machine shows the one-time acknowledgement instead of opening it
+ * directly (see `acknowledgeIfShown`). */
+async function clickNewTerminal(page: Page) {
+	await page.getByRole("button", { name: "New", exact: true }).click();
+}
+
 async function acknowledgeIfShown(page: Page) {
 	const heading = page.getByRole("heading", { name: "A terminal is a full shell" });
 	if (await heading.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -137,6 +145,7 @@ test.describe("the terminal, hermetic", () => {
 
 		await pairAndOpenWorkspace(page, name);
 		await openTerminalTab(page);
+		await clickNewTerminal(page);
 		await expect(page.getByRole("heading", { name: "A terminal is a full shell" })).toBeVisible();
 		await page.getByRole("button", { name: "I understand" }).click();
 
@@ -171,18 +180,33 @@ test.describe("the terminal, hermetic", () => {
 
 		await pairAndOpenWorkspace(page, name);
 		await openTerminalTab(page);
+		await clickNewTerminal(page);
 		await acknowledgeIfShown(page);
 		const term = page.getByTestId("code-terminal");
 		await expect(term).toBeVisible({ timeout: 15_000 });
-		await waitForAttach(fake, soleTerminalId(fake));
+		const terminalId = soleTerminalId(fake);
+		await waitForAttach(fake, terminalId);
 		await term.click();
 		const marker = `reload-marker-${randomUUID().slice(0, 8)}`;
 		await page.keyboard.type(marker);
 		await expect(term).toContainText(marker, { timeout: 10_000 });
 
 		await page.reload();
-		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 15_000 });
-		const text = await page.getByTestId("code-terminal").innerText();
+		const reattached = page.getByTestId("code-terminal");
+		await expect(reattached).toBeVisible({ timeout: 15_000 });
+		// The reattach after reload is a fresh channel (a real
+		// terminal.attach round trip) — waiting for it here, same as "a
+		// forced reset path" does, rather than trusting toContainText's own
+		// polling to paper over an attach that hasn't landed yet.
+		await waitForAttach(fake, terminalId);
+		// The replay itself is prompt once attached (confirmed by tracing
+		// the wire frames directly: the reset control frame and the whole
+		// backlog in one term.output frame arrive back to back, no
+		// meaningful gap) — this assertion's own generous timeout is
+		// candidly about a shared, contended box under sequential test
+		// load, not the mechanism itself.
+		await expect(reattached).toContainText(marker, { timeout: 25_000 });
+		const text = await reattached.innerText();
 		const occurrences = text.split(marker).length - 1;
 		expect(occurrences).toBe(1);
 	});
@@ -201,6 +225,7 @@ test.describe("the terminal, hermetic", () => {
 
 		await pairAndOpenWorkspace(page, name);
 		await openTerminalTab(page);
+		await clickNewTerminal(page);
 		await acknowledgeIfShown(page);
 		const term = page.getByTestId("code-terminal");
 		await expect(term).toBeVisible({ timeout: 15_000 });
@@ -218,6 +243,10 @@ test.describe("the terminal, hermetic", () => {
 		await page.reload();
 		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId("code-terminal")).not.toContainText(beforeReset);
+		// The reattach after reload is a fresh channel (a real terminal.attach
+		// round trip) — pushing before it lands would have no registered
+		// viewer to deliver to, and the bytes would simply be dropped.
+		await waitForAttach(fake, terminalId);
 
 		const afterReset = `after-reset-${randomUUID().slice(0, 8)}`;
 		fake.pushTerminalOutput(terminalId, Buffer.from(afterReset));
@@ -232,6 +261,7 @@ test.describe("the terminal, hermetic", () => {
 
 		await pairAndOpenWorkspace(page, name);
 		await openTerminalTab(page);
+		await clickNewTerminal(page);
 		await acknowledgeIfShown(page);
 		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 15_000 });
 
@@ -251,6 +281,7 @@ test.describe("the terminal, hermetic", () => {
 
 		await pairAndOpenWorkspace(page, name);
 		await openTerminalTab(page);
+		await clickNewTerminal(page);
 		await acknowledgeIfShown(page);
 		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 15_000 });
 		const firstId = soleTerminalId(fake);
