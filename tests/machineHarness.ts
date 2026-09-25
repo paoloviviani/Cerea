@@ -98,6 +98,12 @@ export async function seedUser(db: Db, sessionId: string, sub: string): Promise<
 		expiresAt: new Date(now.getTime() + 24 * 3600 * 1000),
 		createdAt: now,
 		updatedAt: now,
+		// A freshly seeded session stands in for someone who "just signed
+		// in" — the terminal's step-up rule (ADR 0090 D6) reads this, and
+		// a session with none of its own counts as stale (never exempt),
+		// which would otherwise send every e2e terminal test through a
+		// real login redirect instead of minting a ticket.
+		authTime: now,
 	});
 	// A signed-in person's settings are keyed by userId, not sessionId (authCondition):
 	// move the fixture's welcome-dismissed settings over, or the modal inerts the app.
@@ -120,6 +126,9 @@ export interface MachinePolicy {
 	autoAccept?: "allowed" | "denied";
 	allowFreeModels?: boolean;
 	workspaceRoots?: string[];
+	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
+	terminal?: "allowed" | "denied";
+	maxTerminals?: number;
 }
 
 export async function startMachine(input: {
@@ -215,6 +224,8 @@ export async function startMachine(input: {
 				autoAccept: input.policy.autoAccept ?? "denied",
 				allowFreeModels: input.policy.allowFreeModels ?? false,
 				workspaceRoots: input.policy.workspaceRoots ?? [],
+				...(input.policy.terminal ? { terminal: input.policy.terminal } : {}),
+				...(input.policy.maxTerminals ? { maxTerminals: input.policy.maxTerminals } : {}),
 			})
 		);
 	}

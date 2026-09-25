@@ -106,6 +106,7 @@ export const load = async ({ fetch, url, data }) => {
 		user,
 		gatewayIsAdmin: data.gatewayIsAdmin,
 		codeFilesEnabled: data.codeFilesEnabled,
+		codeTerminalEnabled: data.codeTerminalEnabled,
 		settings: {
 			...settings,
 			welcomeModalSeenAt: settings.welcomeModalSeenAt
