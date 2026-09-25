@@ -53,7 +53,7 @@ Full flag reference, keeping it running as a systemd user unit or a
 macOS LaunchAgent, revocation and re-enrollment: `docs/agent-machines.md` at
 the Cerea repository root.
 
-## Machine powers: files and a terminal (ADR 0090, PROTOCOL.md §9)
+## Machine powers: files and a terminal (PROTOCOL.md §9)
 
 Two more things `/code` can do on an enrolled machine, each behind its own
 veto that only `enroll` can loosen:
