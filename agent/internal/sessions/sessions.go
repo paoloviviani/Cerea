@@ -843,6 +843,10 @@ func (m *Materializer) Reseed(sessionID string) {
 // materializer has learned (from any workspace): its direct children, those
 // of them mid-turn, and every descendant waiting on a permission reply. Nil
 // when it has no known child.
+//
+// A single-session lookup: O(tracked sessions). session.list wants every
+// listed session's summary at once — ChildSummaries below answers that in
+// one O(tracked sessions) pass instead of N of these.
 func (m *Materializer) ChildSummary(sessionID string) *backend.ChildSummary {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -865,6 +869,65 @@ func (m *Materializer) ChildSummary(sessionID string) *backend.ChildSummary {
 		return nil
 	}
 	return &sum
+}
+
+// ChildSummaries computes every tracked session's ChildSummary in one pass,
+// for session.list (PROTOCOL.md §6): calling ChildSummary once per listed
+// session made the op O(sessions²) — each call rescanned the whole tracked
+// set — which is what the subagent-count feature (added the night before
+// this) turned into the /code sidebar's slow-after-reload symptom once a
+// device had accumulated enough sessions. The result maps a session id to
+// its summary; a session with no known child has no entry (nil, same as
+// ChildSummary's own contract).
+func (m *Materializer) ChildSummaries() map[string]*backend.ChildSummary {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]*backend.ChildSummary{}
+	get := func(id string) *backend.ChildSummary {
+		s, ok := out[id]
+		if !ok {
+			s = &backend.ChildSummary{}
+			out[id] = s
+		}
+		return s
+	}
+	// Pass 1: direct children and how many of them are mid-turn.
+	for _, st := range m.sessions {
+		if st.parentID == "" {
+			continue
+		}
+		parent := get(st.parentID)
+		parent.Children++
+		if st.status == backend.StatusBusy || st.status == backend.StatusRetry {
+			parent.Running++
+		}
+	}
+	// Pass 2: every session with a pending permission marks each of its
+	// ancestors as having a waiting descendant — the same walk
+	// descendsFromLocked did per (id, ancestor) pair, done once per session
+	// instead of once per (session, listed session) pair.
+	for id, st := range m.sessions {
+		if len(st.permissionOrder) == 0 {
+			continue
+		}
+		seen := map[string]bool{id: true}
+		parentID := st.parentID
+		for parentID != "" && !seen[parentID] {
+			get(parentID).Waiting++
+			seen[parentID] = true
+			parent, ok := m.sessions[parentID]
+			if !ok {
+				break
+			}
+			parentID = parent.parentID
+		}
+	}
+	for id, s := range out {
+		if s.Children == 0 {
+			delete(out, id)
+		}
+	}
+	return out
 }
 
 // descendsFromLocked reports whether sessionID has ancestor somewhere up its
