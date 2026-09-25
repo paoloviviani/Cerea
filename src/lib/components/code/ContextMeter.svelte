@@ -264,7 +264,7 @@
 								<p class="text-gray-500 dark:text-gray-400">No quotas</p>
 							{:else}
 								<div class="-mx-3 divide-y divide-gray-200 px-3 dark:divide-gray-700">
-									{#each quotaDisplay.quotas as quota (quota.label)}
+									{#each quotaDisplay.quotas as quota, i (`${i}:${quota.label}`)}
 										<UsageBar entry={quota} />
 									{/each}
 								</div>

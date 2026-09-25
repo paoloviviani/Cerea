@@ -34,9 +34,19 @@ export function deriveQuotaDisplay(
 	if (error) return { kind: "error", message: error };
 	if (sections === null) return { kind: "hidden" };
 
-	const quotas = sections
-		.flatMap((section) => section.entries)
-		.filter((e) => e.limit !== undefined);
+	// Flattened across sections, so a quota keeps its section's name when
+	// more than one section has quotas: a personal and a group budget can
+	// share a label ("Monthly spend"), and without it they read the same.
+	const withQuotas = sections
+		.map((section) => ({
+			title: section.title,
+			quotas: section.entries.filter((e) => e.limit !== undefined),
+		}))
+		.filter((section) => section.quotas.length > 0);
+	const qualify = withQuotas.length > 1;
+	const quotas = withQuotas.flatMap((section) =>
+		section.quotas.map((e) => (qualify ? { ...e, label: `${section.title} · ${e.label}` } : e))
+	);
 	if (quotas.length > 0) return { kind: "quotas", quotas };
 
 	const sectionError = sections.find((section) => section.error)?.error;
