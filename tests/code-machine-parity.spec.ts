@@ -276,6 +276,54 @@ test.describe("owned machine agent: parity", () => {
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
+	test("sidebar: a subagent is listed under its workspace, marked, and its wait shows on both rows", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		const m = await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
+		await send(page, "delegate this");
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+
+		// The sidebar polls: the child shows up as its own row, badged, with
+		// where it came from, and waiting (the loud state) on it and its parent.
+		const badge = page.getByTestId("subagent-badge");
+		await expect(badge).toHaveCount(1, { timeout: 30_000 });
+		const from = page.getByTestId("subagent-from");
+		await expect(from).toContainText("↳ from");
+		await expect(page.getByTestId("waiting-approval")).toHaveCount(2, { timeout: 30_000 });
+		await expect(page.getByTestId("subagent-count")).toContainText("1 subagent");
+
+		// The count's popover links to the child; its view says whose it is.
+		await page.getByTestId("subagent-count").click();
+		await page.getByRole("menuitem").first().click();
+		await expect(page).toHaveURL(/agent=/);
+		await expect(page.getByTestId("subagent-of")).toContainText("Subagent of");
+
+		// "from" goes back to the parent, which is not a subagent.
+		await from.click();
+		await expect(page.getByTestId("subagent-of")).toHaveCount(0);
+
+		// The filter hides subagent rows, and says so on reload.
+		await page.getByRole("button", { name: "Show subagents" }).click();
+		await expect(badge).toHaveCount(0);
+		await page.reload();
+		await expect(page.getByRole("button", { name: "Show subagents" })).toHaveAttribute(
+			"aria-pressed",
+			"false",
+			{ timeout: 30_000 }
+		);
+		await expect(badge).toHaveCount(0);
+		await page.getByRole("button", { name: "Show subagents" }).click();
+		await expect(badge).toHaveCount(1);
+
+		// Unblock the child so the turn ends cleanly.
+		await page.getByRole("button", { name: "Allow once" }).click();
+		await expect(page.getByTestId("waiting-approval")).toHaveCount(0, { timeout: 60_000 });
+	});
+
 	test("subagent approvals: with auto-accept on, a child's tools run without asking", async ({
 		page,
 		db,

@@ -29,10 +29,26 @@ type Session struct {
 	ParentID           string        `json:"parentId,omitempty"`
 	// ParentToolCallID is the parent's tool call that spawned this session
 	// (set by session.children), so the panel can anchor it in the transcript.
-	ParentToolCallID string    `json:"parentToolCallId,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
-	Usage            *Usage    `json:"usage,omitempty"`
+	ParentToolCallID string `json:"parentToolCallId,omitempty"`
+	// RootID is the top-level ancestor of a subagent session (the session
+	// itself when it has no parent), so a list can say where a subagent
+	// comes from even when its parent lives in another workspace.
+	RootID string `json:"rootId,omitempty"`
+	// ChildSummary counts a session's subagents, for a parent row in a list:
+	// nil for a session that spawned none.
+	ChildSummary *ChildSummary `json:"childSummary,omitempty"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	UpdatedAt    time.Time     `json:"updatedAt"`
+	Usage        *Usage        `json:"usage,omitempty"`
+}
+
+// ChildSummary is what a list row needs about a session's subagents
+// (PROTOCOL.md §6): its direct children, how many of them are mid-turn, and
+// how many sessions anywhere below it wait on a permission reply.
+type ChildSummary struct {
+	Children int `json:"children"`
+	Running  int `json:"running"`
+	Waiting  int `json:"waiting"`
 }
 
 // Message is a normalized chat message (PROTOCOL.md §7).

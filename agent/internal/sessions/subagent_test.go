@@ -236,3 +236,31 @@ func TestParentLearnedFromSessionEvent(t *testing.T) {
 		t.Errorf("RootOf(parent) = %q, want itself for a top-level session", got)
 	}
 }
+
+// TestChildSummaryCountsChildrenAndWaitingDescendants pins the list row's
+// numbers: direct children, those mid-turn, and descendants at any depth
+// waiting on a permission reply; nil for a session with no child.
+func TestChildSummaryCountsChildrenAndWaitingDescendants(t *testing.T) {
+	fb := newFakeBackend()
+	m := New(fb, policy.Default())
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "a", ParentID: "parent", Status: backend.StatusBusy})
+	m.Track("/other", backend.Session{ID: "b", ParentID: "parent", Status: backend.StatusIdle})
+	m.Track("/ws", backend.Session{ID: "grandchild", ParentID: "a"})
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "grandchild", Event: askEvent("perm1", "grandchild")})
+
+	sum := m.ChildSummary("parent")
+	if sum == nil || sum.Children != 2 || sum.Running != 1 || sum.Waiting != 1 {
+		t.Fatalf("parent summary = %+v, want 2 children, 1 running, 1 waiting", sum)
+	}
+	if got := m.ChildSummary("a"); got == nil || got.Children != 1 || got.Waiting != 1 {
+		t.Fatalf("a summary = %+v, want 1 child waiting", got)
+	}
+	if got := m.ChildSummary("b"); got != nil {
+		t.Fatalf("b summary = %+v, want nil (no children)", got)
+	}
+	if got := m.RootOf("grandchild"); got != "parent" {
+		t.Fatalf("root of grandchild = %q, want parent", got)
+	}
+}
