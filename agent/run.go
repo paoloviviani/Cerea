@@ -112,6 +112,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		}
 		credsPath = path
 	}
+	// A machine revoked earlier also had its tokens cleared from the
+	// credential file (revokeRefreshToken), which loadCredentials refuses:
+	// say "revoked", not "bad credential file".
+	if revokedAt(opts.stateDir, credsPath) {
+		fmt.Fprint(os.Stderr, revokedHelp)
+		return nil
+	}
 	creds, err := loadCredentials(credsPath)
 	if err != nil {
 		return err
@@ -253,11 +260,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	go func() { linkErr <- lnk.Run(ctx) }()
 
 	var runErr error
+	revoked := false
 	select {
 	case <-ctx.Done():
 		logf("shutting down")
 	case err := <-linkErr:
 		if errors.Is(err, link.ErrRevoked) {
+			revoked = true
 			_ = writeRevokedMarker(stateDir, machineID)
 			fmt.Fprint(os.Stderr, revokedHelp)
 			runErr = exitError{code: exitRevoked, err: err}
@@ -285,6 +294,16 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 	if err := back.Stop(); err != nil {
 		logf("stopping %s: %v", back.ID(), err)
+	}
+	// After the shim is down, so no refresh can rotate the token under us.
+	if revoked {
+		revokeCtx, cancelRevoke := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := revokeRefreshToken(revokeCtx, credsPath); err != nil {
+			logf("could not revoke this machine's refresh token at the IdP: %v", err)
+		} else {
+			logf("revoked this machine's refresh token at the IdP")
+		}
+		cancelRevoke()
 	}
 	stopForwarding()
 	<-eventsDone
@@ -420,6 +439,21 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 // (PROTOCOL.md §3: "generated once, persisted in the agent state dir; a
 // re-enroll mints a new one" — here, deleting this file is what stands in
 // for that until enroll itself grows a --state-dir to write it into).
+// revokedAt reports whether the state dir run would use (stateDir, or the
+// credential file's own directory) holds a revoked marker for its current
+// machine id. It never mints an id.
+func revokedAt(stateDir, credsPath string) bool {
+	if stateDir == "" {
+		stateDir = filepath.Dir(credsPath)
+	}
+	body, err := fsutil.ReadFileOrEmpty(filepath.Join(stateDir, machineIDFileName))
+	if err != nil || body == nil {
+		return false
+	}
+	id := strings.TrimSpace(string(body))
+	return id != "" && revokedMarkerMatches(stateDir, id)
+}
+
 func loadOrMintMachineID(path string) (string, error) {
 	body, err := fsutil.ReadFileOrEmpty(path)
 	if err != nil {

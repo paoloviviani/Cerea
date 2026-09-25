@@ -25,6 +25,9 @@ type discovery struct {
 	AuthorizationEndpoint       string `json:"authorization_endpoint"`
 	TokenEndpoint               string `json:"token_endpoint"`
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
+	// RevocationEndpoint (RFC 7009) is where a revoked machine revokes its
+	// own refresh token; optional, since not every IdP advertises one.
+	RevocationEndpoint string `json:"revocation_endpoint"`
 }
 
 // oauth2Error is an RFC 6749 §5.2 error body (error + error_description).

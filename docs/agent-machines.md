@@ -354,7 +354,12 @@ wins outright, with nothing overwritten.
 
 1. Revoke it in the `/code` panel. The chat tombstones the pairing and
    closes the link, the agent logs `machine revoked, not reconnecting`, and
-   a later connection under the same machine id is refused.
+   a later connection under the same machine id is refused. The agent then
+   revokes its own refresh token at the IdP (RFC 7009, the discovery
+   document's `revocation_endpoint`) and clears the tokens from its
+   credential file, so the revoked machine can no longer reach the gateway
+   either. If the IdP can't be reached, it says so in the log; the tokens are
+   cleared anyway, and the refresh token lapses at its own expiry.
 2. Stop the service: `systemctl --user disable --now galopin`, or
    `launchctl bootout gui/$(id -u)/org.cerea.galopin`.
 3. Delete `<config-dir>/galopin/`. Re-enrolling later mints a new machine
