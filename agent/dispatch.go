@@ -123,6 +123,10 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionDiff(ctx, args)
 	case "session.children":
 		return mc.opSessionChildren(ctx, args)
+	case "session.revert":
+		return mc.opSessionRevert(ctx, args)
+	case "session.unrevert":
+		return mc.opSessionUnrevert(ctx, args)
 	case "session.compact":
 		return mc.opSessionCompact(ctx, args)
 
@@ -580,6 +584,61 @@ func (mc *machine) opSessionChildren(ctx context.Context, args json.RawMessage) 
 		out = append(out, mc.enrich(c, workspaceID))
 	}
 	return map[string]any{"sessions": orEmpty(out)}, nil
+}
+
+// opSessionRevert rolls a session back to just before messageId (PROTOCOL.md
+// §6 session.revert), then drops the materializer's copy of its history so a
+// fresh session.sync re-reads the rolled-back transcript.
+func (mc *machine) opSessionRevert(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string `json:"sessionId"`
+		MessageID string `json:"messageId"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.MessageID == "" {
+		return nil, opErrf("invalid", "messageId is required")
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	reverter, ok := mc.back.(backend.Reverter)
+	if !ok || !mc.back.Capabilities().Revert {
+		return nil, opErrf("unsupported", "backend %s has no revert capability", mc.back.ID())
+	}
+	if status, known := mc.mat.Status(a.SessionID); known && (status == backend.StatusBusy || status == backend.StatusRetry) {
+		return nil, opErrf("invalid", "the session is mid-turn; stop it before rolling back")
+	}
+	if err := reverter.Revert(ctx, dir, a.SessionID, a.MessageID); err != nil {
+		return nil, backendErr(err)
+	}
+	mc.mat.Reseed(a.SessionID)
+	return map[string]any{}, nil
+}
+
+// opSessionUnrevert undoes the last revert while no new prompt has been sent.
+func (mc *machine) opSessionUnrevert(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	reverter, ok := mc.back.(backend.Reverter)
+	if !ok || !mc.back.Capabilities().Revert {
+		return nil, opErrf("unsupported", "backend %s has no revert capability", mc.back.ID())
+	}
+	if err := reverter.Unrevert(ctx, dir, a.SessionID); err != nil {
+		return nil, backendErr(err)
+	}
+	mc.mat.Reseed(a.SessionID)
+	return map[string]any{}, nil
 }
 
 func (mc *machine) opSessionCompact(ctx context.Context, args json.RawMessage) (any, *link.OpError) {

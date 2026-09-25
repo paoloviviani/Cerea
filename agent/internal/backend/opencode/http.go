@@ -81,8 +81,31 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false, AutoAccept: true,
-		Questions: true,
+		Questions: true, Revert: true, RevertFiles: true,
 	}
+}
+
+// Revert rolls the session back to just before messageID. opencode keeps the
+// reverted messages until the next prompt (so Unrevert can bring them back),
+// marking the session with revert.messageID; Transcript hides them.
+func (b *Backend) Revert(ctx context.Context, workspaceDir, sessionID, messageID string) error {
+	body := map[string]any{"messageID": messageID}
+	return b.doJSON(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/revert"+directoryQuery(workspaceDir), body, nil)
+}
+
+// Unrevert restores what the last Revert hid (before any new prompt).
+func (b *Backend) Unrevert(ctx context.Context, workspaceDir, sessionID string) error {
+	return b.doJSON(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/unrevert"+directoryQuery(workspaceDir), nil, nil)
+}
+
+// revertPoint is the message a session is currently rolled back to (its
+// revert.messageID), or "" when it is not reverted.
+func (b *Backend) revertPoint(ctx context.Context, sessionID string) string {
+	var m map[string]any
+	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID), nil, &m); err != nil {
+		return ""
+	}
+	return getStr(getMap(m, "revert"), "messageID", "messageId")
 }
 
 func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]backend.Session, error) {
@@ -270,12 +293,18 @@ func (b *Backend) Transcript(ctx context.Context, _ string, sessionID string) (b
 		return backend.Transcript{}, err
 	}
 	tr := backend.Transcript{Status: backend.StatusIdle}
+	// A reverted session still stores the messages from its revert point on
+	// (until the next prompt), but they are no longer part of it.
+	revertedFrom := b.revertPoint(ctx, sessionID)
 	for _, entry := range asMaps(raw) {
 		info := getMap(entry, "info")
 		if info == nil {
 			info = entry
 		}
 		msg := messageFromMap(info)
+		if revertedFrom != "" && msg.ID == revertedFrom {
+			break
+		}
 		b.resolveClientMessageID(sessionID, &msg)
 		var parts []backend.Part
 		for _, pm := range asMaps(getSlice(entry, "parts")) {

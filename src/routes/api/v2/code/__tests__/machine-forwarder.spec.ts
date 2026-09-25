@@ -233,6 +233,49 @@ describe("the forwarder over a live machine link", () => {
 		machine.close();
 	});
 
+	it("forwards /revert and /unrevert, and refuses a revert with no messageId", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const calls: Array<{ op: string; args: unknown }> = [];
+		machine.onOp("session.revert", (args: unknown) => {
+			calls.push({ op: "revert", args });
+			return {};
+		});
+		machine.onOp("session.unrevert", (args: unknown) => {
+			calls.push({ op: "unrevert", args });
+			return {};
+		});
+
+		const revert = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/revert?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({ messageId: "msg_2" }), locals: user.locals }
+		);
+		expect(revert.status).toBe(200);
+		const unrevert = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/unrevert?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({}), locals: user.locals }
+		);
+		expect(unrevert.status).toBe(200);
+		expect(calls).toEqual([
+			{ op: "revert", args: { sessionId: agent.id, messageId: "msg_2" } },
+			{ op: "unrevert", args: { sessionId: agent.id } },
+		]);
+
+		const bad = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/revert?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({}), locals: user.locals }
+		);
+		expect(bad.status).toBe(400);
+
+		machine.close();
+	});
+
 	it("answers a machine question, translating accept/answers into question.reply (user-question tool)", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;
@@ -503,7 +546,7 @@ describe("the handoff route (parity plan §4.2(a))", () => {
 			deviceId: string;
 		}>(res);
 		expect(answeredDeviceId).toBe(deviceId);
-		expect(agent.title).toBe("Handoff: New session");
+		expect(agent.title).toBe("Fork: New session");
 		expect(agent.workspaceId).toBe(workspace.id);
 		expect(agent.id).not.toBe(source.id);
 

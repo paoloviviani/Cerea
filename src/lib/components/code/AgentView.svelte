@@ -35,7 +35,7 @@
 		type MessageTurnStateUpdate,
 	} from "$lib/types/MessageUpdate";
 	import {
-		HANDOFF_TITLE_PREFIX,
+		forkedFromTitle,
 		type AgentCompactionUpdate,
 		type AgentUsageUpdate,
 		type CodeAgentSession,
@@ -60,6 +60,7 @@
 		respondPermission,
 		respondQuestion,
 		sendFollowUp,
+		revertAgent,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import { base } from "$app/paths";
@@ -73,6 +74,7 @@
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
+	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -153,6 +155,23 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.files || caps?.images);
 	});
+	/** Retry and rollback: the backend can roll a session back to before one
+	 * of its user messages (`hello` capability `revert`), and whether that
+	 * also restores files (`revertFiles`; opencode's snapshots are git-based,
+	 * so only in a git repository). */
+	let revertSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.revert);
+	});
+	let revertRestoresFiles = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.revertFiles) && workspace?.isGitRepo === true;
+	});
+
 	/** The session's slot in the attachment store (owner key
 	 * `code:<device>:<session>`): where the composer uploads, and where the
 	 * transcript's user files are served from. */
@@ -254,6 +273,9 @@
 	// re-runs this effect and replays the daemon's log fresh.
 	$effect(() => {
 		if (skipMachineFetches) return;
+		// A rollback changes the history the machine holds: bumping this
+		// restarts the subscription, which replays it from scratch.
+		void streamNonce;
 		messages = [];
 		pending = false;
 		usage = null;
@@ -283,6 +305,42 @@
 		});
 		return () => abort.abort();
 	});
+
+	let streamNonce = $state(0);
+
+	// ── Retry and rollback (capability `revert`) ────────────────────
+	// Retry on an answer rolls back to the prompt that produced it and sends
+	// that prompt again; editing a prompt rolls back to it and sends the new
+	// text. Both confirm first, saying whether files come back too. There is
+	// no undo here: the re-sent prompt is what ends a revert's undo window
+	// (opencode drops the reverted turns on the next prompt).
+	let rollback = $state<{ userMessageId: string; text: string; files: string } | null>(null);
+
+	function onretry(payload: { id: Message["id"]; content?: string }) {
+		const index = messages.findIndex((m) => m.id === payload.id);
+		if (index < 0) return;
+		// An answer retries the prompt before it; a prompt is its own point.
+		let userIndex = index;
+		while (userIndex >= 0 && messages[userIndex].from !== "user") userIndex -= 1;
+		const user = messages[userIndex];
+		if (!user?.machineMessageId) return;
+		rollback = {
+			userMessageId: user.machineMessageId,
+			text: payload.content ?? user.content,
+			files: revertRestoresFiles
+				? "Files the agent changed from that point on are restored too."
+				: "Files on disk are NOT restored: only the conversation is rolled back.",
+		};
+	}
+
+	async function confirmRollback() {
+		if (!rollback) return;
+		const { userMessageId, text } = rollback;
+		await revertAgent(deviceId, agentId, userMessageId);
+		rollback = null;
+		streamNonce += 1;
+		await handleSend(text);
+	}
 
 	let loading = $derived(isConversationGenerationActive(messages));
 	let lastMessage = $derived(messages.at(-1));
@@ -577,13 +635,9 @@
 	// fetched reference. A title collision (someone renames a session to
 	// start the same way) is the one false positive this accepts; the spec
 	// calls that an acceptable "keep it simple" tradeoff.
-	let handedOffFromTitle = $derived(
-		agent?.title?.startsWith(HANDOFF_TITLE_PREFIX)
-			? agent.title.slice(HANDOFF_TITLE_PREFIX.length)
-			: null
-	);
+	let handedOffFromTitle = $derived(forkedFromTitle(agent?.title));
 
-	/** The message "Hand off…" was clicked on — open state for the dialog. */
+	/** The message "Fork from here" was clicked on — open state for the dialog. */
 	let handoffFor = $state<Message | null>(null);
 </script>
 
@@ -595,13 +649,14 @@
 	<SubagentCard {anchor} activity={childActivity[anchor.subagent?.id ?? ""] ?? 0} />
 {/snippet}
 
-<!-- The "Hand off…" action ChatMessage opens per completed assistant
+<!-- The "Fork from here" action ChatMessage opens per completed assistant
      message (an optional prop/snippet, so chat itself stays unchanged) —
      opens this view's own HandoffDialog below. -->
 {#snippet messageActions(message: Message)}
 	<button
 		class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
-		title="Hand off…"
+		title="Fork from here"
+		aria-label="Fork from here"
 		type="button"
 		onclick={() => (handoffFor = message)}
 	>
@@ -662,7 +717,7 @@
 			     see the `handedOffFromTitle` derivation above. -->
 			<span class="flex items-center gap-1 truncate pl-6 text-xs text-ink-muted">
 				<IconFork class="size-3 shrink-0" />
-				Handed off from {handedOffFromTitle}
+				Forked from {handedOffFromTitle}
 			</span>
 		{/if}
 	</div>
@@ -697,6 +752,12 @@
 			conversationId={agentId}
 			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
+			onretry={revertSupported &&
+			!loading &&
+			shownState !== "running" &&
+			shownState !== "waiting-permission"
+				? onretry
+				: undefined}
 			{subagentFor}
 			{subagentCard}
 			{messageActions}
@@ -758,6 +819,18 @@
 	<PairDeviceDialog
 		onclose={() => (showReenroll = false)}
 		onpaired={() => (showReenroll = false)}
+	/>
+{/if}
+
+{#if rollback}
+	<CodeConfirmDialog
+		title="Retry from here?"
+		target={rollback.text.length > 80 ? `${rollback.text.slice(0, 80)}…` : rollback.text}
+		message="The conversation is rolled back to before this prompt, which is then sent again. {rollback.files}"
+		confirmLabel="Roll back and send"
+		busyLabel="Rolling back…"
+		onconfirm={confirmRollback}
+		onclose={() => (rollback = null)}
 	/>
 {/if}
 

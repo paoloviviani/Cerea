@@ -63,7 +63,7 @@ test.beforeEach(async ({ page }) => {
 			body: superjsonBody({
 				agent: {
 					id: NEW_AGENT,
-					title: "Handoff: e2e agent",
+					title: "Fork: e2e agent",
 					provider: "opencode",
 					state: "idle",
 					workspaceId: WS,
@@ -110,7 +110,7 @@ test.beforeEach(async ({ page }) => {
 			body: superjsonBody({
 				agent: {
 					id: NEW_AGENT,
-					title: "Handoff: e2e agent",
+					title: "Fork: e2e agent",
 					provider: "opencode",
 					state: "idle",
 					workspaceId: WS,
@@ -154,18 +154,18 @@ test("hands off a completed reply to a new session, carrying the history up to i
 
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
-	const handoffAction = page.getByRole("button", { name: "Hand off…" });
+	const handoffAction = page.getByRole("button", { name: "Fork from here" });
 	await expect(handoffAction).toBeVisible();
 	await handoffAction.click();
 
 	// The dialog opened, prefilled from the source.
-	const dialogTitle = page.getByRole("heading", { name: "Hand off…" });
+	const dialogTitle = page.getByRole("heading", { name: "Fork from here" });
 	await expect(dialogTitle).toBeVisible();
 	await expect(page.getByText("From e2e agent")).toBeVisible();
 	await expect(page.getByLabel("Carry the conversation up to here")).toBeChecked();
 
 	await page.getByLabel("Prompt").fill("keep going on this");
-	await page.getByRole("button", { name: "Hand off", exact: true }).click();
+	await page.getByRole("button", { name: "Fork", exact: true }).click();
 
 	await expect.poll(() => handoffBodies.length).toBe(1);
 	expect(handoffBodies[0]).toMatchObject({
@@ -181,15 +181,15 @@ test("hands off a completed reply to a new session, carrying the history up to i
 
 	// Navigated to the new session, whose header names its source by title.
 	await page.waitForURL(`**/code?device=${DEVICE}&ws=${WS}&agent=${NEW_AGENT}`);
-	await expect(page.getByText("Handed off from e2e agent")).toBeVisible();
+	await expect(page.getByText("Forked from e2e agent")).toBeVisible();
 });
 
 test("carrying can be turned off, and the prompt is required", async ({ page }) => {
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
-	await page.getByRole("button", { name: "Hand off…" }).click();
-	const submit = page.getByRole("button", { name: "Hand off", exact: true });
+	await page.getByRole("button", { name: "Fork from here" }).click();
+	const submit = page.getByRole("button", { name: "Fork", exact: true });
 
 	// Nothing typed yet: the dialog refuses to submit.
 	await expect(submit).toBeDisabled();
