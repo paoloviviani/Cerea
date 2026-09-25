@@ -272,7 +272,11 @@ test.describe("owned machine agent: parity", () => {
 		// is matched by prefix — the paired title gains a suffix.)
 		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
-		await expect(page.getByText("Child done.")).toBeVisible({ timeout: 60_000 });
+		// Scoped to the transcript: the subagent is also a sidebar row now, and
+		// opencode may title it from the same reply.
+		await expect(
+			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
+		).toBeVisible({ timeout: 60_000 });
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
@@ -337,7 +341,11 @@ test.describe("owned machine agent: parity", () => {
 
 		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
-		await expect(page.getByText("Child done.")).toBeVisible({ timeout: 60_000 });
+		// Scoped to the transcript: the subagent is also a sidebar row now, and
+		// opencode may title it from the same reply.
+		await expect(
+			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
+		).toBeVisible({ timeout: 60_000 });
 		const html = await page.content();
 		console.log(
 			"DEBUG wants-to-call contexts:",
