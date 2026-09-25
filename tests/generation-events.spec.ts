@@ -6,7 +6,7 @@
  * for its entire duration. A long run was therefore invisible to any second tab or device, and
  * lost entirely if the pod died — and the longer the run, the more it lost.
  */
-import { test, expect, E2E_APP_URL, SESSION_COOKIE_NAME } from "./fixtures.ts";
+import { test, expect, E2E_APP_URL, SESSION_COOKIE_NAME, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 
@@ -263,7 +263,7 @@ test("the run is marked completed and a second viewer renders it", async ({
 	expect(gen.isDone()).toBe(false);
 
 	// The regression this whole phase exists for: another tab used to render "".
-	await page.goto(`/conversation/${conversationId}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId}`);
 	await page.waitForTimeout(2000);
 	const rendered = await page.locator('[data-message-role="assistant"]').last().innerText();
 	expect(rendered.trim().length, "a second viewer must see the in-flight run").toBeGreaterThan(0);

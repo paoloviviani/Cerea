@@ -7,7 +7,7 @@
  * turn-scoped: events are keyed by (conversationId, messageId), which the seeds below
  * must stamp exactly as the writer does, or the endpoint's replay query matches nothing.
  */
-import { test, expect, E2E_APP_URL, SESSION_COOKIE_NAME } from "./fixtures.ts";
+import { test, expect, E2E_APP_URL, SESSION_COOKIE_NAME, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
 import { randomUUID } from "node:crypto";
 
@@ -387,7 +387,7 @@ test("preserves text at a compressed-marker reattach boundary", async ({ db, ses
 		createdAt: now,
 	} as never);
 
-	await page.goto(`/conversation/${conversationId.toString()}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
 		prefix + boundary + continuation.trimEnd()
 	);

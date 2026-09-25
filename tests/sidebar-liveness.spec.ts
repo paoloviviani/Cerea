@@ -6,7 +6,7 @@
  * finishes in the background. Drives the real UI, flipping the generation's DB status to
  * simulate a run completing elsewhere.
  */
-import { test, expect } from "./fixtures.ts";
+import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
 import { randomUUID } from "node:crypto";
 
@@ -72,7 +72,7 @@ test("a background run shows a sidebar indicator and toasts on completion", asyn
 	const { generationId } = await seedRunning(db, session.sessionId, "background job");
 
 	// Land on home — not viewing the generating conversation.
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 
 	// Its sidebar row shows the live generating indicator.
 	await expect(page.getByLabel("Generating").first()).toBeVisible({ timeout: 20_000 });
@@ -100,7 +100,7 @@ test("no toast fires for the conversation you are currently viewing", async ({
 	const { convId, generationId } = await seedRunning(db, session.sessionId, "viewed job");
 
 	// View the generating conversation itself.
-	await page.goto(`/conversation/${convId}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${convId}`);
 	// Let the live feed observe it running at least once.
 	await page.waitForTimeout(3000);
 

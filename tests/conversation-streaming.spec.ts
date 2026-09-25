@@ -7,7 +7,7 @@
  * conversation never blanks or loses messages mid-stream — so the rewrite can't reintroduce
  * them silently.
  */
-import { test, expect } from "./fixtures.ts";
+import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 import type { Page } from "playwright/test";
 import { ObjectId } from "mongodb";
 
@@ -28,7 +28,7 @@ async function assistantText(page: Page): Promise<string> {
 }
 
 async function startConversation(page: Page, prompt: string): Promise<string> {
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 	await page.getByPlaceholder("Ask anything").fill(prompt);
 	await page.getByRole("button", SEND).click();
 	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
@@ -107,7 +107,7 @@ test("stopping freezes the reply — it does not grow back after reload", async 
 	await page.waitForTimeout(2500);
 	expect((await assistantText(page)).length).toBeLessThanOrEqual(atStop.length + 8);
 
-	await page.goto(`/conversation/${convId}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${convId}`);
 	await page.waitForTimeout(1500);
 	const afterReload = await assistantText(page);
 	expect(afterReload.length).toBeLessThanOrEqual(atStop.length + 8);
@@ -128,12 +128,12 @@ test("leaving mid-stream and returning preserves the generation to completion", 
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("word1", {
 		timeout: 20_000,
 	});
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 	await expect(page).toHaveURL(/\/$/);
 	await page.waitForTimeout(6000);
 
 	// Return: the reply must complete and be fully present, nothing lost.
-	await page.goto(`/conversation/${convId}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${convId}`);
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("word49", {
 		timeout: 40_000,
 	});
@@ -186,7 +186,7 @@ test("a freshly loaded finished conversation renders without a stop control", as
 			},
 		],
 	});
-	await page.goto(`/conversation/${id.toString()}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${id.toString()}`);
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
 		"a complete answer"
 	);
@@ -209,7 +209,7 @@ test("retrying an assistant message generates a fresh reply", async ({
 		finishReason: "stop",
 	});
 
-	await page.goto(`/conversation/${id}`);
+	await page.goto(`${E2E_APP_BASE}/conversation/${id}`);
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("old answer");
 
 	// Hover the assistant message to reveal its actions, then retry.
