@@ -16,6 +16,7 @@
 	import UrlFetchModal from "./UrlFetchModal.svelte";
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
+	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
@@ -1093,37 +1094,33 @@
 			     itself only exists when the console has granted a search tier,
 			     so a toggle with nothing behind it costs nothing and changes
 			     nothing. -->
-						<button
-							type="button"
-							class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
-								? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-								: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-							aria-pressed={webSearch}
+						<TogglePill
+							pressed={webSearch}
+							label="Web search"
 							title="Search the web through this deployment's search backends (this chat only)"
 							onclick={toggleWebSearch}
 						>
-							<CarbonEarth class="size-3.5" />
-							Web search
-						</button>
+							{#snippet icon()}
+								<CarbonEarth class="size-3.5" />
+							{/snippet}
+						</TogglePill>
 
 						<!-- Chat-local override of the tool-approval policy (ADR 0075).
 				     Inside a conversation this PATCHes the override; on the home
 				     page there is no conversation yet, so it only flips the local
 				     state that rides into the create request. -->
-						<button
-							type="button"
-							class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
-								? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-								: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-							aria-pressed={autoApproveTools}
+						<TogglePill
+							pressed={autoApproveTools}
+							label={autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
 							title={autoApproveTools
 								? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
 								: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
 							onclick={toggleAutoApproveTools}
 						>
-							<LucideShieldCheck class="size-3.5" />
-							{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
-						</button>
+							{#snippet icon()}
+								<LucideShieldCheck class="size-3.5" />
+							{/snippet}
+						</TogglePill>
 					{/if}
 
 					{#if showMlPill}
