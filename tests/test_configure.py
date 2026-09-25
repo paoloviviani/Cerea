@@ -299,6 +299,23 @@ class TestReRun(unittest.TestCase):
         self.assertEqual(v["COMPOSE_PROFILES"], "gateway,chat,authelia")
         self.assertEqual(v["FETCH_BACKEND"], "direct")
 
+    def test_a_pystino_only_env_moves_over(self):
+        # Pystino's deploy/.env.example: the same names, no preset, no chat.
+        pystino_only = {
+            "COMPOSE_PROJECT_NAME": "pystino", "COMPOSE_PROFILES": "authelia",
+            "PUBLIC_ORIGIN": "https://chat.example.org", "TLS_MODE": "acme",
+            "POSTGRES_PASSWORD": "kept-pg", "GATEWAY_SECRET_KEY": "kept-key",
+            "PYSTINO_BOOTSTRAP_ADMIN_EMAIL": "ops@example.org",
+        }
+        v = build(existing=pystino_only).values
+        self.assertEqual(v["COMPOSE_PROFILES"], "gateway,chat,authelia,redaction")
+        self.assertEqual(v["COMPOSE_PROJECT_NAME"], "pystino")  # its volumes
+        self.assertEqual((v["POSTGRES_PASSWORD"], v["GATEWAY_SECRET_KEY"]), ("kept-pg", "kept-key"))
+        self.assertTrue(v["CHAT_SECRET_KEY"] and v["OIDC_CHAT_CLIENT_SECRET"] and v["AUTHELIA_CHAT_CLIENT_DIGEST"])
+        report = cfg.Report()
+        cfg.check_values(v, report)
+        self.assertEqual(report.errors, [])
+
     def test_a_stale_digest_is_recomputed(self):
         first = dict(build().values)
         first["OIDC_CHAT_CLIENT_SECRET"] = "rotated-by-hand"

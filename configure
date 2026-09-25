@@ -632,7 +632,9 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
     def changed(attr: str) -> bool:
         return before is None or getattr(before, attr) != getattr(answers, attr)
 
-    preset_changed = before is None or before.preset != preset.name
+    # No PYSTINO_PRESET: a .env from elsewhere (Pystino's own deploy/, which
+    # has no chat), so the preset's profiles and switches apply in full.
+    preset_changed = before is None or not existing.get("PYSTINO_PRESET") or before.preset != preset.name
     idp_changed = before is None or before.idp != idp
 
     # --- compose ----------------------------------------------------------------
