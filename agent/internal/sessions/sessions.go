@@ -782,6 +782,26 @@ func (m *Materializer) PendingPermissions(sessionID string) int {
 	return len(st.permissionOrder)
 }
 
+// Reseed forgets what the materializer holds of sessionID's transcript
+// (messages, parts, the ring of past envelopes), so the next session.sync
+// from scratch answers with a snapshot re-read from the backend: after a
+// revert the stored history no longer matches the session. seq keeps
+// counting, so no cursor ever goes backwards; a client resyncs from scratch.
+func (m *Materializer) Reseed(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		return
+	}
+	st.seeded = false
+	st.ring = nil
+	st.messageOrder = nil
+	st.messages = map[string]*backend.Message{}
+	st.partOrder = map[string][]string{}
+	st.parts = map[string]map[string]*backend.Part{}
+}
+
 // ChildSummary counts sessionID's subagents from the tree edges the
 // materializer has learned (from any workspace): its direct children, those
 // of them mid-turn, and every descendant waiting on a permission reply. Nil

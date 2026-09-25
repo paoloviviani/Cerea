@@ -260,6 +260,14 @@ export class MachineLink {
 	sessionChildren(args: { sessionId: string }): Promise<{ sessions: Session[] }> {
 		return this.call("session.children", args);
 	}
+	/** Roll back to just before a user message (capability `revert`). */
+	sessionRevert(args: { sessionId: string; messageId: string }): Promise<Record<string, never>> {
+		return this.call("session.revert", args);
+	}
+	/** Undo the last rollback, before any new prompt. */
+	sessionUnrevert(args: { sessionId: string }): Promise<Record<string, never>> {
+		return this.call("session.unrevert", args);
+	}
 	sessionCompact(args: { sessionId: string }): Promise<Record<string, never>> {
 		return this.call("session.compact", args);
 	}

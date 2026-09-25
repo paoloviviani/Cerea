@@ -303,11 +303,22 @@ export interface CodeDirectory {
 
 /**
  * The fork handoff's own title convention (parity plan §4.2(a)): no lineage
- * label exists on this wire, so a handed-off session's header ("Handed off
- * from ‹title›") is read straight off its own title rather than a fetched
+ * label exists on this wire, so a forked session's header ("Forked from
+ * ‹title›") is read straight off its own title rather than a fetched
  * link — deliberately a title-based convention, not a protocol field.
  */
-export const HANDOFF_TITLE_PREFIX = "Handoff: ";
+export const HANDOFF_TITLE_PREFIX = "Fork: ";
+
+/** Titles a forked session may start with: today's, and the one sessions
+ * forked before the rename ("Handoff" became "Fork") still carry. */
+const FORK_TITLE_PREFIXES = [HANDOFF_TITLE_PREFIX, "Handoff: "];
+
+/** The source session's title a forked session's own title names, or null. */
+export function forkedFromTitle(title: string | undefined | null): string | null {
+	if (!title) return null;
+	const prefix = FORK_TITLE_PREFIXES.find((p) => title.startsWith(p));
+	return prefix ? title.slice(prefix.length) : null;
+}
 
 /** A coding session on a device. Lives on the daemon; never mirrored here. */
 export interface CodeAgentSession {

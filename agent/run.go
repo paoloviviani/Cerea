@@ -374,7 +374,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 				"diff": caps.Diff, "children": caps.Children, "usage": caps.Usage,
 				"compact": caps.Compact, "images": caps.Images, "files": caps.Files,
 				"worktrees": caps.Worktrees, "autoAccept": caps.AutoAccept,
-				"questions": caps.Questions,
+				"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
 			},
 		}},
 		Policy: link.PolicyInfo{
