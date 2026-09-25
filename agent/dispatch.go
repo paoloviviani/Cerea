@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/checkout"
@@ -127,7 +125,10 @@ func (mc *machine) resolveSession(sessionID string) (dir, workspaceID string, op
 
 // enrich fills in the fields only this process's own state can supply — a
 // Backend has no notion of workspace registry ids, pending permissions or
-// auto-accept.
+// auto-accept. A single-session enrichment; a listing enriches many
+// sessions at once through enrichAll instead, which shares one
+// ChildSummaries pass across all of them rather than paying its O(tracked
+// sessions) cost per session.
 func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session {
 	s.WorkspaceID = workspaceID
 	s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
@@ -138,6 +139,27 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 		s.Status = status
 	}
 	return s
+}
+
+// enrichAll enriches every session in sessions, sharing one
+// mc.mat.ChildSummaries() pass instead of calling ChildSummary per session
+// (each of which rescans every tracked session on its own — O(N²) over a
+// listing of N).
+func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) []backend.Session {
+	summaries := mc.mat.ChildSummaries()
+	out := make([]backend.Session, len(sessions))
+	for i, s := range sessions {
+		s.WorkspaceID = workspaceIDs[i]
+		s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
+		s.AutoAccept = mc.mat.AutoAccept(s.ID)
+		s.RootID = mc.mat.RootOf(s.ID)
+		s.ChildSummary = summaries[s.ID]
+		if status, ok := mc.mat.Status(s.ID); ok && status != "" {
+			s.Status = status
+		}
+		out[i] = s
+	}
+	return out
 }
 
 // Handle implements link.Handler: PROTOCOL.md §6's whole op table.
@@ -210,9 +232,6 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 }
 
 func (mc *machine) opWorkspaceList() (any, *link.OpError) {
-	// PERF-MEASURE (temporary, remove before commit): brief item 1.
-	t0 := time.Now()
-	defer func() { log.Printf("PERF workspace.list total=%s", time.Since(t0)) }()
 	return map[string]any{"workspaces": orEmpty(mc.workspaces.List(false))}, nil
 }
 
@@ -312,9 +331,6 @@ func (mc *machine) opWorkspaceArchive(ctx context.Context, args json.RawMessage)
 }
 
 func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
-	// PERF-MEASURE (temporary, remove before commit): brief item 1.
-	t0 := time.Now()
-	defer func() { log.Printf("PERF session.list total=%s", time.Since(t0)) }()
 	var a struct {
 		WorkspaceID string `json:"workspaceId,omitempty"`
 	}
@@ -338,7 +354,6 @@ func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any
 		workspaceID string
 	}
 	var all []listed
-	tBackend := time.Now()
 	for _, w := range wsList {
 		sessList, err := mc.back.ListSessions(ctx, w.Path)
 		if err != nil {
@@ -349,18 +364,21 @@ func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any
 			all = append(all, listed{s, w.ID})
 		}
 	}
-	log.Printf("PERF session.list backend=%s workspaces=%d sessions=%d", time.Since(tBackend), len(wsList), len(all))
 	// Enriched only once every listed session is tracked, so a parent's
 	// childSummary counts children listed after it. Subagents are listed
 	// too, under their own workspace (a parent and its child can live in
 	// different worktrees), carrying parentId/rootId so the list marks them
-	// rather than hiding them.
-	tEnrich := time.Now()
-	out := make([]backend.Session, 0, len(all))
-	for _, l := range all {
-		out = append(out, mc.enrich(l.s, l.workspaceID))
+	// rather than hiding them. enrichAll shares one ChildSummaries() pass
+	// across the whole listing instead of one ChildSummary() scan per
+	// session (sessions_test.go's TestChildSummariesMatchesChildSummary
+	// covers the O(N²) this replaced).
+	sessList := make([]backend.Session, len(all))
+	workspaceIDs := make([]string, len(all))
+	for i, l := range all {
+		sessList[i] = l.s
+		workspaceIDs[i] = l.workspaceID
 	}
-	log.Printf("PERF session.list enrich=%s", time.Since(tEnrich))
+	out := mc.enrichAll(sessList, workspaceIDs)
 	return map[string]any{"sessions": orEmpty(out)}, nil
 }
 
