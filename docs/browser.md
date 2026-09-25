@@ -1,6 +1,6 @@
 # The headless browser
 
-The stack's `fetch` profile (Pystino `deploy/stack/compose.yaml`) adds one service: a Playwright
+The stack's `fetch` profile (cerea-deploy's `compose.yaml`) adds one service: a Playwright
 `run-server` with Chromium, Firefox and WebKit behind it, speaking Playwright's
 own WebSocket protocol on port 3000 of the compose network.
 

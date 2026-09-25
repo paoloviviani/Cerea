@@ -5,8 +5,8 @@
  * session and nothing else: the redirect home re-ran the login, Authelia's
  * still-live SSO session answered it without a prompt, and the person was back
  * as themselves. `OPENID_LOGOUT_URL` names the provider's own logout page
- * instead — `<issuer>/logout?rd={redirect}` for Authelia, which `pystino init`
- * writes — with `{redirect}` replaced by where to land afterwards.
+ * instead — `<issuer>/logout?rd={redirect}` for Authelia, which cerea-deploy's
+ * `./configure` writes — with `{redirect}` replaced by where to land afterwards.
  *
  * And one sign-out covers the whole origin: the console lives beside the chat
  * on the Pystino stack, so `LOGOUT_ALSO_CLEAR_COOKIES` names its session cookies

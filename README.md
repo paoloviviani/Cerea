@@ -70,46 +70,42 @@ Two operational consequences worth knowing before deploying this:
   first provider through `GATEWAY_OIDC__*` env seeding; the console owns every
   provider after that (ADR 0051).
 
-## Deploying: `cerea init`
+## Deploying
+
+Deployments live in their own repository, **cerea-deploy**. It holds one
+`compose.yaml`, a documented `.env.example`, and `./configure`, which writes
+`.env` for you. It runs the whole stack: this chat, the Pystino gateway and
+console, the bundled Authelia, Caddy, and the add-ons.
 
 ```bash
-mkdir my-cerea && cd my-cerea
-/path/to/Cerea/scripts/cerea init --origin https://chat.example.org --admin-email you@example.org
-./cerea doctor && docker compose up -d --wait
+git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
+./configure
+docker compose up -d
 ```
 
-**The host needs Docker and nothing else** — no checkout, no node. `cerea init`
-asks at most a handful of questions, mints every secret into one `.env` (mode
-0600), and writes a `compose.yaml` and a `./cerea` helper into the directory.
-The images are pulled, versioned, from `ghcr.io/paoloviviani/` (private while
-the repositories are: `docker login ghcr.io` once with a token holding
-`read:packages`; `init` tells you if it is missing). Upgrading is
-`./cerea upgrade <version>` followed by the same `docker compose up`.
+(It is private for now, like this repository: clone it with credentials that
+can read it.) Everything is readable before anything runs. `./configure`
+mints every secret into `.env` (mode 0600), and `./configure --check` says
+what is wrong with an install. Upgrading is `git pull`, `docker compose
+pull`, `docker compose up -d`: the image versions are pinned in its
+`compose.yaml`, so nobody types one.
 
-Two shapes, picked for you:
+The same repository covers a chat-only install, with no gateway on the box:
 
-- **Against a Pystino gateway** (`--central-url https://llm.example.org`, the
-  _satellite_ preset): the chat uses the gateway's `/v1` and signs in against
-  its identity provider; every call carries the signed-in person's own token,
-  and no key is stored on the box (one is refused — it would bill a whole site
-  to one account).
-- **Against any OpenAI-compatible endpoint** (the _generic_ preset; export
-  `PYSTINO_UPSTREAM_API_KEY` first): one shared key, user-token mode forced off
-  (it would send the person's IdP token to a third party), and a bundled
-  Authelia for sign-in unless you bring your own OIDC provider.
+- **Against a Pystino gateway** (`./configure --preset satellite --central-url
+  https://llm.example.org`): the chat uses the gateway's `/v1` and signs in
+  against its identity provider. Every call carries the signed-in person's own
+  token, and no key is stored on the box (one is refused, because it would bill
+  a whole site to one account).
+- **Against any OpenAI-compatible endpoint** (`--preset generic`, with the key
+  passed through `--upstream-api-key-env`): one shared key, with user-token
+  mode forced off (it would send the person's IdP token to a third party). A
+  bundled Authelia handles sign-in unless you bring your own OIDC provider.
 
-Want the gateway too — accounting, quotas, redaction, per-user billing? That
-is a full Pystino stack, set up the same way with `pystino init`; the chat is
-part of it. Both commands are the same tool: it ships inside the Pystino
-gateway image, so a Cerea-only install and a full stack are one topology and
-one upgrade path (see Pystino's `deploy/stack/`).
-
-**Development** builds the images from local checkouts instead of pulling
-them — `pystino init --mode dev --cerea-src <this checkout>` from a Pystino
-checkout — with the same configuration and the same `docker compose up`.
-
-Installs made by the previous bash installer move over with `pystino adopt`
-(it reads the old deployment, carries every secret, and prints the cutover).
+**Development:** cerea-deploy's `dev/build.sh` builds the images from Pystino
+and Cerea sources (`--cerea-ref <branch or commit>`) and points `.env` at them.
+Installs made by the retired `pystino init`/`cerea init` move over as its
+README describes.
 
 ## What this fork adds
 
@@ -127,7 +123,7 @@ OpenAI client:
   code under this repository's own `LICENCE`) on the machine dials out to
   the chat over WSS with its own OIDC credential; Cerea stores nothing but
   the pairing record. Off unless `CODE_AGENTS_ENABLED=true`
-  (`pystino init --agents`). See
+  (`./configure --agents` in cerea-deploy). See
   [docs/code-panel.md](docs/code-panel.md) for deploying it and
   [docs/agent-machines.md](docs/agent-machines.md) for building, installing
   and using `galopin` on a machine.
