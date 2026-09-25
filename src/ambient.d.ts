@@ -16,6 +16,8 @@ declare module "ws" {
 
 	export class WebSocket extends EventEmitter {
 		constructor(address: string, options?: { headers?: Record<string, string> });
+		readonly readyState: number;
+		readonly OPEN: number;
 		send(data: string | Buffer): void;
 		close(code?: number, reason?: string): void;
 		terminate(): void;
