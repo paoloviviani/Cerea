@@ -255,7 +255,10 @@
 		if (outcome === "accept") return request.mode === "url" ? "Opened link" : "Answered";
 		if (outcome === "decline") return "Declined";
 		if (resolved?.resolution === "aborted") return "Cancelled with the response";
-		if (resolved?.resolution === "withdrawn") return `${request.server} stopped waiting`;
+		if (resolved?.resolution === "withdrawn")
+			return request.source === "assistant"
+				? "No longer asked"
+				: `${request.server} stopped waiting`;
 		if (expired || resolved?.resolution === "expired") return "Expired unanswered";
 		return "Cancelled";
 	});
@@ -288,9 +291,9 @@
 				</span>
 				{#if summary}
 					<!-- The assistant's own question: say what was asked and chosen, not
-					     which "server" asked (chat's has none; an agent's was "pystino"). -->
+					     which "server" asked (chat's has none; an agent's is no server). -->
 					<span class="min-w-0 truncate text-sm text-gray-600 dark:text-gray-300">{summary}</span>
-				{:else}
+				{:else if request.source !== "assistant"}
 					<code
 						class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
 						>{request.server}</code
@@ -346,12 +349,14 @@
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200">
 					{request.mode === "url" ? "Action needed" : "Input requested"}
 				</span>
-				<span class="text-xs text-gray-500 dark:text-gray-400">
-					from <code
-						class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-						>{request.server}</code
-					>
-				</span>
+				{#if request.source !== "assistant"}
+					<span class="text-xs text-gray-500 dark:text-gray-400">
+						from <code
+							class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+							>{request.server}</code
+						>
+					</span>
+				{/if}
 				{#if open}
 					<span class="ml-auto text-xs text-gray-400 tabular-nums dark:text-gray-500">
 						{timeLeft}

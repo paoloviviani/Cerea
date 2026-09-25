@@ -150,7 +150,8 @@ Model      = {id: "<provider>/<model>", label, providerId, isDefault?, contextWi
 Usage      = {input, output, reasoning, cacheRead, cacheWrite, cost, contextUsed, contextMax|null}
 Attachment = {type:"file", mime, filename, url}   // url = data: URL for P0; later a Cerea attachment-store URL
 FileDiff   = {path, status: "added"|"modified"|"deleted", before, after, additions, deletions}
-Transcript = {messages: [{message: Message, parts: Part[]}], permissions: PermissionRequest[], status, usage|null, todos: Todo[]}
+Transcript = {messages: [{message: Message, parts: Part[]}], permissions: PermissionRequest[], questions: QuestionRequest[], status, usage|null, todos: Todo[]}
+QuestionRequest = {id, questions: Question[], callId?} (the unanswered question-tool asks, the same shape as `question.asked`'s `request`; a snapshot does not replay `question.asked`, so this is how a client mounting from one can still answer an ask the turn waits on. Older machines omit it: read as `[]`.)
 QuestionOption = {label, description?}
 Question       = {question, header?, options: QuestionOption[], multiple?: bool}
 ```
