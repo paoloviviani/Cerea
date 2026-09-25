@@ -257,18 +257,29 @@ test.describe("owned machine agent: parity", () => {
 		mockOpenAI,
 	}) => {
 		await openSession(page, db, session.sessionId);
+		// Answers are looked for in the transcript, and each turn is let settle
+		// before the next scenario: opencode also asks the mock for a session
+		// title, which would otherwise show the same text in the sidebar first.
+		const transcript = page.locator('[data-message-role="assistant"]');
+		const settle = () =>
+			expect(page.getByText("done", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
 		await mockOpenAI.setDefaultScenario({ content: ["Answer", " one."], chunkDelayMs: 5 });
 		await send(page, "first question");
-		await expect(page.getByText("Answer one.")).toBeVisible({ timeout: 60_000 });
+		await expect(transcript.getByText("Answer one.")).toBeVisible({ timeout: 60_000 });
+		await settle();
 		await mockOpenAI.setDefaultScenario({ content: ["Answer", " two."], chunkDelayMs: 5 });
 		await send(page, "second question");
-		await expect(page.getByText("Answer two.")).toBeVisible({ timeout: 60_000 });
+		await expect(transcript.getByText("Answer two.")).toBeVisible({ timeout: 60_000 });
+		await settle();
 
 		// Retry on the second answer: confirm, and the confirmation says whether
 		// files come back (the harness workspace is a git repository, so yes).
 		await mockOpenAI.setDefaultScenario({ content: ["Answer", " two, again."], chunkDelayMs: 5 });
-		await page.locator('[data-message-role="assistant"]').last().hover();
+		// Retry is offered on both answers only once the second turn is done.
+		await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(2, { timeout: 60_000 });
+		await transcript.last().hover();
 		await page.getByRole("button", { name: "Retry" }).last().click();
+		await expect(page.getByRole("dialog")).toContainText("second question");
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toContainText("Retry from here?");
 		await expect(dialog).toContainText("restored too");
@@ -276,15 +287,15 @@ test.describe("owned machine agent: parity", () => {
 
 		// The old second turn is gone, the prompt went again once, and the new
 		// answer streams in after the untouched first turn.
-		await expect(page.getByText("Answer two, again.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("Answer two.", { exact: true })).toHaveCount(0);
+		await expect(transcript.getByText("Answer two, again.")).toBeVisible({ timeout: 60_000 });
+		await expect(transcript.getByText("Answer two.", { exact: true })).toHaveCount(0);
 		await expect(page.getByText("second question")).toHaveCount(1);
-		await expect(page.getByText("Answer one.")).toBeVisible();
+		await expect(transcript.getByText("Answer one.")).toBeVisible();
 
 		// The same survives a reload: it is the machine's history now.
 		await page.reload();
-		await expect(page.getByText("Answer two, again.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("Answer two.", { exact: true })).toHaveCount(0);
+		await expect(transcript.getByText("Answer two, again.")).toBeVisible({ timeout: 60_000 });
+		await expect(transcript.getByText("Answer two.", { exact: true })).toHaveCount(0);
 		// The fork action is named Fork now.
 		await page.locator('[data-message-role="assistant"]').last().hover();
 		await expect(page.getByRole("button", { name: "Fork from here" }).last()).toBeVisible();
