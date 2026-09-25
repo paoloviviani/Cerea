@@ -43,6 +43,21 @@ export interface Policy {
 	autoAccept: "allowed" | "denied";
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
+	/** The explorer's read access (§9): "read" (default) or "off" (--no-files). */
+	files?: "read" | "off";
+	/** The secret deny list in force (globs; "!" exempts). */
+	fileDeny?: string[];
+}
+
+/** hello.machine (§9): what this galopin build implements on this OS. */
+export interface Machine {
+	capabilities: {
+		files?: boolean;
+		fileSearch?: boolean;
+		fileWatch?: boolean;
+		fileWrite?: boolean;
+		terminal?: boolean;
+	};
 }
 
 export type CredentialState = "ok" | "expiring" | "expired";
@@ -290,7 +305,14 @@ export type OpName =
 	| "backend.models";
 
 export type ErrorCode =
-	"not_found" | "invalid" | "forbidden" | "unavailable" | "backend" | "unsupported";
+	| "not_found"
+	| "invalid"
+	| "forbidden"
+	| "unavailable"
+	| "backend"
+	| "unsupported"
+	| "conflict"
+	| "too_large";
 
 export class OpError extends Error {
 	constructor(
@@ -319,6 +341,7 @@ export interface HelloFrame {
 	protocol: number;
 	agent: { version: string; os: string; arch: string; hostname: string };
 	backends: Backend[];
+	machine?: Machine;
 	policy: Policy;
 	credential: { state: CredentialState };
 }
@@ -403,6 +426,12 @@ const policySchema = z.object({
 	autoAccept: z.enum(["allowed", "denied"]),
 	workspaceRoots: z.array(z.string()),
 	allowFreeModels: z.boolean(),
+	files: z.enum(["read", "off"]).optional(),
+	fileDeny: z.array(z.string()).optional(),
+});
+
+const machineSchema = z.object({
+	capabilities: z.record(z.string(), z.boolean()),
 });
 
 export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
@@ -415,6 +444,7 @@ export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
 		hostname: z.string(),
 	}),
 	backends: z.array(backendSchema),
+	machine: machineSchema.optional(),
 	policy: policySchema,
 	credential: z.object({ state: z.enum(["ok", "expiring", "expired"]) }),
 });
@@ -430,7 +460,16 @@ export const resFrameSchema = z.union([
 		id: z.string(),
 		ok: z.literal(false),
 		error: z.object({
-			code: z.enum(["not_found", "invalid", "forbidden", "unavailable", "backend", "unsupported"]),
+			code: z.enum([
+				"not_found",
+				"invalid",
+				"forbidden",
+				"unavailable",
+				"backend",
+				"unsupported",
+				"conflict",
+				"too_large",
+			]),
 			message: z.string(),
 		}),
 	}),

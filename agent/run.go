@@ -378,10 +378,15 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 				"efforts": caps.Efforts,
 			},
 		}},
+		Machine: link.MachineInfo{Capabilities: map[string]bool{
+			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": false,
+		}},
 		Policy: link.PolicyInfo{
 			AutoAccept:      string(pol.AutoAccept),
 			WorkspaceRoots:  roots,
 			AllowFreeModels: pol.AllowFreeModels,
+			Files:           filesPolicyWord(pol),
+			FileDeny:        orEmptyStrings(pol.EffectiveFileDeny()),
 		},
 	}
 }
@@ -458,4 +463,18 @@ func rotateMachineID(stateDir string) (string, error) {
 		return "", err
 	}
 	return loadOrMintMachineID(filepath.Join(stateDir, machineIDFileName))
+}
+
+func filesPolicyWord(pol policy.Policy) string {
+	if pol.FilesAllowed() {
+		return policy.FilesRead
+	}
+	return policy.FilesOff
+}
+
+func orEmptyStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
