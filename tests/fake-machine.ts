@@ -131,6 +131,10 @@ export class FakeMachine {
 	readonly model: FakeMachineModel;
 	readonly ws: WebSocket;
 	private overrides = new Map<string, (args: unknown) => unknown>();
+	/** Deliver an attach's backlog before its reply, as a real machine's
+	 * reply and first output frame can land in the same read: Cerea must
+	 * still send the browser `reset` before that backlog. */
+	flushBacklogBeforeAttachReply = false;
 	private opened: Promise<void>;
 	private welcomeResolvers: Array<
 		(frame: { deviceId: string; status: "pending" | "paired" }) => void
@@ -616,7 +620,8 @@ export class FakeMachine {
 				t.backlog.set(a.channel, t.history.subarray(effectiveFrom));
 				this.channelTerminal.set(a.channel, a.terminalId);
 				t.snapshot = { ...t.snapshot, viewers: t.snapshot.viewers + 1 };
-				queueMicrotask(() => this.flushViewer(a.terminalId, a.channel));
+				if (this.flushBacklogBeforeAttachReply) this.flushViewer(a.terminalId, a.channel);
+				else queueMicrotask(() => this.flushViewer(a.terminalId, a.channel));
 				return {
 					terminal: t.snapshot,
 					from: effectiveFrom,

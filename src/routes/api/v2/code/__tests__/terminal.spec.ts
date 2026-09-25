@@ -653,6 +653,24 @@ describe("the terminal WebSocket", () => {
 		machine.close();
 	});
 
+	it("sends reset before the replayed backlog, even when the backlog lands first", async () => {
+		const { machine, deviceId, terminalId } = await terminalMachine();
+		machine.pushTerminalOutput(terminalId, Buffer.from("backlog-before-reload"));
+		machine.flushBacklogBeforeAttachReply = true;
+
+		const ticket = await mintTicket(deviceId, terminalId);
+		const ws = connectTerminalSocket(ticket, VALID_ORIGIN);
+		ws.binaryType = "nodebuffer";
+		await waitOpen(ws);
+		// A browser reapplies `reset` by clearing the screen, so a backlog
+		// relayed ahead of it would be wiped: reset must come first.
+		await waitForReset(ws);
+		const replay = await nextMessage(ws);
+		expect(decodeBinaryFrame(replay.binary as Buffer)?.payload.toString()).toBe(
+			"backlog-before-reload"
+		);
+	});
+
 	it("resumes from the last relayed offset after a simulated machine reconnect", async () => {
 		const { machine, deviceId, terminalId } = await terminalMachine();
 		const ticket = await mintTicket(deviceId, terminalId);

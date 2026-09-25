@@ -249,9 +249,23 @@ function acceptTerminalConnection(
 		// (§9.2's two-lane scheduler) — but there is no reason to depend on
 		// that ordering surviving a future change when registering first
 		// costs nothing.
+		// Output can reach us before this attach's own reply is handled: `ws`
+		// emits every frame already buffered synchronously, so the reply
+		// and the first backlog frame arriving together would relay the
+		// backlog before the awaited continuation below sends `reset`, and
+		// the browser's reset would then wipe it. Hold the channel's output
+		// until the reply is handled (reset first, then the backlog).
+		let held: Buffer[] | null = [];
 		const unregisterChannel = registerTerminalChannel(deviceId, channel, (offset, payload) => {
 			lastOffset = offset + payload.length;
-			send(encodeBinaryFrame({ kind: BIN_TERM_OUTPUT, channel: BROWSER_CHANNEL, offset, payload }));
+			const frame = encodeBinaryFrame({
+				kind: BIN_TERM_OUTPUT,
+				channel: BROWSER_CHANNEL,
+				offset,
+				payload,
+			});
+			if (held) held.push(frame);
+			else send(frame);
 		});
 		const unsubscribeNotices = subscribeTerminalNotices(deviceId, terminalId, (notice) => {
 			if (notice.kind === "terminal.exit") {
@@ -274,10 +288,13 @@ function acceptTerminalConnection(
 				return;
 			}
 			currentChannel = channel;
-			lastOffset = result.from;
 			if (result.reset) {
 				sendJson({ t: "reset", prelude: result.prelude ?? "" });
 			}
+			const backlog = held ?? [];
+			held = null;
+			for (const frame of backlog) send(frame);
+			if (backlog.length === 0) lastOffset = result.from;
 			audit("terminal.attach");
 		} catch (err) {
 			teardownAttach?.();
