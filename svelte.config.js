@@ -47,6 +47,12 @@ const config = {
 			},
 		},
 		alias: {},
+		// An open tab keeps running the client it loaded; polling lets it
+		// notice a deploy, and the root layout then makes its next navigation
+		// a full load, so fixes reach tabs left open across an upgrade.
+		version: {
+			pollInterval: 5 * 60 * 1000,
+		},
 	},
 };
 

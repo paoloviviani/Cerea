@@ -40,7 +40,7 @@ const field = (name: string): ElicitationField =>
 const request: ElicitationRequestPayload = {
 	elicitationId: "q-1",
 	source: "assistant",
-	server: "pystino",
+	server: "agent",
 	mode: "form",
 	message: "",
 	fields: [field("q0")],

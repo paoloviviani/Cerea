@@ -230,7 +230,8 @@ export function questionRequestedToUpdate(
 		subtype: MessageElicitationUpdateType.Request,
 		request: {
 			elicitationId: event.requestId,
-			server: "pystino",
+			// Not an MCP server: the card names what was asked, never this.
+			server: "agent",
 			mode: "form",
 			source: "assistant",
 			message: child
@@ -504,6 +505,13 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	}
 	for (const permission of transcript.permissions ?? []) {
 		updates.push(permissionRequestToUpdate(permission));
+	}
+	// The turn may be waiting on a question: a snapshot does not replay
+	// question.asked, so offer the ask again from the machine's pending list.
+	for (const question of transcript.questions ?? []) {
+		updates.push(
+			questionRequestedToUpdate({ requestId: question.id, questions: question.questions })
+		);
 	}
 	const todos = transcript.todos ?? [];
 	if (todos.length) updates.push(todoToUpdate(todos));
