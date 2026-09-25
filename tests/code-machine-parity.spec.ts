@@ -610,6 +610,65 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByText("Approach → A").first()).toBeVisible({ timeout: 30_000 });
 	});
 
+	test("questions: an ask pending across a reload is still answerable, and collapses to what was chosen before and after reload", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		// A real model sends the tool call alone, then answers in a new step
+		// once the tool result is back: script exactly that.
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{
+					id: "call_q",
+					name: "question",
+					arguments: JSON.stringify({
+						questions: [
+							{
+								question: "Which approach?",
+								header: "Approach",
+								options: [
+									{ label: "A", description: "Do A" },
+									{ label: "B", description: "Do B" },
+								],
+								multiple: false,
+							},
+						],
+					}),
+				},
+			],
+			toolCallsOnce: true,
+			content: [],
+			finishReason: "tool_calls",
+			routes: [
+				{
+					contains: '"role":"tool"',
+					scenario: { content: ["Went", " with", " A."], chunkDelayMs: 10, finishReason: "stop" },
+				},
+			],
+		});
+		await send(page, "ask me something");
+		await expect(page.getByText("Which approach?")).toBeVisible({ timeout: 60_000 });
+		// Reload while it waits: the ask comes back from the machine's snapshot
+		// (question.asked is not replayed), and is answered from there.
+		await page.reload();
+		await expect(page.getByText("Which approach?")).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button").filter({ hasText: "Do A" }).click();
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await expect(
+			page.locator('[data-message-role="assistant"]').getByText("Went with A.")
+		).toBeVisible({ timeout: 60_000 });
+		const transcript = page.locator('[data-message-role="assistant"]');
+		await expect(transcript.getByText("Approach → A").first()).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText(/Answered\s*pystino/i)).toHaveCount(0);
+		await page.reload();
+		await expect(transcript.getByText("Went with A.")).toBeVisible({ timeout: 30_000 });
+		await expect(transcript.getByText("Approach → A").first()).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText(/Answered\s*pystino/i)).toHaveCount(0);
+	});
+
 	test("questions: a typed answer reaches the model through opencode verbatim", async ({
 		page,
 		db,

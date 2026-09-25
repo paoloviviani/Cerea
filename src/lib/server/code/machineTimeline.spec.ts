@@ -34,6 +34,44 @@ function textPart(id: string, messageId: string, role: string, text: string): Pa
 }
 
 describe("snapshotToUpdates", () => {
+	it("offers an unanswered question again, as the assistant's own card (not a server's)", () => {
+		const transcript: Transcript = {
+			messages: [],
+			permissions: [],
+			questions: [
+				{
+					id: "que_1",
+					callId: "call_q",
+					questions: [
+						{ question: "Which approach?", header: "Approach", options: [{ label: "A" }] },
+					],
+				},
+			],
+			status: "busy",
+			usage: null,
+			todos: [],
+		};
+		const request = snapshotToUpdates(transcript).find(
+			(u) => u.type === MessageUpdateType.Elicitation && u.subtype === "request"
+		);
+		expect(request).toMatchObject({
+			request: { elicitationId: "que_1", source: "assistant", server: "agent" },
+		});
+	});
+
+	it("reads a machine that omits `questions` as none pending", () => {
+		const transcript = {
+			messages: [],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		} as Transcript;
+		expect(
+			snapshotToUpdates(transcript).some((u) => u.type === MessageUpdateType.Elicitation)
+		).toBe(false);
+	});
+
 	it("maps a user text part to a `user` frame carrying its clientMessageId", () => {
 		const transcript: Transcript = {
 			messages: [
@@ -491,7 +529,7 @@ describe("the agent-initiated question tool: opencode's native question, folded 
 				subtype: "request",
 				request: {
 					elicitationId: "q-1",
-					server: "pystino",
+					server: "agent",
 					mode: "form",
 					source: "assistant",
 					message: "Which package manager?",

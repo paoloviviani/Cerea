@@ -3,9 +3,9 @@
 
 	import { onDestroy, onMount } from "svelte";
 	import { browser } from "$app/environment";
-	import { goto } from "$app/navigation";
+	import { beforeNavigate, goto } from "$app/navigation";
 	import { base } from "$app/paths";
-	import { page } from "$app/state";
+	import { page, updated } from "$app/state";
 
 	import { error } from "$lib/stores/errors";
 	import { createSettingsStore } from "$lib/stores/settings";
@@ -126,6 +126,13 @@
 			goto(`${base}/`, { invalidateAll: true });
 		}
 	};
+
+	// A deploy happened since this tab loaded (see kit.version in
+	// svelte.config.js): load the next page from the server, with the new
+	// client, instead of navigating inside the old one.
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+	});
 
 	onDestroy(() => {
 		clearTimeout(errorToastTimeout);

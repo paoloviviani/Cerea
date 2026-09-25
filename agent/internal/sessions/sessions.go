@@ -88,6 +88,11 @@ type sessionState struct {
 	// emitting a second permission.replied for an ask the client never saw.
 	autoRepliedIDs map[string]bool
 
+	// questionOrder/questions are the unanswered question-tool asks, kept
+	// for the same reason as permissions: a snapshot must still offer them.
+	questionOrder []string
+	questions     map[string]*backend.QuestionRequest
+
 	status backend.SessionStatus
 	usage  *backend.Usage
 	todos  []backend.Todo
@@ -101,6 +106,7 @@ func newSessionState(workspaceDir, sessionID string) *sessionState {
 		partOrder:    map[string][]string{},
 		parts:        map[string]map[string]*backend.Part{},
 		permissions:  map[string]*backend.PermissionRequest{},
+		questions:    map[string]*backend.QuestionRequest{},
 	}
 }
 
@@ -156,9 +162,16 @@ func (s *sessionState) snapshot() backend.Transcript {
 			perms = append(perms, *p)
 		}
 	}
+	questions := make([]backend.QuestionRequest, 0, len(s.questionOrder))
+	for _, qid := range s.questionOrder {
+		if q, ok := s.questions[qid]; ok {
+			questions = append(questions, *q)
+		}
+	}
 	return backend.Transcript{
 		Messages:    entries,
 		Permissions: perms,
+		Questions:   questions,
 		Status:      s.status,
 		Usage:       s.usage,
 		Todos:       s.todos,
@@ -526,10 +539,23 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) ([]ba
 		st.todos = ev.Todos
 		return []backend.Event{ev}, nil
 
-	case backend.EventQuestionAsked, backend.EventQuestionResolved:
-		// The user-question tool design: forwarded as-is, no tracked state
-		// (unlike permissions, auto-accept never applies to a question —
-		// PROTOCOL.md's auto-accept scope is tool-call permissions only).
+	case backend.EventQuestionAsked:
+		// Auto-accept never applies to a question (PROTOCOL.md's auto-accept
+		// scope is tool-call permissions only); it is only remembered until
+		// answered, so a snapshot still offers it.
+		if _, exists := st.questions[ev.QuestionRequestID]; !exists {
+			st.questionOrder = append(st.questionOrder, ev.QuestionRequestID)
+		}
+		st.questions[ev.QuestionRequestID] = &backend.QuestionRequest{
+			ID:        ev.QuestionRequestID,
+			Questions: ev.Questions,
+			CallID:    ev.QuestionCallID,
+		}
+		return []backend.Event{ev}, nil
+
+	case backend.EventQuestionResolved:
+		delete(st.questions, ev.QuestionRequestID)
+		st.questionOrder = removeString(st.questionOrder, ev.QuestionRequestID)
 		return []backend.Event{ev}, nil
 
 	default:
@@ -756,6 +782,17 @@ func mergeSeedLocked(st *sessionState, tr backend.Transcript) {
 		st.permissions[perm.ID] = &req
 		st.permissionOrder = append(st.permissionOrder, perm.ID)
 	}
+	// Asks the backend already held predate any live one: they go first.
+	var seededQuestions []string
+	for _, q := range tr.Questions {
+		if _, exists := st.questions[q.ID]; exists {
+			continue
+		}
+		req := q
+		st.questions[q.ID] = &req
+		seededQuestions = append(seededQuestions, q.ID)
+	}
+	st.questionOrder = append(seededQuestions, st.questionOrder...)
 	if st.usage == nil {
 		st.usage = tr.Usage
 	}

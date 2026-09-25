@@ -444,3 +444,43 @@ func TestPartsInheritMessageRole(t *testing.T) {
 		t.Errorf("snapshot part = %+v, want role user and text %q", got, "say hello")
 	}
 }
+
+// TestSnapshotOffersUnansweredQuestions pins that a question-tool ask stays
+// in the snapshot until resolved: a client mounting from a snapshot (a
+// reload) would otherwise never see an ask the turn is blocked on. Asks the
+// backend already holds when the session is first seeded are offered too.
+func TestSnapshotOffersUnansweredQuestions(t *testing.T) {
+	fb := newFakeBackend()
+	fb.transcripts["s1"] = backend.Transcript{Questions: []backend.QuestionRequest{
+		{ID: "que_seeded", Questions: []backend.QuestionItem{{Question: "Seeded?"}}},
+	}}
+	m := New(fb, policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	ctx := context.Background()
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventQuestionAsked, QuestionRequestID: "que_1", QuestionCallID: "call_q",
+		Questions: []backend.QuestionItem{{Question: "Which approach?", Header: "Approach"}},
+	}})
+
+	ids := func() []string {
+		res, err := m.Sync(ctx, "s1", "", 0)
+		if err != nil || res.Snapshot == nil {
+			t.Fatalf("sync = %+v, %v; want a snapshot", res, err)
+		}
+		var out []string
+		for _, q := range res.Snapshot.Questions {
+			out = append(out, q.ID+"/"+q.CallID)
+		}
+		return out
+	}
+	if got := ids(); len(got) != 2 || got[0] != "que_seeded/" || got[1] != "que_1/call_q" {
+		t.Fatalf("pending questions = %v, want the seeded one then que_1", got)
+	}
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventQuestionResolved, QuestionRequestID: "que_1", QuestionDecision: "answered",
+		QuestionAnswers: [][]string{{"A"}},
+	}})
+	if got := ids(); len(got) != 1 || got[0] != "que_seeded/" {
+		t.Fatalf("after answering que_1, pending = %v", got)
+	}
+}
