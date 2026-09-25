@@ -59,6 +59,13 @@
 	import AgentRenameDialog from "./AgentRenameDialog.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
+	import {
+		SHOW_SUBAGENTS_KEY,
+		parentRow,
+		readShowSubagents,
+		subagentRow,
+		visibleAgents,
+	} from "$lib/utils/codeSubagents";
 
 	/** One paired device's live subtree, read through the proxy. */
 	interface DeviceSubtree {
@@ -90,8 +97,25 @@
 	const selectedAgentId = $derived(page.url.searchParams.get("agent"));
 
 	function agentsOf(tree: DeviceSubtree | undefined, workspaceId: string): CodeAgentSession[] {
-		return (tree?.agents ?? []).filter((agent) => agent.workspaceId === workspaceId);
+		return visibleAgents(tree?.agents ?? [], showSubagents).filter(
+			(agent) => agent.workspaceId === workspaceId
+		);
 	}
+
+	// Subagents are listed under their own workspace, marked rather than
+	// nested (a parent and its subagent can live in different worktrees).
+	// The toggle hides them; on by default, remembered per browser.
+	let showSubagents = $state(true);
+	onMount(() => {
+		showSubagents = readShowSubagents(globalThis.localStorage);
+	});
+	function toggleSubagents() {
+		showSubagents = !showSubagents;
+		globalThis.localStorage?.setItem(SHOW_SUBAGENTS_KEY, String(showSubagents));
+	}
+	const hasSubagents = $derived(
+		Object.values(trees).some((tree) => tree.agents.some((agent) => agent.parentId))
+	);
 
 	async function loadTree(deviceId: string): Promise<DeviceSubtree> {
 		try {
@@ -266,6 +290,23 @@
 			</button>
 		</div>
 	{:else}
+		{#if hasSubagents}
+			<button
+				type="button"
+				class="mb-1 flex h-6 items-center gap-1.5 px-2 text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+				aria-pressed={showSubagents}
+				onclick={toggleSubagents}
+			>
+				<span
+					class="flex size-3 items-center justify-center rounded-sm border {showSubagents
+						? 'border-blue-600 bg-blue-600 text-white'
+						: 'border-gray-400'}"
+				>
+					{#if showSubagents}<IconCheck class="size-2.5" />{/if}
+				</span>
+				Show subagents
+			</button>
+		{/if}
 		{#each codeDeviceList.devices as device (device.id)}
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
@@ -460,6 +501,8 @@
 								</div>
 								{#each agentsOf(tree, ws.id) as agent (agent.id)}
 									{@const agentActive = agent.id === selectedAgentId}
+									{@const sub = subagentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
+									{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
 									<div class="group flex items-center gap-1 pr-1">
 										<a
 											href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
@@ -468,18 +511,77 @@
 										>
 											<IconCode class="size-3 shrink-0" />
 											<span class="min-w-0 flex-1 truncate">{agent.title}</span>
-											<span
-												class="size-1.5 shrink-0 rounded-full {agent.state === 'running' ||
-												agent.state === 'waiting-permission'
-													? 'bg-blue-600'
-													: agent.state === 'error'
-														? 'bg-red-600'
-														: agent.state === 'done'
-															? 'bg-green-700'
-															: 'bg-gray-400'}"
-												title={agent.state}
-											></span>
+											{#if sub}
+												<span
+													class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
+													data-testid="subagent-badge">sub</span
+												>
+											{/if}
+											{#if agent.state === "waiting-permission" || kids?.waiting}
+												<span
+													class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+													title={agent.state === "waiting-permission"
+														? "Waiting for your approval"
+														: "A subagent is waiting for your approval"}
+													data-testid="waiting-approval"
+													>{agent.state === "waiting-permission"
+														? "waiting for approval"
+														: "subagent waiting"}</span
+												>
+											{:else}
+												<span
+													class="size-1.5 shrink-0 rounded-full {agent.state === 'running'
+														? 'bg-blue-600'
+														: agent.state === 'error'
+															? 'bg-red-600'
+															: agent.state === 'done'
+																? 'bg-green-700'
+																: 'bg-gray-400'}"
+													title={agent.state}
+												></span>
+											{/if}
 										</a>
+										{#if kids}
+											<DropdownMenu.Root>
+												<DropdownMenu.Trigger
+													class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+													title="Subagents of this session"
+													data-testid="subagent-count"
+												>
+													{kids.count}
+													{kids.count === 1 ? "subagent" : "subagents"}
+												</DropdownMenu.Trigger>
+												<DropdownMenu.Portal>
+													<DropdownMenu.Content
+														class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+														side="bottom"
+														align="end"
+														sideOffset={6}
+													>
+														{#each kids.children as child (child.id)}
+															<DropdownMenu.Item
+																class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+																onSelect={() =>
+																	goto(
+																		`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
+																	)}
+															>
+																<span class="min-w-0 flex-1 truncate">{child.title}</span>
+																{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
+																	<span class="shrink-0 text-xs text-gray-400"
+																		>· {child.workspaceName}</span
+																	>
+																{/if}
+															</DropdownMenu.Item>
+														{:else}
+															<p class="px-2 py-1 text-xs text-gray-500">
+																In another workspace not listed here.
+															</p>
+														{/each}
+													</DropdownMenu.Content>
+												</DropdownMenu.Portal>
+											</DropdownMenu.Root>
+										{/if}
 										<!-- The session's actions live in the same kebab
 									     as the workspace's, at the row's right edge:
 									     rename and archive are occasional, and a bare
@@ -524,6 +626,23 @@
 											</DropdownMenu.Portal>
 										</DropdownMenu.Root>
 									</div>
+									{#if sub}
+										{#if sub.parentWorkspaceId}
+											<a
+												href="{base}/code?device={device.id}&ws={sub.parentWorkspaceId}&agent={sub.parentId}"
+												class="block truncate pl-12 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+												data-testid="subagent-from"
+												>↳ from {sub.parentTitle}{sub.elsewhere ? ` · ${sub.elsewhere}` : ""}</a
+											>
+										{:else}
+											<p
+												class="truncate pl-12 text-[11px] text-gray-400 dark:text-gray-500"
+												data-testid="subagent-from"
+											>
+												↳ from a session not listed here
+											</p>
+										{/if}
+									{/if}
 								{/each}
 								{#if wsActive && agentsOf(tree, ws.id).length === 0}
 									<p class="py-0.5 pl-10 text-xs text-gray-400 dark:text-gray-500">
