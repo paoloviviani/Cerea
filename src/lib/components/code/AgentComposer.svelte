@@ -392,8 +392,16 @@
 		"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-gray-100 dark:border-gray-700 dark:bg-gray-800": true,
 		"max-sm:mb-4": focused && isVirtualKeyboard(),
 	}}
-	style:--composer-actions-width="44px"
+	style:--composer-actions-width={narrowViewport.current ? "44px" : "120px"}
 >
+	<!-- The pill row's own width cap (ChatInput.svelte) reserves this much
+	     for whatever trailingActions renders. 44px covered the ring alone
+	     (mobile: send is pinned outside this row entirely, unaffected by
+	     the cap). Desktop's trailingActions now also carries the send
+	     control (item 2), which the old 44px left too little room for — the
+	     pill row could grow wide enough to sit under it, which is exactly
+	     what stranded the explorer's Send button under an open file panel
+	     until this was widened. -->
 	<div class="flex w-full items-center">
 		<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
 			<ComposerFileChips bind:files />
