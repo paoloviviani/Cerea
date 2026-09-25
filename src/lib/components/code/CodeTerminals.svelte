@@ -13,6 +13,7 @@
 	import CodeTerminal from "./CodeTerminal.svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import * as s from "$lib/components/overlay/styles";
+	import { base } from "$app/paths";
 	import {
 		listWorkspaceTerminals,
 		openTerminal as apiOpenTerminal,
@@ -149,6 +150,13 @@
 		}
 	}
 
+	/** Step-up failed (a stale or missing OIDC auth_time, D6): sent through
+	 * the existing login, with this page as the return URL. */
+	function reauth() {
+		const next = `${window.location.pathname}${window.location.search}`;
+		window.location.href = `${base}/login?next=${encodeURIComponent(next)}`;
+	}
+
 	$effect(() => {
 		void workspaceId;
 		untrack(() => {
@@ -255,6 +263,7 @@
 						{deviceId}
 						terminalId={active.id}
 						onexit={(code) => active && onExit(active.id, code)}
+						onreauth={reauth}
 					/>
 				{/key}
 			{/if}
