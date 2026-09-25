@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Keep compose.yaml's pins and config labels in step with the repository.
+
+    tools/pin                         refresh the cerea.config-rev labels
+    tools/pin --check                 exit 1 if a label or pin is stale (CI)
+    tools/pin --pystino sha-80bc49b   pin the gateway and redaction images
+    tools/pin --cerea 0.2.0           pin the chat image
+    tools/pin --show                  print the current pins
+
+The labels: compose never notices that a mounted file changed, so the proxy
+and Authelia each carry a digest of their configuration directory. A changed
+Caddyfile changes the label, the label changes the service definition, and
+`docker compose up -d` recreates the container. Run this after editing
+caddy/ or authelia/; CI runs it with --check.
+
+The pins: the default after `:-` in PYSTINO_VERSION and CEREA_VERSION. A
+release of this repository names one tested pair (ADR 0087, one hop further:
+this repository pins Pystino, and Pystino's release pins Cerea).
+
+Standard library only, like ./configure.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+COMPOSE = ROOT / "compose.yaml"
+#: Service name -> the directory it mounts as its configuration.
+CONFIG_DIRS = {"proxy": "caddy", "authelia": "authelia"}
+PIN = {
+    "pystino": re.compile(r"(\$\{PYSTINO_VERSION:-)([^}]*)(\})"),
+    "cerea": re.compile(r"(\$\{CEREA_VERSION:-)([^}]*)(\})"),
+}
+TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+
+
+def config_rev(directory: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(directory).as_posix().encode() + b"\0")
+        digest.update(path.read_bytes() + b"\0")
+    return "sha256:" + digest.hexdigest()[:16]
+
+
+def label_pattern(service: str) -> re.Pattern[str]:
+    # The label line inside the service's block: the first `cerea.config-rev`
+    # after `  <service>:` at two-space indentation.
+    return re.compile(
+        rf"(^  {re.escape(service)}:\n(?:(?!^  \S).*\n)*?\s+cerea\.config-rev: \")([^\"]*)(\")",
+        re.MULTILINE,
+    )
+
+
+def refreshed(text: str) -> tuple[str, list[str]]:
+    changes = []
+    for service, directory in CONFIG_DIRS.items():
+        rev = config_rev(ROOT / directory)
+        pattern = label_pattern(service)
+        match = pattern.search(text)
+        if match is None:
+            raise SystemExit(f"pin: no cerea.config-rev label on service {service!r}")
+        if match.group(2) != rev:
+            changes.append(f"{service}: config-rev {match.group(2)} -> {rev}")
+            text = pattern.sub(lambda m: m.group(1) + rev + m.group(3), text, count=1)
+    return text, changes
+
+
+def pins(text: str) -> dict[str, set[str]]:
+    return {name: {m.group(2) for m in pattern.finditer(text)} for name, pattern in PIN.items()}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="tools/pin", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--check", action="store_true", help="change nothing; exit 1 if stale")
+    parser.add_argument("--show", action="store_true", help="print the pins and labels")
+    parser.add_argument("--pystino", metavar="TAG", help="pin pystino-gateway/-redaction")
+    parser.add_argument("--cerea", metavar="TAG", help="pin the cerea image")
+    args = parser.parse_args(argv)
+
+    text = COMPOSE.read_text(encoding="utf-8")
+    current = pins(text)
+    for name, found in current.items():
+        if len(found) != 1:
+            print(f"pin: {name} is pinned inconsistently: {sorted(found)}", file=sys.stderr)
+            return 1
+    if args.show:
+        for name, found in current.items():
+            print(f"{name}={next(iter(found))}")
+        for service in CONFIG_DIRS:
+            match = label_pattern(service).search(text)
+            print(f"{service}.config-rev={match.group(2) if match else '?'}")
+        return 0
+
+    new, changes = refreshed(text)
+    for name in ("pystino", "cerea"):
+        tag = getattr(args, name)
+        if tag is None:
+            continue
+        if not TAG.match(tag):
+            print(f"pin: {tag!r} is not a valid image tag", file=sys.stderr)
+            return 2
+        old = next(iter(current[name]))
+        if old != tag:
+            new = PIN[name].sub(lambda m, t=tag: m.group(1) + t + m.group(3), new)
+            changes.append(f"{name}: {old} -> {tag}")
+
+    if args.check:
+        for line in changes:
+            print(f"stale: {line}")
+        if changes:
+            print("run tools/pin and commit compose.yaml", file=sys.stderr)
+        return 1 if changes else 0
+    if changes:
+        COMPOSE.write_text(new, encoding="utf-8")
+        for line in changes:
+            print(line)
+    else:
+        print("compose.yaml is up to date")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

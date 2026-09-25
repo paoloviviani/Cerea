@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""./configure: guided configuration for Cerea, writing .env.
+
+Skeleton: the implementation lands in the next commit. Until then, copy
+.env.example to .env and edit it by hand; every value is explained there.
+"""
+import sys
+
+print(__doc__.strip(), file=sys.stderr)
+sys.exit(2)

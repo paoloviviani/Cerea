@@ -1,0 +1,39 @@
+# Cheap checks on every push and pull request: no images are pulled or built.
+# (The full bring-up runs in Pystino's release workflow, on tags only.)
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - name: configure's tests (standard library only)
+        run: python3 -m unittest discover -s tests -v
+      - name: config-rev labels and pins are current
+        run: ./tools/pin --check
+      - name: shell scripts parse
+        run: bash -n dev/build.sh
+      - name: compose.yaml resolves with .env.example, every profile
+        run: |
+          # The example leaves every secret empty, which compose refuses: fill them.
+          sed -E "s/^([A-Z_]*(PASSWORD|SECRET|KEY|DIGEST)[A-Z_]*)=''$/\\1='ci-placeholder'/" .env.example > .env
+          COMPOSE_PROFILES=gateway,chat,authelia,redaction,fetch docker compose config -q
+          PYSTINO_REGISTRY=local PYSTINO_VERSION=ci docker compose -f compose.yaml -f dev/smoke.yaml config -q
+      - name: the Caddyfile is valid in all three TLS modes
+        run: |
+          for mode in "https://cerea.example.org|" "https://cerea.example.org|tls internal" "http://:80|"; do
+            docker run --rm -v "$PWD/caddy:/etc/caddy:ro" -v "$PWD/proxy.d:/etc/caddy.d:ro" \
+              -e SITE_ADDRESS="${mode%%|*}" -e TLS_DIRECTIVE="${mode#*|}" -e PROXY_DEFAULT=gateway \
+              caddy:2.11-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          done

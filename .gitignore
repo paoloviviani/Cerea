@@ -1,0 +1,10 @@
+# Every secret lives here; never commit it.
+.env
+.env.bak-*
+# The minted first sign-in (./configure writes it at 0600); delete it after use.
+first-sign-in.txt
+# Your own proxy snippets: git pull never touches them.
+proxy.d/*.caddy
+# Source checkouts dev/build.sh builds from.
+dev/src/
+__pycache__/
