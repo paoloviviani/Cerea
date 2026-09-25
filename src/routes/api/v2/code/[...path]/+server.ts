@@ -81,6 +81,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/cancel$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/compact$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/revert$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/effort$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/unrevert$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
@@ -191,6 +192,7 @@ function toSession(session: Session): CodeAgentSession {
 		modeId: session.modeId,
 		modelId: session.modelId,
 		parentId: session.parentId ?? null,
+		effort: session.effort ?? null,
 		...(session.rootId ? { rootId: session.rootId } : {}),
 		...(session.childSummary ? { childSummary: session.childSummary } : {}),
 	};
@@ -359,6 +361,7 @@ export const GET: RequestHandler = async (event) => {
 			id: model.id,
 			label: model.label,
 			...(model.isDefault ? { isDefault: true } : {}),
+			...(model.efforts?.length ? { efforts: model.efforts } : {}),
 		}));
 		// `hidden` lets the pill say why the list is short rather than look broken.
 		return superjsonResponse({ models: mapped, hidden });
@@ -697,6 +700,23 @@ export const POST: RequestHandler = async (event) => {
 	if (compactMatch) {
 		cancelSchema.parse(body);
 		await callOp(() => link.sessionCompact({ sessionId: decodeURIComponent(compactMatch[1]) }));
+		return superjsonResponse({ ok: true });
+	}
+
+	// Thinking effort (capability `efforts`): one of the model's levels, or
+	// null for its default; the machine sends it with every prompt.
+	const effortMatch = new RegExp(`^v1/agents/(${ID})/effort$`).exec(path);
+	if (effortMatch) {
+		const parsed = z
+			.object({ effort: z.string().trim().min(1).max(32).nullable() })
+			.safeParse(body);
+		if (!parsed.success) error(400, "Expected { effort: string | null }.");
+		await callOp(() =>
+			link.sessionSetEffort({
+				sessionId: decodeURIComponent(effortMatch[1]),
+				effort: parsed.data.effort,
+			})
+		);
 		return superjsonResponse({ ok: true });
 	}
 

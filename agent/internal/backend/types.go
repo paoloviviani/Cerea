@@ -34,6 +34,9 @@ type Session struct {
 	// itself when it has no parent), so a list can say where a subagent
 	// comes from even when its parent lives in another workspace.
 	RootID string `json:"rootId,omitempty"`
+	// Effort is the thinking effort chosen for this session (session.setEffort),
+	// empty for the model's default.
+	Effort string `json:"effort,omitempty"`
 	// ChildSummary counts a session's subagents, for a parent row in a list:
 	// nil for a session that spawned none.
 	ChildSummary *ChildSummary `json:"childSummary,omitempty"`
@@ -175,6 +178,9 @@ type Model struct {
 	ContextWindow int    `json:"contextWindow,omitempty"`
 	Images        bool   `json:"images,omitempty"`
 	Reasoning     bool   `json:"reasoning,omitempty"`
+	// Efforts are the model's thinking-effort levels (opencode: the ids of
+	// its configured variants, low to high), empty when it takes none.
+	Efforts []string `json:"efforts,omitempty"`
 }
 
 // Usage is per-session token and cost accounting (PROTOCOL.md §6).

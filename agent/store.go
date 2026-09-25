@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -155,6 +156,29 @@ type opencodeLimit struct {
 type opencodeModel struct {
 	Name  string         `json:"name"`
 	Limit *opencodeLimit `json:"limit,omitempty"`
+	// Variants are opencode's per-model option sets a prompt can pick by id
+	// (its "variant"): here the thinking-effort levels of a reasoning model,
+	// each one reasoningEffort, which @ai-sdk/openai-compatible sends as the
+	// request's reasoning_effort.
+	Variants map[string]map[string]string `json:"variants,omitempty"`
+}
+
+// effortVariants are the levels a reasoning-capable gateway model gets.
+func effortVariants() map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, level := range []string{"low", "medium", "high"} {
+		out[level] = map[string]string{"reasoningEffort": level}
+	}
+	return out
+}
+
+func hasFeature(features []string, want string) bool {
+	for _, f := range features {
+		if strings.EqualFold(f, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // opencodeProvider is the pystino entry under "provider". options.apiKey is
@@ -241,6 +265,9 @@ func buildOpencodeConfig(
 			output = defaultMaxOutputTokens
 		}
 		entry.Limit = &opencodeLimit{Context: context, Output: output}
+		if hasFeature(m.SupportedFeatures, "reasoning") {
+			entry.Variants = effortVariants()
+		}
 		entries[m.ID] = entry
 	}
 	if len(entries) == 0 {

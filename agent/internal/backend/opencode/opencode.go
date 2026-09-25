@@ -110,6 +110,9 @@ type Backend struct {
 type sessionOverlay struct {
 	ModeID  string `json:"modeId,omitempty"`
 	ModelID string `json:"modelId,omitempty"`
+	// Effort is the model variant id sent with every prompt (opencode's
+	// thinking-effort knob), "" for the model's default.
+	Effort string `json:"effort,omitempty"`
 }
 
 // New builds a Backend. Start must be called before any other method.

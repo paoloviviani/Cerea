@@ -47,6 +47,7 @@
 		setAgentFeature,
 		setAgentMode,
 		setAgentModel,
+		setAgentEffort,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
@@ -91,6 +92,9 @@
 		/** Stops the live turn. The transcript records the ending; this only
 		 * carries the request to the daemon. */
 		onstop?: () => void;
+		/** Whether this agent's backend takes a per-session thinking effort
+		 * (`hello` capability `efforts`); the effort pill needs it too. */
+		effortsSupported?: boolean;
 		/** Signals the parent to re-read the agent snapshot. The pill labels
 		 * are the snapshot's, so a switch is only claimed once the daemon has
 		 * confirmed it in a fresh read — the same discipline as the tree's
@@ -126,6 +130,8 @@
 		usage = null,
 		lastCompaction = null,
 		usageSupported = false,
+
+		effortsSupported = false,
 	}: Props = $props();
 
 	let draft = $state("");
@@ -310,10 +316,39 @@
 		if (!agent?.modeId) return "Mode";
 		return modes?.find((mode) => mode.id === (agent?.modeId ?? null))?.label ?? agent.modeId;
 	});
+	/** The model the agent runs: its explicit one, else the backend's
+	 * default, so the pill names a real model rather than saying "Model". */
+	let currentModel = $derived(
+		agent?.modelId
+			? models?.find((model) => model.id === agent?.modelId)
+			: models?.find((model) => model.isDefault)
+	);
 	let modelLabel = $derived.by(() => {
-		if (!agent?.modelId) return "Model";
-		return models?.find((model) => model.id === (agent?.modelId ?? null))?.label ?? agent.modelId;
+		if (agent?.modelId) return currentModel?.label ?? agent.modelId;
+		return currentModel?.label ?? "Model";
 	});
+
+	/** The effort pill: only for a backend that takes one and a model with levels. */
+	let effortLevels = $derived(
+		effortsSupported && currentModel?.efforts?.length ? currentModel.efforts : null
+	);
+	let effortLabel = $derived(
+		agent?.effort ? agent.effort.charAt(0).toUpperCase() + agent.effort.slice(1) : "Default"
+	);
+
+	async function applyEffort(effort: string | null) {
+		if (applying || effort === (agent?.effort ?? null)) return;
+		applying = "effort";
+		applyFailure = null;
+		try {
+			await setAgentEffort(deviceId, agentId, effort);
+			onchanged();
+		} catch (err) {
+			applyFailure = err instanceof Error ? err.message : "The daemon refused the effort.";
+		} finally {
+			applying = null;
+		}
+	}
 
 	// The chat composer's own pill classes, always in the blue tone: these
 	// are pickers showing what the agent is set to, not toggles of state.
@@ -467,6 +502,49 @@
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
 						</DropdownMenu.Root>
+
+						{#if effortLevels}
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger
+									class={pillClass}
+									disabled={applying === "effort"}
+									title="How hard the model thinks"
+									aria-label="Thinking effort"
+								>
+									<span class="whitespace-nowrap">Effort: {effortLabel}</span>
+									<IconChevronDown class="size-3 opacity-70" />
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Portal>
+									<DropdownMenu.Content
+										class={menuContentClass}
+										side="top"
+										align="start"
+										sideOffset={8}
+										trapFocus={false}
+										onCloseAutoFocus={(e) => e.preventDefault()}
+										interactOutsideBehavior="defer-otherwise-close"
+									>
+										{#each [null, ...effortLevels] as level (level ?? "default")}
+											<DropdownMenu.Item
+												class={menuItemClass}
+												onSelect={() => void applyEffort(level)}
+											>
+												<IconCheck
+													class="size-3.5 shrink-0 {level === (agent?.effort ?? null)
+														? 'opacity-100'
+														: 'opacity-0'}"
+												/>
+												<span class="whitespace-nowrap"
+													>{level
+														? level.charAt(0).toUpperCase() + level.slice(1)
+														: "Default"}</span
+												>
+											</DropdownMenu.Item>
+										{/each}
+									</DropdownMenu.Content>
+								</DropdownMenu.Portal>
+							</DropdownMenu.Root>
+						{/if}
 
 						<!-- The provider's feature toggles, drawn like chat's own
 						     toggle pills (web search, tool approval): blue when on,

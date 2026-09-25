@@ -233,6 +233,39 @@ describe("the forwarder over a live machine link", () => {
 		machine.close();
 	});
 
+	it("forwards /effort as session.setEffort, null clearing it, and refuses a malformed body", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+
+		const calls: unknown[] = [];
+		machine.onOp("session.setEffort", (args: unknown) => {
+			calls.push(args);
+			return { session: { id: agent.id } };
+		});
+		for (const effort of ["high", null]) {
+			const res = await forwarder(
+				forwarderPOST,
+				`/api/v2/code/v1/agents/${agent.id}/effort?device=${deviceId}`,
+				{ method: "POST", body: JSON.stringify({ effort }), locals: user.locals }
+			);
+			expect(res.status).toBe(200);
+		}
+		expect(calls).toEqual([
+			{ sessionId: agent.id, effort: "high" },
+			{ sessionId: agent.id, effort: null },
+		]);
+		const bad = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/effort?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({}), locals: user.locals }
+		);
+		expect(bad.status).toBe(400);
+
+		machine.close();
+	});
+
 	it("forwards /revert and /unrevert, and refuses a revert with no messageId", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;
