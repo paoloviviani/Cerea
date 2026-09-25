@@ -20,11 +20,11 @@ while the profile is on and removes when it is off.
 The admin screen **Admin → Fetch** shows which backend is selected and whether
 the renderer answers:
 
-| Status | Meaning |
-|---|---|
-| Reachable | the renderer answers; `playwright` works |
+| Status         | Meaning                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------- |
+| Reachable      | the renderer answers; `playwright` works                                                |
 | Unreachable: … | an address is set but nothing answers there (still starting, stopped, or wrong address) |
-| Not configured | no address is set: the `fetch` profile is off |
+| Not configured | no address is set: the `fetch` profile is off                                           |
 
 You can select `playwright` before the service is up; the tool that uses it
 is only offered to the model while the renderer answers.
@@ -56,11 +56,11 @@ them together.
 
 ## Cost
 
-| | |
-|---|---|
-| Image on disk | about 3.5 GB (three browser engines and ffmpeg) |
-| Idle | about 190 MiB |
-| Rendering | about 180 MiB more per concurrent page, released afterwards |
+|               |                                                             |
+| ------------- | ----------------------------------------------------------- |
+| Image on disk | about 3.5 GB (three browser engines and ffmpeg)             |
+| Idle          | about 190 MiB                                               |
+| Rendering     | about 180 MiB more per concurrent page, released afterwards |
 
 That is why it is opt-in: on a small host the image and a browser that grows
 with the page are the wrong default.
