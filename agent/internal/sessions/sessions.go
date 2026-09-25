@@ -782,6 +782,52 @@ func (m *Materializer) PendingPermissions(sessionID string) int {
 	return len(st.permissionOrder)
 }
 
+// ChildSummary counts sessionID's subagents from the tree edges the
+// materializer has learned (from any workspace): its direct children, those
+// of them mid-turn, and every descendant waiting on a permission reply. Nil
+// when it has no known child.
+func (m *Materializer) ChildSummary(sessionID string) *backend.ChildSummary {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var sum backend.ChildSummary
+	for id, st := range m.sessions {
+		if id == sessionID || st.parentID == "" {
+			continue
+		}
+		if st.parentID == sessionID {
+			sum.Children++
+			if st.status == backend.StatusBusy || st.status == backend.StatusRetry {
+				sum.Running++
+			}
+		}
+		if len(st.permissionOrder) > 0 && m.descendsFromLocked(id, sessionID) {
+			sum.Waiting++
+		}
+	}
+	if sum.Children == 0 {
+		return nil
+	}
+	return &sum
+}
+
+// descendsFromLocked reports whether sessionID has ancestor somewhere up its
+// parent chain. Cycle-safe. Caller holds m.mu.
+func (m *Materializer) descendsFromLocked(sessionID, ancestor string) bool {
+	seen := map[string]bool{sessionID: true}
+	current := sessionID
+	for {
+		st, ok := m.sessions[current]
+		if !ok || st.parentID == "" || seen[st.parentID] {
+			return false
+		}
+		if st.parentID == ancestor {
+			return true
+		}
+		seen[st.parentID] = true
+		current = st.parentID
+	}
+}
+
 // AutoAccept reports whether auto-accept is currently on for sessionID.
 func (m *Materializer) AutoAccept(sessionID string) bool {
 	m.mu.Lock()

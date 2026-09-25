@@ -86,6 +86,11 @@ export interface Session {
 	parentId: string | null;
 	/** For a child session (session.children): the parent's tool call that spawned it. */
 	parentToolCallId?: string;
+	/** The top-level ancestor (the session itself when it has no parent). */
+	rootId?: string;
+	/** A parent's subagents: direct children, those mid-turn, and descendants
+	 * waiting on a permission reply. Absent when it spawned none. */
+	childSummary?: { children: number; running: number; waiting: number };
 	createdAt: string;
 	updatedAt: string;
 	usage: Usage | null;

@@ -327,4 +327,11 @@ export interface CodeAgentSession {
 	 */
 	modeId: string | null;
 	modelId: string | null;
+	/** The session this one was spawned from, when it is a subagent. */
+	parentId?: string | null;
+	/** Its top-level ancestor (itself when it has no parent). */
+	rootId?: string;
+	/** A parent's subagents: direct children, those running, and descendants
+	 * waiting on a permission reply. Absent when it spawned none. */
+	childSummary?: { children: number; running: number; waiting: number };
 }

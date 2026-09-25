@@ -75,6 +75,8 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 	s.WorkspaceID = workspaceID
 	s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 	s.AutoAccept = mc.mat.AutoAccept(s.ID)
+	s.RootID = mc.mat.RootOf(s.ID)
+	s.ChildSummary = mc.mat.ChildSummary(s.ID)
 	if status, ok := mc.mat.Status(s.ID); ok && status != "" {
 		s.Status = status
 	}
@@ -258,7 +260,11 @@ func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any
 	} else {
 		wsList = mc.workspaces.List(false)
 	}
-	out := []backend.Session{}
+	type listed struct {
+		s           backend.Session
+		workspaceID string
+	}
+	var all []listed
 	for _, w := range wsList {
 		sessList, err := mc.back.ListSessions(ctx, w.Path)
 		if err != nil {
@@ -266,13 +272,17 @@ func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any
 		}
 		for _, s := range sessList {
 			mc.trackSession(w, s)
-			// A subagent's session belongs under its parent's task call
-			// (session.children), not beside it in the workspace's list.
-			if s.ParentID != "" {
-				continue
-			}
-			out = append(out, mc.enrich(s, w.ID))
+			all = append(all, listed{s, w.ID})
 		}
+	}
+	// Enriched only once every listed session is tracked, so a parent's
+	// childSummary counts children listed after it. Subagents are listed
+	// too, under their own workspace (a parent and its child can live in
+	// different worktrees), carrying parentId/rootId so the list marks them
+	// rather than hiding them.
+	out := make([]backend.Session, 0, len(all))
+	for _, l := range all {
+		out = append(out, mc.enrich(l.s, l.workspaceID))
 	}
 	return map[string]any{"sessions": orEmpty(out)}, nil
 }
