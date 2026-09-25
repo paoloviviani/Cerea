@@ -1,3 +1,4 @@
+import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
@@ -30,7 +31,6 @@ import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
-import { ML_ASSISTANT_EFFORT } from "$lib/constants/mlAssistant";
 import { logger } from "$lib/server/logger.js";
 import { compressUpdatesForStorage } from "$lib/server/generation/compressUpdates";
 import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
@@ -746,9 +746,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					// setting, so the mode never outlives the conversation it belongs to.
 					reasoningEffort:
 						(userSettings?.reasoningOverrides?.[model.id] ?? model.supportsReasoning)
-							? isMlAssistantConversation(conv)
-								? ML_ASSISTANT_EFFORT
-								: userSettings?.reasoningEffortOverrides?.[model.id]
+							? effectiveReasoningEffort(conv, userSettings, model.id)
 							: undefined,
 					reasoningOverride: userSettings?.reasoningOverrides?.[model.id],
 					// Artifacts aren't provider-determined, so the per-model user
@@ -938,6 +936,7 @@ export async function PATCH({ request, locals, params }) {
 			model: validModelIdSchema.optional(),
 			webSearch: z.boolean().optional(),
 			toolApprovalOverride: z.enum(["always-allow", "manual"]).optional(),
+			reasoningEffort: z.enum(["low", "medium", "high"]).nullable().optional(),
 		})
 		.parse(body);
 

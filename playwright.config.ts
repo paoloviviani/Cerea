@@ -168,6 +168,8 @@ export default defineConfig({
 				MODELS: JSON.stringify([
 					{ id: "test-org/artifact-tool", supportsArtifacts: true },
 					{ id: "test-org/artifact-tags", supportsArtifacts: true },
+					// The model/effort pill's spec: a model that takes an effort.
+					{ id: "test-org/thinking-model", supportsReasoning: true },
 				]),
 				// Without this the SSRF guard drops every loopback MCP URL a spec passes.
 				MCP_ALLOW_INSECURE_URLS: "true",

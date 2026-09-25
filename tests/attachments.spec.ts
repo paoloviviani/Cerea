@@ -11,7 +11,7 @@
  * message, download-only serving, another session's refusal, and the revoke
  * path's cleanup.
  */
-import { test, expect, installSession, E2E_APP_URL } from "./fixtures";
+import { test, expect, installSession, E2E_APP_URL, E2E_APP_BASE } from "./fixtures";
 import { randomUUID as deviceIdSeed } from "node:crypto";
 import { seedUser } from "./machineHarness";
 import { ObjectId } from "mongodb";
@@ -24,7 +24,7 @@ test("a picked file is sent and still opens from chat's route after a reload", a
 	mockOpenAI,
 }) => {
 	await mockOpenAI.setDefaultScenario("plainText");
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 
 	await page.getByLabel("Upload file").setInputFiles({
 		name: "notes.txt",
@@ -55,7 +55,7 @@ test("a picked file is sent and still opens from chat's route after a reload", a
 
 test("a long paste becomes a clipboard chip", async ({ page, browserName }) => {
 	test.skip(browserName !== "chromium", "WebKit ignores clipboardData on synthetic paste events");
-	await page.goto("/");
+	await page.goto(`${E2E_APP_BASE}/`);
 	const composer = page.getByPlaceholder("Ask anything");
 	await composer.click();
 	await composer.evaluate((el) => {
@@ -122,7 +122,7 @@ test.describe("/code attachment routes", () => {
 		expect(Buffer.from(await bytes.body())).toEqual(PNG);
 
 		// The browser can render it as an image even though navigating downloads it.
-		await page.goto("/");
+		await page.goto(`${E2E_APP_BASE}/`);
 		const width = await page.evaluate(async (src) => {
 			const img = new Image();
 			img.src = src;
