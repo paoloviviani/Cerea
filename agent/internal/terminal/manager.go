@@ -15,6 +15,11 @@ var ErrTooMany = errors.New("terminal: maxTerminals reached")
 // ErrNotFound is returned for an unknown terminal id.
 var ErrNotFound = errors.New("terminal: not found")
 
+// ErrNotExited is returned by Manager.Remove for a terminal whose process is
+// still running: removing its bookkeeping while the shell is alive would
+// leak it (nothing left tracking the process to signal or reap).
+var ErrNotExited = errors.New("terminal: not exited")
+
 // Manager owns every terminal this machine has open, across workspaces:
 // spawning (subject to maxTerminals), lookup, and the lifecycle rules
 // (PROTOCOL.md §9.3) — 10-minute exit retention, 24-hour idle reap, and
@@ -43,11 +48,19 @@ func (m *Manager) Count() int {
 	return len(m.terms)
 }
 
-// Open spawns a new terminal, refusing once maxTerminals terminals already
-// exist (running or still retained after exit).
+// Open spawns a new terminal, refusing once maxTerminals *running* terminals
+// already exist. An exited terminal kept around for ExitRetention does not
+// count: a user who exits every shell must be able to open a fresh one right
+// away, not wait out the retention window on terminals nobody can use.
 func (m *Manager) Open(cfg OpenConfig, maxTerminals int) (*Terminal, error) {
 	m.mu.Lock()
-	if len(m.terms) >= maxTerminals {
+	running := 0
+	for _, t := range m.terms {
+		if t.State() != StateExited {
+			running++
+		}
+	}
+	if running >= maxTerminals {
 		m.mu.Unlock()
 		return nil, ErrTooMany
 	}
@@ -103,6 +116,24 @@ func (m *Manager) List(workspaceID string) []Snapshot {
 		out = append(out, snap)
 	}
 	return out
+}
+
+// Remove drops an already-exited terminal from the registry immediately,
+// ahead of ExitRetention — terminal.close on a terminal that has already
+// exited (PROTOCOL.md §9.3) asks for it gone for good, not kept around for
+// the usual retention window. Refuses a still-running terminal: that case is
+// what Close (SIGHUP/SIGKILL) is for, and removing the bookkeeping out from
+// under a live process would leak it.
+func (m *Manager) Remove(id string) error {
+	t, err := m.Get(id)
+	if err != nil {
+		return err
+	}
+	if t.State() != StateExited {
+		return ErrNotExited
+	}
+	m.remove(id)
+	return nil
 }
 
 // remove drops a terminal from the registry (used once it is fully closed

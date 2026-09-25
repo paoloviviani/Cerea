@@ -1148,7 +1148,15 @@ func (mc *machine) opTerminalClose(ctx context.Context, args json.RawMessage) (a
 	if err != nil {
 		return nil, notFound("terminal")
 	}
-	t.Close(a.Force)
+	if t.State() == terminal.StateExited {
+		// Already dead: signaling it again is a no-op, and the caller (the
+		// UI's Close/Remove on an exited tab) means "gone for good", not
+		// "kept until ExitRetention expires" — so drop it from the registry
+		// right away instead of leaving it for terminal.list to keep showing.
+		_ = mc.terminals.Remove(a.TerminalID)
+	} else {
+		t.Close(a.Force)
+	}
 	mc.audit.terminalClose(a.TerminalID)
 	return map[string]any{}, nil
 }

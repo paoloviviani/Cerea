@@ -80,6 +80,111 @@ func TestTerminalMaxTerminals(t *testing.T) {
 	}
 }
 
+// TestTerminalMaxTerminalsExcludesExited is the brief's roster requirement:
+// a user who exits every shell must be able to open a fresh one right away,
+// not wait out the 10-minute exit-retention window on terminals nobody can
+// use anymore.
+func TestTerminalMaxTerminalsExcludesExited(t *testing.T) {
+	if !terminal.Supported {
+		t.Skip("terminals are not supported on this OS")
+	}
+	mc, wsID := terminalMachine(t, allowTerminalPolicy(1))
+	ctx := context.Background()
+	openArgs := json.RawMessage(`{"workspaceId":"` + wsID + `","cols":80,"rows":24}`)
+
+	res, operr := mc.Handle(ctx, "terminal.open", openArgs)
+	if operr != nil {
+		t.Fatalf("first terminal.open: %+v", operr)
+	}
+	body, _ := json.Marshal(res)
+	var opened struct {
+		Terminal terminal.Snapshot `json:"terminal"`
+	}
+	if err := json.Unmarshal(body, &opened); err != nil {
+		t.Fatalf("unmarshal terminal.open result: %v", err)
+	}
+	tm, err := mc.terminals.Get(opened.Terminal.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if _, err := tm.Write([]byte("exit\n")); err != nil {
+		t.Fatalf("Write exit: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && tm.State() != terminal.StateExited {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if tm.State() != terminal.StateExited {
+		t.Fatal("terminal never reached the exited state")
+	}
+
+	if _, operr := mc.Handle(ctx, "terminal.open", openArgs); operr != nil {
+		t.Fatalf("terminal.open after the only terminal exited = %+v, want success (an exited terminal must not count against maxTerminals)", operr)
+	}
+}
+
+// TestTerminalCloseOnExitedRemovesItForGood: PROTOCOL.md §9.3 keeps an
+// exited terminal around for 10 minutes so a viewer can see how it ended,
+// but Close/Remove from the UI means "gone for good" — it must not linger
+// in terminal.list until the retention window happens to expire.
+func TestTerminalCloseOnExitedRemovesItForGood(t *testing.T) {
+	if !terminal.Supported {
+		t.Skip("terminals are not supported on this OS")
+	}
+	mc, wsID := terminalMachine(t, allowTerminalPolicy(8))
+	ctx := context.Background()
+
+	res, operr := mc.Handle(ctx, "terminal.open", json.RawMessage(`{"workspaceId":"`+wsID+`","cols":80,"rows":24}`))
+	if operr != nil {
+		t.Fatalf("terminal.open: %+v", operr)
+	}
+	body, _ := json.Marshal(res)
+	var opened struct {
+		Terminal terminal.Snapshot `json:"terminal"`
+	}
+	if err := json.Unmarshal(body, &opened); err != nil {
+		t.Fatalf("unmarshal terminal.open result: %v", err)
+	}
+	termID := opened.Terminal.ID
+	tm, err := mc.terminals.Get(termID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if _, err := tm.Write([]byte("exit\n")); err != nil {
+		t.Fatalf("Write exit: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && tm.State() != terminal.StateExited {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if tm.State() != terminal.StateExited {
+		t.Fatal("terminal never reached the exited state")
+	}
+
+	if _, operr := mc.Handle(ctx, "terminal.close", json.RawMessage(`{"terminalId":"`+termID+`"}`)); operr != nil {
+		t.Fatalf("terminal.close on an exited terminal: %+v", operr)
+	}
+
+	listRes, operr := mc.Handle(ctx, "terminal.list", json.RawMessage(`{"workspaceId":"`+wsID+`"}`))
+	if operr != nil {
+		t.Fatalf("terminal.list: %+v", operr)
+	}
+	listBody, _ := json.Marshal(listRes)
+	var listed struct {
+		Terminals []terminal.Snapshot `json:"terminals"`
+	}
+	if err := json.Unmarshal(listBody, &listed); err != nil {
+		t.Fatalf("unmarshal terminal.list result: %v", err)
+	}
+	for _, snap := range listed.Terminals {
+		if snap.ID == termID {
+			t.Fatalf("terminal.close on an exited terminal must remove it for good; still listed as %+v", snap)
+		}
+	}
+}
+
 func TestTerminalOpenAttachEchoOverRealPTYThroughDispatch(t *testing.T) {
 	if !terminal.Supported {
 		t.Skip("terminals are not supported on this OS")
