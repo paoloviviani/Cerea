@@ -55,6 +55,14 @@
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
 	import { resolveActiveModel } from "$lib/utils/activeModel";
+	import ModelEffortPicker from "$lib/components/chat/ModelEffortPicker.svelte";
+	import ModelPickerDialog from "$lib/components/ModelPickerDialog.svelte";
+	import {
+		readRecent,
+		withRecent,
+		CODE_RECENT_MODELS_KEY,
+		type PickerModel,
+	} from "$lib/utils/modelEffortPicker";
 	import type {
 		AgentCompactionUpdate,
 		AgentUsageUpdate,
@@ -330,13 +338,39 @@
 		return currentModel?.label ?? "Model";
 	});
 
-	/** The effort pill: only for a backend that takes one and a model with levels. */
+	/** The effort submenu inside the model/effort pill: only for a backend
+	 * that takes one and a model with levels — the same guard the old
+	 * standalone Effort pill used, now feeding `ModelEffortPicker`'s
+	 * `efforts` prop instead of a pill of its own. */
 	let effortLevels = $derived(
 		effortsSupported && currentModel?.efforts?.length ? currentModel.efforts : null
 	);
-	let effortLabel = $derived(
-		agent?.effort ? agent.effort.charAt(0).toUpperCase() + agent.effort.slice(1) : "Default"
+
+	// The shared model/effort pill (`ModelEffortPicker.svelte`, the chat
+	// composer's own): the daemon's model list adapted to the picker's
+	// `PickerModel` shape (no logo — the /code catalog carries none), and a
+	// /code-only recency memory so the short list favours what this device's
+	// person actually picks, separate from chat's (`readRecent`/`withRecent`
+	// are the pure parts the pill's own utils module keeps, not chat-only).
+	let pickerModels = $derived<PickerModel[]>(
+		(models ?? []).map((model) => ({
+			id: model.id,
+			name: model.label,
+			description: model.description,
+		}))
 	);
+	let codeRecentIds = $state<string[]>([]);
+	$effect(() => {
+		codeRecentIds = readRecent(globalThis.localStorage, CODE_RECENT_MODELS_KEY);
+	});
+	function rememberCodeModel(id: string) {
+		codeRecentIds = withRecent(codeRecentIds, id);
+		globalThis.localStorage?.setItem(CODE_RECENT_MODELS_KEY, JSON.stringify(codeRecentIds));
+	}
+	/** "More models": the full searchable dialog (`ModelPickerDialog`, shared
+	 * with chat's own "More models"), for a catalog longer than the pill's
+	 * six-row short list. */
+	let modelDialogOpen = $state(false);
 
 	// Below `sm` there is no hover to carry a machine-policy veto's reason, so
 	// a vetoed feature pill there stays tappable (not `disabled`) and opens a
@@ -471,105 +505,52 @@
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
 
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger
-							class={pillClass}
-							disabled={applying === "model"}
-							title="The model this agent runs"
+					<!-- The model/effort pill: the chat composer's own
+					     `ModelEffortPicker`, not a /code-only dropdown — same
+					     look, same short list, same checkmark resolution
+					     (`resolveActiveModel`, above). The daemon's loading and
+					     failure states have no row to render inside an empty
+					     menu, so they stay a plain disabled pill beside it
+					     rather than forcing a fork of the shared menu's
+					     internals for a state chat never has. -->
+					{#if models === null && !modelsFailure}
+						<span class="{pillClass} opacity-60" aria-disabled="true">
+							<span class="max-sm:max-w-12 max-sm:truncate">Loading models…</span>
+						</span>
+					{:else if modelsFailure}
+						<span class="{pillClass} opacity-60" title={modelsFailure}>
+							<span class="max-w-48 truncate max-sm:max-w-20">Could not load models</span>
+						</span>
+					{:else if !models?.length}
+						<span class="{pillClass} opacity-60">
+							<span class="max-sm:max-w-12 max-sm:truncate">The daemon lists no models.</span>
+						</span>
+					{:else}
+						<ModelEffortPicker
+							models={pickerModels}
+							currentId={currentModel?.id ?? agent?.modelId ?? ""}
+							recentIds={codeRecentIds}
+							efforts={effortLevels}
+							effort={agent?.effort ?? undefined}
+							onpickModel={(id) => {
+								rememberCodeModel(id);
+								void applyModel(id);
+							}}
+							onpickEffort={(level) => void applyEffort(level ?? null)}
+							onmore={() => (modelDialogOpen = true)}
+							disabled={applying === "model" || applying === "effort"}
+							triggerClass={pillClass}
 						>
 							<span class="max-w-48 truncate max-sm:max-w-20" title={modelLabel}>{modelLabel}</span>
-							<IconChevronDown class={chevronClass} />
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Portal>
-							<DropdownMenu.Content
-								class="{menuContentClass} scrollbar-custom max-h-64 overflow-y-auto"
-								side="top"
-								align="start"
-								sideOffset={8}
-								trapFocus={false}
-								onCloseAutoFocus={(e) => e.preventDefault()}
-								interactOutsideBehavior="defer-otherwise-close"
-							>
-								{#if models === null && !modelsFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Loading models…
-									</DropdownMenu.Item>
-								{:else if modelsFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Could not load models: {modelsFailure}
-									</DropdownMenu.Item>
-								{:else if !models?.length}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										The daemon lists no models.
-									</DropdownMenu.Item>
-								{:else}
-									{#each models as model (model.id)}
-										<DropdownMenu.Item
-											class={menuItemClass}
-											onSelect={() => void applyModel(model.id)}
-										>
-											<IconCheck
-												class="size-3.5 shrink-0 {model.id === (currentModel?.id ?? null)
-													? 'opacity-100'
-													: 'opacity-0'}"
-											/>
-											<span class="max-w-64 truncate" title={model.description}>
-												{model.label}
-											</span>
-										</DropdownMenu.Item>
-									{/each}
-									{#if modelsHidden > 0}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
-											machine was enrolled without --allow-free-models.
-										</DropdownMenu.Item>
-									{/if}
+							{#snippet footer()}
+								{#if modelsHidden > 0}
+									<div class={menuNoteClass}>
+										{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
+										machine was enrolled without --allow-free-models.
+									</div>
 								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Portal>
-					</DropdownMenu.Root>
-
-					{#if effortLevels}
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger
-								class={pillClass}
-								disabled={applying === "effort"}
-								title="How hard the model thinks"
-								aria-label="Thinking effort"
-							>
-								<span class="whitespace-nowrap"
-									><span class="max-sm:hidden">Effort: </span>{effortLabel}</span
-								>
-								<IconChevronDown class={chevronClass} />
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Content
-									class={menuContentClass}
-									side="top"
-									align="start"
-									sideOffset={8}
-									trapFocus={false}
-									onCloseAutoFocus={(e) => e.preventDefault()}
-									interactOutsideBehavior="defer-otherwise-close"
-								>
-									{#each [null, ...effortLevels] as level (level ?? "default")}
-										<DropdownMenu.Item
-											class={menuItemClass}
-											onSelect={() => void applyEffort(level)}
-										>
-											<IconCheck
-												class="size-3.5 shrink-0 {level === (agent?.effort ?? null)
-													? 'opacity-100'
-													: 'opacity-0'}"
-											/>
-											<span class="whitespace-nowrap"
-												>{level ? level.charAt(0).toUpperCase() + level.slice(1) : "Default"}</span
-											>
-										</DropdownMenu.Item>
-									{/each}
-								</DropdownMenu.Content>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
+							{/snippet}
+						</ModelEffortPicker>
 					{/if}
 
 					<!-- The provider's feature toggles, drawn like chat's own
@@ -726,6 +707,21 @@
 		</div>
 	</div>
 </form>
+
+{#if modelDialogOpen}
+	<ModelPickerDialog
+		models={pickerModels}
+		currentId={currentModel?.id ?? agent?.modelId ?? ""}
+		title="Switch model"
+		subtitle="Changes this agent only."
+		onchoose={(id) => {
+			modelDialogOpen = false;
+			rememberCodeModel(id);
+			void applyModel(id);
+		}}
+		onclose={() => (modelDialogOpen = false)}
+	/>
+{/if}
 
 {#snippet sendControl(pinned: boolean)}
 	{#if running}

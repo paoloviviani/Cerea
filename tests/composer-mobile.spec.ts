@@ -169,16 +169,20 @@ test.describe("/code composer at 390×844", () => {
 	test("the +, every pill, the ring and send share one unwrapped row", async ({ page }) => {
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const mode = page.getByRole("button", { name: "Build" });
-		const model = page.getByRole("button", { name: "Coder Large With A Rather Long Name" });
-		const effort = page.getByRole("button", { name: "Thinking effort" });
+		// The model and its effort now share one pill — the chat composer's
+		// own `ModelEffortPicker` — rather than the /code-only dropdown and
+		// its separate Effort pill this replaced.
+		const modelEffort = page.getByRole("button", { name: "Model and effort" });
 		const autoAccept = page.getByRole("button", { name: "Auto Accept" });
 		const ring = page.getByRole("button", { name: "20.2k" });
 		const send = page.getByRole("button", { name: "Send message" });
 
-		const all = [attach, mode, model, effort, autoAccept, ring, send];
+		const all = [attach, mode, modelEffort, autoAccept, ring, send];
 		for (const locator of all) {
 			await expect(locator).toBeVisible();
 		}
+		await expect(modelEffort).toContainText("Coder Large With A Rather Long Name");
+		await expect(modelEffort).toContainText("High");
 
 		const boxes = await Promise.all(all.map(box));
 		for (let i = 1; i < boxes.length; i++) {
@@ -200,9 +204,11 @@ test.describe("/code composer at 390×844", () => {
 		const autoAcceptBox = await box(autoAccept);
 		expect(autoAcceptBox.width).toBeLessThan(36);
 
-		// The model name truncates rather than pushing the row wider.
-		const modelBox = await box(model);
-		expect(modelBox.width).toBeLessThan(120);
+		// The model name itself truncates rather than pushing the row wider
+		// (the pill's own bounding box also carries the effort suffix and
+		// caret, so the truncating label span is checked directly).
+		const modelLabelBox = await box(modelEffort.locator("span").first());
+		expect(modelLabelBox.width).toBeLessThan(80);
 
 		await expect(autoAccept).toHaveAttribute("aria-pressed", "false");
 

@@ -36,6 +36,15 @@
 		/** The pill's own content (model name, logo, badges). */
 		children: Snippet;
 		disabled?: boolean;
+		/** The trigger's own class list — chat's underline-text pill by
+		 * default; /code passes its composer's own pill classes so the
+		 * control reads like the mode and feature pills beside it. */
+		triggerClass?: string;
+		/** Rendered inside the menu, after the model rows and before the
+		 * effort/"More models" section: the /code-only notes (a
+		 * machine-policy veto, "N non-gateway models hidden…") that have no
+		 * home in the shared list itself. Chat renders nothing here. */
+		footer?: Snippet;
 	}
 
 	let {
@@ -50,6 +59,8 @@
 		onmore,
 		children,
 		disabled = false,
+		triggerClass = "inline-flex min-w-0 items-center gap-1 hover:underline disabled:no-underline",
+		footer,
 	}: Props = $props();
 
 	let open = $state(false);
@@ -64,11 +75,7 @@
 </script>
 
 <DropdownMenu.Root bind:open>
-	<DropdownMenu.Trigger
-		class="inline-flex min-w-0 items-center gap-1 hover:underline disabled:no-underline"
-		aria-label="Model and effort"
-		{disabled}
-	>
+	<DropdownMenu.Trigger class={triggerClass} aria-label="Model and effort" {disabled}>
 		{@render children()}
 		{#if efforts}
 			<span class="shrink-0 text-gray-500 dark:text-gray-400">· {effortLabel(effort)}</span>
@@ -117,6 +124,7 @@
 			{:else}
 				<p class="px-2 py-1.5 text-xs text-gray-500">No model matches.</p>
 			{/each}
+			{@render footer?.()}
 			<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
 			{#if efforts}
 				{#if effortPinned}
