@@ -3,7 +3,7 @@
 
     tools/pin                         refresh the cerea.config-rev labels
     tools/pin --check                 exit 1 if a label or pin is stale (CI)
-    tools/pin --pystino sha-80bc49b   pin the gateway and redaction images
+    tools/pin --pystino sha-e251ba7   pin the gateway and redaction images
     tools/pin --cerea 0.2.0           pin the chat image
     tools/pin --show                  print the current pins
 

@@ -62,7 +62,7 @@ command -v git >/dev/null || die "needs git"
 docker info >/dev/null 2>&1 || die "needs a running Docker daemon"
 
 # --- which refs -----------------------------------------------------------------
-pin_to_ref() {  # sha-80bc49b -> 80bc49b ; 0.2.0 -> v0.2.0
+pin_to_ref() {  # sha-e251ba7 -> e251ba7 ; 0.2.0 -> v0.2.0
   case $1 in
     sha-*) echo "${1#sha-}" ;;
     [0-9]*.[0-9]*.[0-9]*) echo "v$1" ;;
