@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/checkout"
@@ -208,6 +210,9 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 }
 
 func (mc *machine) opWorkspaceList() (any, *link.OpError) {
+	// PERF-MEASURE (temporary, remove before commit): brief item 1.
+	t0 := time.Now()
+	defer func() { log.Printf("PERF workspace.list total=%s", time.Since(t0)) }()
 	return map[string]any{"workspaces": orEmpty(mc.workspaces.List(false))}, nil
 }
 
@@ -307,6 +312,9 @@ func (mc *machine) opWorkspaceArchive(ctx context.Context, args json.RawMessage)
 }
 
 func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	// PERF-MEASURE (temporary, remove before commit): brief item 1.
+	t0 := time.Now()
+	defer func() { log.Printf("PERF session.list total=%s", time.Since(t0)) }()
 	var a struct {
 		WorkspaceID string `json:"workspaceId,omitempty"`
 	}
@@ -330,6 +338,7 @@ func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any
 		workspaceID string
 	}
 	var all []listed
+	tBackend := time.Now()
 	for _, w := range wsList {
 		sessList, err := mc.back.ListSessions(ctx, w.Path)
 		if err != nil {
@@ -340,15 +349,18 @@ func (mc *machine) opSessionList(ctx context.Context, args json.RawMessage) (any
 			all = append(all, listed{s, w.ID})
 		}
 	}
+	log.Printf("PERF session.list backend=%s workspaces=%d sessions=%d", time.Since(tBackend), len(wsList), len(all))
 	// Enriched only once every listed session is tracked, so a parent's
 	// childSummary counts children listed after it. Subagents are listed
 	// too, under their own workspace (a parent and its child can live in
 	// different worktrees), carrying parentId/rootId so the list marks them
 	// rather than hiding them.
+	tEnrich := time.Now()
 	out := make([]backend.Session, 0, len(all))
 	for _, l := range all {
 		out = append(out, mc.enrich(l.s, l.workspaceID))
 	}
+	log.Printf("PERF session.list enrich=%s", time.Since(tEnrich))
 	return map[string]any{"sessions": orEmpty(out)}, nil
 }
 
