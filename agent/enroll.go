@@ -156,10 +156,7 @@ func runEnroll(args []string) error {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
 	}
 	if opts.creds == "" {
-		if err := migrateLegacyState(); err != nil {
-			return err
-		}
-		path, err := defaultCredsPath()
+		path, err := resolveDefaultCredsPath()
 		if err != nil {
 			return err
 		}
@@ -240,18 +237,19 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 
 	creds := &credentials{
-		Issuer:        issuer,
-		TokenEndpoint: doc.TokenEndpoint,
-		ClientID:      opts.clientID,
-		Gateway:       gateway,
-		Group:         group,
-		RefreshToken:  tokens.RefreshToken,
-		AccessToken:   tokens.AccessToken,
-		ExpiresIn:     tokens.ExpiresIn,
-		ObtainedAt:    time.Now().Unix(),
-		ShimPort:      shimPort,
-		ShimSecret:    shimSecret,
-		CereaOrigin:   strings.TrimSuffix(opts.cerea, "/"),
+		Issuer:             issuer,
+		TokenEndpoint:      doc.TokenEndpoint,
+		RevocationEndpoint: doc.RevocationEndpoint,
+		ClientID:           opts.clientID,
+		Gateway:            gateway,
+		Group:              group,
+		RefreshToken:       tokens.RefreshToken,
+		AccessToken:        tokens.AccessToken,
+		ExpiresIn:          tokens.ExpiresIn,
+		ObtainedAt:         time.Now().Unix(),
+		ShimPort:           shimPort,
+		ShimSecret:         shimSecret,
+		CereaOrigin:        strings.TrimSuffix(opts.cerea, "/"),
 	}
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
