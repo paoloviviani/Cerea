@@ -752,7 +752,12 @@
 			conversationId={agentId}
 			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
-			onretry={revertSupported && !loading ? onretry : undefined}
+			onretry={revertSupported &&
+			!loading &&
+			shownState !== "running" &&
+			shownState !== "waiting-permission"
+				? onretry
+				: undefined}
 			{subagentFor}
 			{subagentCard}
 			{messageActions}
