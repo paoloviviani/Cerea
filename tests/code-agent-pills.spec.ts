@@ -148,6 +148,10 @@ test("the model pill lists the provider's models and applies a switch", async ({
 	await modelPill.click();
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
+
+	// The unsearched short list is the current model alone (no recent picks
+	// yet) — search brings the rest into view, like chat's own picker.
+	await page.getByRole("textbox", { name: "Search models" }).fill("Flash");
 	await expect(menu.getByRole("menuitem", { name: "Coder Flash" })).toBeVisible();
 
 	await menu.getByRole("menuitem", { name: "Coder Flash" }).click();

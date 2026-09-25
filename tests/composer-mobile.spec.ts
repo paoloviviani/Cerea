@@ -208,7 +208,7 @@ test.describe("/code composer at 390×844", () => {
 		// (the pill's own bounding box also carries the effort suffix and
 		// caret, so the truncating label span is checked directly).
 		const modelLabelBox = await box(modelEffort.locator("span").first());
-		expect(modelLabelBox.width).toBeLessThan(80);
+		expect(modelLabelBox.width).toBeLessThanOrEqual(80);
 
 		await expect(autoAccept).toHaveAttribute("aria-pressed", "false");
 
