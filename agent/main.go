@@ -29,6 +29,7 @@ Commands:
   serve     Local refreshing proxy shim: opencode points its baseURL here,
             the shim injects a fresh access token plus x-bill-to per request.
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
+  policy    Show, or locally tighten, this machine's policy.json.
 
 Run 'galopin <command> -h' for that command's options.
 `
@@ -46,6 +47,8 @@ func main() {
 		err = runServe(os.Args[2:])
 	case "run":
 		err = runRun(os.Args[2:])
+	case "policy":
+		err = runPolicy(os.Args[2:])
 	case "-h", "-help", "--help", "help":
 		fmt.Print(usage)
 		return

@@ -61,6 +61,12 @@ Usage:
   --no-default-file-deny  Drop the built-in secret deny list, keeping only
                --file-deny's. The list prevents accidental exposure; it is
                not a boundary against the agent, which can read any file.
+  --allow-terminal  Let the /code panel open a real shell on this machine
+               (default: denied). Terminals: ALLOWED means anyone who
+               controls your Cerea session can run commands as you on this
+               machine — there is no model and no permission rule in the
+               way once a terminal is open.
+  --max-terminals N  Cap concurrently open terminals (default 8).
   --yes        Overwrite existing files without asking.
 `
 
@@ -88,6 +94,8 @@ type enrollOptions struct {
 	noDefaultFileDeny      bool
 	workspaceRoots         []string
 	allowFreeModels        bool
+	allowTerminal          bool
+	maxTerminals           int
 	yes                    bool
 }
 
@@ -132,6 +140,8 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.noFiles, "no-files", false, "")
 	fs.Var(stringListFlag{&opts.fileDeny}, "file-deny", "")
 	fs.BoolVar(&opts.noDefaultFileDeny, "no-default-file-deny", false, "")
+	fs.BoolVar(&opts.allowTerminal, "allow-terminal", false, "")
+	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -267,10 +277,18 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 	pol.FileDeny = opts.fileDeny
 	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
+	if opts.allowTerminal {
+		pol.Terminal = policy.TerminalAllowed
+	}
+	pol.MaxTerminals = opts.maxTerminals
+	if opts.allowTerminal && !opts.allowAutoAccept {
+		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're denying unattended agent commands but allowing a remote shell.")
+	}
 	if err := policy.Save(policyPathFor(opts.creds), pol); err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stderr, filesPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -436,4 +454,21 @@ func filesPolicySummary(pol policy.Policy) string {
 		redacted += " and " + strings.Join(pol.FileDeny, ", ")
 	}
 	return "Files: READ-ONLY — the /code explorer can browse each workspace; redacted: " + redacted + "."
+}
+
+// terminalPolicySummary says, in plain words, whether a terminal is allowed
+// (PROTOCOL.md §9.3, ADR 0090 §6 "step-up" step): the warning users need to
+// actually read before turning this on.
+func terminalPolicySummary(pol policy.Policy) string {
+	if !pol.TerminalAllowed() {
+		return "Terminals: DENIED — the /code panel cannot open a shell on this machine."
+	}
+	who := os.Getenv("USER")
+	if who == "" {
+		who = "you"
+	}
+	return fmt.Sprintf(
+		"Terminals: ALLOWED — anyone who controls your Cerea session can run commands as %s on this machine (max %d concurrent).",
+		who, pol.EffectiveMaxTerminals(),
+	)
 }
