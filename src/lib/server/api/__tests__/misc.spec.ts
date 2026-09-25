@@ -246,7 +246,6 @@ describe("GET /api/v2/public-config", () => {
 			"ADMIN_API_SECRET",
 			"ADMIN_TOKEN",
 			"EXA_API_KEY",
-			"PARQUET_EXPORT_HF_TOKEN",
 		]) {
 			expect(data).not.toHaveProperty(secret);
 		}

@@ -23,13 +23,13 @@ they are gone when that session is.
 Everything below stays inside the deployment. Nothing is sent to Hugging Face
 or to any other third party unless the operator has explicitly configured one.
 
-|                                                            | Where                                               |
-| ---------------------------------------------------------- | --------------------------------------------------- |
-| conversations, messages, attachments                       | this deployment's MongoDB                           |
-| knowledge-base documents, their extracted text and vectors | this deployment's PostgreSQL                        |
-| standing personal facts, if you opted in to user memory    | this deployment's MongoDB                           |
-| your spend, and a record of each request                   | the gateway's ledger — see below                    |
-| paired coding-agent machines                               | a name, a machine id and a public key. Nothing else |
+|                                                            | Where                                                               |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| conversations, messages, attachments                       | this deployment's MongoDB                                           |
+| knowledge-base documents, their extracted text and vectors | this deployment's PostgreSQL                                        |
+| standing personal facts, if you opted in to user memory    | this deployment's MongoDB                                           |
+| your spend, and a record of each request                   | the gateway's ledger — see below                                    |
+| paired coding-agent machines                               | a name, a machine id and the sign-in identity it uses. Nothing else |
 
 You can delete any conversation at any time from the interface. Deleting a
 conversation deletes its messages and attachments with it.
@@ -78,8 +78,7 @@ Two things the gateway does on the way:
 [![chat-ui](https://img.shields.io/github/stars/huggingface/chat-ui)](https://github.com/huggingface/chat-ui)
 
 Cerea is a fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui),
-merged with its history intact. Upstream's code is Apache-2.0; first-party
-additions are EUPL-1.2.
+merged with its history intact. The whole repository is Apache-2.0.
 
 The technical write-ups behind the statements above are in this repository:
 `docs/pyodide.md` (the code sandbox), `docs/agent-machines.md` (coding agents),

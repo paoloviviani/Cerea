@@ -1,86 +1,154 @@
-# The `/code` panel: deploying it
+# The `/code` panel: operating it
 
 The Agents panel drives **coding agents running on people's own machines**
-from the chat's sidebar. Nothing about it runs model inference here, and
-nothing about it stores code here: the agent is `opencode`, supervised by a
-one-binary agent (`galopin`, this repository's `agent/`) on the person's own
-machine, which dials **out** to this deployment over WSS and authenticates
-with its own OIDC enrollment credential — no relay, no daemon, no paseo (see
-`agent/PROTOCOL.md` for the wire protocol).
+from the chat's sidebar. The agent (opencode, or any ACP agent) runs on the
+person's machine under **galopin**, a single binary built from this
+repository's `agent/`. galopin dials **out** to the deployment over WSS and
+authenticates with its own OIDC credential. The deployment runs no model and
+stores no code for it.
 
-This page is for whoever deploys it. The person sitting in front of the panel
-wants [Agent machines](agent-machines.md) instead.
+This page is for operators. The person using the panel wants
+[Agent machines](agent-machines.md) instead.
 
-## What actually gets deployed
+## What gets deployed
 
 Nothing extra. The machine link is one WebSocket endpoint
-(`GET /api/v2/code/machine`) served by this same chat process — `server.js`
-upgrades it below SvelteKit's request handling (`src/lib/server/code/machineServer.ts`).
-There is no relay container, no pinned external image, and no published port
-beyond the one this deployment already exposes.
+(`GET /api/v2/code/machine`), served by the chat process itself. There is no
+relay, no extra container and no extra port. The chat also serves the galopin
+binaries and their checksums at `<base>/galopin/`, with an installer at
+`<base>/galopin/install.sh`.
 
 ## Turning it on
 
-At install time, `./configure --agents` in cerea-deploy. On an existing
-deployment, run `./configure --set CODE_AGENTS_ENABLED=true` and then
-`docker compose up -d`. The stack side is described in cerea-deploy's README.
-Machines are
-set up with `galopin enroll` and `galopin run` (this repository's
-`docs/agent-machines.md`). There is no relay and nothing else to deploy.
+In cerea-deploy: `./configure --agents` at install time, or
+`./configure --set CODE_AGENTS_ENABLED=true` on an existing install, then
+`docker compose up -d`.
 
-The chat reads:
+| Variable                 | What                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `CODE_AGENTS_ENABLED`    | `true` shows the Agents switch and serves `/code`; anything else hides it and `/code` answers 404 |
+| `CODE_TERMINAL_ENABLED`  | `true` allows browser terminals on machines that also allow them (below); off by default          |
+| `CODE_MACHINE_ISSUER`    | the issuer a machine's token must come from; defaults to the chat's own (`OPENID_PROVIDER_URL`)   |
+| `CODE_MACHINE_AUDIENCE`  | the audience a machine's token must carry; default `pystino-api`                                  |
+| `CODE_MACHINE_CLIENT_ID` | the client a machine's token must be issued to; default `opencode-enrollment`                     |
 
-| Var                      | What                                                                                                                                                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CODE_AGENTS_ENABLED`    | `"true"` to show the sidebar switch and serve `/code`; off (including unset) 404s the route and hides pairing, since a route that only errors without a machine is worse than none                                  |
-| `CODE_MACHINE_AUDIENCE`  | the `aud` a machine's bearer must carry; defaults to `pystino-api`                                                                                                                                                  |
-| `CODE_MACHINE_CLIENT_ID` | the `azp`/`client_id` a machine's bearer must carry; defaults to `opencode-enrollment`                                                                                                                              |
-| `CODE_MACHINE_ISSUER`    | the OIDC issuer a machine's bearer must be signed by; defaults to `OPENID_PROVIDER_URL`, so a normal deployment sets nothing extra here — separate only for a test harness pointing machine tokens at a mock issuer |
+The last three only need setting when machine tokens come from somewhere
+unusual; cerea-deploy's defaults match its bundled Authelia.
 
-## Local JWT validation, not userinfo (review C1)
+## Setting up a machine
 
-A machine's bearer is validated **locally** against the issuer's own JWKS
-(`src/lib/server/code/machineAuth.ts`): `iss` exact match (trailing slash
-normalized), `aud` contains `CODE_MACHINE_AUDIENCE`, `azp`/`client_id` equals
-`CODE_MACHINE_CLIENT_ID`, `exp` in the future, and the token must not be an ID
-token. Userinfo is never called — it proves nothing about audience or
-authorized party, which is exactly the hole the old `enroll/machine` endpoint
-had.
+On the machine, with `<origin>` the deployment's origin:
 
-The token's `sub` maps to an existing Cerea user the same way the OIDC login
-callback does (`hfUserId`). No user → the WebSocket upgrade is refused with a
-plain HTTP 403 before it ever completes.
+```sh
+curl -fsSL <origin>/chat/galopin/install.sh | sh
+galopin enroll --issuer <origin>/authelia --gateway <origin> --cerea <origin>/chat \
+  [--allow-terminal] [--allow-auto-accept] [--workspace-root PATH] …
+galopin run
+```
 
-## What Cerea stores, and what it does not
+The installer checks the binary against the deployment's `SHA256SUMS` and
+refuses a mismatch. The machine then appears in the panel as **pending**
+until its owner confirms it.
 
-Cerea persists **pairing records only**, in the `codeDevices` collection: a
-name, the machine's own id (`machineId`, from `X-Pystino-Machine-Id`), the
-OIDC `sub`/`iss` it last connected with, the backends and policy it reported
-in `hello`, and its last-known credential health. Nothing here is a bearer
-capability — the only thing that can reach a machine is a live socket held in
-an in-process registry (`src/lib/server/code/machines.ts`), lost on restart, and a
-Mongo dump of the collection yields names and ids only (review C4).
+## Two vetoes: the machine's and the deployment's
 
-That is why revoking a machine tombstones the row (`status: "revoked"`)
-rather than deleting it: a reconnect under the same `machineId` is refused
-from then on, and the live socket (if any) is closed with WebSocket code
-`4403`. Its stored attachments (next sections) are deleted with it.
+The machine's owner decides at enroll time what the machine allows. These
+flags are stored on the machine, and the chat can never loosen them over the
+link:
 
-Besides the pairing rows, Cerea keeps the **files a person attaches** to an agent
-message, in chat's own attachment store, so they still render after a reload.
-Everything else that is live (workspaces, sessions, transcripts, the code itself)
-stays on the machine.
+| Flag                                         | Default              | Allows                                                |
+| -------------------------------------------- | -------------------- | ----------------------------------------------------- |
+| `--allow-terminal`                           | denied               | a real shell from the browser                         |
+| `--max-terminals N`                          | 8                    | concurrent terminals                                  |
+| `--allow-auto-accept`                        | denied               | running the model's commands without asking each time |
+| `--workspace-root PATH`                      | unrestricted         | workspaces only under this path (repeatable)          |
+| `--allow-free-models`                        | denied               | models from providers other than the gateway's        |
+| `--allow-opencode-provider`                  | denied               | opencode's built-in providers next to the gateway's   |
+| `--no-files`                                 | read-only browsing   | no file explorer at all                               |
+| `--file-deny GLOB`, `--no-default-file-deny` | built-in secret list | what the explorer redacts                             |
 
-## Pairing: connect, then confirm
+The owner can tighten them later without re-enrolling (`galopin policy set
+--no-terminal`, for example); loosening needs a new enrollment.
 
-A machine with a valid bearer and an unrecognized `machineId` creates a
-`pending` row on its first `hello` frame — the socket stays open, but nothing
-is forwarded to it. The panel lists pending machines with **Confirm/Reject**;
-Confirm is the fresh human approval that a phished device-code grant alone
-never reaches (review C2), and pushes a `status: "paired"` frame down the
-socket. Reject is the same tombstoning action as revoking a paired machine.
+**The terminal needs both vetoes lifted.** The machine must be enrolled with
+`--allow-terminal`, and the deployment must set `CODE_TERMINAL_ENABLED=true`.
+Opening a terminal also requires a sign-in to Cerea within the last 12 hours.
+An open terminal is an ordinary shell running as the machine's owner:
+**anyone who controls that person's Cerea session can run commands on the
+machine**, with no model and no permission rule in between. Enable it only
+where that is acceptable. Both sides record terminal opens and closes, never
+their content.
 
-## Attachments: what a surface uploads, keeps and renders
+## How machines are trusted
+
+- **Tokens are checked locally.** A machine's access token is verified
+  against the issuer's keys (JWKS): the issuer, the audience, the authorised
+  client and the expiry must all match, and ID tokens are refused. The
+  token's subject must belong to someone who has signed in to this chat; if
+  not, the connection is refused.
+- **A person confirms each machine.** The first connection creates a
+  _pending_ device. Nothing is sent to it until its owner clicks **Confirm**
+  in the panel. **Reject** and **Revoke** tombstone the device: that machine
+  id is refused from then on, its connection is closed, and galopin revokes
+  its own refresh token and exits.
+- **The browser never talks to a machine.** Every browser request goes to
+  the chat, which maps each allowed path onto exactly one machine operation,
+  after checking that the device belongs to the caller.
+
+## What the chat stores
+
+- **Pairing records** (the `codeDevices` collection): a name, the machine id,
+  the token subject and issuer it last used, the capabilities and policy it
+  reported, and its credential health. None of it can reach a machine; only
+  a live connection can, and those are held in memory.
+- **Files attached** to agent messages, in the chat's attachment store, so
+  they still show after a reload. They are deleted when the device is.
+
+Everything else (workspaces, sessions, transcripts, the code) stays on the
+machine.
+
+## What the panel does
+
+An affordance shows only when the session's backend reports the capability,
+and the machine's policy can still refuse it.
+
+| Feature                  | What the person sees                                                                | How it works                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Modes and models         | pills in the composer                                                               | Live lists (`backend.modes` / `backend.models`). Non-gateway models (anything outside `pystino/*`) are hidden unless the machine was enrolled with `--allow-free-models`. The agent filters them and reports how many it hid; Cerea filters again and answers 403 to a disallowed set or create (`src/lib/server/code/modelPolicy.ts`).                                         |
+| Auto-accept              | an "Auto-accept" toggle                                                             | `session.setAutoAccept`. Offered only when the machine's policy says `autoAccept: allowed` (`enroll --allow-auto-accept`); the agent refuses it otherwise, whatever the panel sends.                                                                                                                                                                                            |
+| Permissions              | chat's approval card                                                                | `permission.asked` becomes the card; Allow once / Deny become `permission.reply` once / reject.                                                                                                                                                                                                                                                                                 |
+| Questions                | the SAME card chat's own `ask_user_question` uses, lifted to the composer           | `question.asked`/`question.resolved` (opencode's built-in "question" tool, the `questions` capability), each `Question` normalized to one `select` field via `AskQuestion.svelte`'s `onanswer` prop; `POST v1/agents/:id/questions/:requestId` translates accept/decline into `question.reply` answer/reject. Not offered when the backend's capability is false (ACP: always). |
+| Stop                     | chat's stop button                                                                  | `session.cancel`; an abort ends the turn normally, it is not shown as a failure.                                                                                                                                                                                                                                                                                                |
+| Usage and context        | a ring in the composer (`ContextMeter.svelte`)                                      | The `usage` side channel: a percentage when the model's context window is known, otherwise a token count; "Compact now" calls `session.compact`. No cost is shown: Pystino's own ledger is the spend authority.                                                                                                                                                                 |
+| Changes                  | the Changes side pane                                                               | `session.diff`, which asks git for the workspace's uncommitted changes (untracked files included, capped) rather than trusting a backend's own diff, which misses files a shell command wrote.                                                                                                                                                                                  |
+| Subagents                | a card at the task call that spawned it, expandable into the child's own transcript | `session.children`, each child carrying `parentToolCallId`; children are not listed as sessions of their own.                                                                                                                                                                                                                                                                   |
+| Images and files         | the chat's attach picker, chips and rendering                                       | See "Attachments" above. Offered when the backend advertises `files` or `images`.                                                                                                                                                                                                                                                                                               |
+| Forks                    | "Fork from here" on a finished assistant message                                    | `POST v1/agents/:id/handoff`: a new session (same machine or another of the person's paired machines, any allowed mode/model), prompted with the person's text plus, optionally, the conversation up to that turn as a `chat-history.md` attachment. The new session is titled `Fork: …` (older forks: `Handoff: …`) and says where it came from.                               |
+| Retry and rollback       | ↻ on an answer, or editing a prompt (when the machine reports `revert`)             | `POST v1/agents/:id/revert {messageId}` rolls the session back to before that prompt (opencode `POST /session/:id/revert`), then the prompt (or the edited text) is sent again. The confirmation says whether files come back: opencode restores them from its snapshots in a git repository only. `POST v1/agents/:id/unrevert` undoes it before the next prompt.              |
+| Workspaces and worktrees | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
+
+A machine can run an ACP agent instead of opencode (`galopin run --backend acp
+--acp-command "<agent>"`): Gemini CLI, Claude Code or Codex through their ACP
+adapters, or `opencode acp`. Those report fewer capabilities (no usage,
+compaction or subagents), and the panel hides the matching controls.
+
+## When it does not work
+
+| Symptom                                                | Where to look                                                                                                                                                                                                                |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no Agents switch in the sidebar                        | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                                                                |
+| `/code` answers 404                                    | same flag; the route gates on it independently of the sidebar                                                                                                                                                                |
+| a machine never appears, even `pending`                | its bearer is failing local validation — check `CODE_MACHINE_ISSUER`/`CODE_MACHINE_AUDIENCE`/`CODE_MACHINE_CLIENT_ID` match what the enrollment minted, and that the machine's `sub` has signed into this chat at least once |
+| a machine appears `pending` forever                    | nobody has clicked Confirm in the Agents panel yet                                                                                                                                                                           |
+| every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                         |
+| a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                    |
+| a terminal will not open                               | the deployment lacks `CODE_TERMINAL_ENABLED=true`, the machine was not enrolled with `--allow-terminal`, or the person's last sign-in is older than 12 hours                                                                 |
+
+## For developers
+
+The wire protocol between the chat and galopin is `agent/PROTOCOL.md`.
+
+### Attachments: what a surface uploads, keeps and renders
 
 The images and files a person sends an agent live in **chat's attachment
 store**: the same GridFS bucket (`files`), the same writer, the same limits
@@ -102,7 +170,7 @@ chat's files, and chat's routes can never reach an owner-keyed file.
 Nothing here depends on the agent transport. The contract is only the key and
 a `messageId` that you choose.
 
-### 1. Upload before you send
+#### 1. Upload before you send
 
 Pick a `messageId` for the outgoing message (for example the client message
 id you will hand the agent), then upload its files:
@@ -131,7 +199,7 @@ From the browser, `uploadComposerFiles(endpoint, messageId, files)` in
 `$lib/utils/composerFiles` does this and throws the server's message on
 refusal.
 
-### 2. Keep the `MessageFile` references
+#### 2. Keep the `MessageFile` references
 
 Each `MessageFile` is `{type: "hash", value: <sha256>, mime, name,
 extracted?}`, the same shape as a chat message's `files`. Put them on the
@@ -147,7 +215,7 @@ side:
 To hand bytes to the agent, the server calls `readAttachment(sha, key)`,
 which returns the base64 value and the sniffed mime.
 
-### 3. Render them
+#### 3. Render them
 
 `ChatMessageColumn` and `ChatMessage` take an optional `fileBaseUrl`, which
 `UploadedFile` uses for user files as `<fileBaseUrl>/<sha>`. Pass:
@@ -162,7 +230,7 @@ sandbox CSP. An `<img>` still displays it; opening it in a tab downloads it.
 Leave the prop unset on chat. Chat's page-relative
 `/conversation/<id>/output/<sha>` is the default and has not changed.
 
-### The composer pieces (M2a)
+#### The composer pieces
 
 Chat's attachment affordances are reusable pieces, and each takes your own
 MIME allowlist:
@@ -179,7 +247,7 @@ MIME allowlist:
 
 `ChatWindow` wires the same pieces for chat.
 
-### Cleanup
+#### Cleanup
 
 `DELETE /api/v2/code/devices?id=` deletes every file under `code:<deviceId>:`
 after it tombstones the row (`deleteCodeDeviceAttachments`). Deleting one
@@ -187,54 +255,3 @@ session's files is `deleteAttachments(key)`. Nothing calls that yet, so call
 it when your backend deletes a session. The deletions match on
 `metadata.conversation`, never on the filename, and a prefix must end at a
 `:`, so `code:abc:` never matches `code:abcdef:…`.
-
-## What the panel does
-
-Every feature below is one or more typed machine ops (`agent/PROTOCOL.md` §6). An affordance shows only when the session's backend advertised the capability in its `hello`, and the machine's own policy (`policy.json`, set by `galopin enroll` flags, never writable over the link) is a veto the panel cannot override.
-
-| Feature                  | What the person sees                                                                | How it works                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Modes and models         | pills in the composer                                                               | Live lists (`backend.modes` / `backend.models`). Non-gateway models (anything outside `pystino/*`) are hidden unless the machine was enrolled with `--allow-free-models`. The agent filters them and reports how many it hid; Cerea filters again and answers 403 to a disallowed set or create (`src/lib/server/code/modelPolicy.ts`).                                         |
-| Auto-accept              | an "Auto-accept" toggle                                                             | `session.setAutoAccept`. Offered only when the machine's policy says `autoAccept: allowed` (`enroll --allow-auto-accept`); the agent refuses it otherwise, whatever the panel sends.                                                                                                                                                                                            |
-| Permissions              | chat's approval card                                                                | `permission.asked` becomes the card; Allow once / Deny become `permission.reply` once / reject.                                                                                                                                                                                                                                                                                 |
-| Questions                | the SAME card chat's own `ask_user_question` uses, lifted to the composer           | `question.asked`/`question.resolved` (opencode's built-in "question" tool, the `questions` capability), each `Question` normalized to one `select` field via `AskQuestion.svelte`'s `onanswer` prop; `POST v1/agents/:id/questions/:requestId` translates accept/decline into `question.reply` answer/reject. Not offered when the backend's capability is false (ACP: always). |
-| Stop                     | chat's stop button                                                                  | `session.cancel`; an abort ends the turn normally, it is not shown as a failure.                                                                                                                                                                                                                                                                                                |
-| Usage and context        | a ring in the composer (`ContextMeter.svelte`)                                      | The `usage` side channel: a percentage when the model's context window is known, otherwise a token count; "Compact now" calls `session.compact`. No cost is shown: Pystino's own ledger is the spend authority.                                                                                                                                                                 |
-| Changes                  | the Changes side pane                                                               | `session.diff`, which asks git for the workspace's uncommitted changes (untracked files included, capped) rather than trusting a backend's own diff, which misses files a shell command wrote.                                                                                                                                                                                  |
-| Subagents                | a card at the task call that spawned it, expandable into the child's own transcript | `session.children`, each child carrying `parentToolCallId`; children are not listed as sessions of their own.                                                                                                                                                                                                                                                                   |
-| Images and files         | the chat's attach picker, chips and rendering                                       | See "Attachments" above. Offered when the backend advertises `files` or `images`.                                                                                                                                                                                                                                                                                               |
-| Forks                    | "Fork from here" on a finished assistant message                                    | `POST v1/agents/:id/handoff`: a new session (same machine or another of the person's paired machines, any allowed mode/model), prompted with the person's text plus, optionally, the conversation up to that turn as a `chat-history.md` attachment. The new session is titled `Fork: …` (older forks: `Handoff: …`) and says where it came from.                               |
-| Retry and rollback       | ↻ on an answer, or editing a prompt (when the machine reports `revert`)             | `POST v1/agents/:id/revert {messageId}` rolls the session back to before that prompt (opencode `POST /session/:id/revert`), then the prompt (or the edited text) is sent again. The confirmation says whether files come back: opencode restores them from its snapshots in a git repository only. `POST v1/agents/:id/unrevert` undoes it before the next prompt.              |
-| Workspaces and worktrees | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
-
-A machine can run a backend other than opencode: `galopin run --backend acp --acp-command "<agent>"` drives any ACP agent (opencode's own `opencode acp`, Gemini CLI, Claude Code or Codex through their ACP adapters, Pi through `pi-acp`). Such a backend reports fewer capabilities (no usage, compaction or subagents), and the panel hides those affordances.
-
-## What the browser may ask the machine to do
-
-Never directly: the browser talks to Cerea, Cerea talks to the machine
-registry. The forwarder (`src/routes/api/v2/code/[...path]/+server.ts`) maps
-each allowed browser path onto exactly one typed op (spec §6), and every call
-carries `?device=`, whose row is checked against the caller before anything
-is sent. An offline machine answers instantly from the registry — never a
-hang (review R1).
-
-Deliberately **not** offered, and why:
-
-- **timeline streams** — the SSE bridge at `agents/[id]/stream` owns the
-  subscription and calls `session.sync`/events directly;
-- **pairing hooks on the machine** — pairing happens on connect
-  (`machines.ts`), confirm/reject/revoke live in `devices/+server.ts`;
-- **anything beyond one backend's sessions** (workspace roots outside the
-  machine's own policy, raw backend config) — the panel drives sessions, not
-  machines, and the machine's own policy is a veto the panel cannot override.
-
-## When it does not work
-
-| Symptom                                                | Where to look                                                                                                                                                                                                                |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| no Agents switch in the sidebar                        | `CODE_AGENTS_ENABLED` is not exactly `"true"`, or the person is not signed in                                                                                                                                                |
-| `/code` answers 404                                    | same flag; the route gates on it independently of the sidebar                                                                                                                                                                |
-| a machine never appears, even `pending`                | its bearer is failing local validation — check `CODE_MACHINE_ISSUER`/`CODE_MACHINE_AUDIENCE`/`CODE_MACHINE_CLIENT_ID` match what the enrollment minted, and that the machine's `sub` has signed into this chat at least once |
-| a machine appears `pending` forever                    | nobody has clicked Confirm in the Agents panel yet                                                                                                                                                                           |
-| every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                         |
-| a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                    |
