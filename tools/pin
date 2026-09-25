@@ -30,6 +30,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = ROOT / "compose.yaml"
+#: .env.example shows the pins in its commented-out override examples.
+EXAMPLE = ROOT / ".env.example"
+EXAMPLE_PIN = {
+    "pystino": re.compile(r"^(# PYSTINO_VERSION=')([^']*)(')$", re.MULTILINE),
+    "cerea": re.compile(r"^(# CEREA_VERSION=')([^']*)(')$", re.MULTILINE),
+}
 #: Service name -> the directory it mounts as its configuration.
 CONFIG_DIRS = {"proxy": "caddy", "authelia": "authelia"}
 PIN = {
@@ -108,6 +114,15 @@ def main(argv: list[str] | None = None) -> int:
         if old != tag:
             new = PIN[name].sub(lambda m, t=tag: m.group(1) + t + m.group(3), new)
             changes.append(f"{name}: {old} -> {tag}")
+    # The examples follow the pins, whichever way the pins changed.
+    example = EXAMPLE.read_text(encoding="utf-8")
+    new_example = example
+    for name, pattern in EXAMPLE_PIN.items():
+        want = next(iter(pins(new)[name]))
+        for m in pattern.finditer(example):
+            if m.group(2) != want:
+                changes.append(f".env.example: {name} example {m.group(2)} -> {want}")
+        new_example = pattern.sub(lambda m, t=want: m.group(1) + t + m.group(3), new_example)
 
     if args.check:
         for line in changes:
@@ -117,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if changes else 0
     if changes:
         COMPOSE.write_text(new, encoding="utf-8")
+        EXAMPLE.write_text(new_example, encoding="utf-8")
         for line in changes:
             print(line)
     else:
