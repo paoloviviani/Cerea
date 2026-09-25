@@ -4,3 +4,13 @@ Copyright 2026 Paolo Viviani
 This product is based on huggingface/chat-ui
 (https://github.com/huggingface/chat-ui),
 Copyright 2018- The Hugging Face team, licensed under the Apache License 2.0.
+
+Third-party components under other licences
+-------------------------------------------
+
+libvips, as the prebuilt @img/sharp-libvips-* binaries (and the libvips inside
+@img/sharp-win32-* and @img/sharp-wasm32) installed as optional dependencies
+of sharp: LGPL-3.0-or-later. They are loaded dynamically by sharp at runtime
+and are not modified.
+  libvips source: https://github.com/libvips/libvips
+  binary packaging: https://github.com/lovell/sharp-libvips

@@ -33,8 +33,8 @@ function getClientAddressSafe(event: RequestEvent): string | undefined {
  * administration UI for people, and the two need opposite credentials: a
  * secret in a header for the cron job, a signed-in session for the human.
  */
-const MACHINE_ADMIN_ROUTES = new Set(["/admin/export", "/admin/stats/compute"]);
-const MACHINE_ADMIN_PATHS = ["/admin/export", "/admin/stats/compute"];
+const MACHINE_ADMIN_ROUTES = new Set(["/admin/stats/compute"]);
+const MACHINE_ADMIN_PATHS = ["/admin/stats/compute"];
 
 /**
  * Routes anyone may fetch with no session: galopin's binaries and installer

@@ -11,7 +11,10 @@ greeting that means both _buongiorno_ and _arrivederci_.
 ## Features
 
 - **Chat over any model the gateway exposes**, signed in with OIDC; each call
-  carries the person's own token, so quotas and billing are theirs.
+  carries the person's own token, so quotas and billing are theirs. The stack
+  currently signs the chat and the console in against one provider; to combine
+  several sources of users, federate them in your own IdP (Keycloak,
+  Authentik and the like).
 - **Web search**, run by the model provider through the gateway.
 - **File upload and extraction**: PDFs, Office documents, images and text,
   read once at upload by the gateway, which can do it inside your deployment.
