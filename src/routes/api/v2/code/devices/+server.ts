@@ -27,7 +27,12 @@ import { logger } from "$lib/server/logger";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	requireCodeAgents(locals);
-	return superjsonResponse({ devices: await listDevices(locals) });
+	// PERF-MEASURE (temporary, remove before commit): brief item 1.
+	const t0 = performance.now();
+	const devices = await listDevices(locals);
+	const ms = performance.now() - t0;
+	logger.warn({ ms, count: devices.length }, "PERF GET devices");
+	return superjsonResponse({ devices }, { headers: { "x-perf-ms": String(ms) } });
 };
 
 function requireJsonBody(request: Request): void {

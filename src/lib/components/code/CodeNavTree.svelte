@@ -144,10 +144,30 @@
 		codeDeviceList.devices.filter((device) => device.status === "paired" && device.online !== false)
 	);
 	const TREE_POLL_MS = 8000;
+	// Each device's subtree is painted in as it answers, not held behind
+	// whichever device is slowest (X4): a `Promise.all` that only assigns
+	// `trees` once every promise has settled meant one slow machine blocked
+	// every other device's rows too, reload after reload.
 	async function refreshTrees() {
-		const settled = await Promise.all(loadableDevices.map((device) => loadTree(device.id)));
-		trees = Object.fromEntries(loadableDevices.map((device, i) => [device.id, settled[i]]));
+		await Promise.all(
+			loadableDevices.map(async (device) => {
+				const tree = await loadTree(device.id);
+				trees = { ...trees, [device.id]: tree };
+			})
+		);
 	}
+	// The device list (`codeDeviceList`) and this tree's own load are two
+	// independent async fetches; nothing else ties them together. Without
+	// this, a device that becomes loadable *after* the mount-time
+	// `refreshTrees()` already ran (the ordinary case: `refreshCodeDevices()`
+	// is still in flight when it runs) sat with no subtree at all until the
+	// next `TREE_POLL_MS` tick — up to 8s of "no workspaces or agents yet"
+	// after every page refresh, measured on the real-machine harness.
+	$effect(() => {
+		for (const device of loadableDevices) {
+			if (!(device.id in trees)) void reloadDevice(device.id);
+		}
+	});
 	onMount(() => {
 		const stopDevicePoll = useCodeDevicePoll();
 		void refreshTrees();

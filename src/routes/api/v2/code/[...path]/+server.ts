@@ -303,8 +303,15 @@ export const GET: RequestHandler = async (event) => {
 	const link = new MachineLink(deviceId);
 
 	if (path === "v1/workspaces") {
+		// PERF-MEASURE (temporary, remove before commit): brief item 1.
+		const t0 = performance.now();
 		const { workspaces } = await callOp(() => link.workspaceList());
-		return superjsonResponse({ workspaces: workspaces.map(toWorkspace) });
+		const ms = performance.now() - t0;
+		logger.warn({ deviceId, ms }, "PERF GET v1/workspaces");
+		return superjsonResponse(
+			{ workspaces: workspaces.map(toWorkspace) },
+			{ headers: { "x-perf-ms": String(ms) } }
+		);
 	}
 
 	// Checked ahead of the generic single-workspace GET below — "suggest"
@@ -405,8 +412,15 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	if (path === "v1/agents") {
+		// PERF-MEASURE (temporary, remove before commit): brief item 1.
+		const t0 = performance.now();
 		const { sessions } = await callOp(() => link.sessionList());
-		return superjsonResponse({ agents: sessions.map(toSession) });
+		const ms = performance.now() - t0;
+		logger.warn({ deviceId, ms }, "PERF GET v1/agents");
+		return superjsonResponse(
+			{ agents: sessions.map(toSession) },
+			{ headers: { "x-perf-ms": String(ms) } }
+		);
 	}
 
 	if (path === "v1/providers") {
