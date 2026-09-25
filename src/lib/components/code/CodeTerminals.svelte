@@ -52,6 +52,18 @@
 		try {
 			const { terminals: list } = await listWorkspaceTerminals(deviceId, workspaceId);
 			terminals = list;
+			// The roster is the source of truth for `state` — a terminal that
+			// exited while this pane was closed (and so never fired the local
+			// `onExit` below) still has to show as exited the moment the pane
+			// reopens, not flash live before some later refresh catches up.
+			const nextExited = new Map(exited);
+			for (const t of list) {
+				if (t.state === "exited") nextExited.set(t.id, t.exitCode ?? 0);
+			}
+			for (const id of nextExited.keys()) {
+				if (!list.some((t) => t.id === id)) nextExited.delete(id);
+			}
+			exited = nextExited;
 			if (!activeId || !list.some((t) => t.id === activeId)) {
 				activeId = list[0]?.id ?? null;
 			}
