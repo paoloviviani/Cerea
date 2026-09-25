@@ -107,10 +107,22 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	requireAuth(locals);
-	const body = await request.json();
-
-	const { welcomeModalSeen, mlInternOnboardingSeen, ...parsedSettings } =
-		settingsSchema.parse(body);
+	const body: unknown = await request.json().catch(() => undefined);
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		return Response.json({ message: "Expected a JSON object of settings." }, { status: 400 });
+	}
+	// GET reports an unset field as null (superjson's plain-JSON form of
+	// undefined), so a null here means "unset", the same as leaving it out:
+	// GET's output posts back as-is.
+	const present = Object.fromEntries(Object.entries(body).filter(([, value]) => value !== null));
+	const parsed = settingsSchema.safeParse(present);
+	if (!parsed.success) {
+		return Response.json(
+			{ message: "Invalid settings.", issues: parsed.error.issues },
+			{ status: 400 }
+		);
+	}
+	const { welcomeModalSeen, mlInternOnboardingSeen, ...parsedSettings } = parsed.data;
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	if (config.isHuggingChat) {
