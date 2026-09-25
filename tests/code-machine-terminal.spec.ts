@@ -151,4 +151,128 @@ test.describe("the terminal on a real machine", () => {
 		await expect(terminalButton).toBeVisible();
 		await expect(terminalButton).toBeDisabled();
 	});
+
+	/** Closes the side pane (clicking the "Terminal" toggle again), then
+	 * reopens it — a fresh mount of CodeTerminals, exactly what the reported
+	 * bug needs: a terminal that exited while the pane was shut must come
+	 * back in the roster fetched on that fresh mount, not from anything the
+	 * component remembered in memory. */
+	async function closeAndReopenPane(page: import("playwright/test").Page) {
+		await page.getByRole("button", { name: "Terminal", exact: true }).click();
+		await page.getByRole("button", { name: "Terminal", exact: true }).click();
+	}
+
+	test("exit, close the pane, reopen it: the exited terminal never comes back live", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed" } });
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+
+		const term = page.getByTestId("code-terminal");
+		await term.click();
+		await page.keyboard.type("exit");
+		await page.keyboard.press("Enter");
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+
+		await closeAndReopenPane(page);
+
+		// Still shown as exited (code, Restart only) — never a live,
+		// attachable tab (no fresh "code-terminal" xterm view mounted).
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByRole("button", { name: "Restart" })).toBeVisible();
+	});
+
+	test("Ctrl+D, close the pane, reopen it: the exited terminal never comes back live", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed" } });
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+
+		const term = page.getByTestId("code-terminal");
+		await term.click();
+		await page.keyboard.press("Control+D");
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+
+		await closeAndReopenPane(page);
+
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByRole("button", { name: "Restart" })).toBeVisible();
+	});
+
+	test("the UI close button on an exited terminal removes it for good", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed" } });
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+
+		const term = page.getByTestId("code-terminal");
+		await term.click();
+		await page.keyboard.type("exit");
+		await page.keyboard.press("Enter");
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+
+		await page.getByRole("button", { name: "Close terminal" }).click();
+		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
+
+		// Not just gone from this mount's in-memory list — gone from the
+		// machine's own roster, so a fresh pane open doesn't bring it back.
+		await closeAndReopenPane(page);
+		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
+	});
+
+	test("exiting doesn't use up a maxTerminals slot", async ({ page, db, session }) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed", maxTerminals: 2 } });
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+
+		// Exit the first terminal.
+		let term = page.getByTestId("code-terminal");
+		await term.click();
+		await page.keyboard.type("exit");
+		await page.keyboard.press("Enter");
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+
+		// Open and exit a second terminal — both now retained by galopin
+		// (state "exited"), at the maxTerminals=2 cap.
+		await page.getByRole("button", { name: "New", exact: true }).click();
+		term = page.getByTestId("code-terminal");
+		await expect(term).toBeVisible({ timeout: 15_000 });
+		await term.click();
+		await page.keyboard.type("exit");
+		await page.keyboard.press("Enter");
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
+
+		// A third open must succeed: exited terminals must not count against
+		// maxTerminals, or a user who exits every shell could never open a
+		// fresh one until the 10-minute retention window passed.
+		await page.getByRole("button", { name: "New", exact: true }).click();
+		term = page.getByTestId("code-terminal");
+		await expect(term).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByText("Could not open a terminal.")).not.toBeVisible();
+		await term.click();
+		await page.keyboard.type("echo maxslot-ok");
+		await page.keyboard.press("Enter");
+		await expect(term).toContainText("maxslot-ok", { timeout: 15_000 });
+	});
 });

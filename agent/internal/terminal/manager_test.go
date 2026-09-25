@@ -38,6 +38,95 @@ func TestManagerMaxTerminals(t *testing.T) {
 	}
 }
 
+// TestManagerOpenExcludesExitedFromCount is the brief's roster requirement
+// made concrete at the Manager level: a terminal kept only for
+// ExitRetention display must not count against maxTerminals, or a user who
+// exits every shell would be stuck unable to open a new one for 10 minutes.
+func TestManagerOpenExcludesExitedFromCount(t *testing.T) {
+	if !Supported {
+		t.Skip("terminals are not supported on this OS")
+	}
+	t.Setenv("TMPDIR", itTmpDir(t))
+	root := t.TempDir()
+	mgr := NewManager(nil)
+	defer func() {
+		mgr.CloseAll(true)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mgr.WaitAllClosed(ctx)
+	}()
+
+	term, err := mgr.Open(OpenConfig{WorkspaceID: "w", WorkspaceRoot: root, Cols: 80, Rows: 24}, 1)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := mgr.Open(OpenConfig{WorkspaceID: "w", WorkspaceRoot: root, Cols: 80, Rows: 24}, 1); !errors.Is(err, ErrTooMany) {
+		t.Fatalf("expected ErrTooMany while the only terminal is running, got %v", err)
+	}
+
+	if _, err := term.Write([]byte("exit\n")); err != nil {
+		t.Fatalf("Write exit: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && term.State() != StateExited {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if term.State() != StateExited {
+		t.Fatal("terminal never reached the exited state")
+	}
+
+	if _, err := mgr.Open(OpenConfig{WorkspaceID: "w", WorkspaceRoot: root, Cols: 80, Rows: 24}, 1); err != nil {
+		t.Fatalf("Open after the only terminal exited = %v, want success", err)
+	}
+}
+
+// TestManagerRemoveDropsAnExitedTerminalImmediately: Remove is what
+// terminal.close on an already-exited terminal uses (dispatch.go) to mean
+// "gone for good" rather than "wait out ExitRetention" — proven directly
+// against Manager here, end to end through the op in
+// terminal_dispatch_test.go.
+func TestManagerRemoveDropsAnExitedTerminalImmediately(t *testing.T) {
+	if !Supported {
+		t.Skip("terminals are not supported on this OS")
+	}
+	t.Setenv("TMPDIR", itTmpDir(t))
+	root := t.TempDir()
+	mgr := NewManager(nil)
+	defer func() {
+		mgr.CloseAll(true)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mgr.WaitAllClosed(ctx)
+	}()
+
+	term, err := mgr.Open(OpenConfig{WorkspaceID: "w", WorkspaceRoot: root, Cols: 80, Rows: 24}, 8)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	if err := mgr.Remove(term.ID); !errors.Is(err, ErrNotExited) {
+		t.Fatalf("Remove on a running terminal = %v, want ErrNotExited", err)
+	}
+
+	if _, err := term.Write([]byte("exit\n")); err != nil {
+		t.Fatalf("Write exit: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && term.State() != StateExited {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if term.State() != StateExited {
+		t.Fatal("terminal never reached the exited state")
+	}
+
+	if err := mgr.Remove(term.ID); err != nil {
+		t.Fatalf("Remove on an exited terminal: %v", err)
+	}
+	if _, err := mgr.Get(term.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get after Remove = %v, want ErrNotFound", err)
+	}
+}
+
 // pidAlive reports whether pid still exists (signal 0 is the standard
 // existence probe: no signal is actually delivered).
 func pidAlive(pid int) bool {

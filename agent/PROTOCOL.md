@@ -68,7 +68,7 @@ We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent 
     - `fileWrite`: `"allowed" | "denied"` (default `denied`; `enroll --allow-file-write`). Gates `files.write`.
     - `fileDeny`: glob list (default: the §9.4 list; `enroll --file-deny GLOB` adds, `--no-default-file-deny` drops the defaults). Matching entries are listed with `redacted: true`, reading them is `forbidden`, and search skips them.
     - `terminal`: `"allowed" | "denied"` (default `denied`; `enroll --allow-terminal`). Gates every `terminal.*` op.
-    - `maxTerminals`: int (default 8). `terminal.open` beyond it is `invalid`.
+    - `maxTerminals`: int (default 8). `terminal.open` beyond it is `invalid`; a terminal kept around only for exit-retention display does not count against it.
     - A local `galopin policy set` may only tighten these; loosening needs `enroll`.
   - The policy is reported in `hello` so the UI can explain refusals.
 
@@ -258,7 +258,7 @@ Unknown kinds are ignored. Offsets are per terminal, start at 0 when it is spawn
 | `terminal.detach` | `{terminalId, channel}`                                                                 | `{}`                                                                                                                                                                                                                                                                                                                                                                                     |
 | `terminal.resize` | `{terminalId, cols, rows, claim?: bool=true}`                                           | `{applied: bool}`; `false` when another channel owns the size and `claim` was false.                                                                                                                                                                                                                                                                                                     |
 | `terminal.rename` | `{terminalId, title}`                                                                   | `{terminal}`                                                                                                                                                                                                                                                                                                                                                                             |
-| `terminal.close`  | `{terminalId, force?: bool}`                                                            | `{}`: SIGHUP to the process group, then SIGKILL after 5 s (immediately with `force`).                                                                                                                                                                                                                                                                                                    |
+| `terminal.close`  | `{terminalId, force?: bool}`                                                            | `{}`: on a running terminal, SIGHUP to the process group, then SIGKILL after 5 s (immediately with `force`). On an already-exited one, drops it from `terminal.list` immediately instead of waiting out exit retention.                                                                                                                                                                 |
 
 Deadlines: the default is 15 s. `files.grep` and `files.find` run 5 s machine-side and 10 s in Cerea.
 
@@ -280,7 +280,7 @@ Notice   = {kind: "files.changed", paths: string[], overflow?: bool}   // scope.
 
 - It runs `$SHELL -l` (falling back to `/bin/sh`) in a `cwd` inside the workspace root, with `TERM=xterm-256color`.
 - Its environment is **scrubbed** of everything galopin injected for itself: the opencode server password, the shim secret, and any token or refresh variable.
-- Exited terminals are kept 10 minutes for display. A terminal with no viewer for 24 h gets SIGHUP.
+- Exited terminals are kept 10 minutes for display (not counted against `maxTerminals`), unless `terminal.close` drops one sooner. A terminal with no viewer for 24 h gets SIGHUP.
 - All terminals are closed on `run` shutdown and on a 4403 revoke.
 
 ### 9.4 Default `fileDeny`
