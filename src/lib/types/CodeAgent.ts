@@ -359,11 +359,14 @@ export interface CodeAuditEntry {
 	_id: ObjectId;
 	userId: ObjectId;
 	deviceId: ObjectId;
-	/** e.g. "files.raw", "files.refused". */
+	/** e.g. "files.raw", "files.refused", "terminal.open", "terminal.attach",
+	 * "terminal.close", "terminal.refused", "terminal.ticket_failed". */
 	action: string;
 	workspaceId?: string;
 	path?: string;
 	bytes?: number;
+	/** A terminal action's target — never its content or keystrokes. */
+	terminalId?: string;
 	ip?: string;
 	userAgent?: string;
 	at: Date;
