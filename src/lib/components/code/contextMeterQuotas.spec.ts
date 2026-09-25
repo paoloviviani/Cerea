@@ -3,24 +3,42 @@ import { deriveQuotaDisplay } from "./contextMeterQuotas";
 import type { UsageSection } from "$lib/types/UsageReport";
 
 const SECTIONS: UsageSection[] = [
-	{ title: "You — this month", entries: [{ label: "Tokens", used: 100, unit: "tokens" }] },
-	{ title: "Team", entries: [{ label: "Requests", used: 5, limit: 10, unit: "requests" }] },
+	{
+		title: "Quotas",
+		entries: [
+			{ label: "Requests", used: 5, limit: 10, unit: "requests", period: "per day" },
+			{ label: "Tokens", used: 900, limit: 1000, unit: "tokens", period: "per month" },
+		],
+	},
+	{
+		title: "Spend",
+		entries: [
+			{ label: "You — requests", used: 5, unit: "requests", period: "per day" },
+			{ label: "You — tokens", used: 900, unit: "tokens", period: "per day" },
+		],
+	},
 ];
 
 describe("deriveQuotaDisplay", () => {
-	it("hides the section when the gateway reports no quotas", () => {
-		expect(deriveQuotaDisplay([], null)).toEqual({ kind: "hidden" });
-	});
-
 	it("hides the section before any report has loaded", () => {
 		expect(deriveQuotaDisplay(null, null)).toEqual({ kind: "hidden" });
 	});
 
-	it("preserves the report's own section order", () => {
+	it("reports no quotas when the report has no entries at all", () => {
+		expect(deriveQuotaDisplay([], null)).toEqual({ kind: "empty" });
+	});
+
+	it("reports no quotas when every entry is a plain stat with no limit", () => {
+		const statsOnly: UsageSection[] = [SECTIONS[1]];
+		expect(deriveQuotaDisplay(statsOnly, null)).toEqual({ kind: "empty" });
+	});
+
+	it("lists only the entries that carry a limit, dropping the per-entry consumption list", () => {
 		const display = deriveQuotaDisplay(SECTIONS, null);
-		expect(display).toEqual({ kind: "sections", sections: SECTIONS });
-		if (display.kind === "sections") {
-			expect(display.sections.map((s) => s.title)).toEqual(["You — this month", "Team"]);
+		expect(display).toEqual({ kind: "quotas", quotas: SECTIONS[0].entries });
+		if (display.kind === "quotas") {
+			expect(display.quotas.map((q) => q.label)).toEqual(["Requests", "Tokens"]);
+			expect(display.quotas.every((q) => q.limit !== undefined)).toBe(true);
 		}
 	});
 
@@ -29,5 +47,35 @@ describe("deriveQuotaDisplay", () => {
 			kind: "error",
 			message: "Could not load quotas.",
 		});
+	});
+
+	it("surfaces a section-level error when it left no quotas behind", () => {
+		const failed: UsageSection[] = [
+			{ title: "Pystino usage", entries: [], error: "Usage is temporarily unavailable." },
+		];
+		expect(deriveQuotaDisplay(failed, null)).toEqual({
+			kind: "error",
+			message: "Usage is temporarily unavailable.",
+		});
+	});
+
+	it("still shows quotas from a healthy section even if another section errored", () => {
+		const mixed: UsageSection[] = [
+			...SECTIONS,
+			{ title: "Other provider", entries: [], error: "Other provider unavailable." },
+		];
+		const display = deriveQuotaDisplay(mixed, null);
+		expect(display).toEqual({ kind: "quotas", quotas: SECTIONS[0].entries });
+	});
+	it("names each quota's section when several sections carry quotas with the same label", () => {
+		const twoBudgets: UsageSection[] = [
+			{ title: "You", entries: [{ label: "Monthly spend", used: 1, limit: 5, unit: "usd" }] },
+			{ title: "Team", entries: [{ label: "Monthly spend", used: 3, limit: 50, unit: "usd" }] },
+		];
+		const display = deriveQuotaDisplay(twoBudgets, null);
+		expect(display.kind === "quotas" && display.quotas.map((q) => q.label)).toEqual([
+			"You · Monthly spend",
+			"Team · Monthly spend",
+		]);
 	});
 });

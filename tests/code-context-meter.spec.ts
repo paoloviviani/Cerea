@@ -176,7 +176,7 @@ test("a new message that has not reported usage yet does not drop the meter to 0
 	await expect(page.getByRole("button", { name: "0%", exact: true })).toHaveCount(0);
 });
 
-test("the popup's Quotas section lists every usage report section in order, with a Settings link", async ({
+test("the popup's Quotas section lists only entries with a limit, with a Settings link", async ({
 	page,
 }) => {
 	await routeCommon(page, [BACKEND_WITH_USAGE]);
@@ -194,10 +194,13 @@ test("the popup's Quotas section lists every usage report section in order, with
 			contentType: "application/json",
 			body: superjsonBody({
 				sections: [
-					{ title: "You — this month", entries: [{ label: "Tokens", used: 100, unit: "tokens" }] },
 					{
-						title: "Team",
+						title: "Quotas",
 						entries: [{ label: "Requests", used: 5, limit: 10, unit: "requests" }],
+					},
+					{
+						title: "Spend",
+						entries: [{ label: "You — this month", used: 100, unit: "tokens" }],
 					},
 				],
 			}),
@@ -212,19 +215,17 @@ test("the popup's Quotas section lists every usage report section in order, with
 	await expect(menu.getByText("Quotas")).toBeVisible();
 	await expect.poll(() => usageCalls).toBe(1);
 
-	await expect(menu.getByText("Tokens", { exact: true })).toBeVisible();
+	// The quota entry (carries a limit) renders...
 	await expect(menu.getByText("Requests", { exact: true })).toBeVisible();
-
-	// Section order matches the report's own order.
-	const menuText = (await menu.innerText()).replace(/\s+/g, " ");
-	expect(menuText.indexOf("You — this month")).toBeLessThan(menuText.indexOf("Team"));
+	// ...the per-entry consumption entry (no limit) does not.
+	await expect(menu.getByText("You — this month", { exact: true })).toHaveCount(0);
 
 	const settingsLink = menu.getByRole("link", { name: /Settings.*Usage/ });
 	await expect(settingsLink).toBeVisible();
 	await expect(settingsLink).toHaveAttribute("href", `${E2E_APP_BASE}/settings/usage`);
 });
 
-test("the Quotas section is hidden cleanly when the gateway reports no quotas", async ({
+test("the Quotas section shows a muted 'No quotas' line when the gateway reports none", async ({
 	page,
 }) => {
 	await routeCommon(page, [BACKEND_WITH_USAGE]);
@@ -245,9 +246,11 @@ test("the Quotas section is hidden cleanly when the gateway reports no quotas", 
 	await trigger.click();
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
-	// The rest of the popup still renders; only the Quotas heading is absent.
+	// The rest of the popup still renders, and the Quotas heading stays with
+	// a muted line rather than hiding.
 	await expect(menu.getByText("400 / 1000 tokens")).toBeVisible();
-	await expect(menu.getByText("Quotas")).toHaveCount(0);
+	await expect(menu.getByText("Quotas", { exact: true })).toBeVisible();
+	await expect(menu.getByText("No quotas")).toBeVisible();
 });
 
 test("the meter is hidden when the backend has no usage capability", async ({ page }) => {
