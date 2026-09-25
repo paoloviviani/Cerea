@@ -17,3 +17,11 @@ import { config } from "$lib/server/config";
 export function codeAgentsEnabled(): boolean {
 	return config.CODE_AGENTS_ENABLED === "true";
 }
+
+/**
+ * The /code file explorer (ADR 0090): on with the code panel, unless the
+ * deployment switches it off. Each machine can still veto it (--no-files).
+ */
+export function codeFilesEnabled(): boolean {
+	return codeAgentsEnabled() && config.CODE_FILES_ENABLED !== "false";
+}

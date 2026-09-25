@@ -12,7 +12,8 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer } from "ws";
 import superjson from "superjson";
 import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
-import { ready } from "$lib/server/database";
+import { ObjectId } from "mongodb";
+import { collections, ready } from "$lib/server/database";
 import {
 	createTestUser,
 	cleanupTestData,
@@ -21,7 +22,7 @@ import {
 import { testRequest, TEST_ORIGIN } from "$lib/server/__tests__/testRequest";
 import { acceptMachineConnection } from "$lib/server/code/machines";
 import type { MachinePrincipal } from "$lib/server/code/machineAuth";
-import { FakeMachine } from "../../../../../../tests/fake-machine";
+import { FakeMachine, type FakeMachineOptions } from "../../../../../../tests/fake-machine";
 import { GET as forwarderGET, POST as forwarderPOST } from "../[...path]/+server";
 import { PATCH as devicesPATCH } from "../devices/+server";
 import { GET as streamGET } from "../agents/[id]/stream/+server";
@@ -108,8 +109,8 @@ async function forwarder(
 /** Connect a fake machine, let it reach `pending`, confirm it through the
  * real endpoint (the same click the Agents panel's Confirm button makes),
  * and wait for the `status: paired` push. */
-async function connectAndPair(): Promise<FakeMachine> {
-	const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+async function connectAndPair(options: FakeMachineOptions = {}): Promise<FakeMachine> {
+	const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {}, options);
 	openMachines.push(machine);
 	const { deviceId, status } = await machine.hello();
 	expect(status).toBe("pending");
@@ -231,6 +232,112 @@ describe("the forwarder over a live machine link", () => {
 		expect(compactArgs).toEqual([{ sessionId: agent.id }]);
 
 		machine.close();
+	});
+
+	describe("the read-only file explorer (ADR 0090)", () => {
+		const POLICY = { autoAccept: "denied" as const, workspaceRoots: [], allowFreeModels: false };
+
+		it("forwards a listing and serves an image raw, sandboxed and audited", async () => {
+			const machine = await connectAndPair({
+				machine: { capabilities: { files: true } },
+				policy: { ...POLICY, files: "read" },
+			});
+			const deviceId = machine.deviceId as string;
+			const { workspace } = await createWorkspace(machine, deviceId);
+			const listArgs: unknown[] = [];
+			machine.onOp("files.list", (args: unknown) => {
+				listArgs.push(args);
+				return { path: "src", entries: [], truncated: false };
+			});
+			machine.onOp("files.read", (args: { path: string }) =>
+				args.path === "pic.png"
+					? {
+							path: "pic.png",
+							revision: "1",
+							size: 3,
+							offset: 0,
+							length: 3,
+							eof: true,
+							kind: "image",
+							mime: "image/png",
+							encoding: "base64",
+							content: Buffer.from("PNG").toString("base64"),
+						}
+					: {
+							path: args.path,
+							revision: "1",
+							size: 2,
+							offset: 0,
+							length: 2,
+							eof: true,
+							kind: "text",
+							mime: "text/html",
+							encoding: "utf-8",
+							content: "<script>alert(1)</script>",
+						}
+			);
+
+			const list = await forwarder(
+				forwarderGET,
+				`/api/v2/code/v1/workspaces/${workspace.id}/files?device=${deviceId}&path=src`,
+				{ locals: user.locals }
+			);
+			expect(list.status).toBe(200);
+			expect(listArgs).toEqual([{ workspaceId: workspace.id, path: "src", ignored: true }]);
+
+			const raw = await forwarder(
+				forwarderGET,
+				`/api/v2/code/v1/workspaces/${workspace.id}/files/raw?device=${deviceId}&path=pic.png`,
+				{ locals: user.locals }
+			);
+			expect(raw.status).toBe(200);
+			expect(raw.headers.get("content-type")).toBe("image/png");
+			expect(raw.headers.get("x-content-type-options")).toBe("nosniff");
+			expect(raw.headers.get("content-security-policy")).toContain("sandbox");
+			expect(Buffer.from(await raw.arrayBuffer()).toString()).toBe("PNG");
+
+			// HTML (or SVG) from a repository is never served as itself.
+			const html = await forwarder(
+				forwarderGET,
+				`/api/v2/code/v1/workspaces/${workspace.id}/files/raw?device=${deviceId}&path=x.html`,
+				{ locals: user.locals }
+			);
+			expect(html.status).toBe(415);
+
+			const audited = await collections.codeAudit
+				.find({ deviceId: new ObjectId(deviceId) })
+				.toArray();
+			expect(audited.map((a) => [a.action, a.path, a.bytes])).toEqual([
+				["files.raw", "pic.png", 3],
+			]);
+			expect(JSON.stringify(audited)).not.toContain("PNG");
+			machine.close();
+		});
+
+		it("refuses, and audits the refusal, on a machine enrolled with --no-files", async () => {
+			const machine = await connectAndPair({
+				machine: { capabilities: { files: true } },
+				policy: { ...POLICY, files: "off" },
+			});
+			const deviceId = machine.deviceId as string;
+			const { workspace } = await createWorkspace(machine, deviceId);
+			let forwarded = false;
+			machine.onOp("files.list", () => {
+				forwarded = true;
+				return { path: ".", entries: [], truncated: false };
+			});
+			const res = await forwarder(
+				forwarderGET,
+				`/api/v2/code/v1/workspaces/${workspace.id}/files?device=${deviceId}`,
+				{ locals: user.locals }
+			);
+			expect(res.status).toBe(403);
+			expect(await res.text()).toContain("--no-files");
+			expect(forwarded).toBe(false);
+			const audited = await collections.codeAudit.findOne({ deviceId: new ObjectId(deviceId) });
+			expect(audited?.action).toBe("files.refused");
+			machine.close();
+		});
 	});
 
 	it("forwards /effort as session.setEffort, null clearing it, and refuses a malformed body", async () => {

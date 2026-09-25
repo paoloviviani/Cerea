@@ -28,6 +28,8 @@
 import { randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
+import { recordCodeAudit } from "$lib/server/code/audit";
+import { codeFilesEnabled } from "$lib/server/codeEnabled";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
@@ -61,6 +63,10 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/title$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
+	{
+		method: "GET",
+		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status))?$`),
+	},
 	{ method: "GET", pattern: /^v1\/agents$/ },
 	{ method: "POST", pattern: /^v1\/agents$/ },
 	{ method: "GET", pattern: /^v1\/providers$/ },
@@ -311,6 +317,79 @@ export const GET: RequestHandler = async (event) => {
 		return superjsonResponse({ directories: directories.map(toDirectory) });
 	}
 
+	// The read-only file explorer (ADR 0090, PROTOCOL.md §9): machine ops,
+	// behind the deployment switch and the machine's own policy (checked
+	// here first, and again by galopin), confined to the workspace there.
+	const filesMatch = new RegExp(
+		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status))?$`
+	).exec(path);
+	if (filesMatch) {
+		if (!codeFilesEnabled()) error(404, "The file explorer is not enabled in this deployment.");
+		const workspaceId = decodeURIComponent(filesMatch[1]);
+		if (device.policy?.files === "off") {
+			await recordCodeAudit(event, { action: "files.refused", deviceId, workspaceId });
+			error(
+				403,
+				"This machine was enrolled with --no-files: re-enroll without it to browse files here."
+			);
+		}
+		const relPath = event.url.searchParams.get("path") ?? ".";
+		if (relPath.length > 4096) error(400, "That path is too long.");
+		switch (filesMatch[2] ?? "list") {
+			case "list": {
+				const ignored = event.url.searchParams.get("ignored") !== "false";
+				return superjsonResponse(
+					await callOp(() => link.filesList({ workspaceId, path: relPath, ignored }))
+				);
+			}
+			case "stat":
+				return superjsonResponse(
+					await callOp(() => link.filesStat({ workspaceId, path: relPath }))
+				);
+			case "status":
+				return superjsonResponse(await callOp(() => link.filesStatus({ workspaceId })));
+			case "content": {
+				const offset = Number(event.url.searchParams.get("offset") ?? 0);
+				const length = Number(event.url.searchParams.get("length") ?? 0);
+				if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(length) || length < 0) {
+					error(400, "offset and length must be whole numbers.");
+				}
+				const read = await callOp(() =>
+					link.filesRead({ workspaceId, path: relPath, offset, length })
+				);
+				// An image comes back through /raw, never as base64 JSON here.
+				return superjsonResponse(
+					read.kind === "image" ? { ...read, content: undefined, encoding: "none" } : read
+				);
+			}
+			case "raw": {
+				const read = await callOp(() => link.filesRead({ workspaceId, path: relPath }));
+				// Only raster images, only inline as themselves: a repository
+				// file must never become script (HTML, SVG) on this origin.
+				if (read.kind !== "image" || !RAW_IMAGE_TYPES.has(read.mime) || !read.content) {
+					error(415, "Only raster images are served raw.");
+				}
+				const bytes = Buffer.from(read.content, "base64");
+				await recordCodeAudit(event, {
+					action: "files.raw",
+					deviceId,
+					workspaceId,
+					path: relPath,
+					bytes: bytes.length,
+				});
+				return new Response(bytes, {
+					headers: {
+						"content-type": read.mime,
+						"content-disposition": "inline",
+						"x-content-type-options": "nosniff",
+						"content-security-policy": "sandbox; default-src 'none'",
+						"cache-control": "private, no-store",
+					},
+				});
+			}
+		}
+	}
+
 	const workspaceMatch = /^v1\/workspaces\/([^/]+)$/.exec(path);
 	if (workspaceMatch) {
 		const workspace = await resolveWorkspace(link, decodeURIComponent(workspaceMatch[1]));
@@ -470,6 +549,9 @@ const titleSchema = z.object({
 });
 
 const cancelSchema = z.unknown();
+
+/** The only types the raw file route serves inline. */
+const RAW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 const featureSchema = z.object({
 	featureId: z.string().trim().min(1).max(120),

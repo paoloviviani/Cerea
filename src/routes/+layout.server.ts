@@ -11,7 +11,7 @@
  * the link and nothing else — the panel's own gate still decides.
  */
 import { callerIdentity } from "$lib/server/admin";
-import { codeAgentsEnabled } from "$lib/server/codeEnabled";
+import { codeAgentsEnabled, codeFilesEnabled } from "$lib/server/codeEnabled";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -22,5 +22,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// sidebar's `/code` row reads it, and the route's guard re-checks it
 		// server-side rather than trusting the prop.
 		codeAgentsEnabled: codeAgentsEnabled(),
+		// The /code file explorer's deployment switch (the route 404s anyway).
+		codeFilesEnabled: codeFilesEnabled(),
 	};
 };
