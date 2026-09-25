@@ -610,7 +610,15 @@
 		<div
 			class={[
 				// Stops short of the trailing action buttons; ChatWindow reports their width.
-				"-ml-0.5 flex max-w-[calc(100%-var(--composer-actions-width,40px))] items-center gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 dark:text-gray-400",
+				// items-start, not items-center: the pill group (below) wraps to a
+				// second row on a narrower desktop when it does not fit — a
+				// machine-veto banner does the same with its own forced line break
+				// (`basis-full`). Centering this row against that now-taller
+				// sibling would float `+` and the trailing actions down to the
+				// wrapped block's vertical middle instead of level with its first
+				// line, which is where they belong (brief item 2: "the + stays at
+				// the start of the first [row]").
+				"-ml-0.5 flex max-w-[calc(100%-var(--composer-actions-width,40px))] items-start gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 dark:text-gray-400",
 			]}
 		>
 			{#if showFileUpload}
@@ -1092,7 +1100,7 @@
 			</div>
 
 			{#if trailingActions}
-				<div class="flex flex-none items-center">
+				<div class="flex flex-none items-center gap-1.5">
 					{@render trailingActions()}
 				</div>
 			{/if}

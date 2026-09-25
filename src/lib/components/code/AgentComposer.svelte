@@ -682,7 +682,10 @@
 				{#snippet trailingActions()}
 					<!-- Pinned after the scrollable pill group: the ring never
 					     scrolls away, and on mobile it shows only the ring — the
-					     value and quotas stay in its own popup. -->
+					     value and quotas stay in its own popup. Desktop's send/stop
+					     control (`sendControl`, below) sits right after it, in this
+					     same row, rather than floating absolutely over the
+					     composer — see that snippet's comment for why. -->
 					<ContextMeter
 						{deviceId}
 						{agentId}
@@ -692,33 +695,59 @@
 						{running}
 						{onchanged}
 					/>
+					{#if !narrowViewport.current}
+						{@render sendControl(false)}
+					{/if}
 				{/snippet}
 			</ChatInput>
-			{#if running}
-				<!-- The stop control, exactly where chat's sits: ChatWindow
-				     swaps the send button for StopGeneratingBtn in this same
-				     spot while a turn is live. It stays while a permission
-				     card is up — stopping a prompt nobody wants to answer is
-				     the point of it — and the turn's end comes from the
-				     transcript's stream, not from this click. -->
-				<StopGeneratingBtn
-					onClick={onstop}
-					showBorder={true}
-					classNames="absolute bottom-2 right-2 size-8 sm:size-7 self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
-				/>
-			{:else}
-				<button
-					class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
-						? ''
-						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-					disabled={!draft.trim() || busy || enrollmentExpired || offline}
-					type="submit"
-					aria-label="Send message"
-					name="submit"
-				>
-					<IconArrowUp />
-				</button>
+			<!-- Mobile keeps the send/stop control pinned over the composer's
+			     bottom-right corner, exactly as `fix/mobile-composer` left it.
+			     Desktop instead renders it inside `trailingActions`, above,
+			     right after the ring: pinning it here worked only by
+			     coincidence, when the pill row and any banner beneath it
+			     (the machine-veto banner, `basis-full`-wrapped) happened to
+			     add up to the exact height this button's `bottom-2` expected.
+			     Anything that changed that height — a longer pill list
+			     wrapping to a second row, the banner appearing — left this
+			     corner-pinned button stranded below the row it was meant to
+			     share (brief item 2). `narrowViewport` picks exactly one of
+			     the two: never both, so there is only ever one "Send
+			     message"/stop control in the accessibility tree. -->
+			{#if narrowViewport.current}
+				{@render sendControl(true)}
 			{/if}
 		</div>
 	</div>
 </form>
+
+{#snippet sendControl(pinned: boolean)}
+	{#if running}
+		<!-- The stop control, exactly where chat's sits: ChatWindow swaps the
+		     send button for StopGeneratingBtn in this same spot while a turn
+		     is live. It stays while a permission card is up — stopping a
+		     prompt nobody wants to answer is the point of it — and the
+		     turn's end comes from the transcript's stream, not from this
+		     click. -->
+		<StopGeneratingBtn
+			onClick={onstop}
+			showBorder={true}
+			classNames="{pinned
+				? 'absolute right-2 bottom-2 size-8'
+				: 'size-7'} self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
+		/>
+	{:else}
+		<button
+			class="{pinned
+				? 'absolute right-2 bottom-2 size-8'
+				: 'size-7'} btn self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
+				? ''
+				: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+			disabled={!draft.trim() || busy || enrollmentExpired || offline}
+			type="submit"
+			aria-label="Send message"
+			name="submit"
+		>
+			<IconArrowUp />
+		</button>
+	{/if}
+{/snippet}
