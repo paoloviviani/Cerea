@@ -2,7 +2,7 @@
 	A fork handoff (parity plan §4.2(a)): a new session, on this machine or
 	another of the caller's own paired ones, seeded with a prompt and —
 	optionally — the source transcript up to the message the person hit
-	"Hand off…" on. In the style of `AgentDialog.svelte`; see it for the
+	"Fork from here" on. In the style of `AgentDialog.svelte`; see it for the
 	phone-sized-first and sticky-footer notes, which apply here unchanged.
 
 	The route (`POST v1/agents/:id/handoff`) does the actual work — this
@@ -39,7 +39,7 @@
 		provider: string;
 		modeId: string | null;
 		modelId: string | null;
-		/** The machine's own id for the message "Hand off…" was clicked on
+		/** The machine's own id for the message "Fork from here" was clicked on
 		 * (`Message.machineMessageId`) — the "carry up to here" boundary.
 		 * Undefined carries the whole transcript instead (still curated,
 		 * never truncated at the click point). */
@@ -143,7 +143,7 @@
 			onhandoff(result);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not hand off this session.";
+			failure = err instanceof Error ? err.message : "Could not fork this session.";
 		} finally {
 			busy = false;
 		}
@@ -157,7 +157,7 @@
 				<IconFork class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="handoff-title" class={s.TITLE}>Hand off…</h2>
+				<h2 id="handoff-title" class={s.TITLE}>Fork from here</h2>
 				<p class="{s.SUBTITLE} break-words">From {agentTitle}</p>
 			</div>
 		</div>
@@ -166,7 +166,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Handoff failed
+					Fork failed
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -277,7 +277,7 @@
 					Cancel
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy || !prompt.trim()}>
-					{busy ? "Handing off…" : "Hand off"}
+					{busy ? "Forking…" : "Fork"}
 				</button>
 			</div>
 		</form>

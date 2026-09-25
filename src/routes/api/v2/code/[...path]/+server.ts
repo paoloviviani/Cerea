@@ -80,6 +80,8 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/feature$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/cancel$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/compact$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/revert$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/unrevert$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
@@ -695,6 +697,29 @@ export const POST: RequestHandler = async (event) => {
 	if (compactMatch) {
 		cancelSchema.parse(body);
 		await callOp(() => link.sessionCompact({ sessionId: decodeURIComponent(compactMatch[1]) }));
+		return superjsonResponse({ ok: true });
+	}
+
+	// Retry and rollback (capability `revert`): roll the session back to just
+	// before one of its user messages, or undo that before the next prompt.
+	// `unsupported` surfaces as a 404 and a mid-turn session as a 400,
+	// through `callOp` like every other op.
+	const revertMatch = new RegExp(`^v1/agents/(${ID})/revert$`).exec(path);
+	if (revertMatch) {
+		const parsed = z.object({ messageId: z.string().trim().min(1).max(200) }).safeParse(body);
+		if (!parsed.success) error(400, "Expected { messageId }.");
+		await callOp(() =>
+			link.sessionRevert({
+				sessionId: decodeURIComponent(revertMatch[1]),
+				messageId: parsed.data.messageId,
+			})
+		);
+		return superjsonResponse({ ok: true });
+	}
+	const unrevertMatch = new RegExp(`^v1/agents/(${ID})/unrevert$`).exec(path);
+	if (unrevertMatch) {
+		cancelSchema.parse(body);
+		await callOp(() => link.sessionUnrevert({ sessionId: decodeURIComponent(unrevertMatch[1]) }));
 		return superjsonResponse({ ok: true });
 	}
 

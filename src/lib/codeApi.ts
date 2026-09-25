@@ -438,6 +438,39 @@ export async function compactAgent(deviceId: string, agentId: string): Promise<{
 	);
 }
 
+/** Roll the agent back to just before one of its user messages (retry and
+ * rollback; capability `revert`). The transcript must re-sync afterwards. */
+export async function revertAgent(
+	deviceId: string,
+	agentId: string,
+	messageId: string
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/revert?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ messageId }),
+			}
+		)
+	);
+}
+
+/** Undo the last rollback, before any new prompt. */
+export async function unrevertAgent(deviceId: string, agentId: string): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/unrevert?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({}),
+			}
+		)
+	);
+}
+
 /** Answer a waiting permission request. Blocking: the agent holds until this lands.
  * `childSessionId` answers a subagent's ask (labelled with it by the stream
  * bridge) — the reply is forwarded to the child's own request. */
