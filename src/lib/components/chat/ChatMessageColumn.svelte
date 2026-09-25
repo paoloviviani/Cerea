@@ -246,13 +246,15 @@
 									{fileBaseUrl}
 									{messageActions}
 									{conversationId}
-									onretry={(payload) => {
-										// Edit-with-content mounts a fresh turn like a send; a
-										// plain regenerate needs nothing — the reservation
-										// absorbs the old reply's collapse either way.
-										if (payload.content !== undefined) chatScroll.notifySend();
-										onretry?.(payload);
-									}}
+									onretry={onretry
+										? (payload) => {
+												// Edit-with-content mounts a fresh turn like a send; a
+												// plain regenerate needs nothing — the reservation
+												// absorbs the old reply's collapse either way.
+												if (payload.content !== undefined) chatScroll.notifySend();
+												onretry?.(payload);
+											}
+										: undefined}
 									onshowAlternateMsg={(payload) => {
 										chatScroll.notifyBranchSwitch();
 										onshowAlternateMsg?.(payload);

@@ -20,6 +20,12 @@ type Capabilities struct {
 	// (opencode: the built-in "question" tool, GET/POST /question). ACP
 	// reports false — ACP has no wire message for it.
 	Questions bool `json:"questions"`
+	// Revert is rolling a session back to before one of its messages (and
+	// Unrevert undoing that): opencode's POST /session/:id/revert. RevertFiles
+	// says whether that also restores the workspace files the reverted turns
+	// changed (opencode: yes, from its per-step snapshots).
+	Revert      bool `json:"revert"`
+	RevertFiles bool `json:"revertFiles"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -104,6 +110,15 @@ type Differ interface {
 // subagent sessions spawned within a parent.
 type Childrener interface {
 	Children(ctx context.Context, workspaceDir, sessionID string) ([]Session, error)
+}
+
+// Reverter is the optional "revert" capability: roll a session back to just
+// before messageID (that message and everything after it leave the
+// transcript, and with RevertFiles the files they changed are restored), and
+// undo the last such rollback while no new prompt has been sent.
+type Reverter interface {
+	Revert(ctx context.Context, workspaceDir, sessionID, messageID string) error
+	Unrevert(ctx context.Context, workspaceDir, sessionID string) error
 }
 
 // Compactor is the optional "compact" capability: manual context

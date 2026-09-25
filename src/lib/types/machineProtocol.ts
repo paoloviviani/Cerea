@@ -30,6 +30,10 @@ export interface Backend {
 		 * mechanism (opencode: its built-in "question" tool). ACP reports
 		 * false — it has no wire message for this. */
 		questions: boolean;
+		/** Roll a session back to before one of its user messages (session.revert). */
+		revert?: boolean;
+		/** Whether a revert also restores files (opencode: in a git repository). */
+		revertFiles?: boolean;
 	};
 }
 
@@ -273,6 +277,8 @@ export type OpName =
 	| "session.diff"
 	| "session.children"
 	| "session.compact"
+	| "session.revert"
+	| "session.unrevert"
 	| "backend.modes"
 	| "backend.models";
 
