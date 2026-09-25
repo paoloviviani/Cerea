@@ -94,6 +94,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		webSearch: "webSearch" in conversation ? conversation.webSearch : undefined,
 		toolApprovalOverride:
 			"toolApprovalOverride" in conversation ? conversation.toolApprovalOverride : undefined,
+		reasoningEffort: "reasoningEffort" in conversation ? conversation.reasoningEffort : undefined,
 		projectId:
 			"projectId" in conversation && conversation.projectId
 				? conversation.projectId.toString()

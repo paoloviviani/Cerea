@@ -31,6 +31,12 @@ export const MODELS_FIXTURE = {
 			architecture: { input_modalities: ["text", "image"] },
 		},
 		{
+			id: "test-org/thinking-model",
+			description: "Deterministic test model that takes a thinking effort",
+			providers: [{ provider: "test-provider", supports_tools: false }],
+			architecture: { input_modalities: ["text"] },
+		},
+		{
 			id: "test-org/artifact-tags",
 			description: "Deterministic test model with inline artifact tags only, no tools",
 			providers: [{ provider: "test-provider", supports_tools: false }],
