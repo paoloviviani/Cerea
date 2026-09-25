@@ -23,14 +23,41 @@ import type {
 	Mode,
 	Model,
 	NormalizedEvent,
+	Notice,
 	Policy,
 	ReqFrame,
 	Session,
 	SyncResult,
+	Terminal,
 	Transcript,
 	Workspace,
 	Machine,
 } from "../src/lib/types/machineProtocol";
+import {
+	encodeBinaryFrame,
+	decodeBinaryFrame,
+	BIN_TERM_OUTPUT,
+	BIN_TERM_INPUT,
+	BIN_TERM_ACK,
+} from "../src/lib/types/machineProtocol";
+
+/** One fake terminal's state: enough to exercise attach/reattach, resize
+ * ownership, credits and a forced reset — never a real PTY. */
+export interface FakeTerminalState {
+	snapshot: Terminal;
+	/** Every byte ever produced, from offset 0 — trimmed at `ringStart` by
+	 * `evictTerminalRing` to simulate the real 2 MiB ring's eviction. */
+	history: Buffer;
+	ringStart: number;
+	viewers: Map<string, { acked: number; sentUpTo: number }>;
+	/** Backlogged bytes per viewer, held back by the credit window
+	 * (PROTOCOL.md §9.2: at most 256 KiB of output in flight per viewer). */
+	backlog: Map<string, Buffer>;
+	sizeClaimed: boolean;
+}
+
+const TERMINAL_CREDIT_WINDOW = 256 * 1024;
+const TERMINAL_MAX_OUTPUT_FRAME = 32 * 1024;
 
 export interface FakeMachineModel {
 	workspaces: Workspace[];
@@ -45,6 +72,7 @@ export interface FakeMachineModel {
 	seq: Map<string, number>;
 	modes: Mode[];
 	models: Model[];
+	terminals: Map<string, FakeTerminalState>;
 }
 
 export function emptyModel(): FakeMachineModel {
@@ -60,6 +88,7 @@ export function emptyModel(): FakeMachineModel {
 			{ id: "build", label: "Build" },
 		],
 		models: [{ id: "opencode/coder", label: "Coder", providerId: "opencode", isDefault: true }],
+		terminals: new Map(),
 	};
 }
 
@@ -106,6 +135,10 @@ export class FakeMachine {
 	private welcomeResolvers: Array<
 		(frame: { deviceId: string; status: "pending" | "paired" }) => void
 	> = [];
+	/** channel id → terminalId, set at `terminal.attach` — mirrors galopin's
+	 * own `channelTerminal` map (dispatch.go), which is how it knows where
+	 * an inbound `term.input`/`term.ack` on a given channel goes. */
+	private channelTerminal = new Map<string, string>();
 	deviceId: string | null = null;
 	status: "pending" | "paired" | null = null;
 
@@ -121,7 +154,13 @@ export class FakeMachine {
 			this.ws.on("open", () => resolve());
 			this.ws.on("error", reject);
 		});
-		this.ws.on("message", (raw: Buffer | string) => this.handleMessage(raw));
+		this.ws.on("message", (raw: Buffer | string, isBinary: boolean) => {
+			if (isBinary && Buffer.isBuffer(raw)) {
+				this.handleBinaryMessage(raw);
+				return;
+			}
+			this.handleMessage(raw);
+		});
 	}
 
 	async ready(): Promise<void> {
@@ -214,6 +253,81 @@ export class FakeMachine {
 
 	close(code?: number, reason?: string): void {
 		this.ws.close(code, reason);
+	}
+
+	/** Push a `notice` frame (§7.1/§9.5): machine-level, lossy, unsequenced. */
+	pushNotice(scope: { workspaceId?: string; terminalId?: string }, event: Notice): void {
+		this.ws.send(JSON.stringify({ type: "notice", scope, event }));
+	}
+
+	/**
+	 * Appends `data` to a terminal's history and pushes it to every attached
+	 * viewer that has credit, exactly like a script's output or an echoed
+	 * keystroke would arrive from a real PTY. Frames are capped at 32 KiB
+	 * and held back (backlogged) past a viewer's 256 KiB credit window
+	 * (PROTOCOL.md §9.2) until it acks.
+	 */
+	pushTerminalOutput(terminalId: string, data: Buffer): void {
+		const t = requireTerminal(this.model, terminalId);
+		t.history = Buffer.concat([t.history, data]);
+		t.snapshot = { ...t.snapshot, offset: t.snapshot.offset + data.length };
+		for (const channel of t.viewers.keys()) {
+			const backlog = t.backlog.get(channel) ?? Buffer.alloc(0);
+			t.backlog.set(channel, Buffer.concat([backlog, data]));
+			this.flushViewer(terminalId, channel);
+		}
+	}
+
+	/** Drains as much of a viewer's backlog as its credit window allows,
+	 * one ≤32 KiB frame per call site's trigger (an ack, or fresh output). */
+	private flushViewer(terminalId: string, channel: string): void {
+		const t = this.model.terminals.get(terminalId);
+		if (!t) return;
+		const viewer = t.viewers.get(channel);
+		const backlog = t.backlog.get(channel);
+		if (!viewer || !backlog || backlog.length === 0) return;
+		const available = TERMINAL_CREDIT_WINDOW - (viewer.sentUpTo - viewer.acked);
+		if (available <= 0) return;
+		const chunk = backlog.subarray(
+			0,
+			Math.min(backlog.length, available, TERMINAL_MAX_OUTPUT_FRAME)
+		);
+		if (chunk.length === 0) return;
+		const offset = viewer.sentUpTo;
+		viewer.sentUpTo += chunk.length;
+		t.backlog.set(channel, backlog.subarray(chunk.length));
+		this.ws.send(
+			encodeBinaryFrame({ kind: BIN_TERM_OUTPUT, channel, offset, payload: Buffer.from(chunk) })
+		);
+	}
+
+	/** Simulates ring eviction: content before `newStart` is gone, so a
+	 * viewer that later attaches asking for an offset below it gets `reset`
+	 * — the "forced reset path" hermetic case. */
+	evictTerminalRing(terminalId: string, newStart: number): void {
+		const t = requireTerminal(this.model, terminalId);
+		t.ringStart = Math.max(t.ringStart, newStart);
+	}
+
+	private handleBinaryMessage(raw: Buffer): void {
+		const frame = decodeBinaryFrame(raw);
+		if (!frame) return;
+		const terminalId = this.channelTerminal.get(frame.channel);
+		if (!terminalId) return;
+		const t = this.model.terminals.get(terminalId);
+		if (!t) return;
+		if (frame.kind === BIN_TERM_INPUT) {
+			// The default fake behaviour is an echo, like a real shell with
+			// local echo off would not do, but is what lets a hermetic spec
+			// assert "type X, see X" without scripting output for every case.
+			this.pushTerminalOutput(terminalId, Buffer.from(frame.payload));
+			return;
+		}
+		if (frame.kind === BIN_TERM_ACK) {
+			const viewer = t.viewers.get(frame.channel);
+			if (viewer && frame.offset > viewer.acked) viewer.acked = frame.offset;
+			this.flushViewer(terminalId, frame.channel);
+		}
 	}
 
 	private handleMessage(raw: Buffer | string): void {
@@ -423,6 +537,108 @@ export class FakeMachine {
 				return { modes: model.modes };
 			case "backend.models":
 				return { models: model.models };
+			case "terminal.list": {
+				const { workspaceId } = (args as { workspaceId?: string }) ?? {};
+				const terminals = [...model.terminals.values()]
+					.map((t) => t.snapshot)
+					.filter((t) => !workspaceId || t.workspaceId === workspaceId);
+				return { terminals };
+			}
+			case "terminal.open": {
+				const a = args as {
+					workspaceId: string;
+					cwd?: string;
+					cols: number;
+					rows: number;
+					title?: string;
+				};
+				const id = randomUUID();
+				const snapshot: Terminal = {
+					id,
+					workspaceId: a.workspaceId,
+					title: a.title ?? "Terminal",
+					cwd: a.cwd ?? ".",
+					shell: "/bin/sh",
+					cols: a.cols,
+					rows: a.rows,
+					pid: 1000 + model.terminals.size,
+					createdAt: new Date().toISOString(),
+					state: "running",
+					offset: 0,
+					viewers: 0,
+				};
+				model.terminals.set(id, {
+					snapshot,
+					history: Buffer.alloc(0),
+					ringStart: 0,
+					viewers: new Map(),
+					backlog: new Map(),
+					sizeClaimed: false,
+				});
+				this.pushNotice({ terminalId: id }, { kind: "terminal.state", terminal: snapshot });
+				return { terminal: snapshot };
+			}
+			case "terminal.attach": {
+				const a = args as { terminalId: string; channel: string; from?: number };
+				const t = requireTerminal(model, a.terminalId);
+				const requested = a.from ?? 0;
+				const reset = a.from === undefined || requested < t.ringStart;
+				const effectiveFrom = Math.max(requested, t.ringStart);
+				t.viewers.set(a.channel, { acked: effectiveFrom, sentUpTo: effectiveFrom });
+				// `history` is never physically trimmed (index 0 is always
+				// absolute offset 0); `ringStart` only marks the eviction point
+				// for the reset decision above, mirroring the real ring's
+				// "content before ringStart is gone" without discarding bytes
+				// a hermetic test may still want to inspect.
+				t.backlog.set(a.channel, t.history.subarray(effectiveFrom));
+				this.channelTerminal.set(a.channel, a.terminalId);
+				t.snapshot = { ...t.snapshot, viewers: t.snapshot.viewers + 1 };
+				queueMicrotask(() => this.flushViewer(a.terminalId, a.channel));
+				return {
+					terminal: t.snapshot,
+					from: effectiveFrom,
+					reset,
+					...(reset ? { prelude: "" } : {}),
+				};
+			}
+			case "terminal.detach": {
+				const a = args as { terminalId: string; channel: string };
+				const t = requireTerminal(model, a.terminalId);
+				t.viewers.delete(a.channel);
+				t.backlog.delete(a.channel);
+				this.channelTerminal.delete(a.channel);
+				t.snapshot = { ...t.snapshot, viewers: Math.max(0, t.snapshot.viewers - 1) };
+				return {};
+			}
+			case "terminal.resize": {
+				const a = args as { terminalId: string; cols: number; rows: number; claim?: boolean };
+				const t = requireTerminal(model, a.terminalId);
+				const claim = a.claim ?? true;
+				if (t.sizeClaimed && !claim) return { applied: false };
+				if (claim) t.sizeClaimed = true;
+				t.snapshot = { ...t.snapshot, cols: a.cols, rows: a.rows };
+				return { applied: true };
+			}
+			case "terminal.rename": {
+				const a = args as { terminalId: string; title: string };
+				const t = requireTerminal(model, a.terminalId);
+				t.snapshot = { ...t.snapshot, title: a.title };
+				this.pushNotice(
+					{ terminalId: a.terminalId },
+					{ kind: "terminal.state", terminal: t.snapshot }
+				);
+				return { terminal: t.snapshot };
+			}
+			case "terminal.close": {
+				const a = args as { terminalId: string; force?: boolean };
+				const t = requireTerminal(model, a.terminalId);
+				t.snapshot = { ...t.snapshot, state: "exited", exitCode: 0 };
+				for (const channel of t.viewers.keys()) this.channelTerminal.delete(channel);
+				t.viewers.clear();
+				t.backlog.clear();
+				this.pushNotice({ terminalId: a.terminalId }, { kind: "terminal.exit", exitCode: 0 });
+				return {};
+			}
 			default:
 				throw new Error(`fake machine: no default answer for op "${op}"`);
 		}
@@ -439,4 +655,10 @@ function requireSession(model: FakeMachineModel, sessionId: string): Session {
 	const session = model.sessions.find((s) => s.id === sessionId);
 	if (!session) throw new Error(`fake machine: no such session ${sessionId}`);
 	return session;
+}
+
+function requireTerminal(model: FakeMachineModel, terminalId: string): FakeTerminalState {
+	const terminal = model.terminals.get(terminalId);
+	if (!terminal) throw new Error(`fake machine: no such terminal ${terminalId}`);
+	return terminal;
 }
