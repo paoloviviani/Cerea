@@ -71,6 +71,14 @@ async function openTerminalTab(page: Page) {
 	await page.getByRole("button", { name: "Terminal", exact: true }).click();
 }
 
+/** The side pane's own toggle, disambiguated from a terminal tab that
+ * happens to be titled "Terminal" too (the fake's default title, unlike a
+ * real machine's default of the workspace name) — the toggle's `title`
+ * attribute is the one thing that never collides with a tab's own label. */
+async function togglePane(page: Page) {
+	await page.getByTitle("Open a shell on this workspace").click();
+}
+
 /** Opening the Terminal tab only shows the (possibly empty) roster — a
  * terminal only exists once "+ New" is clicked, which for the first one on
  * a given machine shows the one-time acknowledgement instead of opening it
@@ -271,6 +279,71 @@ test.describe("the terminal, hermetic", () => {
 
 		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 10_000 });
 		await expect(page.getByRole("button", { name: "Restart" })).toBeVisible();
+	});
+
+	test("exit, close the pane, reopen it: the exited terminal never comes back live", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `term-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+
+		await pairAndOpenWorkspace(page, name);
+		await openTerminalTab(page);
+		await clickNewTerminal(page);
+		await acknowledgeIfShown(page);
+		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 15_000 });
+
+		const terminalId = soleTerminalId(fake);
+		await waitForAttach(fake, terminalId);
+		fake.exitTerminal(terminalId, 0);
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 10_000 });
+
+		// Close the side pane (not the terminal tab itself) — a fresh mount of
+		// CodeTerminals, which must read the roster's own `state`, not just
+		// the notice this mount already saw.
+		await togglePane(page);
+		await togglePane(page);
+
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByRole("button", { name: "Restart" })).toBeVisible();
+		// Never a live, attachable tab: no fresh attach round trip for it.
+		expect(fake.model.terminals.get(terminalId)?.viewers.size ?? 0).toBe(0);
+	});
+
+	test("the UI close button on an exited terminal removes it for good", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `term-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+
+		await pairAndOpenWorkspace(page, name);
+		await openTerminalTab(page);
+		await clickNewTerminal(page);
+		await acknowledgeIfShown(page);
+		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 15_000 });
+
+		const terminalId = soleTerminalId(fake);
+		await waitForAttach(fake, terminalId);
+		fake.exitTerminal(terminalId, 0);
+		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 10_000 });
+
+		await page.getByRole("button", { name: "Close terminal" }).click();
+		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
+		await expect.poll(() => fake?.model.terminals.has(terminalId)).toBe(false);
+
+		// Gone from the machine's own roster, so a fresh pane open doesn't
+		// bring it back.
+		await togglePane(page);
+		await togglePane(page);
+		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
 	});
 
 	test("multiple tabs", async ({ page, db, session }) => {

@@ -660,6 +660,14 @@ export class FakeMachine {
 			case "terminal.close": {
 				const a = args as { terminalId: string; force?: boolean };
 				const t = requireTerminal(model, a.terminalId);
+				if (t.snapshot.state === "exited") {
+					// Mirrors galopin's Manager.Remove (dispatch.go's
+					// opTerminalClose): Close/Remove on an already-exited
+					// terminal means gone for good, not "signal a dead process
+					// again and keep it around for display".
+					model.terminals.delete(a.terminalId);
+					return {};
+				}
 				t.snapshot = { ...t.snapshot, state: "exited", exitCode: 0 };
 				for (const channel of t.viewers.keys()) this.channelTerminal.delete(channel);
 				t.viewers.clear();
