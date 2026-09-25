@@ -110,3 +110,91 @@ test("typing into the agent composer stays responsive after a busy transcript", 
 	// drops characters is the same starvation, seen from the other side.
 	await expect(box).toHaveValue("hello world this is a typing probe");
 });
+
+/**
+ * The model picker's checkmark on first open: it must land on the active
+ * model whether that model came from an explicit choice or from the
+ * session having none (the backend's default). Model ids are matched
+ * exactly as the daemon gives them — a gateway model is provider-prefixed
+ * (`pystino/…`), a free-catalog one can be bare — so both forms are
+ * exercised here.
+ */
+const MODELS = [
+	{ id: "pystino/coder-large", label: "Coder Large", isDefault: true },
+	{ id: "glm-5.3-flash", label: "GLM 5.3 Flash" },
+];
+
+async function stubModelPicker(
+	page: import("playwright/test").Page,
+	agentId: string,
+	modelId: string | null
+) {
+	await page.route(`**/api/v2/code/v1/agents/${agentId}?*`, (route) =>
+		route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({
+				agent: {
+					id: agentId,
+					title: "e2e agent",
+					provider: "opencode",
+					state: "idle",
+					cwd: "/repo",
+					workspaceId: WS,
+					modeId: null,
+					modelId,
+				},
+				features: [],
+				cwd: "/repo",
+			}),
+		})
+	);
+	await page.route(`**/api/v2/code/agents/${agentId}/stream?*`, (route) =>
+		route.fulfill({ status: 200, contentType: "text/event-stream", body: "" })
+	);
+	await page.route("**/api/v2/code/v1/providers/opencode/modes?*", (route) =>
+		route.fulfill({ contentType: "application/json", body: superjsonBody({ modes: [] }) })
+	);
+	await page.route("**/api/v2/code/v1/providers/opencode/models?*", (route) =>
+		route.fulfill({ contentType: "application/json", body: superjsonBody({ models: MODELS }) })
+	);
+}
+
+test("the model picker checks the default model when the agent has no explicit choice", async ({
+	page,
+}) => {
+	const AGENT_DEFAULT = "agent_e2e_default_model";
+	await stubModelPicker(page, AGENT_DEFAULT, null);
+
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT_DEFAULT}`);
+
+	const pill = page.getByRole("button", { name: "Coder Large" });
+	await expect(pill).toBeVisible();
+	await pill.click();
+	const menu = page.getByRole("menu");
+	await expect(menu).toBeVisible();
+
+	const activeRow = menu.getByRole("menuitem", { name: "Coder Large" });
+	const otherRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
+	await expect(activeRow.locator("svg").first()).toHaveCSS("opacity", "1");
+	await expect(otherRow.locator("svg").first()).toHaveCSS("opacity", "0");
+});
+
+test("the model picker checks the agent's explicit model, including a bare (non-prefixed) id", async ({
+	page,
+}) => {
+	const AGENT_EXPLICIT = "agent_e2e_explicit_model";
+	await stubModelPicker(page, AGENT_EXPLICIT, "glm-5.3-flash");
+
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT_EXPLICIT}`);
+
+	const pill = page.getByRole("button", { name: "GLM 5.3 Flash" });
+	await expect(pill).toBeVisible();
+	await pill.click();
+	const menu = page.getByRole("menu");
+	await expect(menu).toBeVisible();
+
+	const activeRow = menu.getByRole("menuitem", { name: "GLM 5.3 Flash" });
+	const otherRow = menu.getByRole("menuitem", { name: "Coder Large" });
+	await expect(activeRow.locator("svg").first()).toHaveCSS("opacity", "1");
+	await expect(otherRow.locator("svg").first()).toHaveCSS("opacity", "0");
+});
