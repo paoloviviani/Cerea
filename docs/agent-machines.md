@@ -237,6 +237,20 @@ device to confirm. A machine revoked in the panel is refused for good under
 its old id, and `run` reports that and exits with code 78 instead of
 reconnecting.
 
+### What the file explorer may see
+
+`run` lets the `/code` explorer browse each workspace, **read-only**, confined
+to the workspace directory (symlinks that leave it are listed, never
+followed), with secrets redacted: `.env` files (not `.env.example`), private
+keys, `.netrc`/`.npmrc`/`.pypirc`, cloud credentials files, `*.tfstate` and
+the like. Redaction keeps secrets off screens and out of logs; it is not a
+boundary against the agent, which can read any file. Enroll flags:
+
+- `--no-files`: no browsing at all;
+- `--file-deny GLOB` (repeatable): redact more, by name (`*.secret`) or path
+  tail (`config/prod.yml`);
+- `--no-default-file-deny`: drop the built-in list, keeping only yours.
+
 ### The permission posture
 
 opencode's permission rules live in the machine's own config. `enroll`

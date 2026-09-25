@@ -56,6 +56,15 @@ type PolicyInfo struct {
 	AutoAccept      string   `json:"autoAccept"`
 	WorkspaceRoots  []string `json:"workspaceRoots"`
 	AllowFreeModels bool     `json:"allowFreeModels"`
+	Files           string   `json:"files"`
+	FileDeny        []string `json:"fileDeny"`
+}
+
+// MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can
+// do on this OS, independent of the backend. The policy says whether the
+// owner allows it; both must hold.
+type MachineInfo struct {
+	Capabilities map[string]bool `json:"capabilities"`
 }
 
 // Hello is the whole first frame's payload (protocol and type are added by
@@ -63,6 +72,7 @@ type PolicyInfo struct {
 type Hello struct {
 	Agent          AgentInfo     `json:"agent"`
 	Backends       []BackendInfo `json:"backends"`
+	Machine        MachineInfo   `json:"machine"`
 	Policy         PolicyInfo    `json:"policy"`
 	CredentialInfo string        `json:"-"` // set via SetCredentialState before each dial
 }
@@ -300,6 +310,7 @@ func (l *Link) runOnce(ctx context.Context) error {
 		"protocol": 1,
 		"agent":    hello.Agent,
 		"backends": hello.Backends,
+		"machine":  hello.Machine,
 		"policy":   hello.Policy,
 		"credential": map[string]string{
 			"state": defaultString(hello.CredentialInfo, "ok"),

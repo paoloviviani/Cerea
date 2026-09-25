@@ -53,6 +53,14 @@ Usage:
                other than the gateway's own (default: only pystino/*
                models, so spend always lands in the account this machine
                enrolled under).
+  --no-files   Keep the /code explorer out of this machine's workspace files
+               (default: read-only browsing, confined to each workspace, with
+               secrets such as .env and private keys redacted).
+  --file-deny GLOB  Also redact files matching GLOB (repeatable; a name like
+               "*.secret", or a path tail like "config/prod.yml").
+  --no-default-file-deny  Drop the built-in secret deny list, keeping only
+               --file-deny's. The list prevents accidental exposure; it is
+               not a boundary against the agent, which can read any file.
   --yes        Overwrite existing files without asking.
 `
 
@@ -75,6 +83,9 @@ type enrollOptions struct {
 	discover               bool
 	allowOpencodeProviders bool
 	allowAutoAccept        bool
+	noFiles                bool
+	fileDeny               []string
+	noDefaultFileDeny      bool
 	workspaceRoots         []string
 	allowFreeModels        bool
 	yes                    bool
@@ -118,6 +129,9 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.allowAutoAccept, "allow-auto-accept", false, "")
 	fs.Var(stringListFlag{&opts.workspaceRoots}, "workspace-root", "")
 	fs.BoolVar(&opts.allowFreeModels, "allow-free-models", false, "")
+	fs.BoolVar(&opts.noFiles, "no-files", false, "")
+	fs.Var(stringListFlag{&opts.fileDeny}, "file-deny", "")
+	fs.BoolVar(&opts.noDefaultFileDeny, "no-default-file-deny", false, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -248,9 +262,15 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 	pol.WorkspaceRoots = opts.workspaceRoots
 	pol.AllowFreeModels = opts.allowFreeModels
+	if opts.noFiles {
+		pol.Files = policy.FilesOff
+	}
+	pol.FileDeny = opts.fileDeny
+	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
 	if err := policy.Save(policyPathFor(opts.creds), pol); err != nil {
 		return err
 	}
+	fmt.Fprintln(os.Stderr, filesPolicySummary(pol))
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -399,4 +419,21 @@ func confirmOverwrite(output, creds string, yes bool) error {
 		return fmt.Errorf("aborted")
 	}
 	return nil
+}
+
+// filesPolicySummary says, in plain words, what the explorer may see.
+func filesPolicySummary(pol policy.Policy) string {
+	if !pol.FilesAllowed() {
+		return "Files: OFF — the /code explorer cannot browse this machine's workspaces."
+	}
+	redacted := "the default secret list (.env, private keys, credentials files)"
+	switch {
+	case pol.NoDefaultFileDeny && len(pol.FileDeny) == 0:
+		redacted = "nothing"
+	case pol.NoDefaultFileDeny:
+		redacted = strings.Join(pol.FileDeny, ", ")
+	case len(pol.FileDeny) > 0:
+		redacted += " and " + strings.Join(pol.FileDeny, ", ")
+	}
+	return "Files: READ-ONLY — the /code explorer can browse each workspace; redacted: " + redacted + "."
 }

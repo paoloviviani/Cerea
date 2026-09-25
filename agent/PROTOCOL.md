@@ -202,6 +202,8 @@ The agent is subscribed to its backend from process start, so it has seen every 
 
 ## 9. Machine powers: files and terminals (specified by ADR 0090; F1 and T1 build it)
 
+**Implemented so far (F1a):** `files.list`, `files.stat`, `files.read` and `files.status`; the `files` and `fileDeny` policy fields with `enroll --no-files`, `--file-deny GLOB` and `--no-default-file-deny`; `hello.machine.capabilities.files: true` (the rest false). The error codes `conflict` and `too_large` are in both halves.
+
 Additive only: `protocol` stays `1`. Everything here exists only when `hello.machine.capabilities` says so, and an unknown op still answers `unsupported`, so an old Cerea paired with a new galopin works unchanged, and so does the reverse. These are **machine ops**: galopin dispatches `files.*` and `terminal.*` before the backend switch, and they never call opencode or an ACP agent. opencode's own `/file*`, `/find*` and `/pty` are deliberately not used.
 
 A power is live only when the machine policy (§4), the deployment switch (`CODE_FILES_ENABLED`, `CODE_FILE_WRITE_ENABLED`, `CODE_TERMINAL_ENABLED`) and the capability all allow it. Cerea checks the first two before forwarding, answering 403 with the exact enroll flag, and galopin enforces the policy again.
