@@ -302,7 +302,10 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, logf f
 			Bin:         opts.opencodeBin,
 			ConfigPath:  opts.opencodeConfig,
 			OverlayPath: filepath.Join(stateDir, "opencode-overlay.json"),
-			Logf:        func(format string, args ...any) { logf(format, args...) },
+			// opencode's own temp dir, emptied on every (re)start: its binary
+			// extracts native libraries there each start and never cleans up.
+			TmpDir: filepath.Join(stateDir, "opencode-tmp"),
+			Logf:   func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
 			return nil, fmt.Errorf("starting opencode: %w", err)
