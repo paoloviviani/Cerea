@@ -545,7 +545,17 @@
 	]);
 </script>
 
-<div class="flex min-h-full flex-1 flex-col" onpaste={onPaste}>
+<!-- min-w-0: a flex item's default min-width is its content's natural
+     (unwrapped) size, which this composer's toolbar row — several pills
+     wide — happily supplies. Without this, that natural width wins over
+     whatever the actual composer box has available and propagates up
+     through every ancestor flex container in the chain, each one
+     growing to fit rather than the toolbar row's own pills wrapping to
+     fit — invisible normally (nothing else on the page constrains this
+     composer that tightly), but the file explorer panel does, and it
+     stopped the toolbar row from wrapping at all rather than the
+     pill-by-pill degradation the design intends (brief item 2). -->
+<div class="flex min-h-full min-w-0 flex-1 flex-col" onpaste={onPaste}>
 	<!-- autocomplete=off is not autofill: it opts the composer out of the
 	     browser's session form-state restore, which otherwise re-pastes an
 	     already-sent prompt into the box on reload mid-generation (the value
@@ -607,124 +617,96 @@
 	</div>
 
 	{#if !showNoTools || showMlPill || children || trailingActions}
-		<div
-			class={[
-				// Stops short of the trailing action buttons; ChatWindow reports their width.
-				"-ml-0.5 flex max-w-[calc(100%-var(--composer-actions-width,40px))] items-center gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 dark:text-gray-400",
-			]}
-		>
-			{#if showFileUpload}
-				<div class="flex shrink-0 items-center">
-					<input
-						bind:this={fileInputEl}
-						disabled={loading}
-						class="absolute hidden size-0"
-						aria-label="Upload file"
-						type="file"
-						multiple
-						onchange={onFileChange}
-						onclick={(e) => {
-							if (requireAuthUser()) {
-								e.preventDefault();
-							}
-						}}
-						accept={mimeTypes.join(",")}
-					/>
-
-					<DropdownMenu.Root
-						bind:open={isDropdownOpen}
-						onOpenChange={(open) => {
-							if (open && requireAuthUser()) {
-								isDropdownOpen = false;
-								return;
-							}
-							isDropdownOpen = open;
-						}}
-					>
-						<DropdownMenu.Trigger
-							class="btn size-8 rounded-full border bg-white text-black shadow-sm transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600/50 dark:text-white dark:hover:enabled:bg-gray-600"
+		<!-- relative, w-full + min-w-0: the trailing actions (below) anchor
+		     to this, not the inner row's own (intentionally narrower) box,
+		     and not the composer form either — see that block's own
+		     comment for why the form was wrong. w-full + min-w-0 are load
+		     bearing: without them this wrapper has no sizing information
+		     of its own and a flex item defaults to its *content's* natural
+		     width (every pill unwrapped) rather than shrinking to whatever
+		     its own parent actually has available — which the inner row's
+		     max-w-[calc(100%-…)] then computed *against*, both numbers
+		     drifting further from the real available width the narrower
+		     this whole composer got (the file explorer panel open beside
+		     it can make it very narrow indeed). -->
+		<div class="relative flex w-full min-w-0 items-start">
+			<div
+				class={[
+					// Stops short of the trailing action buttons (reserved
+					// below); ChatWindow/AgentComposer report their width.
+					// items-start, not items-center: the pill group wraps to a
+					// second row on a narrower desktop when it does not fit — a
+					// machine-veto banner does the same with its own forced
+					// line break (`basis-full`). Centering this row against
+					// that now-taller sibling would float `+` down to the
+					// wrapped block's vertical middle instead of level with
+					// its first line, which is where it belongs (brief item 2:
+					// "the + stays at the start of the first [row]").
+					"-ml-0.5 flex max-w-[calc(100%-var(--composer-actions-width,40px))] items-start gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 dark:text-gray-400",
+				]}
+			>
+				{#if showFileUpload}
+					<div class="flex shrink-0 items-center">
+						<input
+							bind:this={fileInputEl}
 							disabled={loading}
-							aria-label="Add attachment"
+							class="absolute hidden size-0"
+							aria-label="Upload file"
+							type="file"
+							multiple
+							onchange={onFileChange}
+							onclick={(e) => {
+								if (requireAuthUser()) {
+									e.preventDefault();
+								}
+							}}
+							accept={mimeTypes.join(",")}
+						/>
+
+						<DropdownMenu.Root
+							bind:open={isDropdownOpen}
+							onOpenChange={(open) => {
+								if (open && requireAuthUser()) {
+									isDropdownOpen = false;
+									return;
+								}
+								isDropdownOpen = open;
+							}}
 						>
-							<IconPlus class="text-base sm:text-sm" />
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Portal>
-							<DropdownMenu.Content
-								class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-								side="top"
-								sideOffset={8}
-								align="start"
-								trapFocus={false}
-								onCloseAutoFocus={(e) => e.preventDefault()}
-								interactOutsideBehavior="defer-otherwise-close"
+							<DropdownMenu.Trigger
+								class="btn size-8 rounded-full border bg-white text-black shadow-sm transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600/50 dark:text-white dark:hover:enabled:bg-gray-600"
+								disabled={loading}
+								aria-label="Add attachment"
 							>
-								{#if modelIsMultimodal}
-									<DropdownMenu.Item
-										class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-										onSelect={() => openFilePickerImage()}
-									>
-										<CarbonImage class="size-4 opacity-90 dark:opacity-80" />
-										Add image(s)
-									</DropdownMenu.Item>
-								{/if}
-
-								<DropdownMenu.Sub>
-									<DropdownMenu.SubTrigger
-										class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
-									>
-										<div class="flex items-center gap-1">
-											<CarbonDocument class="size-4 opacity-90 dark:opacity-80" />
-											Add text file
-										</div>
-										<div class="ml-auto flex items-center">
-											<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
-										</div>
-									</DropdownMenu.SubTrigger>
-									<DropdownMenu.SubContent
-										class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-										side={narrowViewport.current ? "bottom" : "right"}
-										align={narrowViewport.current ? "start" : "center"}
-										sideOffset={10}
-										collisionPadding={8}
-										sticky="always"
-										trapFocus={false}
-										onCloseAutoFocus={(e) => e.preventDefault()}
-										interactOutsideBehavior="defer-otherwise-close"
-									>
+								<IconPlus class="text-base sm:text-sm" />
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Portal>
+								<DropdownMenu.Content
+									class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+									side="top"
+									sideOffset={8}
+									align="start"
+									trapFocus={false}
+									onCloseAutoFocus={(e) => e.preventDefault()}
+									interactOutsideBehavior="defer-otherwise-close"
+								>
+									{#if modelIsMultimodal}
 										<DropdownMenu.Item
 											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-											onSelect={() => openFilePickerText()}
+											onSelect={() => openFilePickerImage()}
 										>
-											<CarbonUpload class="size-4 opacity-90 dark:opacity-80" />
-											Upload from device
+											<CarbonImage class="size-4 opacity-90 dark:opacity-80" />
+											Add image(s)
 										</DropdownMenu.Item>
-										<DropdownMenu.Item
-											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-											onSelect={() => (isUrlModalOpen = true)}
-										>
-											<CarbonLink class="size-4 opacity-90 dark:opacity-80" />
-											Fetch from URL
-										</DropdownMenu.Item>
-									</DropdownMenu.SubContent>
-								</DropdownMenu.Sub>
+									{/if}
 
-								{#if chatTools}
-									<!-- MCP Servers submenu: legacy env-configured base servers
-							     plus the person's connectors (ADR 0064) in one flyout.
-							     Connectors refresh when the submenu opens so one added
-							     moments ago is offered immediately. Signed-out visitors
-							     get a 401 ("none") and see only the base rows. -->
-									<DropdownMenu.Sub
-										onOpenChange={(open) => {
-											if (open) void refreshConnectors();
-										}}
-									>
+									<DropdownMenu.Sub>
 										<DropdownMenu.SubTrigger
 											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
 										>
 											<div class="flex items-center gap-1">
-												<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
-												MCP Servers
+												<CarbonDocument class="size-4 opacity-90 dark:opacity-80" />
+												Add text file
 											</div>
 											<div class="ml-auto flex items-center">
 												<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
@@ -741,227 +723,70 @@
 											onCloseAutoFocus={(e) => e.preventDefault()}
 											interactOutsideBehavior="defer-otherwise-close"
 										>
-											{#each $allMcpServers as server (server.id)}
-												<DropdownMenu.CheckboxItem
-													checked={$selectedServerIds.has(server.id)}
-													onCheckedChange={() => toggleServer(server.id)}
-													closeOnSelect={false}
-													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-												>
-													{#snippet children({ checked })}
-														<img
-															src={getMcpServerFaviconUrl(server.url)}
-															alt=""
-															class="size-4 flex-shrink-0 rounded-sm"
-														/>
-														<span class="max-w-52 truncate py-1">{server.name}</span>
-														<div class="ml-auto flex items-center">
-															<!-- Toggle visual -->
-															<span
-																class={[
-																	"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-																	checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-																]}
-															>
-																<span
-																	class={[
-																		"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-																		checked ? "translate-x-[14px]" : "translate-x-0.5",
-																	]}
-																></span>
-															</span>
-														</div>
-													{/snippet}
-												</DropdownMenu.CheckboxItem>
-											{/each}
-
-											{#if $allMcpServers.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || $connectors.length > 0)}
-												<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
-											{/if}
-
-											{#if signedIn}
-												{#if !$connectorsLoaded}
-													<DropdownMenu.Item
-														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-														disabled
-													>
-														Loading connectors…
-													</DropdownMenu.Item>
-												{:else if $connectorsFailed}
-													<DropdownMenu.Item
-														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-														disabled
-													>
-														Could not load connectors
-													</DropdownMenu.Item>
-												{:else if $connectors.length === 0}
-													<!-- Only when there is nothing else to toggle: a
-											     deployment with base servers needs no lecture. -->
-													{#if $allMcpServers.length === 0}
-														<DropdownMenu.Item
-															class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-															disabled
-														>
-															No connectors yet. Add one from Manage MCP Servers.
-														</DropdownMenu.Item>
-													{/if}
-												{:else}
-													{#each $connectors as connector (connector.id)}
-														{#if connector.connected}
-															<DropdownMenu.CheckboxItem
-																checked={$selectedConnectorIds.has(connector.id)}
-																onCheckedChange={() => toggleConnector(connector.id)}
-																closeOnSelect={false}
-																class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-															>
-																{#snippet children({ checked })}
-																	<img
-																		src={getMcpServerFaviconUrl(connector.url)}
-																		alt=""
-																		class="size-4 flex-shrink-0 rounded-sm"
-																	/>
-																	<span class="max-w-52 truncate py-1">{connector.name}</span>
-																	<div class="ml-auto flex items-center">
-																		<!-- Toggle visual -->
-																		<span
-																			class={[
-																				"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-																				checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-																			]}
-																		>
-																			<span
-																				class={[
-																					"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-																					checked ? "translate-x-[14px]" : "translate-x-0.5",
-																				]}
-																			></span>
-																		</span>
-																	</div>
-																{/snippet}
-															</DropdownMenu.CheckboxItem>
-														{:else}
-															<!-- Not connected (OAuth sign-in pending): it
-													     contributes no tools, so there is nothing to
-													     toggle. Tapping opens the manager, where the
-													     sign-in lives, instead of selecting a no-op. -->
-															<DropdownMenu.Item
-																class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-																title="Sign in from Manage MCP Servers"
-																onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
-															>
-																<img
-																	src={getMcpServerFaviconUrl(connector.url)}
-																	alt=""
-																	class="size-4 flex-shrink-0 rounded-sm"
-																/>
-																<span class="max-w-32 truncate py-1">{connector.name}</span>
-																<span
-																	class="truncate py-1 text-xs text-gray-500 dark:text-gray-400"
-																>
-																	Not signed in
-																</span>
-																<div class="ml-auto flex items-center">
-																	<!-- Toggle visual, visibly off -->
-																	<span
-																		class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
-																	>
-																		<span
-																			class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
-																		></span>
-																	</span>
-																</div>
-															</DropdownMenu.Item>
-														{/if}
-													{/each}
-												{/if}
-											{/if}
-
-											{#if $allMcpServers.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && $connectors.length > 0)}
-												<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700/60" />
-											{/if}
 											<DropdownMenu.Item
 												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-												onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
+												onSelect={() => openFilePickerText()}
 											>
-												Manage MCP Servers
+												<CarbonUpload class="size-4 opacity-90 dark:opacity-80" />
+												Upload from device
+											</DropdownMenu.Item>
+											<DropdownMenu.Item
+												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+												onSelect={() => (isUrlModalOpen = true)}
+											>
+												<CarbonLink class="size-4 opacity-90 dark:opacity-80" />
+												Fetch from URL
 											</DropdownMenu.Item>
 										</DropdownMenu.SubContent>
 									</DropdownMenu.Sub>
-								{/if}
 
-								<!-- Knowledge bases submenu: attach to THIS conversation, in
-							     addition to any bases its project carries. Signed-in only,
-							     since retrieval runs as the reader — and hidden entirely
-							     when the deployment switch says the pipeline is off. -->
-								{#if chatTools && signedIn && page.data.knowledgeEnabled !== false}
-									<DropdownMenu.Sub
-										onOpenChange={(open) => {
-											if (open) void loadKnowledgeStores();
-										}}
-									>
-										<DropdownMenu.SubTrigger
-											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
+									{#if chatTools}
+										<!-- MCP Servers submenu: legacy env-configured base servers
+							     plus the person's connectors (ADR 0064) in one flyout.
+							     Connectors refresh when the submenu opens so one added
+							     moments ago is offered immediately. Signed-out visitors
+							     get a 401 ("none") and see only the base rows. -->
+										<DropdownMenu.Sub
+											onOpenChange={(open) => {
+												if (open) void refreshConnectors();
+											}}
 										>
-											<div class="flex items-center gap-1">
-												<LucideLibrary class="size-4 opacity-90 dark:opacity-80" />
-												Knowledge bases
-												{#if knowledgeBases.length > 0}
-													<span
-														class="rounded-md bg-blue-600/10 px-1.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
-													>
-														{knowledgeBases.length}
-													</span>
-												{/if}
-											</div>
-											<div class="ml-auto flex items-center">
-												<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
-											</div>
-										</DropdownMenu.SubTrigger>
-										<DropdownMenu.SubContent
-											class="z-50 scrollbar-custom max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-											side={narrowViewport.current ? "bottom" : "right"}
-											align={narrowViewport.current ? "start" : "center"}
-											sideOffset={10}
-											collisionPadding={8}
-											sticky="always"
-											trapFocus={false}
-											onCloseAutoFocus={(e) => e.preventDefault()}
-											interactOutsideBehavior="defer-otherwise-close"
-										>
-											{#if knowledgeStoresLoading}
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-													disabled
-												>
-													Loading knowledge bases…
-												</DropdownMenu.Item>
-											{:else if knowledgeStoresFailed}
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-													disabled
-												>
-													Could not load knowledge bases
-												</DropdownMenu.Item>
-											{:else if !knowledgeStores || knowledgeStores.length === 0}
-												<DropdownMenu.Item
-													class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-													disabled
-												>
-													No knowledge bases yet. Create one from the Knowledge screen.
-												</DropdownMenu.Item>
-											{:else}
-												{#each knowledgeStores as store (store.id)}
+											<DropdownMenu.SubTrigger
+												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
+											>
+												<div class="flex items-center gap-1">
+													<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
+													MCP Servers
+												</div>
+												<div class="ml-auto flex items-center">
+													<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
+												</div>
+											</DropdownMenu.SubTrigger>
+											<DropdownMenu.SubContent
+												class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+												side={narrowViewport.current ? "bottom" : "right"}
+												align={narrowViewport.current ? "start" : "center"}
+												sideOffset={10}
+												collisionPadding={8}
+												sticky="always"
+												trapFocus={false}
+												onCloseAutoFocus={(e) => e.preventDefault()}
+												interactOutsideBehavior="defer-otherwise-close"
+											>
+												{#each $allMcpServers as server (server.id)}
 													<DropdownMenu.CheckboxItem
-														checked={isBaseAttached(store.id)}
-														onCheckedChange={(checked) => toggleKnowledgeBase(store, checked)}
+														checked={$selectedServerIds.has(server.id)}
+														onCheckedChange={() => toggleServer(server.id)}
 														closeOnSelect={false}
 														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
 													>
 														{#snippet children({ checked })}
-															<LucideLibrary class="size-4 shrink-0 opacity-90 dark:opacity-80" />
-															<span class="max-w-52 truncate py-1" title={store.description}>
-																{store.name}
-															</span>
+															<img
+																src={getMcpServerFaviconUrl(server.url)}
+																alt=""
+																class="size-4 flex-shrink-0 rounded-sm"
+															/>
+															<span class="max-w-52 truncate py-1">{server.name}</span>
 															<div class="ml-auto flex items-center">
 																<!-- Toggle visual -->
 																<span
@@ -981,121 +806,348 @@
 														{/snippet}
 													</DropdownMenu.CheckboxItem>
 												{/each}
-											{/if}
-										</DropdownMenu.SubContent>
-									</DropdownMenu.Sub>
-								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Portal>
-					</DropdownMenu.Root>
 
-					{#if chatTools && $totalEnabledMcpCount > 0}
-						<div
-							class="ml-1.5 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
-							class:grayscale={!modelSupportsTools}
-							class:opacity-60={!modelSupportsTools}
-							class:cursor-help={!modelSupportsTools}
-							title={modelSupportsTools
-								? "MCP servers enabled"
-								: "Current model doesn’t support tools"}
-						>
-							<!-- The manager is a workspace tab now, not an overlay
+												{#if $allMcpServers.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || $connectors.length > 0)}
+													<DropdownMenu.Separator
+														class="my-1 h-px bg-gray-200 dark:bg-gray-700/60"
+													/>
+												{/if}
+
+												{#if signedIn}
+													{#if !$connectorsLoaded}
+														<DropdownMenu.Item
+															class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+															disabled
+														>
+															Loading connectors…
+														</DropdownMenu.Item>
+													{:else if $connectorsFailed}
+														<DropdownMenu.Item
+															class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+															disabled
+														>
+															Could not load connectors
+														</DropdownMenu.Item>
+													{:else if $connectors.length === 0}
+														<!-- Only when there is nothing else to toggle: a
+											     deployment with base servers needs no lecture. -->
+														{#if $allMcpServers.length === 0}
+															<DropdownMenu.Item
+																class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+																disabled
+															>
+																No connectors yet. Add one from Manage MCP Servers.
+															</DropdownMenu.Item>
+														{/if}
+													{:else}
+														{#each $connectors as connector (connector.id)}
+															{#if connector.connected}
+																<DropdownMenu.CheckboxItem
+																	checked={$selectedConnectorIds.has(connector.id)}
+																	onCheckedChange={() => toggleConnector(connector.id)}
+																	closeOnSelect={false}
+																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+																>
+																	{#snippet children({ checked })}
+																		<img
+																			src={getMcpServerFaviconUrl(connector.url)}
+																			alt=""
+																			class="size-4 flex-shrink-0 rounded-sm"
+																		/>
+																		<span class="max-w-52 truncate py-1">{connector.name}</span>
+																		<div class="ml-auto flex items-center">
+																			<!-- Toggle visual -->
+																			<span
+																				class={[
+																					"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+																					checked
+																						? "bg-blue-600/80"
+																						: "bg-gray-300 dark:bg-gray-700",
+																				]}
+																			>
+																				<span
+																					class={[
+																						"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+																						checked ? "translate-x-[14px]" : "translate-x-0.5",
+																					]}
+																				></span>
+																			</span>
+																		</div>
+																	{/snippet}
+																</DropdownMenu.CheckboxItem>
+															{:else}
+																<!-- Not connected (OAuth sign-in pending): it
+													     contributes no tools, so there is nothing to
+													     toggle. Tapping opens the manager, where the
+													     sign-in lives, instead of selecting a no-op. -->
+																<DropdownMenu.Item
+																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+																	title="Sign in from Manage MCP Servers"
+																	onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
+																>
+																	<img
+																		src={getMcpServerFaviconUrl(connector.url)}
+																		alt=""
+																		class="size-4 flex-shrink-0 rounded-sm"
+																	/>
+																	<span class="max-w-32 truncate py-1">{connector.name}</span>
+																	<span
+																		class="truncate py-1 text-xs text-gray-500 dark:text-gray-400"
+																	>
+																		Not signed in
+																	</span>
+																	<div class="ml-auto flex items-center">
+																		<!-- Toggle visual, visibly off -->
+																		<span
+																			class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
+																		>
+																			<span
+																				class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
+																			></span>
+																		</span>
+																	</div>
+																</DropdownMenu.Item>
+															{/if}
+														{/each}
+													{/if}
+												{/if}
+
+												{#if $allMcpServers.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && $connectors.length > 0)}
+													<DropdownMenu.Separator
+														class="my-1 h-px bg-gray-200 dark:bg-gray-700/60"
+													/>
+												{/if}
+												<DropdownMenu.Item
+													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+													onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
+												>
+													Manage MCP Servers
+												</DropdownMenu.Item>
+											</DropdownMenu.SubContent>
+										</DropdownMenu.Sub>
+									{/if}
+
+									<!-- Knowledge bases submenu: attach to THIS conversation, in
+							     addition to any bases its project carries. Signed-in only,
+							     since retrieval runs as the reader — and hidden entirely
+							     when the deployment switch says the pipeline is off. -->
+									{#if chatTools && signedIn && page.data.knowledgeEnabled !== false}
+										<DropdownMenu.Sub
+											onOpenChange={(open) => {
+												if (open) void loadKnowledgeStores();
+											}}
+										>
+											<DropdownMenu.SubTrigger
+												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
+											>
+												<div class="flex items-center gap-1">
+													<LucideLibrary class="size-4 opacity-90 dark:opacity-80" />
+													Knowledge bases
+													{#if knowledgeBases.length > 0}
+														<span
+															class="rounded-md bg-blue-600/10 px-1.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
+														>
+															{knowledgeBases.length}
+														</span>
+													{/if}
+												</div>
+												<div class="ml-auto flex items-center">
+													<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
+												</div>
+											</DropdownMenu.SubTrigger>
+											<DropdownMenu.SubContent
+												class="z-50 scrollbar-custom max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+												side={narrowViewport.current ? "bottom" : "right"}
+												align={narrowViewport.current ? "start" : "center"}
+												sideOffset={10}
+												collisionPadding={8}
+												sticky="always"
+												trapFocus={false}
+												onCloseAutoFocus={(e) => e.preventDefault()}
+												interactOutsideBehavior="defer-otherwise-close"
+											>
+												{#if knowledgeStoresLoading}
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+														disabled
+													>
+														Loading knowledge bases…
+													</DropdownMenu.Item>
+												{:else if knowledgeStoresFailed}
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+														disabled
+													>
+														Could not load knowledge bases
+													</DropdownMenu.Item>
+												{:else if !knowledgeStores || knowledgeStores.length === 0}
+													<DropdownMenu.Item
+														class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
+														disabled
+													>
+														No knowledge bases yet. Create one from the Knowledge screen.
+													</DropdownMenu.Item>
+												{:else}
+													{#each knowledgeStores as store (store.id)}
+														<DropdownMenu.CheckboxItem
+															checked={isBaseAttached(store.id)}
+															onCheckedChange={(checked) => toggleKnowledgeBase(store, checked)}
+															closeOnSelect={false}
+															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+														>
+															{#snippet children({ checked })}
+																<LucideLibrary class="size-4 shrink-0 opacity-90 dark:opacity-80" />
+																<span class="max-w-52 truncate py-1" title={store.description}>
+																	{store.name}
+																</span>
+																<div class="ml-auto flex items-center">
+																	<!-- Toggle visual -->
+																	<span
+																		class={[
+																			"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+																			checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
+																		]}
+																	>
+																		<span
+																			class={[
+																				"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+																				checked ? "translate-x-[14px]" : "translate-x-0.5",
+																			]}
+																		></span>
+																	</span>
+																</div>
+															{/snippet}
+														</DropdownMenu.CheckboxItem>
+													{/each}
+												{/if}
+											</DropdownMenu.SubContent>
+										</DropdownMenu.Sub>
+									{/if}
+								</DropdownMenu.Content>
+							</DropdownMenu.Portal>
+						</DropdownMenu.Root>
+
+						{#if chatTools && $totalEnabledMcpCount > 0}
+							<div
+								class="ml-1.5 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
+								class:grayscale={!modelSupportsTools}
+								class:opacity-60={!modelSupportsTools}
+								class:cursor-help={!modelSupportsTools}
+								title={modelSupportsTools
+									? "MCP servers enabled"
+									: "Current model doesn’t support tools"}
+							>
+								<!-- The manager is a workspace tab now, not an overlay
 							     mounted here — every opener navigates to it. -->
-							<button
-								class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
-								type="button"
-								title="Manage MCP Servers"
-								onclick={() => void goto(`${base}/workspace?tab=mcp`)}
-								class:line-through={!modelSupportsTools}
-							>
-								{#if selectedServers.length}
-									<span class="flex items-center -space-x-1">
-										{#each selectedServers.slice(0, 3) as server (server.id)}
-											<img
-												src={getMcpServerFaviconUrl(server.url)}
-												alt=""
-												class="size-4 shrink-0 rounded-sm bg-white p-px shadow-xs ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10"
-											/>
-										{/each}
-										{#if selectedServers.length > 3}
-											<span class="ml-1 text-[10px] font-semibold text-blue-800 dark:text-blue-200">
-												+{selectedServers.length - 3}
-											</span>
-										{/if}
-									</span>
-								{/if}
-								MCP ({$totalEnabledMcpCount})
-							</button>
-							<button
-								class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
-								aria-label="Disable all MCP servers"
-								onclick={() => {
-									disableAllServers();
-									disableAllConnectors();
-								}}
-								type="button"
-							>
-								<CarbonClose class="size-3.5" />
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
+								<button
+									class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
+									type="button"
+									title="Manage MCP Servers"
+									onclick={() => void goto(`${base}/workspace?tab=mcp`)}
+									class:line-through={!modelSupportsTools}
+								>
+									{#if selectedServers.length}
+										<span class="flex items-center -space-x-1">
+											{#each selectedServers.slice(0, 3) as server (server.id)}
+												<img
+													src={getMcpServerFaviconUrl(server.url)}
+													alt=""
+													class="size-4 shrink-0 rounded-sm bg-white p-px shadow-xs ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10"
+												/>
+											{/each}
+											{#if selectedServers.length > 3}
+												<span
+													class="ml-1 text-[10px] font-semibold text-blue-800 dark:text-blue-200"
+												>
+													+{selectedServers.length - 3}
+												</span>
+											{/if}
+										</span>
+									{/if}
+									MCP ({$totalEnabledMcpCount})
+								</button>
+								<button
+									class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
+									aria-label="Disable all MCP servers"
+									onclick={() => {
+										disableAllServers();
+										disableAllConnectors();
+									}}
+									type="button"
+								>
+									<CarbonClose class="size-3.5" />
+								</button>
+							</div>
+						{/if}
+					</div>
+				{/if}
 
-			<div
-				class="scrollbar-custom flex min-w-0 flex-1 flex-wrap items-center gap-1.5 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:mask-r-from-85%"
-			>
-				{@render children?.()}
+				<div
+					class="scrollbar-custom flex min-w-0 flex-1 flex-wrap items-center gap-1.5 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:mask-r-from-85%"
+				>
+					{@render children?.()}
 
-				{#if chatTools}
-					<!-- Web search through the gateway's own backends (ADR 0058's plan,
+					{#if chatTools}
+						<!-- Web search through the gateway's own backends (ADR 0058's plan,
 			     phase 2). The toggle is the user's consent to spend; the tool
 			     itself only exists when the console has granted a search tier,
 			     so a toggle with nothing behind it costs nothing and changes
 			     nothing. -->
-					<button
-						type="button"
-						class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
-							? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-							: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-						aria-pressed={webSearch}
-						title="Search the web through this deployment's search backends (this chat only)"
-						onclick={toggleWebSearch}
-					>
-						<CarbonEarth class="size-3.5" />
-						Web search
-					</button>
+						<button
+							type="button"
+							class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
+								? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+								: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+							aria-pressed={webSearch}
+							title="Search the web through this deployment's search backends (this chat only)"
+							onclick={toggleWebSearch}
+						>
+							<CarbonEarth class="size-3.5" />
+							Web search
+						</button>
 
-					<!-- Chat-local override of the tool-approval policy (ADR 0075).
+						<!-- Chat-local override of the tool-approval policy (ADR 0075).
 				     Inside a conversation this PATCHes the override; on the home
 				     page there is no conversation yet, so it only flips the local
 				     state that rides into the create request. -->
-					<button
-						type="button"
-						class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
-							? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-							: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-						aria-pressed={autoApproveTools}
-						title={autoApproveTools
-							? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
-							: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
-						onclick={toggleAutoApproveTools}
-					>
-						<LucideShieldCheck class="size-3.5" />
-						{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
-					</button>
-				{/if}
+						<button
+							type="button"
+							class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
+								? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+								: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+							aria-pressed={autoApproveTools}
+							title={autoApproveTools
+								? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
+								: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
+							onclick={toggleAutoApproveTools}
+						>
+							<LucideShieldCheck class="size-3.5" />
+							{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
+						</button>
+					{/if}
 
-				{#if showMlPill}
-					<MlInternPill />
+					{#if showMlPill}
+						<MlInternPill />
+					{/if}
+				</div>
+
+				{#if trailingActions}
+					<!-- Positioned against the outer, unconstrained wrapper
+					     (above), not the composer form: pinning it to the
+					     form's own bottom-right corner (the pre-item-2
+					     approach) meant it only ever lined up with `+`/the
+					     pill row's first line by coincidence of the form's
+					     total height — a taller pill block (wrapped, or a
+					     machine-veto banner underneath) changed that height
+					     and left it stranded. Anchored here instead, and out
+					     of the pill row's own flex flow, it always sits level
+					     with the row's first line, in the max-w gap that row
+					     reserves for it. -->
+					<div class="flex flex-none items-center gap-1.5 sm:absolute sm:top-1.5 sm:right-3">
+						{@render trailingActions()}
+					</div>
 				{/if}
 			</div>
-
-			{#if trailingActions}
-				<div class="flex flex-none items-center">
-					{@render trailingActions()}
-				</div>
-			{/if}
 		</div>
 	{/if}
 

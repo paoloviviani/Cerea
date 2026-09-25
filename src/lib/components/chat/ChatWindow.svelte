@@ -659,6 +659,12 @@
 		pickedEffort = { value };
 	}
 	const shortViewport = new MediaQuery("(max-height: 560px)");
+	// Below `sm`, the composer's stop/mic/send controls stay pinned over its
+	// bottom-right corner (unchanged from `fix/mobile-composer`); at `sm`
+	// and up they render inline instead, right after the toolbar row's pill
+	// group, since that pin only ever lined up with the row by coincidence
+	// (brief item 2 — see the composer markup below for the long version).
+	const narrowViewport = new MediaQuery("(max-width: 639px)");
 	const ML_SPOTLIGHT_KEY = "mlInternSpotlightDismissed";
 	// Hidden until the browser has been asked, so SSR and hydration agree.
 	let mlSpotlightDismissed = $state(true);
@@ -1087,8 +1093,19 @@
 						"opacity-30": isReadOnly,
 						"max-sm:mb-4": focused && isVirtualKeyboard(),
 					}}
-					style:--composer-actions-width={transcriptionEnabled && !loading ? "84px" : "44px"}
+					style:--composer-actions-width={narrowViewport.current
+						? transcriptionEnabled && !loading
+							? "84px"
+							: "44px"
+						: "120px"}
 				>
+					<!-- The pill row's own width cap (ChatInput.svelte) reserves
+					     this much for whatever trailingActions renders. Below `sm`
+					     that is unchanged (send is pinned outside this row
+					     entirely; the mic button when shown adds to the reserve).
+					     At `sm` and up, trailingActions now also carries the
+					     mic/send controls inline (item 2) — too little room here
+					     let the pill row grow wide enough to sit under them. -->
 					{#if ML_ASSISTANT_MODE}
 						<MlAssistantStrip
 							visible={mlStripVisible}
@@ -1147,49 +1164,80 @@
 										{modelSupportsTools}
 										showMlPill={mlPillVisible}
 										bind:focused
-									/>
+									>
+										{#snippet trailingActions()}
+											<!-- Desktop only (see `trailingControls`'s own comment):
+											     the error-state ChatInput above has no pill row to
+											     wrap, so its pinned corner button is never at risk
+											     of drifting from it — only this one is. -->
+											{#if !narrowViewport.current}
+												{@render trailingControls(false)}
+											{/if}
+										{/snippet}
+									</ChatInput>
 								{/if}
 
-								{#if loading}
-									<StopGeneratingBtn
-										onClick={() => {
-											hapticError();
-											onstop?.();
-										}}
-										showBorder={true}
-										classNames="absolute bottom-2 right-2 size-8 sm:size-7 self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
-									/>
-								{:else}
-									{#if transcriptionEnabled}
-										<button
-											type="button"
-											class="absolute right-10 bottom-2 mr-1.5 btn size-8 self-end rounded-full border bg-white/50 text-gray-500 transition-none hover:bg-gray-50 hover:text-gray-700 sm:right-9 sm:size-7 dark:border-transparent dark:bg-gray-600/50 dark:text-gray-300 dark:hover:bg-gray-500 dark:hover:text-white"
-											disabled={isReadOnly}
-											onclick={() => {
-												isRecording = true;
-											}}
-											aria-label="Start voice recording"
-										>
-											<IconMic class="size-4" />
-										</button>
-									{/if}
-									<button
-										class="absolute right-2 bottom-2 btn size-8 self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft ||
-										isReadOnly
-											? ''
-											: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-										disabled={!draft || isReadOnly}
-										type="submit"
-										aria-label="Send message"
-										name="submit"
-									>
-										<IconArrowUp />
-									</button>
+								{#if narrowViewport.current || lastIsError}
+									{@render trailingControls(true)}
 								{/if}
 							</div>
 						{/if}
 					</div>
 				</form>
+
+				{#snippet trailingControls(pinned: boolean)}
+					<!-- Below `sm` (and always in the error state, which has no pill
+					     row to wrap and so no drift to risk), these stay pinned over
+					     the composer's bottom-right corner, exactly as
+					     `fix/mobile-composer` left them. At `sm` and up they render
+					     as ordinary flex siblings after the toolbar row's pill group
+					     instead: the pin only ever lined up with that row by
+					     coincidence, and stranded below it as soon as the pill row
+					     wrapped to a second line or grew for any other reason (brief
+					     item 2). -->
+					{#if loading}
+						<StopGeneratingBtn
+							onClick={() => {
+								hapticError();
+								onstop?.();
+							}}
+							showBorder={true}
+							classNames="{pinned
+								? 'absolute right-2 bottom-2 size-8'
+								: 'size-7'} self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
+						/>
+					{:else}
+						{#if transcriptionEnabled}
+							<button
+								type="button"
+								class="{pinned
+									? 'absolute right-10 bottom-2 mr-1.5 size-8'
+									: 'size-7'} btn self-end rounded-full border bg-white/50 text-gray-500 transition-none hover:bg-gray-50 hover:text-gray-700 dark:border-transparent dark:bg-gray-600/50 dark:text-gray-300 dark:hover:bg-gray-500 dark:hover:text-white"
+								disabled={isReadOnly}
+								onclick={() => {
+									isRecording = true;
+								}}
+								aria-label="Start voice recording"
+							>
+								<IconMic class="size-4" />
+							</button>
+						{/if}
+						<button
+							class="{pinned
+								? 'absolute right-2 bottom-2 size-8'
+								: 'size-7'} btn self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft ||
+							isReadOnly
+								? ''
+								: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+							disabled={!draft || isReadOnly}
+							type="submit"
+							aria-label="Send message"
+							name="submit"
+						>
+							<IconArrowUp />
+						</button>
+					{/if}
+				{/snippet}
 				<div
 					class={{
 						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,

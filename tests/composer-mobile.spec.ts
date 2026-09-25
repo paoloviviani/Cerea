@@ -9,8 +9,12 @@
  * to its shield icon alone but keeps its accessible name and its
  * `aria-pressed` on/off state; a machine-policy veto stays tappable (not
  * `disabled`) and reveals its reason on tap, since there is no hover on a
- * phone. At 1280×800, the same composer keeps today's text labels (desktop
- * is unchanged).
+ * phone. At 1280×800, the same composer keeps today's text labels, and the
+ * `+`, the pills, the ring and send now share one row too (brief item 2) —
+ * including with the machine-veto banner showing underneath, which is
+ * exactly the case that used to strand the `+` and send away from the
+ * pill row (a `position: absolute` send button pinned to the composer's
+ * corner, not a flex sibling of the row it was meant to share).
  */
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Locator, Page } from "playwright/test";
@@ -237,7 +241,7 @@ test.describe("/code composer: a machine-policy veto on mobile", () => {
 	});
 });
 
-test.describe("/code composer at 1280×800 (desktop unchanged)", () => {
+test.describe("/code composer at 1280×800", () => {
 	test("keeps the text labels: Auto Accept and the ring's value", async ({ page }) => {
 		await installStubs(page);
 		await page.setViewportSize({ width: 1280, height: 800 });
@@ -257,7 +261,27 @@ test.describe("/code composer at 1280×800 (desktop unchanged)", () => {
 		await page.screenshot({ path: "test-results/mobile-composer-code-desktop.png" });
 	});
 
-	test("a machine-policy veto keeps its old disabled-plus-banner shape", async ({ page }) => {
+	test("the +, the pills, the ring and send share one row", async ({ page }) => {
+		await installStubs(page);
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await goto(page);
+		await expect(page.getByRole("combobox")).toBeVisible();
+
+		const attach = page.getByRole("button", { name: "Add attachment" });
+		const modePill = page.getByRole("button", { name: "Build" });
+		const ring = page.getByRole("button", { name: "20.2k" });
+		const send = page.getByRole("button", { name: "Send message" });
+		const [attachBox, modeBox, ringBox, sendBox] = await Promise.all(
+			[attach, modePill, ring, send].map(box)
+		);
+		expect(overlapsVertically(attachBox, modeBox)).toBe(true);
+		expect(overlapsVertically(attachBox, ringBox)).toBe(true);
+		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
+	});
+
+	test("a machine-policy veto keeps its old disabled-plus-banner shape, and the row still lines up", async ({
+		page,
+	}) => {
 		await installStubs(page, { blocked: true });
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
@@ -267,6 +291,18 @@ test.describe("/code composer at 1280×800 (desktop unchanged)", () => {
 		await expect(pill).toBeVisible();
 		await expect(pill).toBeDisabled();
 		await expect(page.getByText(VETO_NOTE)).toBeVisible();
+
+		// The exact case that used to strand `+` and send below the pill row:
+		// the veto banner (`basis-full`-wrapped, under the pills) grows the
+		// toolbar row's height, and a `position: absolute` send button pinned
+		// to the composer's corner drifted away from it. Not anymore.
+		const attach = page.getByRole("button", { name: "Add attachment" });
+		const send = page.getByRole("button", { name: "Send message" });
+		const [attachBox, pillBox, sendBox] = await Promise.all([attach, pill, send].map(box));
+		expect(overlapsVertically(attachBox, pillBox)).toBe(true);
+		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
+
+		await page.screenshot({ path: "test-results/mobile-composer-code-desktop-vetoed.png" });
 	});
 });
 
@@ -319,7 +355,7 @@ test.describe("chat composer at 390×844", () => {
 	});
 });
 
-test.describe("chat composer at 1280×800 (desktop unchanged)", () => {
+test.describe("chat composer at 1280×800", () => {
 	test("keeps the model pill's text label and the tool pills' text", async ({ page }) => {
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await page.goto(`${E2E_APP_BASE}/`);
@@ -329,5 +365,17 @@ test.describe("chat composer at 1280×800 (desktop unchanged)", () => {
 		await expect(page.getByRole("button", { name: "Tools ask first" })).toBeVisible();
 
 		await page.screenshot({ path: "test-results/mobile-composer-chat-desktop.png" });
+	});
+
+	test("the +, the pills and send share one row", async ({ page }) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto(`${E2E_APP_BASE}/`);
+
+		const attach = page.getByRole("button", { name: "Add attachment" });
+		const webSearch = page.getByRole("button", { name: "Web search" });
+		const send = page.getByRole("button", { name: "Send message" });
+		const [attachBox, webBox, sendBox] = await Promise.all([attach, webSearch, send].map(box));
+		expect(overlapsVertically(attachBox, webBox)).toBe(true);
+		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 	});
 });
