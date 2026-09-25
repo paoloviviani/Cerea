@@ -830,6 +830,7 @@
 	bind:knowledgeBases
 	bind:webSearch
 	bind:autoApproveTools
+	conversationEffort={data.reasoningEffort}
 	onmessage={onMessage}
 	onretry={onRetry}
 	onshowAlternateMsg={onShowAlternateMsg}

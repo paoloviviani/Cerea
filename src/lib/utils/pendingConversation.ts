@@ -21,6 +21,7 @@ export interface ConversationData {
 	webSearch?: boolean;
 	/** Chat-local override of the tool-approval policy (ADR 0075); absent means "inherit the setting". */
 	toolApprovalOverride?: "always-allow" | "manual";
+	reasoningEffort?: "low" | "medium" | "high";
 	/** Owning project, when created under one. */
 	projectId?: string;
 	/** Project defaults for seeding per-chat state on first open. */

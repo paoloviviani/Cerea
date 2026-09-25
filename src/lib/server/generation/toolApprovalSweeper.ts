@@ -1,3 +1,4 @@
+import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { randomUUID } from "crypto";
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
@@ -9,7 +10,6 @@ import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { textGeneration } from "$lib/server/textGeneration";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
-import { ML_ASSISTANT_EFFORT } from "$lib/constants/mlAssistant";
 import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
 import {
 	MessageUpdateStatus,
@@ -191,9 +191,7 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 							? mlAssistantProviderFor(model.id, settings?.providerOverrides?.[model.id])
 							: settings?.providerOverrides?.[model.id]
 						: undefined,
-				reasoningEffort: isMlAssistantConversation(conv)
-					? ML_ASSISTANT_EFFORT
-					: settings?.reasoningEffortOverrides?.[model.id],
+				reasoningEffort: effectiveReasoningEffort(conv, settings, model.id),
 				reasoningOverride: settings?.reasoningOverrides?.[model.id],
 				artifactsOverride: settings?.artifactsOverrides?.[model.id],
 				locals,
