@@ -30,6 +30,7 @@
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
+	import { MediaQuery } from "svelte/reactivity";
 	import { DropdownMenu } from "bits-ui";
 	import ComposerFileChips from "$lib/components/chat/ComposerFileChips.svelte";
 	import ChatInput from "$lib/components/chat/ChatInput.svelte";
@@ -39,6 +40,8 @@
 	import IconCheck from "~icons/carbon/checkmark";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
+	import LucideShield from "~icons/lucide/shield";
+	import LucideShieldOff from "~icons/lucide/shield-off";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import {
 		listProviderFeatures,
@@ -336,6 +339,13 @@
 		agent?.effort ? agent.effort.charAt(0).toUpperCase() + agent.effort.slice(1) : "Default"
 	);
 
+	// Below `sm` there is no hover to carry a machine-policy veto's reason, so
+	// a vetoed feature pill there stays tappable (not `disabled`) and opens a
+	// popover with it; at `sm` and up it keeps the pill's older disabled
+	// shape with the reason as a banner underneath, title still carrying it
+	// on hover — existing specs pin that desktop shape.
+	const narrowViewport = new MediaQuery("(max-width: 639px)");
+
 	async function applyEffort(effort: string | null) {
 		if (applying || effort === (agent?.effort ?? null)) return;
 		applying = "effort";
@@ -352,14 +362,24 @@
 
 	// The chat composer's own pill classes, always in the blue tone: these
 	// are pickers showing what the agent is set to, not toggles of state.
+	// Mobile shrinks height, padding and gap (max-sm:) so four-plus pills fit
+	// one unwrapped, horizontally-scrolling row under 390px; sm and up is
+	// unchanged from before this pass.
 	const pillClass =
-		"flex h-7 flex-none items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300 disabled:opacity-60";
+		"flex h-7 max-sm:h-6 flex-none items-center gap-1 max-sm:gap-0.5 rounded-full border px-2.5 max-sm:px-1.5 text-xs font-medium transition-colors border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300 disabled:opacity-60";
+	const chevronClass = "size-3 max-sm:size-2.5 opacity-70";
 	const menuContentClass =
 		"z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100";
 	const menuItemClass =
 		"flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10";
 	const menuNoteClass =
 		"flex h-9 items-center rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400";
+
+	/** The mobile tap-to-reveal veto pill: a dashed, muted shield — a
+	 * different shape from plain "off" so a tap goes looking for why, not
+	 * for a switch that will not flip. */
+	const vetoedFeaturePillClass =
+		"flex h-7 max-sm:h-6 flex-none items-center gap-1.5 max-sm:gap-0.5 rounded-full border border-dashed border-amber-400/60 bg-amber-50/60 px-2.5 max-sm:px-1.5 text-xs font-medium text-amber-700 opacity-90 dark:border-amber-700/50 dark:bg-amber-900/10 dark:text-amber-400";
 </script>
 
 <form
@@ -387,20 +407,133 @@
 				bind:focused
 			>
 				{#snippet children()}
-					<!-- The pills live inside the prompt box, in the chat
-					     composer's own row idiom — same width cap so neither
-					     walks under the send button. -->
-					<div
-						class="-ml-0.5 flex max-w-[calc(100%-var(--composer-actions-width,44px))] flex-wrap items-center gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 dark:text-gray-400"
-					>
+					<!-- The pills live inside the prompt box's own scrollable pill
+					     row (ChatInput's toolbar row), not a div of their own: below
+					     `sm` that row goes nowrap-and-scroll, and the `+` before it
+					     plus the ring after it (`trailingActions`, below) are pinned
+					     outside it, so neither ever scrolls away. -->
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class={pillClass}
+							disabled={applying === "mode"}
+							title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
+						>
+							<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
+							<IconChevronDown class={chevronClass} />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								class={menuContentClass}
+								side="top"
+								align="start"
+								sideOffset={8}
+								trapFocus={false}
+								onCloseAutoFocus={(e) => e.preventDefault()}
+								interactOutsideBehavior="defer-otherwise-close"
+							>
+								{#if modes === null && !modesFailure}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										Loading modes…
+									</DropdownMenu.Item>
+								{:else if modesFailure}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										Could not load modes: {modesFailure}
+									</DropdownMenu.Item>
+								{:else if !modes?.length}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										The daemon lists no modes.
+									</DropdownMenu.Item>
+								{:else}
+									{#each modes as mode (mode.id)}
+										<DropdownMenu.Item
+											class={menuItemClass}
+											onSelect={() => void applyMode(mode.id)}
+										>
+											<IconCheck
+												class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
+													? 'opacity-100'
+													: 'opacity-0'}"
+											/>
+											<span class="whitespace-nowrap" title={mode.description}>
+												{mode.label}
+											</span>
+										</DropdownMenu.Item>
+									{/each}
+								{/if}
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class={pillClass}
+							disabled={applying === "model"}
+							title="The model this agent runs"
+						>
+							<span class="max-w-48 truncate max-sm:max-w-20" title={modelLabel}>{modelLabel}</span>
+							<IconChevronDown class={chevronClass} />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								class="{menuContentClass} scrollbar-custom max-h-64 overflow-y-auto"
+								side="top"
+								align="start"
+								sideOffset={8}
+								trapFocus={false}
+								onCloseAutoFocus={(e) => e.preventDefault()}
+								interactOutsideBehavior="defer-otherwise-close"
+							>
+								{#if models === null && !modelsFailure}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										Loading models…
+									</DropdownMenu.Item>
+								{:else if modelsFailure}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										Could not load models: {modelsFailure}
+									</DropdownMenu.Item>
+								{:else if !models?.length}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										The daemon lists no models.
+									</DropdownMenu.Item>
+								{:else}
+									{#each models as model (model.id)}
+										<DropdownMenu.Item
+											class={menuItemClass}
+											onSelect={() => void applyModel(model.id)}
+										>
+											<IconCheck
+												class="size-3.5 shrink-0 {model.id === (agent?.modelId ?? null)
+													? 'opacity-100'
+													: 'opacity-0'}"
+											/>
+											<span class="max-w-64 truncate" title={model.description}>
+												{model.label}
+											</span>
+										</DropdownMenu.Item>
+									{/each}
+									{#if modelsHidden > 0}
+										<DropdownMenu.Item class={menuNoteClass} disabled>
+											{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
+											machine was enrolled without --allow-free-models.
+										</DropdownMenu.Item>
+									{/if}
+								{/if}
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+
+					{#if effortLevels}
 						<DropdownMenu.Root>
 							<DropdownMenu.Trigger
 								class={pillClass}
-								disabled={applying === "mode"}
-								title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
+								disabled={applying === "effort"}
+								title="How hard the model thinks"
+								aria-label="Thinking effort"
 							>
-								{modeLabel}
-								<IconChevronDown class="size-3 opacity-70" />
+								<span class="whitespace-nowrap"
+									><span class="max-sm:hidden">Effort: </span>{effortLabel}</span
+								>
+								<IconChevronDown class={chevronClass} />
 							</DropdownMenu.Trigger>
 							<DropdownMenu.Portal>
 								<DropdownMenu.Content
@@ -412,111 +545,57 @@
 									onCloseAutoFocus={(e) => e.preventDefault()}
 									interactOutsideBehavior="defer-otherwise-close"
 								>
-									{#if modes === null && !modesFailure}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											Loading modes…
-										</DropdownMenu.Item>
-									{:else if modesFailure}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											Could not load modes: {modesFailure}
-										</DropdownMenu.Item>
-									{:else if !modes?.length}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											The daemon lists no modes.
-										</DropdownMenu.Item>
-									{:else}
-										{#each modes as mode (mode.id)}
-											<DropdownMenu.Item
-												class={menuItemClass}
-												onSelect={() => void applyMode(mode.id)}
+									{#each [null, ...effortLevels] as level (level ?? "default")}
+										<DropdownMenu.Item
+											class={menuItemClass}
+											onSelect={() => void applyEffort(level)}
+										>
+											<IconCheck
+												class="size-3.5 shrink-0 {level === (agent?.effort ?? null)
+													? 'opacity-100'
+													: 'opacity-0'}"
+											/>
+											<span class="whitespace-nowrap"
+												>{level ? level.charAt(0).toUpperCase() + level.slice(1) : "Default"}</span
 											>
-												<IconCheck
-													class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
-														? 'opacity-100'
-														: 'opacity-0'}"
-												/>
-												<span class="whitespace-nowrap" title={mode.description}>
-													{mode.label}
-												</span>
-											</DropdownMenu.Item>
-										{/each}
-									{/if}
+										</DropdownMenu.Item>
+									{/each}
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
 						</DropdownMenu.Root>
+					{/if}
 
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger
-								class={pillClass}
-								disabled={applying === "model"}
-								title="The model this agent runs"
-							>
-								<span class="max-w-48 truncate">{modelLabel}</span>
-								<IconChevronDown class="size-3 opacity-70" />
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Content
-									class="{menuContentClass} scrollbar-custom max-h-64 overflow-y-auto"
-									side="top"
-									align="start"
-									sideOffset={8}
-									trapFocus={false}
-									onCloseAutoFocus={(e) => e.preventDefault()}
-									interactOutsideBehavior="defer-otherwise-close"
-								>
-									{#if models === null && !modelsFailure}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											Loading models…
-										</DropdownMenu.Item>
-									{:else if modelsFailure}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											Could not load models: {modelsFailure}
-										</DropdownMenu.Item>
-									{:else if !models?.length}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											The daemon lists no models.
-										</DropdownMenu.Item>
-									{:else}
-										{#each models as model (model.id)}
-											<DropdownMenu.Item
-												class={menuItemClass}
-												onSelect={() => void applyModel(model.id)}
-											>
-												<IconCheck
-													class="size-3.5 shrink-0 {model.id === (agent?.modelId ?? null)
-														? 'opacity-100'
-														: 'opacity-0'}"
-												/>
-												<span class="max-w-64 truncate" title={model.description}>
-													{model.label}
-												</span>
-											</DropdownMenu.Item>
-										{/each}
-										{#if modelsHidden > 0}
-											<DropdownMenu.Item class={menuNoteClass} disabled>
-												{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
-												machine was enrolled without --allow-free-models.
-											</DropdownMenu.Item>
-										{/if}
-									{/if}
-								</DropdownMenu.Content>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
-
-						{#if effortLevels}
+					<!-- The provider's feature toggles, drawn like chat's own
+					     toggle pills (web search, tool approval): blue when on,
+					     gray when off, `aria-pressed` carrying the state, icon
+					     alone below `sm` (the label stays for a screen reader as
+					     `sr-only` text, so the accessible name survives going
+					     icon-only). The value is the agent snapshot's word; a
+					     toggle the snapshot is silent on renders disabled. A
+					     toggle whose machine policy vetoes it (`blockedReason`)
+					     stays visible rather than vanishing — a missing feature
+					     and a forbidden one read as the same "no such thing
+					     here" otherwise, and only one of those has a fix.
+					     `sm` and up keeps that fix as a disabled pill plus a
+					     banner underneath (hover/title carries the reason,
+					     existing specs pin this shape); below `sm` there is no
+					     hover, so the pill stays tappable and opens a popover
+					     with the reason instead of a banner that would cost the
+					     row its one line. -->
+					{#each featurePills as feature (feature.id)}
+						{#if feature.blockedReason && narrowViewport.current}
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger
-									class={pillClass}
-									disabled={applying === "effort"}
-									title="How hard the model thinks"
-									aria-label="Thinking effort"
+									class={vetoedFeaturePillClass}
+									aria-pressed={feature.value}
+									title={feature.blockedReason}
 								>
-									<span class="whitespace-nowrap">Effort: {effortLabel}</span>
-									<IconChevronDown class="size-3 opacity-70" />
+									<LucideShieldOff class="size-3.5" />
+									<span class="max-sm:sr-only">{feature.label}</span>
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Portal>
 									<DropdownMenu.Content
-										class={menuContentClass}
+										class="{menuContentClass} max-w-64 px-2.5 py-2 text-xs text-amber-700 dark:text-amber-400"
 										side="top"
 										align="start"
 										sideOffset={8}
@@ -524,41 +603,17 @@
 										onCloseAutoFocus={(e) => e.preventDefault()}
 										interactOutsideBehavior="defer-otherwise-close"
 									>
-										{#each [null, ...effortLevels] as level (level ?? "default")}
-											<DropdownMenu.Item
-												class={menuItemClass}
-												onSelect={() => void applyEffort(level)}
-											>
-												<IconCheck
-													class="size-3.5 shrink-0 {level === (agent?.effort ?? null)
-														? 'opacity-100'
-														: 'opacity-0'}"
-												/>
-												<span class="whitespace-nowrap"
-													>{level
-														? level.charAt(0).toUpperCase() + level.slice(1)
-														: "Default"}</span
-												>
-											</DropdownMenu.Item>
-										{/each}
+										<div class="flex items-start gap-1.5">
+											<IconWarning class="mt-0.5 size-3 shrink-0" />
+											{feature.blockedReason}
+										</div>
 									</DropdownMenu.Content>
 								</DropdownMenu.Portal>
 							</DropdownMenu.Root>
-						{/if}
-
-						<!-- The provider's feature toggles, drawn like chat's own
-						     toggle pills (web search, tool approval): blue when on,
-						     gray when off, `aria-pressed` carrying the state. The
-						     value is the agent snapshot's word; a toggle the
-						     snapshot is silent on renders disabled. A toggle whose
-						     machine policy vetoes it (`blockedReason`) stays visible
-						     rather than vanishing — a missing feature and a
-						     forbidden one read as the same "no such thing here"
-						     otherwise, and only one of those has a fix. -->
-						{#each featurePills as feature (feature.id)}
+						{:else}
 							<button
 								type="button"
-								class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {feature.value
+								class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors max-sm:h-6 max-sm:gap-0.5 max-sm:px-1.5 {feature.value
 									? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
 									: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'} disabled:opacity-60"
 								aria-pressed={feature.value}
@@ -572,63 +627,71 @@
 										: "Waiting for the daemon's word on this agent")}
 								onclick={() => void applyFeature(feature)}
 							>
-								<LucideShieldCheck class="size-3.5" />
-								{feature.label}
+								{#if feature.blockedReason}
+									<LucideShieldOff class="size-3.5" />
+								{:else if feature.value}
+									<LucideShieldCheck class="size-3.5" />
+								{:else}
+									<LucideShield class="size-3.5" />
+								{/if}
+								<span class="max-sm:sr-only">{feature.label}</span>
 							</button>
-						{/each}
-						{#each featurePills.filter((feature) => feature.blockedReason) as feature (feature.id)}
-							<span
-								class="flex min-w-0 basis-full items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
-							>
-								<IconWarning class="size-3 shrink-0" />
-								<span class="min-w-0 truncate" title={feature.blockedReason}>
-									{feature.blockedReason}
-								</span>
-							</span>
-						{/each}
-
-						<ContextMeter
-							{deviceId}
-							{agentId}
-							{usage}
-							{lastCompaction}
-							supported={usageSupported}
-							{running}
-							{onchanged}
-						/>
-
-						{#if applyFailure}
-							<span
-								class="flex min-w-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
-							>
-								<IconWarning class="size-3 shrink-0" />
-								<span class="min-w-0 truncate" title={applyFailure}>{applyFailure}</span>
-							</span>
 						{/if}
+					{/each}
+					{#each featurePills.filter((feature) => feature.blockedReason && !narrowViewport.current) as feature (feature.id)}
+						<span
+							class="flex min-w-0 basis-full items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
+						>
+							<IconWarning class="size-3 shrink-0" />
+							<span class="min-w-0 truncate" title={feature.blockedReason}>
+								{feature.blockedReason}
+							</span>
+						</span>
+					{/each}
 
-						{#if offline}
-							<span
-								class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+					{#if applyFailure}
+						<span
+							class="flex min-w-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
+						>
+							<IconWarning class="size-3 shrink-0" />
+							<span class="min-w-0 truncate" title={applyFailure}>{applyFailure}</span>
+						</span>
+					{/if}
+
+					{#if offline}
+						<span class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+							<IconWarning class="size-3 shrink-0" />
+							<span class="min-w-0 truncate">This machine is offline.</span>
+						</span>
+					{:else if enrollmentExpired}
+						<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
+							<IconWarning class="size-3 shrink-0" />
+							<span class="min-w-0 truncate">
+								This machine's enrollment expired or was revoked.
+							</span>
+							<button
+								type="button"
+								class="shrink-0 font-medium underline underline-offset-2"
+								onclick={() => onreenroll?.()}
 							>
-								<IconWarning class="size-3 shrink-0" />
-								<span class="min-w-0 truncate">This machine is offline.</span>
-							</span>
-						{:else if enrollmentExpired}
-							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
-								<IconWarning class="size-3 shrink-0" />
-								<span class="min-w-0 truncate">
-									This machine's enrollment expired or was revoked.
-								</span>
-								<button
-									type="button"
-									class="shrink-0 font-medium underline underline-offset-2"
-									onclick={() => onreenroll?.()}
-								>
-									Re-enroll
-								</button>
-							</span>
-						{/if}
-					</div>
+								Re-enroll
+							</button>
+						</span>
+					{/if}
+				{/snippet}
+				{#snippet trailingActions()}
+					<!-- Pinned after the scrollable pill group: the ring never
+					     scrolls away, and on mobile it shows only the ring — the
+					     value and quotas stay in its own popup. -->
+					<ContextMeter
+						{deviceId}
+						{agentId}
+						{usage}
+						{lastCompaction}
+						supported={usageSupported}
+						{running}
+						{onchanged}
+					/>
 				{/snippet}
 			</ChatInput>
 			{#if running}

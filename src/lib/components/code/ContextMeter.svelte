@@ -173,7 +173,7 @@
 {#if supported && usage}
 	<DropdownMenu.Root onOpenChange={onPopupOpenChange}>
 		<DropdownMenu.Trigger
-			class="ml-auto flex h-7 flex-none items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+			class="flex h-7 flex-none items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 max-sm:h-6 max-sm:w-6 max-sm:justify-center max-sm:gap-0 max-sm:px-0 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
 			title="Context usage"
 		>
 			<svg viewBox="0 0 18 18" class="size-3.5 {RING_CLASS[tone]}">
@@ -201,7 +201,7 @@
 					/>
 				{/if}
 			</svg>
-			{label}
+			<span class="max-sm:sr-only">{label}</span>
 		</DropdownMenu.Trigger>
 		<DropdownMenu.Portal>
 			<DropdownMenu.Content
