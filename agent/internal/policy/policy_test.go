@@ -14,6 +14,47 @@ func TestDefaultIsClosed(t *testing.T) {
 	if p.AllowFreeModels {
 		t.Error("default policy must not allow free models")
 	}
+	if p.TerminalAllowed() {
+		t.Error("default policy must deny the terminal (ADR 0090)")
+	}
+	if got := p.EffectiveMaxTerminals(); got != DefaultMaxTerminals {
+		t.Errorf("EffectiveMaxTerminals() = %d, want the default %d", got, DefaultMaxTerminals)
+	}
+}
+
+func TestTerminalAllowed(t *testing.T) {
+	if (Policy{Terminal: TerminalDenied}).TerminalAllowed() {
+		t.Error("denied must not be allowed")
+	}
+	if !(Policy{Terminal: TerminalAllowed}).TerminalAllowed() {
+		t.Error("allowed must be allowed")
+	}
+	if (Policy{}).TerminalAllowed() {
+		t.Error("a zero-value Policy (never enrolled with any terminal flag) must deny")
+	}
+}
+
+func TestEffectiveMaxTerminals(t *testing.T) {
+	if got := (Policy{MaxTerminals: 3}).EffectiveMaxTerminals(); got != 3 {
+		t.Errorf("got %d, want 3", got)
+	}
+	if got := (Policy{MaxTerminals: 0}).EffectiveMaxTerminals(); got != DefaultMaxTerminals {
+		t.Errorf("got %d, want the default %d", got, DefaultMaxTerminals)
+	}
+}
+
+func TestLoadDefaultsTerminalToDenied(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(path, []byte(`{"autoAccept":"denied"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Terminal != TerminalDenied {
+		t.Errorf("Terminal = %q, want %q for a policy.json predating this field", p.Terminal, TerminalDenied)
+	}
 }
 
 func TestLoadMissingFileIsDefault(t *testing.T) {

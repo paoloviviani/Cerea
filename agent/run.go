@@ -21,6 +21,7 @@ import (
 	"galopin/internal/link"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
+	"galopin/internal/terminal"
 	"galopin/internal/workspaces"
 )
 
@@ -208,6 +209,12 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	mc := newMachine(reg, back, mat, pol)
+	auditLog, err := newAuditLogger(stateDir)
+	if err != nil {
+		return err
+	}
+	defer auditLog.Close()
+	mc.AttachAudit(auditLog)
 	for _, w := range reg.List(true) {
 		sessList, err := back.ListSessions(ctx, w.Path)
 		if err != nil {
@@ -226,11 +233,14 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		Cred:        sh,
 		Hello:       func() link.Hello { return buildHello(back, pol) },
 		Handler:     mc,
+		Binary:      mc,
 		Logf:        func(format string, args ...any) { logf(format, args...) },
 	})
+	mc.AttachLink(lnk)
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
+	mc.terminals.StartReaper(ctx, time.Minute)
 
 	// The forwarder gets its own context: the link can end on its own (a
 	// revoke), and then nothing cancels the process-wide ctx, so a forwarder
@@ -256,6 +266,16 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 			runErr = err
 		}
 	}
+
+	// Every terminal is closed here on every way out of run — a normal
+	// shutdown and a 4403 revoke alike (PROTOCOL.md §9.3): SIGHUP to each
+	// process group, SIGKILL 5s later if it hasn't gone, and this blocks
+	// (bounded) until every one of them has actually exited, so a caller
+	// that waits for run to return knows the process groups are gone too.
+	mc.terminals.CloseAll(false)
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), 6*time.Second)
+	_ = mc.terminals.WaitAllClosed(closeCtx)
+	cancelClose()
 
 	_ = lnk.Close()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -382,7 +402,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			},
 		}},
 		Machine: link.MachineInfo{Capabilities: map[string]bool{
-			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": false,
+			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
 		}},
 		Policy: link.PolicyInfo{
 			AutoAccept:      string(pol.AutoAccept),
@@ -390,6 +410,8 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			AllowFreeModels: pol.AllowFreeModels,
 			Files:           filesPolicyWord(pol),
 			FileDeny:        orEmptyStrings(pol.EffectiveFileDeny()),
+			Terminal:        terminalPolicyWord(pol),
+			MaxTerminals:    pol.EffectiveMaxTerminals(),
 		},
 	}
 }
@@ -473,6 +495,13 @@ func filesPolicyWord(pol policy.Policy) string {
 		return policy.FilesRead
 	}
 	return policy.FilesOff
+}
+
+func terminalPolicyWord(pol policy.Policy) string {
+	if pol.TerminalAllowed() {
+		return policy.TerminalAllowed
+	}
+	return policy.TerminalDenied
 }
 
 func orEmptyStrings(s []string) []string {

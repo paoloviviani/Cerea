@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"galopin/internal/link"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
+	"galopin/internal/terminal"
 	"galopin/internal/workspaces"
 )
 
@@ -27,9 +29,21 @@ type machine struct {
 	mat        *sessions.Materializer
 	pol        policy.Policy
 	files      *files.Service
+	terminals  *terminal.Manager
 
 	mu                 sync.Mutex
 	sessionWorkspaceID map[string]string // sessionID -> workspace registry id
+	channelTerminal    map[string]string // terminal.attach channel -> terminal id, for inbound binary routing
+
+	// lnk delivers terminal output/notice frames once the link is up. It is
+	// nil until AttachLink runs (run.go, after both are constructed —
+	// machine.Handle only ever gets called once the link has paired, so by
+	// then it is always set) and in tests that never call AttachLink, in
+	// which case terminal output/notices are simply dropped.
+	lnk *link.Link
+	// audit is galopin's local, tamper-resistant record (PROTOCOL.md §9.3):
+	// terminal open/close and policy refusals, never content. Nil-safe.
+	audit *auditLogger
 }
 
 func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Materializer, pol policy.Policy) *machine {
@@ -39,7 +53,44 @@ func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Ma
 		mat:                mat,
 		pol:                pol,
 		files:              files.New(pol.EffectiveFileDeny()),
+		terminals:          terminal.NewManager(nil),
 		sessionWorkspaceID: map[string]string{},
+		channelTerminal:    map[string]string{},
+	}
+}
+
+// AttachLink wires the machine to its live link, once both exist (run.go
+// constructs the link after the machine, since the link's Hello/Handler
+// callbacks need the machine and the machine's terminal callbacks need the
+// link). It also makes the machine link.BinaryHandler-compatible.
+func (mc *machine) AttachLink(lnk *link.Link) { mc.lnk = lnk }
+
+// AttachAudit wires the local audit log (run.go; nil in tests that don't
+// need one).
+func (mc *machine) AttachAudit(a *auditLogger) { mc.audit = a }
+
+// HandleBinary implements link.BinaryHandler: routes an inbound term.input
+// or term.ack frame to whichever terminal owns channel (PROTOCOL.md §9.2).
+// A channel with no known terminal (already detached, or never attached —
+// a stale frame from a reconnect race) is silently dropped, same as an
+// unknown op would be refused loudly; a transport-level frame has no `res`
+// to answer, so there is nothing to refuse into.
+func (mc *machine) HandleBinary(kind byte, channel string, offset uint64, payload []byte) {
+	mc.mu.Lock()
+	termID, ok := mc.channelTerminal[channel]
+	mc.mu.Unlock()
+	if !ok {
+		return
+	}
+	t, err := mc.terminals.Get(termID)
+	if err != nil {
+		return
+	}
+	switch kind {
+	case link.BinTermInput:
+		_, _ = t.Write(payload)
+	case link.BinTermAck:
+		_ = t.Ack(channel, offset)
 	}
 }
 
@@ -92,6 +143,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 	switch op {
 	case "files.list", "files.stat", "files.read", "files.status":
 		return mc.opFiles(ctx, op, args)
+	case "terminal.list", "terminal.open", "terminal.attach", "terminal.detach", "terminal.resize", "terminal.rename", "terminal.close":
+		return mc.opTerminal(ctx, op, args)
 	case "workspace.list":
 		return mc.opWorkspaceList()
 	case "workspace.suggest":
@@ -885,4 +938,214 @@ func filesErr(err error) *link.OpError {
 		}
 	}
 	return opErrf("unavailable", "%v", err)
+}
+
+// opTerminal answers terminal.* (PROTOCOL.md §9.3). Like opFiles, these are
+// machine ops handled before any backend switch, confined by policy first:
+// denied outright when the machine was enrolled without --allow-terminal.
+func (mc *machine) opTerminal(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
+	if !mc.pol.TerminalAllowed() {
+		mc.audit.refusal(op, "terminal denied by machine policy")
+		return nil, opErrf("forbidden", "this machine was enrolled with terminal denied: re-enroll with --allow-terminal to use a terminal here")
+	}
+	switch op {
+	case "terminal.list":
+		return mc.opTerminalList(args)
+	case "terminal.open":
+		return mc.opTerminalOpen(args)
+	case "terminal.attach":
+		return mc.opTerminalAttach(args)
+	case "terminal.detach":
+		return mc.opTerminalDetach(args)
+	case "terminal.resize":
+		return mc.opTerminalResize(args)
+	case "terminal.rename":
+		return mc.opTerminalRename(args)
+	case "terminal.close":
+		return mc.opTerminalClose(ctx, args)
+	default:
+		return nil, opErrf("unsupported", "unknown op %q", op)
+	}
+}
+
+func (mc *machine) opTerminalList(args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		WorkspaceID string `json:"workspaceId,omitempty"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &a); err != nil {
+			return nil, invalidArgs(err)
+		}
+	}
+	return map[string]any{"terminals": orEmpty(mc.terminals.List(a.WorkspaceID))}, nil
+}
+
+func (mc *machine) opTerminalOpen(args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		WorkspaceID string `json:"workspaceId"`
+		Cwd         string `json:"cwd,omitempty"`
+		Cols        int    `json:"cols"`
+		Rows        int    `json:"rows"`
+		Title       string `json:"title,omitempty"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	w, ok := mc.workspaces.Get(a.WorkspaceID)
+	if !ok {
+		return nil, notFound("workspace")
+	}
+	title := a.Title
+	if title == "" {
+		title = w.Name
+	}
+	t, err := mc.terminals.Open(terminal.OpenConfig{
+		WorkspaceID: w.ID, WorkspaceRoot: w.Path, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows, Title: title,
+		OnOutput: mc.terminalOutput, OnNotice: mc.terminalNotice,
+	}, mc.pol.EffectiveMaxTerminals())
+	if err != nil {
+		if errors.Is(err, terminal.ErrTooMany) {
+			return nil, opErrf("invalid", "%v", err)
+		}
+		if errors.Is(err, terminal.ErrInvalidCwd) {
+			mc.audit.refusal("terminal.open", err.Error())
+			return nil, opErrf("invalid", "%v", err)
+		}
+		return nil, backendErr(err)
+	}
+	snap := t.Snapshot()
+	mc.audit.terminalOpen(snap.ID, snap.Cwd, snap.Shell)
+	mc.terminalStateNotice(snap)
+	return map[string]any{"terminal": snap}, nil
+}
+
+func (mc *machine) opTerminalAttach(args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		TerminalID string `json:"terminalId"`
+		Channel    string `json:"channel"`
+		From       *int64 `json:"from,omitempty"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.Channel == "" {
+		return nil, opErrf("invalid", "channel is required")
+	}
+	t, err := mc.terminals.Get(a.TerminalID)
+	if err != nil {
+		return nil, notFound("terminal")
+	}
+	from, reset, prelude, snap := t.Attach(a.Channel, a.From)
+	mc.mu.Lock()
+	mc.channelTerminal[a.Channel] = a.TerminalID
+	mc.mu.Unlock()
+	result := map[string]any{"terminal": snap, "from": from, "reset": reset}
+	if reset {
+		result["prelude"] = base64.StdEncoding.EncodeToString(prelude)
+		t.Nudge()
+	}
+	return result, nil
+}
+
+func (mc *machine) opTerminalDetach(args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		TerminalID string `json:"terminalId"`
+		Channel    string `json:"channel"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	t, err := mc.terminals.Get(a.TerminalID)
+	if err != nil {
+		return nil, notFound("terminal")
+	}
+	_ = t.Detach(a.Channel)
+	mc.mu.Lock()
+	delete(mc.channelTerminal, a.Channel)
+	mc.mu.Unlock()
+	return map[string]any{}, nil
+}
+
+func (mc *machine) opTerminalResize(args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		TerminalID string `json:"terminalId"`
+		Cols       int    `json:"cols"`
+		Rows       int    `json:"rows"`
+		Claim      *bool  `json:"claim,omitempty"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	t, err := mc.terminals.Get(a.TerminalID)
+	if err != nil {
+		return nil, notFound("terminal")
+	}
+	claim := a.Claim == nil || *a.Claim
+	applied, err := t.Resize(a.Cols, a.Rows, claim)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	return map[string]any{"applied": applied}, nil
+}
+
+func (mc *machine) opTerminalRename(args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		TerminalID string `json:"terminalId"`
+		Title      string `json:"title"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	t, err := mc.terminals.Get(a.TerminalID)
+	if err != nil {
+		return nil, notFound("terminal")
+	}
+	t.Rename(a.Title)
+	snap := t.Snapshot()
+	mc.terminalStateNotice(snap)
+	return map[string]any{"terminal": snap}, nil
+}
+
+func (mc *machine) opTerminalClose(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		TerminalID string `json:"terminalId"`
+		Force      bool   `json:"force,omitempty"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	t, err := mc.terminals.Get(a.TerminalID)
+	if err != nil {
+		return nil, notFound("terminal")
+	}
+	t.Close(a.Force)
+	mc.audit.terminalClose(a.TerminalID)
+	return map[string]any{}, nil
+}
+
+// terminalOutput and terminalNotice are the callbacks every terminal.Open
+// gets (terminal.OutputFunc / terminal.NoticeFunc): deliver to the link, or
+// drop when there is none yet (a test machine that never called
+// AttachLink).
+func (mc *machine) terminalOutput(terminalID, channel string, offset uint64, payload []byte) {
+	if mc.lnk == nil {
+		return
+	}
+	_ = mc.lnk.SendTerminalOutput(channel, offset, payload)
+}
+
+func (mc *machine) terminalNotice(terminalID string, n terminal.Notice) {
+	if mc.lnk != nil {
+		_ = mc.lnk.PublishNotice(map[string]string{"terminalId": terminalID}, n)
+	}
+	if n.Kind == "terminal.exit" {
+		mc.audit.terminalClose(terminalID)
+	}
+}
+
+func (mc *machine) terminalStateNotice(snap terminal.Snapshot) {
+	if mc.lnk == nil {
+		return
+	}
+	_ = mc.lnk.PublishNotice(map[string]string{"terminalId": snap.ID}, terminal.Notice{Kind: "terminal.state", Terminal: &snap})
 }
