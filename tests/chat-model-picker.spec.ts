@@ -103,3 +103,32 @@ test("the pill searches models and switches the conversation's model", async ({
 	await page.getByRole("menuitem", { name: "More models" }).click();
 	await expect(page.getByRole("dialog")).toBeVisible();
 });
+
+test("the pill's checkmark lands on the active model on first open, including a new chat's default", async ({
+	page,
+}) => {
+	// No `useModel` call: this session's `activeModel` is the fixture's own
+	// default (`test-org/test-model`), exactly the "new conversation, no
+	// explicit choice yet" case the /code picker got wrong.
+	await page.goto(`${E2E_APP_BASE}/`);
+
+	await page.getByRole("button", { name: "Model and effort" }).click();
+	// A query matching every fixture model's `test-org/…` id lists them all,
+	// current first — enough rows to tell "checked" from "unchecked" apart.
+	await page.getByRole("textbox", { name: "Search models" }).fill("test-org");
+
+	// The search-result rows only — "More models" is its own always-present
+	// menu item, not one of the search hits.
+	const rows = page.getByRole("menuitem").filter({ hasNotText: "More models" });
+	await expect(rows).toHaveCount(5);
+
+	const activeRow = rows.filter({ hasText: "test-org/test-model" });
+	await expect(activeRow).toHaveCount(1);
+	await expect(activeRow.locator("svg")).toHaveCount(1);
+
+	const otherRows = rows.filter({ hasNotText: "test-org/test-model" });
+	await expect(otherRows).toHaveCount(4);
+	for (const row of await otherRows.all()) {
+		await expect(row.locator("svg")).toHaveCount(0);
+	}
+});
