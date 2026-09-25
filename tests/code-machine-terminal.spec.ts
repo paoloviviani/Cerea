@@ -40,8 +40,13 @@ test.describe("the terminal on a real machine", () => {
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 	}
 
+	/** Opening the Terminal tab only shows the (possibly empty) roster — a
+	 * terminal only exists once "+ New" is clicked, which for the first one
+	 * on a given machine shows the one-time acknowledgement instead of
+	 * opening it directly. */
 	async function openTerminalTab(page: import("playwright/test").Page) {
 		await page.getByRole("button", { name: "Terminal", exact: true }).click();
+		await page.getByRole("button", { name: "New", exact: true }).click();
 		const ackDialog = page.getByRole("heading", { name: "A terminal is a full shell" });
 		if (await ackDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
 			await page.getByRole("button", { name: "I understand" }).click();
@@ -68,10 +73,13 @@ test.describe("the terminal on a real machine", () => {
 		await expect(term).toContainText("42", { timeout: 15_000 });
 
 		// Resize: a wide viewport should widen the pty (`tput cols` prints it).
+		// `\b` doesn't work here — xterm's rows come out of the DOM glued
+		// together with no separating whitespace (e.g. "cols101ubuntu@…"),
+		// so the boundary has to be "not another digit", not "not a word char".
 		await page.setViewportSize({ width: 1600, height: 900 });
 		await page.keyboard.type("tput cols");
 		await page.keyboard.press("Enter");
-		await expect(term).toContainText(/\b(1\d\d|2\d\d)\b/, { timeout: 15_000 });
+		await expect(term).toContainText(/(?<!\d)[12]\d\d(?!\d)/, { timeout: 15_000 });
 
 		await page.keyboard.type("exit");
 		await page.keyboard.press("Enter");
