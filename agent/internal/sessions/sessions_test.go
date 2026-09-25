@@ -484,3 +484,51 @@ func TestSnapshotOffersUnansweredQuestions(t *testing.T) {
 		t.Fatalf("after answering que_1, pending = %v", got)
 	}
 }
+
+// TestChildSummariesMatchesChildSummary pins that the bulk ChildSummaries
+// pass (session.list's shared computation, dispatch.go's enrichAll) answers
+// exactly what calling the per-session ChildSummary would for every tracked
+// session — the O(N²) session.list used to pay, one ChildSummary() scan per
+// listed session.
+func TestChildSummariesMatchesChildSummary(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "root"})
+	m.Track("/ws", backend.Session{ID: "a", ParentID: "root", Status: backend.StatusBusy})
+	m.Track("/ws", backend.Session{ID: "b", ParentID: "root", Status: backend.StatusIdle})
+	m.Track("/ws", backend.Session{ID: "c", ParentID: "b", Status: backend.StatusIdle})
+	m.Track("/ws", backend.Session{ID: "other"})
+	// c has a pending permission: every ancestor up to root (b, root) counts
+	// one waiting descendant; a and other, with no pending permission
+	// anywhere below them, do not.
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{
+		WorkspaceDir: "/ws", SessionID: "c",
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "perm1", SessionID: "c"}},
+	})
+
+	all := []string{"root", "a", "b", "c", "other"}
+	bulk := m.ChildSummaries()
+	for _, id := range all {
+		want := m.ChildSummary(id)
+		got := bulk[id]
+		if (want == nil) != (got == nil) {
+			t.Fatalf("%s: ChildSummaries = %+v, ChildSummary = %+v", id, got, want)
+		}
+		if want != nil && *want != *got {
+			t.Fatalf("%s: ChildSummaries = %+v, ChildSummary = %+v", id, *got, *want)
+		}
+	}
+	root := bulk["root"]
+	if root == nil || root.Children != 2 || root.Running != 1 || root.Waiting != 1 {
+		t.Fatalf("root summary = %+v, want {Children:2 Running:1 Waiting:1}", root)
+	}
+	b := bulk["b"]
+	if b == nil || b.Children != 1 || b.Running != 0 || b.Waiting != 1 {
+		t.Fatalf("b summary = %+v, want {Children:1 Running:0 Waiting:1}", b)
+	}
+	for _, id := range []string{"a", "c", "other"} {
+		if bulk[id] != nil {
+			t.Errorf("%s summary = %+v, want nil (no known child)", id, bulk[id])
+		}
+	}
+}
