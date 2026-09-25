@@ -20,8 +20,6 @@
 # tools/pin rewrites whenever the files change. A release that changes the
 # Caddyfile therefore changes this file too, and `up -d` recreates the proxy.
 # Edited them locally? `docker compose up -d --force-recreate proxy authelia`.
-#
-# The design: ADRs 0086, 0087 and 0091.
 
 name: ${COMPOSE_PROJECT_NAME:-cerea}
 
@@ -37,7 +35,7 @@ services:
   # --- always on -------------------------------------------------------------
 
   postgres:
-    # pgvector: knowledge-base retrieval is a SQL query (ADR 0018). The chat's
+    # pgvector: knowledge-base retrieval is a SQL query. The chat's
     # own database lives on the same instance; `bootstrap` creates it.
     image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18}
     restart: unless-stopped
@@ -190,7 +188,7 @@ services:
       GATEWAY_REDACTION__LANGUAGE: ${REDACTION_LANGUAGE:-en}
       GATEWAY_REDACTION__FAIL_OPEN: "false"
       GATEWAY_EXTRACTOR__ENDPOINT: ${GATEWAY_EXTRACTOR__ENDPOINT:-}
-      # Identity: OIDC only (ADR 0088). The env seeds the first provider row;
+      # Identity: OIDC only. The env seeds the first provider row;
       # after that the console owns it. INTERNAL_BASE_URL is the back-channel:
       # the gateway reaches the bundled Authelia at http://authelia:9091, never
       # through the proxy, so no CA bundle is ever needed.
@@ -214,7 +212,7 @@ services:
       GATEWAY_LOGOUT_ALSO_CLEAR_COOKIES: '["hf-chat"]'
       GATEWAY_BOOTSTRAP_ADMIN_EMAIL: ${PYSTINO_BOOTSTRAP_ADMIN_EMAIL:-}
     volumes:
-      # The bundled Authelia's users file, which the console manages (ADR 0088)
+      # The bundled Authelia's users file, which the console manages
       # and the authelia_file adapter reads. Empty when the profile is off.
       - authelia-config:/authelia
     depends_on:
@@ -256,7 +254,7 @@ services:
       cerea.config-rev: "sha256:57b95a56aa8c5336"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
-      # The gateway's uid: the console manages the bundled users file (ADR 0088),
+      # The gateway's uid: the console manages the bundled users file,
       # and Authelia's entrypoint re-owns /config to PUID on every start —
       # as root it would lock the gateway out of the file after a restart.
       PUID: "1001"

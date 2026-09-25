@@ -5,7 +5,7 @@ admin console (Pystino), a bundled identity provider (Authelia), the reverse
 proxy with automatic TLS (Caddy), and optional add-ons: PII redaction, a
 headless browser for web fetch, and agent machines (`/chat/code`).
 
-Everything is in this repository and readable before you run anything: one
+Everything is in this repository, and you can read all of it before running anything: one
 `compose.yaml`, one documented `.env.example`, the proxy's `caddy/Caddyfile`,
 the IdP's `authelia/configuration.yml`, and `./configure`, a single
 standard-library Python script that writes `.env` for you.
@@ -14,15 +14,21 @@ Licence: EUPL-1.2.
 
 ## First run
 
-You need Docker Engine with Compose 2.24 or newer, Python 3.10 or newer (for
+You need Docker Engine with Compose 2.24 or newer, Python 3.9 or newer (for
 `./configure` only), and a DNS name pointing at the server with ports 80 and
-443 open.
+443 open (or a TLS front forwarding to it: see TLS modes).
 
 ```sh
 git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
 ./configure
 docker compose up -d
 ```
+
+> **While the project is private:** this repository and the images it pulls
+> are not public yet. Clone with credentials that can read it (`gh repo clone
+> paoloviviani/cerea-deploy`, or an HTTPS token), and build the images
+> locally with `dev/build.sh` (below) until they are published. Nothing else
+> in these instructions changes when the repository goes public.
 
 `./configure` asks for your origin (`https://chat.example.org`), the
 administrator's email, a preset, the TLS mode and the identity provider. It

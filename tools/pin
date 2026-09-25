@@ -14,8 +14,8 @@ Caddyfile changes the label, the label changes the service definition, and
 caddy/ or authelia/; CI runs it with --check.
 
 The pins: the default after `:-` in PYSTINO_VERSION and CEREA_VERSION. A
-release of this repository names one tested pair (ADR 0087, one hop further:
-this repository pins Pystino, and Pystino's release pins Cerea).
+release of this repository names one tested pair: it pins a Pystino
+release, and takes the Cerea version that Pystino release was tested with.
 
 Standard library only, like ./configure.
 """
