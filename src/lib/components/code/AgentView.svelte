@@ -165,6 +165,12 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.revert);
 	});
+	let effortsSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.efforts);
+	});
 	let revertRestoresFiles = $derived.by(() => {
 		const caps = codeDeviceList.devices
 			.find((d) => d.id === deviceId)
@@ -797,6 +803,7 @@
 					{usage}
 					{lastCompaction}
 					{usageSupported}
+					{effortsSupported}
 					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}
 				/>
 			{/snippet}

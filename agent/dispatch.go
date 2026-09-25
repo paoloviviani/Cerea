@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"galopin/internal/backend"
@@ -115,6 +116,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionSetMode(ctx, args)
 	case "session.setModel":
 		return mc.opSessionSetModel(ctx, args)
+	case "session.setEffort":
+		return mc.opSessionSetEffort(ctx, args)
 	case "session.setAutoAccept":
 		return mc.opSessionSetAutoAccept(args)
 	case "session.sync":
@@ -445,6 +448,38 @@ func (mc *machine) opSessionSetModel(ctx context.Context, args json.RawMessage) 
 		}
 	}
 	s, err := mc.back.SetModel(ctx, dir, a.SessionID, a.ModelID)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	return map[string]any{"session": mc.enrich(s, workspaceID)}, nil
+}
+
+// opSessionSetEffort sets (or, with null, clears) the thinking effort sent
+// with the session's prompts (PROTOCOL.md §6 session.setEffort).
+func (mc *machine) opSessionSetEffort(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string  `json:"sessionId"`
+		Effort    *string `json:"effort"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	effort := ""
+	if a.Effort != nil {
+		effort = strings.TrimSpace(*a.Effort)
+		if effort == "" || len(effort) > 32 {
+			return nil, opErrf("invalid", "effort must be a variant id, or null for the model's default")
+		}
+	}
+	dir, workspaceID, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	setter, ok := mc.back.(backend.EffortSetter)
+	if !ok || !mc.back.Capabilities().Efforts {
+		return nil, opErrf("unsupported", "backend %s has no efforts capability", mc.back.ID())
+	}
+	s, err := setter.SetEffort(ctx, dir, a.SessionID, effort)
 	if err != nil {
 		return nil, backendErr(err)
 	}

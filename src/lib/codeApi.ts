@@ -438,6 +438,24 @@ export async function compactAgent(deviceId: string, agentId: string): Promise<{
 	);
 }
 
+/** Set the thinking effort sent with the agent's prompts; null = the model's default. */
+export async function setAgentEffort(
+	deviceId: string,
+	agentId: string,
+	effort: string | null
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/effort?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ effort }),
+			}
+		)
+	);
+}
+
 /** Roll the agent back to just before one of its user messages (retry and
  * rollback; capability `revert`). The transcript must re-sync afterwards. */
 export async function revertAgent(

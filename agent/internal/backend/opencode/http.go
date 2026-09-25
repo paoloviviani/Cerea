@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false, AutoAccept: true,
-		Questions: true, Revert: true, RevertFiles: true,
+		Questions: true, Revert: true, RevertFiles: true, Efforts: true,
 	}
 }
 
@@ -127,7 +128,7 @@ func (b *Backend) GetSession(ctx context.Context, _ string, sessionID string) (b
 	}
 	s := sessionFromMap(m)
 	ov := b.getOverlay(sessionID)
-	s.ModeID, s.ModelID = ov.ModeID, ov.ModelID
+	s.ModeID, s.ModelID, s.Effort = ov.ModeID, ov.ModelID, ov.Effort
 	return b.withUsage(s), nil
 }
 
@@ -184,6 +185,9 @@ func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt
 		providerID, modelID := splitModelID(ov.ModelID)
 		body["model"] = map[string]string{"providerID": providerID, "modelID": modelID}
 	}
+	if ov.Effort != "" {
+		body["variant"] = ov.Effort
+	}
 	// prompt_async's documented body has no field for an externally chosen
 	// message id, so the clientMessageId is matched to whichever new user
 	// message shows up next for this session (PROTOCOL.md §7) rather than
@@ -210,6 +214,16 @@ func (b *Backend) SetMode(ctx context.Context, workspaceDir, sessionID, modeID s
 func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID string) (backend.Session, error) {
 	ov := b.getOverlay(sessionID)
 	ov.ModelID = modelID
+	if err := b.setOverlay(sessionID, ov); err != nil {
+		return backend.Session{}, err
+	}
+	return b.GetSession(ctx, workspaceDir, sessionID)
+}
+
+// SetEffort remembers the variant sent with this session's prompts.
+func (b *Backend) SetEffort(ctx context.Context, workspaceDir, sessionID, effort string) (backend.Session, error) {
+	ov := b.getOverlay(sessionID)
+	ov.Effort = effort
 	if err := b.setOverlay(sessionID, ov); err != nil {
 		return backend.Session{}, err
 	}
@@ -275,6 +289,7 @@ func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error)
 				model.Images = getBool(attach, "image")
 			}
 			model.Reasoning = getBool(mm, "reasoning")
+			model.Efforts = variantIDs(getMap(mm, "variants"))
 			if defaults != nil && getStr(defaults, providerID) == modelID {
 				model.IsDefault = true
 			}
@@ -388,4 +403,32 @@ func splitModelID(id string) (providerID, modelID string) {
 		return id[:i], id[i+1:]
 	}
 	return "", id
+}
+
+// effortOrder ranks the usual variant ids, so a picker lists them low to high.
+var effortOrder = map[string]int{"minimal": 0, "low": 1, "medium": 2, "high": 3, "max": 4}
+
+// variantIDs lists a model's enabled variant ids (opencode's thinking-effort
+// levels), usual ones in low-to-high order, any others after, alphabetically.
+func variantIDs(variants map[string]any) []string {
+	var ids []string
+	for id, raw := range variants {
+		if v, ok := raw.(map[string]any); ok && getBool(v, "disabled") {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		ri, iok := effortOrder[ids[i]]
+		rj, jok := effortOrder[ids[j]]
+		switch {
+		case iok && jok:
+			return ri < rj
+		case iok != jok:
+			return iok
+		default:
+			return ids[i] < ids[j]
+		}
+	})
+	return ids
 }

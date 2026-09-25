@@ -133,7 +133,19 @@ export async function startMachine(input: {
 					npm: "@ai-sdk/openai-compatible",
 					name: "Pystino (mock)",
 					options: { baseURL: MOCK_OPENAI_BASE_URL, apiKey: "e2e" },
-					models: { [modelId]: { name: "Mock Model", limit: { context: 128000, output: 8192 } } },
+					models: {
+						[modelId]: {
+							name: "Mock Model",
+							limit: { context: 128000, output: 8192 },
+							// The thinking-effort levels galopin enroll writes for a
+							// reasoning-capable gateway model.
+							variants: {
+								low: { reasoningEffort: "low" },
+								medium: { reasoningEffort: "medium" },
+								high: { reasoningEffort: "high" },
+							},
+						},
+					},
 				},
 				// A non-gateway provider: listed by opencode, but off the panel unless the
 				// machine allows free models.

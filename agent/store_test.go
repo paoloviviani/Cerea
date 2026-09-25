@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -141,5 +142,24 @@ func TestBuildOpencodeConfigAllowOpencodeProvider(t *testing.T) {
 	}
 	if strings.Contains(string(body), "enabled_providers") {
 		t.Fatalf("opted-in config must not name the key at all: %s", body)
+	}
+}
+
+func TestBuildOpencodeConfigGivesReasoningModelsEffortVariants(t *testing.T) {
+	cfg := buildOpencodeConfig("127.0.0.1:1", "s", []gatewayModel{
+		{ID: "thinker", SupportedFeatures: []string{"tools", "Reasoning"}},
+		{ID: "plain", SupportedFeatures: []string{"tools"}},
+	}, false)
+	models := cfg.Provider["pystino"].Models
+	want := map[string]map[string]string{
+		"low":    {"reasoningEffort": "low"},
+		"medium": {"reasoningEffort": "medium"},
+		"high":   {"reasoningEffort": "high"},
+	}
+	if got := models["thinker"].Variants; !reflect.DeepEqual(got, want) {
+		t.Errorf("thinker variants = %v, want %v", got, want)
+	}
+	if got := models["plain"].Variants; got != nil {
+		t.Errorf("plain variants = %v, want none", got)
 	}
 }
