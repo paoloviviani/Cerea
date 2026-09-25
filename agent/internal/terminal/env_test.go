@@ -36,6 +36,7 @@ func TestScrubEnvRemovesInjectedKeys(t *testing.T) {
 		"HOME=/home/user",
 		"OPENCODE_SERVER_PASSWORD=topsecret",
 		"OPENCODE_CONFIG=/tmp/opencode.json",
+		`OPENCODE_CONFIG_CONTENT={"provider":{"x":{"options":{"apiKey":"sk-1"}}}}`,
 		"GALOPIN_SHIM_SECRET=abc123",
 		"PATH=/usr/bin",
 		"MY_APP_API_TOKEN=xyz",
@@ -55,7 +56,7 @@ func TestScrubEnvRemovesInjectedKeys(t *testing.T) {
 		}
 	}
 	for _, dropped := range []string{
-		"OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG", "GALOPIN_SHIM_SECRET",
+		"OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "GALOPIN_SHIM_SECRET",
 		"MY_APP_API_TOKEN", "AWS_SECRET_ACCESS_KEY", "SOME_CREDENTIAL_FILE",
 	} {
 		for _, kv := range out {

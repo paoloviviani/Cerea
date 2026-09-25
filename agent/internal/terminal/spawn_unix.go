@@ -74,8 +74,8 @@ type OpenConfig struct {
 
 // Open spawns a real PTY-backed login shell (PROTOCOL.md §9.3 "Terminal
 // process rules"): Setsid/Setctty via creack/pty.StartWithSize,
-// Pdeathsig=SIGHUP so an orphaned shell dies with this process even on a
-// hard crash, TERM/COLORTERM/GALOPIN_TERMINAL set, and every other
+// Pdeathsig=SIGHUP on Linux so an orphaned shell dies with this process
+// even on a hard crash (procattr_*.go), TERM/COLORTERM/GALOPIN_TERMINAL set, and every other
 // galopin/opencode secret scrubbed from the environment (env.go).
 func Open(cfg OpenConfig) (*Terminal, error) {
 	absCwd, err := ResolveCwd(cfg.WorkspaceRoot, cfg.Cwd)
@@ -90,11 +90,7 @@ func Open(cfg OpenConfig) (*Terminal, error) {
 		"COLORTERM=truecolor",
 		"GALOPIN_TERMINAL=1",
 	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid:    true,
-		Setctty:   true,
-		Pdeathsig: syscall.SIGHUP,
-	}
+	cmd.SysProcAttr = shellProcAttr()
 	cols, rows := cfg.Cols, cfg.Rows
 	if cols <= 0 {
 		cols = 80
