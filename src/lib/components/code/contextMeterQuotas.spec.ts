@@ -67,4 +67,15 @@ describe("deriveQuotaDisplay", () => {
 		const display = deriveQuotaDisplay(mixed, null);
 		expect(display).toEqual({ kind: "quotas", quotas: SECTIONS[0].entries });
 	});
+	it("names each quota's section when several sections carry quotas with the same label", () => {
+		const twoBudgets: UsageSection[] = [
+			{ title: "You", entries: [{ label: "Monthly spend", used: 1, limit: 5, unit: "usd" }] },
+			{ title: "Team", entries: [{ label: "Monthly spend", used: 3, limit: 50, unit: "usd" }] },
+		];
+		const display = deriveQuotaDisplay(twoBudgets, null);
+		expect(display.kind === "quotas" && display.quotas.map((q) => q.label)).toEqual([
+			"You · Monthly spend",
+			"Team · Monthly spend",
+		]);
+	});
 });
