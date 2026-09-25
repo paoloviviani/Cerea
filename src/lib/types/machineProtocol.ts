@@ -238,6 +238,8 @@ export interface PermissionRequest {
 export interface Transcript {
 	messages: Array<{ message: Message; parts: Part[] }>;
 	permissions: PermissionRequest[];
+	/** Unanswered question-tool asks; a machine older than this field omits it. */
+	questions?: Array<{ id: string; questions: Question[]; callId?: string }>;
 	status: SessionStatus;
 	usage: Usage | null;
 	todos: Todo[];

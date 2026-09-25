@@ -252,6 +252,14 @@ type QuestionItem struct {
 	MultiSelect bool             `json:"multiple,omitempty"`
 }
 
+// QuestionRequest is one pending question-tool ask, the same shape
+// question.asked's `request` has on the wire (PROTOCOL.md §7).
+type QuestionRequest struct {
+	ID        string         `json:"id"`
+	Questions []QuestionItem `json:"questions"`
+	CallID    string         `json:"callId,omitempty"`
+}
+
 // Attachment is a prompt's non-text input (PROTOCOL.md §6). URL is a data:
 // URL for P0.
 type Attachment struct {
@@ -275,9 +283,13 @@ type TranscriptEntry struct {
 type Transcript struct {
 	Messages    []TranscriptEntry   `json:"messages"`
 	Permissions []PermissionRequest `json:"permissions"`
-	Status      SessionStatus       `json:"status"`
-	Usage       *Usage              `json:"usage,omitempty"`
-	Todos       []Todo              `json:"todos"`
+	// Questions are the session's unanswered question-tool asks, so a
+	// client mounting from a snapshot (a reload, another device) can still
+	// answer one; question.asked is not replayed by a snapshot.
+	Questions []QuestionRequest `json:"questions"`
+	Status    SessionStatus     `json:"status"`
+	Usage     *Usage            `json:"usage,omitempty"`
+	Todos     []Todo            `json:"todos"`
 }
 
 // EventKind discriminates Event's per-kind fields (PROTOCOL.md §7).

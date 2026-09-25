@@ -302,7 +302,7 @@ func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error)
 	return out, nil
 }
 
-func (b *Backend) Transcript(ctx context.Context, _ string, sessionID string) (backend.Transcript, error) {
+func (b *Backend) Transcript(ctx context.Context, workspaceDir string, sessionID string) (backend.Transcript, error) {
 	var raw []any
 	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message", nil, &raw); err != nil {
 		return backend.Transcript{}, err
@@ -344,6 +344,19 @@ func (b *Backend) Transcript(ctx context.Context, _ string, sessionID string) (b
 			req := permissionFromMap(pm)
 			if req.SessionID == sessionID {
 				tr.Permissions = append(tr.Permissions, req)
+			}
+		}
+	}
+
+	// Unanswered question-tool asks: opencode keeps them per directory.
+	var questionsRaw []any
+	if err := b.doJSON(ctx, http.MethodGet, "/question"+directoryQuery(workspaceDir), nil, &questionsRaw); err == nil {
+		for _, qm := range asMaps(questionsRaw) {
+			q := questionRequestFromMap(qm)
+			if q.sessionID == sessionID && q.id != "" {
+				tr.Questions = append(tr.Questions, backend.QuestionRequest{
+					ID: q.id, Questions: q.questions, CallID: q.callID,
+				})
 			}
 		}
 	}
