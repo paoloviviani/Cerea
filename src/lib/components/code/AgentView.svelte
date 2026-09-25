@@ -64,6 +64,7 @@
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import { base } from "$app/paths";
+	import { page } from "$app/state";
 	import { uploadComposerFiles } from "$lib/utils/composerFiles";
 	import { keepReportedUsage } from "$lib/utils/agentUsage";
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
@@ -75,6 +76,8 @@
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
+	import CodeFiles from "./CodeFiles.svelte";
+	import IconFolder from "~icons/carbon/folder";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -164,6 +167,23 @@
 			.find((d) => d.id === deviceId)
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.revert);
+	});
+	/** The explorer: on for this deployment, implemented by this galopin,
+	 * and not vetoed by the machine (then the button says how to allow it). */
+	let filesOffered = $derived(
+		page.data.codeFilesEnabled === true &&
+			codeDeviceList.devices.find((d) => d.id === deviceId)?.machine?.capabilities.files === true
+	);
+	let filesVetoed = $derived(
+		codeDeviceList.devices.find((d) => d.id === deviceId)?.policy?.files === "off"
+	);
+	/** Bumped when a turn settles, so the explorer re-reads what an agent wrote. */
+	let filesTurnKey = $state(0);
+	let lastTurnState: string | undefined;
+	$effect(() => {
+		const state = shownState;
+		if (lastTurnState === "running" && state !== "running") filesTurnKey += 1;
+		lastTurnState = state;
 	});
 	let effortsSupported = $derived.by(() => {
 		const caps = codeDeviceList.devices
@@ -717,6 +737,23 @@
 				<IconDiff class="size-3.5" />
 				Changes
 			</button>
+			{#if filesOffered && (workspace?.id ?? workspaceId)}
+				<button
+					type="button"
+					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
+					sidePane.view === 'files'
+						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+					disabled={filesVetoed}
+					onclick={() => sidePane.toggleFiles()}
+					title={filesVetoed
+						? "This machine was enrolled with --no-files: re-enroll without it to browse files here."
+						: "Browse this workspace's files (read-only)"}
+				>
+					<IconFolder class="size-3.5" />
+					Files
+				</button>
+			{/if}
 		</div>
 		{#if handedOffFromTitle}
 			<!-- A title-based link, not a fetched one (spec's "keep it simple") —
@@ -812,6 +849,14 @@
 		{#if sidePane.open && sidePane.view === "diff"}
 			<SidePane label="Agent changes">
 				<AgentDiff {deviceId} {agentId} />
+			</SidePane>
+		{:else if sidePane.open && sidePane.view === "files" && filesOffered && (workspace?.id ?? workspaceId)}
+			<SidePane label="Workspace files">
+				<CodeFiles
+					{deviceId}
+					workspaceId={(workspace?.id ?? workspaceId) as string}
+					turnKey={filesTurnKey}
+				/>
 			</SidePane>
 		{/if}
 	</div>

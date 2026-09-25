@@ -32,6 +32,7 @@ export interface CodeDeviceView {
 	name: string;
 	status: CodeDevice["status"];
 	backends: CodeDevice["backends"];
+	machine?: CodeDevice["machine"];
 	policy: CodeDevice["policy"];
 	credentialState: CodeDevice["credentialState"];
 	online: boolean;
@@ -46,6 +47,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		name: device.name,
 		status: device.status,
 		backends: device.backends,
+		...(device.machine ? { machine: device.machine } : {}),
 		policy: device.policy,
 		credentialState: device.credentialState,
 		online,

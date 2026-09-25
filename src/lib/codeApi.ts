@@ -12,6 +12,11 @@
  * them, and are not replaced with a generic "request failed".
  */
 
+import type {
+	FilesListResult,
+	FilesReadResult,
+	FilesStatusResult,
+} from "$lib/types/machineProtocol";
 import superjson from "superjson";
 import { base } from "$app/paths";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
@@ -265,6 +270,50 @@ export async function getAgent(
 }
 
 /** The files one agent has changed, as before/after pairs for the diff viewer. */
+function filesUrl(
+	deviceId: string,
+	workspaceId: string,
+	sub: string,
+	params: Record<string, string>
+) {
+	const query = new URLSearchParams({ device: deviceId, ...params });
+	return `${root()}/v1/workspaces/${encodeURIComponent(workspaceId)}/files${sub}?${query}`;
+}
+
+/** One directory of a workspace, read-only (the /code explorer, ADR 0090). */
+export async function listWorkspaceFiles(
+	deviceId: string,
+	workspaceId: string,
+	path: string
+): Promise<FilesListResult> {
+	return unwrap(await fetch(filesUrl(deviceId, workspaceId, "", { path })));
+}
+
+/** A range of one file; an image's bytes come from `workspaceFileRawUrl`. */
+export async function readWorkspaceFile(
+	deviceId: string,
+	workspaceId: string,
+	path: string,
+	offset = 0
+): Promise<FilesReadResult> {
+	return unwrap(
+		await fetch(filesUrl(deviceId, workspaceId, "/content", { path, offset: String(offset) }))
+	);
+}
+
+/** The workspace's git status, for the tree's badges. */
+export async function workspaceFileStatus(
+	deviceId: string,
+	workspaceId: string
+): Promise<FilesStatusResult> {
+	return unwrap(await fetch(filesUrl(deviceId, workspaceId, "/status", {})));
+}
+
+/** An image served as itself (raster types only, sandboxed). */
+export function workspaceFileRawUrl(deviceId: string, workspaceId: string, path: string): string {
+	return filesUrl(deviceId, workspaceId, "/raw", { path });
+}
+
 export async function getAgentDiff(
 	deviceId: string,
 	agentId: string

@@ -9,7 +9,7 @@ export const SIDE_PANE_MAX_WIDTH = 2400;
 export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
-export type SidePaneView = "artifact" | "trackio" | "library" | "preview" | "diff";
+export type SidePaneView = "artifact" | "trackio" | "library" | "preview" | "diff" | "files";
 
 /**
  * A one-shot rendered view of a single fence or file: no registry entry, no
@@ -153,6 +153,22 @@ class SidePaneStore {
 		this.view = "diff";
 		this.open = true;
 		this.revealNonce += 1;
+	}
+
+	/** The /code explorer: the workspace's files, read-only (ADR 0090). */
+	openFiles() {
+		this.view = "files";
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/** What the Files button does: open, or close what it already opened. */
+	toggleFiles() {
+		if (this.open && this.view === "files") {
+			this.close();
+			return;
+		}
+		this.openFiles();
 	}
 
 	/** What the Changes button does: open, or close what it already opened. */

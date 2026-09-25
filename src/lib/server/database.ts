@@ -43,7 +43,7 @@ import { findRepoRoot } from "./findRepoRoot";
 import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
-import type { CodeDevice } from "$lib/types/CodeAgent";
+import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
@@ -196,6 +196,10 @@ export class Database {
 		// only agent state this app persists: who paired what, and whether
 		// the pairing completed.
 		const codeDevices = db.collection<CodeDevice>("codeDevices");
+		// What people did through /code's machine powers (ADR 0090): the
+		// explorer's raw reads and refusals, later terminals and writes.
+		// Never content. Kept 90 days.
+		const codeAudit = db.collection<CodeAuditEntry>("codeAudit");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
 		// The bucket's own file documents, for indexing only — reads and
 		// deletes go through `bucket`, which also handles the chunks.
@@ -234,6 +238,7 @@ export class Database {
 			mcpTokens,
 			mcpOauthPending,
 			codeDevices,
+			codeAudit,
 			conversationStats,
 			assistants,
 			reports,
@@ -274,6 +279,7 @@ export class Database {
 			mcpTokens,
 			mcpOauthPending,
 			codeDevices,
+			codeAudit,
 			conversationStats,
 			assistants,
 			reports,
@@ -678,6 +684,13 @@ export class Database {
 		codeExecutionOutputs
 			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for codeExecutionOutputs"));
+
+		codeAudit
+			.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeAudit"));
+		codeAudit
+			.createIndex({ userId: 1, at: -1 })
+			.catch((e) => logger.error(e, "Error creating index for codeAudit by userId"));
 
 		// A person's paired machines, newest first.
 		codeDevices

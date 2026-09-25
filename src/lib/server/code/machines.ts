@@ -33,6 +33,10 @@ import {
 	type Session,
 	type SyncResult,
 	type Workspace,
+	type FileEntry,
+	type FilesListResult,
+	type FilesReadResult,
+	type FilesStatusResult,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 
@@ -259,6 +263,29 @@ export class MachineLink {
 	}
 	sessionChildren(args: { sessionId: string }): Promise<{ sessions: Session[] }> {
 		return this.call("session.children", args);
+	}
+	/** The explorer's read-only file ops (§9.3); machine ops, no backend. */
+	filesList(args: {
+		workspaceId: string;
+		path: string;
+		ignored?: boolean;
+	}): Promise<FilesListResult> {
+		return this.call("files.list", args);
+	}
+	filesStat(args: { workspaceId: string; path: string }): Promise<{ entry: FileEntry }> {
+		return this.call("files.stat", args);
+	}
+	filesRead(args: {
+		workspaceId: string;
+		path: string;
+		offset?: number;
+		length?: number;
+		as?: "text" | "base64";
+	}): Promise<FilesReadResult> {
+		return this.call("files.read", args);
+	}
+	filesStatus(args: { workspaceId: string }): Promise<FilesStatusResult> {
+		return this.call("files.status", args);
 	}
 	/** The thinking effort sent with this session's prompts (capability `efforts`). */
 	sessionSetEffort(args: {
@@ -513,6 +540,7 @@ async function onHello(
 					sub: principal.sub,
 					iss: principal.iss,
 					backends: hello.backends,
+					...(hello.machine ? { machine: hello.machine } : {}),
 					policy: hello.policy,
 					credentialState: hello.credential.state,
 					lastSeenAt: now,
@@ -530,6 +558,7 @@ async function onHello(
 			sub: principal.sub,
 			iss: principal.iss,
 			backends: hello.backends,
+			...(hello.machine ? { machine: hello.machine } : {}),
 			policy: hello.policy,
 			credentialState: hello.credential.state,
 			lastSeenAt: now,
