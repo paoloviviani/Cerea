@@ -60,6 +60,9 @@ type gatewayModel struct {
 	ContextWindow   int    `json:"context_window"`
 	MaxOutputTokens int    `json:"max_output_tokens"`
 	Kind            string `json:"kind"`
+	// SupportedFeatures is the gateway's per-model capability list; a
+	// "reasoning" entry gets thinking-effort variants in opencode.json.
+	SupportedFeatures []string `json:"supported_features"`
 }
 
 // fetchModels discovers the caller's catalogue for the opencode models map.

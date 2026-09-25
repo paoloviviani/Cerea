@@ -34,6 +34,8 @@ export interface Backend {
 		revert?: boolean;
 		/** Whether a revert also restores files (opencode: in a git repository). */
 		revertFiles?: boolean;
+		/** A per-session thinking effort (session.setEffort). */
+		efforts?: boolean;
 	};
 }
 
@@ -95,6 +97,8 @@ export interface Session {
 	/** A parent's subagents: direct children, those mid-turn, and descendants
 	 * waiting on a permission reply. Absent when it spawned none. */
 	childSummary?: { children: number; running: number; waiting: number };
+	/** The thinking effort chosen for this session (session.setEffort). */
+	effort?: string;
 	createdAt: string;
 	updatedAt: string;
 	usage: Usage | null;
@@ -114,6 +118,8 @@ export interface Model {
 	contextWindow?: number;
 	images?: boolean;
 	reasoning?: boolean;
+	/** The model's thinking-effort levels, low to high (opencode variants). */
+	efforts?: string[];
 }
 
 export interface Attachment {
@@ -278,6 +284,7 @@ export type OpName =
 	| "session.children"
 	| "session.compact"
 	| "session.revert"
+	| "session.setEffort"
 	| "session.unrevert"
 	| "backend.modes"
 	| "backend.models";

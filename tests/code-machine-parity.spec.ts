@@ -250,6 +250,38 @@ test.describe("owned machine agent: parity", () => {
 		],
 	});
 
+	test("effort: the pill names the real model, and a picked effort reaches the model as reasoning_effort", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		// The model pill names the backend's default model, not "Model".
+		await expect(page.getByTitle("The model this agent runs")).toContainText("Mock Model", {
+			timeout: 30_000,
+		});
+		const effort = page.getByRole("button", { name: "Thinking effort" });
+		await expect(effort).toContainText("Default");
+		await effort.click();
+		await page.getByRole("menuitem", { name: "High" }).click();
+		await expect(effort).toContainText("High", { timeout: 30_000 });
+
+		await mockOpenAI.setDefaultScenario({ content: ["Thought", " hard."], chunkDelayMs: 5 });
+		await send(page, "think about it");
+		await expect(
+			page.locator('[data-message-role="assistant"]').getByText("Thought hard.")
+		).toBeVisible({ timeout: 60_000 });
+		// opencode's request to the model carries the variant's reasoning effort.
+		await expect
+			.poll(async () =>
+				(await mockOpenAI.requests()).some(
+					(r) => r.path === "/v1/chat/completions" && r.body.reasoning_effort === "high"
+				)
+			)
+			.toBe(true);
+	});
+
 	test("retry: rolling back to a prompt drops the turn after it and sends the prompt again", async ({
 		page,
 		db,
