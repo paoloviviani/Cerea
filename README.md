@@ -142,7 +142,10 @@ CA certificate to containers.
 
 ## Identity
 
-People sign in with OpenID Connect only.
+People sign in with OpenID Connect only. The stack currently signs both the
+console and the chat in against one provider, the bundled Authelia or your own.
+If you need several sources of users, federate them in your own IdP
+(Keycloak, Authentik and the like) and point the stack at it.
 
 **The bundled Authelia** (`--idp authelia`, the default) needs a dotted host
 name, because browsers refuse its session cookie on an IP address. Its first
