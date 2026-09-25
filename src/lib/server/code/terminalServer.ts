@@ -355,6 +355,18 @@ function acceptTerminalConnection(
 		clearInterval(pingInterval);
 		clearInterval(recheckInterval);
 		unsubscribeConnection();
+		// Best effort, and only worth trying here: the browser tab is going
+		// away on its own (close, navigate, crash) while the machine is very
+		// likely still connected, so this is the one teardown path where a
+		// real `terminal.detach` releases the machine-side viewer promptly
+		// rather than leaving it to whatever reaps stale viewers there. The
+		// other paths that tear down an attach (a machine reconnect, or the
+		// machine going offline) have no live connection worth detaching on.
+		if (currentChannel) {
+			link.terminalDetach({ terminalId, channel: currentChannel }).catch(() => {
+				/* the machine may already be gone; nothing to clean up then */
+			});
+		}
 		teardownAttach?.();
 		teardownAttach = null;
 	}

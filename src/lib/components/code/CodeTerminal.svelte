@@ -11,14 +11,10 @@
 	CodeTerminals.svelte, only mounts this once all of that has cleared).
 -->
 <script lang="ts">
-	import { onDestroy } from "svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconRenew from "~icons/carbon/renew";
-	import {
-		mintTerminalTicket,
-		terminalSocketUrl,
-		TerminalReauthRequired,
-	} from "$lib/codeApi";
+	import { subscribeToTheme } from "$lib/switchTheme";
+	import { mintTerminalTicket, terminalSocketUrl, TerminalReauthRequired } from "$lib/codeApi";
 	import {
 		encodeTerminalFrame,
 		decodeTerminalFrame,
@@ -32,8 +28,6 @@
 	interface Props {
 		deviceId: string;
 		terminalId: string;
-		/** Bumped by the caller (e.g. after "Restart") to force a fresh mount. */
-		mountKey?: number;
 		onexit?: (code: number) => void;
 		/** The OIDC step-up failed: the caller shows its own "sign in again" affordance. */
 		onreauth?: () => void;
@@ -58,6 +52,18 @@
 	let ackChannel = "b";
 	let resizeObserver: ResizeObserver | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// xterm renders its own colors regardless of the page's CSS — unlike
+	// ordinary DOM content, `dark:` classes on the host div do nothing for
+	// the text xterm draws, so the theme has to be handed to it explicitly.
+	let isDark = $state(false);
+	$effect(() => subscribeToTheme((theme) => (isDark = theme.isDark)));
+
+	function xtermTheme(dark: boolean): { background: string; foreground: string; cursor: string } {
+		return dark
+			? { background: "#111827", foreground: "#e5e7eb", cursor: "#e5e7eb" }
+			: { background: "#ffffff", foreground: "#111827", cursor: "#111827" };
+	}
 
 	const ACK_THRESHOLD = 64 * 1024;
 
@@ -193,6 +199,7 @@
 				cursorBlink: true,
 				scrollback: 5000,
 				allowProposedApi: true,
+				theme: xtermTheme(isDark),
 			});
 			fitAddon = new FitAddon();
 			term.loadAddon(fitAddon);
@@ -222,6 +229,10 @@
 		})();
 
 		return () => {
+			// The final partial window, before anything below drops the
+			// socket — `onDestroy` would be too late to rely on here (its
+			// order relative to this cleanup isn't something to build on).
+			sendAckIfDue(true);
 			destroyed = true;
 			if (reconnectTimer) clearTimeout(reconnectTimer);
 			resizeObserver?.disconnect();
@@ -233,8 +244,9 @@
 		};
 	});
 
-	onDestroy(() => {
-		sendAckIfDue(true);
+	$effect(() => {
+		const dark = isDark;
+		if (term) term.options.theme = xtermTheme(dark);
 	});
 </script>
 
