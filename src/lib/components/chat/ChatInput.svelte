@@ -87,6 +87,10 @@
 		// no-op until one exists.
 		autoApproveTools?: boolean;
 		children?: import("svelte").Snippet;
+		/** Pinned at the end of the toolbar row, after the pill group that
+		 * scrolls horizontally on mobile — never scrolls away with it (the
+		 * agent composer's context ring uses this). */
+		trailingActions?: import("svelte").Snippet;
 		onPaste?: (e: ClipboardEvent) => void;
 		focused?: boolean;
 		onsubmit?: () => void;
@@ -108,6 +112,7 @@
 		chatTools = true,
 		autoApproveTools = $bindable(false),
 		children,
+		trailingActions,
 		onPaste,
 		focused = $bindable(false),
 		onsubmit,
@@ -601,11 +606,11 @@
 		></textarea>
 	</div>
 
-	{#if !showNoTools || showMlPill}
+	{#if !showNoTools || showMlPill || children || trailingActions}
 		<div
 			class={[
 				// Stops short of the trailing action buttons; ChatWindow reports their width.
-				"-ml-0.5 scrollbar-custom flex max-w-[calc(100%-var(--composer-actions-width,40px))] flex-wrap items-center justify-start gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 max-md:flex-nowrap max-md:overflow-x-auto max-md:mask-r-from-85% dark:text-gray-400",
+				"-ml-0.5 flex max-w-[calc(100%-var(--composer-actions-width,40px))] items-center gap-1.5 px-3 pt-1.5 pb-2.5 text-gray-500 dark:text-gray-400",
 			]}
 		>
 			{#if showFileUpload}
@@ -1037,51 +1042,62 @@
 				</div>
 			{/if}
 
-			{#if chatTools}
-				<!-- Web search through the gateway's own backends (ADR 0058's plan,
-		     phase 2). The toggle is the user's consent to spend; the tool
-		     itself only exists when the console has granted a search tier,
-		     so a toggle with nothing behind it costs nothing and changes
-		     nothing. -->
-				<button
-					type="button"
-					class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
-						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-					aria-pressed={webSearch}
-					title="Search the web through this deployment's search backends (this chat only)"
-					onclick={toggleWebSearch}
-				>
-					<CarbonEarth class="size-3.5" />
-					Web search
-				</button>
+			<div
+				class="scrollbar-custom flex min-w-0 flex-1 flex-wrap items-center gap-1.5 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:mask-r-from-85%"
+			>
+				{@render children?.()}
 
-				<!-- Chat-local override of the tool-approval policy (ADR 0075).
-			     Inside a conversation this PATCHes the override; on the home
-			     page there is no conversation yet, so it only flips the local
-			     state that rides into the create request. -->
-				<button
-					type="button"
-					class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
-						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-					aria-pressed={autoApproveTools}
-					title={autoApproveTools
-						? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
-						: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
-					onclick={toggleAutoApproveTools}
-				>
-					<LucideShieldCheck class="size-3.5" />
-					{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
-				</button>
-			{/if}
+				{#if chatTools}
+					<!-- Web search through the gateway's own backends (ADR 0058's plan,
+			     phase 2). The toggle is the user's consent to spend; the tool
+			     itself only exists when the console has granted a search tier,
+			     so a toggle with nothing behind it costs nothing and changes
+			     nothing. -->
+					<button
+						type="button"
+						class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {webSearch
+							? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+							: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+						aria-pressed={webSearch}
+						title="Search the web through this deployment's search backends (this chat only)"
+						onclick={toggleWebSearch}
+					>
+						<CarbonEarth class="size-3.5" />
+						Web search
+					</button>
 
-			{#if showMlPill}
-				<MlInternPill />
+					<!-- Chat-local override of the tool-approval policy (ADR 0075).
+				     Inside a conversation this PATCHes the override; on the home
+				     page there is no conversation yet, so it only flips the local
+				     state that rides into the create request. -->
+					<button
+						type="button"
+						class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {autoApproveTools
+							? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
+							: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+						aria-pressed={autoApproveTools}
+						title={autoApproveTools
+							? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
+							: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
+						onclick={toggleAutoApproveTools}
+					>
+						<LucideShieldCheck class="size-3.5" />
+						{autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
+					</button>
+				{/if}
+
+				{#if showMlPill}
+					<MlInternPill />
+				{/if}
+			</div>
+
+			{#if trailingActions}
+				<div class="flex flex-none items-center">
+					{@render trailingActions()}
+				</div>
 			{/if}
 		</div>
 	{/if}
-	{@render children?.()}
 
 	<UrlFetchModal
 		bind:open={isUrlModalOpen}
