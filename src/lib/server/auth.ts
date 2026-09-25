@@ -373,7 +373,25 @@ async function getOIDCClient(settings: OIDCSettings, url: URL): Promise<BaseClie
 
 export async function getOIDCAuthorizationUrl(
 	settings: OIDCSettings,
-	params: { sessionId: string; next?: string; url: URL; cookies: Cookies }
+	params: {
+		sessionId: string;
+		next?: string;
+		url: URL;
+		cookies: Cookies;
+		/**
+		 * Forces the IdP to re-authenticate the person right now, rather than
+		 * answering from its own SSO session with whatever `auth_time` the
+		 * original login carried. The terminal's step-up rule (ADR 0090 D6)
+		 * needs this: sending a stale session through a plain login is a
+		 * no-op at most IdPs (Authelia included) — they see an active SSO
+		 * session and never reprompt, so `auth_time` never moves and the
+		 * person is stuck unable to ever open a terminal. Both `prompt=login`
+		 * (OIDC Core: the AS "MUST attempt to actively re-authenticate") and
+		 * `max_age=0` (equivalent to `prompt=login` under Core's max_age
+		 * language) are sent together for the widest provider compatibility.
+		 */
+		reauth?: boolean;
+	}
 ): Promise<string> {
 	const client = await getOIDCClient(settings, params.url);
 	const csrfToken = await generateCsrfToken(
@@ -399,6 +417,7 @@ export async function getOIDCAuthorizationUrl(
 		scope: OIDConfig.SCOPES,
 		state: csrfToken,
 		resource: OIDConfig.RESOURCE || undefined,
+		...(params.reauth ? { prompt: "login", max_age: 0 } : {}),
 	});
 }
 
@@ -632,9 +651,14 @@ export async function triggerOauthFlow({ url, locals, cookies }: RequestEvent): 
 		next = sanitizeReturnPath(`${base}/`) ?? "/";
 	}
 
+	// The terminal's step-up (ADR 0090 D6): `?reauth=1` forces the IdP to
+	// re-authenticate instead of answering from its own SSO session, which
+	// is the only way a stale `auth_time` ever becomes fresh again.
+	const reauth = url.searchParams.get("reauth") === "1";
+
 	const authorizationUrl = await getOIDCAuthorizationUrl(
 		{ redirectURI },
-		{ sessionId: locals.sessionId, next, url, cookies }
+		{ sessionId: locals.sessionId, next, url, cookies, reauth }
 	);
 
 	throw redirect(302, authorizationUrl);

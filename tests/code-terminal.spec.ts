@@ -12,14 +12,15 @@ import { test, expect, E2E_APP_BASE, E2E_APP_URL, MOCK_OIDC_ISSUER } from "./fix
 import { seedUser } from "./machineHarness";
 import { FakeMachine } from "./fake-machine";
 import type { Page } from "playwright/test";
+import type { Policy } from "../src/lib/types/machineProtocol";
 
-const TERMINAL_ALLOWED_POLICY = {
-	autoAccept: "denied" as const,
+const TERMINAL_ALLOWED_POLICY: Policy = {
+	autoAccept: "denied",
 	workspaceRoots: [],
 	allowFreeModels: false,
-	terminal: "allowed" as const,
+	terminal: "allowed",
 };
-const TERMINAL_DENIED_POLICY = { ...TERMINAL_ALLOWED_POLICY, terminal: "denied" as const };
+const TERMINAL_DENIED_POLICY: Policy = { ...TERMINAL_ALLOWED_POLICY, terminal: "denied" };
 
 async function mintMachineToken(sub: string): Promise<string> {
 	const res = await fetch(`${MOCK_OIDC_ISSUER}/__control/mint`, {
@@ -33,7 +34,7 @@ async function mintMachineToken(sub: string): Promise<string> {
 async function connectFakeMachine(
 	sub: string,
 	name: string,
-	policy: typeof TERMINAL_ALLOWED_POLICY = TERMINAL_ALLOWED_POLICY
+	policy: Policy = TERMINAL_ALLOWED_POLICY
 ): Promise<FakeMachine> {
 	const token = await mintMachineToken(sub);
 	const wsUrl = `${E2E_APP_URL.replace(/^http/, "ws")}/api/v2/code/machine`;

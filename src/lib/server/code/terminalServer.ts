@@ -53,7 +53,16 @@ import {
 
 const PING_INTERVAL_MS = 20_000;
 const PONG_DEAD_AFTER_MS = 60_000;
-const RECHECK_INTERVAL_MS = 60_000;
+/** The 60s session/device re-check (spec §9.6). A `let`, not a `const`, only
+ * so a test can shrink it — real callers never touch the setter below. */
+let recheckIntervalMs = 60_000;
+/** Test-only: waiting out a real 60s to prove the re-check closes a socket
+ * on logout/revoke isn't something a fast suite should do; this shrinks the
+ * interval for the duration of one test. Always paired with a reset back to
+ * the real value in that test's cleanup. */
+export function _setRecheckIntervalMsForTests(ms: number): void {
+	recheckIntervalMs = ms;
+}
 /** A single fixed placeholder on this leg of the relay: the browser only
  * ever sees one terminal per socket, so the real per-viewer channel id
  * (chosen fresh on every machine attach/re-attach) never needs to reach it. */
@@ -94,12 +103,25 @@ interface AuthorizationFailure {
 }
 
 /** The re-check both the initial upgrade and the 60s loop run: the Cerea
- * session still exists (not logged out) and the device is still this
- * user's own paired row (not revoked, not unpaired). */
+ * session still exists, unexpired, (not logged out) and the device is
+ * still this user's own paired row (not revoked, not unpaired).
+ *
+ * `expiresAt` is filtered here rather than trusted to the collection's own
+ * TTL index (`database.ts`, `expireAfterSeconds: 0`): Mongo's TTL sweep
+ * runs on its own background cadence (about once a minute), not the
+ * instant a session crosses its expiry, so the document can still exist —
+ * and answer this query — for a real window after it should count as
+ * gone. The same `{ expiresAt: { $gt: now } }` freshness filter other
+ * TTL-backed collections in this codebase use at read time (e.g. the
+ * export-link and conversation-share routes), not a Cerea-session-specific
+ * rule. */
 async function checkAuthorized(
 	binding: Pick<TerminalTicketBinding, "userId" | "sessionId" | "deviceId">
 ): Promise<Authorization | AuthorizationFailure> {
-	const session = await collections.sessions.findOne({ sessionId: binding.sessionId });
+	const session = await collections.sessions.findOne({
+		sessionId: binding.sessionId,
+		expiresAt: { $gt: new Date() },
+	});
 	if (!session) return { ok: false, message: "signed out" };
 	let userId: ObjectId;
 	let deviceId: ObjectId;
@@ -298,7 +320,7 @@ function acceptTerminalConnection(
 				}
 			}
 		);
-	}, RECHECK_INTERVAL_MS);
+	}, recheckIntervalMs);
 
 	ws.on("pong", () => {
 		lastPongAt = Date.now();

@@ -154,7 +154,10 @@
 	 * the existing login, with this page as the return URL. */
 	function reauth() {
 		const next = `${window.location.pathname}${window.location.search}`;
-		window.location.href = `${base}/login?next=${encodeURIComponent(next)}`;
+		// reauth=1: a plain login answers from the IdP's own SSO session with
+		// the same stale auth_time and never re-prompts, which would loop
+		// forever — see triggerOauthFlow/getOIDCAuthorizationUrl (auth.ts).
+		window.location.href = `${base}/login?reauth=1&next=${encodeURIComponent(next)}`;
 	}
 
 	$effect(() => {

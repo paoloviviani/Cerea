@@ -27,7 +27,10 @@ import {
 } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
 import { acceptMachineConnection } from "$lib/server/code/machines";
-import { handleTerminalUpgrade } from "$lib/server/code/terminalServer";
+import {
+	handleTerminalUpgrade,
+	_setRecheckIntervalMsForTests,
+} from "$lib/server/code/terminalServer";
 import type { MachinePrincipal } from "$lib/server/code/machineAuth";
 import {
 	decodeBinaryFrame,
@@ -100,6 +103,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	// Unconditional, not just in the tests that shrink it: an assertion
+	// throwing mid-test must never leave a later test running against a
+	// 200ms recheck interval instead of the real 60s.
+	_setRecheckIntervalMsForTests(60_000);
 	for (const machine of openMachines) machine.close();
 	openMachines = [];
 	for (const ws of openSockets) {
@@ -397,7 +404,58 @@ describe("the terminal WebSocket", () => {
 		expect(rejection.statusCode).toBe(403);
 	});
 
+	it("refuses a ticket for a session that expired in the meantime", async () => {
+		const { deviceId, terminalId } = await terminalMachine();
+		const ticket = await mintTicket(deviceId, terminalId);
+		// The session document may still physically exist (the TTL sweep is
+		// lazy, database.ts's `expireAfterSeconds: 0` index runs on its own
+		// cadence) — expiry must be checked at read time, not inferred from
+		// the document's mere presence.
+		await collections.sessions.updateOne(
+			{ sessionId: user.session.sessionId },
+			{ $set: { expiresAt: new Date(Date.now() - 1000) } }
+		);
+		const ws = connectTerminalSocket(ticket, VALID_ORIGIN);
+		const rejection = await new Promise<{ statusCode?: number }>((resolve) => {
+			ws.once("unexpected-response", (_req, res) => resolve({ statusCode: res.statusCode }));
+			ws.once("open", () => resolve({ statusCode: 101 }));
+		});
+		expect(rejection.statusCode).toBe(403);
+	});
+
+	it("closes an open socket with 4403 once its session expires, at the recheck", async () => {
+		// A real 60s is too slow for a unit test to wait out; shrink the
+		// interval for this test only (the global afterEach always resets it,
+		// even if an assertion below throws), so the *actual* timer fires
+		// rather than asserting on `checkAuthorized` directly (which the
+		// earlier upgrade-time tests already do) — this one is the timer's
+		// own wiring.
+		_setRecheckIntervalMsForTests(200);
+		const { machine, deviceId, terminalId } = await terminalMachine();
+		const ticket = await mintTicket(deviceId, terminalId);
+		const ws = connectTerminalSocket(ticket, VALID_ORIGIN);
+		ws.binaryType = "nodebuffer";
+		await waitOpen(ws);
+		await waitForReset(ws);
+
+		await collections.sessions.updateOne(
+			{ sessionId: user.session.sessionId },
+			{ $set: { expiresAt: new Date(Date.now() - 1000) } }
+		);
+
+		const closeCode = await new Promise<number>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("recheck never closed the socket")), 5000);
+			ws.once("close", (code: number) => {
+				clearTimeout(timer);
+				resolve(code);
+			});
+		});
+		expect(closeCode).toBe(4403);
+		machine.close();
+	});
+
 	it("relays keystrokes and output, honours credits, and closes on logout", async () => {
+		_setRecheckIntervalMsForTests(200);
 		const { machine, deviceId, terminalId } = await terminalMachine();
 		const secret = "SECRET_KEYSTROKES_should_never_be_logged";
 		const warnSpy = vi.spyOn(logger, "warn");
@@ -466,10 +524,19 @@ describe("the terminal WebSocket", () => {
 		const rest = await nextMessage(ws);
 		expect(decodeBinaryFrame(rest.binary as Buffer)?.payload.length).toBeGreaterThan(0);
 
-		// Logout: the session is gone. The relay's 60s recheck is too slow for
-		// a unit test to wait out, so this asserts the same check function the
-		// recheck loop calls, rather than the wall-clock loop itself.
+		// Logout: the session is gone outright (routes/logout/+server.ts
+		// deletes the document, unlike expiry). The recheck interval was
+		// shrunk above so this closes for real rather than asserting on
+		// checkAuthorized directly.
 		await collections.sessions.deleteOne({ sessionId: user.session.sessionId });
+		const closeCode = await new Promise<number>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("recheck never closed the socket")), 5000);
+			ws.once("close", (code: number) => {
+				clearTimeout(timer);
+				resolve(code);
+			});
+		});
+		expect(closeCode).toBe(4403);
 
 		// codeAudit and logs never carry the secret.
 		const auditRows = await collections.codeAudit
