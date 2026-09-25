@@ -285,6 +285,10 @@ export interface CodeDevice {
 	createdAt: Date;
 	updatedAt: Date;
 	pairedAt?: Date;
+	/** When the owner acknowledged this machine's terminal warning ("a
+	 * terminal is a full shell on ‹machine›…", ADR 0090 §2.3/§6.2) — once per
+	 * machine, so a later ticket mint for the same device never asks again. */
+	terminalAckAt?: Date;
 }
 
 /** A working directory the daemon serves agents from. Lives on the daemon. */

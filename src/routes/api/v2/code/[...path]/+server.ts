@@ -29,6 +29,7 @@ import { randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
+import { collections } from "$lib/server/database";
 import { codeFilesEnabled, codeTerminalEnabled } from "$lib/server/codeEnabled";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
@@ -73,6 +74,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/name$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/ticket$`) },
+	{ method: "POST", pattern: /^v1\/terminals\/acknowledge$/ },
 	{ method: "DELETE", pattern: new RegExp(`^v1/terminals/${ID}$`) },
 	{ method: "GET", pattern: /^v1\/agents$/ },
 	{ method: "POST", pattern: /^v1\/agents$/ },
@@ -722,6 +724,21 @@ export const POST: RequestHandler = async (event) => {
 		});
 		await recordCodeAudit(event, { action: "terminal.ticket_minted", deviceId, terminalId });
 		return superjsonResponse({ ticket });
+	}
+
+	// The one-time-per-machine acknowledgement (ADR 0090 §2.3/§6.2): "a
+	// terminal is a full shell on this machine". Recorded on the device row
+	// so it never asks again for this machine, from any of the owner's
+	// sessions or browsers, and audited — the one required audit action that
+	// isn't otherwise a machine op.
+	if (path === "v1/terminals/acknowledge") {
+		if (!codeTerminalEnabled()) error(404, "The terminal is not enabled in this deployment.");
+		await collections.codeDevices.updateOne(
+			{ _id: device._id },
+			{ $set: { terminalAckAt: new Date() } }
+		);
+		await recordCodeAudit(event, { action: "terminal.acknowledged", deviceId });
+		return superjsonResponse({ ok: true });
 	}
 
 	if (path === "v1/workspaces") {
