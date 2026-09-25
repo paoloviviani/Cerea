@@ -22,6 +22,11 @@ import {
 	parseMachineFrame,
 	opDeadlineMs,
 	OpError,
+	decodeBinaryFrame,
+	encodeBinaryFrame,
+	BIN_TERM_OUTPUT,
+	BIN_TERM_INPUT,
+	BIN_TERM_ACK,
 	type Backend,
 	type Directory,
 	type Envelope,
@@ -37,6 +42,9 @@ import {
 	type FilesListResult,
 	type FilesReadResult,
 	type FilesStatusResult,
+	type Terminal,
+	type TerminalAttachResult,
+	type Notice,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 
@@ -63,6 +71,15 @@ interface ConnectionState {
 	 * also receives its descendants' envelopes (subagent approvals and
 	 * questions surfacing mid-turn in the parent's view). */
 	rootListeners: Map<string, Set<(envelope: Envelope) => void>>;
+	/** Binary `term.output` routing (§9.2): one entry per viewer channel,
+	 * registered by the browser relay when it attaches and removed on
+	 * detach. A channel with no entry (an evicted relay, a stray frame)
+	 * drops the frame silently — never a per-frame log (R6). */
+	terminalChannels: Map<string, (offset: number, payload: Buffer) => void>;
+	/** `notice` frames scoped to one terminal (§9.5): terminal.exit, .title,
+	 * .state. Lossy and unsequenced by design — a listener that might have
+	 * missed one re-queries `terminal.list`. */
+	terminalNoticeListeners: Map<string, Set<(notice: Notice) => void>>;
 	authDeadline: ReturnType<typeof setTimeout> | null;
 	pingInterval: ReturnType<typeof setInterval> | null;
 	lastPongAt: number;
@@ -73,6 +90,32 @@ const registry = new Map<string, ConnectionState>();
 
 export function isMachineOnline(deviceId: string): boolean {
 	return registry.has(deviceId);
+}
+
+/** Listeners of one device's online/offline transitions — what lets the
+ * browser terminal relay show "reconnecting" the instant the machine link
+ * drops and re-attach the instant it comes back, rather than polling. */
+const connectionListeners = new Map<string, Set<(online: boolean) => void>>();
+
+export function subscribeDeviceConnection(
+	deviceId: string,
+	listener: (online: boolean) => void
+): () => void {
+	let set = connectionListeners.get(deviceId);
+	if (!set) {
+		set = new Set();
+		connectionListeners.set(deviceId, set);
+	}
+	set.add(listener);
+	return () => {
+		set?.delete(listener);
+	};
+}
+
+function notifyConnectionChange(deviceId: string, online: boolean): void {
+	const listeners = connectionListeners.get(deviceId);
+	if (!listeners) return;
+	for (const listener of listeners) listener(online);
 }
 
 export function deviceBackends(deviceId: string): Backend[] | null {
@@ -98,9 +141,11 @@ function closeConnection(state: ConnectionState, code: number, reason: string): 
 	}
 	// Only drop the registry entry if this connection is still the current
 	// one for its device — a stale `close` from a connection already
-	// replaced by a newer one (4409) must not evict the newer one.
+	// replaced by a newer one (4409) must not evict the newer one, and must
+	// not tell the terminal relay the machine went offline when it did not.
 	if (registry.get(state.deviceId) === state) {
 		registry.delete(state.deviceId);
+		notifyConnectionChange(state.deviceId, false);
 	}
 }
 
@@ -287,6 +332,45 @@ export class MachineLink {
 	filesStatus(args: { workspaceId: string }): Promise<FilesStatusResult> {
 		return this.call("files.status", args);
 	}
+	/** The terminal's machine ops (§9.3); like files.*, forbidden outright
+	 * when the machine's own policy denies terminals (checked machine-side
+	 * before any of these run — the forwarder checks first too, §6.1). */
+	terminalList(args: { workspaceId?: string } = {}): Promise<{ terminals: Terminal[] }> {
+		return this.call("terminal.list", args);
+	}
+	terminalOpen(args: {
+		workspaceId: string;
+		cwd?: string;
+		cols: number;
+		rows: number;
+		title?: string;
+	}): Promise<{ terminal: Terminal }> {
+		return this.call("terminal.open", args);
+	}
+	terminalAttach(args: {
+		terminalId: string;
+		channel: string;
+		from?: number;
+	}): Promise<TerminalAttachResult> {
+		return this.call("terminal.attach", args);
+	}
+	terminalDetach(args: { terminalId: string; channel: string }): Promise<Record<string, never>> {
+		return this.call("terminal.detach", args);
+	}
+	terminalResize(args: {
+		terminalId: string;
+		cols: number;
+		rows: number;
+		claim?: boolean;
+	}): Promise<{ applied: boolean }> {
+		return this.call("terminal.resize", args);
+	}
+	terminalRename(args: { terminalId: string; title: string }): Promise<{ terminal: Terminal }> {
+		return this.call("terminal.rename", args);
+	}
+	terminalClose(args: { terminalId: string; force?: boolean }): Promise<Record<string, never>> {
+		return this.call("terminal.close", args);
+	}
 	/** The thinking effort sent with this session's prompts (capability `efforts`). */
 	sessionSetEffort(args: {
 		sessionId: string;
@@ -360,6 +444,78 @@ export function subscribeSessionTree(
 	};
 }
 
+/**
+ * Registers where `term.output` binary frames on `channel` go (§9.2): the
+ * browser terminal relay calls this right after a successful
+ * `terminal.attach`, using the same channel id it passed as `args.channel`.
+ * Returns an unregister, called on detach/close. A no-op (never throws) if
+ * the machine is offline by the time this runs — the relay's own
+ * `terminalAttach` call would already have failed first.
+ */
+export function registerTerminalChannel(
+	deviceId: string,
+	channel: string,
+	onOutput: (offset: number, payload: Buffer) => void
+): () => void {
+	const state = registry.get(deviceId);
+	if (!state) return () => {};
+	state.terminalChannels.set(channel, onOutput);
+	return () => {
+		if (registry.get(deviceId) === state) state.terminalChannels.delete(channel);
+	};
+}
+
+/** Watchers of one terminal's lossy notices (§9.5): exit, title, state. */
+export function subscribeTerminalNotices(
+	deviceId: string,
+	terminalId: string,
+	listener: (notice: Notice) => void
+): () => void {
+	const state = registry.get(deviceId);
+	if (!state) return () => {};
+	let set = state.terminalNoticeListeners.get(terminalId);
+	if (!set) {
+		set = new Set();
+		state.terminalNoticeListeners.set(terminalId, set);
+	}
+	set.add(listener);
+	return () => {
+		set?.delete(listener);
+	};
+}
+
+/** Relays browser keystrokes to the machine on `channel` (§9.2, C→M
+ * term.input). `offset` is always 0 on input frames per the wire format.
+ * Returns false if the machine is offline or the send failed — the caller
+ * (the browser relay) treats that as "machine offline" rather than a hard
+ * error, since a machine-link drop is meant to be survivable. */
+export function sendTerminalInput(deviceId: string, channel: string, payload: Buffer): boolean {
+	const state = registry.get(deviceId);
+	if (!state) return false;
+	try {
+		state.ws.send(encodeBinaryFrame({ kind: BIN_TERM_INPUT, channel, offset: 0, payload }));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Relays a browser ack to the machine on `channel` (§9.2, C→M term.ack):
+ * "the viewer has consumed output up to (excluding) this offset" — this is
+ * the credit that keeps the machine reading the PTY (§9.2 flow control). */
+export function sendTerminalAck(deviceId: string, channel: string, offset: number): boolean {
+	const state = registry.get(deviceId);
+	if (!state) return false;
+	try {
+		state.ws.send(
+			encodeBinaryFrame({ kind: BIN_TERM_ACK, channel, offset, payload: Buffer.alloc(0) })
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function touchDeviceRow(deviceId: string, patch: Partial<CodeDevice>): void {
 	void collections.codeDevices
 		.updateOne({ _id: new ObjectId(deviceId) }, { $set: { ...patch, updatedAt: new Date() } })
@@ -389,7 +545,20 @@ export function acceptMachineConnection(
 
 	let state: ConnectionState | null = null;
 
-	ws.on("message", (raw: Buffer | string) => {
+	ws.on("message", (raw: Buffer | string, isBinary: boolean) => {
+		// Binary frames carry terminal stream bytes only (§9.2), sent only on
+		// a channel Cerea itself opened with terminal.attach — an old machine
+		// or a peer that never attaches never sends one. Routed by channel id
+		// straight to whichever browser relay registered it; a stray or
+		// evicted channel drops the frame silently (never a per-frame log, R6).
+		if (isBinary) {
+			if (!state || !Buffer.isBuffer(raw)) return;
+			const frame = decodeBinaryFrame(raw);
+			if (!frame || frame.kind !== BIN_TERM_OUTPUT) return; // only M→C kind is meaningful here
+			const onOutput = state.terminalChannels.get(frame.channel);
+			onOutput?.(frame.offset, frame.payload);
+			return;
+		}
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(raw.toString());
@@ -467,6 +636,17 @@ export function acceptMachineConnection(
 				touchDeviceRow(state.deviceId, { credentialState: frame.state });
 				return;
 			}
+			case "notice": {
+				// Machine-level and lossy (§9.5): no epoch or seq, no replay.
+				// Only terminal-scoped notices have a listener today (files.*
+				// live-watch notices are F3, not yet wired to anything).
+				const terminalId = frame.scope.terminalId;
+				if (!terminalId) return;
+				const listeners = state.terminalNoticeListeners.get(terminalId);
+				if (!listeners) return;
+				for (const listener of listeners) listener(frame.event);
+				return;
+			}
 			case "auth": {
 				void revalidateMachineAuth(frame.token, state.principal.sub)
 					.then((validated) => {
@@ -499,6 +679,7 @@ export function acceptMachineConnection(
 				pending.reject(new OpError("unavailable", "The machine link closed."));
 			}
 			registry.delete(state.deviceId);
+			notifyConnectionChange(state.deviceId, false);
 		}
 	});
 
@@ -590,11 +771,14 @@ async function onHello(
 		pending: new Map(),
 		listeners,
 		rootListeners,
+		terminalChannels: new Map(),
+		terminalNoticeListeners: new Map(),
 		authDeadline: null,
 		pingInterval: null,
 		lastPongAt: Date.now(),
 	};
 	registry.set(deviceId, state);
+	notifyConnectionChange(deviceId, true);
 	scheduleAuthDeadline(state);
 	state.pingInterval = setInterval(() => {
 		if (Date.now() - state.lastPongAt > PONG_DEAD_AFTER_MS) {

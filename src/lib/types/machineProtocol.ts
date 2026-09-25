@@ -47,6 +47,12 @@ export interface Policy {
 	files?: "read" | "off";
 	/** The secret deny list in force (globs; "!" exempts). */
 	fileDeny?: string[];
+	/** Write access (§9): "allowed" or "denied" (default; --allow-file-write). */
+	fileWrite?: "allowed" | "denied";
+	/** The terminal veto (§9): "allowed" or "denied" (default; --allow-terminal). */
+	terminal?: "allowed" | "denied";
+	/** `terminal.open` beyond this count answers `invalid` (default 8). */
+	maxTerminals?: number;
 }
 
 /** hello.machine (§9): what this galopin build implements on this OS. */
@@ -308,7 +314,14 @@ export type OpName =
 	| "session.setEffort"
 	| "session.unrevert"
 	| "backend.modes"
-	| "backend.models";
+	| "backend.models"
+	| "terminal.list"
+	| "terminal.open"
+	| "terminal.attach"
+	| "terminal.detach"
+	| "terminal.resize"
+	| "terminal.rename"
+	| "terminal.close";
 
 export type ErrorCode =
 	| "not_found"
@@ -404,7 +417,8 @@ export interface AuthFrame {
 	token: string;
 }
 
-export type MachineToCereaFrame = HelloFrame | ResFrame | EventFrame | CredentialFrame | AuthFrame;
+export type MachineToCereaFrame =
+	HelloFrame | ResFrame | EventFrame | CredentialFrame | AuthFrame | NoticeFrame;
 
 // -- zod parsing for frames arriving from the machine ------------------------
 //
@@ -434,6 +448,9 @@ const policySchema = z.object({
 	allowFreeModels: z.boolean(),
 	files: z.enum(["read", "off"]).optional(),
 	fileDeny: z.array(z.string()).optional(),
+	fileWrite: z.enum(["allowed", "denied"]).optional(),
+	terminal: z.enum(["allowed", "denied"]).optional(),
+	maxTerminals: z.number().optional(),
 });
 
 const machineSchema = z.object({
@@ -502,6 +519,33 @@ export const authFrameSchema: z.ZodType<AuthFrame> = z.object({
 	token: z.string(),
 });
 
+// `Notice` and `NoticeFrame` are not annotated `z.ZodType<...>`: the
+// `terminal.state` case's `terminal` (a full `Terminal`) is validated only
+// loosely here (any object) rather than field-by-field — this frame is
+// machine-level and lossy by design (§9.5), and a receiver that gets a
+// malformed one is meant to fall back to re-querying `terminal.list`, not to
+// have the whole frame dropped over one unexpected field.
+const noticeSchema = z.union([
+	z.object({
+		kind: z.literal("files.changed"),
+		paths: z.array(z.string()),
+		overflow: z.boolean().optional(),
+	}),
+	z.object({
+		kind: z.literal("terminal.exit"),
+		exitCode: z.number().optional(),
+		signal: z.string().optional(),
+	}),
+	z.object({ kind: z.literal("terminal.title"), title: z.string() }),
+	z.object({ kind: z.literal("terminal.state"), terminal: z.record(z.string(), z.unknown()) }),
+]);
+
+export const noticeFrameSchema = z.object({
+	type: z.literal("notice"),
+	scope: z.object({ workspaceId: z.string().optional(), terminalId: z.string().optional() }),
+	event: noticeSchema,
+});
+
 /** Parse one machine→Cerea frame; `null` for anything unrecognized (dropped,
  * never thrown — forward compatibility per the spec). */
 export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
@@ -519,6 +563,8 @@ export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 				: null;
 		case "auth":
 			return authFrameSchema.safeParse(raw).success ? (raw as unknown as AuthFrame) : null;
+		case "notice":
+			return noticeFrameSchema.safeParse(raw).success ? (raw as unknown as NoticeFrame) : null;
 		default:
 			return null;
 	}
@@ -527,6 +573,10 @@ export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 /** WS subprotocol and endpoint path from the spec's §3. */
 export const MACHINE_PROTOCOL = "pystino-machine.v1";
 export const MACHINE_PATH = "/api/v2/code/machine";
+
+/** The browser-facing terminal WebSocket (§9.6, ADR 0090 §5): a single-use
+ * ticket in the query string, redeemed at the upgrade. */
+export const TERMINAL_PATH = "/api/v2/code/terminal";
 
 // -- machine powers: files (§9.3) --------------------------------------------
 
@@ -568,4 +618,121 @@ export interface FilesStatusResult {
 	head?: string;
 	entries: Array<{ path: string; x: string; y: string; origPath?: string }>;
 	truncated: boolean;
+}
+
+// -- machine powers: terminal (§9.2, §9.3) ------------------------------------
+
+export type TerminalState = "running" | "exited";
+
+export interface Terminal {
+	id: string;
+	workspaceId: string;
+	title: string;
+	cwd: string;
+	shell: string;
+	cols: number;
+	rows: number;
+	pid: number;
+	createdAt: string;
+	state: TerminalState;
+	exitCode?: number;
+	signal?: string;
+	/** Bytes produced so far — the ring's absolute offset space. */
+	offset: number;
+	viewers: number;
+}
+
+export interface TerminalAttachResult {
+	terminal: Terminal;
+	from: number;
+	reset: boolean;
+	/** Base64. Present only when `reset`: the tracked modes to replay before
+	 * the stream (alternate screen, bracketed paste, cursor, app-cursor). */
+	prelude?: string;
+}
+
+/** A machine-level, lossy notice (§7.1/§9.5): no epoch or seq, no replay. */
+export type Notice =
+	| { kind: "files.changed"; paths: string[]; overflow?: boolean }
+	| { kind: "terminal.exit"; exitCode?: number; signal?: string }
+	| { kind: "terminal.title"; title: string }
+	| { kind: "terminal.state"; terminal: Terminal };
+
+/** M→C, machine-level and lossy (§9.5): `scope.workspaceId` for `files.*`,
+ * `scope.terminalId` for `terminal.*`. */
+export interface NoticeFrame {
+	type: "notice";
+	scope: { workspaceId?: string; terminalId?: string };
+	event: Notice;
+}
+
+// -- binary terminal-stream frames (§9.2) -------------------------------------
+//
+// Sent only on a channel Cerea opened with `terminal.attach`, so a peer that
+// never attaches never receives one. Mirrors galopin's own codec exactly
+// (agent/internal/link/binary.go) — the two are the same wire contract, and
+// this is the one place either half of Cerea (the live machine link, or a
+// test's fake machine) builds or parses that wire form.
+//
+//   byte 0        kind   0x01 term.output (M→C) · 0x02 term.input (C→M) · 0x03 term.ack (C→M)
+//   byte 1        L      channel id length, 1..32
+//   bytes 2..L+1  channel id, ASCII [A-Za-z0-9_-]
+//   next 8 bytes  u64 big-endian offset
+//   rest          payload
+
+export const BIN_TERM_OUTPUT = 0x01;
+export const BIN_TERM_INPUT = 0x02;
+export const BIN_TERM_ACK = 0x03;
+
+export const MAX_CHANNEL_ID_LEN = 32;
+export const MAX_OUTPUT_FRAME_PAYLOAD = 32 * 1024;
+export const MAX_INPUT_FRAME_PAYLOAD = 16 * 1024;
+
+export interface BinaryFrame {
+	kind: number;
+	channel: string;
+	/** u64 offset. Kept as `number`: terminal byte counts never approach
+	 * 2^53, and every caller here already works in `number` (Terminal.offset,
+	 * the ring). */
+	offset: number;
+	payload: Buffer;
+}
+
+/** Renders a `BinaryFrame` as wire bytes. Throws on a channel id outside
+ * 1..32 bytes — a caller bug, never untrusted input (the channel id is
+ * always one Cerea itself minted). */
+export function encodeBinaryFrame(frame: BinaryFrame): Buffer {
+	const channelBytes = Buffer.from(frame.channel, "ascii");
+	if (channelBytes.length < 1 || channelBytes.length > MAX_CHANNEL_ID_LEN) {
+		throw new Error(`binary frame: channel id length out of range: got ${channelBytes.length}`);
+	}
+	const buf = Buffer.alloc(2 + channelBytes.length + 8 + frame.payload.length);
+	buf.writeUInt8(frame.kind, 0);
+	buf.writeUInt8(channelBytes.length, 1);
+	channelBytes.copy(buf, 2);
+	buf.writeBigUInt64BE(BigInt(frame.offset), 2 + channelBytes.length);
+	frame.payload.copy(buf, 2 + channelBytes.length + 8);
+	return buf;
+}
+
+/** Parses wire bytes off the socket — always untrusted (even an
+ * authenticated machine's own bytes are attacker-reachable if it is
+ * compromised, and this parser must never throw or hang on garbage).
+ * Returns `null` for anything short or malformed, mirroring galopin's own
+ * decoder, which is fuzzed. */
+export function decodeBinaryFrame(raw: Buffer): BinaryFrame | null {
+	if (raw.length < 2) return null;
+	const kind = raw.readUInt8(0);
+	const channelLen = raw.readUInt8(1);
+	if (channelLen < 1 || channelLen > MAX_CHANNEL_ID_LEN) return null;
+	if (raw.length < 2 + channelLen + 8) return null;
+	const channel = raw.toString("ascii", 2, 2 + channelLen);
+	if (!/^[A-Za-z0-9_-]+$/.test(channel)) return null;
+	const offset = raw.readBigUInt64BE(2 + channelLen);
+	const payload = raw.subarray(2 + channelLen + 8);
+	// Offsets never legitimately reach 2^53; a value beyond it is either
+	// malformed or an implausible 8 EiB stream, either way rejected rather
+	// than silently truncated by Number().
+	if (offset > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+	return { kind, channel, offset: Number(offset), payload: Buffer.from(payload) };
 }

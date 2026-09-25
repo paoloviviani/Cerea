@@ -261,6 +261,19 @@ export async function updateUser(params: {
 	// Prepare OAuth token data for session storage
 	const oauthData = tokenSetToSessionOauth(token);
 
+	// The terminal step-up rule's input (ADR 0090 D6): when the person
+	// actually authenticated, read once here and never touched again by a
+	// later token refresh (`findUser`'s refresh path swaps the access token
+	// only). A provider that omits the claim leaves this undefined, which
+	// `sessionAuthFresh` (stepUp.ts) treats as stale rather than exempt.
+	let authTime: Date | undefined;
+	try {
+		const claimed = token.claims().auth_time;
+		if (typeof claimed === "number") authTime = new Date(claimed * 1000);
+	} catch {
+		// No ID token claims to read: authTime stays undefined (stale).
+	}
+
 	if (existingUser) {
 		// update existing user if any
 		await collections.users.updateOne(
@@ -281,6 +294,7 @@ export async function updateUser(params: {
 			expiresAt: addWeeks(new Date(), 2),
 			...(coupledCookieHash ? { coupledCookieHash } : {}),
 			...(oauthData ? { oauth: oauthData } : {}),
+			...(authTime ? { authTime } : {}),
 		});
 	} else {
 		// user doesn't exist yet, create a new one
@@ -311,6 +325,7 @@ export async function updateUser(params: {
 			expiresAt: addWeeks(new Date(), 2),
 			...(coupledCookieHash ? { coupledCookieHash } : {}),
 			...(oauthData ? { oauth: oauthData } : {}),
+			...(authTime ? { authTime } : {}),
 		});
 
 		// move pre-existing settings to new user
