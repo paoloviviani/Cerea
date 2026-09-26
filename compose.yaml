@@ -323,6 +323,15 @@ services:
       CHAT_CONSOLE_ENABLED: ${CHAT_CONSOLE_ENABLED-true}
       CHAT_KNOWLEDGE_ENABLED: ${CHAT_KNOWLEDGE_ENABLED-true}
       CHAT_MEMORY_ENABLED: ${CHAT_MEMORY_ENABLED-true}
+      # The document reader for uploads and the knowledge base. Empty means
+      # the chat resolves one on its own: this deployment's local extractor
+      # or the first OCR-kind model on the gateway's catalogue. Set
+      # CHAT_OCR_MODEL to pin a specific one, or set CHAT_OCR_BASE_URL to
+      # bypass the gateway entirely and call an OCR endpoint directly
+      # (CHAT_OCR_API_KEY beside it, if that endpoint needs a key).
+      CHAT_OCR_MODEL: ${CHAT_OCR_MODEL:-}
+      CHAT_OCR_BASE_URL: ${CHAT_OCR_BASE_URL:-}
+      CHAT_OCR_API_KEY: ${CHAT_OCR_API_KEY:-}
       # The agent-machine component: galopin, the machine agent, dials
       # wss://<origin>/chat/api/v2/code/machine — the /chat route the proxy
       # already has, so no extra service, port or route — and authenticates
