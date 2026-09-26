@@ -30,6 +30,7 @@ import type { Assistant } from "$lib/types/Assistant";
 import type { Report } from "$lib/types/Report";
 import type { ConversationStats } from "$lib/types/ConversationStats";
 import type { MigrationResult } from "$lib/types/MigrationResult";
+import type { ErasureRecord } from "$lib/types/Erasure";
 import type { Semaphore } from "$lib/types/Semaphore";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -208,6 +209,10 @@ export class Database {
 		const configCollection = db.collection<ConfigKey>("config");
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
 		const sharedConversations = db.collection<SharedConversation>("sharedConversations");
+		// One row per erasure run (ADR 0093 §9.3), _id the gateway's own
+		// erasure_id — the idempotency and resume key across a retried
+		// delivery or a crash mid-run.
+		const erasures = db.collection<ErasureRecord>("erasures");
 		// Primary read preference, like conversations: the redirect after a
 		// create reads the project back immediately, and secondary lag there
 		// shows as a 404 on a project that does exist.
@@ -310,6 +315,7 @@ export class Database {
 			semaphores,
 			tools,
 			config: configCollection,
+			erasures,
 		};
 	}
 
@@ -347,6 +353,7 @@ export class Database {
 			config,
 			codeExecutionOutputs,
 			bucketFiles,
+			erasures,
 		} = this.getCollections();
 
 		conversations
@@ -760,6 +767,13 @@ export class Database {
 		config
 			.createIndex({ key: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for config by key"));
+
+		// The gateway's own banner ("N erasures waiting") and `pystino erasure
+		// list` both page by pending-first; `_id` (the erasure_id) is already
+		// the unique key.
+		erasures
+			.createIndex({ doneAt: 1, startedAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for erasures by doneAt and startedAt"));
 
 		// Dedup + the access-checked download lookup: one row per distinct
 		// deliverable a conversation has produced.
