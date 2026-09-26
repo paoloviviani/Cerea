@@ -110,3 +110,23 @@ export function buildToolPreprompt(
 	// run of general guidance. Empty outside the mode, where the join is a no-op.
 	return [general, ...(mlAssistant ? mlAssistantToolDoctrineBlocks(names) : [])].join("\n\n");
 }
+
+/**
+ * What the model is told about connectors the person picked that did not load.
+ *
+ * Without it the model sees a request for a service and no tool for it, and
+ * reaches for the one general tool it has — code execution — which has no
+ * network and can only fake the answer. Named, it can say what is wrong and
+ * where to fix it. Empty when everything loaded.
+ */
+export function unavailableConnectorsNotice(
+	unavailable: Array<{ name: string; reason: string }>
+): string {
+	if (unavailable.length === 0) return "";
+	const lines = unavailable.map(({ name, reason }) => `- ${name}: ${reason}`).join("\n");
+	return [
+		"UNAVAILABLE CONNECTORS: these MCP connectors are enabled for this chat, but their tools could not be loaded this turn:",
+		lines,
+		"If the request needs one of them, say plainly that it is unavailable and why, and tell the person to fix it under Workspace → MCP servers (sign in, add or correct the token, then Re-check). Do not imitate a missing connector with another tool: code execution in particular has no network access, so it cannot reach that service, and made-up output presented as its result is worse than saying it is missing. Anything the request needs that the available tools can genuinely do, do as usual.",
+	].join("\n");
+}

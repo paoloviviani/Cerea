@@ -8,6 +8,7 @@
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
+import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
 import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
@@ -17,6 +18,7 @@ import { credentialHeaders } from "$lib/server/mcp/selection";
 import { listTools } from "$lib/server/mcp/health";
 import { seal } from "$lib/server/mcp/secretBox";
 import { logger } from "$lib/server/logger";
+import type { McpConnector } from "$lib/types/McpConnector";
 
 const body = z.object({
 	action: z.enum(["authorize", "reprobe", "disconnect", "check", "update"]),
@@ -66,6 +68,40 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	return json(await view(connector, user._id, identity?.isAdmin ?? false));
 };
 
+/**
+ * List a connector's tools with its own credential, and record the answer.
+ *
+ * Tools on success, the server's error on failure — the one check that tells
+ * a working token from a wrong one, which an anonymous probe cannot.
+ */
+async function checkTools(connector: McpConnector, userId: ObjectId): Promise<void> {
+	const headers = await credentialHeaders({ connector, userId });
+	if (!headers) {
+		error(400, "Sign in to this connector first, or give it a token.");
+	}
+	const result = await listTools(connector.url, headers);
+	await collections.mcpConnectors.updateOne(
+		{ _id: connector._id },
+		{
+			$set: {
+				checkedAt: new Date(),
+				updatedAt: new Date(),
+				// Names and descriptions only. An input schema is large, is
+				// not shown, and would put arbitrary third-party JSON in a
+				// document we read on every listing.
+				tools: result.ok
+					? result.tools.map(({ name, description }) => ({ name, description }))
+					: [],
+				...(result.ok ? {} : { lastError: result.error.slice(0, 500) }),
+			},
+			// `$unset` rather than `$set: undefined`: the driver does not
+			// drop undefined by default, so that writes a literal null and
+			// the field stops matching its own `string | undefined` type.
+			...(result.ok ? { $unset: { lastError: "" } } : {}),
+		}
+	);
+}
+
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const user = requireUser(locals);
 
@@ -89,6 +125,17 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		// 404 rather than 403 for a connector that exists but is not this
 		// person's to change: telling those apart confirms it exists.
 		error(404, "No such connector.");
+	}
+
+	if (action === "reprobe" && connector.auth === "token") {
+		// The probe is anonymous by design, so for a server that takes a token
+		// it can only ever say "it wants a credential" — which is the one thing
+		// already known, and which used to land on the row as an error. Asking
+		// again how it authenticates means, for a token connector, trying the
+		// token: list its tools with it and report what the server says.
+		await checkTools(connector, user._id);
+		const refreshed = await usableBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id, isAdmin));
 	}
 
 	if (action === "reprobe") {
@@ -116,31 +163,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		// The health check the old server list had, moved server-side — which
 		// is what makes it work at all here: the credential is sealed in the
 		// database, so a browser-side check could never have used it.
-		const headers = await credentialHeaders({ connector, userId: user._id });
-		if (!headers) {
-			error(400, "Sign in to this connector first, or give it a token.");
-		}
-		const result = await listTools(connector.url, headers);
-		await collections.mcpConnectors.updateOne(
-			{ _id: connector._id },
-			{
-				$set: {
-					checkedAt: new Date(),
-					updatedAt: new Date(),
-					// Names and descriptions only. An input schema is large, is
-					// not shown, and would put arbitrary third-party JSON in a
-					// document we read on every listing.
-					tools: result.ok
-						? result.tools.map(({ name, description }) => ({ name, description }))
-						: [],
-					...(result.ok ? {} : { lastError: result.error.slice(0, 500) }),
-				},
-				// `$unset` rather than `$set: undefined`: the driver does not
-				// drop undefined by default, so that writes a literal null and
-				// the field stops matching its own `string | undefined` type.
-				...(result.ok ? { $unset: { lastError: "" } } : {}),
-			}
-		);
+		await checkTools(connector, user._id);
 		const refreshed = await usableBy(params.id as string, user._id);
 		return json(await view(refreshed ?? connector, user._id, isAdmin));
 	}
@@ -173,6 +196,10 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		} else if (parsed.data.token) {
 			set.tokenSealed = seal(parsed.data.token);
 			set.auth = "token";
+			// The recorded failure is almost always the anonymous probe's "it
+			// asks for authentication", which a token is the answer to. Kept, it
+			// reads as though the token had not worked; Re-check says if it did.
+			unset.lastError = "";
 			if (parsed.data.tokenHeader) set.tokenHeader = parsed.data.tokenHeader;
 			if (parsed.data.tokenPrefix !== undefined) set.tokenPrefix = parsed.data.tokenPrefix;
 		} else if (connector.auth === "token") {

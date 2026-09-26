@@ -11,7 +11,7 @@ import type {
 	ChatCompletionMessageToolCall,
 } from "openai/resources/chat/completions";
 import type { Stream } from "openai/streaming";
-import { buildToolPreprompt } from "../utils/toolPrompt";
+import { buildToolPreprompt, unavailableConnectorsNotice } from "../utils/toolPrompt";
 import type { EndpointMessage } from "../../endpoints/endpoints";
 import { resolveRouterTarget } from "./routerResolution";
 import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
@@ -551,7 +551,11 @@ export async function* runMcpFlow({
 	let producedOutput = false;
 
 	try {
-		const { tools: mcpTools, mapping } = await getOpenAiToolsForMcp(servers, {
+		const {
+			tools: mcpTools,
+			mapping,
+			unavailable: unlisted = [],
+		} = await getOpenAiToolsForMcp(servers, {
 			signal: abortSignal,
 		});
 		// An MCP tool that collides with a builtin name is dropped: dispatch checks
@@ -712,6 +716,18 @@ export async function* runMcpFlow({
 		const prepromptPieces: string[] = [];
 		if (toolPreprompt.trim().length > 0) {
 			prepromptPieces.push(toolPreprompt);
+		}
+		// Connectors left out before the turn (no credential) and those whose
+		// listing failed just now, deduplicated by name.
+		const notLoaded = new Map<string, { name: string; reason: string }>();
+		const requestUnavailable =
+			(locals as unknown as { mcp?: { unavailable?: Array<{ name: string; reason: string }> } })
+				?.mcp?.unavailable ?? [];
+		for (const entry of [...requestUnavailable, ...unlisted]) notLoaded.set(entry.name, entry);
+		const unavailableNotice = unavailableConnectorsNotice([...notLoaded.values()]);
+		if (unavailableNotice) {
+			logger.info({ unavailable: [...notLoaded.keys()] }, "[mcp] connectors unavailable this turn");
+			prepromptPieces.push(unavailableNotice);
 		}
 		if (typeof preprompt === "string" && preprompt.trim().length > 0) {
 			prepromptPieces.push(preprompt);
