@@ -5,6 +5,7 @@ import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import { codeAgentsEnabled } from "$lib/server/codeEnabled";
+import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 
@@ -45,5 +46,11 @@ export const GET: RequestHandler = async ({ locals }) => {
 		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true",
 		codeAgentsEnabled: codeAgentsEnabled(),
 		codeOidcIssuerUrl: OIDConfig.PROVIDER_URL,
+		codeOidcClientId: machineClientId(),
+		// No fallback here on purpose (§12): the browser-origin fallback only
+		// makes sense client-side, where "the browser's own origin" is a
+		// meaningful default; guessing at a gateway address server-side would
+		// be a claim about infrastructure this endpoint has no way to check.
+		codeGatewayOrigin: config.CODE_GATEWAY_ORIGIN?.trim() || "",
 	} satisfies FeatureFlags);
 };
