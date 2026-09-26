@@ -167,7 +167,14 @@
 				message.from === "assistant" &&
 				isAuthor &&
 				!readOnly &&
-				(page.route.id ?? "").startsWith("/conversation/[id]")
+				(page.route.id ?? "").startsWith("/conversation/[id]") &&
+				// While this message is still generating it carries a client-minted
+				// id the server hasn't saved yet (see the run-files route's 409):
+				// any record made now would just be refused. Not required for
+				// correctness — CodeBlock's claim retries once the id swaps to the
+				// server's — but skipping the doomed attempt avoids the round trip
+				// and the noise of a request that can only ever fail.
+				!(isLast && loading)
 			);
 		},
 		storedFiles(runKey: string) {

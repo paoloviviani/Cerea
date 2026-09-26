@@ -33,6 +33,16 @@ class RunFilesStore {
 		this.#persisted.add(runId);
 		return true;
 	}
+
+	/**
+	 * Give up a claim that did not result in a record — a 409 (the message
+	 * isn't saved under this id yet) or any other failure — so a later attempt
+	 * (a retry, or the same run once its message carries the server's id) is
+	 * not permanently blocked by the first, failed one.
+	 */
+	release(runId: string): void {
+		this.#persisted.delete(runId);
+	}
 }
 
 export const runFiles = new RunFilesStore();

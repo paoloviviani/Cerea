@@ -177,23 +177,41 @@
 	$effect(() => {
 		const state = runState;
 		const ctx = messageRun;
-		if (!state || !ctx?.canPersist || !ctx.conversationId || !runKey) return;
+		// Read every field the claim key and the request need up front,
+		// unconditionally: while the turn streams this message carries a
+		// client-minted id, swapped for the server's own once the turn's save
+		// round-trips and the page re-syncs. Reading `messageId` only past the
+		// guards below would leave it untracked whenever an early return was
+		// taken (the common case, since most runs never reach the upload), so
+		// this effect would never re-fire when the id later changes — reading
+		// it here is what makes that swap actually retrigger the attempt.
+		const canPersist = ctx?.canPersist ?? false;
+		const conversationId = ctx?.conversationId;
+		const messageId = ctx?.messageId;
+		if (!state || !canPersist || !conversationId || !messageId || !runKey) return;
 		if (state.status !== "done" && state.status !== "error") return;
 		// The file listing lands after the outcome; wait for it, or there is
 		// nothing to upload yet.
 		if (!state.outputsCollected || !state.outputFiles?.length) return;
-		// Once per run in this tab: a remount (scrolling, a re-render) sees the
-		// same settled run and must not upload it again. A new run has a new
-		// start time, and so becomes a new version.
-		if (!runFiles.claim(`${runKey}@${state.startedAt}`)) return;
-		const conversationId = ctx.conversationId;
-		const messageId = ctx.messageId;
+		// Keyed on the message id too: once per run per message in this tab. A
+		// remount (scrolling, a re-render) under the same id must not upload
+		// again; a run whose record was refused (the id wasn't saved yet) gets
+		// a fresh key once the id swaps to the server's, and so a fresh attempt.
+		const claimKey = `${messageId}|${runKey}@${state.startedAt}`;
+		if (!runFiles.claim(claimKey)) return;
 		const key = runKey;
 		const listed = state.outputFiles;
 		void (async () => {
 			const files = await uploadRunFiles(conversationId, listed);
 			const update = await recordRunFiles({ conversationId, messageId, runKey: key, files });
-			if (update) runFiles.add(messageId, update);
+			if (update) {
+				runFiles.add(messageId, update);
+			} else {
+				// A 409 (message not saved yet) or any other failure: give up the
+				// claim so a later attempt — under the same id, or the server's
+				// once it lands — is not permanently blocked by this one.
+				runFiles.release(claimKey);
+			}
 		})();
 	});
 
