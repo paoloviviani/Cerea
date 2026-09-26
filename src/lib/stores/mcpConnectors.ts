@@ -164,6 +164,23 @@ export function openConversationSelection(convId: string | null, seed?: Iterable
 	selectedConnectorIds.set(new Set(conversationSelections.get(key)));
 }
 
+/**
+ * Hand the new-chat page's selection to the conversation it just created.
+ *
+ * The home composer edits the `null` chat's set; the conversation page then
+ * opens under a real id it has never seen and would seed it from the
+ * defaults — so a connector switched on for the first message was dropped
+ * from that very message. Called before navigating, it makes the first open
+ * of the new id find the set the person actually chose.
+ */
+export function adoptNewChatSelection(convId: string): void {
+	const ids = new Set(
+		conversationSelections.get(conversationKey(null)) ?? get(selectedConnectorIds)
+	);
+	conversationSelections.set(conversationKey(convId), ids);
+	writeActiveSelection(conversationKey(convId), ids);
+}
+
 /** Forget cached per-conversation state (tests sign out between cases). */
 export function resetConversationSelections(): void {
 	conversationSelections.clear();
