@@ -229,10 +229,8 @@ services:
       # same for the console's, below).
       GATEWAY_LOGOUT_ALSO_CLEAR_COOKIES: '["hf-chat"]'
       GATEWAY_BOOTSTRAP_ADMIN_EMAIL: ${PYSTINO_BOOTSTRAP_ADMIN_EMAIL:-}
-      # The stack's one mail setting: quota notices, the console's "send
-      # test", and (with the bundled Authelia) its own self-service password
-      # reset — the Authelia side of that is stage (b)'s. SMTP_ENABLED stays
-      # false until SMTP_HOST etc. are actually filled in.
+      # The stack's one mail setting: quota notices and the console's "send
+      # test". SMTP_ENABLED stays false until SMTP_HOST etc. are filled in.
       GATEWAY_SMTP__ENABLED: ${SMTP_ENABLED:-false}
       GATEWAY_SMTP__HOST: ${SMTP_HOST:-}
       GATEWAY_SMTP__PORT: ${SMTP_PORT:-587}
@@ -362,11 +360,9 @@ services:
       # The browser terminal in /code: off unless exactly "true", and even then
       # only for machines enrolled with --allow-terminal.
       CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}
-      # One issuer for all three clients now (ADR 0093 §2): CODE_MACHINE_ISSUER,
-      # _AUDIENCE and _CLIENT_ID are no longer separate .env keys, derived
-      # from OIDC_ISSUER / OIDC_AUDIENCE / OIDC_MACHINE_CLIENT_ID instead —
-      # Cerea keeps reading them under their own names, so its tests can
-      # still point at a mock issuer without knowing this compose file exists.
+      # One issuer for all three clients: the machine link reads the same
+      # OIDC_ISSUER, OIDC_AUDIENCE and OIDC_MACHINE_CLIENT_ID as the console
+      # and the chat.
       CODE_MACHINE_ISSUER: ${OIDC_ISSUER:-}
       CODE_MACHINE_AUDIENCE: ${OIDC_AUDIENCE:-pystino-api}
       CODE_MACHINE_CLIENT_ID: ${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}
