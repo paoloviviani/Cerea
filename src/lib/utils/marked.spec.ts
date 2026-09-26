@@ -45,6 +45,62 @@ describe("marked math rendering", () => {
 		const html = renderBlocksHtml("$$\nE = mc^2\n$$", false);
 		expect(html).toContain("katex-display");
 	});
+
+	test("a mid-sentence $$...$$ in running prose renders as math with no stray dollars", () => {
+		const html = renderBlocksHtml("the integral $$\\int_0^1 x^2\\,dx$$ equals one third.", false);
+		expect(html).toContain("katex");
+		expect(html).not.toContain("$");
+	});
+
+	// The reported bug: a `$$...$$` that a container tokenizes directly as
+	// inline (a list item, same as a heading or a table cell) reached the
+	// single-$ rule, which paired the second `$` of the opening `$$` with
+	// the first `$` of the closing `$$` — an inline (not display) render
+	// with the outer two `$` left stranded as text on each side.
+	test("a mid-sentence $$...$$ inside a list item renders as math with no stray dollars", () => {
+		const html = renderBlocksHtml("- the integral $$\\int_0^1 x^2\\,dx$$ equals one third.", false);
+		expect(html).toContain("katex");
+		expect(html).not.toContain("$");
+	});
+
+	test("currency stays text, not math", () => {
+		const html = renderBlocksHtml("It costs $5 and $10 for two.", false);
+		expect(html).not.toContain("katex");
+		expect(html).toContain("$5 and $10");
+	});
+
+	test("inline $x$ next to punctuation is still math", () => {
+		const html = renderBlocksHtml("Let ($x$), then $y$, and $z$.", false);
+		expect(html.match(/class="katex"/g)?.length ?? 0).toBe(3);
+		expect(html).not.toContain("$");
+	});
+
+	test("$ x $ padded on both sides is math; mixed padding stays text", () => {
+		const padded = renderBlocksHtml("where $ \\alpha $ is small", false);
+		expect(padded).toContain("katex");
+		expect(padded).not.toContain("$");
+		const mixed = renderBlocksHtml("a $ x$ b", false);
+		expect(mixed).not.toContain("katex");
+	});
+
+	test("an escaped \\$ stays a literal dollar sign", () => {
+		const html = renderBlocksHtml("It costs \\$5.", false);
+		expect(html).not.toContain("katex");
+		expect(html).toContain("$5");
+	});
+
+	test("$$ inside an inline code span is code, not math", () => {
+		const html = renderBlocksHtml("Use `$$x$$` in your template.", false);
+		expect(html).not.toContain("katex");
+		expect(html).toContain("<code>$$x$$</code>");
+	});
+
+	test("$$ inside a fenced code block is code, not math", () => {
+		const tokens = processTokensSync("```\n$$x$$\n```", []);
+		const code = tokens.find((t) => t.type === "code");
+		expect(code && code.type === "code" ? code.rawCode : "").toBe("$$x$$");
+		expect(tokens.some((t) => t.type === "text")).toBe(false);
+	});
 });
 
 describe("marked image renderer", () => {
