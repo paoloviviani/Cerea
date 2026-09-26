@@ -69,6 +69,20 @@ describe("marked math rendering", () => {
 		expect(html).toContain("$5 and $10");
 	});
 
+	test("inline $x$ next to punctuation is still math", () => {
+		const html = renderBlocksHtml("Let ($x$), then $y$, and $z$.", false);
+		expect(html.match(/class="katex"/g)?.length ?? 0).toBe(3);
+		expect(html).not.toContain("$");
+	});
+
+	test("$ x $ padded on both sides is math; mixed padding stays text", () => {
+		const padded = renderBlocksHtml("where $ \\alpha $ is small", false);
+		expect(padded).toContain("katex");
+		expect(padded).not.toContain("$");
+		const mixed = renderBlocksHtml("a $ x$ b", false);
+		expect(mixed).not.toContain("katex");
+	});
+
 	test("an escaped \\$ stays a literal dollar sign", () => {
 		const html = renderBlocksHtml("It costs \\$5.", false);
 		expect(html).not.toContain("katex");

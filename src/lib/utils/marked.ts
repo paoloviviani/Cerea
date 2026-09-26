@@ -248,16 +248,19 @@ const katexInlineExtension: TokenizerExtension & RendererExtension = {
 			return token;
 		}
 
-		// 2) $...$ — the closing `$` must not be preceded by whitespace, or
-		// two separate currency mentions on one line ("$5 and $10") pair up
-		// across the words between them into one bogus formula.
-		const rule1 = /^\$(?!\s)([^$]+?)(?<!\s)\$/;
+		// 2) $...$. Two currency mentions on one line ("$5 and $10") must not
+		// pair up across the words between them into one bogus formula, so:
+		// either tight on both sides ($x$, the usual form), or padded on
+		// both sides ($ x $, which some models write). Mixed padding ($ x$,
+		// $x $) stays text. And the closing `$` is never followed by a digit
+		// (pandoc's rule), a second guard against currency.
+		const rule1 = /^\$(?:(?!\s)([^$]+?)(?<!\s)|\s([^$]+?)\s)\$(?!\d)/;
 		const match1 = rule1.exec(src);
 		if (match1) {
 			const token: katexInlineToken = {
 				type: "katexInline",
 				raw: match1[0],
-				text: match1[1].trim(),
+				text: (match1[1] ?? match1[2]).trim(),
 				displayMode: false,
 			};
 			return token;
