@@ -32,6 +32,7 @@ import type { ConversationStats } from "$lib/types/ConversationStats";
 import type { MigrationResult } from "$lib/types/MigrationResult";
 import type { Semaphore } from "$lib/types/Semaphore";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
+import type { CodeRunFiles } from "$lib/types/CodeRunFiles";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
@@ -210,6 +211,9 @@ export class Database {
 		// scan over unrelated attachment bytes.
 		const codeExecutionOutputs = db.collection<CodeExecutionOutput>("codeExecutionOutputs");
 		const codeOutputBucket = new GridFSBucket(db, { bucketName: "codeOutputs" });
+		// Which message a code block's or an artifact cell's stored files belong
+		// to (see CodeRunFiles.ts); the bytes stay in `codeOutputs`.
+		const codeRunFiles = db.collection<CodeRunFiles>("codeRunFiles");
 
 		// Collections with secondaryPreferred - heavy reads, can tolerate slight replication lag
 		const secondaryPreferred = ReadPreference.SECONDARY_PREFERRED;
@@ -258,6 +262,7 @@ export class Database {
 			bucketFiles,
 			codeExecutionOutputs,
 			codeOutputBucket,
+			codeRunFiles,
 			migrationResults,
 			semaphores,
 			tools,
@@ -298,6 +303,7 @@ export class Database {
 			semaphores,
 			config,
 			codeExecutionOutputs,
+			codeRunFiles,
 			bucketFiles,
 		} = this.getCollections();
 
@@ -684,6 +690,15 @@ export class Database {
 		codeExecutionOutputs
 			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for codeExecutionOutputs"));
+
+		// One record per distinct output of a run, and the loader's lookup.
+		codeRunFiles
+			.createIndex({ conversationId: 1, messageId: 1, runKey: 1, fingerprint: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for codeRunFiles"));
+		// The same 30-day retention as the bytes they name.
+		codeRunFiles
+			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeRunFiles"));
 
 		codeAudit
 			.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })

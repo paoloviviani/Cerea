@@ -10,6 +10,8 @@
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
 	import { artifactRunKey } from "$lib/utils/execution/keys";
 	import { getArtifactRunsStore } from "$lib/utils/execution/artifactRuns.svelte";
+	import { recordRunFiles, uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import RunOutput from "./RunOutput.svelte";
 	import ExecutionFiles from "./ExecutionFiles.svelte";
 	import MountedChips from "./MountedChips.svelte";
@@ -82,6 +84,12 @@
 		 * (read-only, errored generation), which hides the ask-to-fix controls.
 		 */
 		onsend?: (text: string) => boolean;
+		/**
+		 * Whether a python cell's output files are kept (uploaded and recorded
+		 * on the artifact's message), exactly as a chat code block's are. The
+		 * owner's own chat only: never a share or a read-only view.
+		 */
+		canPersistFiles?: boolean;
 	}
 
 	let {
@@ -92,6 +100,7 @@
 		drafts = [],
 		canScreenshot = false,
 		onsend,
+		canPersistFiles = false,
 	}: Props = $props();
 
 	let artifact = $derived(
@@ -535,6 +544,26 @@
 		if (!loading && version.complete && liveSeenCells.has(cellRunKey) && artifactRuns && artifact) {
 			artifactRuns.run(artifact.identifier, version.version, version.content);
 		}
+	});
+
+	// A python cell's files are kept like any run's: uploaded to the
+	// conversation's store and recorded on the message that emitted this
+	// version, so they become file artifacts and survive a reload.
+	$effect(() => {
+		const state = cellRunState;
+		const cid = page.params?.id;
+		if (!canPersistFiles || !state || !cid || !cellRunKey || !version) return;
+		if (state.status !== "done" && state.status !== "error") return;
+		if (!state.outputFiles?.length) return;
+		if (!runFiles.claim(`${cellRunKey}@${state.startedAt}`)) return;
+		const messageId = version.messageId;
+		const key = cellRunKey;
+		const listed = state.outputFiles;
+		void (async () => {
+			const files = await uploadRunFiles(cid, listed);
+			const update = await recordRunFiles({ conversationId: cid, messageId, runKey: key, files });
+			if (update) runFiles.add(messageId, update);
+		})();
 	});
 
 	// ----- actions -----

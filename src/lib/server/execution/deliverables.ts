@@ -16,14 +16,15 @@ import type { User } from "$lib/types/User";
  * (`readFile` in pyodide.worker.ts / `collectOutputFiles` in runs.svelte.ts);
  * `CodeExecutionCard` uploads exactly those bytes here once a run settles.
  *
- * **Deliverable rule, conservative by design**: every file a tool run's own
+ * **Deliverable rule: every produced file.** Every file a run's own
  * ExecutionSession lists as output (`RunState.outputFiles`) is a deliverable
- * and gets uploaded — a tool run's files ARE its output (see
- * executeCodeTool.ts's header). Nothing else calls this module: an
- * auto-running chat-block fence or an artifact cell renders through the same
- * RunOutput/FileCard components but never posts here, so their scratch files
- * stay session-only exactly as before. When unsure whether a caller is the
- * tool path, the answer is not to call this module.
+ * and gets uploaded, whichever path ran it — an `execute_code` tool run, an
+ * auto-running or manually run chat code block, an artifact cell. (It was
+ * tool runs only until 2026-09-26, when the user widened it: "the point is
+ * not how the file is created, the point is visualization" — one retention
+ * rule and one way of showing a file, however it came to exist.) A tool run's
+ * refs ride on its resolved update; the others are attached to their message
+ * through `codeRunFiles`.
  *
  * Storage mirrors the message-attachment output store (`files/uploadFile.ts`,
  * `files/downloadFile.ts`): a dedicated GridFS bucket, content-addressed by
@@ -201,6 +202,8 @@ export async function deleteConversationDeliverables(
 		.project<{ _id: ObjectId; gridFsId: ObjectId }>({ gridFsId: 1 })
 		.toArray();
 	await deleteRows(rows);
+	// The records naming which message those files belonged to go with them.
+	await collections.codeRunFiles.deleteMany({ conversationId: { $in: ids } });
 }
 
 const SWEEP_BATCH = 200;
