@@ -94,7 +94,7 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.11-alpine}
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:74eb10506be3f0f1"
+      cerea.config-rev: "sha256:4fa12ca9285f0d72"
     ports:
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
@@ -246,9 +246,9 @@ services:
       GATEWAY_SMTP__PASSWORD: ${SMTP_PASSWORD:-}
       GATEWAY_SMTP__FROM_ADDRESS: ${SMTP_FROM:-}
       GATEWAY_SMTP__SECURITY: ${SMTP_SECURITY:-starttls}
-      # The chat's own erasure endpoint (ADR 0093 §9.3), over the compose
-      # network only -- every preset that runs the gateway also runs the
-      # chat, so this is a fixed address, not an operator setting. Empty
+      # The chat's own erasure endpoint, over the compose network only --
+      # every preset that runs the gateway also runs the chat, so this is
+      # a fixed address, not an operator setting. Empty
       # CHAT_ERASURE_TOKEN (an .env from before ./configure minted one)
       # means delete refuses at request time with "this deployment's chat
       # is not reachable from the gateway", not a startup failure.
@@ -417,11 +417,11 @@ services:
       OPENID_LOGOUT_URL: ${OIDC_LOGOUT_URL:-}
       LOGOUT_ALSO_CLEAR_COOKIES: gw_session,gw_idt:/auth
       CHAT_SECRET_KEY: ${CHAT_SECRET_KEY:-}
-      # The gateway's own credential for /chat/internal/erasure (ADR 0093
-      # §9.3), over the compose network only. Never reachable from the edge
-      # regardless: the Caddyfile answers 404 for this path first, and this
-      # app refuses any request to /internal/* that carries a proxy header,
-      # whatever token it presents.
+      # The gateway's own credential for /chat/internal/erasure, over the
+      # compose network only. Never reachable from the edge regardless: the
+      # Caddyfile answers 404 for this path first, and this app refuses any
+      # request to /internal/* that carries a proxy header, whatever token
+      # it presents.
       CHAT_ERASURE_TOKEN: ${CHAT_ERASURE_TOKEN:-}
       PUBLIC_APP_NAME: ${CHAT_APP_NAME:-Cerea}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
