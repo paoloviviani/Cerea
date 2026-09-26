@@ -611,8 +611,17 @@ export async function authenticateRequest(
 			sessionId,
 			secretSessionId,
 			gatewayUnavailable: gateway?.kind === "unavailable",
+			// `gateway === null` means there is no gateway to defer to at all (a
+			// non-gateway deployment, or a shared key) — admin then still comes
+			// from the persisted user, exactly as it did before the gateway had
+			// any say. A gateway that _is_ in play, but temporarily unreachable
+			// (`open`) or outright refusing (`ended`, handled above), is not
+			// "no gateway": it does not fall back to the persisted flag, since
+			// that flag is meaningless once the gateway is the authority.
 			isAdmin:
-				(gateway?.kind === "valid" && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
+				(gateway === null
+					? Boolean(result.user?.isAdmin)
+					: gateway.kind === "valid" && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
 		};
 	}
 
