@@ -85,6 +85,10 @@ export interface UserKeyedCollectionEntry {
 	owner: string;
 	mergeRule: MergeRuleKind;
 	eraseRule: EraseRuleKind;
+	/** The Mongo field `eraseRule: "by-owner"`/`"by-owner-or-conversation"`
+	 * matches on — set on exactly those entries, and read generically by
+	 * `previewErasureCounts` so a dry run needs no per-entry duplication. */
+	ownerField?: string;
 	/** §7.2: move the stray's rows onto the target. Returns how many moved
 	 * (a conflict that was dropped rather than moved is not counted;
 	 * renamed-and-moved is counted). */
@@ -92,6 +96,15 @@ export interface UserKeyedCollectionEntry {
 	/** §9.2: remove everything belonging to `userId`. Returns how many rows
 	 * (or files) were removed. */
 	erase(userId: ObjectId, ctx: EraseContext): Promise<number>;
+	/** A non-destructive count of what `erase` would remove, for the erasure
+	 * preview (§9.3's "dry run"). Required only for `eraseRule: "custom"` —
+	 * `previewErasureCounts` derives the rest generically from `eraseRule`
+	 * and `ownerField`. */
+	count?: (userId: ObjectId, ctx: EraseContext) => Promise<number>;
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isDuplicateKeyError(err: unknown): boolean {
@@ -300,6 +313,16 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			}
 			return count;
 		},
+		count: async (userId, ctx) => {
+			const sharedIds = await collections.sharedConversations
+				.find({ userId })
+				.project<{ _id: string }>({ _id: 1 })
+				.toArray()
+				.then((rows) => rows.map((r) => r._id));
+			const tags = [...ctx.conversationIds.map((id) => id.toString()), ...sharedIds];
+			if (tags.length === 0) return 0;
+			return collections.bucketFiles.countDocuments({ "metadata.conversation": { $in: tags } });
+		},
 	},
 	{
 		name: "bucket:knowledgeBlobs",
@@ -314,6 +337,8 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			return modifiedCount;
 		},
 		erase: async (userId) => eraseBucketMatching({ "metadata.owner": userId.toString() }),
+		count: async (userId) =>
+			collections.bucketFiles.countDocuments({ "metadata.owner": userId.toString() }),
 	},
 	{
 		name: "bucket:codeAttachmentKeys",
@@ -335,12 +360,28 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			}
 			return count;
 		},
+		count: async (userId) => {
+			const deviceIds = await collections.codeDevices
+				.find({ userId })
+				.project<{ _id: ObjectId }>({ _id: 1 })
+				.toArray()
+				.then((rows) => rows.map((r) => r._id.toString()));
+			let count = 0;
+			for (const deviceId of deviceIds) {
+				const prefix = `code:${deviceId}:`;
+				count += await collections.bucketFiles.countDocuments({
+					"metadata.conversation": { $regex: `^${escapeRegExp(prefix)}` },
+				});
+			}
+			return count;
+		},
 	},
 	{
 		name: "conversations",
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.conversations, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.conversations, "userId", userId),
 	},
@@ -349,6 +390,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.projects, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.projects, "userId", userId),
 	},
@@ -357,6 +399,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "createdById",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "createdById",
 		merge: (stray, target) => reassignSimple(collections.assistants, "createdById", stray, target),
 		erase: (userId) => eraseByField(collections.assistants, "createdById", userId),
 	},
@@ -389,12 +432,22 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			});
 			return deletedCount;
 		},
+		count: async (userId) => {
+			const storeIds = await collections.vectorStores
+				.find({ ownerId: userId })
+				.project<{ _id: ObjectId }>({ _id: 1 })
+				.toArray()
+				.then((rows) => rows.map((r) => r._id));
+			if (storeIds.length === 0) return 0;
+			return collections.knowledgeDocuments.countDocuments({ storeId: { $in: storeIds } });
+		},
 	},
 	{
 		name: "vectorStores",
 		owner: "ownerId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "ownerId",
 		merge: (stray, target) => reassignSimple(collections.vectorStores, "ownerId", stray, target),
 		erase: (userId) => eraseByField(collections.vectorStores, "ownerId", userId),
 	},
@@ -403,6 +456,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign-unique-rename",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		// Unique on {scope, userId, name}: a stray's skill can share a name,
 		// in the same scope, with one the target already has. Unlike
 		// mcpTokens/codeDevices this is content, not a credential or a
@@ -417,6 +471,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.memories, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.memories, "userId", userId),
 	},
@@ -425,6 +480,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.mcpConnectors, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.mcpConnectors, "userId", userId),
 	},
@@ -433,6 +489,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign-unique-keep-target",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		// Unique on {connectorId, userId}: the stray and the target can each
 		// already hold a token for the same connector. A credential, not
 		// content — the target's stays, the stray's duplicate is dropped.
@@ -445,6 +502,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign-unique-keep-target",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		// Unique on {userId, machineId}: a fresh `machineId` is minted per
 		// enroll, so a real collision is unlikely rather than impossible. A
 		// pairing record, not content — the device simply re-links.
@@ -457,6 +515,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.codeAudit, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.codeAudit, "userId", userId),
 	},
@@ -465,6 +524,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) =>
 			reassignSimple(collections.codeExecutionOutputs, "userId", stray, target),
 		erase: async (userId) => {
@@ -481,6 +541,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray, target) =>
 			reassignSimple(collections.sharedConversations, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.sharedConversations, "userId", userId),
@@ -490,6 +551,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "createdBy",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "createdBy",
 		merge: (stray, target) => reassignSimple(collections.reports, "createdBy", stray, target),
 		erase: (userId) => eraseByField(collections.reports, "createdBy", userId),
 	},
@@ -498,6 +560,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "keep-target-delete-stray",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray) => mergeSettings(stray),
 		erase: (userId) => eraseByField(collections.settings, "userId", userId),
 	},
@@ -506,6 +569,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "delete-stray",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		merge: (stray) => deleteStrayRows(collections.sessions, "userId", stray),
 		erase: (userId) => eraseByField(collections.sessions, "userId", userId),
 	},
@@ -522,6 +586,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		// Reassigned, not left behind: an in-flight generation may still be
 		// running when a merge lands, and the resumed/heartbeating writer
 		// looks it up by conversation, not by owner — but the owner is kept
@@ -542,6 +607,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId, and conversationId+messageId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner-or-conversation",
+		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.turnStates, "userId", stray, target),
 		erase: (userId, ctx) =>
 			eraseByOwnerOrConversation(collections.turnStates, "userId", userId, ctx),
@@ -559,6 +625,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId, and conversationId",
 		mergeRule: "reassign",
 		eraseRule: "by-owner-or-conversation",
+		ownerField: "userId",
 		// Reassigned like `generations`/`turnStates`: the sweeper that resumes
 		// a parked tool call rebuilds the caller's identity from this row.
 		merge: (stray, target) => reassignSimple(collections.parkedCalls, "userId", stray, target),
@@ -586,6 +653,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId (sometimes a sessionId string, never a stray's conversation)",
 		mergeRule: "delete-stray",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		// Rate-limit bookkeeping, not content: the stray's are dropped rather
 		// than reassigned, same as sessions.
 		merge: (stray) => deleteStrayRows(collections.messageEvents, "userId", stray),
@@ -596,6 +664,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		owner: "userId",
 		mergeRule: "delete-stray",
 		eraseRule: "by-owner",
+		ownerField: "userId",
 		// An in-flight OAuth handshake started as the stray; carrying it over
 		// to the target would hand the target's browser someone else's
 		// callback state.
@@ -603,3 +672,57 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.mcpOauthPending, "userId", userId),
 	},
 ];
+
+/** Every plain (non-`bucket:`) collection this registry names is declared in
+ * `database.ts`'s `getCollections()` under this exact key — asserted by the
+ * guard spec, not just assumed here. */
+function collectionForCount(name: string): Pick<Collection<Document>, "countDocuments"> {
+	return (collections as unknown as Record<string, Collection<Document>>)[name];
+}
+
+/**
+ * A non-destructive count per registry entry, for the erasure preview (§9.3's
+ * "dry run"): derived generically from `eraseRule`/`ownerField` for every
+ * entry except the four `custom` ones, which carry their own `count`.
+ */
+export async function previewErasureCounts(
+	userId: ObjectId,
+	ctx: EraseContext
+): Promise<Record<string, number>> {
+	const counts: Record<string, number> = {};
+	for (const entry of USER_KEYED_COLLECTIONS) {
+		if (entry.count) {
+			counts[entry.name] = await entry.count(userId, ctx);
+			continue;
+		}
+		const collection = collectionForCount(entry.name);
+		switch (entry.eraseRule) {
+			case "by-owner":
+				counts[entry.name] = await collection.countDocuments({
+					[entry.ownerField as string]: userId,
+				} as never);
+				break;
+			case "by-conversation":
+				counts[entry.name] =
+					ctx.conversationIds.length === 0
+						? 0
+						: await collection.countDocuments({
+								conversationId: { $in: ctx.conversationIds },
+							} as never);
+				break;
+			case "by-owner-or-conversation": {
+				const or: Record<string, unknown>[] = [{ [entry.ownerField as string]: userId }];
+				if (ctx.conversationIds.length > 0) {
+					or.push({ conversationId: { $in: ctx.conversationIds } });
+				}
+				counts[entry.name] = await collection.countDocuments({ $or: or } as never);
+				break;
+			}
+			case "custom":
+				// Every `custom` entry must carry its own `count` (checked above);
+				// reaching here is a registry bug, not a runtime case to handle.
+				throw new Error(`${entry.name}: eraseRule "custom" with no count()`);
+		}
+	}
+	return counts;
+}
