@@ -435,6 +435,9 @@ describe("misc helpers", () => {
 	it("normalizes kinds with fallback to code", () => {
 		expect(normalizeArtifactKind("text/html")).toBe("html");
 		expect(normalizeArtifactKind("REACT")).toBe("react");
+		expect(normalizeArtifactKind("table")).toBe("table");
+		expect(normalizeArtifactKind("csv")).toBe("table");
+		expect(normalizeArtifactKind("text/csv")).toBe("table");
 		expect(normalizeArtifactKind("something-else")).toBe("code");
 		expect(normalizeArtifactKind(undefined)).toBe("code");
 	});
@@ -453,6 +456,21 @@ describe("misc helpers", () => {
 		expect(artifactFileName({ ...base, type: "code", language: "python" })).toBe("my-app.py");
 		expect(artifactFileName({ ...base, type: "code", language: "weird" })).toBe("my-app.txt");
 		expect(artifactFileName({ ...base, type: "mermaid" })).toBe("my-app.mmd");
+		expect(artifactFileName({ ...base, type: "table" })).toBe("my-app.csv");
+	});
+
+	it("collects table artifacts from inline tags and the tool's canonical blocks", () => {
+		const registry = collectArtifacts([
+			{
+				id: "m1",
+				from: "assistant",
+				content: `<artifact identifier="sales" type="table" title="Sales">month,amount\njan,10</artifact>`,
+			},
+		]);
+		const artifact = registry.artifacts.get("sales");
+		expect(artifact?.versions).toHaveLength(1);
+		expect(artifact?.versions[0].type).toBe("table");
+		expect(artifact?.versions[0].content).toBe("month,amount\njan,10");
 	});
 });
 

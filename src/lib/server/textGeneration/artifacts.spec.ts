@@ -183,6 +183,13 @@ describe("markdown math support", () => {
 		expect(ARTIFACTS_SYSTEM_PROMPT).toContain("$inline$ and $$display$$");
 		expect(ARTIFACT_TOOL_GUIDANCE).toContain("$inline$ and $$display$$");
 	});
+
+	it("documents the table type as CSV with a header row", () => {
+		expect(ARTIFACTS_SYSTEM_PROMPT).toContain('"table"');
+		expect(ARTIFACT_TOOL_GUIDANCE).toContain(
+			'table" (tabular data as CSV with a header row; the user can sort, filter and download it)'
+		);
+	});
 });
 
 describe("artifact builtin enablement", () => {

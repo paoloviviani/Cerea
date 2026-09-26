@@ -37,6 +37,7 @@
 	import SidePane from "./SidePane.svelte";
 	import PaneItemNav from "./PaneItemNav.svelte";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
+	import TableGrid from "./TableGrid.svelte";
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import HtmlPreviewModal from "../HtmlPreviewModal.svelte";
@@ -176,6 +177,9 @@
 			case "react":
 				return "typescript";
 			case "mermaid":
+				return undefined;
+			case "table":
+				// CSV has no highlighter: the code view shows escaped plain text.
 				return undefined;
 		}
 	}
@@ -339,7 +343,8 @@
 
 	let srcdoc = $derived.by(() => {
 		if (!version || !version.complete) return undefined;
-		if (version.type === "markdown" || version.type === "code") return undefined;
+		if (version.type === "markdown" || version.type === "code" || version.type === "table")
+			return undefined;
 		return buildArtifactSrcdoc(version.type, version.content, previewChannel);
 	});
 
@@ -514,7 +519,11 @@
 	// ----- actions -----
 	let fullscreenOpen = $state(false);
 	let fullscreenSupported = $derived(
-		!!version && version.complete && version.type !== "markdown" && version.type !== "code"
+		!!version &&
+			version.complete &&
+			version.type !== "markdown" &&
+			version.type !== "code" &&
+			version.type !== "table"
 	);
 
 	function download() {
@@ -735,6 +744,10 @@
 					>
 						<MarkdownRenderer content={version.content} />
 					</div>
+				</div>
+			{:else if version.type === "table"}
+				<div bind:this={previewScrollEl} class="h-full overflow-hidden">
+					<TableGrid content={version.content} />
 				</div>
 			{:else if srcdoc}
 				<!-- Backing matches the panel theme so opening the preview doesn't flash
