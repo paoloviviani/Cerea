@@ -48,7 +48,11 @@ describe("FileCard", () => {
 	it("names the file with its size and a download", async () => {
 		const screen = render(FileCard, { file: { path: "/home/pyodide/report.docx", size: 2916 } });
 		await expect.element(screen.getByText("report.docx")).toBeVisible();
-		await expect.element(screen.getByText("2.8 KB")).toBeVisible();
+		// Two copies of the size exist in the DOM (inline, and under the name
+		// for a narrow container — see FileCard's own comment); the inline one
+		// renders second and is the one visible at this test's (unconstrained,
+		// wide) render width.
+		await expect.element(screen.getByText("2.8 KB").last()).toBeVisible();
 		await expect
 			.element(screen.getByRole("button", { name: "Download report.docx" }))
 			.toBeVisible();
@@ -138,8 +142,11 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 			file: { path: "report.md", size: 0 },
 			inlineContent: "# Hello\n\nWorld",
 		});
-		// "# Hello\n\nWorld" is 14 UTF-8 bytes.
-		await expect.element(screen.getByText("14 B")).toBeVisible();
+		// "# Hello\n\nWorld" is 14 UTF-8 bytes. Two copies of the size exist in
+		// the DOM (inline, and under the name for a narrow container); the
+		// inline one renders second and is the one visible at this test's
+		// (unconstrained, wide) render width.
+		await expect.element(screen.getByText("14 B").last()).toBeVisible();
 	});
 
 	it("previews inline text in place, still without the sandbox", async () => {

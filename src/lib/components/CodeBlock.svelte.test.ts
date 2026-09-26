@@ -106,6 +106,35 @@ describe("CodeBlock execution", () => {
 		expect(sessionMock.run).not.toHaveBeenCalled();
 	});
 
+	it("survives a remount at settle: the block that streamed in is destroyed before loading flips false (MarkdownRenderer's stream-key swap), and a fresh instance for the same runKey still auto-runs, exactly once", async () => {
+		const rawCode = "print('remount')";
+		// The streaming instance: never itself sees `loading: false` — it is
+		// torn down first, exactly as the each-key swap does at settle.
+		const streaming = mount({ rawCode, autorun: true, loading: true });
+		await tick();
+		expect(sessionMock.run).not.toHaveBeenCalled();
+		streaming.screen.unmount();
+
+		// The settled instance: a brand-new component, mounted straight into
+		// `loading: false` — its own local state has no memory of streaming.
+		const { screen } = mount({ rawCode, autorun: true, loading: false });
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		expect(sessionMock.run).toHaveBeenCalledWith(rawCode);
+
+		// A second remount for the very same runKey (a scroll, a re-render)
+		// must not run it again.
+		screen.unmount();
+		mount({ rawCode, autorun: true, loading: false });
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sessionMock.run).toHaveBeenCalledTimes(1);
+
+		// Drain the one real run: the pending queue is shared within this
+		// file, and an unsettled entry would be consumed by a later test's
+		// settle (see the explicit-Run-button test's own note on this).
+		sessionMock.settleNext(outcome({ stdout: "" }));
+		await tick();
+	});
+
 	it("ignores non-python fences entirely", async () => {
 		const { screen, runButton } = mount({
 			rawCode: "console.log('d')",

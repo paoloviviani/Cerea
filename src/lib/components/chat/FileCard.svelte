@@ -324,13 +324,21 @@
 	}
 </script>
 
-<li class={CODE_CARD_SURFACE + " px-2 py-1.5 text-xs"}>
+<li class={CODE_CARD_SURFACE + " @container list-none px-2 py-1.5 text-xs"}>
 	<div class="flex items-center gap-2">
 		<CarbonDocument class="size-3.5 shrink-0 text-gray-400" />
-		<span class="min-w-0 flex-1 truncate font-mono" title={file.path}>
-			{name}
+		<!-- The name's own wrapper carries the min-width: a plain flex-1 with
+		     min-w-0 (needed for truncate to work at all) has no floor, so a
+		     row too narrow for every fixed-width sibling squeezes it to 0 and
+		     the card shows a size with no name at all. min-w-[6ch] guarantees
+		     enough room for a few characters before the ellipsis; the size
+		     badge yields first (moves under the name) rather than take that
+		     room away, once the container is too narrow for both. -->
+		<span class="min-w-[6ch] flex-1">
+			<span class="block truncate font-mono" title={file.path}>{name}</span>
+			<span class="mt-0.5 hidden text-gray-400 @max-[304px]:block">{formatFileSize(size)}</span>
 		</span>
-		<span class="shrink-0 text-gray-400">{formatFileSize(size)}</span>
+		<span class="shrink-0 text-gray-400 @max-[304px]:hidden">{formatFileSize(size)}</span>
 		{#if previewKind !== "none"}
 			<button
 				onclick={togglePreview}
