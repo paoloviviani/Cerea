@@ -44,7 +44,6 @@
 			: undefined
 	);
 	const kind = $derived(filePreviewKindFor(version.name));
-	const extension = $derived(fileExtensionOf(version.name));
 
 	type Payload =
 		| { kind: "text"; text: string; truncated: boolean }
@@ -129,18 +128,14 @@
 					const blob = await res.blob();
 					if (cancelled) return;
 					revokeObjectUrl();
-					objectUrl = URL.createObjectURL(
-						new Blob([blob], { type: filePreviewMimeType(ext) })
-					);
+					objectUrl = URL.createObjectURL(new Blob([blob], { type: filePreviewMimeType(ext) }));
 					payload = { kind: "image", url: objectUrl };
 				} else if (selected === "pdf") {
 					const blob = await res.blob();
 					if (cancelled) return;
 					// Typed application/pdf by this app: a typeless blob framed
 					// here downloads instead of rendering.
-					const dataUrl = await dataUrlOf(
-						new Blob([blob], { type: "application/pdf" })
-					);
+					const dataUrl = await dataUrlOf(new Blob([blob], { type: "application/pdf" }));
 					if (cancelled) return;
 					payload = { kind: "pdf", dataUrl };
 				} else {
@@ -220,7 +215,10 @@
 			>
 				<CarbonDocument class="size-8 flex-none text-gray-400" />
 				<div class="min-w-0 flex-1">
-					<p class="truncate font-mono text-sm text-gray-800 dark:text-gray-200" title={version.name}>
+					<p
+						class="truncate font-mono text-sm text-gray-800 dark:text-gray-200"
+						title={version.name}
+					>
 						{version.name}
 					</p>
 					<p class="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(version.size)}</p>
@@ -259,7 +257,9 @@
 			{/if}
 		</div>
 	{:else if payload?.kind === "image"}
-		<div class="scrollbar-custom flex min-h-0 flex-1 items-start justify-center overflow-auto px-6 py-5">
+		<div
+			class="scrollbar-custom flex min-h-0 flex-1 items-start justify-center overflow-auto px-6 py-5"
+		>
 			<img
 				src={payload.url}
 				alt={`Preview of ${version.name}`}

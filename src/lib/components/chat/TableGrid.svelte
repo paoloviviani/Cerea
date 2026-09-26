@@ -101,11 +101,7 @@
 						{#each table.header as head, col (col)}
 							<th
 								scope="col"
-								aria-sort={sortCol === col
-									? sortDir === 1
-										? "ascending"
-										: "descending"
-									: "none"}
+								aria-sort={sortCol === col ? (sortDir === 1 ? "ascending" : "descending") : "none"}
 								class="border border-gray-200 bg-gray-100 p-0 text-left font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
 							>
 								<button
@@ -133,7 +129,9 @@
 				</thead>
 				<tbody>
 					{#each shown as row, r (`${r}:${row.join("|")}`)}
-						<tr class="odd:bg-white even:bg-gray-50/60 dark:odd:bg-gray-900 dark:even:bg-gray-800/40">
+						<tr
+							class="odd:bg-white even:bg-gray-50/60 dark:odd:bg-gray-900 dark:even:bg-gray-800/40"
+						>
 							{#each row as cell (cell)}
 								<td
 									class="max-w-64 truncate border border-gray-200 px-2 py-1 text-gray-800 dark:border-gray-700/70 dark:text-gray-200"
