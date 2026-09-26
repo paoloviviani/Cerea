@@ -3,6 +3,7 @@ import {
 	collectFileArtifacts,
 	dedupeDeliverablesByName,
 	findFileVersionBySha,
+	withLiveRunFiles,
 } from "./fileArtifacts";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 
@@ -132,5 +133,100 @@ describe("dedupeDeliverablesByName", () => {
 			{ name: "a.pdf", mime: "application/pdf", size: 10, sha256: "s1", createdAt: "t1" },
 		];
 		expect(dedupeDeliverablesByName(rows).map((r) => r.sha256)).toEqual(["s2", "s3"]);
+	});
+});
+
+const outputs = (runKey: string, files: { name: string; size: number; sha256: string }[]) => ({
+	type: MessageUpdateType.CodeExecution as const,
+	subtype: MessageCodeExecutionUpdateType.Outputs as const,
+	runKey,
+	files,
+});
+
+describe("every produced file is a file artifact", () => {
+	it("folds a code block's stored files in exactly like a tool run's", () => {
+		// The case the user hit: "create a hello world docx" answered with an
+		// auto-running code block, whose file never became an artifact.
+		const registry = collectFileArtifacts([
+			{
+				id: "m1",
+				from: "assistant" as const,
+				updates: [outputs("chat:abc", [{ name: "hello_world.docx", size: 36_000, sha256: "d1" }])],
+			},
+			{
+				id: "m2",
+				from: "assistant" as const,
+				updates: [resolved("e1", [{ name: "hello_world.docx", size: 37_000, sha256: "d2" }])],
+			},
+		]);
+		const docx = registry.artifacts.get("hello_world.docx");
+		// One artifact, two versions, whichever path produced each.
+		expect(docx?.versions.map((v) => [v.sha256, v.version, v.messageId])).toEqual([
+			["d1", 1, "m1"],
+			["d2", 2, "m2"],
+		]);
+	});
+
+	it("adds nothing for a byte-identical re-run of a block", () => {
+		const registry = collectFileArtifacts([
+			{
+				id: "m1",
+				from: "assistant" as const,
+				updates: [
+					outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }]),
+					outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }]),
+				],
+			},
+		]);
+		expect(registry.artifacts.get("a.pdf")?.versions).toHaveLength(1);
+	});
+});
+
+describe("withLiveRunFiles", () => {
+	const message = (updates: ReturnType<typeof outputs>[] = []) => ({
+		id: "m1",
+		from: "assistant" as const,
+		updates,
+	});
+
+	it("adds a record made in this tab to its message", () => {
+		const live = { m1: [outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }])] };
+		const [merged] = withLiveRunFiles([message()], live);
+		expect(collectFileArtifacts([merged]).artifacts.has("a.pdf")).toBe(true);
+	});
+
+	it("skips a record the loader already served, so it is never a version twice", () => {
+		const record = outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }]);
+		const served = message([record]);
+		const [merged] = withLiveRunFiles([served], { m1: [record] });
+		expect(merged).toBe(served);
+	});
+
+	it("leaves every message without live records untouched", () => {
+		const other = { id: "m2", from: "assistant" as const, updates: [] };
+		const merged = withLiveRunFiles([message(), other], {
+			m1: [outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }])],
+		});
+		expect(merged[1]).toBe(other);
+	});
+
+	it("an orphan record under an abandoned client id never becomes a second version", () => {
+		// The race finding 1 fixes: a run settles and claims under the message's
+		// client-minted id, is refused (that id was never saved), and the same
+		// run's bytes are recorded again once the id swaps to the server's. Both
+		// attempts share this tab's `runFiles` live store, so if the failed
+		// attempt had somehow left an entry under the old id too, it must not
+		// resurface as a second version once folded through the same messages
+		// the real conversation actually has (which the abandoned id is not one
+		// of — only the server's message ever lands there).
+		const served = message();
+		const live = {
+			"client-minted-id": [outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }])],
+			m1: [outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }])],
+		};
+		const merged = withLiveRunFiles([served], live);
+		const registry = collectFileArtifacts(merged);
+		expect(registry.artifacts.get("a.pdf")?.versions).toHaveLength(1);
+		expect(registry.artifacts.get("a.pdf")?.versions[0].messageId).toBe("m1");
 	});
 });

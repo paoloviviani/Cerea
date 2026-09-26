@@ -15,7 +15,11 @@
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { CODE_PILL_BUTTON, CODE_ICON_BUTTON } from "./codeChrome";
 	import { chatRunKey } from "$lib/utils/execution/keys";
-	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
+	import { getRunsStore, type RunState } from "$lib/utils/execution/runs.svelte";
+	import { base } from "$app/paths";
+	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
+	import { recordRunFiles, uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import { runFiles } from "$lib/stores/runFiles.svelte";
 
 	interface Props {
 		code?: string;
@@ -163,7 +167,76 @@
 	 * before — nothing is ever removed, only folded, and one click restores
 	 * it.
 	 */
-	let generatedFileCount = $derived(runState?.outputFiles?.length ?? 0);
+	// ----- keeping the files a run produced -----
+	// Every file a run produces is kept and shown the same way, whichever path
+	// ran it: once this block's run settles with files, they are uploaded to
+	// the conversation's deliverable store (the same one an `execute_code` run
+	// uses) and recorded on this message, which is what makes them file
+	// artifacts and brings them back after a reload or on another device.
+	const messageRun = getMessageRunContext();
+	$effect(() => {
+		const state = runState;
+		const ctx = messageRun;
+		// Read every field the claim key and the request need up front,
+		// unconditionally: while the turn streams this message carries a
+		// client-minted id, swapped for the server's own once the turn's save
+		// round-trips and the page re-syncs. Reading `messageId` only past the
+		// guards below would leave it untracked whenever an early return was
+		// taken (the common case, since most runs never reach the upload), so
+		// this effect would never re-fire when the id later changes — reading
+		// it here is what makes that swap actually retrigger the attempt.
+		const canPersist = ctx?.canPersist ?? false;
+		const conversationId = ctx?.conversationId;
+		const messageId = ctx?.messageId;
+		if (!state || !canPersist || !conversationId || !messageId || !runKey) return;
+		if (state.status !== "done" && state.status !== "error") return;
+		// The file listing lands after the outcome; wait for it, or there is
+		// nothing to upload yet.
+		if (!state.outputsCollected || !state.outputFiles?.length) return;
+		// Keyed on the message id too: once per run per message in this tab. A
+		// remount (scrolling, a re-render) under the same id must not upload
+		// again; a run whose record was refused (the id wasn't saved yet) gets
+		// a fresh key once the id swaps to the server's, and so a fresh attempt.
+		const claimKey = `${messageId}|${runKey}@${state.startedAt}`;
+		if (!runFiles.claim(claimKey)) return;
+		const key = runKey;
+		const listed = state.outputFiles;
+		void (async () => {
+			const files = await uploadRunFiles(conversationId, listed);
+			const update = await recordRunFiles({ conversationId, messageId, runKey: key, files });
+			if (update) {
+				runFiles.add(messageId, update);
+			} else {
+				// A 409 (message not saved yet) or any other failure: give up the
+				// claim so a later attempt — under the same id, or the server's
+				// once it lands — is not permanently blocked by this one.
+				runFiles.release(claimKey);
+			}
+		})();
+	});
+
+	// A block from history has no live run, and its sandbox files died with the
+	// page that ran it; the stored copies stand in, as for a replayed
+	// `execute_code` card.
+	let storedState = $derived.by((): RunState | undefined => {
+		if (runState || !runKey || !messageRun?.conversationId) return undefined;
+		const files = messageRun.storedFiles(runKey);
+		if (!files?.length) return undefined;
+		return {
+			status: "done",
+			startedAt: 0,
+			persistedFiles: files.map((f) => ({
+				name: f.name,
+				size: f.size,
+				downloadUrl: `${base}/conversation/${messageRun.conversationId}/code-execution/output/${f.sha256}`,
+			})),
+		};
+	});
+	let shownState = $derived(runState ?? storedState);
+
+	let generatedFileCount = $derived(
+		runState?.outputFiles?.length ?? storedState?.persistedFiles?.length ?? 0
+	);
 </script>
 
 <div class="group relative my-4 rounded-lg">
@@ -252,5 +325,5 @@
 		{@render codeFence()}
 	{/if}
 
-	<RunOutput state={runState} class="mx-5 mb-3" />
+	<RunOutput state={shownState} class="mx-5 mb-3" />
 </div>

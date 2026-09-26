@@ -14,7 +14,7 @@ describe("execution prompt", () => {
 		// by Python faking the service — the sandbox has no network to reach it.
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("It is not a substitute for a tool you do not have");
 		expect(EXECUTION_SYSTEM_PROMPT).toMatch(/must not simulate one/);
-		expect(EXECUTION_SYSTEM_PROMPT).toMatch(/say which one is missing/);
+		expect(EXECUTION_SYSTEM_PROMPT).toMatch(/say which one and how to turn it on/);
 	});
 
 	it("tells file-deliverables apart from code-deliverables", () => {

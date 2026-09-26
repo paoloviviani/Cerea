@@ -1,5 +1,9 @@
 import type { Message } from "$lib/types/Message";
-import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import {
+	MessageCodeExecutionUpdateType,
+	MessageUpdateType,
+	type MessageCodeExecutionOutputsUpdate,
+} from "$lib/types/MessageUpdate";
 
 /**
  * File artifacts: outputs a Pyodide run produced, promoted to first-class
@@ -10,11 +14,12 @@ import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/Me
  * resolved update on an assistant message carries `files` references
  * (name + size + sha256) into the server-side output store (GridFS bucket
  * `codeOutputs`, metadata in `codeExecutionOutputs`), so the bytes survive
- * reloads and other devices without ever being duplicated. Only persisted
- * tool-run outputs become file artifacts: chat-fence and artifact-cell
- * scratch files stay session-only by the deliberate deliverables rule (see
- * `$lib/server/execution/deliverables.ts`), and dead references cannot back
- * a versioned artifact.
+ * reloads and other devices without ever being duplicated. **Every** run's
+ * files are persisted the same way, and so become file artifacts the same
+ * way: an `execute_code` tool run's ride on its `Resolved` update; a chat code
+ * block's or an artifact cell's on an `Outputs` update the browser records
+ * once the run settles. How a file was produced changes nothing about how it
+ * is kept or shown.
  *
  * Versioning mirrors text artifacts: every run that writes the same filename
  * appends a version, so a re-run that rewrites `report.pdf` is v2 of the
@@ -44,8 +49,9 @@ export interface FileArtifactRegistry {
 type FileMessage = Pick<Message, "id" | "from" | "updates">;
 
 /**
- * Walk the visible messages in order and fold persisted `execute_code`
- * outputs into versioned file artifacts, keyed by filename.
+ * Walk the visible messages in order and fold every persisted run output —
+ * tool runs, code blocks, artifact cells — into versioned file artifacts,
+ * keyed by filename.
  */
 export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegistry {
 	const artifacts = new Map<string, FileArtifact>();
@@ -54,7 +60,8 @@ export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegis
 		for (const update of message.updates ?? []) {
 			if (
 				update.type !== MessageUpdateType.CodeExecution ||
-				update.subtype !== MessageCodeExecutionUpdateType.Resolved
+				(update.subtype !== MessageCodeExecutionUpdateType.Resolved &&
+					update.subtype !== MessageCodeExecutionUpdateType.Outputs)
 			) {
 				continue;
 			}
@@ -114,5 +121,36 @@ export function dedupeDeliverablesByName<T extends Pick<DeliverableRow, "name">>
 		if (seen.has(row.name)) return false;
 		seen.add(row.name);
 		return true;
+	});
+}
+
+/**
+ * Add the output-file records this tab made since the conversation loaded to
+ * the messages they belong to, skipping any the loader already served (same
+ * run, same files). Only messages that gain something are copied.
+ */
+export function withLiveRunFiles<T extends FileMessage>(
+	messages: T[],
+	live: Record<string, MessageCodeExecutionOutputsUpdate[]>
+): T[] {
+	if (Object.keys(live).length === 0) return messages;
+	const fingerprint = (u: MessageCodeExecutionOutputsUpdate) =>
+		`${u.runKey}|${u.files.map((f) => f.sha256).join(",")}`;
+	return messages.map((message) => {
+		const extra = live[message.id];
+		if (!extra?.length) return message;
+		const served = new Set(
+			(message.updates ?? [])
+				.filter(
+					(u): u is MessageCodeExecutionOutputsUpdate =>
+						u.type === MessageUpdateType.CodeExecution &&
+						u.subtype === MessageCodeExecutionUpdateType.Outputs
+				)
+				.map(fingerprint)
+		);
+		const missing = extra.filter((u) => !served.has(fingerprint(u)));
+		return missing.length
+			? { ...message, updates: [...(message.updates ?? []), ...missing] }
+			: message;
 	});
 }

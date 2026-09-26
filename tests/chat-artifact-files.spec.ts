@@ -226,3 +226,94 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 		panel.getByTestId("file-artifact-view").locator('iframe[title="Preview of hello.pdf"]')
 	).toHaveAttribute("src", /^data:application\/pdf/, { timeout: 30_000 });
 });
+
+/** The same key CodeBlock uses (`chatRunKey` in src/lib/utils/execution/keys.ts). */
+function chatRunKey(code: string): string {
+	let hash = 5381;
+	for (let i = 0; i < code.length; i++) hash = ((hash << 5) + hash + code.charCodeAt(i)) | 0;
+	return `chat:${(hash >>> 0).toString(36)}`;
+}
+
+test("a code block's file is a file artifact too, and comes back after a reload", async ({
+	page,
+	db,
+	seedConversation,
+}) => {
+	// The case the user hit: "create a hello world docx" answered with an
+	// auto-running code block (not the execute_code tool). Its file used to be
+	// session-only — never an artifact, gone on reload. What the browser now
+	// leaves behind once that block's run settles is a stored deliverable plus
+	// a `codeRunFiles` record naming the message; that is what is seeded here.
+	await db.collection("codeExecutionOutputs").deleteMany({});
+	await db.collection("codeRunFiles").deleteMany({});
+	await db.collection("codeOutputs.files").deleteMany({});
+	await db.collection("codeOutputs.chunks").deleteMany({});
+
+	const code =
+		'from docx import Document\nd = Document()\nd.add_paragraph("Hello world")\nd.save("hello_world.docx")';
+	const answer = `Here's a small script that creates the file:\n\n\`\`\`python\n${code}\n\`\`\`\n`;
+	const conversationId = await seedConversation({
+		title: "Hello world docx",
+		messages: [
+			{ from: "system", content: "" },
+			{ from: "user", content: "Can you create a hello world docx?" },
+			{
+				from: "assistant",
+				content: answer,
+			},
+		],
+	});
+	const docx = await seedDeliverable(
+		db,
+		conversationId,
+		"hello_world.docx",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		makeDocx("Hello world")
+	);
+	const conv = await db.collection("conversations").findOne({ _id: conversationId });
+	const assistantId = (conv?.messages as Array<{ id: string; from: string }>).find(
+		(m) => m.from === "assistant"
+	)?.id;
+	await db.collection("conversations").updateOne(
+		{ _id: conversationId },
+		{
+			$set: {
+				"messages.2.updates": [finalAnswer(answer)],
+			},
+		}
+	);
+	await db.collection("codeRunFiles").insertOne({
+		_id: new ObjectId(),
+		conversationId,
+		messageId: assistantId,
+		runKey: chatRunKey(code),
+		files: [docx],
+		fingerprint: docx.sha256,
+		createdAt: new Date(),
+	});
+
+	for (const pass of ["first load", "after a reload"]) {
+		if (pass === "after a reload") await page.reload();
+		else await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
+
+		// Under the block, the stored file stands in for the sandbox's (dead) one.
+		await expect(page.getByText("hello_world.docx").first(), pass).toBeVisible({
+			timeout: 30_000,
+		});
+
+		// And it is a file artifact like any other: listed, and opens in the panel.
+		await page.getByRole("button", { name: "Open artifacts panel" }).click();
+		const library = page.getByLabel("Artifacts panel", { exact: true });
+		await library.getByRole("button", { name: "Open hello_world.docx in panel" }).click();
+		const panel = page.getByLabel("Artifact panel", { exact: true });
+		await expect(panel.getByRole("heading", { name: "hello_world.docx" }), pass).toBeVisible({
+			timeout: 30_000,
+		});
+		const frame = panel
+			.getByTestId("file-artifact-view")
+			.locator('iframe[title="Preview of hello_world.docx"]');
+		await expect(frame.contentFrame().getByText("Hello world"), pass).toBeVisible({
+			timeout: 30_000,
+		});
+	}
+});

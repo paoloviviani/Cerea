@@ -12,6 +12,7 @@ import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
 import { usdToMicroUsd } from "$lib/utils/mlBudget";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
+import { withRunFiles } from "$lib/server/execution/runFiles";
 
 export const GET: RequestHandler = async ({ locals, params, url }) => {
 	requireAuth(locals);
@@ -71,8 +72,15 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		// No defaults is a valid answer; the chat falls back to app defaults.
 	}
 
+	// A code block's and an artifact cell's stored files, on their messages.
+	// Not for a share view: its id is the share's, and a viewer cannot fetch
+	// the owner's files anyway (owner-only downloads, by the user's decision).
+	const messages = conversation.shared
+		? conversation.messages
+		: await withRunFiles(conversation._id, conversation.messages);
+
 	return superjsonResponse({
-		messages: conversation.messages,
+		messages,
 		title: conversation.title,
 		model: conversation.model,
 		projectDefaults,

@@ -6,13 +6,14 @@ import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 
 /**
- * The browser uploads a run's own output files here once they settle — see
- * CodeExecutionCard.svelte, which reads the bytes out of its ExecutionSession
- * the same way FileCard already does for a live download, and posts them as
- * `multipart/form-data` (one or more `file` parts). This is the only caller:
- * a fence run or artifact cell never reaches this route, which is what keeps
- * "deliverable" scoped to a tool run's own surfaced output (see
- * `$lib/server/execution/deliverables.ts`'s header).
+ * The browser uploads a run's own output files here once they settle —
+ * every run path, through `uploadRunFiles` (an `execute_code` card, a chat
+ * code block, an artifact cell), which reads the bytes out of its
+ * ExecutionSession the same way FileCard does for a live download and posts
+ * them as `multipart/form-data` (one or more `file` parts). Every produced
+ * file is a deliverable (see `$lib/server/execution/deliverables.ts`'s
+ * header); a block's or a cell's are then attached to their message through
+ * `../run-files`.
  *
  * Access is the same conversation-ownership check the resolve endpoint and
  * the message-attachment output route use (`authCondition`); there is no

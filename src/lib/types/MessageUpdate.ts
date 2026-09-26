@@ -227,6 +227,11 @@ export enum MessageElicitationUpdateType {
 export enum MessageCodeExecutionUpdateType {
 	Request = "request",
 	Resolved = "resolved",
+	/**
+	 * Files a code block or an artifact cell produced, persisted like a tool
+	 * run's (see `MessageCodeExecutionOutputsUpdate`).
+	 */
+	Outputs = "outputs",
 }
 
 export interface MessageCodeExecutionRequestUpdate {
@@ -262,8 +267,26 @@ export interface MessageCodeExecutionResolvedUpdate {
 	files?: PersistedDeliverableRef[];
 }
 
+/**
+ * The persisted output files of a run the browser started on its own — an
+ * auto-running or manually run chat code block, or an artifact cell — as
+ * opposed to an `execute_code` tool run, whose files ride on its `Resolved`
+ * update. One record per settled run, appended to the assistant message the
+ * code belongs to, so every produced file is retained and shown the same way
+ * however it was produced: same store, same caps and TTL, same file artifact.
+ */
+export interface MessageCodeExecutionOutputsUpdate {
+	type: MessageUpdateType.CodeExecution;
+	subtype: MessageCodeExecutionUpdateType.Outputs;
+	/** The run's key (`chatRunKey` / `artifactRunKey`), so a replayed block finds its own files. */
+	runKey: string;
+	files: PersistedDeliverableRef[];
+}
+
 export type MessageCodeExecutionUpdate =
-	MessageCodeExecutionRequestUpdate | MessageCodeExecutionResolvedUpdate;
+	| MessageCodeExecutionRequestUpdate
+	| MessageCodeExecutionResolvedUpdate
+	| MessageCodeExecutionOutputsUpdate;
 
 export type MessageElicitationUpdate =
 	MessageElicitationRequestUpdate | MessageElicitationResolvedUpdate;
