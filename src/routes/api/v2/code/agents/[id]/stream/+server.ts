@@ -1,8 +1,8 @@
 /**
  * The agent (session) timeline as server-sent events, translated live from
  * the paired machine — rebuilt on the machine's own `epoch`/`seq` cursor
- * (spec §8), replacing the paseo-era bridge's invented replay counter (R3)
- * and its content-keyed seam de-duplication (R4).
+ * (spec §8): no invented replay counter (R3) and no content-keyed seam
+ * de-duplication (R4).
  *
  * The browser holds one `EventSource` on this endpoint; the server holds one
  * subscription to the session's live events (`subscribeSessionEvents`,

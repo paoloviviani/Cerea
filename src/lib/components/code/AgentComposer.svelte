@@ -7,11 +7,11 @@
 	knowledge or tool-approval pills either — the pill row hides with an
 	empty allowlist), no hub mentions. What renders instead are the pills
 	the agent owns, in the chat composer's own pill idiom and inside the
-	prompt box like chat's: the mode (paseo's permission vocabulary —
-	plan, build, … — listed live from the daemon, never a hardcoded set
+	prompt box like chat's: the mode (the backend's permission vocabulary —
+	plan, build, … — listed live from the machine, never a hardcoded set
 	that would drift from what it enforces) and the model. Both apply live
 	to the open agent, not to one send: the licence is the agent's until it
-	is switched again, which is paseo's own semantics. Beside them sit the
+	is switched again (`session.setMode`/`setModel`). Beside them sit the
 	provider's feature toggles the agent itself reports (opencode's
 	auto-accept), drawn like chat's own toggle pills — blue when on, gray
 	when off — and claimed only from the agent's snapshot.
@@ -21,12 +21,12 @@
 	place) — and it stays while a permission card is up, because stopping
 	a prompt nobody wants to answer is the point of it.
 
-	There is no provider field: the agent already has one, and the daemon's
-	send takes none.
+	There is no provider field: the agent already has one, and
+	`session.prompt` takes none.
 
 	The reply is NOT inserted optimistically: the transcript stream echoes
 	the person's message back, and the stream is the source of truth.
-	Sending twice against a slow daemon would print twice.
+	Sending twice against a slow machine would print twice.
 -->
 <script lang="ts">
 	import { untrack } from "svelte";

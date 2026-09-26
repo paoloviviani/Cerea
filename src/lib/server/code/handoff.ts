@@ -1,9 +1,7 @@
 /**
- * The fork handoff's "chat history" attachment (parity plan §4.2(a); the
- * paseo mechanics it names — `buildAgentForkContext`, idempotency keys,
- * `cerea.handoff-from` labels — are obsolete, replaced by an ordinary
- * `session.create` + `session.prompt` pair over the thin machine protocol,
- * spec §6/§8).
+ * The fork handoff's "chat history" attachment: an ordinary
+ * `session.create` + `session.prompt` pair over the machine protocol
+ * (spec §6/§8), with this render attached to the prompt.
  *
  * A curated markdown render of a source session's transcript: user and
  * assistant text, plus one line per tool call. No raw tool input/output

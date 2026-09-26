@@ -191,7 +191,7 @@ export class Database {
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
 		// Paired coding-agent devices for the `/code` panel (one person's
-		// machines running the paseo daemon). The daemon owns every live
+		// machines running galopin). The machine owns every live
 		// thing — workspaces, sessions, transcripts — so these rows are the
 		// only agent state this app persists: who paired what, and whether
 		// the pairing completed.
