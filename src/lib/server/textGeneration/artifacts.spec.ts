@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
 
 import {
+	ARTIFACT_TOOL_GUIDANCE,
 	ARTIFACT_TOOL_POINTER,
 	ARTIFACT_TOOL_RULE,
 	ARTIFACTS_SYSTEM_PROMPT,
@@ -171,6 +172,16 @@ describe("tool preprompt gating", () => {
 		});
 		expect(toolMode).toContain(ARTIFACT_TOOL_POINTER);
 		expect(toolMode).not.toContain(ARTIFACT_TOOL_RULE);
+	});
+});
+
+describe("markdown math support", () => {
+	it("tells the model markdown artifacts render LaTeX, in tags mode and tool mode", () => {
+		// The panel's markdown renderer is the chat pipeline (KaTeX), so both
+		// surfaces must say so — checked here so a rewording cannot silently
+		// drop the promise.
+		expect(ARTIFACTS_SYSTEM_PROMPT).toContain("$inline$ and $$display$$");
+		expect(ARTIFACT_TOOL_GUIDANCE).toContain("$inline$ and $$display$$");
 	});
 });
 

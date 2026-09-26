@@ -112,6 +112,18 @@ describe("renderAnswerBody", () => {
 		expect(body).toContain("```html");
 		expect(body).toContain("<h1>half");
 	});
+
+	it("keeps markdown artifact math verbatim for export and copy", () => {
+		// The panel renders this body through the chat KaTeX pipeline; the
+		// export and the copy button carry the raw source, so the math must
+		// pass through untouched in both inline and display form.
+		const body = renderAnswerBody(
+			'<artifact identifier="notes" type="markdown" title="Notes"># Notes\nEinstein said $E = mc^2$.\n\n$$\n\\int_0^1 x\\,dx\n$$\n</artifact>'
+		);
+		expect(body).toContain("```markdown");
+		expect(body).toContain("$E = mc^2$");
+		expect(body).toContain("$$\n\\int_0^1 x\\,dx\n$$");
+	});
 });
 
 describe("collectToolNames", () => {
