@@ -15,8 +15,9 @@ import (
 //     provider entry carries the shim secret as an apiKey.
 //   - OPENCODE_CONFIG_CONTENT / OPENCODE_CONFIG_DIR: opencode's inline
 //     config and config dir. galopin never sets them, but a parent that
-//     launched `galopin run` from inside another opencode (paseo does)
-//     leaks its own inline config, provider keys included, through them.
+//     launched `galopin run` from inside another opencode (an agent
+//     orchestrator can) leaks its own inline config, provider keys
+//     included, through them.
 //   - GALOPIN_SHIM_SECRET / GALOPIN_ACCESS_TOKEN / GALOPIN_REFRESH_TOKEN /
 //     GALOPIN_CREDENTIAL: not set today (the shim's secret and the
 //     enrollment's tokens live only in credentials.json and in memory,

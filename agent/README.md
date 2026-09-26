@@ -4,7 +4,7 @@ galopin — Torinese for a clerk or handyman — is the Cerea machine agent: the
 one binary a coding-agent machine runs so the chat's `/code` panel can drive
 opencode (or any ACP agent) on it. It authenticates a person to the Pystino
 gateway, wires up opencode's config, and dials **out** to Cerea over WSS —
-no relay, no daemon, and nothing capability-bearing stored in Cerea. The wire
+with no relay in between and nothing capability-bearing stored in Cerea. The wire
 protocol it speaks is `PROTOCOL.md`, in this same directory.
 
 ## Licensing

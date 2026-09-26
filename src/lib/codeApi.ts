@@ -2,10 +2,10 @@
  * Talking to the coding-agent panel from a page, through this app's own endpoints.
  *
  * Every call goes to `/api/v2/code/<path>`. Pairing rows are brokered by Cerea
- * itself (per-user Mongo records); live agent state is proxied to the paseo
- * daemon with the deployment's credential attached server-side. Either way
+ * itself (per-user Mongo records); live agent state is forwarded to the
+ * paired machine over the socket it dialled out on (spec §8). Either way
  * the browser holds no secret — putting one on the page would make every
- * extension a daemon client.
+ * extension a machine client.
  *
  * Responses from these endpoints use the superjson wire format (Dates stay
  * Dates); errors carry the server's own message, written for whoever caused
@@ -176,12 +176,12 @@ export async function listProviders(
  * paired row's `credentialState` (kept live by every `hello`/`credential`
  * frame the machine sends, spec §5) is not `"expired"`, `"expired"` when it
  * is, and `"unreachable"` for a device this deployment cannot currently read
- * at all. Unlike the paseo-era probe this replaces, nothing here makes a
- * network call: the device row already carries the answer. */
+ * at all. Nothing here makes a network call: the device row already
+ * carries the answer. */
 export type EnrollmentCheck = "ok" | "expired" | "unreachable";
 
-/** The provider's modes — paseo's permission vocabulary (plan, build, …),
- * as the daemon itself defines it. */
+/** The backend's modes — its own permission vocabulary (opencode: plan,
+ * build, …), as the machine lists it. */
 export async function listProviderModes(
 	deviceId: string,
 	provider: string
@@ -368,9 +368,9 @@ export type AgentPosture = "plan" | "write";
 export type PermissionDecision = "once" | "always" | "reject";
 
 /** Send a follow-up to a running session. The reply arrives on the timeline
- * stream. No licence rides along: the agent's mode — paseo's permission
- * vocabulary — is switched live by the composer's mode pill and stays until
- * switched again, which is paseo's own semantics rather than a per-send
+ * stream. No licence rides along: the agent's mode — the backend's
+ * permission vocabulary — is switched live by the composer's mode pill and
+ * stays until switched again (`session.setMode`), rather than a per-send
  * override. */
 export async function sendFollowUp(
 	deviceId: string,
