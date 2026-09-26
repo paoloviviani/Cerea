@@ -1,4 +1,4 @@
-import { GridFSBucket, MongoClient, ReadPreference } from "mongodb";
+import { GridFSBucket, MongoClient, ReadPreference, type Collection } from "mongodb";
 // The mongodb driver require()s these lazily at runtime when the connection
 // string uses authMechanism=MONGODB-AWS (IRSA / web identity in prod). Import
 // them statically so dependency-cleanup passes don't strip them from
@@ -47,6 +47,54 @@ import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
+
+/**
+ * ADR 0093: attribute a share made before `SharedConversation.userId`
+ * existed to the conversation it was shared from, by matching
+ * `rootMessageId` (every share has one, and it's copied byte for byte from
+ * the source conversation, `id` included) against
+ * `conversations.messages.id`. Left unattributed, and counted at a WARNING,
+ * when no conversation carries that message id (the source conversation was
+ * itself later deleted) or the match has no `userId` (a session-only
+ * share). Safe to run on every start: only rows still missing `userId` are
+ * considered, so an already-attributed share is never re-matched.
+ */
+export async function backfillLegacySharedConversationOwners(
+	sharedConversations: Pick<Collection<SharedConversation>, "find" | "updateOne">,
+	conversations: Pick<Collection<Conversation>, "findOne">
+): Promise<{ attributed: number; unattributed: number }> {
+	const legacy = await sharedConversations
+		.find({ userId: { $exists: false } } as never)
+		.project<{ _id: string; rootMessageId?: string }>({ _id: 1, rootMessageId: 1 })
+		.toArray();
+
+	let attributed = 0;
+	let unattributed = 0;
+	for (const share of legacy) {
+		const owner = share.rootMessageId
+			? await conversations.findOne(
+					{ "messages.id": share.rootMessageId, userId: { $exists: true } } as never,
+					{ projection: { userId: 1 } } as never
+				)
+			: null;
+		if (owner?.userId) {
+			await sharedConversations.updateOne(
+				{ _id: share._id } as never,
+				{ $set: { userId: owner.userId } } as never
+			);
+			attributed++;
+		} else {
+			unattributed++;
+		}
+	}
+	if (unattributed > 0) {
+		logger.warn(
+			{ unattributed },
+			`${unattributed} legacy shared link(s) could not be attributed to an owner`
+		);
+	}
+	return { attributed, unattributed };
+}
 
 export class Database {
 	private client?: MongoClient;
@@ -568,6 +616,18 @@ export class Database {
 		sharedConversations
 			.createIndex({ userId: 1 }, { sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for sharedConversations by userId"));
+		// Best-effort backfill for a share made before `userId` existed: a
+		// share copies its source conversation's messages verbatim
+		// (`routes/conversation/[id]/share/+server.ts`), so its `rootMessageId`
+		// (every share has one) still names a message that lives, byte for
+		// byte, on the conversation it was shared from. Attribute the share to
+		// that conversation's owner. Idempotent (only rows still missing
+		// `userId` are considered) and safe to float: a share that can't be
+		// attributed this way stays that way and is counted, not retried in a
+		// tight loop.
+		backfillLegacySharedConversationOwners(sharedConversations, conversations).catch((e) =>
+			logger.error(e, "Error backfilling legacy sharedConversations owners")
+		);
 		settings
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by sessionId"));
