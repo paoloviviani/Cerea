@@ -129,7 +129,7 @@ interface katexInlineToken extends Tokens.Generic {
 	type: "katexInline";
 	raw: string;
 	text: string;
-	displayMode: false;
+	displayMode: boolean;
 }
 
 function renderKatex(token: katexBlockToken | katexInlineToken): string {
@@ -142,13 +142,41 @@ function renderKatex(token: katexBlockToken | katexInlineToken): string {
 	});
 }
 
+/**
+ * Is the character at `index` inside a same-line, still-open inline code
+ * span (an odd number of backticks since the last line break)? Marked's
+ * block and inline extensions only get a `start()` hint, not code-span
+ * awareness, so without this a `$$`/`\(` sitting inside `` `...` `` makes
+ * marked cut the surrounding paragraph or text run right before it —
+ * stranding the code span's own backticks as stray text on either side of
+ * a bogus math match (confirmed: "` in your template." coming out as
+ * literal text around a rendered formula for `` `$$x$$` ``).
+ */
+function isInsideCodeSpan(text: string, index: number): boolean {
+	const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+	const backticks = text.slice(lineStart, index).match(/`/g)?.length ?? 0;
+	return backticks % 2 === 1;
+}
+
+/** The first `$$`/`\[` in `src` that isn't inside a code span, or -1. Shared
+ * by the block and inline extensions' `start()` — both need the same
+ * code-span exclusion, over their own delimiter patterns. */
+function firstMathStart(src: string, pattern: RegExp): number {
+	const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+	const withG = new RegExp(pattern.source, flags);
+	let match: RegExpExecArray | null;
+	while ((match = withG.exec(src))) {
+		if (!isInsideCodeSpan(src, match.index)) return match.index;
+	}
+	return -1;
+}
+
 export const katexBlockExtension: TokenizerExtension & RendererExtension = {
 	name: "katexBlock",
 	level: "block",
 
 	start(src: string): number | undefined {
-		const match = src.match(/(\${2}|\\\[)/);
-		return match ? match.index : -1;
+		return firstMathStart(src, /\${2}|\\\[/);
 	},
 
 	tokenizer(src: string): katexBlockToken | undefined {
@@ -194,13 +222,36 @@ const katexInlineExtension: TokenizerExtension & RendererExtension = {
 	level: "inline",
 
 	start(src: string): number | undefined {
-		const match = src.match(/(\$|\\\()/);
-		return match ? match.index : -1;
+		return firstMathStart(src, /\$|\\\(/);
 	},
 
 	tokenizer(src: string): katexInlineToken | undefined {
-		// 1) $...$
-		const rule1 = /^\$([^$]+?)\$/;
+		// 1) $$...$$ mid-inline: the block extension only ever sees this when
+		// it starts a block (or a paragraph is cut right before it, §
+		// katexBlockExtension.start); text that a container tokenizes
+		// directly as inline (a heading, a list item, a table cell) hands
+		// `$$...$$` to this tokenizer whole. Tried before the single-$ rule
+		// below, or its
+		// first `$` would be left stranded as text and its second `$` would
+		// pair with the *closing* pair's first `$` — the reported bug, a
+		// stray `$` on each side around an inline (not display) render.
+		// Rendered in display mode, the same convention as the block form.
+		const ruleDouble = /^\${2}([\s\S]+?)\${2}/;
+		const matchDouble = ruleDouble.exec(src);
+		if (matchDouble) {
+			const token: katexInlineToken = {
+				type: "katexInline",
+				raw: matchDouble[0],
+				text: matchDouble[1].trim(),
+				displayMode: true,
+			};
+			return token;
+		}
+
+		// 2) $...$ — the closing `$` must not be preceded by whitespace, or
+		// two separate currency mentions on one line ("$5 and $10") pair up
+		// across the words between them into one bogus formula.
+		const rule1 = /^\$(?!\s)([^$]+?)(?<!\s)\$/;
 		const match1 = rule1.exec(src);
 		if (match1) {
 			const token: katexInlineToken = {
@@ -212,7 +263,7 @@ const katexInlineExtension: TokenizerExtension & RendererExtension = {
 			return token;
 		}
 
-		// 2) \(...\)
+		// 3) \(...\)
 		const rule2 = /^\\\(([\s\S]+?)\\\)/;
 		const match2 = rule2.exec(src);
 		if (match2) {
