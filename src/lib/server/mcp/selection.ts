@@ -18,6 +18,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { bearerFor } from "./oauth";
 import type { McpConnector } from "$lib/types/McpConnector";
+import type { McpTurnSelection } from "$lib/types/Conversation";
 
 export interface ResolvedServer {
 	name: string;
@@ -129,4 +130,61 @@ export function withoutClientCredentials(
 		);
 	}
 	return sent.map(({ name, url }) => ({ name, url }));
+}
+
+/** The `locals.mcp` a turn runs with (read by `runMcpFlow`). */
+export interface McpLocals {
+	unavailable: Array<{ name: string; reason: string }>;
+	selectedServerNames?: string[];
+	selectedServers: ResolvedServer[];
+}
+
+/**
+ * Build a turn's MCP servers from its selection, resolving connectors
+ * server-side with this person's own credential.
+ *
+ * One function for every way a turn runs, and that is the point of it: a turn
+ * that parks — on `execute_code`, a timer, a tool approval — is resumed later
+ * with no request to read a selection from. Before this, the resume rebuilt the
+ * identity but not the connectors, so everything after the first
+ * `execute_code` ran with the built-in tools only and the model went looking
+ * for the missing connector among the skills.
+ */
+export async function mcpLocalsFor(
+	selection: McpTurnSelection,
+	userId?: ObjectId
+): Promise<McpLocals> {
+	const resolved = userId
+		? await resolveSelection({ connectorIds: selection.connectorIds, userId })
+		: { servers: [], needAuthorization: [] };
+
+	if (resolved.needAuthorization.length > 0) {
+		// Left out rather than called without a token: a 401 would reach the
+		// model as "that tool failed" and the person would get an answer
+		// shaped by a missing capability instead of a prompt to sign in.
+		logger.info(
+			{ connectors: resolved.needAuthorization },
+			"mcp_connector_not_authorized: left out of this turn"
+		);
+	}
+
+	return {
+		// Told to the model this turn (`runMcpFlow`), so it says the
+		// connector needs attention instead of improvising its tools.
+		unavailable: resolved.needAuthorization.map((name) => ({
+			name,
+			reason: "not signed in, or its token is missing",
+		})),
+		selectedServerNames: selection.serverNames,
+		selectedServers: [
+			...selection.customServers.map(({ name, url }) => ({ name, url })),
+			// Connectors **last**, because `runMcpFlow` deduplicates by name
+			// and the later entry wins. Two of these can share a name — a
+			// connector called "Notion" beside a stale custom server of the
+			// same name in somebody's localStorage — and the one that must
+			// survive is the one carrying a credential this browser never
+			// held.
+			...resolved.servers,
+		],
+	};
 }

@@ -6,6 +6,17 @@ import type { User } from "./User";
 import type { Assistant } from "./Assistant";
 import type { Project } from "./Project";
 
+/**
+ * What a turn was asked to use: ids and names, never a credential. Ad-hoc
+ * servers keep only their name and URL, which is all the server side ever
+ * keeps of them.
+ */
+export interface McpTurnSelection {
+	connectorIds: string[];
+	serverNames?: string[];
+	customServers: { name: string; url: string }[];
+}
+
 export interface Conversation extends Timestamps {
 	_id: ObjectId;
 
@@ -13,6 +24,13 @@ export interface Conversation extends Timestamps {
 	userId?: User["_id"];
 
 	model: string;
+
+	/**
+	 * The MCP selection the latest turn ran with — connector ids and server
+	 * names, never a credential. Kept so a parked turn resumes with the same
+	 * connectors: the resume has no request to read them from.
+	 */
+	mcpSelection?: McpTurnSelection;
 
 	title: string;
 	rootMessageId?: Message["id"];

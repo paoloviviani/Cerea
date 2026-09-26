@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
+import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { onExit } from "$lib/server/exitHandler";
 import { models } from "$lib/server/models";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree";
@@ -221,6 +222,22 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	if (!model) return abandon(park, `model ${conv.model} is no longer available`);
 
 	const { locals, settings, tokenExpired } = await rebuildIdentity(park);
+
+	// The connectors the turn was started with. A resume has no request to
+	// read them from, and without this every round after the park ran with the
+	// built-in tools only (the model then hunted for the missing connector
+	// among the skills). Best effort: a failure leaves the environment's
+	// servers, as a fresh turn's failed resolution does.
+	if (conv.mcpSelection) {
+		try {
+			(locals as unknown as Record<string, unknown>).mcp = await mcpLocalsFor(
+				conv.mcpSelection,
+				park.userId
+			);
+		} catch (err) {
+			logger.warn({ err }, "[parked] could not restore the turn's MCP selection");
+		}
+	}
 
 	const generationId = randomUUID();
 	const initialContent = message.content;
