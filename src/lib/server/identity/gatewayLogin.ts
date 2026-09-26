@@ -63,11 +63,13 @@ async function findByGatewayUserId(
 	return users.findOne({ gatewayUserId, mergedInto: { $exists: false } } as never);
 }
 
-/** The chat users this gateway id's login should fold in (§4.3 step 3):
- * either a gateway id the gateway just told us was merged into this one, or
- * an unclaimed legacy account still keyed on the old `(issuer, hfUserId)`
- * shape. Never a user already mid-merge into someone else. */
-async function findStrays(
+/** The chat users this gateway id's login should fold in (§4.3 step 3, and
+ * §4.4's background fold): either a gateway id the gateway just told us was
+ * merged into this one, or an unclaimed legacy account still keyed on the
+ * old `(issuer, hfUserId)` shape. Never a user already mid-merge into
+ * someone else. Exported so the session check (`gatewaySession.ts`) can run
+ * the same query against `GET /v1/me/identities`'s answer. */
+export async function findStrays(
 	users: Pick<Collection<User>, "find">,
 	mergedFrom: string[],
 	identities: { issuer: string; subject: string }[]
@@ -87,6 +89,16 @@ async function findStrays(
 	}
 	if (clauses.length === 0) return [];
 	return users.find({ mergedInto: { $exists: false }, $or: clauses } as never).toArray();
+}
+
+/** Merge every stray into the target, skipping a stray that (by some race)
+ * already names the target itself. Shared by `resolveGatewayLogin`'s own
+ * merge step and the session check's background fold. */
+export async function mergeStrays(strays: User[], targetId: ObjectId): Promise<void> {
+	for (const stray of strays) {
+		if (stray._id.equals(targetId)) continue;
+		await mergeChatUsers(stray._id, targetId);
+	}
 }
 
 export async function resolveGatewayLogin(
@@ -123,10 +135,7 @@ export async function resolveGatewayLogin(
 		return { user: null, gatewayUserId: info.id, pendingStrays: strays.map((s) => s._id) };
 	}
 
-	for (const stray of strays) {
-		if (stray._id.equals(target._id)) continue;
-		await mergeChatUsers(stray._id, target._id);
-	}
+	await mergeStrays(strays, target._id);
 
 	return { user: target, gatewayUserId: info.id, pendingStrays: [] };
 }
