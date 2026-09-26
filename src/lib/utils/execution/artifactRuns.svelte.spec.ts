@@ -137,6 +137,10 @@ describe("artifact run outputs", () => {
 
 		const state = store?.get(artifactRunKey("analysis", 1, "build()"));
 		expect(state?.status).toBe("done");
+		// The artifact panel's persist effect waits on this flag before
+		// uploading, exactly as the chat-block runs store's does — it must
+		// flip once the listing lands, not stay unset forever.
+		expect(state?.outputsCollected).toBe(true);
 
 		// The listing is not persisted: the worker filesystem dies with the
 		// page load, so a reload must not offer files that no longer exist.
@@ -146,5 +150,19 @@ describe("artifact run outputs", () => {
 		expect(
 			getArtifactRunsStore()?.get(artifactRunKey("analysis", 1, "build()"))?.outputFiles
 		).toBeUndefined();
+	});
+
+	it("marks collection even when the run produced no files", async () => {
+		// Without this, a fileless cell run would wait out the persist effect's
+		// `outputsCollected` gate forever — there is no later event to retry on.
+		const store = getArtifactRunsStore();
+		store?.run("analysis", 1, "print(1)");
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		sessionMock.settleNext(outcome({ stdout: "1\n" }));
+
+		await vi.waitFor(() =>
+			expect(store?.get(artifactRunKey("analysis", 1, "print(1)"))?.outputsCollected).toBe(true)
+		);
+		expect(store?.get(artifactRunKey("analysis", 1, "print(1)"))?.outputFiles).toEqual([]);
 	});
 });

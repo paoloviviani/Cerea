@@ -14,7 +14,7 @@ import {
 	createTestConversation,
 	cleanupTestData,
 } from "$lib/server/api/__tests__/testHelpers";
-import { withRunFiles } from "$lib/server/execution/runFiles";
+import { withRunFiles, MAX_CODE_RUN_FILES_PER_CONVERSATION } from "$lib/server/execution/runFiles";
 import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { Message } from "$lib/types/Message";
@@ -151,6 +151,27 @@ describe.sequential("POST /conversation/[id]/code-execution/run-files", () => {
 		expect(await collections.codeRunFiles.countDocuments({})).toBe(0);
 	});
 
+	it("refuses a messageId that isn't on the conversation yet, and writes nothing", async () => {
+		// The race the client-side fix answers: an auto-run settles under the
+		// client-minted id, before the turn's save and the page's re-sync land
+		// the server's real id on the conversation.
+		const { locals, conv } = await ownerWithConversation();
+		const stored = await uploadFile(locals, conv._id, "a.pdf", "pdf");
+
+		await expect(
+			record({
+				params: { id: conv._id.toString() },
+				locals,
+				request: recordRequest({
+					messageId: "client-minted-id",
+					runKey: "chat:abc",
+					sha256: [stored.sha256],
+				}),
+			} as never)
+		).rejects.toMatchObject({ status: 409 });
+		expect(await collections.codeRunFiles.countDocuments({})).toBe(0);
+	});
+
 	it("refuses to attach files to a user message", async () => {
 		const { locals, conv } = await ownerWithConversation();
 		await collections.conversations.updateOne(
@@ -170,6 +191,74 @@ describe.sequential("POST /conversation/[id]/code-execution/run-files", () => {
 				}),
 			} as never)
 		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it("refuses a new record past the per-conversation cap", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const stored = await uploadFile(locals, conv._id, "a.pdf", "pdf");
+		const filler = Array.from({ length: MAX_CODE_RUN_FILES_PER_CONVERSATION }, (_, i) => ({
+			_id: new ObjectId(),
+			conversationId: conv._id,
+			messageId: "asst-1",
+			runKey: `chat:filler-${i}`,
+			fingerprint: `f${i}`,
+			files: [{ name: "filler.txt", size: 1, sha256: "f".repeat(63) + String(i % 10) }],
+			createdAt: new Date(),
+		}));
+		await collections.codeRunFiles.insertMany(filler as never);
+
+		await expect(
+			record({
+				params: { id: conv._id.toString() },
+				locals,
+				request: recordRequest({
+					messageId: "asst-1",
+					runKey: "chat:one-too-many",
+					sha256: [stored.sha256],
+				}),
+			} as never)
+		).rejects.toMatchObject({ status: 429 });
+		expect(await collections.codeRunFiles.countDocuments({ conversationId: conv._id })).toBe(
+			MAX_CODE_RUN_FILES_PER_CONVERSATION
+		);
+	});
+
+	it("still succeeds re-recording an existing record once the cap is reached", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const stored = await uploadFile(locals, conv._id, "a.pdf", "pdf");
+		const body = { messageId: "asst-1", runKey: "chat:abc", sha256: [stored.sha256] };
+
+		// Already recorded once, then the conversation fills up to the cap
+		// with other records.
+		await record({
+			params: { id: conv._id.toString() },
+			locals,
+			request: recordRequest(body),
+		} as never);
+		const filler = Array.from({ length: MAX_CODE_RUN_FILES_PER_CONVERSATION - 1 }, (_, i) => ({
+			_id: new ObjectId(),
+			conversationId: conv._id,
+			messageId: "asst-1",
+			runKey: `chat:filler-${i}`,
+			fingerprint: `f${i}`,
+			files: [{ name: "filler.txt", size: 1, sha256: "f".repeat(63) + String(i % 10) }],
+			createdAt: new Date(),
+		}));
+		await collections.codeRunFiles.insertMany(filler as never);
+		expect(await collections.codeRunFiles.countDocuments({ conversationId: conv._id })).toBe(
+			MAX_CODE_RUN_FILES_PER_CONVERSATION
+		);
+
+		const res = await record({
+			params: { id: conv._id.toString() },
+			locals,
+			request: recordRequest(body),
+		} as never);
+
+		expect(res.status).toBe(200);
+		expect(await collections.codeRunFiles.countDocuments({ conversationId: conv._id })).toBe(
+			MAX_CODE_RUN_FILES_PER_CONVERSATION
+		);
 	});
 });
 

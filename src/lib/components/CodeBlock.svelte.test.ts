@@ -532,6 +532,91 @@ describe("CodeBlock keeps the files its run produced", () => {
 		expect(seen).toHaveLength(2);
 	});
 
+	function stubServerWithRunFilesResponder(
+		seen: Seen[],
+		respond: (body: { messageId: string; runKey: string; sha256: string[] }) => Response
+	) {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const body =
+					init?.body instanceof FormData ? "form" : JSON.parse(String(init?.body ?? "{}"));
+				seen.push({ url, body });
+				if (url.endsWith("/code-execution/output")) {
+					return Response.json({ files: [{ name: "hello_world.docx", size: 3, sha256: SHA }] });
+				}
+				return respond(body as { messageId: string; runKey: string; sha256: string[] });
+			})
+		);
+	}
+
+	it("releases the claim on a refused record, so a remounted retry under the same id succeeds", async () => {
+		const seen: Seen[] = [];
+		let calls = 0;
+		stubServerWithRunFilesResponder(seen, () => {
+			calls += 1;
+			// The first attempt is refused (message not saved yet); a later
+			// attempt under the same id must not be permanently blocked by it.
+			if (calls === 1) return new Response(null, { status: 409 });
+			return Response.json({
+				update: {
+					type: "codeExecution",
+					subtype: "outputs",
+					runKey: "k",
+					files: [{ name: "hello_world.docx", size: 3, sha256: SHA }],
+				},
+			});
+		});
+		const context = messageRun({ messageId: "asst-retry" });
+
+		const first = await runWithFile("make_docx_retry()", context);
+		await vi.waitFor(() => expect(seen).toHaveLength(2));
+		first.unmount();
+
+		mountWith("make_docx_retry()", context);
+		await vi.waitFor(() => expect(seen).toHaveLength(4));
+		expect(seen[3].body).toMatchObject({ messageId: "asst-retry" });
+		await vi.waitFor(() => expect(runFiles.for("asst-retry").length).toBe(1));
+	});
+
+	it("records under the message id it has once the id changes, exactly once", async () => {
+		// The race finding 1 fixes: an auto-run settles while this message
+		// still carries the client-minted id (never saved on the conversation),
+		// so the record is refused; the page then re-syncs and this message's
+		// context carries the server's real id, and the same run's bytes are
+		// recorded there instead.
+		const seen: Seen[] = [];
+		stubServerWithRunFilesResponder(seen, (body) =>
+			body.messageId === "client-minted-id"
+				? new Response(null, { status: 409 })
+				: Response.json({
+						update: {
+							type: "codeExecution",
+							subtype: "outputs",
+							runKey: "k",
+							files: [{ name: "hello_world.docx", size: 3, sha256: SHA }],
+						},
+					})
+		);
+
+		const first = await runWithFile(
+			"make_docx_swap()",
+			messageRun({ messageId: "client-minted-id" })
+		);
+		await vi.waitFor(() => expect(seen).toHaveLength(2));
+		expect(seen[1].body).toMatchObject({ messageId: "client-minted-id" });
+		first.unmount();
+
+		mountWith("make_docx_swap()", messageRun({ messageId: "server-real-id" }));
+		await vi.waitFor(() => expect(seen).toHaveLength(4));
+		expect(seen[3].body).toMatchObject({ messageId: "server-real-id" });
+
+		// One successful record, under the real id — never under the abandoned one.
+		expect(runFiles.for("client-minted-id")).toEqual([]);
+		await vi.waitFor(() => expect(runFiles.for("server-real-id").length).toBe(1));
+	});
+
 	it("shows a history block's stored file where the dead sandbox copy used to be", async () => {
 		const screen = mountWith(
 			"make_docx_4()",

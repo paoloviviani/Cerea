@@ -209,4 +209,24 @@ describe("withLiveRunFiles", () => {
 		});
 		expect(merged[1]).toBe(other);
 	});
+
+	it("an orphan record under an abandoned client id never becomes a second version", () => {
+		// The race finding 1 fixes: a run settles and claims under the message's
+		// client-minted id, is refused (that id was never saved), and the same
+		// run's bytes are recorded again once the id swaps to the server's. Both
+		// attempts share this tab's `runFiles` live store, so if the failed
+		// attempt had somehow left an entry under the old id too, it must not
+		// resurface as a second version once folded through the same messages
+		// the real conversation actually has (which the abandoned id is not one
+		// of — only the server's message ever lands there).
+		const served = message();
+		const live = {
+			"client-minted-id": [outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }])],
+			m1: [outputs("chat:abc", [{ name: "a.pdf", size: 1, sha256: "s1" }])],
+		};
+		const merged = withLiveRunFiles([served], live);
+		const registry = collectFileArtifacts(merged);
+		expect(registry.artifacts.get("a.pdf")?.versions).toHaveLength(1);
+		expect(registry.artifacts.get("a.pdf")?.versions[0].messageId).toBe("m1");
+	});
 });
