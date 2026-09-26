@@ -44,6 +44,8 @@ const mocks = vi.hoisted(() => ({
 	codeToolEnabled: "true",
 	// The ask_user_question deployment switch: undefined means on, "false" off.
 	askQuestionEnabled: undefined as string | undefined,
+	// Servers whose tool listing failed this turn, as `getOpenAiToolsForMcp` reports them.
+	unlisted: [] as Array<{ name: string; reason: string }>,
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
@@ -88,10 +90,11 @@ vi.mock("$lib/server/urlSafety", () => ({ isValidUrl: () => true }));
 vi.mock("$lib/server/mcp/tools", () => ({
 	getOpenAiToolsForMcp: async (servers: unknown[]) =>
 		servers.length === 0
-			? { tools: [], mapping: {} }
+			? { tools: [], mapping: {}, unavailable: [] }
 			: {
 					tools: mocks.mcpTools,
 					mapping: { do_thing: { fnName: "do_thing", server: "hf", tool: "do_thing" } },
+					unavailable: mocks.unlisted,
 				},
 }));
 
@@ -277,6 +280,7 @@ beforeEach(() => {
 	mocks.servers = [{ name: "hf", url: "https://example.test/mcp" }];
 	mocks.codeToolEnabled = "true";
 	mocks.askQuestionEnabled = undefined;
+	mocks.unlisted = [];
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
 });
@@ -331,6 +335,57 @@ describe("runMcpFlow", () => {
 			tool_call_id: "call_1",
 			content: "the tool output",
 		});
+	});
+});
+
+/** The system prompt of the first upstream request. */
+function systemPrompt(): string {
+	const first = requestMessages(0)[0];
+	return first?.role === "system" && typeof first.content === "string" ? first.content : "";
+}
+
+describe("runMcpFlow connectors that did not load", () => {
+	it("tells the model which selected connector has no credential, and not to fake it", async () => {
+		scriptRounds([{ content: "jmcp is not signed in" }]);
+
+		await runFlow({
+			locals: {
+				mcp: { unavailable: [{ name: "jmcp", reason: "not signed in, or its token is missing" }] },
+			},
+		} as never);
+
+		const prompt = systemPrompt();
+		expect(prompt).toContain("UNAVAILABLE CONNECTORS");
+		expect(prompt).toContain("- jmcp: not signed in, or its token is missing");
+		expect(prompt).toMatch(/code execution in particular has no network access/);
+	});
+
+	it("names a connector whose tool listing failed this turn", async () => {
+		mocks.unlisted = [{ name: "jmcp", reason: "the server refused the credential" }];
+		scriptRounds([{ content: "ok" }]);
+
+		await runFlow();
+
+		expect(systemPrompt()).toContain("- jmcp: the server refused the credential");
+	});
+
+	it("names a connector once when both paths report it", async () => {
+		mocks.unlisted = [{ name: "jmcp", reason: "listing failed" }];
+		scriptRounds([{ content: "ok" }]);
+
+		await runFlow({
+			locals: { mcp: { unavailable: [{ name: "jmcp", reason: "no token" }] } },
+		} as never);
+
+		expect(systemPrompt().match(/- jmcp:/g)).toHaveLength(1);
+	});
+
+	it("says nothing when every connector loaded", async () => {
+		scriptRounds([{ content: "ok" }]);
+
+		await runFlow();
+
+		expect(systemPrompt()).not.toContain("UNAVAILABLE CONNECTORS");
 	});
 });
 

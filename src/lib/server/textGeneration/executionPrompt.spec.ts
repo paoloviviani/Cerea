@@ -9,6 +9,14 @@ import { EXECUTION_SYSTEM_PROMPT, injectExecutionPrompt } from "./executionPromp
  * presentation is unchanged.
  */
 describe("execution prompt", () => {
+	it("keeps execute_code from standing in for a missing tool or connector", () => {
+		// Without this, a request for a service with no tool on offer was answered
+		// by Python faking the service — the sandbox has no network to reach it.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("It is not a substitute for a tool you do not have");
+		expect(EXECUTION_SYSTEM_PROMPT).toMatch(/must not simulate one/);
+		expect(EXECUTION_SYSTEM_PROMPT).toMatch(/say which one is missing/);
+	});
+
 	it("tells file-deliverables apart from code-deliverables", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("the file is the deliverable, not the code");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("do not paste base64");

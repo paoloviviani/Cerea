@@ -133,6 +133,11 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"no `title=` (a `title=` block is a downloadable file, not a running " +
 						"one) — it runs automatically the moment it is complete, with no Run " +
 						"button to mention.\n\n" +
+						"It computes on data already in the conversation, attached files or " +
+						"earlier tool results. It is not a stand-in for a tool you lack: it " +
+						"cannot search, fetch or call a service or connector, and must not " +
+						"simulate one with made-up data — say the capability is missing " +
+						"instead.\n\n" +
 						"Do not use this for code the person wants to read or keep — that " +
 						"belongs in a code block, which stays in the transcript and can be run " +
 						"manually. Each call spends one of this turn's few execute_code calls; " +

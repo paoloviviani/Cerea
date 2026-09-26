@@ -242,6 +242,35 @@ describe("getOpenAiToolsForMcp per-server cache", () => {
 		expect(mcpMock.listToolsCalls).toEqual([SERVER_A.url, SERVER_A.url]);
 	});
 
+	it("reports a failed listing by server name, in words fit for a prompt", async () => {
+		mcpMock.responses.set(
+			SERVER_A.url,
+			new Error(
+				"Streamable HTTP error: Error POSTing to endpoint (HTTP 401): <html>secret?k=1</html>"
+			)
+		);
+		mcpMock.responses.set(SERVER_B.url, { tools: [fetchTool] });
+
+		const { tools, unavailable } = await getOpenAiToolsForMcp([SERVER_A, SERVER_B]);
+
+		expect(tools.map((t) => t.function.name)).toEqual(["fetch_page"]);
+		expect(unavailable).toEqual([
+			{
+				name: SERVER_A.name,
+				reason:
+					"the server refused the credential (not signed in, or the token is missing or wrong)",
+			},
+		]);
+	});
+
+	it("reports nothing unavailable when every server listed", async () => {
+		mcpMock.responses.set(SERVER_A.url, { tools: [searchTool] });
+
+		const { unavailable } = await getOpenAiToolsForMcp([SERVER_A]);
+
+		expect(unavailable).toEqual([]);
+	});
+
 	it("does not cache a failed listing and retries it on the next request", async () => {
 		mcpMock.responses.set(SERVER_A.url, new Error("boom"));
 		mcpMock.responses.set(SERVER_B.url, { tools: [fetchTool] });

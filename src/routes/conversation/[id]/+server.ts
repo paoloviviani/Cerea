@@ -252,6 +252,12 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		}
 
 		(locals as unknown as Record<string, unknown>).mcp = {
+			// Told to the model this turn (`runMcpFlow`), so it says the
+			// connector needs attention instead of improvising its tools.
+			unavailable: resolved.needAuthorization.map((name) => ({
+				name,
+				reason: "not signed in, or its token is missing",
+			})),
 			selectedServerNames: selectedMcpServerNames,
 			selectedServers: [
 				...withoutClientCredentials(
