@@ -6,7 +6,7 @@
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { exportConversation } from "$lib/stores/exportConversation";
 	import type { FileArtifactRegistry } from "$lib/utils/fileArtifacts";
-	import { findFileVersionBySha } from "$lib/utils/fileArtifacts";
+	import { dedupeDeliverablesByName, findFileVersionBySha } from "$lib/utils/fileArtifacts";
 	import * as styles from "$lib/components/overlay/styles";
 
 	import SidePane from "./SidePane.svelte";
@@ -64,7 +64,9 @@
 			const res = await fetch(`${base}/conversation/${id}/code-execution/output`);
 			if (!res.ok) throw new Error(`the list request failed (${res.status})`);
 			const data = (await res.json()) as { files?: DeliverableFile[] };
-			files = Array.isArray(data.files) ? data.files : [];
+			// One row per filename (newest wins): older versions live in the
+			// file artifact's own history, not as duplicate rows.
+			files = dedupeDeliverablesByName(Array.isArray(data.files) ? data.files : []);
 			loadState = "ready";
 		} catch (err) {
 			loadError = err instanceof Error ? err.message : "the list failed to load";

@@ -92,3 +92,27 @@ export function findFileVersionBySha(
 	}
 	return undefined;
 }
+
+export interface DeliverableRow {
+	name: string;
+	mime: string;
+	size: number;
+	sha256: string;
+	createdAt: string;
+}
+
+/**
+ * One row per filename for the outputs list: the store keeps a row per
+ * upload, so a re-run that rewrote `report.pdf` leaves two rows for one
+ * file. The list shows the newest (the server already sorts newest first)
+ * and the artifact panel owns the older versions — the same file is never
+ * shown twice.
+ */
+export function dedupeDeliverablesByName<T extends Pick<DeliverableRow, "name">>(rows: T[]): T[] {
+	const seen = new Set<string>();
+	return rows.filter((row) => {
+		if (seen.has(row.name)) return false;
+		seen.add(row.name);
+		return true;
+	});
+}
