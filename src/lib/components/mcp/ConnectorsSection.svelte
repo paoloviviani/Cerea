@@ -560,7 +560,9 @@
 						<button
 							onclick={() => act(connector, "reprobe")}
 							disabled={busy}
-							title="Ask the server again how it authenticates"
+							title={connector.auth === "token"
+								? "Try the token and list the server's tools"
+								: "Ask the server again how it authenticates"}
 							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 						>
 							<IconRefresh class="size-3" />

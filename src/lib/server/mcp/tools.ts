@@ -176,6 +176,21 @@ const ANNOTATION_HINTS = [
 	"openWorldHint",
 ] as const;
 
+/**
+ * A listing failure in words the model can pass on.
+ *
+ * Only the class of failure, never the raw message: that can carry a URL with
+ * a query string, or a server's own error body, and it is going into a prompt.
+ */
+function describeListingFailure(err: unknown): string {
+	const message = String(err instanceof Error ? err.message : err).toLowerCase();
+	if (/\b(401|403)\b|unauthori[sz]ed|forbidden/.test(message)) {
+		return "the server refused the credential (not signed in, or the token is missing or wrong)";
+	}
+	if (/abort|timed? ?out|timeout/.test(message)) return "the server did not answer in time";
+	return "the server could not be reached or did not answer as an MCP server";
+}
+
 /** Booleans only: a truthy string must not be stored as a declared hint. */
 function readAnnotations(raw: unknown): McpToolAnnotations | undefined {
 	if (!isPlainObject(raw)) return undefined;
@@ -259,9 +274,20 @@ async function fetchServerTools(
 export async function getOpenAiToolsForMcp(
 	servers: McpServerConfig[],
 	{ ttlMs = DEFAULT_TTL_MS, signal }: { ttlMs?: number; signal?: AbortSignal } = {}
-): Promise<{ tools: OpenAiTool[]; mapping: Record<string, McpToolMapping> }> {
+): Promise<{
+	tools: OpenAiTool[];
+	mapping: Record<string, McpToolMapping>;
+	/**
+	 * Servers whose tools could not be listed this time, with why. Returned
+	 * rather than only logged: the model has to be told a server it was
+	 * promised is missing, or it improvises the capability with whatever tool
+	 * it does have — usually code execution, which cannot reach the network.
+	 */
+	unavailable: Array<{ name: string; reason: string }>;
+}> {
 	const now = Date.now();
 	evictExpired(now);
+	const unavailable: Array<{ name: string; reason: string }> = [];
 
 	// Resolve each server's tools from the per-server cache; only cold servers
 	// are fetched, in parallel. A failed listing contributes no tools and caches
@@ -278,10 +304,11 @@ export async function getOpenAiToolsForMcp(
 				cache.set(key, { fetchedAt: now, ttlMs, tools });
 				return tools;
 			} catch (err) {
-				logger.debug(
+				logger.warn(
 					{ server: server.name, url: server.url, err: String(err) },
 					"[mcp] failed to list tools for server"
 				);
+				unavailable.push({ name: server.name, reason: describeListingFailure(err) });
 				return [];
 			}
 		})
@@ -346,7 +373,7 @@ export async function getOpenAiToolsForMcp(
 		}
 	}
 
-	return { tools, mapping };
+	return { tools, mapping, unavailable };
 }
 
 export function resetMcpToolsCache() {

@@ -855,7 +855,23 @@
 																			alt=""
 																			class="size-4 flex-shrink-0 rounded-sm"
 																		/>
-																		<span class="max-w-52 truncate py-1">{connector.name}</span>
+																		<span
+																			class={[
+																				"truncate py-1",
+																				connector.lastError ? "max-w-32" : "max-w-52",
+																			]}>{connector.name}</span
+																		>
+																		{#if connector.lastError}
+																			<!-- Its last check failed, so a turn may well get
+																			     no tools from it; said here, where it is
+																			     switched on, not only in the manager. -->
+																			<span
+																				class="truncate py-1 text-xs text-amber-600 dark:text-amber-400"
+																				title={connector.lastError}
+																			>
+																				Needs attention
+																			</span>
+																		{/if}
 																		<div class="ml-auto flex items-center">
 																			<!-- Toggle visual -->
 																			<span
