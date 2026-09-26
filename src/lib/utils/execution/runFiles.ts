@@ -4,6 +4,19 @@ import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { MessageCodeExecutionOutputsUpdate } from "$lib/types/MessageUpdate";
 
 /**
+ * A run's own output listing renders the instant the sandbox lists it — well
+ * before this module's uploads even start — so a person who reloads right
+ * after seeing a file has no visual cue that anything is still in flight.
+ * `keepalive` keeps that upload (and the small record POST below) alive past
+ * the reload's page-unload instead of losing it. Chromium enforces a 64KB
+ * *combined* cap across every in-flight keepalive body on a page; staying
+ * comfortably under it here leaves room for the tiny run-files POST too. A
+ * bigger upload keeps the ordinary (pre-existing) risk of a lost upload on an
+ * immediate reload — no worse than before this module ever ran keepalive.
+ */
+const KEEPALIVE_SAFE_BYTES = 60_000;
+
+/**
  * Upload a settled run's output files to the conversation's deliverable store
  * (per-user, 30-day TTL, content-addressed — `$lib/server/execution/deliverables.ts`).
  *
@@ -23,9 +36,11 @@ export async function uploadRunFiles(
 
 	const form = new FormData();
 	let any = false;
+	let totalBytes = 0;
 	for (const f of files) {
 		try {
 			const data = await session.readFile(f.path);
+			totalBytes += data.byteLength;
 			form.append("file", new Blob([data]), f.path.split("/").pop() || f.path);
 			any = true;
 		} catch {
@@ -38,6 +53,7 @@ export async function uploadRunFiles(
 		const res = await fetch(`${base}/conversation/${conversationId}/code-execution/output`, {
 			method: "POST",
 			body: form,
+			...(totalBytes <= KEEPALIVE_SAFE_BYTES ? { keepalive: true } : {}),
 		});
 		if (!res.ok) return [];
 		const body = (await res.json()) as { files: PersistedDeliverableRef[] };
@@ -70,6 +86,9 @@ export async function recordRunFiles(options: {
 					runKey: options.runKey,
 					sha256: options.files.map((f) => f.sha256),
 				}),
+				// Always small (hashes only): safe to keep alive past an unload
+				// unconditionally, unlike the byte upload above.
+				keepalive: true,
 			}
 		);
 		if (!res.ok) return undefined;
