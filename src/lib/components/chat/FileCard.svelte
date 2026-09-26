@@ -7,6 +7,15 @@
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import {
+		FILE_PREVIEW_MAX_BYTES,
+		FILE_PREVIEW_TEXT_CHARS,
+		FILE_PREVIEW_TEXT_MAX_BYTES,
+		fileExtensionOf,
+		filePreviewKindFor,
+		filePreviewMimeType,
+		formatFileSize,
+	} from "$lib/utils/filePreview";
+	import {
 		CODE_CARD_SURFACE,
 		CODE_PILL_BUTTON,
 		CODE_ICON_BUTTON,
@@ -56,77 +65,14 @@
 	let { file, inlineContent, downloadUrl }: Props = $props();
 
 	const name = $derived(file.path.split("/").pop() || "download");
-	const extension = $derived(
-		name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : ""
+	const extension = $derived(fileExtensionOf(name));
+
+	// Renderer selection lives in $lib/utils/filePreview (shared with the
+	// artifact panel's file view so the two cannot drift); only the inline
+	// flag is local: direct-emission text is never a docx.
+	const previewKind = $derived(
+		filePreviewKindFor(name, { fromBytes: inlineContent === undefined })
 	);
-
-	type PreviewKind = "text" | "image" | "pdf" | "docx" | "none";
-	function previewKindFor(extension: string, isInlineContent: boolean): PreviewKind {
-		if (
-			[
-				"txt",
-				"md",
-				"markdown",
-				"csv",
-				"tsv",
-				"json",
-				"jsonl",
-				"log",
-				"py",
-				"js",
-				"ts",
-				"html",
-				"xml",
-				"yaml",
-				"yml",
-				"toml",
-				"tex",
-			].includes(extension)
-		)
-			return "text";
-		if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"].includes(extension))
-			return "image";
-		if (extension === "pdf") return "pdf";
-		// Word documents render through docx-preview from fetched bytes, so every
-		// byte source qualifies — live sandbox, persisted store, replay. Only
-		// direct-emission blocks are excluded, and those cannot be a docx
-		// anyway: inline content is text, not a zip.
-		if (extension === "docx") return isInlineContent ? "none" : "docx";
-		return "none";
-	}
-
-	/**
-	 * Content type for the preview blob. Chrome's PDF viewer only engages for
-	 * application/pdf: a typeless blob navigated in the preview iframe
-	 * downloads instead of rendering, which is exactly the blank-frame-plus-
-	 * download failure. Images sniff either way, but an explicit type costs
-	 * nothing and states what the bytes are.
-	 */
-	function previewMimeType(extension: string): string {
-		switch (extension) {
-			case "pdf":
-				return "application/pdf";
-			case "png":
-				return "image/png";
-			case "jpg":
-			case "jpeg":
-				return "image/jpeg";
-			case "gif":
-				return "image/gif";
-			case "webp":
-				return "image/webp";
-			case "svg":
-				return "image/svg+xml";
-			case "bmp":
-				return "image/bmp";
-			case "avif":
-				return "image/avif";
-			default:
-				return "application/octet-stream";
-		}
-	}
-
-	const previewKind = $derived(previewKindFor(extension, inlineContent !== undefined));
 
 	/** UTF-8 byte length of the inline content; only computed in direct-emission mode. */
 	const inlineSize = $derived(
@@ -151,12 +97,6 @@
 	}
 
 	onDestroy(revokePreviewUrl);
-
-	function formatSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	}
 
 	/**
 	 * The card's two byte sources: direct-emission blocks carry their own text
@@ -224,10 +164,10 @@
 	 * detached container and the wrapper's HTML is what travels to the panel —
 	 * the renderer's DOM is a means, not the destination.
 	 */
-	const DOCX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+	const DOCX_PREVIEW_MAX_BYTES = FILE_PREVIEW_MAX_BYTES;
 	// A pdf travels whole (the viewer needs every byte) as a data: URL, so
 	// the same cap applies: base64 inflates a third on top.
-	const PDF_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+	const PDF_PREVIEW_MAX_BYTES = FILE_PREVIEW_MAX_BYTES;
 
 	/**
 	 * Rendered-document preview for a PDF: bytes from any source, framed in
@@ -328,7 +268,7 @@
 		}
 	}
 
-	const PREVIEW_TEXT_CHARS = 4000;
+	const PREVIEW_TEXT_CHARS = FILE_PREVIEW_TEXT_CHARS;
 
 	async function togglePreview(): Promise<void> {
 		if (previewOpen) {
@@ -353,19 +293,27 @@
 		previewError = null;
 		try {
 			if (previewKind === "text") {
-				if (size > 2 * 1024 * 1024) {
+				if (size > FILE_PREVIEW_TEXT_MAX_BYTES) {
 					throw new Error("too large to preview — download it to read the whole file");
 				}
 				const data = await readBytes();
+				// `size` is metadata recorded elsewhere, not the bytes themselves —
+				// re-check what actually arrived before decoding it all, the same
+				// way the pdf/docx previews re-check theirs below.
+				if (data.byteLength > FILE_PREVIEW_TEXT_MAX_BYTES) {
+					throw new Error("too large to preview — download it to read the whole file");
+				}
 				const text = new TextDecoder("utf-8", { fatal: false }).decode(data);
 				previewText =
 					text.length > PREVIEW_TEXT_CHARS
-						? `${text.slice(0, PREVIEW_TEXT_CHARS)}\n\n… showing the first ${(PREVIEW_TEXT_CHARS / 1000).toFixed(0)}k of ${formatSize(size)}`
+						? `${text.slice(0, PREVIEW_TEXT_CHARS)}\n\n… showing the first ${(PREVIEW_TEXT_CHARS / 1000).toFixed(0)}k of ${formatFileSize(size)}`
 						: text;
 			} else if (previewKind === "image") {
 				const data = await readBytes();
 				revokePreviewUrl();
-				previewUrl = URL.createObjectURL(new Blob([data], { type: previewMimeType(extension) }));
+				previewUrl = URL.createObjectURL(
+					new Blob([data], { type: filePreviewMimeType(extension) })
+				);
 			}
 		} catch (err) {
 			previewError =
@@ -382,7 +330,7 @@
 		<span class="min-w-0 flex-1 truncate font-mono" title={file.path}>
 			{name}
 		</span>
-		<span class="shrink-0 text-gray-400">{formatSize(size)}</span>
+		<span class="shrink-0 text-gray-400">{formatFileSize(size)}</span>
 		{#if previewKind !== "none"}
 			<button
 				onclick={togglePreview}

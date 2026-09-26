@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Message } from "$lib/types/Message";
 import {
+	MessageCodeExecutionUpdateType,
 	MessageUpdateType,
 	MessageToolUpdateType,
 	MessageReasoningUpdateType,
@@ -8,6 +9,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
+	collectExecutedFiles,
 	collectReasoning,
 	collectToolNames,
 	exportConversationToMarkdown,
@@ -98,6 +100,14 @@ describe("renderAnswerBody", () => {
 		expect(body).toContain("Outro.");
 	});
 
+	it("renders table artifacts as csv fences", () => {
+		const body = renderAnswerBody(
+			'<artifact identifier="sales" type="table" title="Sales">month,amount\njan,10</artifact>'
+		);
+		expect(body).toContain("**Artifact: Sales (`sales`)**");
+		expect(body).toContain("```csv\nmonth,amount\njan,10\n```");
+	});
+
 	it("summarizes artifact updates instead of dumping diff pairs", () => {
 		const body = renderAnswerBody(
 			'<artifact identifier="app" type="update"><old_str>a</old_str><new_str>b</new_str></artifact>'
@@ -111,6 +121,18 @@ describe("renderAnswerBody", () => {
 		);
 		expect(body).toContain("```html");
 		expect(body).toContain("<h1>half");
+	});
+
+	it("keeps markdown artifact math verbatim for export and copy", () => {
+		// The panel renders this body through the chat KaTeX pipeline; the
+		// export and the copy button carry the raw source, so the math must
+		// pass through untouched in both inline and display form.
+		const body = renderAnswerBody(
+			'<artifact identifier="notes" type="markdown" title="Notes"># Notes\nEinstein said $E = mc^2$.\n\n$$\n\\int_0^1 x\\,dx\n$$\n</artifact>'
+		);
+		expect(body).toContain("```markdown");
+		expect(body).toContain("$E = mc^2$");
+		expect(body).toContain("$$\n\\int_0^1 x\\,dx\n$$");
 	});
 });
 
@@ -274,6 +296,34 @@ describe("exportConversationToMarkdown", () => {
 		// No vote markers, no tool internals.
 		expect(md).not.toContain("score");
 		expect(md).not.toContain("/tmp/x");
+	});
+
+	it("lists executed deliverables as generated files, deduplicated with legacy ones", () => {
+		const message = assistantMessage("Done.", {
+			updates: [
+				{ type: MessageUpdateType.File, name: "output.csv", sha: "dead", mime: "text/csv" },
+				{
+					type: MessageUpdateType.CodeExecution,
+					subtype: MessageCodeExecutionUpdateType.Resolved,
+					executionId: "e1",
+					outcome: { ok: true, stdout: "", stderr: "" },
+					files: [
+						{ name: "output.csv", size: 3, sha256: "s1" },
+						{ name: "report.pdf", size: 9, sha256: "s2" },
+					],
+				},
+			],
+		});
+		expect(collectExecutedFiles(message)).toEqual(["output.csv", "report.pdf"]);
+		const md = exportConversationToMarkdown({
+			title: "Files",
+			conversationId: "abc123",
+			messages: [message],
+		});
+		expect(md).toContain("- Generated file: output.csv");
+		expect(md).toContain("- Generated file: report.pdf");
+		// output.csv listed once despite both update kinds naming it.
+		expect(md.match(/- Generated file: output\.csv/g)).toHaveLength(1);
 	});
 
 	it("counts tool calls, not unique names, with multiplicity", () => {

@@ -34,6 +34,19 @@ describe("marked basic rendering", () => {
 	});
 });
 
+describe("marked math rendering", () => {
+	test("renders inline $math$ with KaTeX, as the artifact panel does for markdown", () => {
+		const html = renderBlocksHtml("Einstein said $E = mc^2$ once.", false);
+		expect(html).toContain("katex");
+		expect(html).not.toContain("$E = mc^2$");
+	});
+
+	test("renders $$display math$$ with KaTeX in display mode", () => {
+		const html = renderBlocksHtml("$$\nE = mc^2\n$$", false);
+		expect(html).toContain("katex-display");
+	});
+});
+
 describe("marked image renderer", () => {
 	test("renders video extensions as <video>", () => {
 		const html = renderHtml("![](https://example.com/clip.mp4)");
