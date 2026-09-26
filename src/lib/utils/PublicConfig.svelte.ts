@@ -42,6 +42,16 @@ class PublicConfigManager {
 			(this.#configStore.PUBLIC_APP_ASSETS || "chatui")
 		);
 	}
+
+	/** This deployment's own address, the way a machine dials it: the public
+	 * origin when set, else the page's own, plus the app base (`/chat` on the
+	 * stack) — galopin is served under `{base}/galopin/*` and dials
+	 * `{base}/api/v2/code/machine`, so a command built without the base would
+	 * send it at the gateway instead. Shared by the pairing dialog and the
+	 * device list's re-enroll command, so both print the same address. */
+	get origin() {
+		return (this.#configStore.PUBLIC_ORIGIN || page.url.origin).replace(/\/+$/, "") + base;
+	}
 }
 type ConfigProxy = PublicConfigManager & { [K in PublicConfigKey]: string };
 

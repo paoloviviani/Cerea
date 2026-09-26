@@ -32,6 +32,7 @@
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
+	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -42,18 +43,28 @@
 	let { onclose, onpaired }: Props = $props();
 
 	const publicConfig = usePublicConfig();
-	// The deployment's own origin plus the app's base path — the machine dials
-	// out to `<this>/api/v2/code/machine` (`X-Pystino-Machine-*` headers, spec
-	// §3) over WSS. Behind the Pystino stack the chat is built with
-	// APP_BASE=/chat while PUBLIC_ORIGIN is the bare origin, so without the base
-	// the printed command would send the machine to the gateway.
-	const origin = $derived(
-		(publicConfig.PUBLIC_ORIGIN || page.url.origin).replace(/\/+$/, "") + base
+	// The deployment's own origin plus the app's base path (`PublicConfig`'s
+	// `origin`) — the machine dials out to `<this>/api/v2/code/machine`
+	// (`X-Pystino-Machine-*` headers, spec §3) over WSS. Behind the Pystino
+	// stack the chat is built with APP_BASE=/chat while PUBLIC_ORIGIN is the
+	// bare origin, so without the base the printed command would send the
+	// machine to the gateway.
+	const origin = $derived(publicConfig.origin);
+	// `CODE_GATEWAY_ORIGIN` unset (a deployment that never set it, or one
+	// still on an older compose) falls back to the browser's own origin here,
+	// not on the server (§12): the server has no better guess, and this one
+	// is at least the address the person is looking at right now.
+	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
+	let allowTerminal = $state(false);
+	const command = $derived(
+		buildEnrollCommand({
+			origin,
+			issuer: page.data.codeOidcIssuerUrl ?? "",
+			gatewayOrigin,
+			clientId: page.data.codeOidcClientId,
+			allowTerminal,
+		})
 	);
-	const commands = $derived([`galopin enroll --cerea ${origin}`, "galopin run"]);
-	// This deployment serves galopin itself (`{base}/galopin/*`, no sign-in
-	// needed): the installer checks the download against SHA256SUMS.
-	const installCommand = $derived(`curl -fsSL ${origin}/galopin/install.sh | sh`);
 	const downloads = [
 		{ name: "galopin-linux-amd64", label: "Linux x86-64" },
 		{ name: "galopin-linux-arm64", label: "Linux ARM64" },
@@ -120,16 +131,23 @@
 			</div>
 		{/if}
 
-		<p class="{s.LABEL} mb-2">1. Install galopin</p>
+		<p class="{s.LABEL} mb-2">Install, enroll and run</p>
 		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
-			<p class="min-w-0 flex-1 font-mono text-xs break-all text-ink" data-testid="galopin-install">
-				{installCommand}
+			<p
+				class="min-w-0 flex-1 font-mono text-xs break-all text-ink"
+				data-testid="galopin-enroll-command"
+			>
+				{command}
 			</p>
 			<CopyToClipBoardBtn
 				classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
-				value={installCommand}
+				value={command}
 			/>
 		</div>
+		<p class="mb-4 text-xs text-ink-muted">
+			`enroll` signs the machine into your account with this deployment's identity provider; `run`
+			starts the agent, which dials out here and appears below once it checks in.
+		</p>
 		<details class="mb-4 text-xs text-ink-muted">
 			<summary class="cursor-pointer">Download manually</summary>
 			<ul class="mt-2 flex flex-col gap-1 pl-2">
@@ -148,22 +166,14 @@
 			</p>
 		</details>
 
-		<p class="{s.LABEL} mb-2">2. Enroll and run it</p>
-		<div class="mb-4 flex items-center gap-2 rounded-lg bg-sunken p-4">
-			<p class="min-w-0 flex-1 text-xs text-ink-muted">
-				`enroll` signs the machine into your account with this deployment's identity provider; `run`
-				starts the agent, which dials out here and appears below once it checks in.
-			</p>
-			<CopyToClipBoardBtn
-				classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
-				value={commands.join("\n")}
-			/>
-		</div>
-		<div class="rounded-lg border border-line bg-surface p-3">
-			{#each commands as command (command)}
-				<p class="font-mono text-xs break-all text-ink">{command}</p>
-			{/each}
-		</div>
+		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
+			<input type="checkbox" class="mt-0.5" bind:checked={allowTerminal} />
+			<span>
+				<span class="font-medium text-ink">Allow terminal.</span> Terminals: ALLOWED means anyone who
+				controls your Cerea session can run commands as you on this machine — there is no model and no
+				permission rule in the way once a terminal is open.
+			</span>
+		</label>
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
 		{#if pending.length === 0}
