@@ -177,6 +177,25 @@ class TestRefusals(unittest.TestCase):
             build(preset="satellite", central_url="https://central.example.org",
                   upstream_api_key="k", oidc_chat_client_secret="c")
 
+    def test_external_idp_needs_an_admin_rule(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "admin rule"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b", admin_email="")
+
+    def test_external_idp_with_only_a_claim_rule_does_not_need_admin_email(self):
+        v = build(idp="external", oidc_issuer="https://id.example.org",
+                   oidc_console_client_secret="a", oidc_chat_client_secret="b", admin_email="",
+                   admin_claim="groups", admin_claim_value="admin").values
+        self.assertEqual(v["OIDC_ADMIN_CLAIM"], "groups")
+        self.assertEqual(v["OIDC_ADMIN_CLAIM_VALUE"], "admin")
+        self.assertEqual(v.get("OIDC_ADMIN_EMAIL", ""), "")
+
+    def test_half_a_claim_pair_is_refused(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "together"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  admin_claim="groups")
+
 
 class TestFreshInstall(unittest.TestCase):
     def test_every_preset_satisfies_its_own_check(self):
@@ -268,6 +287,32 @@ class TestFreshInstall(unittest.TestCase):
     def test_agents_switch(self):
         self.assertEqual(build(agents=True).values["CODE_AGENTS_ENABLED"], "true")
         self.assertEqual(build().values["CODE_AGENTS_ENABLED"], "")
+
+    def test_defaults_for_the_new_adr_0093_fields(self):
+        v = build().values
+        self.assertEqual(v["OIDC_GROUP_SYNC"], "every_login")
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "false")
+        self.assertEqual(v["OIDC_MACHINE_CLIENT_ID"], "opencode-enrollment")
+        self.assertEqual(v["SMTP_ENABLED"], "false")
+        self.assertEqual(v["SMTP_PORT"], "587")
+        self.assertEqual(v["SMTP_SECURITY"], "starttls")
+
+    def test_group_sync_and_link_by_email_and_machine_client_id(self):
+        v = build(group_sync="never", link_by_email=True, machine_client_id="my-agent").values
+        self.assertEqual(v["OIDC_GROUP_SYNC"], "never")
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "true")
+        self.assertEqual(v["OIDC_MACHINE_CLIENT_ID"], "my-agent")
+
+    def test_smtp_host_turns_mail_on_and_clearing_it_turns_mail_off(self):
+        v = build(smtp_host="smtp.example.org", smtp_port=465, smtp_username="u",
+                   smtp_password="p", smtp_from="noreply@example.org", smtp_security="tls").values
+        self.assertEqual(v["SMTP_ENABLED"], "true")
+        self.assertEqual(v["SMTP_HOST"], "smtp.example.org")
+        self.assertEqual(v["SMTP_PORT"], "465")
+        self.assertEqual(v["SMTP_SECURITY"], "tls")
+        cleared = build(existing=v, smtp_host="").values
+        self.assertEqual(cleared["SMTP_ENABLED"], "false")
+        self.assertEqual(cleared["SMTP_HOST"], "")
 
 
 class TestReRun(unittest.TestCase):
@@ -369,6 +414,31 @@ class TestCommands(Deploy):
         self.assertEqual(code, 2)
         self.assertFalse((self.dir / ".env").exists())
 
+    def test_import_smtp_reads_pystino_email_export_env(self):
+        exported = (
+            "SMTP_HOST=smtp.example.org\nSMTP_PORT=465\nSMTP_USERNAME=u\n"
+            "SMTP_PASSWORD=p\nSMTP_FROM=noreply@example.org\nSMTP_SECURITY=tls\n"
+        )
+        with mock.patch.object(
+            cfg, "_run",
+            return_value=subprocess.CompletedProcess([], 0, stdout=exported, stderr=""),
+        ):
+            code, _, err = self.configure("--import-smtp")
+        self.assertEqual(code, 0, err)
+        v = self.env()
+        self.assertEqual(v["SMTP_HOST"], "smtp.example.org")
+        self.assertEqual(v["SMTP_PORT"], "465")
+        self.assertEqual(v["SMTP_SECURITY"], "tls")
+        self.assertEqual(v["SMTP_ENABLED"], "true")
+
+    def test_import_smtp_failing_does_not_stop_the_write(self):
+        with mock.patch.object(cfg, "_run", return_value=None):
+            code, _, err = self.configure("--import-smtp")
+        self.assertEqual(code, 0, err)
+        self.assertIn("--import-smtp", err)
+        v = self.env()
+        self.assertEqual(v["SMTP_ENABLED"], "false")
+
     def test_set_and_unset(self):
         self.configure()
         code, out, _ = self.run_cli("--set", "PYSTINO_REGISTRY=local", "PYSTINO_VERSION=sha-abc1234")
@@ -412,6 +482,48 @@ class TestCommands(Deploy):
         self.assertIn("TLS_DIRECTIVE", text)
         self.assertIn("AUTHELIA_CHAT_CLIENT_DIGEST", text)
         self.assertIn("GATEWAY_SECRET_KEY", text)
+
+    def test_check_flags_a_bad_group_sync(self):
+        self.configure()
+        values = self.env()
+        values["OIDC_GROUP_SYNC"] = "sometimes"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("OIDC_GROUP_SYNC" in e for e in report.errors), report.errors)
+
+    def test_check_warns_link_by_email_on(self):
+        self.configure()
+        values = self.env()
+        values["OIDC_LINK_BY_EMAIL"] = "true"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("OIDC_LINK_BY_EMAIL" in w for w in report.warnings), report.warnings)
+
+    def test_check_warns_team_preset_without_smtp(self):
+        self.configure()
+        values = self.env()
+        self.assertEqual(values["PYSTINO_PRESET"], "team")
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("SMTP_HOST" in w for w in report.warnings), report.warnings)
+
+    def test_check_notes_bundled_authelia_without_smtp(self):
+        self.configure("--preset", "homelab")
+        values = self.env()
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("one-time password" in n for n in report.notes), report.notes)
+
+    def test_check_flags_an_external_idp_with_no_admin_rule(self):
+        self.configure("--idp", "external", "--oidc-issuer", "https://id.example.org",
+                       "--oidc-console-client-secret", "a", "--oidc-chat-client-secret", "b",
+                       "--admin-claim", "groups", "--admin-claim-value", "admin")
+        values = self.env()
+        values["OIDC_ADMIN_CLAIM"] = ""
+        values["OIDC_ADMIN_CLAIM_VALUE"] = ""
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("admin rule" in e for e in report.errors), report.errors)
 
     def test_check_upstream_does_not_probe_the_front(self):
         self.configure("--tls", "upstream", "--http-port", "8443")

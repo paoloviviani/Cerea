@@ -233,6 +233,11 @@ RETIRED = {
     "GATEWAY_OIDC__ADMIN_GROUPS": "administrators come from the console or a claim policy",
     "GATEWAY_LOCAL_AUTH__ENABLED": "sign-in is OIDC only; break-glass is "
     "`docker compose exec gateway pystino admin grant <email>`",
+    "OIDC_LINK_LOCAL_BY_EMAIL": "renamed OIDC_LINK_BY_EMAIL, which links across issuers "
+    "by verified email rather than adopting a local password account",
+    "CODE_MACHINE_ISSUER": "derived from OIDC_ISSUER now",
+    "CODE_MACHINE_AUDIENCE": "derived from OIDC_AUDIENCE now",
+    "CODE_MACHINE_CLIENT_ID": "renamed OIDC_MACHINE_CLIENT_ID",
 }
 KEY = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
@@ -564,6 +569,21 @@ class Answers:
     oidc_chat_client_secret: str | None = None
     oidc_groups_claim: str | None = None
     oidc_logout_url: str | None = None
+    # Who is an administrator (external IdP only; the bundled Authelia uses
+    # admin_email as its bootstrap address instead).
+    admin_claim: str | None = None
+    admin_claim_value: str | None = None
+    link_by_email: bool | None = None
+    machine_client_id: str | None = None
+    group_sync: str | None = None
+    # Mail: quota notices, "send test", and (bundled Authelia) its own
+    # self-service reset.
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_security: str | None = None
     # Satellite and generic presets, and the gateway's first provider.
     central_url: str | None = None
     upstream_base_url: str | None = None
@@ -617,7 +637,6 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
         raise ConfigError(f"unknown preset {answers.preset!r}; choose one of {', '.join(PRESETS)}")
     preset = PRESETS[answers.preset]
     origin, host, origin_port = split_origin(answers.origin)
-    admin_email = check_email(answers.admin_email)
     refuse_tls(answers.tls, host)
     idp = answers.idp
     if preset.name == "satellite" and idp != "external":
@@ -628,6 +647,16 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
         raise ConfigError(f"the IdP must be one of {', '.join(IDPS)}")
     if idp == "authelia":
         refuse_authelia(host)
+    # The bundled Authelia's bootstrap door needs an address; an external IdP
+    # does not, on its own — an admin rule does (checked below, once it is
+    # known whether a claim rule was given instead), and the bootstrap
+    # address is honoured only with the bundled IdP anyway.
+    if idp == "authelia":
+        admin_email = check_email(answers.admin_email)
+    else:
+        admin_email = (answers.admin_email or "").strip()
+        if admin_email:
+            admin_email = check_email(admin_email)
 
     def changed(attr: str) -> bool:
         return before is None or getattr(before, attr) != getattr(answers, attr)
@@ -739,6 +768,38 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
 
     # --- identity -------------------------------------------------------------------
     values["PYSTINO_BOOTSTRAP_ADMIN_EMAIL"] = admin_email
+    if answers.group_sync:
+        values["OIDC_GROUP_SYNC"] = answers.group_sync
+    values.setdefault("OIDC_GROUP_SYNC", "every_login")
+    if answers.link_by_email is not None:
+        values["OIDC_LINK_BY_EMAIL"] = "true" if answers.link_by_email else "false"
+    values.setdefault("OIDC_LINK_BY_EMAIL", "false")
+    if answers.machine_client_id:
+        values["OIDC_MACHINE_CLIENT_ID"] = answers.machine_client_id
+    values.setdefault("OIDC_MACHINE_CLIENT_ID", "opencode-enrollment")
+
+    # --- mail -------------------------------------------------------------------
+    for attr, key in (
+        ("smtp_host", "SMTP_HOST"),
+        ("smtp_username", "SMTP_USERNAME"),
+        ("smtp_password", "SMTP_PASSWORD"),
+        ("smtp_from", "SMTP_FROM"),
+        ("smtp_security", "SMTP_SECURITY"),
+    ):
+        value = getattr(answers, attr)
+        if value is not None:
+            values[key] = value
+    if answers.smtp_port is not None:
+        values["SMTP_PORT"] = str(answers.smtp_port)
+    if answers.smtp_host is not None:
+        # Setting the host is what turns mail on; a later edit that clears it
+        # (--smtp-host '') turns it back off rather than leaving a stale
+        # SMTP_ENABLED=true with nothing to connect to.
+        values["SMTP_ENABLED"] = "true" if answers.smtp_host else "false"
+    values.setdefault("SMTP_ENABLED", "false")
+    values.setdefault("SMTP_PORT", "587")
+    values.setdefault("SMTP_SECURITY", "starttls")
+
     if idp == "authelia":
         values.update(
             OIDC_ISSUER=f"{origin}/authelia",
@@ -815,6 +876,24 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
             raise ConfigError(
                 "an external IdP needs the chat's client secret (--oidc-chat-client-secret); "
                 f"register redirect URI {origin}/chat/login/callback"
+            )
+        if answers.admin_claim is not None:
+            values["OIDC_ADMIN_CLAIM"] = answers.admin_claim
+        if answers.admin_claim_value is not None:
+            values["OIDC_ADMIN_CLAIM_VALUE"] = answers.admin_claim_value
+        if bool(values.get("OIDC_ADMIN_CLAIM")) != bool(values.get("OIDC_ADMIN_CLAIM_VALUE")):
+            raise ConfigError(
+                "--admin-claim and --admin-claim-value must be set together, or not at all"
+            )
+        # An external IdP has no bootstrap door (that is the bundled
+        # Authelia's only): admin_email answers OIDC_ADMIN_EMAIL directly
+        # here, unless a claim rule was given instead.
+        if not values.get("OIDC_ADMIN_CLAIM"):
+            values["OIDC_ADMIN_EMAIL"] = admin_email
+        if not values.get("OIDC_ADMIN_EMAIL") and not values.get("OIDC_ADMIN_CLAIM"):
+            raise ConfigError(
+                "an external identity provider needs an admin rule: --admin-email, or "
+                "--admin-claim with --admin-claim-value"
             )
     return result
 
@@ -964,6 +1043,47 @@ def check_values(values: dict, report: Report) -> None:
                 "OIDC_LOGOUT_URL is empty: signing out of the chat will not end the Authelia "
                 f"session. Set OIDC_LOGOUT_URL='{origin}/authelia/logout?rd={{redirect}}'"
             )
+    else:
+        admin_claim = values.get("OIDC_ADMIN_CLAIM", "")
+        admin_claim_value = values.get("OIDC_ADMIN_CLAIM_VALUE", "")
+        if bool(admin_claim) != bool(admin_claim_value):
+            report.errors.append(
+                "OIDC_ADMIN_CLAIM and OIDC_ADMIN_CLAIM_VALUE must be set together, or not at all"
+            )
+        elif not values.get("OIDC_ADMIN_EMAIL") and not admin_claim:
+            report.errors.append(
+                "an external identity provider needs an admin rule: set OIDC_ADMIN_EMAIL, or "
+                "OIDC_ADMIN_CLAIM and OIDC_ADMIN_CLAIM_VALUE (./configure --admin-email / "
+                "--admin-claim --admin-claim-value)"
+            )
+    for entry in values.get("OIDC_ADMIN_EMAIL", "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            check_email(entry)
+        except ConfigError as exc:
+            report.errors.append(f"OIDC_ADMIN_EMAIL: {exc}")
+    if values.get("OIDC_GROUP_SYNC", "every_login") not in ("every_login", "first_login", "never"):
+        report.errors.append(
+            "OIDC_GROUP_SYNC must be every_login, first_login or never, got "
+            f"{values.get('OIDC_GROUP_SYNC')!r}"
+        )
+    if values.get("OIDC_LINK_BY_EMAIL", "false") == "true":
+        report.warnings.append(
+            "OIDC_LINK_BY_EMAIL is on: a first sign-in with a verified email will attach to the "
+            "existing non-admin account with that address. Turn it off when the transition is done."
+        )
+    if not values.get("SMTP_HOST"):
+        if values.get("PYSTINO_PRESET") == "team":
+            report.warnings.append(
+                "SMTP_HOST is empty: users can't reset their own password and MFA is unavailable. "
+                "Set --smtp-host (and --smtp-username/--smtp-password/--smtp-from as needed)"
+            )
+        elif "authelia" in profiles:
+            report.notes.append(
+                "SMTP_HOST is empty: password resets are admin-issued one-time passwords"
+            )
     endpoint = values.get("PLAYWRIGHT_WS_ENDPOINT", "")
     if "fetch" in profiles and not endpoint:
         report.warnings.append(
@@ -1025,6 +1145,21 @@ def check_host(values: dict, report: Report, *, root: Path, network: bool) -> No
     if not network:
         report.notes.append("--offline: DNS and port checks skipped")
         return
+
+    if "gateway" in {p for p in values.get("COMPOSE_PROFILES", "").split(",") if p}:
+        proc = _run(
+            ["docker", "compose", "run", "--rm", "--no-deps", "gateway", "pystino", "idp",
+             "check", "--discovery-only"],
+            timeout=30, cwd=root,
+        )
+        if proc is None:
+            report.notes.append("docker compose run is not available here; skipped pystino idp check")
+        elif proc.returncode != 0:
+            detail = (proc.stdout.strip().splitlines() or proc.stderr.strip().splitlines() or ["?"])[-1]
+            report.errors.append(f"pystino idp check --discovery-only failed: {detail}")
+        else:
+            report.notes.append("pystino idp check --discovery-only: ok")
+
     try:
         _, host, _ = split_origin(values.get("PUBLIC_ORIGIN", ""))
     except ConfigError:
@@ -1213,6 +1348,30 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
 # --- commands ---------------------------------------------------------------------
 
 
+def import_smtp_env(root: Path) -> dict:
+    """`pystino email export-env`'s output from the running gateway, as a dict.
+
+    Prints and returns `{}` on any failure — a stack that is not up yet, or
+    without the gateway profile — rather than raising: `--import-smtp` is a
+    convenience over typing `--smtp-*` by hand, not a precondition of writing
+    `.env` at all.
+    """
+    proc = _run(
+        ["docker", "compose", "exec", "-T", "gateway", "pystino", "email", "export-env"],
+        timeout=20, cwd=root,
+    )
+    if proc is None or proc.returncode != 0:
+        detail = (proc.stderr.strip().splitlines() or ["?"])[-1] if proc else "docker not runnable"
+        print(f"configure: --import-smtp: {detail}", file=sys.stderr)
+        return {}
+    values = {}
+    for line in proc.stdout.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and KEY.match(key):
+            values[key] = value
+    return values
+
+
 def cmd_configure(args, root: Path) -> int:
     env_path = root / ".env"
     template = (root / ".env.example").read_text(encoding="utf-8")
@@ -1230,12 +1389,35 @@ def cmd_configure(args, root: Path) -> int:
     if args.admin_password_file:
         answers.admin_password = Path(args.admin_password_file).read_text(encoding="utf-8").strip()
         given.add("admin_password")
+    if args.import_smtp:
+        imported = import_smtp_env(root)
+        for key, attr in (
+            ("SMTP_HOST", "smtp_host"), ("SMTP_USERNAME", "smtp_username"),
+            ("SMTP_PASSWORD", "smtp_password"), ("SMTP_FROM", "smtp_from"),
+            ("SMTP_SECURITY", "smtp_security"),
+        ):
+            if key in imported:
+                setattr(answers, attr, imported[key])
+                given.add(attr)
+        if "SMTP_PORT" in imported:
+            try:
+                answers.smtp_port = int(imported["SMTP_PORT"])
+                given.add("smtp_port")
+            except ValueError:
+                pass
 
     interactive = not args.non_interactive and sys.stdin.isatty()
     if interactive:
         answers = interview(answers, given, existing)
     else:
-        missing = [f"--{n.replace('_', '-')}" for n in ("origin", "admin_email") if not getattr(answers, n)]
+        # An external IdP's admin rule (--admin-email, or --admin-claim with
+        # --admin-claim-value) is validated in build(), with a message
+        # naming both options; only the bundled Authelia's bootstrap door
+        # is unconditionally required this early.
+        required = ["origin"]
+        if answers.idp != "external":
+            required.append("admin_email")
+        missing = [f"--{n.replace('_', '-')}" for n in required if not getattr(answers, n)]
         if missing:
             print(f"configure: non-interactive, and {' and '.join(missing)} not given", file=sys.stderr)
             return 2
@@ -1366,6 +1548,22 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--oidc-chat-client-secret")
     o.add_argument("--oidc-groups-claim")
     o.add_argument("--oidc-logout-url", help="external IdP without end_session_endpoint; {redirect} = landing")
+    o.add_argument("--admin-claim", help="external IdP: a dotted claim path that can confer admin (e.g. groups)")
+    o.add_argument("--admin-claim-value", help="external IdP: comma-separated values of --admin-claim that confer it")
+    o.add_argument("--link-by-email", action=argparse.BooleanOptionalAction, default=None,
+                   help="a verified email at sign-in attaches to the existing account with it")
+    o.add_argument("--machine-client-id", help="galopin's public client id (default opencode-enrollment)")
+    o.add_argument("--group-sync", choices=("every_login", "first_login", "never"),
+                   help="how often the directory's answer about groups is applied")
+    o.add_argument("--smtp-host")
+    o.add_argument("--smtp-port", type=int)
+    o.add_argument("--smtp-username")
+    o.add_argument("--smtp-password", help="prefer --import-smtp: argv is visible")
+    o.add_argument("--smtp-from")
+    o.add_argument("--smtp-security", choices=("starttls", "tls", "none"))
+    o.add_argument("--import-smtp", action="store_true",
+                   help="read GATEWAY_SMTP__* from the running gateway's environment "
+                   "(docker compose exec gateway pystino email export-env) instead of typing it here")
     o.add_argument("--central-url", help="satellite: the central Pystino's origin")
     o.add_argument("--upstream-base-url", help="the gateway's first provider (generic: the chat's endpoint)")
     o.add_argument("--upstream-api-key", help="its key (prefer --upstream-api-key-env: argv is visible)")
