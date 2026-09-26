@@ -94,6 +94,10 @@ const resolvedUpdate = (executionId: string, files: unknown) => ({
 	files,
 });
 
+// A settled turn ends with a final answer — without it the page treats the
+// conversation as still generating (and disables the export).
+const finalAnswer = (text: string) => ({ type: "finalAnswer", text, interrupted: false });
+
 test("Pyodide outputs appear as file artifacts with previews, versions and export", async ({
 	page,
 	db,
@@ -144,10 +148,14 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 		{ _id: conversationId },
 		{
 			$set: {
-				"messages.2.updates": [resolvedUpdate("e-pdf-1", [pdfV1])],
+				"messages.2.updates": [
+					resolvedUpdate("e-pdf-1", [pdfV1]),
+					finalAnswer("Here is your PDF."),
+				],
 				"messages.3.updates": [
 					resolvedUpdate("e-pdf-2", [pdfV2]),
 					resolvedUpdate("e-docx-1", [docx]),
+					finalAnswer("Updated the PDF and made the DOCX."),
 				],
 			},
 		}
