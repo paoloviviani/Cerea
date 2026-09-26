@@ -24,10 +24,10 @@ Allowed type values:
 - "react": a single React function component, with \`export default\`. Hooks are available without imports, Tailwind classes work, but NO other libraries. Rendered live.
 - "mermaid": a Mermaid diagram definition. Rendered live.
 - "code": code in any programming language; add language="..." to the tag. Python code cells are executed automatically in the user's browser (Pyodide); other languages are shown with syntax highlighting only.
-- "markdown": a formatted document (README, essay, report, guide). Rendered as rich text, with the same LaTeX support as chat messages ($inline$ and $$display$$ math).
-- "table": tabular data as CSV with a header row (the first line names the columns). Rendered as a sortable, filterable grid the user can download. Quote fields that contain commas, quotes or newlines; emit commas only, never tabs or pre-aligned columns.
+- "markdown": a formatted document (README, essay, report, guide). Rendered as rich text; $inline$ and $$display$$ math work.
+- "table": CSV with a header row, shown as a sortable, filterable grid. Commas only; quote fields containing commas, quotes or newlines.
 
-Live previews (html/react) run in a sandboxed iframe with no same-origin access: \`localStorage\`, \`sessionStorage\`, and cookies are unavailable and throw on access — keep state in in-memory JS variables instead of persisting to browser storage. The sandbox DOES allow: pointer lock (mouse-look games — request it in a click handler), fullscreen, device motion/orientation sensors (mobile tilt controls; call \`DeviceMotionEvent.requestPermission()\` from a tap where defined), gamepad input, clipboard writes, and media autoplay. Still blocked — never build features that depend on them: popups (\`window.open\` returns null), file downloads, camera, microphone, geolocation, and \`alert\`/\`confirm\`/\`prompt\` (silent no-ops — render status and confirmations with in-page UI instead).
+Live previews (html/react) run in a sandboxed iframe with no same-origin access: \`localStorage\`, \`sessionStorage\` and cookies are unavailable and throw — keep state in in-memory JS variables. Allowed: pointer lock (request it in a click handler), fullscreen, device motion/orientation (call \`DeviceMotionEvent.requestPermission()\` from a tap where defined), gamepad, clipboard writes, media autoplay. Blocked — never depend on them: popups (\`window.open\` returns null), file downloads, camera, microphone, geolocation, \`alert\`/\`confirm\`/\`prompt\` (silent no-ops; show status in-page).
 
 Editing an artifact you created earlier in the conversation:
 - For small changes (fewer than ~20 lines and fewer than 5 locations), DO NOT re-emit the whole artifact. Emit a targeted update with find/replace pairs:

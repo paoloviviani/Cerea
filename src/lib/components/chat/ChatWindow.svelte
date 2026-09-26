@@ -11,7 +11,8 @@
 	import { setArtifactsContext } from "$lib/utils/artifactsContext";
 	import { collectTrackioDashboards } from "$lib/utils/trackio";
 	import { trackioStatus } from "$lib/stores/trackioStatus.svelte";
-	import { collectFileArtifacts } from "$lib/utils/fileArtifacts";
+	import { collectFileArtifacts, withLiveRunFiles } from "$lib/utils/fileArtifacts";
+	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 
@@ -285,10 +286,13 @@
 	// reopening the conversation finds the same dashboards.
 	let trackioDashboards = $derived(collectTrackioDashboards(messages));
 
-	// File artifacts: persisted `execute_code` outputs folded into versioned
-	// entries by filename. Derived from the same messages, so reloads and
-	// shared conversations rebuild the same registry.
-	let fileRegistry = $derived(collectFileArtifacts(messages));
+	// File artifacts: every persisted run output — tool runs, code blocks,
+	// artifact cells — folded into versioned entries by filename. Derived from
+	// the same messages (the loader serves stored block and cell files on
+	// them), plus the records this tab made since it loaded, so a file becomes
+	// an artifact as soon as its upload lands. Records the loader already
+	// served are skipped, so a file is never a version twice.
+	let fileRegistry = $derived(collectFileArtifacts(withLiveRunFiles(messages, runFiles.all)));
 
 	// One ordered list of everything the pane can show, so its next/previous walks
 	// artifacts and dashboards together instead of each view navigating only its
@@ -1369,6 +1373,7 @@
 		{loading}
 		drafts={artifactDrafts}
 		canScreenshot={!shared && !isReadOnly && mimeMatchesAllowlist("image/png", activeMimeTypes)}
+		canPersistFiles={!shared && !isReadOnly}
 		onsend={canSendFix ? sendFixRequest : undefined}
 	/>
 	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />

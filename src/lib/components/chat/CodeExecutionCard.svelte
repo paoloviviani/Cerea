@@ -7,13 +7,12 @@
 	import RunOutput from "./RunOutput.svelte";
 	import FileCard from "./FileCard.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
-	import { getExecutionSession } from "$lib/utils/execution/runtime";
+	import { uploadRunFiles } from "$lib/utils/execution/runFiles";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import type { MessageCodeExecutionRequestUpdate } from "$lib/types/MessageUpdate";
 	import type { MessageCodeExecutionResolvedUpdate } from "$lib/types/MessageUpdate";
 	import type { RunState } from "$lib/utils/execution/runs.svelte";
 	import type { RunOutcome } from "$lib/utils/execution/protocol";
-	import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 
 	/**
 	 * The browser side of the `execute_code` tool: the parked code runs in the
@@ -51,44 +50,12 @@
 
 	/**
 	 * Upload the run's own output files to the persisted deliverable store
-	 * (30-day TTL, per-user — see `$lib/server/execution/deliverables.ts`)
-	 * before the outcome is posted. A tool run's `outputFiles` ARE its
-	 * deliverables (the conservative rule the server module documents); a
-	 * file the runtime can no longer read (removed mid-run) is skipped rather
-	 * than failing the whole upload, since the live outcome still reports it.
+	 * before the outcome is posted — the same upload every run path uses
+	 * (`uploadRunFiles`), so a tool run's files are kept exactly like a code
+	 * block's.
 	 */
-	async function uploadDeliverables(
-		files: Array<{ path: string; size: number }>
-	): Promise<PersistedDeliverableRef[]> {
-		if (files.length === 0) return [];
-		const session = getExecutionSession();
-		if (!session) return [];
-
-		const form = new FormData();
-		let any = false;
-		for (const f of files) {
-			try {
-				const data = await session.readFile(f.path);
-				form.append("file", new Blob([data]), f.path.split("/").pop() || f.path);
-				any = true;
-			} catch {
-				// Gone from the runtime already; the live outcome still names it.
-			}
-		}
-		if (!any) return [];
-
-		try {
-			const res = await fetch(`${base}/conversation/${conversationId}/code-execution/output`, {
-				method: "POST",
-				body: form,
-			});
-			if (!res.ok) return [];
-			const body = (await res.json()) as { files: PersistedDeliverableRef[] };
-			return body.files ?? [];
-		} catch {
-			return [];
-		}
-	}
+	const uploadDeliverables = (files: Array<{ path: string; size: number }>) =>
+		uploadRunFiles(conversationId, files);
 
 	// Post the outcome back exactly once per mounted card once the run settles.
 	// A re-mounted card (navigation) may re-post; the endpoint's CAS answers 409

@@ -26,9 +26,10 @@ export interface RunState {
 	 * Files the runtime held when this run settled — the run's outputs, for
 	 * download. Memory-only, never persisted here: the worker filesystem dies
 	 * with the page load, so a listing from a previous load would name files
-	 * that no longer exist. (A tool run may separately upload these bytes to
-	 * the server-side output store — see CodeExecutionCard.svelte — but that
-	 * is a parallel path, not something RunsStore itself does.)
+	 * that no longer exist. (Every run's files are separately uploaded to the
+	 * server-side output store once it settles — `uploadRunFiles`, called by
+	 * CodeExecutionCard, CodeBlock and the artifact panel — but that is a
+	 * parallel path, not something RunsStore itself does.)
 	 */
 	outputFiles?: Array<{ path: string; size: number }>;
 	/**
@@ -42,8 +43,9 @@ export interface RunState {
 	outputsCollected?: boolean;
 	/**
 	 * Deliverables persisted server-side, rendered instead of `outputFiles` on
-	 * true replay (no live run holds the bytes). Set only by
-	 * CodeExecutionCard's resolved-state fallback, never by a live run.
+	 * true replay (no live run holds the bytes). Set only by a replay fallback
+	 * (CodeExecutionCard's resolved state, CodeBlock's stored files), never by
+	 * a live run.
 	 */
 	persistedFiles?: Array<{ name: string; size: number; downloadUrl: string }>;
 	startedAt: number;

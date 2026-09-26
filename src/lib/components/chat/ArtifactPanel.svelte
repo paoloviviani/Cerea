@@ -10,6 +10,8 @@
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
 	import { artifactRunKey } from "$lib/utils/execution/keys";
 	import { getArtifactRunsStore } from "$lib/utils/execution/artifactRuns.svelte";
+	import { recordRunFiles, uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import RunOutput from "./RunOutput.svelte";
 	import ExecutionFiles from "./ExecutionFiles.svelte";
 	import MountedChips from "./MountedChips.svelte";
@@ -82,6 +84,12 @@
 		 * (read-only, errored generation), which hides the ask-to-fix controls.
 		 */
 		onsend?: (text: string) => boolean;
+		/**
+		 * Whether a python cell's output files are kept (uploaded and recorded
+		 * on the artifact's message), exactly as a chat code block's are. The
+		 * owner's own chat only: never a share or a read-only view.
+		 */
+		canPersistFiles?: boolean;
 	}
 
 	let {
@@ -92,6 +100,7 @@
 		drafts = [],
 		canScreenshot = false,
 		onsend,
+		canPersistFiles = false,
 	}: Props = $props();
 
 	let artifact = $derived(
@@ -535,6 +544,49 @@
 		if (!loading && version.complete && liveSeenCells.has(cellRunKey) && artifactRuns && artifact) {
 			artifactRuns.run(artifact.identifier, version.version, version.content);
 		}
+	});
+
+	// A python cell's files are kept like any run's: uploaded to the
+	// conversation's store and recorded on the message that emitted this
+	// version, so they become file artifacts and survive a reload.
+	//
+	// Gating mirrors ChatMessage's `canPersist`: the owner's own
+	// `/conversation/[id]` page, never a share, a read-only view, or this same
+	// panel reused elsewhere (`canPersistFiles` alone does not carry that route
+	// check, since the panel has no per-message `isAuthor`/route prop to
+	// compute it from upstream).
+	let canPersistCellFiles = $derived(
+		canPersistFiles && (page.route.id ?? "").startsWith("/conversation/[id]")
+	);
+	$effect(() => {
+		const state = cellRunState;
+		// Read every field the claim key and the request need up front,
+		// unconditionally — including `version?.messageId`, which changes when
+		// this version's message swaps from its client-minted id to the
+		// server's own (see CodeBlock.svelte's persist effect for why an early
+		// return must not skip this read: it would leave the id untracked, and
+		// the effect would never re-fire once the swap actually happens).
+		const canPersist = canPersistCellFiles;
+		const cid = page.params?.id;
+		const messageId = version?.messageId;
+		if (!canPersist || !state || !cid || !cellRunKey || !messageId) return;
+		if (state.status !== "done" && state.status !== "error") return;
+		// The file listing lands after the outcome; wait for it, as CodeBlock
+		// does, or this can claim and upload a partial list.
+		if (!state.outputsCollected || !state.outputFiles?.length) return;
+		const claimKey = `${messageId}|${cellRunKey}@${state.startedAt}`;
+		if (!runFiles.claim(claimKey)) return;
+		const key = cellRunKey;
+		const listed = state.outputFiles;
+		void (async () => {
+			const files = await uploadRunFiles(cid, listed);
+			const update = await recordRunFiles({ conversationId: cid, messageId, runKey: key, files });
+			if (update) {
+				runFiles.add(messageId, update);
+			} else {
+				runFiles.release(claimKey);
+			}
+		})();
 	});
 
 	// ----- actions -----

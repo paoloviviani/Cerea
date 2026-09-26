@@ -119,8 +119,15 @@ class ArtifactRunsStore {
 				// listing amends the memory entry when it lands and is never
 				// persisted — the worker filesystem dies with the page load.
 				this.settle(key, settled);
+				// `outputsCollected` always flips (even when empty; the listing
+				// never rejects) — the artifact panel's persist effect waits on it
+				// exactly as the chat-block runs store does (runs.svelte.ts).
 				void collectOutputFiles(session).then((outputFiles) => {
-					if (outputFiles) this.#memory[key] = { ...settled, outputFiles };
+					this.#memory[key] = {
+						...settled,
+						outputFiles: outputFiles ?? [],
+						outputsCollected: true,
+					};
 				});
 			})
 			.catch((error: unknown) => {
@@ -132,6 +139,8 @@ class ArtifactRunsStore {
 							? error.message
 							: "the execution sandbox could not run this code",
 					finishedAt: Date.now(),
+					// No files to wait for on a sandbox-level failure.
+					outputsCollected: true,
 				});
 			});
 
