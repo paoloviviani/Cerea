@@ -514,6 +514,55 @@ class TestCommands(Deploy):
         cfg.check_values(values, report)
         self.assertTrue(any("one-time password" in n for n in report.notes), report.notes)
 
+    def test_check_refuses_smtp_values_that_would_break_the_yaml_template(self):
+        """configuration.yml quotes SMTP_HOST/USERNAME/FROM with Authelia's own
+        `msquote`, which does not escape an embedded quote -- a value
+        `configure` let through would render a broken configuration.yml, not
+        just a rejected one. Refusing it here is the only place that can
+        actually stop that."""
+        self.configure("--smtp-host", "mail.example.org", "--smtp-from", "noreply@example.org")
+        for key, hostile in (
+            ("SMTP_HOST", "mail.example.org'; drop:"),
+            ("SMTP_USERNAME", "o'brien"),
+            ("SMTP_FROM", "noreply@example.org\nX-Injected: true"),
+        ):
+            with self.subTest(key):
+                values = self.env()
+                values[key] = hostile
+                report = cfg.Report()
+                cfg.check_values(values, report)
+                self.assertTrue(any(key in e for e in report.errors), report.errors)
+
+    def test_check_flags_a_non_numeric_smtp_port(self):
+        self.configure("--smtp-host", "mail.example.org", "--smtp-from", "noreply@example.org")
+        values = self.env()
+        values["SMTP_PORT"] = "587; rm -rf"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("SMTP_PORT" in e for e in report.errors), report.errors)
+
+    def test_check_flags_a_missing_reset_password_secret_only_with_smtp(self):
+        """An install that pulls this compose update without re-running
+        ./configure has AUTHELIA_RESET_PASSWORD_JWT_SECRET empty. That must
+        not be an error unless they also have SMTP_HOST set -- their
+        existing, SMTP-less setup keeps validating exactly as it did."""
+        self.configure("--preset", "homelab")
+        values = self.env()
+        values["AUTHELIA_RESET_PASSWORD_JWT_SECRET"] = ""
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertFalse(any("AUTHELIA_RESET_PASSWORD_JWT_SECRET" in e for e in report.errors), report.errors)
+
+        values["SMTP_HOST"] = "mail.example.org"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("AUTHELIA_RESET_PASSWORD_JWT_SECRET" in e for e in report.errors), report.errors)
+
+    def test_configure_mints_the_reset_password_secret(self):
+        self.configure("--smtp-host", "mail.example.org", "--smtp-from", "noreply@example.org")
+        values = self.env()
+        self.assertGreaterEqual(len(values["AUTHELIA_RESET_PASSWORD_JWT_SECRET"]), 48)
+
     def test_check_flags_an_external_idp_with_no_admin_rule(self):
         self.configure("--idp", "external", "--oidc-issuer", "https://id.example.org",
                        "--oidc-console-client-secret", "a", "--oidc-chat-client-secret", "b",

@@ -76,8 +76,8 @@ services:
       AUTHELIA_ADMIN_EMAIL: ${AUTHELIA_ADMIN_EMAIL:-}
       AUTHELIA_ADMIN_NAME: ${AUTHELIA_ADMIN_NAME:-}
       AUTHELIA_ADMIN_PASSWORD_DIGEST: ${AUTHELIA_ADMIN_PASSWORD_DIGEST:-}
-      # Written to a file under the authelia-config volume, at 0600 (§8.5) --
-      # never this environment's own value, so it never appears in
+      # Written to a file under the authelia-config volume, at 0600 -- never
+      # this environment's own value, so it never appears in
       # `docker compose config` or this container's own inspectable env.
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     volumes:
@@ -282,7 +282,7 @@ services:
     command: ["--config", "/etc/authelia/configuration.yml"]
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:5d02bb75db13eef4"
+      cerea.config-rev: "sha256:97025af7a27224b5"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
       # The gateway's uid: the console manages the bundled users file,
@@ -296,15 +296,15 @@ services:
       X_PYSTINO_SESSION_SECRET: ${AUTHELIA_SESSION_SECRET:-}
       X_PYSTINO_HMAC_SECRET: ${AUTHELIA_HMAC_SECRET:-}
       X_PYSTINO_STORAGE_KEY: ${AUTHELIA_STORAGE_KEY:-}
-      # Authelia refuses to start once password_reset isn't disabled without
-      # this (found live, validating the SMTP-on branch) -- minted
-      # unconditionally, like the three secrets above, never only with SMTP.
+      # Signs the reset-password link's token, needed once self-service
+      # reset is on; minted regardless, like the three secrets above, so
+      # turning SMTP on later needs nothing new.
       X_PYSTINO_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_RESET_PASSWORD_JWT_SECRET:-}
       X_PYSTINO_CONSOLE_CLIENT_DIGEST: ${AUTHELIA_CONSOLE_CLIENT_DIGEST:-}
       X_PYSTINO_CHAT_CLIENT_DIGEST: ${AUTHELIA_CHAT_CLIENT_DIGEST:-}
       # Empty SMTP_HOST is how configuration.yml's own template picks the
-      # filesystem notifier and a disabled password_reset (§8.7) -- the same
-      # one setting the gateway's mail reads, never a second copy to disagree
+      # filesystem notifier and a disabled password_reset -- the same one
+      # setting the gateway's mail reads, never a second copy to disagree
       # with it. The SMTP password itself never travels through this
       # environment: configuration.yml's `secret` call reads the file
       # bootstrap writes directly from the authelia-config volume, mounted

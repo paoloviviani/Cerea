@@ -29,9 +29,8 @@ log:
 
 authentication_backend:
   password_reset:
-    # Self-service reset needs somewhere to send the link; without SMTP the
-    # only reset this deployment has is an administrator minting a one-time
-    # password from the console (ADR 0093 §8.1/§8.7).
+    # Self-service reset needs SMTP; without it, an administrator issues
+    # one-time passwords from the console instead.
     disable: {{ if env "X_PYSTINO_SMTP_HOST" }}false{{ else }}true{{ end }}
   file:
     path: '/config/users_database.yml'
@@ -46,13 +45,10 @@ authentication_backend:
         key_length: 32
         salt_length: 16
 
-# No second factor, by decision: the bundled Authelia is a local-accounts
-# door, not an MFA provider — a deployment that needs MFA runs an external
-# IdP instead (ADR 0093 §8.6). Explicit rather than relying on every client's
-# own `one_factor` policy to make the point moot: an operator reading this
-# file sees the decision stated, not implied by the absence of a totp/webauthn
-# block that a later edit could add back without anyone noticing the policies
-# below still say `one_factor` everywhere.
+# No second factor: the bundled Authelia is a local-accounts door, not an
+# MFA provider. A deployment that needs MFA runs an external IdP instead.
+# Stated outright, not just implied by every client's own `one_factor`
+# policy below, so it stays true even if a later edit adds one back there.
 totp:
   disable: true
 webauthn:
@@ -82,40 +78,26 @@ storage:
   # user is keyed on downstream. Changing it re-keys everyone: never rotate it.
   encryption_key: '{{ env "X_PYSTINO_STORAGE_KEY" }}'
 
-# Required whenever authentication_backend.password_reset isn't disabled
-# (found live, validating the SMTP-on branch): signs the reset link's token.
-# Always set, like the three secrets above, regardless of whether SMTP is
-# configured this run.
+# Signs the reset-password link's token. Required once self-service reset is
+# on; set regardless, so turning on SMTP later never needs a fresh secret.
 identity_validation:
   reset_password:
-    jwt_secret: '{{ env "X_PYSTINO_RESET_PASSWORD_JWT_SECRET" }}'
+    jwt_secret: {{ env "X_PYSTINO_RESET_PASSWORD_JWT_SECRET" | msquote }}
 
 notifier:
 {{ if env "X_PYSTINO_SMTP_HOST" }}
+{{ $scheme := "submission" }}
+{{ if eq (env "X_PYSTINO_SMTP_SECURITY") "tls" }}{{ $scheme = "submissions" }}{{ else if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}{{ $scheme = "smtp" }}{{ end }}
   smtp:
-    address: '{{ if eq (env "X_PYSTINO_SMTP_SECURITY") "tls" }}submissions{{ else if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}smtp{{ else }}submission{{ end }}://{{ env "X_PYSTINO_SMTP_HOST" }}:{{ env "X_PYSTINO_SMTP_PORT" }}'
-    username: '{{ env "X_PYSTINO_SMTP_USERNAME" }}'
-    sender: '{{ env "X_PYSTINO_SMTP_FROM" }}'
-    # Found live: the `smtp://` scheme alone still enforces STARTTLS by
-    # Authelia's own default (only `submissions://`'s implicit TLS skips it) --
-    # "none" only means what SmtpSettings.security and .env.example's comment
-    # both already promise (a mail sink with no certificate at all) with this
-    # set too.
+    address: {{ printf "%s://%s:%s" $scheme (env "X_PYSTINO_SMTP_HOST") (env "X_PYSTINO_SMTP_PORT") | msquote }}
+    username: {{ env "X_PYSTINO_SMTP_USERNAME" | msquote }}
+    sender: {{ env "X_PYSTINO_SMTP_FROM" | msquote }}
+    # A mail sink with no certificate at all needs this; a real server's own
+    # STARTTLS is otherwise required no matter which scheme above is picked.
     disable_starttls: {{ if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}true{{ else }}false{{ end }}
-    # `secret`, not AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: that env var is
-    # read unconditionally by Authelia's own secrets loader regardless of
-    # this `if`, and an empty path (the only value compose can give it while
-    # this branch is off) is a hard startup error, not a no-op -- found live,
-    # bringing up the without-SMTP branch. `secret` only ever runs inside
-    # this branch, the same file bootstrap writes (0600) the other mechanism
-    # would have read, and the same convention the JWKS key above already
-    # uses for a value this template must not carry as plain text.
-    #
-    # And conditional on its own, once more: SMTP_PASSWORD is optional even
-    # with SMTP_HOST set (an unauthenticated relay on a private network,
-    # ./configure never requires it) -- bootstrap then never writes the file
-    # `secret` would read, so this line has to not exist rather than error,
-    # the same reasoning as the branch it lives in.
+    # An unauthenticated relay on a private network needs no password: this
+    # line is then absent rather than pointing at a file that was never
+    # written, so it does not stop Authelia starting.
     {{ if env "X_PYSTINO_SMTP_HAS_PASSWORD" }}
     password: {{ secret "/config/keys/smtp_password" | msquote }}
     {{ end }}

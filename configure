@@ -169,6 +169,12 @@ PRESETS = {
 }
 PROFILES = ("gateway", "chat", "authelia", "redaction", "fetch")
 
+#: configuration.yml's template quotes these with Authelia's own `msquote`,
+#: which does not escape an embedded quote (an unescaped `'` still ends a
+#: single-quoted YAML scalar early). Refusing the character here, before it
+#: ever reaches the template, is what actually keeps the rendered file valid.
+_SMTP_UNSAFE = re.compile(r"[\s'\"\\]")
+
 #: Secrets ./configure mints when empty: key -> bytes of randomness (hex).
 MINTED = {
     "POSTGRES_PASSWORD": 24,
@@ -219,10 +225,13 @@ REQUIRED_BY_PROFILE = {
         "AUTHELIA_SESSION_SECRET",
         "AUTHELIA_HMAC_SECRET",
         "AUTHELIA_STORAGE_KEY",
-        "AUTHELIA_RESET_PASSWORD_JWT_SECRET",
         "AUTHELIA_CONSOLE_CLIENT_DIGEST",
         "AUTHELIA_CHAT_CLIENT_DIGEST",
         "AUTHELIA_ADMIN_PASSWORD_DIGEST",
+        # Not here: AUTHELIA_RESET_PASSWORD_JWT_SECRET. Authelia only needs it
+        # once self-service reset is on (SMTP_HOST set), so an existing,
+        # no-SMTP install that hasn't re-run ./configure keeps validating —
+        # check_values below flags it only alongside SMTP_HOST.
     ),
 }
 #: Variables older installs (`pystino init`) wrote that nothing reads here.
@@ -1090,6 +1099,22 @@ def check_values(values: dict, report: Report) -> None:
         elif "authelia" in profiles:
             report.notes.append(
                 "SMTP_HOST is empty: password resets are admin-issued one-time passwords"
+            )
+    else:
+        for key in ("SMTP_HOST", "SMTP_USERNAME", "SMTP_FROM"):
+            value = values.get(key, "")
+            if value and _SMTP_UNSAFE.search(value):
+                report.errors.append(
+                    f"{key} contains whitespace, a quote or a newline, which the bundled "
+                    f"Authelia's configuration can't render safely: {value!r}"
+                )
+        port = values.get("SMTP_PORT", "")
+        if port and not port.isdigit():
+            report.errors.append(f"SMTP_PORT must be a number, got {port!r}")
+        if "authelia" in profiles and not values.get("AUTHELIA_RESET_PASSWORD_JWT_SECRET"):
+            report.errors.append(
+                "AUTHELIA_RESET_PASSWORD_JWT_SECRET is missing or empty (needed once SMTP_HOST "
+                "is set, for the bundled Authelia's password-reset link)"
             )
     endpoint = values.get("PLAYWRIGHT_WS_ENDPOINT", "")
     if "fetch" in profiles and not endpoint:
