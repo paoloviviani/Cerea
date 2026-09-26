@@ -51,6 +51,29 @@ describe("artifactsEnabledForTurn", () => {
 			})
 		).toBe(false);
 	});
+
+	it("defaults to whether the model does tool calling, with no supportsArtifacts flag set", () => {
+		// A tool-capable gateway model with no MODELS override at all — the
+		// `glm-5.3-flash` case: on by default now, not off.
+		expect(artifactsEnabledForTurn({ mlAssistant: false, supportsTools: true })).toBe(true);
+		// A model with no tool calling either: still off.
+		expect(artifactsEnabledForTurn({ mlAssistant: false, supportsTools: false })).toBe(false);
+	});
+
+	it("an explicit supportsArtifacts: false stays off even for a tool-capable model", () => {
+		expect(
+			artifactsEnabledForTurn({ mlAssistant: false, supportsArtifacts: false, supportsTools: true })
+		).toBe(false);
+	});
+
+	it("the user override wins over the tools-based default in both directions", () => {
+		expect(
+			artifactsEnabledForTurn({ mlAssistant: false, supportsTools: false, artifactsOverride: true })
+		).toBe(true);
+		expect(
+			artifactsEnabledForTurn({ mlAssistant: false, supportsTools: true, artifactsOverride: false })
+		).toBe(false);
+	});
 });
 
 describe("artifactsModeForTurn", () => {
