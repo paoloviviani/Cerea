@@ -109,12 +109,41 @@ export interface SharedResource {
  * never how many people that resolves to, since resolving a group's
  * membership would mean asking the gateway "who is in group X" on a bearer
  * token, which nothing in this codebase does (`Project.ts`'s own docs on
- * this). A person-only list can be counted; a group's true reach cannot, so
- * a share list including a group is reported as "everyone" rather than
- * printing a person-count this codebase cannot stand behind. */
-function audienceFor(shares: Pick<ProjectShare | VectorStoreShare, "kind">[]): string {
-	if (shares.some((share) => share.kind === "group")) return "everyone";
-	return `${shares.length} ${shares.length === 1 ? "person" : "people"}`;
+ * this). A group share is therefore named, not sized: "everyone" would
+ * overstate a small group and a person-count would understate one nobody
+ * here can read the roster of. `ProjectShare`'s group name lives on `name`;
+ * `VectorStoreShare`'s (both kinds) lives on `principal` — read whichever
+ * the row actually carries. */
+// `VectorStoreShare` isn't itself a discriminated union (one shape, `kind`
+// just a union-typed field), so `Extract<VectorStoreShare, {kind:"group"}>`
+// would resolve to `never` rather than narrowing it -- the intersection
+// below pins `kind` to the literal instead, which does narrow correctly.
+type ProjectGroupShare = ProjectShare & { kind: "group" };
+type VectorStoreGroupShare = VectorStoreShare & { kind: "group" };
+
+function groupName(share: ProjectGroupShare | VectorStoreGroupShare): string {
+	return "name" in share ? share.name : share.principal;
+}
+
+function isGroupShare(
+	share: ProjectShare | VectorStoreShare
+): share is ProjectGroupShare | VectorStoreGroupShare {
+	return share.kind === "group";
+}
+
+function audienceFor(shares: (ProjectShare | VectorStoreShare)[]): string {
+	const groups = shares.filter(isGroupShare).map(groupName);
+	const peopleCount = shares.filter((share) => share.kind === "user").length;
+
+	if (groups.length === 0) {
+		return `${peopleCount} ${peopleCount === 1 ? "person" : "people"}`;
+	}
+	const groupsPart =
+		groups.length === 1
+			? `members of group ${groups[0]}`
+			: `members of groups ${groups.join(", ")}`;
+	if (peopleCount === 0) return groupsPart;
+	return `${groupsPart}, and ${peopleCount} ${peopleCount === 1 ? "person" : "people"}`;
 }
 
 async function sharedResourcesFor(userIds: ObjectId[]): Promise<SharedResource[]> {
@@ -177,7 +206,7 @@ async function sharedResourcesFor(userIds: ObjectId[]): Promise<SharedResource[]
 			kind: "assistant",
 			id: row._id.toString(),
 			title: row.name,
-			audience: "everyone",
+			audience: "everyone (published)",
 		});
 	}
 
