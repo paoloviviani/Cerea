@@ -20,7 +20,11 @@
 	import { loadAttachmentsFromUrls } from "$lib/utils/loadAttachmentsFromUrls";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
-	import { defaultConnectorIds, openConversationSelection } from "$lib/stores/mcpConnectors";
+	import {
+		adoptNewChatSelection,
+		defaultConnectorIds,
+		openConversationSelection,
+	} from "$lib/stores/mcpConnectors";
 	import { get } from "svelte/store";
 
 	let { data } = $props();
@@ -147,6 +151,9 @@
 				// mode's designation from the moment it appears.
 				mlAssistant: mlAssistant.taskStarted,
 			});
+			// The connectors switched on here belong to this first message; the
+			// conversation page would otherwise seed the new id from the defaults.
+			adoptNewChatSelection(conversationId);
 			await goto(`${base}/conversation/${conversationId}`, {
 				state: { pendingMessage: message, pendingFilesNonce },
 			});
