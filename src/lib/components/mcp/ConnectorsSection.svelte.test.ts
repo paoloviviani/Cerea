@@ -175,3 +175,58 @@ describe("ConnectorsSection", () => {
 		expect(names.some((name) => name?.includes("Remove"))).toBe(false);
 	});
 });
+
+describe("ConnectorsSection: adding a token to a connector the probe could not work out", () => {
+	beforeEach(() => {
+		vi.unstubAllGlobals();
+		connectors.set([]);
+	});
+
+	it("offers a token field on a no-auth connector and sends what is typed", async () => {
+		// What auto mode leaves behind for a server that answered a bare 401:
+		// no auth, and a row error telling the person to add a token.
+		const jmcp = connector({
+			id: "c-jmcp",
+			name: "jmcp",
+			auth: "none",
+			lastError: "it asks for authentication but offers no OAuth sign-in",
+		});
+		const updates: Record<string, unknown>[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const method = init?.method ?? "GET";
+				if (String(input).includes("/api/v2/mcp/connectors") && method === "GET") {
+					return Response.json({ data: [jmcp] });
+				}
+				updates.push(JSON.parse(String(init?.body ?? "{}")));
+				return Response.json({});
+			})
+		);
+		const screen = mount();
+
+		await expect.element(screen.getByText("jmcp", { exact: true })).toBeInTheDocument();
+		const edit = [...screen.baseElement.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Edit"
+		);
+		edit?.click();
+
+		const token = await vi.waitFor(() => {
+			const field = screen.baseElement.querySelector<HTMLInputElement>('input[type="password"]');
+			expect(field).not.toBeNull();
+			return field as HTMLInputElement;
+		});
+		// Nothing stored yet, so there is nothing to remove.
+		expect(screen.baseElement.textContent).not.toContain("Remove the stored token");
+
+		token.value = "secret-token";
+		token.dispatchEvent(new Event("input", { bubbles: true }));
+		const save = [...screen.baseElement.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Save changes"
+		);
+		save?.click();
+
+		await vi.waitFor(() => expect(updates).toHaveLength(1));
+		expect(updates[0]).toMatchObject({ action: "update", token: "secret-token" });
+	});
+});

@@ -17,6 +17,7 @@
 <script lang="ts">
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
+	import { onMount } from "svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
@@ -110,7 +111,12 @@
 		await refreshConnectors();
 	}
 
-	load();
+	// In `onMount`, not the component body: the body also runs during server
+	// rendering, where the relative URL cannot be fetched and the page logged
+	// "Failed to load MCP connectors: Failed to parse URL".
+	onMount(() => {
+		void load();
+	});
 
 	// Somebody who has just approved a consent screen meant to use that
 	// connector, so it is switched on in the defaults for new chats rather
@@ -647,11 +653,17 @@
 								disabled={busy}
 							/>
 						</label>
-						{#if connector.auth === "token"}
+						<!-- Offered on a "no auth" connector too: that is where auto mode
+						     leaves a server that answered 401 with no OAuth metadata, and
+						     its row tells the person to add a token here. -->
+						{#if connector.auth === "token" || connector.auth === "none"}
 							<label class="flex flex-col gap-1">
 								<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
-									>Replacement token <span class="font-normal text-gray-500"
-										>(leave blank to keep)</span
+									>{connector.auth === "token" ? "Replacement token" : "Token"}
+									<span class="font-normal text-gray-500"
+										>{connector.auth === "token"
+											? "(leave blank to keep)"
+											: "(if the server takes an API key or token)"}</span
 									></span
 								>
 								<input
@@ -671,14 +683,16 @@
 									disabled={busy || !editToken.trim()}
 								/>
 							</label>
-							<label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-								<input
-									type="checkbox"
-									bind:checked={clearEditToken}
-									disabled={busy || !!editToken.trim()}
-								/>
-								Remove the stored token
-							</label>
+							{#if connector.auth === "token"}
+								<label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+									<input
+										type="checkbox"
+										bind:checked={clearEditToken}
+										disabled={busy || !!editToken.trim()}
+									/>
+									Remove the stored token
+								</label>
+							{/if}
 						{/if}
 						<p class="text-xs text-gray-500 dark:text-gray-400">
 							Changing the URL clears cached server details; re-check it, then sign in again if

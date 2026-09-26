@@ -19,6 +19,7 @@ import {
 	toggleDefaultConnector,
 	disableAllConnectors,
 	openConversationSelection,
+	adoptNewChatSelection,
 	resetConversationSelections,
 	migrateConnectorDefaults,
 } from "./mcpConnectors";
@@ -188,5 +189,35 @@ describe("defaults vs per-chat selection", () => {
 		// No reopen between: the first toggle diverges without touching the defaults.
 		expect(get(selectedConnectorIds)).toEqual(new Set());
 		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-a"]));
+	});
+});
+
+describe("the first message of a new chat", () => {
+	it("keeps the connectors switched on at home when its conversation page opens", () => {
+		// Nothing in the defaults: the person switches jmcp on for this one chat.
+		openConversationSelection(null, get(defaultConnectorIds));
+		toggleConnector("conn-jmcp");
+
+		// The home page creates the conversation, hands its selection over, and
+		// navigates; the conversation page then opens the new id with the defaults
+		// as the seed — which used to win, so the first message went without it.
+		adoptNewChatSelection("chat-new");
+		openConversationSelection("chat-new", get(defaultConnectorIds));
+
+		expect(get(selectedConnectorIds)).toEqual(new Set(["conn-jmcp"]));
+		expect(localStorage.getItem(conversationKey("chat-new"))).toContain("conn-jmcp");
+		// And the defaults did not move.
+		expect(get(defaultConnectorIds)).toEqual(new Set());
+	});
+
+	it("keeps a default switched off at home off in the new conversation", () => {
+		defaultConnectorIds.set(new Set(["conn-a"]));
+		openConversationSelection(null, get(defaultConnectorIds));
+		toggleConnector("conn-a");
+
+		adoptNewChatSelection("chat-new");
+		openConversationSelection("chat-new", get(defaultConnectorIds));
+
+		expect(get(selectedConnectorIds)).toEqual(new Set());
 	});
 });
