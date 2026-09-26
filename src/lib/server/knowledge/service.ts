@@ -19,6 +19,11 @@ import { chunkMarkdown } from "./chunking";
 import { INDEXED_DIMENSIONS, toUuid, withClient } from "./db";
 import { fromUuid } from "./db";
 import { embed } from "./embed";
+import {
+	resolveExtractor,
+	type ExtractorCandidate,
+	type ExtractorSource,
+} from "./extractorResolution";
 import type { KnowledgeConfig, KnowledgeDocument, VectorStore } from "$lib/types/VectorStore";
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -342,6 +347,10 @@ export async function adminStatus(token: string | undefined): Promise<{
 	ready: boolean;
 	embedding_model: string | null;
 	extractor_model: string | null;
+	/** Why `extractor_model` is what it is: `"env"` and the picker is fixed
+	 * and read-only; `"stored"` an administrator's own choice; the other two
+	 * are what "nothing chosen" resolved to. */
+	extractor_source: ExtractorSource;
 	vector_store: string;
 	chunk_chars: number;
 	chunk_overlap: number;
@@ -350,7 +359,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 	propagation_seconds: number;
 	detail: string | null;
 	available_embedding_models: string[];
-	available_extractor_models: string[];
+	available_extractor_models: ExtractorCandidate[];
 	bases: {
 		id: string;
 		name: string;
@@ -381,25 +390,30 @@ export async function adminStatus(token: string | undefined): Promise<{
 	const pipeline = await readConfig();
 
 	// One catalogue fetch answers both "which models may be chosen" and the
-	// readiness probe. Without a token (no OIDC session behind this request)
-	// the lists are empty and the screen says so in its own words — better
-	// than refusing to render what is still true.
+	// readiness probe. `include=ocr` alongside the ordinary kinds is what
+	// surfaces this deployment's own local extractor (Pystino's `?include=ocr`,
+	// hidden from a plain `GET /v1/models`) with its `local` flag, so the
+	// picker below can pre-select it. Without a token (no OIDC session behind
+	// this request) the lists are empty and the screen says so in its own
+	// words — better than refusing to render what is still true.
 	let detail: string | null = null;
 	let embeddingModels: string[] = [];
-	let extractorModels: string[] = [];
+	let extractorCandidates: ExtractorCandidate[] = [];
 	if (pipeline.enabled && !pipeline.embeddingModel) {
 		detail =
 			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
 	} else if (token) {
 		try {
-			const models = await gateway.get<{ data: { id: string; kind?: string }[] }>(token, "models");
+			const models = await gateway.get<{
+				data: { id: string; kind?: string; local?: boolean }[];
+			}>(token, "models?include=chat,embedding,image,ocr");
 			const ids = models.data.map((model) => model.id);
 			embeddingModels = models.data
 				.filter((model) => model.kind === "embedding")
 				.map((model) => model.id);
-			extractorModels = models.data
+			extractorCandidates = models.data
 				.filter((model) => model.kind === "ocr")
-				.map((model) => model.id);
+				.map((model) => ({ id: model.id, local: model.local === true }));
 			if (pipeline.embeddingModel && !ids.includes(pipeline.embeddingModel)) {
 				detail = `The configured embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
 			}
@@ -407,6 +421,13 @@ export async function adminStatus(token: string | undefined): Promise<{
 			logger.warn({ err }, "knowledge_status_model_probe_failed");
 		}
 	}
+
+	const envExtractorModel = config.CHAT_OCR_MODEL?.trim() || null;
+	const extractorResolution = resolveExtractor({
+		envModel: envExtractorModel,
+		storedModel: pipeline.extractorModel?.trim() || null,
+		candidates: extractorCandidates,
+	});
 
 	// Every base, not the caller's: this is the deployment's administrator
 	// looking at the deployment's pipeline. One aggregate over the documents
@@ -472,10 +493,12 @@ export async function adminStatus(token: string | undefined): Promise<{
 		enabled: pipeline.enabled,
 		ready: configReady(pipeline) && !detail,
 		embedding_model: pipeline.embeddingModel,
-		// What extraction will actually use, env fallback included, so the
-		// screen never shows "built in" for a deployment whose documents are
-		// in fact being sent to a model named in the environment.
-		extractor_model: pipeline.extractorModel ?? (config.CHAT_OCR_MODEL?.trim() || null),
+		// What extraction will actually use — env, then the stored choice, then
+		// this deployment's own local extractor, then the first reader, then
+		// none (`resolveExtractor`) — so the screen never shows a reader that
+		// is not what an upload would actually be sent to.
+		extractor_model: extractorResolution.model,
+		extractor_source: extractorResolution.source,
 		vector_store: "pgvector — this deployment's own Postgres (ADR 0070)",
 		chunk_chars: pipeline.chunkChars,
 		chunk_overlap: pipeline.chunkOverlap,
@@ -485,7 +508,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 		propagation_seconds: 0,
 		detail,
 		available_embedding_models: embeddingModels,
-		available_extractor_models: extractorModels,
+		available_extractor_models: extractorCandidates,
 		bases,
 		stale_base_count: bases.filter((base) => base.stale).length,
 		history,
