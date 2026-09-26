@@ -13,7 +13,7 @@
  * machine checks in as paired; and New Chat keeps its address while carrying
  * the switcher's small/icon idiom.
  */
-import { test, expect, E2E_APP_URL, E2E_APP_BASE } from "./fixtures";
+import { test, expect, E2E_APP_URL, E2E_APP_ORIGIN, E2E_APP_BASE } from "./fixtures";
 import type { Page } from "playwright/test";
 import superjson from "superjson";
 
@@ -199,8 +199,16 @@ test.describe("the pair dialog's setup commands", () => {
 		await expect(dialog).toBeVisible();
 
 		// No naming step and no pasted offer any more: the machine enrolls
-		// and dials in on its own, against this deployment's own origin.
-		await expect(dialog.getByText(`galopin enroll --cerea ${E2E_APP_URL}`)).toBeVisible();
+		// and dials in on its own, against this deployment's own origin, its
+		// own issuer (`OPENID_PROVIDER_URL` above — deliberately not
+		// origin-shaped, so this catches a regression to a hardcoded,
+		// origin-derived issuer) and, `CODE_GATEWAY_ORIGIN` being unset here,
+		// the browser's own bare origin as the gateway fallback.
+		await expect(
+			dialog.getByText(
+				`galopin enroll --issuer 'http://127.0.0.1:9/authelia' --gateway '${E2E_APP_ORIGIN}' --cerea '${E2E_APP_URL}'`
+			)
+		).toBeVisible();
 		await expect(dialog.getByText("galopin run")).toBeVisible();
 		await expect(dialog.getByText("No machine has checked in yet.")).toBeVisible();
 
