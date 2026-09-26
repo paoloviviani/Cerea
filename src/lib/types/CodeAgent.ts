@@ -289,6 +289,15 @@ export interface CodeDevice {
 	 * terminal is a full shell on ‹machine›…", ADR 0090 §2.3/§6.2) — once per
 	 * machine, so a later ticket mint for the same device never asks again. */
 	terminalAckAt?: Date;
+	/** The issuer this device last enrolled against (ADR 0093 §4.7, §12),
+	 * recorded on every successful machine auth. A device whose enrolledIssuer
+	 * no longer matches the configured issuer shows "re-enroll". */
+	enrolledIssuer?: string;
+	/** Set when a gateway refusal, an account disable/merge or a newer
+	 * `sessions_valid_after` closes this device's live links (§4.7, §9.1).
+	 * A revoked device needs a fresh `galopin enroll`. */
+	revokedAt?: Date;
+	revokedReason?: "account_disabled" | "account_merged";
 }
 
 /** A working directory the daemon serves agents from. Lives on the daemon. */

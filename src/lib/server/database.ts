@@ -563,6 +563,11 @@ export class Database {
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpElicitations by expiresAt"));
 
 		sharedConversations.createIndex({ hash: 1 }, { unique: true }).catch((e) => logger.error(e));
+		// ADR 0093: the merge/erasure registry's lookup of one person's share
+		// links (absent on links made before the field existed).
+		sharedConversations
+			.createIndex({ userId: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for sharedConversations by userId"));
 		settings
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by sessionId"));
@@ -572,9 +577,34 @@ export class Database {
 		settings
 			.createIndex({ assistants: 1 })
 			.catch((e) => logger.error(e, "Error creating index for settings by assistants"));
-		users
-			.createIndex({ hfUserId: 1 }, { unique: true })
-			.catch((e) => logger.error(e, "Error creating index for users by hfUserId"));
+		// Not unique any more (ADR 0093 §3.3): with resolution keyed on
+		// `gatewayUserId`, one `(issuer, hfUserId)` can legitimately appear on a
+		// stale record and on the record it will merge into — the old unique
+		// index on `hfUserId` alone would refuse the second row outright.
+		// Sequenced like the `skills` key change above, and done here rather than
+		// through a `Migration` routine: Mongo refuses index DDL inside the
+		// multi-document transaction every routine runs in (`migrations.ts`'s
+		// `session.withTransaction`). Awaited for the same ordering reason as
+		// `skills`: a write racing this build must not see a duplicate key
+		// refused by an index that is on its way out.
+		await users
+			.createIndex({ issuer: 1, hfUserId: 1 })
+			.then(() =>
+				// The gateway's own id, once resolution moves onto it: unique, but
+				// only over documents that have one, since not every account has
+				// been backfilled yet (§4.3's lazy adoption on first post-upgrade
+				// login).
+				users.createIndex(
+					{ gatewayUserId: 1 },
+					{ unique: true, partialFilterExpression: { gatewayUserId: { $type: "string" } } }
+				)
+			)
+			.then(() =>
+				// Absent on a fresh install (never created), and already gone on a
+				// re-run — either way not an error worth logging.
+				users.dropIndex("hfUserId_1").catch(() => undefined)
+			)
+			.catch((e) => logger.error(e, "Error migrating the users hfUserId index (ADR 0093)"));
 		users
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for users by sessionId"));
@@ -586,6 +616,13 @@ export class Database {
 		users
 			.createIndex({ createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for users by createdAt"));
+		// The generic preset's own migration match (§4.5), and the eventual
+		// gateway-preset link-by-email if this app ever needs to look accounts
+		// up by address; sparse since not every row has been touched since the
+		// field started being written.
+		users
+			.createIndex({ emailNormalized: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for users by emailNormalized"));
 		messageEvents
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 1 })
 			.catch((e) => logger.error(e, "Error creating index for messageEvents by expiresAt"));
