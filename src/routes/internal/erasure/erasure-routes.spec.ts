@@ -58,6 +58,7 @@ describe("POST /internal/erasure/preview", () => {
 		const body = await res.json();
 		expect(body.counts).toBeTypeOf("object");
 		expect(body.unattributed_legacy_shares).toBeTypeOf("number");
+		expect(body.shared).toEqual([]);
 	});
 
 	it("turns assertInternalRequest's refusal into a 401", async () => {

@@ -12,6 +12,10 @@ import { previewErasure } from "$lib/server/identity/erasure";
  * startup backfill could not attribute to anyone can never be tied to a
  * person by this or any later run, so the dialog surfaces it whenever any
  * exist rather than silently under-reporting this (or any) person's shares.
+ *
+ * `shared` names every resource of the person that someone else can see —
+ * share links, shared projects and knowledge bases, and approved assistants
+ * — each with its own audience, per `previewErasure`'s own doc comment.
  */
 const bodySchema = z.object({
 	gateway_user_id: z.string().min(1),
@@ -29,5 +33,6 @@ export const POST: RequestHandler = async ({ request }) => {
 	return json({
 		counts: preview.counts,
 		unattributed_legacy_shares: preview.unattributedLegacyShares,
+		shared: preview.shared,
 	});
 };
