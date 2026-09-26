@@ -221,7 +221,18 @@ function scriptToolResults(output = "tool ok") {
 
 function context(): RunMcpFlowContext & { abortSignal?: AbortSignal } {
 	return {
-		model: { id: "test/model", name: "test/model", supportsTools: true, parameters: {} },
+		// Explicit `false`: this fixture is tool-capable, so it would
+		// otherwise default artifacts on (the `supportsTools` fallback) and
+		// add the `artifact` tool to every list this file asserts — noise for
+		// specs about MCP flow and tool gating, not artifacts, which get
+		// their own fixture in artifacts.spec.ts.
+		model: {
+			id: "test/model",
+			name: "test/model",
+			supportsTools: true,
+			supportsArtifacts: false,
+			parameters: {},
+		},
 		conv: { _id: new ObjectId() },
 		messages: [{ from: "user", content: "hello" }],
 		locals: {},

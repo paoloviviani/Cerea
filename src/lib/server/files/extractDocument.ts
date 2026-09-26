@@ -28,22 +28,28 @@
  * for the same twelve-page PDF again on the second question about it, and
  * again on the third. Once per file, kept beside the file.
  *
- * Which model does it, in order: a configured direct endpoint (see above),
- * else the Knowledge screen's choice, then `CHAT_OCR_MODEL` when the screen
- * has not named one, then the first model the caller may use whose `kind` is
- * `ocr`. The deployment's own extractor is not a special case here — it is an
- * ordinary model row on the gateway, whose provider is the local extractor
- * service, and it shows up in the catalogue like any other reader. There is
- * deliberately no stored value that means "extract nothing": an unset choice
- * is the deployment default, so a save that never touched extraction can
- * never turn it off, and with no reader anywhere the reason comes back
- * spelled out rather than as a silent absence of text.
+ * Which model does it, in order (`resolveExtractor`,
+ * `./knowledge/extractorResolution.ts` — the one place this is decided, so
+ * the Knowledge screen's picker and this path can never disagree): a
+ * configured direct endpoint (see above), else `CHAT_OCR_MODEL` naming a
+ * model in the ordinary catalogue, else the Knowledge screen's stored
+ * choice, else this deployment's own local extractor when the gateway has
+ * one (`?include=ocr`'s `local: true`), else the first model the caller may
+ * use whose `kind` is `ocr`. There is deliberately no stored value that
+ * means "extract nothing": an unset choice is the deployment default, so a
+ * save that never touched extraction can never turn it off, and with no
+ * reader anywhere the reason comes back spelled out rather than as a silent
+ * absence of text.
  */
 
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
 import { readConfig } from "$lib/server/knowledge/service";
+import {
+	resolveExtractor,
+	type ExtractorCandidate,
+} from "$lib/server/knowledge/extractorResolution";
 
 /** Document types worth sending to an extractor. Images go the vision route. */
 export const DOCUMENT_MIME_ALLOWLIST = [
@@ -109,6 +115,9 @@ interface OcrResponse {
 interface ModelCard {
 	id: string;
 	kind?: string;
+	/** This deployment's own infrastructure (the local extractor), per
+	 * Pystino's `?include=ocr`. Absent on an older gateway. */
+	local?: boolean;
 }
 
 export interface Extracted {
@@ -135,6 +144,17 @@ export function assertOcrConfigValid(): void {
 	}
 }
 
+/**
+ * A provider-side failure (429, 5xx), named rather than paraphrased as "not
+ * available" — the reader is configured and reachable, its upstream just
+ * refused this call, and the model name is what an administrator needs to
+ * act on it (a different reader, or a quota to raise).
+ */
+function readerFailureReason(status: number, model: string): string {
+	if (status === 429) return `The document reader ${model} is rate-limited by its provider.`;
+	return `The document reader ${model} is unavailable right now — its provider answered ${status}.`;
+}
+
 /** The text of an OCR response, or null when it carries none. Shared by both routes. */
 function textFromOcrResponse(answer: OcrResponse): Extracted | null {
 	const text = (answer.pages ?? [])
@@ -158,6 +178,12 @@ export type Extraction = ({ ok: true } & Extracted) | { ok: false; reason: strin
  * The model this document would be read with, or null if the deployment has
  * none the caller may use.
  *
+ * The priority is `resolveExtractor`'s (`./knowledge/extractorResolution`),
+ * the one place it is decided so the Knowledge screen's picker and this
+ * upload path can never show one reader and use another: an env value, then
+ * the Knowledge screen's stored choice, then this deployment's own local
+ * extractor, then the first available reader, then none.
+ *
  * Resolved per call rather than cached: an administrator adding a reader
  * should not need the chat restarted, and this runs once per uploaded document
  * — not per turn — so one extra request is not a cost worth caching against.
@@ -172,19 +198,28 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
 	// reach this function without going through that boot-time check (tests).
 	if (directOcrBaseUrl()) return config.CHAT_OCR_MODEL?.trim() || null;
 
-	// The Knowledge screen's choice, when it has made one. Only a named model
-	// is a choice: an unset field and a stored null are both "Automatic", and
-	// mean the deployment default below. There is no third value that means
-	// "read nothing" — that state was once expressible here and it extracted
-	// nothing while the screen promised the opposite.
+	// An env value beats even the screen's own stored choice — the same
+	// "operator who names one means it" rule the direct endpoint follows
+	// above, generalized to naming a model in the ordinary gateway-routed
+	// catalogue rather than a whole endpoint of its own.
+	const envModel = config.CHAT_OCR_MODEL?.trim() || null;
+	if (envModel) return envModel;
+
 	const knowledge = await readConfig();
-	const chosen = knowledge.extractorModel?.trim();
-	if (chosen) return chosen;
-	const configured = config.CHAT_OCR_MODEL?.trim();
-	if (configured) return configured;
+	const storedModel = knowledge.extractorModel?.trim() || null;
+	if (storedModel) return storedModel;
+
+	// Neither named one: this deployment's own local extractor, when the
+	// gateway has one (`?include=ocr`'s `local: true`), else the first
+	// reader in the catalogue this caller may use, else none. An older
+	// gateway that does not flag `local` at all degrades to "first
+	// available" — the same answer it gave before this flag existed.
 	try {
-		const answer = await gateway.get<{ data: ModelCard[] }>(token, "models");
-		return answer.data.find((model) => model.kind === "ocr")?.id ?? null;
+		const answer = await gateway.get<{ data: ModelCard[] }>(token, "models?include=ocr");
+		const candidates: ExtractorCandidate[] = answer.data
+			.filter((model) => model.kind === "ocr")
+			.map((model) => ({ id: model.id, local: model.local === true }));
+		return resolveExtractor({ envModel: null, storedModel: null, candidates }).model;
 	} catch (err) {
 		logger.warn({ err }, "document_extraction_unavailable: could not list models");
 		return null;
@@ -271,11 +306,16 @@ export async function extractDocument(options: {
 		const status = err instanceof GatewayCallFailed ? err.status : 502;
 		// The gateway's own refusals are written to be acted on ("this document
 		// has no text layer — use an OCR model for this document"); quoting them
-		// beats paraphrasing them into something generic.
-		const reason =
-			err instanceof GatewayCallFailed && status === 422
-				? err.message
-				: "The document reader could not be reached, so the file was stored without text.";
+		// beats paraphrasing them into something generic. A provider-side failure
+		// (429, 5xx) is not the gateway's own refusal — the gateway's message is
+		// often just the upstream's status wrapped, e.g. "the provider answered
+		// 429" — so this names the reader instead of leaving the upload looking
+		// like nothing works at all.
+		let reason = "The document reader could not be reached, so the file was stored without text.";
+		if (err instanceof GatewayCallFailed) {
+			if (status === 422) reason = err.message;
+			else if (status === 429 || status >= 500) reason = readerFailureReason(status, model);
+		}
 		logger.warn(
 			{
 				filename,
@@ -378,11 +418,17 @@ async function extractDocumentDirect(options: {
 			{ filename, model, baseUrl, status: response.status, detail },
 			"document_extraction_failed: the direct OCR endpoint refused"
 		);
+		// The endpoint's own detail wins when it has one; a 429 or 5xx with no
+		// parseable envelope still names the reader rather than reading as
+		// "not available" (the same mapping the gateway path uses).
+		const fallback =
+			response.status === 429 || response.status >= 500
+				? readerFailureReason(response.status, model)
+				: "The document reader could not be reached, so the file was stored without text.";
 		return {
 			ok: false,
 			status: response.status,
-			reason:
-				detail ?? "The document reader could not be reached, so the file was stored without text.",
+			reason: detail ?? fallback,
 		};
 	}
 

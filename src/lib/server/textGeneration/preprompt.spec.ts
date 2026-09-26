@@ -71,6 +71,42 @@ describe("resolvePreprompt", () => {
 		).toBe(injectExecutionPrompt("You are a pirate."));
 	});
 
+	it("defaults on for a tool-capable model with no supportsArtifacts flag — in tool mode, so no tags in the prompt", () => {
+		// The gateway-discovered case with no MODELS override — `glm-5.3-flash`,
+		// say — where `supportsArtifacts` is genuinely absent, not `false`.
+		// Artifacts are on, but tool mode carries the instructions on the tool
+		// description instead of the tags grammar (see artifacts.spec.ts's
+		// "prompt gating" for the tool-description side of this).
+		expect(
+			resolvePreprompt({
+				conversationPreprompt: "You are a pirate.",
+				mlAssistant: false,
+				supportsTools: true,
+			})
+		).toBe(injectExecutionPrompt("You are a pirate."));
+	});
+
+	it("falls back to inline tags when a tool-capable model's tools are off this turn", () => {
+		expect(
+			resolvePreprompt({
+				conversationPreprompt: "You are a pirate.",
+				mlAssistant: false,
+				supportsTools: true,
+				forceTools: false,
+			})
+		).toBe(injectExecutionPrompt(injectArtifactsPrompt("You are a pirate.")));
+	});
+
+	it("stays off for a non-tool model with no supportsArtifacts flag", () => {
+		expect(
+			resolvePreprompt({
+				conversationPreprompt: "You are a pirate.",
+				mlAssistant: false,
+				supportsTools: false,
+			})
+		).toBe(injectExecutionPrompt("You are a pirate."));
+	});
+
 	it("lets the per-model override win in both directions outside the preset", () => {
 		expect(
 			resolvePreprompt({

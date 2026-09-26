@@ -71,7 +71,15 @@ export function resolvePreprompt({
 	skillsPreprompt,
 }: PrepromptInput): string | undefined {
 	const base = mlAssistant ? ML_ASSISTANT_PREPROMPT : conversationPreprompt;
-	const artifacts = artifactsEnabledForTurn({ mlAssistant, artifactsOverride, supportsArtifacts });
+	const toolsEnabled = mlAssistant
+		? (supportsTools ?? false)
+		: (forceTools ?? supportsTools ?? false);
+	const artifacts = artifactsEnabledForTurn({
+		mlAssistant,
+		artifactsOverride,
+		supportsArtifacts,
+		supportsTools,
+	});
 	// In tool mode the grammar leaves the system message: the tool description
 	// teaches the contract instead, which is also what keeps the ML-preset
 	// ceiling test green.
@@ -79,7 +87,8 @@ export function resolvePreprompt({
 		mlAssistant,
 		artifactsOverride,
 		supportsArtifacts,
-		toolsEnabled: mlAssistant ? (supportsTools ?? false) : (forceTools ?? supportsTools ?? false),
+		supportsTools,
+		toolsEnabled,
 		artifactsMode,
 	});
 	const withArtifacts = artifacts && mode === "tags" ? injectArtifactsPrompt(base) : base;
