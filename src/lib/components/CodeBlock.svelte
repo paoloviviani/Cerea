@@ -150,11 +150,11 @@
 	// safe: it fires the run once, the first time some instance sees both
 	// signals true, remount or not.
 	$effect(() => {
-		if (loading && runsStore && runKey) runsStore.markSeenStreaming(runKey);
+		if (loading && runsStore && runKey) runsStore.markSeenStreaming(streamedKey());
 	});
 	$effect(() => {
 		if (!autorun || loading || !runsStore || !runKey) return;
-		if (!runsStore.hasSeenStreaming(runKey)) return;
+		if (!runsStore.hasSeenStreaming(streamedKey())) return;
 		runsStore.run(runKey, rawCode);
 	});
 
@@ -185,6 +185,13 @@
 	// uses) and recorded on this message, which is what makes them file
 	// artifacts and brings them back after a reload or on another device.
 	const messageRun = getMessageRunContext();
+	// The "seen streaming" mark is scoped to this conversation: the runs store
+	// is tab-wide and a runKey is derived from the code alone, so the same code
+	// in another conversation's history must not inherit a mark (it would
+	// auto-run a history block if the first one never got to run).
+	function streamedKey(): string {
+		return `${messageRun?.conversationId ?? ""}|${runKey}`;
+	}
 	$effect(() => {
 		const state = runState;
 		const ctx = messageRun;
