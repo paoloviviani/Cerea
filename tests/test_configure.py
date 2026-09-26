@@ -680,6 +680,25 @@ class TestBreakGlass(TestCommands):
         self.assertIn("https://chat.example.org/", out)
         self.assertIn("re-enroll", out)
 
+    def test_forces_link_by_email_off_even_when_it_was_on(self):
+        # The happy-path test above starts from OIDC_LINK_BY_EMAIL unset
+        # (false by default), which never proves the forcing -- it would
+        # pass even if --break-glass just left the existing value alone.
+        self.configure(
+            "--idp", "external", "--oidc-issuer", "https://idp.example.org",
+            "--oidc-console-client-secret", "s1", "--oidc-chat-client-secret", "s2",
+            "--link-by-email",
+        )
+        self.assertEqual(self.env()["OIDC_LINK_BY_EMAIL"], "true")
+
+        calls, fake_run = self._mock_run()
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_LINK_BY_EMAIL"], "false")
+
     def test_stops_at_the_first_failing_step_and_names_the_backup(self):
         self.configure()
         calls, fake_run = self._mock_run(fail_at=1)  # the bootstrap step
