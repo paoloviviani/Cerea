@@ -98,6 +98,14 @@ describe("renderAnswerBody", () => {
 		expect(body).toContain("Outro.");
 	});
 
+	it("renders table artifacts as csv fences", () => {
+		const body = renderAnswerBody(
+			'<artifact identifier="sales" type="table" title="Sales">month,amount\njan,10</artifact>'
+		);
+		expect(body).toContain("**Artifact: Sales (`sales`)**");
+		expect(body).toContain("```csv\nmonth,amount\njan,10\n```");
+	});
+
 	it("summarizes artifact updates instead of dumping diff pairs", () => {
 		const body = renderAnswerBody(
 			'<artifact identifier="app" type="update"><old_str>a</old_str><new_str>b</new_str></artifact>'
