@@ -11,6 +11,7 @@
 	CodeTerminals.svelte, only mounts this once all of that has cleared).
 -->
 <script lang="ts">
+	import { MediaQuery } from "svelte/reactivity";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconRenew from "~icons/carbon/renew";
 	import { subscribeToTheme } from "$lib/switchTheme";
@@ -52,6 +53,18 @@
 	let ackChannel = "b";
 	let resizeObserver: ResizeObserver | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Below the mobile breakpoint the composer and side pane use (§2.4 of the
+	// terminal plan): a terminal opens in view mode (touch-scroll only, no
+	// keyboard) so an accidental tap never types into a shell. Desktop never
+	// reads any of this — the guards below are gated on `narrowViewport`.
+	const narrowViewport = new MediaQuery("(max-width: 639px)");
+	let typingMode = $state(false);
+	let ctrlSticky = $state(false);
+	let altSticky = $state(false);
+	const FONT_SIZE_MIN = 10;
+	const FONT_SIZE_MAX = 22;
+	let fontSize = $state(13);
 
 	// xterm renders its own colors regardless of the page's CSS — unlike
 	// ordinary DOM content, `dark:` classes on the host div do nothing for
@@ -185,17 +198,110 @@
 		ws.send(JSON.stringify({ t: "resize", cols, rows, claim: true }));
 	}
 
+	/** Below the mobile breakpoint, in view mode: a tap must never reach
+	 * xterm's own click-to-focus handling, wherever it is wired internally —
+	 * capturing here, ahead of anything xterm attaches on a descendant, and
+	 * `stopPropagation` so the event never continues to it. */
+	function blockFocusInViewMode(e: Event): void {
+		if (narrowViewport.current && !typingMode) {
+			e.preventDefault();
+			e.stopPropagation();
+		}
+	}
+
+	function sendInputBytes(bytes: Uint8Array): void {
+		if (ws?.readyState !== WebSocket.OPEN) return;
+		ws.send(
+			encodeTerminalFrame({ kind: BIN_TERM_INPUT, channel: ackChannel, offset: 0, payload: bytes })
+		);
+	}
+
+	/** The one path all typed input takes, real keystrokes and the extra-keys
+	 * bar alike (the bar feeds it via `term.input(data, false)`, xterm's own
+	 * "as if typed" API). Sticky Ctrl/Alt apply here, to whatever key comes
+	 * next, then release — one shot, same as a real sticky-modifier keyboard. */
+	function handleTerminalData(data: string): void {
+		let bytes: Uint8Array;
+		if (ctrlSticky) {
+			ctrlSticky = false;
+			bytes =
+				data.length === 1
+					? new Uint8Array([data.charCodeAt(0) & 0x1f])
+					: new TextEncoder().encode(data);
+		} else if (altSticky) {
+			altSticky = false;
+			bytes = new Uint8Array([0x1b, ...new TextEncoder().encode(data)]);
+		} else {
+			bytes = new TextEncoder().encode(data);
+		}
+		sendInputBytes(bytes);
+	}
+
+	function sendKey(data: string): void {
+		term?.input(data, false);
+	}
+
+	function sendArrow(letter: "A" | "B" | "C" | "D"): void {
+		const prefix = term?.modes.applicationCursorKeysMode ? "\x1bO" : "\x1b[";
+		sendKey(prefix + letter);
+	}
+
+	/** Bypasses sticky Ctrl/Alt entirely: a fixed shortcut, not a modifier
+	 * applied to "the next key". */
+	function sendControlByte(byte: number): void {
+		sendInputBytes(new Uint8Array([byte]));
+	}
+
+	function toggleCtrl(): void {
+		ctrlSticky = !ctrlSticky;
+		if (ctrlSticky) altSticky = false;
+	}
+
+	function toggleAlt(): void {
+		altSticky = !altSticky;
+		if (altSticky) ctrlSticky = false;
+	}
+
+	function changeFontSize(delta: number): void {
+		if (!term || !fitAddon) return;
+		fontSize = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, fontSize + delta));
+		term.options.fontSize = fontSize;
+		fitAddon.fit();
+	}
+
+	function enterTypingMode(): void {
+		typingMode = true;
+		term?.textarea?.focus();
+	}
+
+	function exitTypingMode(): void {
+		typingMode = false;
+		term?.textarea?.blur();
+	}
+
 	$effect(() => {
 		const parent = host;
 		if (!parent) return;
 		destroyed = false;
+		parent.addEventListener("pointerdown", blockFocusInViewMode, true);
+		let textareaEl: HTMLTextAreaElement | null = null;
+		const onTextareaBlur = () => {
+			typingMode = false;
+		};
+		// A safety net alongside `blockFocusInViewMode`: if the textarea ever
+		// receives focus while in view mode regardless (a path this component
+		// didn't anticipate), it is handed straight back, before a soft
+		// keyboard has a chance to animate in.
+		const onTextareaFocus = () => {
+			if (narrowViewport.current && !typingMode) textareaEl?.blur();
+		};
 		void (async () => {
 			const { Terminal, FitAddon, Unicode11Addon, WebLinksAddon } = await loadXterm();
 			if (destroyed) return;
 			term = new Terminal({
 				fontFamily:
 					'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-				fontSize: 13,
+				fontSize,
 				cursorBlink: true,
 				scrollback: 5000,
 				allowProposedApi: true,
@@ -209,18 +315,12 @@
 			term.open(parent);
 			fitAddon.fit();
 
-			term.onData((data) => {
-				if (ws?.readyState !== WebSocket.OPEN) return;
-				ws.send(
-					encodeTerminalFrame({
-						kind: BIN_TERM_INPUT,
-						channel: ackChannel,
-						offset: 0,
-						payload: new TextEncoder().encode(data),
-					})
-				);
-			});
+			term.onData(handleTerminalData);
 			term.onResize(({ cols, rows }) => sendResize(cols, rows));
+
+			textareaEl = term.textarea ?? null;
+			textareaEl?.addEventListener("blur", onTextareaBlur);
+			textareaEl?.addEventListener("focus", onTextareaFocus);
 
 			resizeObserver = new ResizeObserver(() => fitAddon?.fit());
 			resizeObserver.observe(parent);
@@ -234,6 +334,9 @@
 			// order relative to this cleanup isn't something to build on).
 			sendAckIfDue(true);
 			destroyed = true;
+			parent.removeEventListener("pointerdown", blockFocusInViewMode, true);
+			textareaEl?.removeEventListener("blur", onTextareaBlur);
+			textareaEl?.removeEventListener("focus", onTextareaFocus);
 			if (reconnectTimer) clearTimeout(reconnectTimer);
 			resizeObserver?.disconnect();
 			resizeObserver = null;
@@ -268,4 +371,53 @@
 		</div>
 	{/if}
 	<div bind:this={host} class="min-h-0 flex-1 bg-white p-1 dark:bg-gray-900"></div>
+	{#if narrowViewport.current}
+		{#if !typingMode}
+			<button
+				type="button"
+				class="flex h-9 shrink-0 items-center justify-center border-t border-gray-200 bg-gray-50 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+				onclick={enterTypingMode}
+			>
+				Type
+			</button>
+		{:else}
+			<div
+				role="toolbar"
+				aria-label="Terminal keys"
+				class="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-t border-gray-200 bg-gray-50 px-1.5 dark:border-gray-700 dark:bg-gray-800"
+			>
+				{#snippet key(label: string, text: string, onclick: () => void, pressed?: boolean)}
+					<button
+						type="button"
+						aria-label={label}
+						aria-pressed={pressed}
+						class="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-2 text-xs {pressed
+							? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
+							: 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}"
+						onpointerdown={(e) => e.preventDefault()}
+						{onclick}
+					>
+						{text}
+					</button>
+				{/snippet}
+				{@render key("Escape", "Esc", () => sendKey("\x1b"))}
+				{@render key("Tab", "Tab", () => sendKey("\t"))}
+				{@render key("Control", "Ctrl", toggleCtrl, ctrlSticky)}
+				{@render key("Alt", "Alt", toggleAlt, altSticky)}
+				{@render key("Arrow up", "↑", () => sendArrow("A"))}
+				{@render key("Arrow down", "↓", () => sendArrow("B"))}
+				{@render key("Arrow left", "←", () => sendArrow("D"))}
+				{@render key("Arrow right", "→", () => sendArrow("C"))}
+				{@render key("Pipe", "|", () => sendKey("|"))}
+				{@render key("Tilde", "~", () => sendKey("~"))}
+				{@render key("Slash", "/", () => sendKey("/"))}
+				{@render key("Hyphen", "-", () => sendKey("-"))}
+				{@render key("Send Ctrl+C", "^C", () => sendControlByte(0x03))}
+				{@render key("Send Ctrl+D", "^D", () => sendControlByte(0x04))}
+				{@render key("Decrease font size", "A−", () => changeFontSize(-1))}
+				{@render key("Increase font size", "A+", () => changeFontSize(1))}
+				{@render key("Done", "Done", exitTypingMode)}
+			</div>
+		{/if}
+	{/if}
 </div>
