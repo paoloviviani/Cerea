@@ -554,7 +554,7 @@ export async function* runMcpFlow({
 		const {
 			tools: mcpTools,
 			mapping,
-			unavailable: unlisted,
+			unavailable: unlisted = [],
 		} = await getOpenAiToolsForMcp(servers, {
 			signal: abortSignal,
 		});
