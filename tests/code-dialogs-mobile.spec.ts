@@ -246,6 +246,29 @@ test.describe("the pair dialog's setup commands", () => {
 		expect(confirmActions).toEqual([{ action: "confirm" }]);
 		expect(page.url()).toContain(`device=dev_new`);
 	});
+
+	test("the Allow terminal checkbox adds --allow-terminal to the printed command", async ({
+		page,
+	}) => {
+		await openAgentsPanel(page);
+		await visibleTreeButton(page, "Pair a new device").click();
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible();
+
+		const commandBlock = page.getByTestId("galopin-enroll-command");
+		await expect(commandBlock).not.toContainText("--allow-terminal");
+
+		await dialog.getByRole("checkbox", { name: /Allow terminal/ }).check();
+		await expect(commandBlock).toContainText("&& galopin run");
+		await expect(commandBlock).toContainText(
+			`--cerea '${E2E_APP_URL}' --allow-terminal && galopin run`
+		);
+
+		// Unchecking removes it again — the checkbox is a live toggle, not a
+		// one-way switch.
+		await dialog.getByRole("checkbox", { name: /Allow terminal/ }).uncheck();
+		await expect(commandBlock).not.toContainText("--allow-terminal");
+	});
 });
 
 test("New Chat keeps its address and carries the switcher's small icon idiom", async ({ page }) => {
