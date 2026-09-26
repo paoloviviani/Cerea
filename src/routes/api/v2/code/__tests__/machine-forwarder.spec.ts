@@ -39,7 +39,7 @@ beforeAll(async () => {
 	httpServer = createServer();
 	httpServer.on("upgrade", (req, socket, head) => {
 		wss.handleUpgrade(req, socket, head, (ws) => {
-			acceptMachineConnection(ws, req, principal);
+			acceptMachineConnection(ws, req, principal, "test-token");
 		});
 	});
 	await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
