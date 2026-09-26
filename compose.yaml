@@ -282,7 +282,7 @@ services:
     command: ["--config", "/etc/authelia/configuration.yml"]
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:26fb4f5a71abfe74"
+      cerea.config-rev: "sha256:5d02bb75db13eef4"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
       # The gateway's uid: the console manages the bundled users file,
@@ -314,6 +314,11 @@ services:
       X_PYSTINO_SMTP_USERNAME: ${SMTP_USERNAME:-}
       X_PYSTINO_SMTP_FROM: ${SMTP_FROM:-}
       X_PYSTINO_SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      # SMTP_PASSWORD is optional even with SMTP_HOST set (an unauthenticated
+      # relay on a private network): empty is how configuration.yml's
+      # template knows to skip the `password` line entirely rather than
+      # reading a file bootstrap never wrote.
+      X_PYSTINO_SMTP_HAS_PASSWORD: ${SMTP_PASSWORD:+true}
     volumes:
       - ./authelia:/etc/authelia:ro
       - authelia-config:/config

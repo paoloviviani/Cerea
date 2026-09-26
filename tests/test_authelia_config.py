@@ -42,6 +42,7 @@ SMTP_ENV = {
     "X_PYSTINO_SMTP_USERNAME": "mailer",
     "X_PYSTINO_SMTP_FROM": "noreply@example.org",
     "X_PYSTINO_SMTP_SECURITY": "starttls",
+    "X_PYSTINO_SMTP_HAS_PASSWORD": "true",
 }
 
 
@@ -111,11 +112,30 @@ class AutheliaConfigTests(unittest.TestCase):
         # other secret value here -- never a plaintext env-var interpolation.
         self.assertIn("password: 'smtp-test-password'", out)
 
+    def test_smtp_with_no_password_configured_renders_without_one(self) -> None:
+        """./configure never requires SMTP_PASSWORD alongside SMTP_HOST -- an
+        unauthenticated relay on a private network is a real, supported
+        shape, and bootstrap never writes the file `secret` would read for
+        it, so this has to render without erroring."""
+        env = {**BASE_ENV, **SMTP_ENV}
+        del env["X_PYSTINO_SMTP_HAS_PASSWORD"]
+        proc = self._authelia("template", env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("smtp:", proc.stdout)
+        # Not "password:" alone -- authentication_backend.file's own password
+        # mapping (algorithm, argon2, ...) always has one of those, unrelated
+        # to the notifier. A scalar value is what the notifier would have had.
+        self.assertNotIn("password: '", proc.stdout)
+
     def test_tls_and_plain_smtp_pick_the_other_two_schemes(self) -> None:
         tls = self._authelia("template", {**BASE_ENV, **SMTP_ENV, "X_PYSTINO_SMTP_SECURITY": "tls"})
         self.assertIn("address: 'submissions://smtp.example.org:587'", tls.stdout)
+        self.assertIn("disable_starttls: false", tls.stdout)
         plain = self._authelia("template", {**BASE_ENV, **SMTP_ENV, "X_PYSTINO_SMTP_SECURITY": "none"})
         self.assertIn("address: 'smtp://smtp.example.org:587'", plain.stdout)
+        # The scheme alone still enforces STARTTLS by Authelia's own default
+        # (found live): "none" needs this too, or it isn't none.
+        self.assertIn("disable_starttls: true", plain.stdout)
 
     def test_validate_config_passes_with_and_without_smtp(self) -> None:
         for label, env in (("without SMTP", BASE_ENV), ("with SMTP", {**BASE_ENV, **SMTP_ENV})):

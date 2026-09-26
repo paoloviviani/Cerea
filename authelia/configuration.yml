@@ -96,6 +96,12 @@ notifier:
     address: '{{ if eq (env "X_PYSTINO_SMTP_SECURITY") "tls" }}submissions{{ else if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}smtp{{ else }}submission{{ end }}://{{ env "X_PYSTINO_SMTP_HOST" }}:{{ env "X_PYSTINO_SMTP_PORT" }}'
     username: '{{ env "X_PYSTINO_SMTP_USERNAME" }}'
     sender: '{{ env "X_PYSTINO_SMTP_FROM" }}'
+    # Found live: the `smtp://` scheme alone still enforces STARTTLS by
+    # Authelia's own default (only `submissions://`'s implicit TLS skips it) --
+    # "none" only means what SmtpSettings.security and .env.example's comment
+    # both already promise (a mail sink with no certificate at all) with this
+    # set too.
+    disable_starttls: {{ if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}true{{ else }}false{{ end }}
     # `secret`, not AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: that env var is
     # read unconditionally by Authelia's own secrets loader regardless of
     # this `if`, and an empty path (the only value compose can give it while
@@ -104,7 +110,15 @@ notifier:
     # this branch, the same file bootstrap writes (0600) the other mechanism
     # would have read, and the same convention the JWKS key above already
     # uses for a value this template must not carry as plain text.
+    #
+    # And conditional on its own, once more: SMTP_PASSWORD is optional even
+    # with SMTP_HOST set (an unauthenticated relay on a private network,
+    # ./configure never requires it) -- bootstrap then never writes the file
+    # `secret` would read, so this line has to not exist rather than error,
+    # the same reasoning as the branch it lives in.
+    {{ if env "X_PYSTINO_SMTP_HAS_PASSWORD" }}
     password: {{ secret "/config/keys/smtp_password" | msquote }}
+    {{ end }}
 {{ else }}
   filesystem:
     filename: '/data/notification.txt'
