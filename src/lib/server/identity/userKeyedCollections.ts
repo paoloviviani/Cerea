@@ -15,19 +15,38 @@
  * target and never touches a row already there; an `erase` removes every
  * row belonging to one person and nothing else's.
  *
- * **The unique-index conflicts §7.2 doesn't spell out.** `skills`
- * (`{scope, userId, name}`), `mcpTokens` (`{connectorId, userId}`) and
- * `codeDevices` (`{userId, machineId}`) can each refuse a plain
- * `updateMany` if the stray and the target both hold a row that would
- * collide once reassigned (the same skill name in one scope, a token for
- * the same connector, vanishingly unlikely for `machineId` but not
- * impossible). §7.2 gives a conflict rule for exactly two collections
- * (`memberships`-shaped ones on the gateway side aren't this file's
- * concern; here it's only `settings` and `sessions`). For these three,
- * `reassignWithUniqueConflict` keeps the target's row and drops the
- * stray's — the same "on conflict, keep the target's" judgement §7.1 makes
- * on the gateway side — and this deviation is called out in the worker's
- * report for the design to confirm or override.
+ * **Every entry carries an explicit rule kind**, on both sides, so the guard
+ * spec can fail loudly on a collection that has a function but no declared
+ * intent (a copy-paste of the wrong helper) rather than only on a collection
+ * with no entry at all:
+ *
+ * - `merge`: `reassign` (a plain field move), `reassign-unique-keep-target`
+ *   (same, but the owner field is part of a unique index — a colliding
+ *   stray row is dropped, the target's kept), `reassign-unique-rename`
+ *   (same conflict, but the row is content that must not be lost — renamed
+ *   until unique instead of dropped), `keep-target-delete-stray` (one row
+ *   per account; the target's survives), `delete-stray` (the stray's rows
+ *   are discarded outright, nothing to keep), `follows-conversation` (the
+ *   rows are keyed by `conversationId`, which a merge never changes — the
+ *   conversation's own reassignment is the whole move), `no-op` (ownership
+ *   is inherited from some other reassigned parent — a knowledge store, a
+ *   device row — for a reason `follows-conversation` doesn't name).
+ * - `erase`: `by-owner` (delete by the direct field), `by-conversation`
+ *   (delete using the erased person's conversation ids, supplied by the
+ *   caller via `EraseContext` — see below), `by-owner-or-conversation`
+ *   (both signals are checked, for a collection where the owner field is
+ *   optional but the conversation link is not, or vice versa), `custom`
+ *   (the GridFS entries and `knowledgeDocuments`, whose ownership is
+ *   indirect enough that neither of the above says anything on its own).
+ *
+ * **`EraseContext.conversationIds`.** A `by-conversation` (or
+ * `by-owner-or-conversation`) entry cannot look up "this person's
+ * conversations" itself once the `conversations` entry has already run —
+ * the erasure endpoint (§9.3) records the id list in the `erasures`
+ * document *before* deleting anything, then passes it to every entry's
+ * `erase`, so a resumed run still knows what to sweep even after the
+ * conversations themselves are gone. `mergeChatUsers` never calls `erase`
+ * at all, so this only matters for the (not yet built) erasure endpoint.
  */
 
 import type { Collection, Document, ObjectId } from "mongodb";
@@ -35,6 +54,25 @@ import type { Collection, Document, ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
 import { deleteAttachmentsByPrefix } from "$lib/server/files/attachmentStore";
+
+export type MergeRuleKind =
+	| "reassign"
+	| "reassign-unique-keep-target"
+	| "reassign-unique-rename"
+	| "keep-target-delete-stray"
+	| "delete-stray"
+	| "follows-conversation"
+	| "no-op";
+
+export type EraseRuleKind = "by-owner" | "by-conversation" | "by-owner-or-conversation" | "custom";
+
+export interface EraseContext {
+	/** The erased person's own conversation ids, resolved once by the caller
+	 * before anything is deleted (§9.3). Entries whose `eraseRule` is
+	 * `by-conversation` or `by-owner-or-conversation` use this instead of
+	 * querying `conversations` themselves. */
+	conversationIds: ObjectId[];
+}
 
 export interface UserKeyedCollectionEntry {
 	/** The collection name as declared in `database.ts`'s `getCollections()`,
@@ -45,12 +83,15 @@ export interface UserKeyedCollectionEntry {
 	 * collection (or bucket) carries none directly — documentation, read by
 	 * the guard spec's failure messages. */
 	owner: string;
+	mergeRule: MergeRuleKind;
+	eraseRule: EraseRuleKind;
 	/** §7.2: move the stray's rows onto the target. Returns how many moved
-	 * (a conflict that was dropped rather than moved is not counted). */
+	 * (a conflict that was dropped rather than moved is not counted;
+	 * renamed-and-moved is counted). */
 	merge(stray: ObjectId, target: ObjectId): Promise<number>;
 	/** §9.2: remove everything belonging to `userId`. Returns how many rows
 	 * (or files) were removed. */
-	erase(userId: ObjectId): Promise<number>;
+	erase(userId: ObjectId, ctx: EraseContext): Promise<number>;
 }
 
 function isDuplicateKeyError(err: unknown): boolean {
@@ -95,12 +136,86 @@ async function reassignWithUniqueConflict<T extends Document>(
 	return moved;
 }
 
+/** The same move, one row at a time, for a collection where the colliding
+ * row is content the merge must not lose (`skills`): rather than dropping
+ * the stray's row on a unique-index conflict, its `nameField` is suffixed
+ * " (merged)", then " (merged 2)" and so on until the move succeeds. */
+async function reassignWithRenameOnConflict<T extends Document>(
+	collection: Pick<Collection<T>, "find" | "updateOne">,
+	field: string,
+	nameField: string,
+	stray: ObjectId,
+	target: ObjectId
+): Promise<number> {
+	const rows = await collection.find({ [field]: stray } as never).toArray();
+	let moved = 0;
+	for (const row of rows) {
+		const baseName = (row as Record<string, unknown>)[nameField] as string;
+		let name = baseName;
+		let suffix = 0;
+		for (;;) {
+			try {
+				await collection.updateOne(
+					{ _id: row._id } as never,
+					{ $set: { [field]: target, [nameField]: name } } as never
+				);
+				moved++;
+				break;
+			} catch (err) {
+				if (!isDuplicateKeyError(err)) throw err;
+				suffix++;
+				if (suffix > 1000) {
+					throw new Error(
+						`reassignWithRenameOnConflict: no unique name for "${baseName}" after 1000 attempts`
+					);
+				}
+				name = suffix === 1 ? `${baseName} (merged)` : `${baseName} (merged ${suffix})`;
+			}
+		}
+	}
+	return moved;
+}
+
 async function eraseByField<T extends Document>(
 	collection: Pick<Collection<T>, "deleteMany">,
 	field: string,
 	userId: ObjectId
 ): Promise<number> {
 	const { deletedCount } = await collection.deleteMany({ [field]: userId } as never);
+	return deletedCount;
+}
+
+/** Erase a collection keyed by `conversationId`, using the caller-supplied
+ * id list rather than looking accounts up itself (see `EraseContext`). */
+async function eraseByConversation<T extends Document>(
+	collection: Pick<Collection<T>, "deleteMany">,
+	ctx: EraseContext
+): Promise<number> {
+	if (ctx.conversationIds.length === 0) return 0;
+	const { deletedCount } = await collection.deleteMany({
+		conversationId: { $in: ctx.conversationIds },
+	} as never);
+	return deletedCount;
+}
+
+/** Both signals checked, for a collection where the owner field is only
+ * sometimes present (turnStates, parkedCalls: denormalised for a
+ * user-scoped query, but not written for a session-only chat) while
+ * `conversationId` always is. A row can never legitimately match one but
+ * not the other for a *different* person's data: a merge reassigns both
+ * together (see `reassign` below), so this is belt-and-suspenders
+ * completeness, not two independent sources of truth. */
+async function eraseByOwnerOrConversation<T extends Document>(
+	collection: Pick<Collection<T>, "deleteMany">,
+	field: string,
+	userId: ObjectId,
+	ctx: EraseContext
+): Promise<number> {
+	const or: Record<string, unknown>[] = [{ [field]: userId }];
+	if (ctx.conversationIds.length > 0) {
+		or.push({ conversationId: { $in: ctx.conversationIds } });
+	}
+	const { deletedCount } = await collection.deleteMany({ $or: or } as never);
 	return deletedCount;
 }
 
@@ -135,10 +250,16 @@ async function mergeSettings(stray: ObjectId): Promise<number> {
 	return deletedCount;
 }
 
-/** `sessions`: the stray's are deleted outright (§7.2) — a session is a
- * login on a device, not content, and the target keeps its own. */
-async function mergeSessionsDelete(stray: ObjectId): Promise<number> {
-	const { deletedCount } = await collections.sessions.deleteMany({ userId: stray });
+/** `sessions`, `messageEvents`, `mcpOauthPending`: the stray's rows are
+ * deleted outright — a session, a rate-limit bookkeeping row, or an
+ * in-flight OAuth handshake isn't content the merge would need to carry
+ * over, and the target keeps its own. */
+async function deleteStrayRows<T extends Document>(
+	collection: Pick<Collection<T>, "deleteMany">,
+	field: string,
+	stray: ObjectId
+): Promise<number> {
+	const { deletedCount } = await collection.deleteMany({ [field]: stray } as never);
 	return deletedCount;
 }
 
@@ -149,32 +270,31 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "bucket:conversationFiles",
 		owner: "conversations.userId (and sharedConversations.userId, both via metadata.conversation)",
+		mergeRule: "follows-conversation",
+		eraseRule: "custom",
 		// Files are tagged by conversation id, which a merge never changes —
 		// the conversation's own `userId` reassignment (below) is the whole
 		// move.
 		merge: async () => 0,
-		erase: async (userId) => {
-			const ids = await collections.conversations
-				.find({ userId })
-				.project<{ _id: ObjectId }>({ _id: 1 })
-				.toArray()
-				.then((rows) => rows.map((r) => r._id));
+		erase: async (userId, ctx) => {
 			// A shared-conversation copy is tagged with the share's own nanoid
 			// id (`routes/conversation/[id]/share/+server.ts`), not the
 			// original conversation's — a second id space in the same
 			// `metadata.conversation` field, folded into this one entry rather
-			// than a fourth bucket, since the tag shape is identical.
+			// than a fourth bucket, since the tag shape is identical. Still
+			// self-queried (not from `ctx`): `sharedConversations` runs after
+			// this entry and isn't erased yet.
 			const sharedIds = await collections.sharedConversations
 				.find({ userId })
 				.project<{ _id: string }>({ _id: 1 })
 				.toArray()
 				.then((rows) => rows.map((r) => r._id));
-			const tags = [...ids.map((id) => id.toString()), ...sharedIds];
+			const tags = [...ctx.conversationIds.map((id) => id.toString()), ...sharedIds];
 			if (tags.length === 0) return 0;
 			const count = await collections.bucketFiles.countDocuments({
 				"metadata.conversation": { $in: tags },
 			});
-			await deleteConversationAttachments(ids);
+			await deleteConversationAttachments(ctx.conversationIds);
 			if (sharedIds.length > 0) {
 				await eraseBucketMatching({ "metadata.conversation": { $in: sharedIds } });
 			}
@@ -184,6 +304,8 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "bucket:knowledgeBlobs",
 		owner: "metadata.owner (a stringified userId, direct)",
+		mergeRule: "reassign",
+		eraseRule: "custom",
 		merge: async (stray, target) => {
 			const { modifiedCount } = await collections.bucketFiles.updateMany(
 				{ "metadata.owner": stray.toString() },
@@ -196,6 +318,8 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "bucket:codeAttachmentKeys",
 		owner: "codeDevices.userId, via the code:<deviceId>:<sessionId> owner key",
+		mergeRule: "no-op",
+		eraseRule: "custom",
 		// The key's deviceId doesn't change in a merge, so nothing here moves;
 		// the device row's own reassignment (below) is the whole move.
 		merge: async () => 0,
@@ -215,18 +339,24 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "conversations",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.conversations, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.conversations, "userId", userId),
 	},
 	{
 		name: "projects",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.projects, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.projects, "userId", userId),
 	},
 	{
 		name: "assistants",
 		owner: "createdById",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.assistants, "createdById", stray, target),
 		erase: (userId) => eraseByField(collections.assistants, "createdById", userId),
 	},
@@ -234,6 +364,8 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		name: "knowledgeDocuments",
 		owner:
 			"storeId, via vectorStores.ownerId (indirect: this collection carries no owner field of its own)",
+		mergeRule: "no-op",
+		eraseRule: "custom",
 		// A document belongs to its store, and the store's own reassignment
 		// (below) is the whole move — nothing here changes.
 		merge: async () => 0,
@@ -261,35 +393,49 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "vectorStores",
 		owner: "ownerId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.vectorStores, "ownerId", stray, target),
 		erase: (userId) => eraseByField(collections.vectorStores, "ownerId", userId),
 	},
 	{
 		name: "skills",
 		owner: "userId",
+		mergeRule: "reassign-unique-rename",
+		eraseRule: "by-owner",
 		// Unique on {scope, userId, name}: a stray's skill can share a name,
-		// in the same scope, with one the target already has.
+		// in the same scope, with one the target already has. Unlike
+		// mcpTokens/codeDevices this is content, not a credential or a
+		// pairing record, so a conflict is resolved by renaming rather than
+		// dropping (the orchestrator's decision).
 		merge: (stray, target) =>
-			reassignWithUniqueConflict(collections.skills, "userId", stray, target),
+			reassignWithRenameOnConflict(collections.skills, "userId", "name", stray, target),
 		erase: (userId) => eraseByField(collections.skills, "userId", userId),
 	},
 	{
 		name: "memories",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.memories, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.memories, "userId", userId),
 	},
 	{
 		name: "mcpConnectors",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.mcpConnectors, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.mcpConnectors, "userId", userId),
 	},
 	{
 		name: "mcpTokens",
 		owner: "userId",
+		mergeRule: "reassign-unique-keep-target",
+		eraseRule: "by-owner",
 		// Unique on {connectorId, userId}: the stray and the target can each
-		// already hold a token for the same connector.
+		// already hold a token for the same connector. A credential, not
+		// content — the target's stays, the stray's duplicate is dropped.
 		merge: (stray, target) =>
 			reassignWithUniqueConflict(collections.mcpTokens, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.mcpTokens, "userId", userId),
@@ -297,8 +443,11 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "codeDevices",
 		owner: "userId",
+		mergeRule: "reassign-unique-keep-target",
+		eraseRule: "by-owner",
 		// Unique on {userId, machineId}: a fresh `machineId` is minted per
-		// enroll, so a real collision is unlikely rather than impossible.
+		// enroll, so a real collision is unlikely rather than impossible. A
+		// pairing record, not content — the device simply re-links.
 		merge: (stray, target) =>
 			reassignWithUniqueConflict(collections.codeDevices, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.codeDevices, "userId", userId),
@@ -306,12 +455,16 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "codeAudit",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.codeAudit, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.codeAudit, "userId", userId),
 	},
 	{
 		name: "codeExecutionOutputs",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) =>
 			reassignSimple(collections.codeExecutionOutputs, "userId", stray, target),
 		erase: async (userId) => {
@@ -326,6 +479,8 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "sharedConversations",
 		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) =>
 			reassignSimple(collections.sharedConversations, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.sharedConversations, "userId", userId),
@@ -333,42 +488,118 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	{
 		name: "reports",
 		owner: "createdBy",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
 		merge: (stray, target) => reassignSimple(collections.reports, "createdBy", stray, target),
 		erase: (userId) => eraseByField(collections.reports, "createdBy", userId),
 	},
 	{
 		name: "settings",
 		owner: "userId",
+		mergeRule: "keep-target-delete-stray",
+		eraseRule: "by-owner",
 		merge: (stray) => mergeSettings(stray),
 		erase: (userId) => eraseByField(collections.settings, "userId", userId),
 	},
 	{
 		name: "sessions",
 		owner: "userId",
-		merge: (stray) => mergeSessionsDelete(stray),
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		merge: (stray) => deleteStrayRows(collections.sessions, "userId", stray),
 		erase: (userId) => eraseByField(collections.sessions, "userId", userId),
 	},
+	// Live-inference bookkeeping (ADR 0093 review: not exempt — several hold
+	// user content: generationEvents.event is the streamed output,
+	// mcpElicitations carries the request and the answer, parkedCalls the
+	// code and its outcome, nestedAgentCalls its tool arguments, and
+	// generations.error a failure message). TTL indexes still bound how long
+	// any of this survives on its own; the registry entries are what make an
+	// explicit erasure (and a merge that shouldn't lose an in-flight turn)
+	// correct rather than incidental.
+	{
+		name: "generations",
+		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		// Reassigned, not left behind: an in-flight generation may still be
+		// running when a merge lands, and the resumed/heartbeating writer
+		// looks it up by conversation, not by owner — but the owner is kept
+		// current for the per-user live feed.
+		merge: (stray, target) => reassignSimple(collections.generations, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.generations, "userId", userId),
+	},
+	{
+		name: "generationEvents",
+		owner: "conversationId (denormalised; carries no owner field of its own)",
+		mergeRule: "follows-conversation",
+		eraseRule: "by-conversation",
+		merge: async () => 0,
+		erase: (_userId, ctx) => eraseByConversation(collections.generationEvents, ctx),
+	},
+	{
+		name: "turnStates",
+		owner: "userId, and conversationId+messageId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner-or-conversation",
+		merge: (stray, target) => reassignSimple(collections.turnStates, "userId", stray, target),
+		erase: (userId, ctx) =>
+			eraseByOwnerOrConversation(collections.turnStates, "userId", userId, ctx),
+	},
+	{
+		name: "mcpElicitations",
+		owner: "conversationId (carries no owner field of its own)",
+		mergeRule: "follows-conversation",
+		eraseRule: "by-conversation",
+		merge: async () => 0,
+		erase: (_userId, ctx) => eraseByConversation(collections.mcpElicitations, ctx),
+	},
+	{
+		name: "parkedCalls",
+		owner: "userId, and conversationId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner-or-conversation",
+		// Reassigned like `generations`/`turnStates`: the sweeper that resumes
+		// a parked tool call rebuilds the caller's identity from this row.
+		merge: (stray, target) => reassignSimple(collections.parkedCalls, "userId", stray, target),
+		erase: (userId, ctx) =>
+			eraseByOwnerOrConversation(collections.parkedCalls, "userId", userId, ctx),
+	},
+	{
+		name: "nestedAgentCalls",
+		owner: "conversationId (carries no owner field of its own)",
+		mergeRule: "follows-conversation",
+		eraseRule: "by-conversation",
+		merge: async () => 0,
+		erase: (_userId, ctx) => eraseByConversation(collections.nestedAgentCalls, ctx),
+	},
+	{
+		name: "abortedGenerations",
+		owner: "conversationId (carries no owner field of its own)",
+		mergeRule: "follows-conversation",
+		eraseRule: "by-conversation",
+		merge: async () => 0,
+		erase: (_userId, ctx) => eraseByConversation(collections.abortedGenerations, ctx),
+	},
+	{
+		name: "messageEvents",
+		owner: "userId (sometimes a sessionId string, never a stray's conversation)",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		// Rate-limit bookkeeping, not content: the stray's are dropped rather
+		// than reassigned, same as sessions.
+		merge: (stray) => deleteStrayRows(collections.messageEvents, "userId", stray),
+		erase: (userId) => eraseByField(collections.messageEvents, "userId", userId),
+	},
+	{
+		name: "mcpOauthPending",
+		owner: "userId",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		// An in-flight OAuth handshake started as the stray; carrying it over
+		// to the target would hand the target's browser someone else's
+		// callback state.
+		merge: (stray) => deleteStrayRows(collections.mcpOauthPending, "userId", stray),
+		erase: (userId) => eraseByField(collections.mcpOauthPending, "userId", userId),
+	},
 ];
-
-/**
- * Collections declared in `database.ts` that carry an owner-shaped field but
- * are deliberately **not** in the registry above, with the reason — so the
- * guard spec can tell "forgotten" from "considered and excluded".
- *
- * All six are live-inference bookkeeping, not chat content: every one is
- * TTL-indexed to expire on its own (from one second, `messageEvents`, to
- * seven days, `parkedCalls`) and none is listed in ADR 0093 §7.2 or §9.2.
- * Reassigning them mid-merge would race whatever turn is in flight; leaving
- * a stray's on erasure leaves at most a few hours of a debugging trace with
- * no content in it, gone on its own TTL. This reading is the worker's, not
- * the design's — flagged in the report for confirmation, since the design
- * does not call these out either way.
- */
-export const EXEMPT_FROM_REGISTRY: Record<string, string> = {
-	generations: "live/recent inference run bookkeeping, TTL 7 days, not named in §7.2/§9.2",
-	turnStates: "live turn-state markers, TTL 7 days, not named in §7.2/§9.2",
-	mcpElicitations: "in-flight tool elicitations, TTL 24h, not named in §7.2/§9.2",
-	parkedCalls: "in-flight execute_code waits, TTL 7 days, not named in §7.2/§9.2",
-	messageEvents: "pub/sub notification rows, TTL 1s, not named in §7.2/§9.2",
-	mcpOauthPending: "in-flight OAuth state, TTL by expiresAt (minutes), not named in §7.2/§9.2",
-};
