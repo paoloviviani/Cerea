@@ -566,7 +566,7 @@ export async function getCoupledCookieHash(cookie: CookieRecord): Promise<string
 export async function authenticateRequest(
 	cookie: CookieRecord,
 	url: URL
-): Promise<App.Locals & { secretSessionId: string }> {
+): Promise<App.Locals & { secretSessionId: string; gatewayUnavailable?: boolean }> {
 	const token = cookie.get(config.COOKIE_NAME);
 
 	let secretSessionId: string | null = null;
@@ -579,15 +579,17 @@ export async function authenticateRequest(
 		const result = await findUser(sessionId, await getCoupledCookieHash(cookie), url);
 
 		// The gateway decides admin and whether the account is still active
-		// (gatewaySession.ts): a 401 on the session's own token ends it here,
-		// which is how a directory deprovisioning reaches the chat within a
-		// minute. Null — no gateway, a shared key, or the gateway unreachable —
-		// changes nothing.
+		// (gatewaySession.ts, ADR 0093 §4.4): `ended` on the session's own
+		// token deletes it here, which is how a directory deprovisioning or a
+		// merge elsewhere reaches the chat within a minute. `null` — no
+		// gateway, a shared key, or no token — changes nothing. `unavailable`
+		// (unreachable for more than five minutes) neither ends the session
+		// nor treats it as valid: the caller answers 503 instead of guessing.
 		const gateway =
 			result.user && result.oauth?.token?.value
 				? await gatewaySessionCheck(sessionId, result.oauth.token.value)
 				: null;
-		if (gateway && !gateway.valid) {
+		if (gateway?.kind === "ended") {
 			forgetGatewaySession(sessionId);
 			await collections.sessions.deleteOne({ sessionId });
 			result.user = null;
@@ -608,7 +610,9 @@ export async function authenticateRequest(
 			token: result.oauth?.token?.value,
 			sessionId,
 			secretSessionId,
-			isAdmin: (gateway?.valid === true && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
+			gatewayUnavailable: gateway?.kind === "unavailable",
+			isAdmin:
+				(gateway?.kind === "valid" && gateway.isAdmin) || adminTokenManager.isAdmin(sessionId),
 		};
 	}
 
