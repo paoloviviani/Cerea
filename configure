@@ -183,6 +183,11 @@ MINTED = {
     "GATEWAY_SESSION_SECRET": 32,
     "CHAT_SECRET_KEY": 32,
     "REDACTION_PLACEHOLDER_KEY": 32,
+    # The gateway's own credential for the chat's /internal/erasure (ADR
+    # 0093 §9.3), used for nothing else. Hex is as url-safe as the design's
+    # own "32 random bytes, url-safe" asks for, and every other minted
+    # secret here already uses it -- one encoding, not two.
+    "CHAT_ERASURE_TOKEN": 32,
 }
 MINTED_AUTHELIA = {
     "AUTHELIA_SESSION_SECRET": 32,
@@ -217,7 +222,12 @@ REQUIRED_BY_PROFILE = {
         "GATEWAY_SESSION_SECRET",
         "OIDC_CONSOLE_CLIENT_SECRET",
     ),
-    "chat": ("CHAT_PG_PASSWORD", "CHAT_SECRET_KEY", "OIDC_CHAT_CLIENT_SECRET"),
+    "chat": (
+        "CHAT_PG_PASSWORD",
+        "CHAT_SECRET_KEY",
+        "OIDC_CHAT_CLIENT_SECRET",
+        "CHAT_ERASURE_TOKEN",
+    ),
     # The gateway refuses to start with engine=http and no placeholder key.
     "redaction": ("REDACTION_PLACEHOLDER_KEY",),
     "authelia": (
