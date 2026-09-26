@@ -598,5 +598,119 @@ class TestCommands(Deploy):
         self.assertTrue(path.read_text().startswith("#!/usr/bin/env python3\n"))
 
 
+class TestBreakGlass(TestCommands):
+    """`./configure --break-glass` (ADR 0093 §10 host steps). Every
+    `docker compose`/`pystino break-glass` call is mocked at `cfg._run`: what
+    is under test is the `.env` rewrite, the backup, and the call order and
+    stop-on-first-failure, not docker itself (`test_compose_accepts_what_
+    configure_writes` already covers that compose accepts what this script
+    writes)."""
+
+    def _mock_run(self, *, break_glass_stdout="login:    ops\npassword: hunter2\n", fail_at=None):
+        calls = []
+
+        def fake_run(cmd, timeout=30, cwd=None):
+            index = len(calls)
+            calls.append(cmd)
+            if fail_at is not None and index == fail_at:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+            if cmd[:5] == ["docker", "compose", "run", "--rm", "--no-deps"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=break_glass_stdout, stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        return calls, fake_run
+
+    def test_needs_an_existing_env(self):
+        code, _, err = self.run_cli(
+            "--break-glass", "--admin-email", "ops@example.org", "--reason", "x"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("run ./configure first", err)
+
+    def test_needs_reason_and_admin_email(self):
+        self.configure()
+        code, _, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 2)
+        self.assertIn("--reason", err)
+        code, _, err = self.run_cli("--break-glass", "--reason", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("--admin-email", err)
+
+    def test_switches_to_bundled_with_a_utc_backup_and_the_right_call_order(self):
+        self.configure(
+            "--idp", "external", "--oidc-issuer", "https://idp.example.org",
+            "--oidc-console-client-secret", "s1", "--oidc-chat-client-secret", "s2",
+        )
+        calls, fake_run = self._mock_run()
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org",
+                "--admin-login", "ops", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 0, err)
+
+        v = self.env()
+        self.assertEqual(v["OIDC_KIND"], "authelia")
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "false")
+        self.assertIn("authelia", v["COMPOSE_PROFILES"].split(","))
+        # The bundled issuer replaces the external one in the live .env --
+        # only the backup keeps the external value (asserted below), which
+        # is what makes the round trip back out possible.
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/authelia")
+
+        backups = list(self.dir.glob(".env.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertRegex(backups[0].name, r"\.env\.bak-\d{8}T\d{6}Z$")
+        self.assertEqual(stat.S_IMODE(backups[0].stat().st_mode), 0o600)
+        self.assertEqual(cfg.parse_env(backups[0].read_text())["OIDC_ISSUER"], "https://idp.example.org")
+
+        self.assertEqual(calls[0], ["docker", "compose", "up", "-d", "--wait", "postgres"])
+        self.assertEqual(calls[1], ["docker", "compose", "run", "--rm", "bootstrap"])
+        self.assertEqual(
+            calls[2][:8],
+            ["docker", "compose", "run", "--rm", "--no-deps", "gateway", "pystino", "break-glass"],
+        )
+        self.assertEqual(calls[2][calls[2].index("--email") + 1], "ops@example.org")
+        self.assertEqual(calls[2][calls[2].index("--reason") + 1], "lost every admin")
+        self.assertEqual(calls[2][calls[2].index("--login") + 1], "ops")
+        self.assertEqual(calls[3], ["docker", "compose", "up", "-d", "--wait"])
+
+        self.assertIn("ops", out)
+        self.assertIn("hunter2", out)
+        self.assertIn("https://chat.example.org/", out)
+        self.assertIn("re-enroll", out)
+
+    def test_stops_at_the_first_failing_step_and_names_the_backup(self):
+        self.configure()
+        calls, fake_run = self._mock_run(fail_at=1)  # the bootstrap step
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("bootstrap", err)
+        backups = list(self.dir.glob(".env.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertIn(backups[0].name, err)
+        # .env was already switched before the failing step -- the message
+        # points at the backup rather than claim nothing happened.
+        self.assertEqual(self.env()["OIDC_KIND"], "authelia")
+        # up -d --wait (the last step) never ran.
+        self.assertEqual(len(calls), 2)
+
+    def test_a_break_glass_reply_without_login_or_password_is_a_failure(self):
+        self.configure()
+        calls, fake_run = self._mock_run(break_glass_stdout="something went sideways\n")
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("break-glass", err)
+        # up -d --wait (the last step) never ran: three calls (postgres,
+        # bootstrap, break-glass), not four.
+        self.assertEqual(len(calls), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -390,6 +390,28 @@ def backup(path: Path) -> Path | None:
     return target
 
 
+def _utc_backup(path: Path) -> Path | None:
+    """Like `backup`, but stamped in UTC (ADR 0093 §10 step 1).
+
+    `--break-glass` runs unattended, often from a script reacting to an
+    incident in whatever timezone it happens to run in; a recovery
+    procedure's own audit trail should not depend on the host's local
+    timezone setting to read back. The ordinary `backup` (interactive
+    `./configure`, local time, matching what an operator watching the
+    terminal just typed) is untouched.
+    """
+    if not path.exists():
+        return None
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = path.with_name(f"{path.name}.bak-{stamp}")
+    n = 1
+    while target.exists():
+        target = path.with_name(f"{path.name}.bak-{stamp}-{n}")
+        n += 1
+    write_private(target, path.read_text(encoding="utf-8"))
+    return target
+
+
 HEADER = """\
 # Written by ./configure. The deployment's one configuration file; every key
 # is explained in .env.example. Edit it by hand or re-run ./configure (which
@@ -1500,6 +1522,104 @@ def cmd_configure(args, root: Path) -> int:
     return 0
 
 
+def cmd_break_glass(args, root: Path) -> int:
+    """`./configure --break-glass` (ADR 0093 §10 host steps): the deeper
+    recovery, when the configured identity provider itself is unreachable or
+    every administrator is locked out. Switches `.env` to the bundled
+    Authelia (kept but inert if it names an external IdP already: nothing
+    here deletes those values, so the operator can switch back with them),
+    then grants one target admin through `pystino break-glass` inside the
+    gateway container.
+
+    Stops at the first failing step: the `.env` rewrite has already
+    happened by the time any `docker compose` step can fail, so every
+    failure message says the backup's name, not just that something broke.
+    """
+    env_path = root / ".env"
+    if not env_path.exists():
+        print("configure: --break-glass needs an existing .env; run ./configure first", file=sys.stderr)
+        return 2
+    if not args.reason or not args.reason.strip():
+        print("configure: --break-glass needs --reason", file=sys.stderr)
+        return 2
+    if not args.admin_email:
+        print("configure: --break-glass needs --admin-email", file=sys.stderr)
+        return 2
+
+    template = (root / ".env.example").read_text(encoding="utf-8")
+    existing = parse_env(env_path.read_text(encoding="utf-8"))
+    answers = answers_from(existing)
+    answers.idp = "authelia"
+    answers.admin_email = args.admin_email
+    answers.link_by_email = False
+
+    try:
+        result = build(answers, existing, template)
+        text = render(template, result.values, HEADER)
+    except ConfigError as exc:
+        print(f"configure: {exc}", file=sys.stderr)
+        return 2
+
+    saved = _utc_backup(env_path)
+    write_private(env_path, text)
+    print(f"wrote {env_path} (mode 0600); the previous one is {saved.name}" if saved
+          else f"wrote {env_path} (mode 0600)")
+
+    def fail(step: str, proc: subprocess.CompletedProcess | None) -> int:
+        detail = (proc.stderr.strip().splitlines() or ["?"])[-1] if proc else "docker not runnable"
+        print(f"configure: --break-glass failed at {step!r}: {detail}", file=sys.stderr)
+        if saved:
+            print(f"{saved.name} holds the configuration from before this run", file=sys.stderr)
+        return 1
+
+    step = "docker compose up -d --wait postgres"
+    proc = _run(["docker", "compose", "up", "-d", "--wait", "postgres"], timeout=120, cwd=root)
+    if proc is None or proc.returncode != 0:
+        return fail(step, proc)
+
+    step = "docker compose run --rm bootstrap"
+    proc = _run(["docker", "compose", "run", "--rm", "bootstrap"], timeout=120, cwd=root)
+    if proc is None or proc.returncode != 0:
+        return fail(step, proc)
+
+    step = "pystino break-glass"
+    bg_cmd = [
+        "docker", "compose", "run", "--rm", "--no-deps", "gateway",
+        "pystino", "break-glass", "--email", answers.admin_email, "--reason", args.reason,
+    ]
+    if args.admin_login:
+        bg_cmd += ["--login", args.admin_login]
+    proc = _run(bg_cmd, timeout=60, cwd=root)
+    if proc is None or proc.returncode != 0:
+        return fail(step, proc)
+    login = password = ""
+    for line in proc.stdout.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() == "login":
+            login = value.strip()
+        elif sep and key.strip() == "password":
+            password = value.strip()
+    if not login or not password:
+        print(f"configure: --break-glass: {step} printed no login/password:\n{proc.stdout}",
+              file=sys.stderr)
+        if saved:
+            print(f"{saved.name} holds the configuration from before this run", file=sys.stderr)
+        return 1
+
+    step = "docker compose up -d --wait"
+    proc = _run(["docker", "compose", "up", "-d", "--wait"], timeout=180, cwd=root)
+    if proc is None or proc.returncode != 0:
+        return fail(step, proc)
+
+    print()
+    print(f"  sign in at  {result.values['PUBLIC_ORIGIN']}/")
+    print(f"  login       {login}")
+    print(f"  password    {password}")
+    print()
+    print("galopin machines must re-enroll: their tokens name the old issuer.")
+    return 0
+
+
 def cmd_set(args, root: Path) -> int:
     env_path = root / ".env"
     if not env_path.exists():
@@ -1561,6 +1681,10 @@ def parser() -> argparse.ArgumentParser:
     mode.add_argument("--set", nargs="+", metavar="KEY=VALUE", help="change values in .env, no questions")
     mode.add_argument("--unset", nargs="+", metavar="KEY", help="remove values from .env")
     mode.add_argument("--non-interactive", action="store_true", help="ask nothing; fail on a missing answer")
+    mode.add_argument(
+        "--break-glass", action="store_true",
+        help="recover admin access: switch to the bundled Authelia and grant --admin-email",
+    )
     mode.add_argument("--dir", help=argparse.SUPPRESS)
 
     q = p.add_argument_group("the questions")
@@ -1582,6 +1706,8 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--admin-name", help="bundled Authelia: its display name")
     o.add_argument("--admin-password-file", help="bundled Authelia: read the first password from this file "
                    "instead of minting one")
+    o.add_argument("--admin-login", help="--break-glass: the recovered account's login (default: from --admin-email)")
+    o.add_argument("--reason", help="--break-glass: why, for the gateway's audit row (required)")
     o.add_argument("--oidc-issuer", help="external IdP: the issuer URL")
     o.add_argument("--oidc-internal-base-url", help="external IdP: a URL for it inside the network")
     o.add_argument("--oidc-console-client-id")
@@ -1616,6 +1742,8 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list | None = None) -> int:
     args = parser().parse_args(argv)
     root = Path(args.dir).resolve() if args.dir else ROOT
+    if args.break_glass:
+        return cmd_break_glass(args, root)
     if args.check:
         return cmd_check(args, root)
     if args.set or args.unset:
