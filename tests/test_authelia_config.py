@@ -42,10 +42,6 @@ SMTP_ENV = {
     "X_PYSTINO_SMTP_USERNAME": "mailer",
     "X_PYSTINO_SMTP_FROM": "noreply@example.org",
     "X_PYSTINO_SMTP_SECURITY": "starttls",
-    # Real compose sets this only alongside a non-empty SMTP_HOST
-    # (compose.yaml's `${SMTP_HOST:+...}`); set directly here since this test
-    # never runs compose.
-    "AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE": "/config/keys/smtp_password",
 }
 
 
@@ -53,9 +49,8 @@ SMTP_ENV = {
 @unittest.skipUnless(shutil.which("openssl"), "needs openssl")
 class AutheliaConfigTests(unittest.TestCase):
     """Every case here mounts the real authelia/ directory read-only, plus a
-    throwaway JWKS key and (when SMTP is on) a throwaway SMTP password file
-    under a temp /config -- the same two paths configuration.yml's own
-    `secret` calls and AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE name."""
+    throwaway JWKS key and SMTP password file under a temp /config -- the
+    two paths configuration.yml's own `secret` calls name."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -111,9 +106,10 @@ class AutheliaConfigTests(unittest.TestCase):
         self.assertIn("address: 'submission://smtp.example.org:587'", out)
         self.assertIn("disable: false", out)
         self.assertNotIn("filesystem:", out)
-        # The password never appears in the rendered text -- it travels only
-        # through AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE, outside the template.
-        self.assertNotIn("smtp-test-password", out)
+        # `secret`, the same convention the JWKS key already uses: read from
+        # the file bootstrap wrote, substituted into the render like any
+        # other secret value here -- never a plaintext env-var interpolation.
+        self.assertIn("password: 'smtp-test-password'", out)
 
     def test_tls_and_plain_smtp_pick_the_other_two_schemes(self) -> None:
         tls = self._authelia("template", {**BASE_ENV, **SMTP_ENV, "X_PYSTINO_SMTP_SECURITY": "tls"})

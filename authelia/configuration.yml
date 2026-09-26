@@ -96,10 +96,15 @@ notifier:
     address: '{{ if eq (env "X_PYSTINO_SMTP_SECURITY") "tls" }}submissions{{ else if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}smtp{{ else }}submission{{ end }}://{{ env "X_PYSTINO_SMTP_HOST" }}:{{ env "X_PYSTINO_SMTP_PORT" }}'
     username: '{{ env "X_PYSTINO_SMTP_USERNAME" }}'
     sender: '{{ env "X_PYSTINO_SMTP_FROM" }}'
-    # No `password` line: AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE (set only
-    # alongside this branch, compose.yaml) supplies it from the file
-    # bootstrap writes, the same file-secret convention the JWKS key above
-    # uses -- never a plaintext value in this template.
+    # `secret`, not AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: that env var is
+    # read unconditionally by Authelia's own secrets loader regardless of
+    # this `if`, and an empty path (the only value compose can give it while
+    # this branch is off) is a hard startup error, not a no-op -- found live,
+    # bringing up the without-SMTP branch. `secret` only ever runs inside
+    # this branch, the same file bootstrap writes (0600) the other mechanism
+    # would have read, and the same convention the JWKS key above already
+    # uses for a value this template must not carry as plain text.
+    password: {{ secret "/config/keys/smtp_password" | msquote }}
 {{ else }}
   filesystem:
     filename: '/data/notification.txt'
