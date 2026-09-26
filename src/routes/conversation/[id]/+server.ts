@@ -26,7 +26,8 @@ import { addSibling } from "$lib/utils/tree/addSibling.js";
 import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
 import { indexConversation, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
-import { resolveSelection, withoutClientCredentials } from "$lib/server/mcp/selection";
+import { mcpLocalsFor, withoutClientCredentials } from "$lib/server/mcp/selection";
+import type { McpTurnSelection } from "$lib/types/Conversation";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
@@ -234,51 +235,30 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// supplies is a credential the browser holds, which is the defect
 	// connectors exist to close.
 	try {
-		const resolved = locals.user
-			? await resolveSelection({
-					connectorIds: selectedConnectorIds ?? [],
-					userId: locals.user._id,
-				})
-			: { servers: [], needAuthorization: [] };
-
-		if (resolved.needAuthorization.length > 0) {
-			// Left out rather than called without a token: a 401 would reach the
-			// model as "that tool failed" and the person would get an answer
-			// shaped by a missing capability instead of a prompt to sign in.
-			logger.info(
-				{ connectors: resolved.needAuthorization },
-				"mcp_connector_not_authorized: left out of this turn"
-			);
-		}
-
-		(locals as unknown as Record<string, unknown>).mcp = {
-			// Told to the model this turn (`runMcpFlow`), so it says the
-			// connector needs attention instead of improvising its tools.
-			unavailable: resolved.needAuthorization.map((name) => ({
-				name,
-				reason: "not signed in, or its token is missing",
-			})),
-			selectedServerNames: selectedMcpServerNames,
-			selectedServers: [
-				...withoutClientCredentials(
-					(selectedMcpServers ?? []).map((s) => ({
-						name: s.name,
-						url: s.url,
-						headers:
-							s.headers && s.headers.length > 0
-								? Object.fromEntries(s.headers.map((h) => [h.key, h.value]))
-								: undefined,
-					}))
-				),
-				// Connectors **last**, because `runMcpFlow` deduplicates by name
-				// and the later entry wins. Two of these can share a name — a
-				// connector called "Notion" beside a stale custom server of the
-				// same name in somebody's localStorage — and the one that must
-				// survive is the one carrying a credential this browser never
-				// held.
-				...resolved.servers,
-			],
+		const selection: McpTurnSelection = {
+			connectorIds: selectedConnectorIds ?? [],
+			...(selectedMcpServerNames ? { serverNames: selectedMcpServerNames } : {}),
+			customServers: withoutClientCredentials(
+				(selectedMcpServers ?? []).map((s) => ({
+					name: s.name,
+					url: s.url,
+					headers:
+						s.headers && s.headers.length > 0
+							? Object.fromEntries(s.headers.map((h) => [h.key, h.value]))
+							: undefined,
+				}))
+			).map(({ name, url }) => ({ name, url })),
 		};
+		(locals as unknown as Record<string, unknown>).mcp = await mcpLocalsFor(
+			selection,
+			locals.user?._id
+		);
+		// Recorded for a resume: a turn that parks (execute_code, a timer, a
+		// tool approval) continues later with no request, and must run with the
+		// same connectors. Ids and names only; best effort, never fails the turn.
+		await collections.conversations
+			.updateOne({ _id: convId }, { $set: { mcpSelection: selection } })
+			.catch((err) => logger.warn({ err }, "mcp_selection_not_recorded"));
 	} catch (err) {
 		// The pipeline falls back to the environment's servers. Logged rather
 		// than swallowed: a connector silently absent is the hardest version of

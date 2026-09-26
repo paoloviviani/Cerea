@@ -7,8 +7,11 @@ import { MessageUpdateStatus, MessageUpdateType } from "$lib/types/MessageUpdate
 // deny is recorded; that pipeline is exercised elsewhere (replayRoundTrip.spec.ts).
 // Here it is a black box so the test can assert what the sweeper itself is
 // responsible for: claiming, denying, and feeding the refusal into the message.
+const seen = vi.hoisted(() => ({ locals: [] as unknown[] }));
+
 vi.mock("$lib/server/textGeneration", () => ({
-	async *textGeneration() {
+	async *textGeneration(ctx: { locals: unknown }) {
+		seen.locals.push(ctx.locals);
 		yield { type: MessageUpdateType.Status, status: MessageUpdateStatus.Finished };
 	},
 }));
@@ -27,6 +30,7 @@ async function seedParkedConversation(params: {
 	elicitationId: string;
 	expiresAt: Date;
 	status?: "pending" | "resolved";
+	mcpSelection?: { connectorIds: string[]; customServers: { name: string; url: string }[] };
 }) {
 	const conversationId = new ObjectId();
 	const messageId = "assistant-1";
@@ -47,6 +51,7 @@ async function seedParkedConversation(params: {
 				children: [],
 			},
 		],
+		...(params.mcpSelection ? { mcpSelection: params.mcpSelection } : {}),
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	} as never);
@@ -123,6 +128,27 @@ describe("sweepExpiredToolApprovals (ADR 0075 deny-timeout)", () => {
 		// nobody is watching, and the sweeper's job is to unstick it.
 		const state = await collections.turnStates.findOne({ conversationId });
 		expect(state?.status).toBe("done");
+	});
+
+	it("continues the turn with the MCP servers it was started with", async () => {
+		// Without this the rounds after the refusal ran with the built-in tools
+		// only, as every resumed turn did.
+		seen.locals.length = 0;
+		const elicitationId = crypto.randomUUID();
+		await seedParkedConversation({
+			elicitationId,
+			expiresAt: new Date(Date.now() - 1_000),
+			mcpSelection: {
+				connectorIds: [],
+				customServers: [{ name: "adhoc", url: "https://adhoc.test/mcp" }],
+			},
+		});
+
+		await sweepExpiredToolApprovals();
+
+		expect(seen.locals).toHaveLength(1);
+		const mcp = (seen.locals[0] as { mcp?: { selectedServers: { name: string }[] } }).mcp;
+		expect(mcp?.selectedServers.map((server) => server.name)).toEqual(["adhoc"]);
 	});
 
 	it("leaves a not-yet-expired prompt alone", async () => {
