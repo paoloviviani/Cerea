@@ -61,6 +61,7 @@ describe("artifact tool schema", () => {
 			"mermaid",
 			"markdown",
 			"code",
+			"table",
 		]);
 	});
 
@@ -87,6 +88,34 @@ describe("resolveArtifactOp", () => {
 		expect(resolved.block).toBe(
 			`<artifact identifier="snake-game" type="html" title="Snake Game">${CREATE_HTML.content}</artifact>`
 		);
+	});
+
+	it("creates a table artifact with a canonical block", () => {
+		const resolved = resolveArtifactOp([], {
+			command: "create",
+			identifier: "sales",
+			type: "table",
+			title: "Sales",
+			content: "month,amount\njan,10\nfeb,20",
+		});
+		expect(resolved.ok).toBe(true);
+		if (!resolved.ok) return;
+		expect(resolved.version).toBe(1);
+		expect(resolved.resultText).toBe("created sales v1 (table)");
+		expect(resolved.block).toBe(
+			`<artifact identifier="sales" type="table" title="Sales">month,amount\njan,10\nfeb,20</artifact>`
+		);
+	});
+
+	it("rejects a create with an unknown type", () => {
+		const resolved = resolveArtifactOp([], {
+			command: "create",
+			identifier: "sales",
+			type: "spreadsheet",
+			title: "Sales",
+			content: "a,b",
+		});
+		expect(resolved.ok).toBe(false);
 	});
 
 	it("carries language for code artifacts only", () => {

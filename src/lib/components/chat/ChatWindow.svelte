@@ -11,6 +11,7 @@
 	import { setArtifactsContext } from "$lib/utils/artifactsContext";
 	import { collectTrackioDashboards } from "$lib/utils/trackio";
 	import { trackioStatus } from "$lib/stores/trackioStatus.svelte";
+	import { collectFileArtifacts } from "$lib/utils/fileArtifacts";
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 
@@ -284,10 +285,17 @@
 	// reopening the conversation finds the same dashboards.
 	let trackioDashboards = $derived(collectTrackioDashboards(messages));
 
+	// File artifacts: persisted `execute_code` outputs folded into versioned
+	// entries by filename. Derived from the same messages, so reloads and
+	// shared conversations rebuild the same registry.
+	let fileRegistry = $derived(collectFileArtifacts(messages));
+
 	// One ordered list of everything the pane can show, so its next/previous walks
 	// artifacts and dashboards together instead of each view navigating only its
 	// own kind.
-	let paneItems = $derived(collectPaneItems(messages, artifactRegistry, trackioDashboards));
+	let paneItems = $derived(
+		collectPaneItems(messages, artifactRegistry, trackioDashboards, fileRegistry)
+	);
 
 	let shareModalOpen = $state(false);
 	let pastedLongContent = $state(false);
@@ -1356,6 +1364,7 @@
 
 	<ArtifactPanel
 		registry={artifactRegistry}
+		{fileRegistry}
 		items={paneItems}
 		{loading}
 		drafts={artifactDrafts}
@@ -1364,7 +1373,7 @@
 	/>
 	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />
 	<TrackioPane items={paneItems} />
-	<DeliverablesPanel />
+	<DeliverablesPanel {fileRegistry} />
 </div>
 
 <!-- Outside the composer's wrapper on purpose: that subtree is

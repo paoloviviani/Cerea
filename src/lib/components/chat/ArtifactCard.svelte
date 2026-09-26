@@ -7,6 +7,7 @@
 	import CarbonImage from "~icons/carbon/image";
 	import CarbonDocument from "~icons/carbon/document";
 	import CarbonLogoReact from "~icons/carbon/logo-react";
+	import CarbonTable from "~icons/carbon/table";
 	import CarbonWarning from "~icons/carbon/warning";
 	import LucideAppWindow from "~icons/lucide/app-window";
 	import LucideWorkflow from "~icons/lucide/workflow";
@@ -47,6 +48,7 @@
 		svg: "SVG image",
 		markdown: "Document",
 		mermaid: "Diagram",
+		table: "Table",
 		code: "Code",
 	};
 
@@ -121,6 +123,8 @@
 			<CarbonDocument class="text-base" />
 		{:else if version?.type === "mermaid"}
 			<LucideWorkflow class="text-base" />
+		{:else if version?.type === "table"}
+			<CarbonTable class="text-base" />
 		{:else}
 			<CarbonCode class="text-base" />
 		{/if}
