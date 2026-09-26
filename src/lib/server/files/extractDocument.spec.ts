@@ -3,15 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * What this module must get right is the *choice* and the *honesty*.
  *
- * The choice: which model reads a document — the Knowledge screen's when it
- * has named one, else the environment, else the catalogue. "Automatic" is the
- * absence of a choice, whatever it is stored as; there is no value that means
- * "read nothing", because there was one, and a deployment that held it
- * extracted no documents while the screen said it would.
+ * The choice: which model reads a document — an env value first (the
+ * operator who names one means it), then the Knowledge screen's stored
+ * choice, then this deployment's own local extractor when the gateway flags
+ * one `local: true`, then the first reader in the catalogue, then none.
+ * "Automatic" is the absence of a choice, whatever it is stored as; there is
+ * no value that means "read nothing", because there was one, and a
+ * deployment that held it extracted no documents while the screen said it
+ * would.
  *
- * The honesty: every failure comes back with a reason a person can act on,
- * because the same answer lands on a knowledge base's failed document row,
- * where "failed" without a why sends somebody looking.
+ * The honesty: every failure comes back with a reason a person can act on —
+ * a provider-side failure (429, 5xx) names the reader rather than reading as
+ * "not available" — because the same answer lands on a knowledge base's
+ * failed document row, where "failed" without a why sends somebody looking.
  */
 
 const { readConfigMock, gatewayGetMock, gatewayPostMock } = vi.hoisted(() => ({
@@ -97,49 +101,96 @@ afterEach(() => {
 });
 
 describe("which model reads", () => {
-	it("uses the Knowledge screen's choice when it names one", async () => {
+	it("env-fixed: CHAT_OCR_MODEL wins even over a stored screen choice", async () => {
 		readConfigMock.mockResolvedValue({ extractorModel: "screen-reader" });
-		gatewayPostMock.mockResolvedValue(OCR_OK);
-
-		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
-
-		expect(gatewayPostMock.mock.calls[0][1]).toBe("ocr");
-		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "screen-reader" });
-	});
-
-	it("treats a stored null as Automatic: the environment model next", async () => {
-		// A row written by the screen's old "built-in" option. It used to mean
-		// "extract nothing"; it means the deployment default now.
-		readConfigMock.mockResolvedValue({ extractorModel: null });
 		setEnvModel("env-reader");
 		gatewayPostMock.mockResolvedValue(OCR_OK);
 
 		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
 
+		expect(gatewayPostMock.mock.calls[0][1]).toBe("ocr");
 		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "env-reader" });
+		expect(gatewayGetMock).not.toHaveBeenCalled();
 	});
 
-	it("with no screen choice and no environment model, the first reader the caller may use", async () => {
+	it("stored choice: the Knowledge screen's own selection, with no env value set", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "screen-reader" });
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "screen-reader" });
+	});
+
+	it("local extractor pre-selected: nothing chosen, the gateway flags one local", async () => {
+		// A row written by the screen's old "built-in" option. It used to mean
+		// "extract nothing"; it means the deployment default now.
+		readConfigMock.mockResolvedValue({ extractorModel: null });
 		gatewayGetMock.mockResolvedValue({
 			data: [
-				{ id: "chat-model", kind: "chat" },
-				{ id: "markitdown", kind: "ocr" },
+				{ id: "mistral-ocr-4.1", kind: "ocr" },
+				{ id: "markitdown", kind: "ocr", local: true },
 			],
 		});
 		gatewayPostMock.mockResolvedValue(OCR_OK);
 
 		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
 
-		expect(gatewayGetMock).toHaveBeenCalledWith("t", "models");
+		expect(gatewayGetMock).toHaveBeenCalledWith("t", "models?include=ocr");
 		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
 	});
 
+	it("first available: no local extractor, no screen choice, no env model", async () => {
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "chat-model", kind: "chat" },
+				{ id: "mistral-ocr-4.1", kind: "ocr" },
+			],
+		});
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "mistral-ocr-4.1" });
+	});
+
+	it("an old gateway with no `local` flag still resolves to the first reader", async () => {
+		// `?include=ocr` against a gateway that predates the flag: a normal
+		// catalogue answer, no `local` key on any card at all.
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr-4.1", kind: "ocr" }] });
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "mistral-ocr-4.1" });
+	});
+
+	it("none: nothing chosen and nothing in the catalogue either", async () => {
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "chat-model", kind: "chat" }] });
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: false, status: 503 });
+		expect(gatewayPostMock).not.toHaveBeenCalled();
+	});
+
 	it("resolveExtractorModel answers the same question without reading anything", async () => {
+		setEnvModel("env-reader");
+		await expect(resolveExtractorModel("t")).resolves.toBe("env-reader");
+		setEnvModel(undefined);
+
 		readConfigMock.mockResolvedValue({ extractorModel: "screen-reader" });
 		await expect(resolveExtractorModel("t")).resolves.toBe("screen-reader");
 
 		readConfigMock.mockResolvedValue({ extractorModel: null });
-		gatewayGetMock.mockResolvedValue({ data: [{ id: "markitdown", kind: "ocr" }] });
+		gatewayGetMock.mockResolvedValue({
+			data: [{ id: "markitdown", kind: "ocr", local: true }],
+		});
 		await expect(resolveExtractorModel("t")).resolves.toBe("markitdown");
 
 		gatewayGetMock.mockResolvedValue({ data: [{ id: "chat-model" }] });
@@ -181,6 +232,45 @@ describe("when there is no text", () => {
 			ok: false,
 			status: 422,
 			reason: "This document has no text layer — it is a scan or a set of images.",
+		});
+	});
+
+	it("names the reader and the rate limit, rather than a generic unavailable", async () => {
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr-4.1", kind: "ocr" }] });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(new GatewayCallFailed(429, "the provider answered 429"));
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({
+			ok: false,
+			status: 429,
+			reason: "The document reader mistral-ocr-4.1 is rate-limited by its provider.",
+		});
+	});
+
+	it("names the reader and the status on a provider-side 5xx", async () => {
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr-4.1", kind: "ocr" }] });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(new GatewayCallFailed(503, "the provider answered 503"));
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({
+			ok: false,
+			status: 503,
+			reason:
+				"The document reader mistral-ocr-4.1 is unavailable right now — its provider answered 503.",
 		});
 	});
 
@@ -327,7 +417,7 @@ describe("direct mode: CHAT_OCR_BASE_URL set, no gateway", () => {
 		});
 	});
 
-	it("degrades to the reader-unreachable message when the error body is not JSON", async () => {
+	it("names the reader and the status for a 5xx with no parseable error body", async () => {
 		fetchMock.mockResolvedValue({
 			ok: false,
 			status: 500,
@@ -341,8 +431,12 @@ describe("direct mode: CHAT_OCR_BASE_URL set, no gateway", () => {
 			token: "t",
 		});
 
-		expect(answer).toMatchObject({ ok: false, status: 500 });
-		expect(answer.ok ? "" : answer.reason).toContain("could not be reached");
+		expect(answer).toMatchObject({
+			ok: false,
+			status: 500,
+			reason:
+				"The document reader mistral-ocr-latest is unavailable right now — its provider answered 500.",
+		});
 	});
 
 	it("degrades the same way when the network call itself throws", async () => {
