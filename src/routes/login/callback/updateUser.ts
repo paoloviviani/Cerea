@@ -16,50 +16,12 @@ import { addWeeks } from "date-fns";
 import { OIDConfig } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
-
-/**
- * Let the gateway know this person exists, at login rather than eventually.
- *
- * The gateway learns about a user from the OIDC claims on a `/v1` request, so
- * until now somebody could sign into the chat and be **invisible in the
- * management console** until they sent their first message — or never, if they
- * only ever browsed. That reads as a broken console rather than as a lazy
- * write, and it was reported as one.
- *
- * `GET /v1/billing/groups` rather than a new endpoint, and not only to avoid
- * surface: the chat wants this answer at login anyway. It is how the settings
- * dropdown knows which groups the person may bill (ADR 0061), and fetching it
- * here means the first message does not pay for it. Provisioning is a *side
- * effect* of the call, which is worth stating plainly — but the call is one we
- * want regardless, and an endpoint whose only purpose was the side effect would
- * be a worse thing to explain.
- *
- * **Non-fatal, deliberately.** A gateway that is down, misconfigured, or does
- * not accept this token must not stop somebody logging into the chat: the
- * person is already authenticated by the identity provider, and refusing them
- * a session would turn a reporting gap into an outage. It is logged at info
- * so `gateway_login_announce` is greppable when a user is missing from the
- * console.
- */
-async function announceToGateway(accessToken: string | undefined): Promise<void> {
-	if (!accessToken || !config.OPENAI_BASE_URL) {
-		return;
-	}
-	const base = config.OPENAI_BASE_URL.replace(/\/$/, "");
-	try {
-		const response = await fetch(`${base}/billing/groups`, {
-			headers: { Authorization: `Bearer ${accessToken}` },
-		});
-		if (!response.ok) {
-			logger.info(
-				`gateway_login_announce: the gateway answered ${response.status}; this user ` +
-					"will not appear in the management console until their first request"
-			);
-		}
-	} catch (err) {
-		logger.info({ err }, "gateway_login_announce: the gateway could not be reached");
-	}
-}
+import {
+	foldPendingStrays,
+	GatewayLoginError,
+	isGatewayPreset,
+	resolveGatewayLogin,
+} from "$lib/server/identity/gatewayLogin";
 
 // What counts as an email address here mirrors the issuer's own rule
 // (the gateway's LocalLoginRequest): exactly one "@" with a non-empty
@@ -229,18 +191,36 @@ export async function updateUser(params: {
 	} catch {
 		// No ID token claims to read: the configured issuer is the one.
 	}
-	let existingUser;
-	try {
-		existingUser = await findLoginUser(collections.users, {
-			sub: hfUserId,
-			issuer,
-			email,
-			emailVerified: (userData as Record<string, unknown>).email_verified,
-			migrateFrom: config.CHAT_MIGRATE_ISSUER_FROM,
-		});
-	} catch (err) {
-		if (err instanceof IssuerMismatchError) error(403, err.message);
-		throw err;
+	// On a gateway preset (ADR 0093 §4.2-4.3) the gateway's own id is the
+	// person: `announce` runs first and fails the login closed, then
+	// resolution is by `gatewayUserId`, never by `(issuer, hfUserId)`. The
+	// generic (gateway-less) preset keeps `findLoginUser` (§4.5).
+	let existingUser: Awaited<ReturnType<typeof findLoginUser>>;
+	let gatewayUserId: string | undefined;
+	let pendingStrays: ObjectId[] = [];
+	if (isGatewayPreset()) {
+		try {
+			const resolved = await resolveGatewayLogin(token.access_token);
+			existingUser = resolved.user;
+			gatewayUserId = resolved.gatewayUserId;
+			pendingStrays = resolved.pendingStrays;
+		} catch (err) {
+			if (err instanceof GatewayLoginError) error(err.status, err.message);
+			throw err;
+		}
+	} else {
+		try {
+			existingUser = await findLoginUser(collections.users, {
+				sub: hfUserId,
+				issuer,
+				email,
+				emailVerified: (userData as Record<string, unknown>).email_verified,
+				migrateFrom: config.CHAT_MIGRATE_ISSUER_FROM,
+			});
+		} catch (err) {
+			if (err instanceof IssuerMismatchError) error(403, err.message);
+			throw err;
+		}
 	}
 	let userId = existingUser?._id;
 
@@ -278,7 +258,20 @@ export async function updateUser(params: {
 		// update existing user if any
 		await collections.users.updateOne(
 			{ _id: existingUser._id },
-			{ $set: { username, name, avatarUrl, isAdmin, isEarlyAccess } }
+			{
+				$set: {
+					username,
+					name,
+					avatarUrl,
+					isAdmin,
+					isEarlyAccess,
+					// §4.3 step 7: on a gateway preset these are informational —
+					// resolution never reads them again — but kept current so an
+					// operator looking at the row sees this login's last identity.
+					...(gatewayUserId ? { hfUserId, issuer: normalizeIssuer(issuer) } : {}),
+					...(gatewayUserId && email ? { email } : {}),
+				},
+			}
 		);
 
 		// remove previous session if it exists and add new one
@@ -310,9 +303,16 @@ export async function updateUser(params: {
 			issuer: normalizeIssuer(issuer),
 			isAdmin,
 			isEarlyAccess,
+			...(gatewayUserId ? { gatewayUserId } : {}),
 		});
 
 		userId = insertedId;
+
+		// §4.3 step 5: strays `resolveGatewayLogin` found but couldn't merge
+		// yet, because there was no target until this row existed.
+		if (gatewayUserId && pendingStrays.length > 0) {
+			await foldPendingStrays(insertedId, pendingStrays);
+		}
 
 		await collections.sessions.insertOne({
 			_id: new ObjectId(),
@@ -359,9 +359,4 @@ export async function updateUser(params: {
 			$unset: { sessionId: "" },
 		}
 	);
-
-	// Last, and awaited rather than detached: the session is already written, so
-	// a slow gateway delays the redirect but cannot lose the login, and a
-	// detached call in a serverless-shaped runtime is a call that may never run.
-	await announceToGateway(token.access_token);
 }
