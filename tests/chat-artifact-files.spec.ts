@@ -12,7 +12,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { GridFSBucket, ObjectId, type Db } from "mongodb";
 import { zipSync } from "fflate";
-import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
+import type { Page } from "playwright/test";
+import { test, expect, E2E_APP_BASE, type SeedConversationInput } from "./fixtures.ts";
 
 /** Minimal one-page PDF with correct xref offsets, so the native viewer accepts it. */
 function makePdf(text: string): Buffer {
@@ -227,6 +228,57 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	).toHaveAttribute("src", /^data:application\/pdf/, { timeout: 30_000 });
 });
 
+/**
+ * Seeds the same "hello world docx" conversation the reload test uses (a
+ * settled assistant message with a stored `codeRunFiles` record), for the
+ * narrow-column layout tests below. Returns the conversation id.
+ */
+async function seedHelloWorldDocxConversation(
+	db: Db,
+	seedConversation: (input?: SeedConversationInput) => Promise<ObjectId>
+): Promise<ObjectId> {
+	await db.collection("codeExecutionOutputs").deleteMany({});
+	await db.collection("codeRunFiles").deleteMany({});
+	await db.collection("codeOutputs.files").deleteMany({});
+	await db.collection("codeOutputs.chunks").deleteMany({});
+
+	const code =
+		'from docx import Document\nd = Document()\nd.add_paragraph("Hello world")\nd.save("hello_world.docx")';
+	const answer = `Here's a small script that creates the file:\n\n\`\`\`python\n${code}\n\`\`\`\n`;
+	const conversationId = await seedConversation({
+		title: "Hello world docx",
+		messages: [
+			{ from: "system", content: "" },
+			{ from: "user", content: "Can you create a hello world docx?" },
+			{ from: "assistant", content: answer },
+		],
+	});
+	const docx = await seedDeliverable(
+		db,
+		conversationId,
+		"hello_world.docx",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		makeDocx("Hello world")
+	);
+	const conv = await db.collection("conversations").findOne({ _id: conversationId });
+	const assistantId = (conv?.messages as Array<{ id: string; from: string }>).find(
+		(m) => m.from === "assistant"
+	)?.id;
+	await db
+		.collection("conversations")
+		.updateOne({ _id: conversationId }, { $set: { "messages.2.updates": [finalAnswer(answer)] } });
+	await db.collection("codeRunFiles").insertOne({
+		_id: new ObjectId(),
+		conversationId,
+		messageId: assistantId,
+		runKey: chatRunKey(code),
+		files: [docx],
+		fingerprint: docx.sha256,
+		createdAt: new Date(),
+	});
+	return conversationId;
+}
+
 /** The same key CodeBlock uses (`chatRunKey` in src/lib/utils/execution/keys.ts). */
 function chatRunKey(code: string): string {
 	let hash = 5381;
@@ -244,53 +296,7 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 	// session-only — never an artifact, gone on reload. What the browser now
 	// leaves behind once that block's run settles is a stored deliverable plus
 	// a `codeRunFiles` record naming the message; that is what is seeded here.
-	await db.collection("codeExecutionOutputs").deleteMany({});
-	await db.collection("codeRunFiles").deleteMany({});
-	await db.collection("codeOutputs.files").deleteMany({});
-	await db.collection("codeOutputs.chunks").deleteMany({});
-
-	const code =
-		'from docx import Document\nd = Document()\nd.add_paragraph("Hello world")\nd.save("hello_world.docx")';
-	const answer = `Here's a small script that creates the file:\n\n\`\`\`python\n${code}\n\`\`\`\n`;
-	const conversationId = await seedConversation({
-		title: "Hello world docx",
-		messages: [
-			{ from: "system", content: "" },
-			{ from: "user", content: "Can you create a hello world docx?" },
-			{
-				from: "assistant",
-				content: answer,
-			},
-		],
-	});
-	const docx = await seedDeliverable(
-		db,
-		conversationId,
-		"hello_world.docx",
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		makeDocx("Hello world")
-	);
-	const conv = await db.collection("conversations").findOne({ _id: conversationId });
-	const assistantId = (conv?.messages as Array<{ id: string; from: string }>).find(
-		(m) => m.from === "assistant"
-	)?.id;
-	await db.collection("conversations").updateOne(
-		{ _id: conversationId },
-		{
-			$set: {
-				"messages.2.updates": [finalAnswer(answer)],
-			},
-		}
-	);
-	await db.collection("codeRunFiles").insertOne({
-		_id: new ObjectId(),
-		conversationId,
-		messageId: assistantId,
-		runKey: chatRunKey(code),
-		files: [docx],
-		fingerprint: docx.sha256,
-		createdAt: new Date(),
-	});
+	const conversationId = await seedHelloWorldDocxConversation(db, seedConversation);
 
 	for (const pass of ["first load", "after a reload"]) {
 		if (pass === "after a reload") await page.reload();
@@ -316,4 +322,56 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 			timeout: 30_000,
 		});
 	}
+});
+
+/**
+ * Asserts the inline FileCard's own name span (never the artifact panel's,
+ * which carries the same title) is actually on screen with its text: not
+ * squeezed to zero width by the size badge and buttons, and not showing the
+ * bare size with a blank name. Also checks the card's `<li>` carries no
+ * browser default list marker (a bare `<li>` outside a `list-none` `<ul>`).
+ */
+async function expectFileCardNameVisible(page: Page, name: string): Promise<void> {
+	const nameSpan = page.locator('[data-message-role="assistant"]').locator(`span[title="${name}"]`);
+	await expect(nameSpan).toBeVisible();
+	await expect(nameSpan).toHaveText(name);
+	const box = await nameSpan.boundingBox();
+	expect(box?.width ?? 0).toBeGreaterThan(0);
+
+	const listStyle = await nameSpan.evaluate(
+		(el) => getComputedStyle(el.closest("li") as HTMLLIElement).listStyleType
+	);
+	expect(listStyle).toBe("none");
+}
+
+test("the inline file card keeps its filename visible when the chat column is narrow (artifact panel open)", async ({
+	page,
+	db,
+	seedConversation,
+}) => {
+	// The live report: the artifact panel open beside the chat squeezes the
+	// column enough that the file card's name span (flex-1 + min-w-0, no
+	// floor) collapsed to zero width — showing the icon, size and buttons
+	// with no filename at all, plus a stray list marker.
+	const conversationId = await seedHelloWorldDocxConversation(db, seedConversation);
+	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
+
+	await page.getByRole("button", { name: "Open artifacts panel" }).click();
+	const library = page.getByLabel("Artifacts panel", { exact: true });
+	await library.getByRole("button", { name: "Open hello_world.docx in panel" }).click();
+	await expect(page.getByLabel("Artifact panel", { exact: true })).toBeVisible();
+
+	await expectFileCardNameVisible(page, "hello_world.docx");
+});
+
+test("the inline file card keeps its filename visible on a narrow (390x844) viewport", async ({
+	page,
+	db,
+	seedConversation,
+}) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	const conversationId = await seedHelloWorldDocxConversation(db, seedConversation);
+	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
+
+	await expectFileCardNameVisible(page, "hello_world.docx");
 });
