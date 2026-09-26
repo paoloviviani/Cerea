@@ -228,6 +228,10 @@ services:
       # A bearer token's azp (or client_id) must name one of these once an
       # audience is set: the console, the chat, and galopin's machine client.
       GATEWAY_OIDC__ACCEPTED_CLIENTS: ${OIDC_ACCEPTED_CLIENTS:-${OIDC_CONSOLE_CLIENT_ID:-pystino-console},${OIDC_CHAT_CLIENT_ID:-cerea},${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}}
+      # Which of those accepted clients is the chat, specifically: its own
+      # sign-in door (POST /v1/session/announce) refuses a token whose azp
+      # names the console or the machine client, not just any accepted one.
+      GATEWAY_OIDC__CHAT_CLIENT_ID: ${OIDC_CHAT_CLIENT_ID:-cerea}
       # One sign-out for both applications on this origin: signing out of the
       # console also expires the chat's session cookie (and the chat does the
       # same for the console's, below).
