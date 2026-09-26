@@ -178,6 +178,24 @@ describe("previewErasure", () => {
 			updatedAt: new Date(),
 		} as never);
 
+		const mixedBaseId = new ObjectId();
+		await collections.vectorStores.insertOne({
+			_id: mixedBaseId,
+			ownerId: user._id,
+			name: "Base shared two ways",
+			embeddingModel: "e",
+			dimensions: null,
+			chunkChars: 100,
+			chunkOverlap: 0,
+			shares: [
+				{ kind: "group", principal: "engineering", role: "viewer" },
+				{ kind: "group", principal: "ops", role: "viewer" },
+				{ kind: "user", principal: "colleague@example.org", role: "viewer" },
+			],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
 		const assistantId = new ObjectId();
 		await collections.assistants.insertOne({
 			_id: assistantId,
@@ -213,13 +231,19 @@ describe("previewErasure", () => {
 						kind: "knowledge_base",
 						id: baseId.toString(),
 						title: "Shared base",
-						audience: "everyone",
+						audience: "members of group engineering",
+					},
+					{
+						kind: "knowledge_base",
+						id: mixedBaseId.toString(),
+						title: "Base shared two ways",
+						audience: "members of groups engineering, ops, and 1 person",
 					},
 					{
 						kind: "assistant",
 						id: assistantId.toString(),
 						title: "Published assistant",
-						audience: "everyone",
+						audience: "everyone (published)",
 					},
 				])
 			);
@@ -227,6 +251,7 @@ describe("previewErasure", () => {
 		} finally {
 			await collections.sharedConversations.deleteOne({ _id: shareId });
 			await collections.projects.deleteMany({ _id: { $in: [projectId, unsharedProjectId] } });
+			await collections.vectorStores.deleteOne({ _id: mixedBaseId });
 			await collections.vectorStores.deleteOne({ _id: baseId });
 			await collections.assistants.deleteOne({ _id: assistantId });
 		}
