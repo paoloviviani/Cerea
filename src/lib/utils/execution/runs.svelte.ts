@@ -56,6 +56,19 @@ class RunsStore {
 	#runs = $state<Record<string, RunState>>({});
 	#runtimeStatus = $state<ExecutionStatus>("unloaded");
 	#listening = false;
+	/**
+	 * Fence run keys a `CodeBlock` has actually watched go from streaming to
+	 * settled — i.e. genuinely "streamed in", as opposed to loaded from
+	 * history already closed. Kept here (module-scoped, not component
+	 * `$state`) because the block that watches a given fence is not always
+	 * the same instance for its whole life: the containing message's each-key
+	 * swaps at settle (`stream-${index}` → `block.id`, see
+	 * MarkdownRenderer.svelte), which remounts `CodeBlock` right at the
+	 * moment auto-run needs to fire. A fresh instance still finds its own
+	 * runKey marked here, so auto-run survives the remount instead of never
+	 * firing.
+	 */
+	#seenStreaming = new Set<string>();
 
 	get status(): ExecutionStatus {
 		return this.#runtimeStatus;
@@ -63,6 +76,16 @@ class RunsStore {
 
 	get(key: string): RunState | undefined {
 		return this.#runs[key];
+	}
+
+	/** Record that `key`'s fence was observed while its message was still streaming. */
+	markSeenStreaming(key: string): void {
+		this.#seenStreaming.add(key);
+	}
+
+	/** Whether `key` was ever seen streaming in this tab (never true for a history block). */
+	hasSeenStreaming(key: string): boolean {
+		return this.#seenStreaming.has(key);
 	}
 
 	/**

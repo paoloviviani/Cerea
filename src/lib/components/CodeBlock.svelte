@@ -138,12 +138,23 @@
 	// loaded from history are born closed and never see `loading`, so they keep
 	// the manual affordance — a page load must not re-execute every snippet a
 	// conversation ever contained.
-	let sawStreaming = $state(false);
+	//
+	// The "did this fence actually stream" signal lives on the store, keyed by
+	// runKey, rather than in a local `$state` here: the containing message's
+	// each-key swaps at settle (`stream-${index}` → `block.id`, see
+	// MarkdownRenderer.svelte), remounting this component right at the moment
+	// `loading` flips false — a local flag would reset to unset on the fresh
+	// instance and auto-run would never fire. `runsStore.run` is itself
+	// idempotent per key (re-renders, and so a remount too, never re-execute
+	// an already-run key), so marking-and-triggering on every render here is
+	// safe: it fires the run once, the first time some instance sees both
+	// signals true, remount or not.
 	$effect(() => {
-		if (loading) sawStreaming = true;
+		if (loading && runsStore && runKey) runsStore.markSeenStreaming(runKey);
 	});
 	$effect(() => {
-		if (!autorun || !sawStreaming || loading || !runsStore || !runKey) return;
+		if (!autorun || loading || !runsStore || !runKey) return;
+		if (!runsStore.hasSeenStreaming(runKey)) return;
 		runsStore.run(runKey, rawCode);
 	});
 
