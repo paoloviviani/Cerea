@@ -76,7 +76,20 @@ function buildServer(record: (call: RecordedToolCall) => void): McpServer {
 	return server;
 }
 
-export async function startMockMcp(port: number = MOCK_MCP_PORT): Promise<MockMcp> {
+export interface MockMcpOptions {
+	/**
+	 * Guard `/mcp` with a static bearer token, the way an API-key MCP server
+	 * does: without `Authorization: Bearer <token>` it answers a bare 401 —
+	 * HTML body, no `WWW-Authenticate`, no protected-resource metadata. That is
+	 * the shape OAuth discovery cannot see past, and a connector must still work.
+	 */
+	token?: string;
+}
+
+export async function startMockMcp(
+	port: number = MOCK_MCP_PORT,
+	options: MockMcpOptions = {}
+): Promise<MockMcp> {
 	const recorded: RecordedToolCall[] = [];
 	const record = (call: RecordedToolCall) => {
 		recorded.push(call);
@@ -118,6 +131,11 @@ export async function startMockMcp(port: number = MOCK_MCP_PORT): Promise<MockMc
 		}
 
 		if (url.pathname === "/mcp") {
+			if (options.token && req.headers.authorization !== `Bearer ${options.token}`) {
+				res.writeHead(401, { "content-type": "text/html" });
+				res.end("<html><body><h1>401 Unauthorized</h1></body></html>");
+				return;
+			}
 			// Stateless: a fresh server + transport per request, torn down after.
 			const server = buildServer(record);
 			const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
