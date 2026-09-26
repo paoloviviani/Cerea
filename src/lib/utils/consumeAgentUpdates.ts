@@ -97,10 +97,9 @@ export async function consumeAgentUpdates(
 	// tool-heavy turn or a replayed history arrives as a burst of frames,
 	// and a synchronous reactive write per frame re-derives the whole
 	// message (blocks, markdown) per frame — saturating the main thread
-	// until input stops landing, which reads as a freeze. This is the
-	// discipline paseo's own app applies to the same daemon stream (its
-	// reducer queue commits on a RAF with a timer fallback for hidden
-	// tabs, where RAF never fires but the transcript must still advance).
+	// until input stops landing, which reads as a freeze. So the buffer
+	// commits on a RAF, with a timer fallback for hidden tabs, where RAF
+	// never fires but the transcript must still advance.
 	const scheduleFrameFlush = () => {
 		if (frameFlushScheduled) return;
 		frameFlushScheduled = true;
@@ -114,9 +113,8 @@ export async function consumeAgentUpdates(
 		};
 		if (typeof requestAnimationFrame === "function") {
 			requestAnimationFrame(flush);
-			// RAF never fires in a hidden tab; the timer (48ms — the same
-			// ceiling paseo's reducer queue allows) keeps the transcript
-			// advancing when nothing paints.
+			// RAF never fires in a hidden tab; the timer (a 48ms ceiling)
+			// keeps the transcript advancing when nothing paints.
 			frameFlushTimer = setTimeout(flush, 48);
 		} else {
 			setTimeout(flush, 0);

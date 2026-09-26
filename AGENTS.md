@@ -469,8 +469,8 @@ knowing before touching the model picker or writing another live check:
 `agent/PROTOCOL.md` is the wire protocol, binding for both this app and the Go
 agent, `galopin`, which lives in this repository as `agent/`. Coding agents run on
 **the person's own machine**, supervised by one binary that dials **out** to
-this deployment over WSS with its own OIDC credential — no relay, no daemon
-process, nothing capability-bearing at rest in Cerea. `docs/code-panel.md`
+this deployment over WSS with its own OIDC credential — no relay in between,
+nothing capability-bearing at rest in Cerea. `docs/code-panel.md`
 is the operator guide and `docs/agent-machines.md` the user's (it also
 covers building, installing and running `galopin` itself); what matters when
 changing the code:

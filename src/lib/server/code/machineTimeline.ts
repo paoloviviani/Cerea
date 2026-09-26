@@ -1,9 +1,8 @@
 /**
  * The one place the machine's normalized shapes become the panel's frames.
  *
- * Unlike the paseo-era `codeTimeline.ts` this replaces, the wire vocabulary
- * (`$lib/types/machineProtocol.ts`) already tells a part's role directly
- * (`Part.role`), so there is no daemon-status inference needed to tell a
+ * The wire vocabulary (`$lib/types/machineProtocol.ts`) tells a part's role
+ * directly (`Part.role`), so no status inference is needed to tell a
  * user echo from an assistant token — the mapping here is a pure function of
  * one part or event at a time. The one place that still needs a sliver of
  * caller-held state is turn-level failure: `status: "idle"` means "done"

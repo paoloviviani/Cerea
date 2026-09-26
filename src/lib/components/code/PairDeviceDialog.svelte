@@ -1,10 +1,9 @@
 <!--
 	Pair a machine: run the agent, then confirm it here.
 
-	The old two-step dialog (name it, wait for a pasted offer) is gone with
-	paseo. `galopin` enrolls itself against this deployment's own OIDC
-	issuer and dials out with that credential (spec §3-4) — there is nothing
-	to paste. It appears below as soon as it checks in, in `pending`; nothing
+	`galopin` enrolls itself against this deployment's own OIDC issuer and
+	dials out with that credential (spec §3-4) — there is nothing to paste
+	and nothing to name here. It appears below as soon as it checks in, in `pending`; nothing
 	is forwarded to it until this dialog's Confirm click flips it to
 	`paired` — the fresh human approval a phished device-code approval alone
 	never reaches (review C2). Reject is the same tombstoning action as

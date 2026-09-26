@@ -9,8 +9,8 @@ import (
 )
 
 // credState is the shim's verdict on the credential, coarse enough for
-// something outside the process (an operator, Cerea reading the file
-// through the paseo daemon) to act on without re-deriving it.
+// something outside the process (an operator, or a script reading
+// status.json) to act on without re-deriving it.
 type credState string
 
 const (
@@ -68,8 +68,8 @@ func writeStatusFile(path string, status healthStatus) error {
 
 // readStatusFile reads back what writeStatusFile wrote — used by tests, and
 // available to anything else that would rather read the file than the
-// endpoint (the status file's whole reason to exist: Cerea reading it
-// through the paseo daemon, with no HTTP round trip to the shim required).
+// endpoint (the status file's whole reason to exist: an operator or a
+// local script can check it with no HTTP round trip to the shim).
 func readStatusFile(path string) (healthStatus, error) {
 	var status healthStatus
 	body, err := os.ReadFile(path)

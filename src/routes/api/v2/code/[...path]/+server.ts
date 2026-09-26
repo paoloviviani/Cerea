@@ -1,25 +1,22 @@
 /**
  * The proxy to a paired person's machine, for the surfaces the browser may
  * use — routed per device through the in-process machine registry
- * (`$lib/server/code/machines.ts`) instead of a relay-hopped daemon.
+ * (`$lib/server/code/machines.ts`).
  *
- * Same discipline as before: each allowed browser path maps to exactly one
+ * Each allowed browser path maps to exactly one
  * typed op (`MachineLink`, spec §6), the browser never talks to the machine
  * directly, and every call is scoped to a device row owned by
  * `locals.user` and `status: "paired"` (`getPairedDevice`, C6).
  *
- * The wire vocabulary changed underneath (workspace/session/backend ops
- * instead of paseo's agent RPCs), but this route keeps the URLs and response
- * shapes `$lib/codeApi.ts` already expects — an "agent" in the UI is a
- * `Session`; the mapping functions below are the seam.
+ * The wire speaks workspace/session/backend ops, while this route serves
+ * the URLs and response shapes `$lib/codeApi.ts` expects — an "agent" in
+ * the UI is a `Session`; the mapping functions below are the seam.
  *
  * Deliberately NOT offered, and why:
  * - any timeline stream: the SSE bridge (`agents/[id]/stream`) owns the
  *   subscription and calls `session.sync`/events directly.
  * - any pairing/enroll hook: pairing happens on connect (`machines.ts`), and
  *   confirm/reject/revoke live in `devices/+server.ts`.
- * - the `messages`/`timeline` GET routes the old forwarder carried: they were
- *   byte-identical dead code (O8) with no caller in `codeApi.ts`.
  * - everything else a machine can do beyond one backend's sessions
  *   (workspace roots outside policy, raw backend config): the panel drives
  *   sessions, not machines.
@@ -1009,10 +1006,10 @@ export const POST: RequestHandler = async (event) => {
 	const permissionMatch = new RegExp(`^v1/agents/(${ID})/permissions/(${ID})$`).exec(path);
 	if (permissionMatch) {
 		// The card's own three buttons, unmediated: "once" and "always" both
-		// answer through the same call the daemon's tool is waiting on, and
+		// answer through the same call the agent's tool is waiting on, and
 		// only differ in whether the grant outlives this one call
 		// (`permission.reply`, spec §8). There is no fourth option to invent
-		// here — the daemon owns the scoping, not this route.
+		// here — the machine owns the scoping, not this route.
 		//
 		// `childSessionId` carries a subagent's ask: the card's elicitation
 		// id is only unique per session, so the parent's stream labels the

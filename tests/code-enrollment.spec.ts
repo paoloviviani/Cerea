@@ -2,8 +2,7 @@
  * Credential health and keeping the sidebar's device/agent lists live without
  * a reload.
  *
- * Unlike the paseo-era daemon this replaces, the machine reports its own
- * credential health directly (`hello`/`credential` frames, spec §5) — there
+ * The machine reports its own credential health directly (`hello`/`credential` frames, spec §5) — there
  * is no separate network probe to run before the first send, and no
  * dedicated "re-enroll" flow (a fresh `galopin enroll` mints a new
  * machine id, so re-enrolling is just pairing again). This suite pins:
