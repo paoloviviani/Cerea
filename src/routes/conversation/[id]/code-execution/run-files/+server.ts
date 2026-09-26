@@ -11,6 +11,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import { MAX_DELIVERABLES_PER_CONVERSATION } from "$lib/server/execution/deliverables";
+import { MAX_CODE_RUN_FILES_PER_CONVERSATION } from "$lib/server/execution/runFiles";
 
 /**
  * Record a browser-started run's output files on the assistant message its
@@ -57,12 +58,16 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	);
 	if (!conversation) error(404, "Conversation not found");
 	// The message may not be saved yet: an auto-run fires as soon as its fence
-	// closes, while the turn is still streaming. A record for an id that never
-	// appears is merged into nothing (the loader only decorates existing
-	// messages), so only a message that is there but is not the assistant's is
-	// refused.
+	// closes, while the turn is still streaming, under the client-minted id the
+	// page swaps out for the server's own once the turn's save round-trips and
+	// the page re-syncs. A record made under that stale id would never be
+	// served back (the loader only decorates messages that are actually on the
+	// conversation), so it is refused rather than silently kept as an orphan;
+	// the caller retries once its context carries the real id (see
+	// runFiles.svelte.ts's release + CodeBlock/ArtifactPanel's claim key).
 	const message = conversation.messages?.[0];
-	if (message && message.from !== "assistant") error(400, "Not an assistant message");
+	if (!message) error(409, "message not saved yet");
+	if (message.from !== "assistant") error(400, "Not an assistant message");
 
 	const rows = await collections.codeExecutionOutputs
 		.find({ conversationId, sha256: { $in: hashes } })
@@ -88,6 +93,24 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	// race too. A re-run that produced different bytes is a new record, and so
 	// a new version of the file artifact.
 	const fingerprint = files.map((f) => f.sha256).join(",");
+
+	// A runaway loop that keeps producing "new" run-file records would
+	// otherwise grow this collection without limit. Re-recording an existing
+	// record (the idempotent case above) never counts against the cap; only a
+	// genuinely new record does.
+	const existing = await collections.codeRunFiles.findOne({
+		conversationId,
+		messageId,
+		runKey,
+		fingerprint,
+	});
+	if (!existing) {
+		const count = await collections.codeRunFiles.countDocuments({ conversationId });
+		if (count >= MAX_CODE_RUN_FILES_PER_CONVERSATION) {
+			error(429, "This conversation has reached its limit of recorded run outputs.");
+		}
+	}
+
 	await collections.codeRunFiles
 		.updateOne(
 			{ conversationId, messageId, runKey, fingerprint },

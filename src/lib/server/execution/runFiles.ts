@@ -9,6 +9,15 @@ import {
 } from "$lib/types/MessageUpdate";
 
 /**
+ * A generous but bounded ceiling on how many run-file records one
+ * conversation can accumulate (each record is one run's file listing, not one
+ * file — see `MAX_DELIVERABLES_PER_CONVERSATION` for the bytes-store cap).
+ * Past this, a runaway loop that keeps "running" would otherwise grow this
+ * collection without limit.
+ */
+export const MAX_CODE_RUN_FILES_PER_CONVERSATION = 1000;
+
+/**
  * Serve a conversation's messages with the stored output files of its code
  * blocks and artifact cells attached, as `CodeExecution/Outputs` updates on
  * the assistant message each run belongs to.
