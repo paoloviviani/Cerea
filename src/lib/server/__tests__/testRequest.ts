@@ -33,6 +33,11 @@ export interface TestRequestOptions {
 	headers?: HeadersInit;
 	params?: Record<string, string>;
 	locals?: Partial<App.Locals>;
+	/** `event.route.id`, hardcoded `null` otherwise. A few of `handle`'s own
+	 * rules (the machine-admin and internal-service exemptions) match by
+	 * route id rather than path prefix, on purpose — a spec asserting one of
+	 * those needs to supply the same id the real router would have. */
+	routeId?: RequestEvent["route"]["id"];
 	/** For a streaming handler (SSE): abort this to end the read and let the
 	 * handler's own cleanup (`signal.addEventListener("abort", …)`) run,
 	 * instead of leaving its timers open past the test. */
@@ -170,7 +175,6 @@ export async function testRequest(
 		params: (opts.params ?? {}) as RequestEvent["params"],
 		platform: undefined,
 		request,
-		route: { id: null },
 		setHeaders: (headers) => {
 			for (const [rawKey, value] of Object.entries(headers)) {
 				const key = rawKey.toLowerCase();
@@ -184,6 +188,7 @@ export async function testRequest(
 			}
 		},
 		url,
+		route: { id: opts.routeId ?? null },
 		isDataRequest: false,
 		isSubRequest: false,
 		isRemoteRequest: false,

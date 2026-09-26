@@ -44,6 +44,16 @@ const MACHINE_ADMIN_PATHS = ["/admin/stats/compute"];
  */
 const PUBLIC_ROUTES = new Set(["/galopin/[file]"]);
 
+/**
+ * The gateway's own service-to-service calls (ADR 0093 §9.3): a static
+ * bearer (`CHAT_ERASURE_TOKEN`), compared in constant time by the route
+ * itself (`internalAuth.ts`'s `assertInternalRequest`), never a signed-in
+ * session — so, like `MACHINE_ADMIN_ROUTES`, exempted from the browser
+ * login wall rather than widened to fit it. Matched by route id: nothing
+ * else under `/internal/*` inherits this by accident.
+ */
+const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure/preview"]);
+
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
 	const requestId = crypto.randomUUID();
@@ -113,7 +123,8 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				loginEnabled &&
 				!auth.user &&
 				!event.url.pathname.startsWith(`${base}/.well-known/`) &&
-				!PUBLIC_ROUTES.has(event.route.id ?? "")
+				!PUBLIC_ROUTES.has(event.route.id ?? "") &&
+				!INTERNAL_SERVICE_ROUTES.has(event.route.id ?? "")
 			) {
 				if (config.AUTOMATIC_LOGIN === "true") {
 					// AUTOMATIC_LOGIN: always redirect to OAuth flow (unless already on login or healthcheck pages)
@@ -286,6 +297,7 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// in. (The machine link has no such exemption to carry here: it
 				// never reaches this hook at all, see `isApi` above.)
 				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
+				!INTERNAL_SERVICE_ROUTES.has(event.route.id ?? "") &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
 				// And `/logout` answers for itself: refusing a 401 to a session
 				// that is already gone is refusing to clean up after it.
