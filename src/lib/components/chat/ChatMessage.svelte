@@ -46,6 +46,8 @@
 	import {
 		MessageUpdateType,
 		MessageToolUpdateType,
+		MessageCodeExecutionUpdateType,
+		type MessageCodeExecutionOutputsUpdate,
 		type MessageToolUpdate,
 		type MessageElicitationResolvedUpdate,
 		type MessageCodeExecutionRequestUpdate,
@@ -57,6 +59,8 @@
 	import type { CodeSubagentAnchor } from "$lib/types/CodeAgent";
 	import type { Snippet } from "svelte";
 	import { page } from "$app/state";
+	import { setMessageRunContext } from "$lib/utils/execution/messageContext";
+	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import ImageLightbox from "./ImageLightbox.svelte";
 	import { splitArtifactSegments, stripArtifacts } from "$lib/utils/artifacts";
 	import type { ArtifactOperation } from "$lib/utils/artifacts";
@@ -146,6 +150,36 @@
 	}: Props = $props();
 
 	const convId = $derived(conversationId ?? page.params.id ?? "");
+
+	// What a code block in this message needs to keep the files its run
+	// produces. Writing is for the owner's own chat page only: never a share,
+	// a read-only view, or the /code agent transcript (which reuses this
+	// component for somebody else's log).
+	setMessageRunContext({
+		get conversationId() {
+			return convId || undefined;
+		},
+		get messageId() {
+			return message.id;
+		},
+		get canPersist() {
+			return (
+				message.from === "assistant" &&
+				isAuthor &&
+				!readOnly &&
+				(page.route.id ?? "").startsWith("/conversation/[id]")
+			);
+		},
+		storedFiles(runKey: string) {
+			const stored = [...(message.updates ?? []), ...runFiles.for(message.id)].filter(
+				(u) =>
+					u.type === MessageUpdateType.CodeExecution &&
+					u.subtype === MessageCodeExecutionUpdateType.Outputs &&
+					u.runKey === runKey
+			) as MessageCodeExecutionOutputsUpdate[];
+			return stored.at(-1)?.files;
+		},
+	});
 
 	let contentEl: HTMLElement | undefined = $state();
 	let isCopied = $state(false);

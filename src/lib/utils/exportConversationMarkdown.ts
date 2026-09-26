@@ -153,7 +153,8 @@ export function collectExecutedFiles(message: Message): string[] {
 	for (const update of message.updates ?? []) {
 		if (
 			update.type !== MessageUpdateType.CodeExecution ||
-			update.subtype !== MessageCodeExecutionUpdateType.Resolved
+			(update.subtype !== MessageCodeExecutionUpdateType.Resolved &&
+				update.subtype !== MessageCodeExecutionUpdateType.Outputs)
 		) {
 			continue;
 		}

@@ -1,9 +1,11 @@
 import CodeBlock from "./CodeBlock.svelte";
 import { render } from "vitest-browser-svelte";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { tick } from "svelte";
 import type { RunOutcome } from "$lib/utils/execution/protocol";
 import { sidePane } from "$lib/stores/sidePane.svelte";
+import { runFiles } from "$lib/stores/runFiles.svelte";
+import { MESSAGE_RUN_CONTEXT, type MessageRunContext } from "$lib/utils/execution/messageContext";
 
 /**
  * The real runs store is exercised; only the worker session underneath is a
@@ -417,5 +419,128 @@ describe("CodeBlock direct-emission file blocks", () => {
 		expect(screen.baseElement.querySelectorAll('button[aria-label^="Download"]').length).toBe(0);
 		// The fence itself is still there.
 		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
+	});
+});
+
+describe("CodeBlock keeps the files its run produced", () => {
+	const SHA = "a".repeat(64);
+	type Seen = { url: string; body: unknown };
+
+	function stubServer(seen: Seen[]) {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				seen.push({
+					url,
+					body: init?.body instanceof FormData ? "form" : JSON.parse(String(init?.body ?? "{}")),
+				});
+				if (url.endsWith("/code-execution/output")) {
+					return Response.json({ files: [{ name: "hello_world.docx", size: 3, sha256: SHA }] });
+				}
+				return Response.json({
+					update: {
+						type: "codeExecution",
+						subtype: "outputs",
+						runKey: "k",
+						files: [{ name: "hello_world.docx", size: 3, sha256: SHA }],
+					},
+				});
+			})
+		);
+	}
+
+	const messageRun = (over: Partial<MessageRunContext> = {}): MessageRunContext => ({
+		conversationId: "conv-1",
+		messageId: "asst-1",
+		canPersist: true,
+		storedFiles: () => undefined,
+		...over,
+	});
+
+	function mountWith(
+		rawCode: string,
+		context: MessageRunContext,
+		props: Record<string, unknown> = {}
+	) {
+		return render(CodeBlock, {
+			props: {
+				code: rawCode,
+				rawCode,
+				loading: false,
+				language: "python",
+				autorun: false,
+				...props,
+			},
+			context: new Map<unknown, unknown>([[MESSAGE_RUN_CONTEXT, context]]),
+		});
+	}
+
+	async function runWithFile(rawCode: string, context: MessageRunContext) {
+		sessionMock.listFiles.mockResolvedValueOnce([
+			{ path: "/home/pyodide/hello_world.docx", size: 3 },
+		]);
+		const screen = mountWith(rawCode, context, { autorun: true, loading: true });
+		await screen.rerender({ loading: false });
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		sessionMock.settleNext(outcome({ stdout: "" }));
+		return screen;
+	}
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("uploads a settled run's files and records them on the message", async () => {
+		const seen: Seen[] = [];
+		stubServer(seen);
+
+		await runWithFile("make_docx_1()", messageRun());
+
+		await vi.waitFor(() => expect(seen).toHaveLength(2));
+		expect(seen[0]).toEqual({ url: "/conversation/conv-1/code-execution/output", body: "form" });
+		expect(seen[1].url).toBe("/conversation/conv-1/code-execution/run-files");
+		expect(seen[1].body).toMatchObject({ messageId: "asst-1", sha256: [SHA] });
+		expect((seen[1].body as { runKey: string }).runKey).toMatch(/^chat:/);
+		await vi.waitFor(() => expect(runFiles.for("asst-1").length).toBeGreaterThan(0));
+	});
+
+	it("keeps nothing where the viewer may not write (a share, a read-only view)", async () => {
+		const seen: Seen[] = [];
+		stubServer(seen);
+
+		await runWithFile("make_docx_2()", messageRun({ canPersist: false, messageId: "asst-2" }));
+
+		// Give a would-be upload every chance to happen.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(seen).toEqual([]);
+	});
+
+	it("uploads a settled run once, however often the block remounts", async () => {
+		const seen: Seen[] = [];
+		stubServer(seen);
+		const context = messageRun({ messageId: "asst-3" });
+
+		const first = await runWithFile("make_docx_3()", context);
+		await vi.waitFor(() => expect(seen).toHaveLength(2));
+		first.unmount();
+		mountWith("make_docx_3()", context);
+
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(seen).toHaveLength(2);
+	});
+
+	it("shows a history block's stored file where the dead sandbox copy used to be", async () => {
+		const screen = mountWith(
+			"make_docx_4()",
+			messageRun({
+				storedFiles: () => [{ name: "hello_world.docx", size: 3, sha256: SHA }],
+			})
+		);
+
+		await expect.element(screen.getByText(/View code/)).toBeVisible();
+		await expect.element(screen.getByText("hello_world.docx")).toBeVisible();
+		// It never ran here: nothing executed on page load.
+		expect(sessionMock.run).not.toHaveBeenCalled();
 	});
 });
