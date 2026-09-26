@@ -28,7 +28,7 @@
  */
 
 import { logger } from "$lib/server/logger";
-import { ssrfSafeFetch } from "$lib/server/urlSafety";
+import { mcpFetch, ssrfSafeFetch } from "$lib/server/urlSafety";
 
 export interface DiscoveredOAuth {
 	issuer: string;
@@ -49,9 +49,12 @@ export type Probe =
 /** Browser-ish, because some providers filter on the agent. */
 const AGENT = "Mozilla/5.0 (compatible; Cerea MCP client)";
 
-async function json(url: string): Promise<Record<string, unknown> | null> {
+async function json(
+	url: string,
+	fetcher: typeof ssrfSafeFetch = ssrfSafeFetch
+): Promise<Record<string, unknown> | null> {
 	try {
-		const response = await ssrfSafeFetch(url, {
+		const response = await fetcher(url, {
 			headers: { accept: "application/json", "user-agent": AGENT },
 			signal: AbortSignal.timeout(15_000),
 		});
@@ -102,7 +105,11 @@ export async function probe(endpoint: string): Promise<Probe> {
 		// An empty POST is enough: an MCP server answers 401 before it cares
 		// that the body is not a JSON-RPC message, and a GET is not part of
 		// the streamable-HTTP transport.
-		response = await ssrfSafeFetch(endpoint, {
+		// `mcpFetch`, the guard the MCP transports use, so a probe reaches the
+		// same servers a connection does — a local one only in development,
+		// under `MCP_ALLOW_INSECURE_URLS`. Authorization servers below stay on
+		// the plain guard: they are not MCP servers.
+		response = await mcpFetch(endpoint, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
@@ -127,11 +134,14 @@ export async function probe(endpoint: string): Promise<Probe> {
 	}
 
 	const metadataUrl = resourceMetadataUrl(response.headers.get("www-authenticate"), endpoint);
-	const resourceDoc = await json(metadataUrl);
+	const resourceDoc = await json(metadataUrl, mcpFetch);
 	if (!resourceDoc) {
 		return {
 			auth: "unknown",
-			reason: `it asks for authentication but publishes no resource metadata at ${metadataUrl}`,
+			// Most often a server that takes an API key or bearer token rather
+			// than OAuth — which answers exactly like this — so the reason says
+			// what to do about it, not only what is missing.
+			reason: `it asks for authentication but offers no OAuth sign-in (no resource metadata at ${metadataUrl}). If it takes an API key or token, edit the connector and add it.`,
 		};
 	}
 
