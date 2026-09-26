@@ -242,10 +242,15 @@ export type MachineUserResolution =
 	| { ok: true; user: User; sessionsValidAfter: string | null }
 	// `refused: true` is a real answer from the gateway (401/403): the
 	// account is refused, and a device row may be revoked over it. `refused:
-	// false` is a network error or 5xx with no cached answer to fall back on
-	// — a brand-new connection has nothing to resolve a user from, but an
-	// already-live one revalidating must not be revoked over a blip.
+	// false` is a network error or 5xx that outlasted the bounded fail-open
+	// below (or a brand-new connection with nothing cached at all) — an
+	// outage, not a refusal, so a live connection is closed but never
+	// revoked over one.
 	| { ok: false; status: 401 | 403; message: string; refused: boolean };
+
+export interface ResolveMachineUserOptions extends GatewayIdentityOptions {
+	now?: () => number;
+}
 
 /** `GET /v1/me` answers per `(sub, exp)`, cached for 60s — the same call a
  * fresh connect and the periodic revalidation tick (`machines.ts`) both make,
@@ -254,10 +259,19 @@ export type MachineUserResolution =
 const meCache = new Map<string, { at: number; result: MachineUserResolution }>();
 const ME_CACHE_TTL_MS = 60_000;
 
+/** The last known-good resolution per `sub` (not per `(sub, exp)` — a token
+ * renewal must not reset this), for the bounded fail-open below. */
+const lastGoodBySub = new Map<
+	string,
+	{ at: number; resolution: Extract<MachineUserResolution, { ok: true }> }
+>();
+const FAIL_OPEN_GRACE_MS = 5 * 60_000;
+
 /** Forget every cached answer — tests only, so a fresh gateway state is
  * actually observed rather than a stale cache entry from an earlier case. */
 export function resetMachineUserCacheForTests(): void {
 	meCache.clear();
+	lastGoodBySub.clear();
 }
 
 /**
@@ -269,17 +283,21 @@ export function resetMachineUserCacheForTests(): void {
  * the account is refused** — the token's signature and expiry say nothing
  * about whether the account behind it is still active or still exists.
  *
- * A network error or 5xx is not a refusal: with a cached answer for this
- * exact `(sub, exp)` to fall back on, that answer is reused (a gateway blip
- * must not drop a live link over a periodic revalidation); with none — a
- * brand-new connection — refused, since there is nothing to resolve a user
- * from at all.
+ * A network error or 5xx is not a refusal: it fails open for at most five
+ * minutes after the last good answer *for that subject* (mirroring §4.4's
+ * bounded fail-open on the browser session check exactly) — keyed by `sub`,
+ * not `(sub, exp)`, since a token renewal must not reset the clock. Past
+ * that bound, or with no good answer ever recorded (a brand-new
+ * connection), it is refused — but marked `refused: false`, so a caller
+ * revalidating an already-live connection knows to close it without
+ * revoking the device: an outage is not the same fact as the gateway
+ * saying no.
  */
 export async function resolveMachineUser(
 	sub: string,
 	exp: number,
 	token: string,
-	options?: GatewayIdentityOptions
+	options?: ResolveMachineUserOptions
 ): Promise<MachineUserResolution> {
 	if (!isGatewayPreset()) {
 		const user = await userForMachineSub(sub);
@@ -293,43 +311,56 @@ export async function resolveMachineUser(
 				};
 	}
 
+	const now = (options?.now ?? Date.now)();
 	const cacheKey = `${sub}:${exp}`;
 	const hit = meCache.get(cacheKey);
-	if (hit && Date.now() - hit.at < ME_CACHE_TTL_MS) return hit.result;
+	if (hit && now - hit.at < ME_CACHE_TTL_MS) return hit.result;
 
 	const result = await me(token, options ?? { baseUrl: config.OPENAI_BASE_URL ?? "" });
 	let resolution: MachineUserResolution;
 	if (!result.ok) {
 		if (result.refused) {
+			// A real refusal is authoritative: it must not be masked by a stale
+			// good answer during a later outage.
+			lastGoodBySub.delete(sub);
 			resolution = {
 				ok: false,
 				status: result.status as 401 | 403,
 				message: result.message,
 				refused: true,
 			};
-		} else if (hit) {
-			return hit.result;
 		} else {
-			logger.warn({ status: result.status }, "machine link: gateway unreachable resolving user");
-			resolution = {
-				ok: false,
-				status: 401,
-				message: "The gateway is unavailable, try again in a minute.",
-				refused: false,
-			};
+			const lastGood = lastGoodBySub.get(sub);
+			if (lastGood && now - lastGood.at < FAIL_OPEN_GRACE_MS) {
+				resolution = lastGood.resolution;
+			} else {
+				logger.warn(
+					{ status: result.status },
+					"machine link: gateway unreachable resolving user, past the fail-open bound"
+				);
+				resolution = {
+					ok: false,
+					status: 401,
+					message: "The gateway is unavailable, try again in a minute.",
+					refused: false,
+				};
+			}
 		}
 	} else {
 		const user = await collections.users.findOne({ gatewayUserId: result.value.id });
-		resolution = user
-			? { ok: true, user, sessionsValidAfter: result.value.sessions_valid_after }
-			: {
-					ok: false,
-					status: 403,
-					message: "Sign in to Cerea once before connecting a machine.",
-					refused: true,
-				};
+		if (user) {
+			resolution = { ok: true, user, sessionsValidAfter: result.value.sessions_valid_after };
+			lastGoodBySub.set(sub, { at: now, resolution });
+		} else {
+			resolution = {
+				ok: false,
+				status: 403,
+				message: "Sign in to Cerea once before connecting a machine.",
+				refused: true,
+			};
+		}
 	}
-	meCache.set(cacheKey, { at: Date.now(), result: resolution });
+	meCache.set(cacheKey, { at: now, result: resolution });
 	return resolution;
 }
 

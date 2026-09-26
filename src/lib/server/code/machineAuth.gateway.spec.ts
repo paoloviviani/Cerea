@@ -118,6 +118,117 @@ describe("resolveMachineUser on a gateway preset", () => {
 		expect(resolution).toMatchObject({ ok: false, status: 401, refused: false });
 	});
 
+	it("fails open for up to 5 minutes since the last good answer for that sub, across a token renewal", async () => {
+		const gateway = mockGateway();
+		const userId = new ObjectId();
+		await collections.users.insertOne({
+			_id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			name: "n",
+			hfUserId: new ObjectId().toString(),
+			gatewayUserId: "gw-machine-7",
+		} as never);
+		insertedUserIds.push(userId);
+		gateway.tokens.set("tok-7a", { id: "gw-machine-7", identities: [] });
+
+		let now = 1_000_000;
+		const good = await resolveMachineUser("sub-7", 100, "tok-7a", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(good.ok).toBe(true);
+
+		// A token renewal: a new exp, so the plain (sub, exp) cache can't be
+		// what's serving this — only the per-sub last-good-answer can.
+		gateway.failure = "down";
+		now += 4 * 60_000;
+		const stillOpen = await resolveMachineUser("sub-7", 200, "tok-7b", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(stillOpen).toEqual(good);
+	});
+
+	it("refuses (refused: false), not fails open, once the 5-minute bound has passed", async () => {
+		const gateway = mockGateway();
+		const userId = new ObjectId();
+		await collections.users.insertOne({
+			_id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			name: "n",
+			hfUserId: new ObjectId().toString(),
+			gatewayUserId: "gw-machine-8",
+		} as never);
+		insertedUserIds.push(userId);
+		gateway.tokens.set("tok-8", { id: "gw-machine-8", identities: [] });
+
+		let now = 2_000_000;
+		const good = await resolveMachineUser("sub-8", 100, "tok-8", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(good.ok).toBe(true);
+
+		gateway.failure = "down";
+		now += 5 * 60_000 + 1;
+		const pastGrace = await resolveMachineUser("sub-8", 200, "tok-8", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(pastGrace).toMatchObject({ ok: false, refused: false });
+	});
+
+	it("a real refusal clears the grace: no stale good answer survives it", async () => {
+		const gateway = mockGateway();
+		const userId = new ObjectId();
+		await collections.users.insertOne({
+			_id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			name: "n",
+			hfUserId: new ObjectId().toString(),
+			gatewayUserId: "gw-machine-9",
+		} as never);
+		insertedUserIds.push(userId);
+		gateway.tokens.set("tok-9", { id: "gw-machine-9", identities: [] });
+
+		let now = 3_000_000;
+		const good = await resolveMachineUser("sub-9", 100, "tok-9", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(good.ok).toBe(true);
+
+		// The account is disabled: a real 401, well within what would
+		// otherwise be the grace window.
+		now += 60_000;
+		gateway.tokens.delete("tok-9");
+		const refused = await resolveMachineUser("sub-9", 200, "tok-9", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(refused).toMatchObject({ ok: false, refused: true });
+
+		// Immediately after, unreachable: must not fall back to the good
+		// answer from before the refusal.
+		gateway.failure = "down";
+		now += 1000;
+		const afterRefusal = await resolveMachineUser("sub-9", 300, "tok-9", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+			now: () => now,
+		});
+		expect(afterRefusal).toMatchObject({ ok: false, refused: false });
+	});
+
 	it("carries sessions_valid_after through on a valid answer", async () => {
 		const gateway = mockGateway();
 		const userId = new ObjectId();

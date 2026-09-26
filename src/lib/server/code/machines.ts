@@ -166,14 +166,49 @@ export function dropMachineConnection(deviceId: string, code: number, reason: st
 	if (state) closeConnection(state, code, reason);
 }
 
+/** Revoke one device (§4.7: a fresh `galopin enroll` is required even once
+ * the account is re-enabled) and close its live link — the outcome for
+ * both a real refusal and a stale enrolment, so `revalidateLiveMachineConnections`
+ * states each once rather than repeating the write and the close. */
+async function revokeAndClose(state: ConnectionState, reason: string): Promise<void> {
+	logger.info({ deviceId: state.deviceId, reason }, "machine link: revoking on revalidation");
+	await collections.codeDevices
+		.updateOne(
+			{ _id: new ObjectId(state.deviceId) },
+			{
+				$set: {
+					status: "revoked",
+					revokedAt: new Date(),
+					revokedReason: "account_disabled",
+					updatedAt: new Date(),
+				},
+			}
+		)
+		.catch((err) =>
+			logger.warn({ err, deviceId: state.deviceId }, "machine link: failed to revoke device row")
+		);
+	closeConnection(state, 4403, "this account is no longer active");
+}
+
 /** One tick of the revalidation loop (ADR 0093 §4.7): every live connection,
- * re-checked against the gateway. A refusal or a `sessions_valid_after`
- * newer than the device's own enrolment revokes the row (so a fresh
- * `galopin enroll` is required even once the account is re-enabled) and
- * closes the link; anything else — valid, or the gateway unreachable and
- * `resolveMachineUser` falling back to its last cached answer — leaves the
- * connection exactly as it was. Exported for the test to drive one tick
- * without waiting on the real interval.
+ * re-checked against the gateway.
+ *
+ * - **Valid**, and stale (`sessions_valid_after` newer than the device's own
+ *   `createdAt`): revoke the device (so a fresh `galopin enroll` is required
+ *   even once the account is re-enabled) and close the link.
+ * - **Refused** (`refused: true`): same — revoke and close. The account is
+ *   authoritatively no good any more.
+ * - **Unreachable past the bounded fail-open** (`ok: false, refused: false`
+ *   — `resolveMachineUser`'s own 5-minute grace since the last good answer
+ *   for that subject has already elapsed): close the link, but **do not**
+ *   revoke the device — an outage is not the gateway saying no, and the
+ *   machine reconnects on its own once it answers again.
+ * - **Valid and fresh**, or unreachable but still within the grace (fails
+ *   open, transparently, inside `resolveMachineUser`): leave the connection
+ *   exactly as it was.
+ *
+ * Exported for the test to drive one tick without waiting on the real
+ * interval.
  */
 export async function revalidateLiveMachineConnections(): Promise<void> {
 	for (const state of [...registry.values()]) {
@@ -184,40 +219,31 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			logger.warn({ err, deviceId: state.deviceId }, "machine link: revalidation check failed");
 			continue;
 		}
-		const device = await collections.codeDevices
-			.findOne({ _id: new ObjectId(state.deviceId) })
-			.catch(() => null);
-		const sessionsValidAfter =
-			resolution.ok && resolution.sessionsValidAfter
+
+		if (resolution.ok) {
+			const device = await collections.codeDevices
+				.findOne({ _id: new ObjectId(state.deviceId) })
+				.catch(() => null);
+			const sessionsValidAfter = resolution.sessionsValidAfter
 				? new Date(resolution.sessionsValidAfter)
 				: null;
-		const staleEnrolment = Boolean(
-			device && sessionsValidAfter && sessionsValidAfter.getTime() > device.createdAt.getTime()
-		);
-		// A real refusal or a stale enrolment revokes the device; an
-		// unreachable gateway with nothing cached (`refused: false`) is
-		// skipped, not revoked — the same bounded fail-open the browser
-		// session check applies, so a gateway blip cannot drop a live link.
-		if (resolution.ok ? !staleEnrolment : !resolution.refused) continue;
-
-		const reason = resolution.ok ? "sessions_valid_after" : resolution.message;
-		logger.info({ deviceId: state.deviceId, reason }, "machine link: revoking on revalidation");
-		await collections.codeDevices
-			.updateOne(
-				{ _id: new ObjectId(state.deviceId) },
-				{
-					$set: {
-						status: "revoked",
-						revokedAt: new Date(),
-						revokedReason: "account_disabled",
-						updatedAt: new Date(),
-					},
-				}
-			)
-			.catch((err) =>
-				logger.warn({ err, deviceId: state.deviceId }, "machine link: failed to revoke device row")
+			const staleEnrolment = Boolean(
+				device && sessionsValidAfter && sessionsValidAfter.getTime() > device.createdAt.getTime()
 			);
-		closeConnection(state, 4403, "this account is no longer active");
+			if (!staleEnrolment) continue;
+			await revokeAndClose(state, "sessions_valid_after");
+		} else if (resolution.refused) {
+			await revokeAndClose(state, resolution.message);
+		} else {
+			// Unreachable, past the bounded fail-open: close, but the device
+			// stays enrolled — the machine reconnects on its own once the
+			// gateway answers again.
+			logger.info(
+				{ deviceId: state.deviceId },
+				"machine link: closing (not revoking) after the gateway stayed unreachable"
+			);
+			closeConnection(state, 1013, "the gateway is unreachable; reconnect shortly");
+		}
 	}
 }
 
