@@ -76,6 +76,10 @@ services:
       AUTHELIA_ADMIN_EMAIL: ${AUTHELIA_ADMIN_EMAIL:-}
       AUTHELIA_ADMIN_NAME: ${AUTHELIA_ADMIN_NAME:-}
       AUTHELIA_ADMIN_PASSWORD_DIGEST: ${AUTHELIA_ADMIN_PASSWORD_DIGEST:-}
+      # Written to a file under the authelia-config volume, once, at 0600
+      # (§8.5) — never rendered into configuration.yml, so it never appears
+      # in `docker compose config` or the container's own inspectable env.
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     volumes:
       - authelia-config:/authelia
       - authelia-data:/authelia-data
@@ -278,7 +282,7 @@ services:
     command: ["--config", "/etc/authelia/configuration.yml"]
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:57b95a56aa8c5336"
+      cerea.config-rev: "sha256:d102d670fe2a4dd8"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
       # The gateway's uid: the console manages the bundled users file,
@@ -292,8 +296,28 @@ services:
       X_PYSTINO_SESSION_SECRET: ${AUTHELIA_SESSION_SECRET:-}
       X_PYSTINO_HMAC_SECRET: ${AUTHELIA_HMAC_SECRET:-}
       X_PYSTINO_STORAGE_KEY: ${AUTHELIA_STORAGE_KEY:-}
+      # Authelia refuses to start once password_reset isn't disabled without
+      # this (found validating the SMTP-on branch live, not in the design
+      # note that named AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE) -- minted
+      # unconditionally, like the three secrets above, never only with SMTP.
+      X_PYSTINO_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_RESET_PASSWORD_JWT_SECRET:-}
       X_PYSTINO_CONSOLE_CLIENT_DIGEST: ${AUTHELIA_CONSOLE_CLIENT_DIGEST:-}
       X_PYSTINO_CHAT_CLIENT_DIGEST: ${AUTHELIA_CHAT_CLIENT_DIGEST:-}
+      # Empty SMTP_HOST is how configuration.yml's own template picks the
+      # filesystem notifier and a disabled password_reset (§8.7) -- the same
+      # one setting the gateway's mail reads, never a second copy to disagree
+      # with it.
+      X_PYSTINO_SMTP_HOST: ${SMTP_HOST:-}
+      X_PYSTINO_SMTP_PORT: ${SMTP_PORT:-587}
+      X_PYSTINO_SMTP_USERNAME: ${SMTP_USERNAME:-}
+      X_PYSTINO_SMTP_FROM: ${SMTP_FROM:-}
+      X_PYSTINO_SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      # Set only alongside a non-empty SMTP_HOST: the file bootstrap writes
+      # (mode 0600, from SMTP_PASSWORD) is what this path names, and Authelia
+      # reads it through its own _FILE secret convention -- never through the
+      # template, so the plaintext password is never interpolated into
+      # configuration.yml.
+      AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: ${SMTP_HOST:+/config/keys/smtp_password}
     volumes:
       - ./authelia:/etc/authelia:ro
       - authelia-config:/config

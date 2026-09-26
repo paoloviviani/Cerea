@@ -29,7 +29,10 @@ log:
 
 authentication_backend:
   password_reset:
-    disable: true
+    # Self-service reset needs somewhere to send the link; without SMTP the
+    # only reset this deployment has is an administrator minting a one-time
+    # password from the console (ADR 0093 §8.1/§8.7).
+    disable: {{ if env "X_PYSTINO_SMTP_HOST" }}false{{ else }}true{{ end }}
   file:
     path: '/config/users_database.yml'
     watch: true
@@ -42,6 +45,19 @@ authentication_backend:
         parallelism: 4
         key_length: 32
         salt_length: 16
+
+# No second factor, by decision: the bundled Authelia is a local-accounts
+# door, not an MFA provider — a deployment that needs MFA runs an external
+# IdP instead (ADR 0093 §8.6). Explicit rather than relying on every client's
+# own `one_factor` policy to make the point moot: an operator reading this
+# file sees the decision stated, not implied by the absence of a totp/webauthn
+# block that a later edit could add back without anyone noticing the policies
+# below still say `one_factor` everywhere.
+totp:
+  disable: true
+webauthn:
+  disable: true
+# duo_api intentionally absent: Duo is unconfigured, not merely unused.
 
 access_control:
   default_policy: 'one_factor'
@@ -66,9 +82,28 @@ storage:
   # user is keyed on downstream. Changing it re-keys everyone: never rotate it.
   encryption_key: '{{ env "X_PYSTINO_STORAGE_KEY" }}'
 
+# Required whenever authentication_backend.password_reset isn't disabled
+# (found live, validating the SMTP-on branch): signs the reset link's token.
+# Always set, like the three secrets above, regardless of whether SMTP is
+# configured this run.
+identity_validation:
+  reset_password:
+    jwt_secret: '{{ env "X_PYSTINO_RESET_PASSWORD_JWT_SECRET" }}'
+
 notifier:
+{{ if env "X_PYSTINO_SMTP_HOST" }}
+  smtp:
+    address: '{{ if eq (env "X_PYSTINO_SMTP_SECURITY") "tls" }}submissions{{ else if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}smtp{{ else }}submission{{ end }}://{{ env "X_PYSTINO_SMTP_HOST" }}:{{ env "X_PYSTINO_SMTP_PORT" }}'
+    username: '{{ env "X_PYSTINO_SMTP_USERNAME" }}'
+    sender: '{{ env "X_PYSTINO_SMTP_FROM" }}'
+    # No `password` line: AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE (set only
+    # alongside this branch, compose.yaml) supplies it from the file
+    # bootstrap writes, the same file-secret convention the JWKS key above
+    # uses -- never a plaintext value in this template.
+{{ else }}
   filesystem:
     filename: '/data/notification.txt'
+{{ end }}
 
 identity_providers:
   oidc:

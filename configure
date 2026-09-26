@@ -182,6 +182,12 @@ MINTED_AUTHELIA = {
     "AUTHELIA_SESSION_SECRET": 32,
     "AUTHELIA_HMAC_SECRET": 32,
     "AUTHELIA_STORAGE_KEY": 32,
+    # Signs the reset-password link's token. Authelia requires it whenever
+    # `identity_validation.reset_password` isn't disabled, which configuration.yml
+    # makes conditional on SMTP_HOST -- minted unconditionally anyway, the same
+    # as the three above, since a later ./configure --smtp-host must not find
+    # the value missing.
+    "AUTHELIA_RESET_PASSWORD_JWT_SECRET": 32,
 }
 #: Client secret -> the Authelia digest of it.
 DIGESTS = {
@@ -213,6 +219,7 @@ REQUIRED_BY_PROFILE = {
         "AUTHELIA_SESSION_SECRET",
         "AUTHELIA_HMAC_SECRET",
         "AUTHELIA_STORAGE_KEY",
+        "AUTHELIA_RESET_PASSWORD_JWT_SECRET",
         "AUTHELIA_CONSOLE_CLIENT_DIGEST",
         "AUTHELIA_CHAT_CLIENT_DIGEST",
         "AUTHELIA_ADMIN_PASSWORD_DIGEST",
@@ -1077,7 +1084,7 @@ def check_values(values: dict, report: Report) -> None:
     if not values.get("SMTP_HOST"):
         if values.get("PYSTINO_PRESET") == "team":
             report.warnings.append(
-                "SMTP_HOST is empty: users can't reset their own password and MFA is unavailable. "
+                "SMTP_HOST is empty: users can't reset their own password. "
                 "Set --smtp-host (and --smtp-username/--smtp-password/--smtp-from as needed)"
             )
         elif "authelia" in profiles:
