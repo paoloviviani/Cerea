@@ -70,7 +70,7 @@ beforeAll(async () => {
 		}
 		if (url.pathname === MACHINE_PATH) {
 			machineWss.handleUpgrade(req, socket, head, (ws) => {
-				acceptMachineConnection(ws, req, principal);
+				acceptMachineConnection(ws, req, principal, "test-token");
 			});
 			return;
 		}

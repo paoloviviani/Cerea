@@ -24,6 +24,8 @@ import { collections } from "$lib/server/database";
 import type { User } from "$lib/types/User";
 import { logger } from "$lib/server/logger";
 import { forwardedHeaders } from "$lib/server/oidcBackchannel";
+import { me, type GatewayIdentityOptions } from "$lib/server/identity/gatewayIdentity";
+import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
 
 function normalizeIssuer(raw: string): string {
 	return raw.trim().replace(/\/+$/, "");
@@ -213,10 +215,11 @@ export async function validateMachineToken(token: string): Promise<ValidatedMach
 	return { sub: payload.sub, iss: issuer, exp: payload.exp };
 }
 
-/** The token's `sub` mapped onto a Cerea user — the same mapping the OIDC
- * login callback applies (`hfUserId`). `null`, not a throw: "no user" is a
- * distinct, callers-choose-the-status outcome (403, per spec §3), not a
- * validation failure. */
+/** The token's `sub` mapped onto a Cerea user on the generic (gateway-less)
+ * preset — the same mapping the OIDC login callback applied there before
+ * ADR 0093. `null`, not a throw: "no user" is a distinct,
+ * callers-choose-the-status outcome (403, per spec §3), not a validation
+ * failure. */
 export async function userForMachineSub(sub: string): Promise<User | null> {
 	return collections.users.findOne({ hfUserId: sub });
 }
@@ -232,7 +235,103 @@ export interface MachinePrincipal {
 }
 
 export type MachineAuthResult =
-	{ ok: true; principal: MachinePrincipal } | { ok: false; status: 401 | 403; message: string };
+	| { ok: true; principal: MachinePrincipal; token: string }
+	| { ok: false; status: 401 | 403; message: string };
+
+export type MachineUserResolution =
+	| { ok: true; user: User; sessionsValidAfter: string | null }
+	// `refused: true` is a real answer from the gateway (401/403): the
+	// account is refused, and a device row may be revoked over it. `refused:
+	// false` is a network error or 5xx with no cached answer to fall back on
+	// — a brand-new connection has nothing to resolve a user from, but an
+	// already-live one revalidating must not be revoked over a blip.
+	| { ok: false; status: 401 | 403; message: string; refused: boolean };
+
+/** `GET /v1/me` answers per `(sub, exp)`, cached for 60s — the same call a
+ * fresh connect and the periodic revalidation tick (`machines.ts`) both make,
+ * so a busy reconnect storm from one machine costs one gateway call, not
+ * one per attempt. */
+const meCache = new Map<string, { at: number; result: MachineUserResolution }>();
+const ME_CACHE_TTL_MS = 60_000;
+
+/** Forget every cached answer — tests only, so a fresh gateway state is
+ * actually observed rather than a stale cache entry from an earlier case. */
+export function resetMachineUserCacheForTests(): void {
+	meCache.clear();
+}
+
+/**
+ * The bearer's `sub` mapped onto a Cerea user (ADR 0093 §4.7). On a gateway
+ * preset this resolves through the gateway rather than by `hfUserId`: `GET
+ * /v1/me` with the machine's own token, valid there (audience `pystino-api`,
+ * `azp` in `ACCEPTED_CLIENTS`), yielding the gateway id and so
+ * `gatewayUserId`. **A 401/403 for a locally valid, unexpired token means
+ * the account is refused** — the token's signature and expiry say nothing
+ * about whether the account behind it is still active or still exists.
+ *
+ * A network error or 5xx is not a refusal: with a cached answer for this
+ * exact `(sub, exp)` to fall back on, that answer is reused (a gateway blip
+ * must not drop a live link over a periodic revalidation); with none — a
+ * brand-new connection — refused, since there is nothing to resolve a user
+ * from at all.
+ */
+export async function resolveMachineUser(
+	sub: string,
+	exp: number,
+	token: string,
+	options?: GatewayIdentityOptions
+): Promise<MachineUserResolution> {
+	if (!isGatewayPreset()) {
+		const user = await userForMachineSub(sub);
+		return user
+			? { ok: true, user, sessionsValidAfter: null }
+			: {
+					ok: false,
+					status: 403,
+					message: "Sign in to Cerea once before connecting a machine.",
+					refused: true,
+				};
+	}
+
+	const cacheKey = `${sub}:${exp}`;
+	const hit = meCache.get(cacheKey);
+	if (hit && Date.now() - hit.at < ME_CACHE_TTL_MS) return hit.result;
+
+	const result = await me(token, options ?? { baseUrl: config.OPENAI_BASE_URL ?? "" });
+	let resolution: MachineUserResolution;
+	if (!result.ok) {
+		if (result.refused) {
+			resolution = {
+				ok: false,
+				status: result.status as 401 | 403,
+				message: result.message,
+				refused: true,
+			};
+		} else if (hit) {
+			return hit.result;
+		} else {
+			logger.warn({ status: result.status }, "machine link: gateway unreachable resolving user");
+			resolution = {
+				ok: false,
+				status: 401,
+				message: "The gateway is unavailable, try again in a minute.",
+				refused: false,
+			};
+		}
+	} else {
+		const user = await collections.users.findOne({ gatewayUserId: result.value.id });
+		resolution = user
+			? { ok: true, user, sessionsValidAfter: result.value.sessions_valid_after }
+			: {
+					ok: false,
+					status: 403,
+					message: "Sign in to Cerea once before connecting a machine.",
+					refused: true,
+				};
+	}
+	meCache.set(cacheKey, { at: Date.now(), result: resolution });
+	return resolution;
+}
 
 /** The full pre-upgrade check (spec §3): bearer, `X-Pystino-Machine-Id`,
  * `X-Pystino-Machine-Name`. Rejections here become a plain HTTP 401/403
@@ -269,25 +368,45 @@ export async function authenticateMachineRequest(
 		return { ok: false, status: 401, message: "Authentication failed." };
 	}
 
-	const user = await userForMachineSub(validated.sub);
-	if (!user) {
-		return {
-			ok: false,
-			status: 403,
-			message: "Sign in to Cerea once before connecting a machine.",
-		};
+	const resolution = await resolveMachineUser(validated.sub, validated.exp, token);
+	if (!resolution.ok) {
+		if (resolution.refused && resolution.status === 401 && isGatewayPreset()) {
+			// The gateway refuses a locally valid, unexpired token: revoke this
+			// device row (§4.7) so a fresh `galopin enroll` is required even
+			// after the account is re-enabled. Keyed by `sub` (not `userId`,
+			// unknown here) — the same OIDC subject `onHello` records on every
+			// connect. A device that has never connected has no row to revoke,
+			// which is fine: there is nothing to leave enrolled.
+			await collections.codeDevices
+				.updateOne(
+					{ sub: validated.sub, machineId: machineId.trim() },
+					{
+						$set: {
+							status: "revoked",
+							revokedAt: new Date(),
+							revokedReason: "account_disabled",
+							updatedAt: new Date(),
+						},
+					}
+				)
+				.catch((err) =>
+					logger.warn({ err, sub: validated.sub }, "machine link: failed to revoke device row")
+				);
+		}
+		return { ok: false, status: resolution.status, message: resolution.message };
 	}
 
 	return {
 		ok: true,
 		principal: {
-			userId: user._id,
+			userId: resolution.user._id,
 			sub: validated.sub,
 			iss: validated.iss,
 			exp: validated.exp,
 			machineId: machineId.trim(),
 			machineName,
 		},
+		token,
 	};
 }
 
