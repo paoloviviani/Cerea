@@ -2,7 +2,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { ObjectId } from "mongodb";
 
 import { collections, ready } from "$lib/server/database";
-import { type EraseContext, USER_KEYED_COLLECTIONS } from "./userKeyedCollections";
+import {
+	type EraseContext,
+	previewErasureCounts,
+	USER_KEYED_COLLECTIONS,
+} from "./userKeyedCollections";
 
 const NO_CONVERSATIONS: EraseContext = { conversationIds: [] };
 
@@ -52,6 +56,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	semaphores: false,
 	tools: false,
 	config: false,
+	erasures: false, // the erasure bookkeeping itself, not user content
 };
 
 describe("USER_KEYED_COLLECTIONS guard", () => {
@@ -86,6 +91,17 @@ describe("USER_KEYED_COLLECTIONS guard", () => {
 	it("has no duplicate entry names", () => {
 		const names = USER_KEYED_COLLECTIONS.map((e) => e.name);
 		expect(new Set(names).size).toBe(names.length);
+	});
+
+	it("gives every by-owner(-or-conversation) entry an ownerField, and every custom entry a count()", () => {
+		for (const entry of USER_KEYED_COLLECTIONS) {
+			if (entry.eraseRule === "by-owner" || entry.eraseRule === "by-owner-or-conversation") {
+				expect(entry.ownerField, `${entry.name} needs an ownerField`).toBeTruthy();
+			}
+			if (entry.eraseRule === "custom") {
+				expect(entry.count, `${entry.name} needs its own count()`).toBeTypeOf("function");
+			}
+		}
 	});
 });
 
@@ -594,4 +610,66 @@ describe("the conversationFiles bucket entry", () => {
 		await collections.conversations.deleteOne({ _id: conversationId });
 		await collections.sharedConversations.deleteOne({ _id: sharedId });
 	}, 60_000);
+});
+
+describe("previewErasureCounts (the erasure preview's dry run)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	it("counts what erase would remove, without removing it", async () => {
+		const userId = new ObjectId();
+		const conversationId = new ObjectId();
+		await collections.conversations.insertOne({
+			_id: conversationId,
+			userId,
+			title: "t",
+			messages: [],
+			model: "m",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+		await collections.memories.insertOne({
+			_id: new ObjectId(),
+			userId,
+			content: "remember this",
+			createdAt: new Date(),
+		} as never);
+		await collections.generationEvents.insertOne({
+			_id: new ObjectId(),
+			generationId: "g1",
+			conversationId,
+			messageId: "m1",
+			seq: 1,
+			event: { type: "stream", token: "hi" } as never,
+			createdAt: new Date(),
+		} as never);
+
+		const ctx: EraseContext = { conversationIds: [conversationId] };
+		const counts = await previewErasureCounts(userId, ctx);
+		expect(counts.conversations).toBe(1);
+		expect(counts.memories).toBe(1);
+		expect(counts.generationEvents).toBe(1);
+
+		// Nothing was actually deleted.
+		expect(await collections.conversations.findOne({ _id: conversationId })).not.toBeNull();
+		expect(await collections.memories.findOne({ userId })).not.toBeNull();
+		expect(await collections.generationEvents.findOne({ conversationId })).not.toBeNull();
+
+		// And a real erase afterwards removes exactly what was previewed.
+		const conversationsEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "conversations");
+		const memoriesEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "memories");
+		const generationEventsEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "generationEvents");
+		if (!conversationsEntry || !memoriesEntry || !generationEventsEntry) {
+			throw new Error("expected entries missing from the registry");
+		}
+		expect(await conversationsEntry.erase(userId, ctx)).toBe(counts.conversations);
+		expect(await memoriesEntry.erase(userId, ctx)).toBe(counts.memories);
+		expect(await generationEventsEntry.erase(userId, ctx)).toBe(counts.generationEvents);
+	});
+
+	it("has an entry for every registered collection", async () => {
+		const counts = await previewErasureCounts(new ObjectId(), { conversationIds: [] });
+		expect(Object.keys(counts).sort()).toEqual(USER_KEYED_COLLECTIONS.map((e) => e.name).sort());
+	});
 });
