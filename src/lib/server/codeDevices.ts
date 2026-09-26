@@ -4,7 +4,17 @@ import { collections } from "$lib/server/database";
 import { codeAgentsEnabled } from "$lib/server/codeEnabled";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { isMachineOnline } from "$lib/server/code/machines";
+import { machineIssuer } from "$lib/server/code/machineAuth";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+
+/**
+ * `enrolledIssuer`/`revokedAt`/`revokedReason` (ADR 0093 §4.7, §12) land on
+ * `CodeDevice` once `auth/c-gateway-identity` merges; this branch starts from
+ * `origin/main`, which doesn't have them yet. Read defensively through this
+ * intersection rather than widening `CodeDevice` itself here, so the two
+ * branches' changes to that type merge cleanly instead of colliding.
+ */
+type DeviceIdentityFields = { enrolledIssuer?: string; revokedAt?: Date };
 
 /**
  * The pairing broker's shared half: every `/code` endpoint serves one signed-in
@@ -40,9 +50,24 @@ export interface CodeDeviceView {
 	lastSeenAt?: Date;
 	pairedAt?: Date;
 	terminalAckAt?: Date;
+	/**
+	 * Set when this device needs a fresh `galopin enroll` (ADR 0093 §12):
+	 * `"issuer_changed"` when its `enrolledIssuer` no longer matches this
+	 * deployment's configured issuer (still `paired`, not yet revoked —
+	 * a heads-up before its next token renewal fails), `"revoked"` when the
+	 * gateway already refused it (`revokedAt` set). A manual reject/revoke by
+	 * the owner carries neither and stays excluded from this list, as before.
+	 */
+	reenroll?: "issuer_changed" | "revoked";
 }
 
 export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView {
+	const identity = device as CodeDevice & DeviceIdentityFields;
+	const reenroll: CodeDeviceView["reenroll"] = identity.revokedAt
+		? "revoked"
+		: identity.enrolledIssuer && identity.enrolledIssuer !== configuredMachineIssuer()
+			? "issuer_changed"
+			: undefined;
 	return {
 		id: device._id.toString(),
 		name: device.name,
@@ -56,18 +81,33 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
 		...(device.pairedAt ? { pairedAt: device.pairedAt } : {}),
 		...(device.terminalAckAt ? { terminalAckAt: device.terminalAckAt } : {}),
+		...(reenroll ? { reenroll } : {}),
 	};
+}
+
+/** `machineIssuer()` throws when no issuer is configured at all (neither
+ * `CODE_MACHINE_ISSUER` nor `OPENID_PROVIDER_URL`) — a deployment state the
+ * device list must still render in, just with no issuer drift to report. */
+function configuredMachineIssuer(): string | null {
+	try {
+		return machineIssuer();
+	} catch {
+		return null;
+	}
 }
 
 export async function listDevices(locals: App.Locals): Promise<CodeDeviceView[]> {
 	if (!locals.user) error(401, "Login required");
-	// A revoked row is a tombstone kept only so `onHello` can refuse the same
-	// `machineId` reconnecting (queried there directly, not through this
-	// list) — it must never resurface here, or a revoked device just sits in
-	// the tree forever looking exactly like a live one, since nothing else
-	// distinguishes "revoked" from "paired" in the UI.
+	// A plain manual reject/revoke (no `revokedAt`) is a tombstone kept only
+	// so `onHello` can refuse the same `machineId` reconnecting (queried
+	// there directly, not through this list) — it must never resurface here.
+	// A *gateway*-revoked row (`revokedAt` set, §4.7/§12) is different: the
+	// person needs to see it, so they know to re-enroll.
 	const devices = await collections.codeDevices
-		.find({ userId: locals.user._id, status: { $ne: "revoked" } })
+		.find({
+			userId: locals.user._id,
+			$or: [{ status: { $ne: "revoked" } }, { revokedAt: { $exists: true } }],
+		})
 		.sort({ updatedAt: -1 })
 		.toArray();
 	return devices.map((device) => deviceView(device, isMachineOnline(device._id.toString())));

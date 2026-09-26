@@ -53,6 +53,9 @@
 		refreshCodeDevices,
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
+	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
+	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
+	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
@@ -102,6 +105,19 @@
 	const selectedDeviceId = $derived(page.url.searchParams.get("device"));
 	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws"));
 	const selectedAgentId = $derived(page.url.searchParams.get("agent"));
+
+	// The same one-liner the pairing dialog prints (§12): a device flagged
+	// `reenroll` shows it too, rather than a bare "go re-pair" pointer with
+	// nothing to act on.
+	const publicConfig = usePublicConfig();
+	const reenrollCommand = $derived(
+		buildEnrollCommand({
+			origin: publicConfig.origin,
+			issuer: page.data.codeOidcIssuerUrl ?? "",
+			gatewayOrigin: page.data.codeGatewayOrigin || page.url.origin,
+			clientId: page.data.codeOidcClientId,
+		})
+	);
 
 	// Collapsed devices and device+workspace groups (1b), remembered in
 	// localStorage across reloads. Only what is actually collapsed is
@@ -435,6 +451,7 @@
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
 			{@const deviceExpanded = isDeviceExpanded(device.id)}
+			{@const isDead = device.reenroll === "revoked"}
 			<div>
 				<div class="group flex items-center gap-1 pr-1">
 					{#if device.status === "paired"}
@@ -455,7 +472,7 @@
 						     device's, whose chevron takes this same slot. -->
 						<span class="size-6 shrink-0"></span>
 					{/if}
-					{#if device.status === "pending"}
+					{#if device.status === "pending" || isDead}
 						<span class="min-w-0 {row(false)}">
 							<IconLaptop class="size-3.5 shrink-0" />
 							<span class="min-w-0 flex-1 truncate">{device.name}</span>
@@ -491,6 +508,17 @@
 						>
 							<IconClose class="size-3.5" />
 						</button>
+					{:else if isDead}
+						<!-- A revoked-by-the-gateway row is a tombstone (never
+						     reconnects under this machineId): no online pill, no
+						     "Add workspace", no "Remove this pairing" — there is
+						     nothing left to pair or unpair, only the re-enroll
+						     banner below. -->
+						<span
+							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
+						>
+							access revoked
+						</span>
 					{:else}
 						{@const online = device.online !== false}
 						<span
@@ -548,6 +576,27 @@
 						</button>
 					{/if}
 				</div>
+				{#if device.reenroll}
+					<div
+						class="mb-1.5 ml-7 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+					>
+						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
+							<IconWarning class="size-3.5 shrink-0" />
+							Re-enroll this machine: {device.reenroll === "revoked"
+								? "access was revoked"
+								: "the identity provider changed"}
+						</p>
+						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
+							<p class="min-w-0 flex-1 font-mono text-[.65rem] break-all text-ink">
+								{reenrollCommand}
+							</p>
+							<CopyToClipBoardBtn
+								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+								value={reenrollCommand}
+							/>
+						</div>
+					</div>
+				{/if}
 				{#if device.status === "paired" && deviceExpanded}
 					{#if device.online === false || tree?.off}
 						<!-- Offline renders as a plain label, never a spinner (X4):
