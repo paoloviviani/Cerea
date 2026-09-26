@@ -25,8 +25,8 @@ your laptop                          the deployment
 One binary, one credential. `galopin` supervises `opencode serve`, dials
 **out** to this deployment over WSS and authenticates with the same OIDC
 access token its enrollment minted — the identical credential that
-authenticates its `/v1` calls to the gateway. There is no relay and no daemon
-process to run separately: revoking your account at the identity provider
+authenticates its `/v1` calls to the gateway. There is no relay and no second
+process to run: revoking your account at the identity provider
 kills both the control link and the LLM link within one access-token
 lifetime. The wire protocol both ends speak is `agent/PROTOCOL.md`; the
 gateway facts galopin's enrollment relies on (the IdP client
@@ -40,7 +40,7 @@ the Pystino gateway and are documented there.
 | **LLM**     | opencode → the local refreshing shim → gateway `/v1`, billed to the signed-in person                            | `galopin enroll`, then the shim starts with `run` (or alone with `serve`) |
 | **control** | the machine dials _out_ to the chat over WSS (`/api/v2/code/machine`), so the chat's `/code` panel can drive it | `galopin run`                                                             |
 
-There is no relay and no daemon to pair: the machine connects outbound with
+Nothing else needs pairing: the machine connects outbound with
 its own enrollment token, and a person confirms it in the `/code` panel
 (`agent/PROTOCOL.md` §4).
 

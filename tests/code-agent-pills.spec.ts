@@ -3,8 +3,8 @@
  * stubbed at the network layer, so the client code paths are the real ones.
  *
  * What is pinned here: the pills render inside the prompt box labelled from
- * the agent snapshot; opening one lists the daemon's live options (modes =
- * paseo's permission vocabulary, models = the provider's list); selecting
+ * the agent snapshot; opening one lists the machine's live options (modes =
+ * the backend's permission vocabulary, models = the provider's list); selecting
  * calls the forwarder's mode/model switch; and the pill only claims the new
  * value after the refreshed snapshot says so — the apply never trusts its
  * own request.

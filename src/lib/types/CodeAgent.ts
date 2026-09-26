@@ -19,11 +19,11 @@ import {
  *
  * A mode in this app is a boolean latched on a `Conversation` document
  * (`Conversation.mlAssistant`) — inherently conversation-bound. This surface
- * has no conversation; it is a top-level route that drives a self-hosted
- * "paseo" daemon (which runs `opencode` agents on the person's own machine)
- * through the Cerea server. The browser never talks to the daemon directly.
+ * has no conversation; it is a top-level route that drives galopin (which
+ * runs `opencode` or an ACP agent on the person's own machine) through the
+ * Cerea server. The browser never talks to the machine directly.
  *
- * Persistence split, by design: the daemon owns sessions and worktrees; Cerea
+ * Persistence split, by design: the machine owns sessions and worktrees; Cerea
  * persists only pairing/device records (Mongo, `codeDevices`) and proxies
  * live agent state. Live state is a rendering concern, never mirrored into
  * Mongo — there is deliberately no second agent store.
@@ -217,9 +217,9 @@ export interface CodeSubagentAnchor {
 }
 
 /**
- * One of the daemon's provider modes — paseo's own permission vocabulary
- * (plan, build, …), listed live so the panel never hardcodes a set that
- * would drift from what the daemon enforces. `AgentMode` in the protocol.
+ * One of the backend's modes — its own permission vocabulary (opencode:
+ * plan, build, …), listed live so the panel never hardcodes a set that
+ * would drift from what the machine enforces. `Mode` in the protocol.
  */
 export interface CodeProviderMode {
 	id: string;
@@ -339,10 +339,10 @@ export interface CodeAgentSession {
 	state: CodeTurnState;
 	updatedAt: string;
 	/**
-	 * The daemon's live session config, as the snapshot reports it: the mode
-	 * is paseo's permission vocabulary (plan, build, …) switched by the
+	 * The machine's live session config, as the snapshot reports it: the mode
+	 * is the backend's permission vocabulary (plan, build, …) switched by the
 	 * composer's pill, and the model the provider runs. Both are `null`
-	 * until the daemon has reported them — an agent that never answered
+	 * until the machine has reported them — an agent that never answered
 	 * shows pills that carry no claim.
 	 */
 	modeId: string | null;

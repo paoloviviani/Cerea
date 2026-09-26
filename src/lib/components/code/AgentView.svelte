@@ -707,7 +707,7 @@
 
 	// ── Fork handoff (parity plan §4.2(a)) ───────────────────────────────
 	//
-	// No lineage label exists on this wire (unlike paseo's), so the link back
+	// No lineage label exists on this wire, so the link back
 	// is read straight off the child's own title — set once at creation by
 	// the forwarder's handoff route, never touched again — rather than a
 	// fetched reference. A title collision (someone renames a session to

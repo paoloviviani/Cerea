@@ -1,6 +1,6 @@
 # Thin machine agent: architecture and wire protocol (v1)
 
-Status: implemented (P0 and parity milestones 1–9, 2026-09-24; live since the deploy-rearch cutover). Supersedes paseo in the `/code` data path (ADR 0089, superseding 0085).
+Status: implemented (P0 and parity milestones 1–9, 2026-09-24; live since the deploy-rearch cutover). This is the `/code` data path (ADR 0089, which supersedes 0085).
 Source of truth for both implementations: the Go agent, galopin (this repository's `agent/`, moved from Pystino `deploy/agent/` with its history preserved), and Cerea's machine link (`src/lib/server/code/machine*.ts`).
 
 The move and rename left this protocol itself untouched on purpose — live
@@ -25,7 +25,7 @@ are galopin now; nothing on the wire changed.
                                    opencode ──HTTP──► shim ──HTTPS──► Pystino /v1
 ```
 
-- **One binary** (`galopin`, grown from `pystino-enroll` by way of `pystino-agent`), no Node/npm/Python/paseo on the machine besides opencode itself.
+- **One binary** (`galopin`, grown from `pystino-enroll` by way of `pystino-agent`), no Node/npm/Python on the machine besides opencode itself.
 - **One credential root**: the enrollment's OIDC refresh token. The same access token authenticates the WSS to Cerea and the `/v1` calls. Revoking at the IdP kills both within one access-token lifetime.
 - **Nothing capability-bearing is stored in Cerea.** Cerea holds only a live socket that the machine opened. A DB dump yields device names and ids, nothing that can reach a machine.
 - LLM traffic never crosses Cerea (unchanged two-path rule).
@@ -197,9 +197,9 @@ The agent is subscribed to its backend from process start, so it has seen every 
 
 ## 8. Cerea side (what maps to what)
 
-- The browser-facing API stays (`/api/v2/code/v1/...?device=` + `/api/v2/code/agents/[id]/stream`), so the UI and its specs keep working; only the server behind it changes: `codeDaemon.ts` (paseo) → `machineLink` (typed ops over the socket). `@getpaseo/*` is removed.
+- The browser-facing API is `/api/v2/code/v1/...?device=` plus `/api/v2/code/agents/[id]/stream`. Behind it, the forwarder (`src/routes/api/v2/code/[...path]/+server.ts`) maps each allowed path to one typed op on the device's `MachineLink` (`src/lib/server/code/machines.ts`), sent over the machine's socket.
 - SSE bridge: register a fan-out listener (buffering), `session.sync` with the browser's `Last-Event-ID` (`<epoch>:<seq>`), emit (snapshot → chat frames, or the missing events), then drain buffered live events with `seq >` the sync's `seq`. SSE `id` = `<epoch>:<seq>` of the last envelope a frame came from. Epoch change → a `reset` event that makes the client re-fold from scratch. No per-frame info logs (R6).
-- Mapping normalized → chat `AgentStreamUpdate` (replaces `codeTimeline.ts`): user `text` part (non-synthetic) → `user`; assistant `text` part/delta → `Stream`; `tool` part → Tool call / result / error (uuid = callId); `permission.asked/replied` → Elicitation request/resolved; `question.asked/resolved` → the same Elicitation request/resolved (the user-question tool design: normalized questions become `ElicitationField[]`, the same shape and card — `AskQuestion.svelte` — chat's own `ask_user_question` already uses); `status busy` → TurnState running, `idle` → done (failed if the last assistant message carries `error`); `error` → TurnState failed; `todo` → Plan; `usage` → a side-channel frame (M3).
+- Mapping normalized → chat `AgentStreamUpdate` (`src/lib/server/code/machineTimeline.ts`): user `text` part (non-synthetic) → `user`; assistant `text` part/delta → `Stream`; `tool` part → Tool call / result / error (uuid = callId); `permission.asked/replied` → Elicitation request/resolved; `question.asked/resolved` → the same Elicitation request/resolved (the user-question tool design: normalized questions become `ElicitationField[]`, the same shape and card — `AskQuestion.svelte` — chat's own `ask_user_question` already uses); `status busy` → TurnState running, `idle` → done (failed if the last assistant message carries `error`); `error` → TurnState failed; `todo` → Plan; `usage` → a side-channel frame (M3).
 
 ## 9. Machine powers: files and terminals (specified by ADR 0090; F1 and T1 build it)
 
