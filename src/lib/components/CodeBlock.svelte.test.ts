@@ -473,7 +473,9 @@ describe("CodeBlock keeps the files its run produced", () => {
 				...props,
 			},
 			context: new Map<unknown, unknown>([[MESSAGE_RUN_CONTEXT, context]]),
-		});
+			// Same cast renderWithApp uses: the props-with-context form is valid,
+			// the helper's generic just cannot see it.
+		} as never);
 	}
 
 	async function runWithFile(rawCode: string, context: MessageRunContext) {
