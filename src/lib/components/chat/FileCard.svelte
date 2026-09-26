@@ -305,7 +305,9 @@
 			} else if (previewKind === "image") {
 				const data = await readBytes();
 				revokePreviewUrl();
-				previewUrl = URL.createObjectURL(new Blob([data], { type: filePreviewMimeType(extension) }));
+				previewUrl = URL.createObjectURL(
+					new Blob([data], { type: filePreviewMimeType(extension) })
+				);
 			}
 		} catch (err) {
 			previewError =

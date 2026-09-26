@@ -1364,7 +1364,7 @@
 
 	<ArtifactPanel
 		registry={artifactRegistry}
-		fileRegistry={fileRegistry}
+		{fileRegistry}
 		items={paneItems}
 		{loading}
 		drafts={artifactDrafts}
@@ -1373,7 +1373,7 @@
 	/>
 	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />
 	<TrackioPane items={paneItems} />
-	<DeliverablesPanel fileRegistry={fileRegistry} />
+	<DeliverablesPanel {fileRegistry} />
 </div>
 
 <!-- Outside the composer's wrapper on purpose: that subtree is
