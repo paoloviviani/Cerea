@@ -13,6 +13,7 @@ to the pinned image rather than re-implementing Go templates in Python.
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import tempfile
@@ -110,7 +111,30 @@ class AutheliaConfigTests(unittest.TestCase):
         # `secret`, the same convention the JWKS key already uses: read from
         # the file bootstrap wrote, substituted into the render like any
         # other secret value here -- never a plaintext env-var interpolation.
-        self.assertIn("password: 'smtp-test-password'", out)
+        # A block scalar, not a quoted one (see the hostile-value test
+        # below for why), so the value is on its own, indented line.
+        self.assertIn("password: |2-\n      smtp-test-password", out)
+
+    @unittest.skipUnless(importlib.util.find_spec("yaml"), "needs PyYAML")
+    def test_a_hostile_password_survives_intact(self) -> None:
+        """msquote wraps a value in quotes without escaping one already
+        inside it -- a password can hold any character (unlike the SMTP
+        fields, which ./configure can and does refuse if they would break
+        this file), so quoting has to actually be safe rather than merely
+        usually safe. Render it, then parse the result as YAML and check
+        the one value round-trips exactly, rather than just looking for
+        the right substring in the text."""
+        hostile = " p'\"#: w0rd"
+        (self.config_dir / "keys" / "smtp_password").write_text(hostile)
+        out = self._authelia("template", {**BASE_ENV, **SMTP_ENV}).stdout
+
+        import yaml
+
+        rendered = "\n".join(
+            line for line in out.splitlines() if not line.startswith(("---", "##"))
+        )
+        parsed = yaml.safe_load(rendered)
+        self.assertEqual(parsed["notifier"]["smtp"]["password"], hostile)
 
     def test_smtp_with_no_password_configured_renders_without_one(self) -> None:
         """./configure never requires SMTP_PASSWORD alongside SMTP_HOST -- an

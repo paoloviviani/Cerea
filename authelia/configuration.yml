@@ -98,8 +98,18 @@ notifier:
     # An unauthenticated relay on a private network needs no password: this
     # line is then absent rather than pointing at a file that was never
     # written, so it does not stop Authelia starting.
+    #
+    # A YAML block scalar, not msquote: msquote wraps a value in quotes
+    # without escaping one already inside it, so a password containing a
+    # quote character broke the file the same way the SMTP fields did before
+    # they gained input validation -- a password can hold any character and
+    # ./configure has no way to refuse one. `|2-` is the explicit form (content
+    # two columns past this line's own indent, chomping the trailing
+    # newline): a plain `|-` lets a leading space in the password collapse
+    # into indentation instead of surviving as content. Keep the `2` in step
+    # with this file's own nesting if `password:` ever moves.
     {{ if env "X_PYSTINO_SMTP_HAS_PASSWORD" }}
-    password: {{ secret "/config/keys/smtp_password" | msquote }}
+    password: |2-{{ secret "/config/keys/smtp_password" | nindent 6 }}
     {{ end }}
 {{ else }}
   filesystem:
