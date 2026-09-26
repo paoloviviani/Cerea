@@ -65,8 +65,10 @@ test("a markdown artifact renders inline and display math", async ({
 
 	await panel.screenshot({ path: "reports/artifact-math.png" });
 
-	// The rendering survives a reload.
+	// The rendering survives a reload: reopen from the chat card, since the
+	// panel does not auto-open off-stream.
 	await page.reload();
+	await page.locator('[aria-label="Open artifact: Math Notes"]').click({ timeout: 30_000 });
 	const panelAfter = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panelAfter.locator(".katex-display")).toBeVisible({ timeout: 30_000 });
 });

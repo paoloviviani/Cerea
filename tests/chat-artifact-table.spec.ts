@@ -62,13 +62,15 @@ test("a table artifact grids, sorts, filters and downloads as CSV", async ({
 	await expect(grid.getByRole("cell", { name: "second, place" })).toBeVisible();
 	await expect(grid.getByRole("columnheader", { name: /amount/i })).toBeVisible();
 
-	// Sort ascending by amount: alpha (7) first.
-	await grid.getByRole("button", { name: "Sort by amount" }).click();
+	// Sort ascending by amount: alpha (7) first. The header button's
+	// accessible name is its text content, not its title.
+	const amountHeader = grid.getByRole("button", { name: "amount", exact: true });
+	await amountHeader.click();
 	await expect(grid.locator('th[aria-sort="ascending"]')).toHaveCount(1);
 	const firstCell = grid.locator("tbody tr").first().locator("td").first();
 	await expect(firstCell).toHaveText("alpha");
 	// Sort descending: bravo (20) first.
-	await grid.getByRole("button", { name: "Sorted ascending — activate for descending" }).click();
+	await amountHeader.click();
 	await expect(grid.locator("tbody tr").first().locator("td").first()).toHaveText("bravo");
 
 	// Filter to one row, then clear.
@@ -89,8 +91,10 @@ test("a table artifact grids, sorts, filters and downloads as CSV", async ({
 
 	await panel.screenshot({ path: "reports/artifact-table.png" });
 
-	// The table survives a reload (it is derived from the messages).
+	// The table survives a reload (it is derived from the messages): reopen
+	// it from its chat card, since the panel does not auto-open off-stream.
 	await page.reload();
+	await page.locator('[aria-label="Open artifact: Sales"]').click({ timeout: 30_000 });
 	const panelAfter = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panelAfter.getByTestId("table-grid")).toBeVisible({ timeout: 30_000 });
 	await expect(
