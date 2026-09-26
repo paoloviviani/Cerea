@@ -311,6 +311,32 @@ describe("ChatInput: MCP connector toggles", () => {
 		return item;
 	};
 
+	it("marks a connector whose last check failed, with the reason on hover", async () => {
+		const failing: McpConnectorView = {
+			...notionConnector,
+			id: "conn-jmcp",
+			name: "jmcp",
+			auth: "token",
+			lastError: "the server refused the credential",
+		};
+		seedConnectors([notionConnector, failing], ["conn-jmcp"]);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+
+		await vi.waitFor(() =>
+			expect(findConnectorItem("jmcp").textContent).toContain("Needs attention")
+		);
+		const mark = [...findConnectorItem("jmcp").querySelectorAll("span")].find(
+			(el) => el.textContent?.trim() === "Needs attention"
+		);
+		expect(mark?.getAttribute("title")).toBe("the server refused the credential");
+		// Still switchable: it may work next turn, and the turn says so if not.
+		expect(findConnectorItem("jmcp").getAttribute("role")).toBe("menuitemcheckbox");
+		expect(findConnectorItem("Notion").textContent).not.toContain("Needs attention");
+	});
+
 	it("toggling a connector off removes it from the set a turn would send", async () => {
 		seedConnectors([notionConnector], ["conn-notion"]);
 		stubFetch();
