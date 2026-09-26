@@ -33,6 +33,7 @@
 		const item = items[n];
 		if (!item) return;
 		if (item.kind === "artifact") sidePane.openArtifact(item.identifier, null);
+		else if (item.kind === "file") sidePane.openArtifact(item.name, null);
 		else sidePane.openTrackio(item.url, item.label);
 	}
 

@@ -1,6 +1,7 @@
 import type { Message } from "$lib/types/Message";
 import type { SidePaneView } from "$lib/stores/sidePane.svelte";
 import type { ArtifactRegistry } from "./artifacts";
+import type { FileArtifactRegistry } from "./fileArtifacts";
 import type { TrackioDashboard } from "./trackio";
 
 /**
@@ -19,6 +20,7 @@ import type { TrackioDashboard } from "./trackio";
 
 export type PaneItem =
 	| { kind: "artifact"; identifier: string; label: string }
+	| { kind: "file"; name: string; label: string }
 	| { kind: "trackio"; url: string; label: string };
 
 /** The pane's current selection, as the store holds it. */
@@ -40,7 +42,8 @@ export interface PaneSelection {
 export function collectPaneItems(
 	messages: Array<Pick<Message, "id">>,
 	registry: ArtifactRegistry,
-	dashboards: TrackioDashboard[]
+	dashboards: TrackioDashboard[],
+	fileRegistry?: FileArtifactRegistry
 ): PaneItem[] {
 	const position = new Map<Message["id"], number>();
 	messages.forEach((message, index) => position.set(message.id, index));
@@ -77,6 +80,18 @@ export function collectPaneItems(
 		});
 	}
 
+	// File artifacts ride the same axis: one item per filename however many
+	// versions it has, ordered by the run that first produced it.
+	for (const artifact of fileRegistry?.artifacts.values() ?? []) {
+		const first = artifact.versions[0];
+		if (!first) continue;
+		entries.push({
+			item: { kind: "file", name: artifact.name, label: artifact.name },
+			message: at(first.messageId),
+			withinMessage: 2,
+		});
+	}
+
 	// Stable within a (message, kind) bucket: `sort` is stable in every engine we
 	// target, so same-message artifacts keep registry insertion order and
 	// same-message dashboards keep the order they were printed in.
@@ -86,9 +101,17 @@ export function collectPaneItems(
 
 /** Whether an item is the one the pane is currently showing. */
 export function isPaneItemSelected(item: PaneItem, selection: PaneSelection): boolean {
-	return item.kind === "artifact"
-		? selection.view === "artifact" && selection.identifier === item.identifier
-		: selection.view === "trackio" && selection.trackioUrl === item.url;
+	if (item.kind === "trackio")
+		return selection.view === "trackio" && selection.trackioUrl === item.url;
+	// Text and file artifacts share the artifact view (one pane, one axis);
+	// the identifier disambiguates them.
+	return selection.view === "artifact" && selection.identifier === itemIdentifier(item);
+}
+
+function itemIdentifier(item: PaneItem): string {
+	if (item.kind === "artifact") return item.identifier;
+	if (item.kind === "file") return item.name;
+	return item.url;
 }
 
 /** Index of the selected item, or -1 when the selection is not in the list. */

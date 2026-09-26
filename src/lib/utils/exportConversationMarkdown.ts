@@ -1,5 +1,5 @@
 import type { Message } from "$lib/types/Message";
-import { MessageUpdateType } from "$lib/types/MessageUpdate";
+import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import { extractThink, stripThink } from "$lib/utils/stripThink";
 import { splitArtifactSegments } from "$lib/utils/artifacts";
 import { isMessageToolCallUpdate } from "$lib/utils/messageUpdates";
@@ -144,6 +144,27 @@ export function collectGeneratedFiles(message: Message): string[] {
 }
 
 /**
+ * Names of persisted `execute_code` deliverables — the same refs the file
+ * artifacts are derived from, so the export lists every versioned file even
+ * though the bytes are out of scope for a text export.
+ */
+export function collectExecutedFiles(message: Message): string[] {
+	const files: string[] = [];
+	for (const update of message.updates ?? []) {
+		if (
+			update.type !== MessageUpdateType.CodeExecution ||
+			update.subtype !== MessageCodeExecutionUpdateType.Resolved
+		) {
+			continue;
+		}
+		for (const file of update.files ?? []) {
+			if (file?.name && !files.includes(file.name)) files.push(file.name);
+		}
+	}
+	return files;
+}
+
+/**
  * Render the answer body: `<think>` blocks removed (they live in the
  * reasoning section), `<artifact>` operations converted per the module
  * policy. All other text is verbatim.
@@ -202,7 +223,11 @@ function renderAssistantMessage(message: Message, model?: string): string {
 	}
 	const answer = renderAnswerBody(message.content);
 	if (answer) sections.push(answer);
-	const generated = collectGeneratedFiles(message);
+	const legacy = collectGeneratedFiles(message);
+	const generated = [
+		...legacy,
+		...collectExecutedFiles(message).filter((name) => !legacy.includes(name)),
+	];
 	if (generated.length > 0) {
 		sections.push(generated.map((name) => `- Generated file: ${name}`).join("\n"));
 	}
