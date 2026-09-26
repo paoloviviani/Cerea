@@ -106,4 +106,17 @@ export interface FeatureFlags {
 	 * path only the bundled Authelia serves.
 	 */
 	codeOidcIssuerUrl: string;
+	/**
+	 * The enrollment CLI's OAuth client id (`CODE_MACHINE_CLIENT_ID`, default
+	 * `opencode-enrollment`) — the pairing dialog's one-liner only prints
+	 * `--client-id` when a deployment has overridden it.
+	 */
+	codeOidcClientId: string;
+	/**
+	 * The gateway origin (or `/v1` base) `galopin enroll --gateway` needs
+	 * (`CODE_GATEWAY_ORIGIN`). Empty on a deployment that hasn't set one; the
+	 * dialog falls back to the browser's own origin rather than this
+	 * endpoint guessing at a gateway address.
+	 */
+	codeGatewayOrigin: string;
 }
