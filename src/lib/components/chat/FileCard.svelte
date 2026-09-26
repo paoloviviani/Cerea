@@ -297,6 +297,12 @@
 					throw new Error("too large to preview — download it to read the whole file");
 				}
 				const data = await readBytes();
+				// `size` is metadata recorded elsewhere, not the bytes themselves —
+				// re-check what actually arrived before decoding it all, the same
+				// way the pdf/docx previews re-check theirs below.
+				if (data.byteLength > FILE_PREVIEW_TEXT_MAX_BYTES) {
+					throw new Error("too large to preview — download it to read the whole file");
+				}
 				const text = new TextDecoder("utf-8", { fatal: false }).decode(data);
 				previewText =
 					text.length > PREVIEW_TEXT_CHARS
