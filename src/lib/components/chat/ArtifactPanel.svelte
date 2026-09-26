@@ -3,6 +3,8 @@
 	import DOMPurify from "isomorphic-dompurify";
 
 	import type { ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
+	import type { FileArtifactRegistry, FileArtifactVersion } from "$lib/utils/fileArtifacts";
+	import { filePreviewKindFor } from "$lib/utils/filePreview";
 	import type { MessageArtifactDraftUpdate } from "$lib/types/MessageUpdate";
 	import type { PaneItem } from "$lib/utils/paneItems";
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
@@ -33,11 +35,13 @@
 	import { error as errorStore } from "$lib/stores/errors";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { page } from "$app/state";
+	import { base } from "$app/paths";
 
 	import SidePane from "./SidePane.svelte";
 	import PaneItemNav from "./PaneItemNav.svelte";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 	import TableGrid from "./TableGrid.svelte";
+	import FileArtifactView from "./FileArtifactView.svelte";
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import HtmlPreviewModal from "../HtmlPreviewModal.svelte";
@@ -58,6 +62,8 @@
 
 	interface Props {
 		registry: ArtifactRegistry;
+		/** Persisted `execute_code` outputs as versioned file artifacts. */
+		fileRegistry: FileArtifactRegistry;
 		/** Everything the pane can show, for the cross-item nav in the header. */
 		items: PaneItem[];
 		loading?: boolean;
@@ -80,6 +86,7 @@
 
 	let {
 		registry,
+		fileRegistry,
 		items,
 		loading = false,
 		drafts = [],
@@ -96,6 +103,20 @@
 	);
 	let version = $derived<ArtifactVersion | undefined>(
 		artifact && displayVersionNumber > 0 ? artifact.versions[displayVersionNumber - 1] : undefined
+	);
+	// File artifacts share the artifact view (one pane, one axis): when the
+	// open identifier names no text artifact, it may name a file.
+	let fileArtifact = $derived(
+		!artifact && sidePane.identifier ? fileRegistry.artifacts.get(sidePane.identifier) : undefined
+	);
+	let fileTotalVersions = $derived(fileArtifact?.versions.length ?? 0);
+	let fileDisplayVersionNumber = $derived(
+		sidePane.version === null ? fileTotalVersions : Math.min(sidePane.version, fileTotalVersions)
+	);
+	let fileVersion = $derived<FileArtifactVersion | undefined>(
+		fileArtifact && fileDisplayVersionNumber > 0
+			? fileArtifact.versions[fileDisplayVersionNumber - 1]
+			: undefined
 	);
 	let isStreamingVersion = $derived(!!version && !version.complete);
 	// Live tool-mode drafts for the open artifact: a create/rewrite still
@@ -145,9 +166,9 @@
 	// so without the check a vanishing artifact would close someone else's pane.
 	$effect(() => {
 		if (sidePane.open && sidePane.view === "artifact" && sidePane.identifier && !artifact) {
-			// A tool-mode draft for an artifact with no finalized version yet is
-			// not a disappearance — the version is still streaming in.
-			if (pendingDraft || writingDraft) return;
+			// A file artifact with no text entry is a valid target, not a
+			// disappearance — and neither is a still-streaming tool-mode draft.
+			if (fileArtifact || pendingDraft || writingDraft) return;
 			const timer = setTimeout(() => sidePane.close(), 300);
 			return () => clearTimeout(timer);
 		}
@@ -545,9 +566,35 @@
 		sidePane.version = clamped >= totalVersions ? null : clamped;
 	}
 
+	function gotoFileVersion(n: number) {
+		if (!fileArtifact) return;
+		const clamped = Math.max(1, Math.min(n, fileTotalVersions));
+		sidePane.version = clamped >= fileTotalVersions ? null : clamped;
+	}
+
+	function fileKindLabel(name: string): string {
+		switch (filePreviewKindFor(name)) {
+			case "pdf":
+				return "PDF";
+			case "docx":
+				return "Word";
+			case "image":
+				return "Image";
+			case "text":
+				return "Text";
+			default:
+				return "File";
+		}
+	}
+
 	// ----- deploy to a Hugging Face Space (HuggingChat only) -----
 	const publicConfig = usePublicConfig();
 	let conversationId = $derived(page.params?.id);
+	let fileDownloadUrl = $derived(
+		fileVersion && conversationId
+			? `${base}/conversation/${conversationId}/code-execution/output/${fileVersion.sha256}`
+			: undefined
+	);
 	let deployModalOpen = $state(false);
 	// Deployments made this session, overlaid on the ones loaded with the page so
 	// the button flips to "Update" right after a successful first deploy. Keyed by
@@ -607,7 +654,11 @@
 				<EosIconsLoading class="flex-none text-sm text-gray-400" />
 			{/if}
 			<h2 class="truncate text-sm font-semibold text-gray-800 dark:text-gray-200">
-				{version?.title ?? pendingDraft?.title ?? pendingDraft?.identifier ?? sidePane.identifier}
+				{version?.title ??
+					fileVersion?.name ??
+					pendingDraft?.title ??
+					pendingDraft?.identifier ??
+					sidePane.identifier}
 			</h2>
 			{#if editingDraft}
 				<span
@@ -621,6 +672,12 @@
 				>
 					Streaming…
 				</span>
+			{:else if fileVersion && fileTotalVersions > 1}
+				<span
+					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+				>
+					v{fileDisplayVersionNumber}
+				</span>
 			{:else if totalVersions > 1}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
@@ -630,23 +687,25 @@
 			{/if}
 		</div>
 
-		<div class="flex flex-none items-center rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
-			<button
-				type="button"
-				class="{tabBase} {effectiveTab === 'preview' ? tabActive : tabInactive}"
-				disabled={!previewable || isStreamingVersion}
-				onclick={() => sidePane.selectTab("preview")}
-			>
-				Preview
-			</button>
-			<button
-				type="button"
-				class="{tabBase} {effectiveTab === 'code' ? tabActive : tabInactive}"
-				onclick={() => sidePane.selectTab("code")}
-			>
-				Code
-			</button>
-		</div>
+		{#if !fileVersion}
+			<div class="flex flex-none items-center rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+				<button
+					type="button"
+					class="{tabBase} {effectiveTab === 'preview' ? tabActive : tabInactive}"
+					disabled={!previewable || isStreamingVersion}
+					onclick={() => sidePane.selectTab("preview")}
+				>
+					Preview
+				</button>
+				<button
+					type="button"
+					class="{tabBase} {effectiveTab === 'code' ? tabActive : tabInactive}"
+					onclick={() => sidePane.selectTab("code")}
+				>
+					Code
+				</button>
+			</div>
+		{/if}
 
 		<div class="flex flex-none items-center gap-0.5 text-gray-500 dark:text-gray-400">
 			{#if version}
@@ -693,6 +752,16 @@
 						<CarbonMaximize />
 					</button>
 				{/if}
+			{:else if fileVersion && fileDownloadUrl}
+				<a
+					href={fileDownloadUrl}
+					download={fileVersion.name}
+					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+					title="Download {fileVersion.name}"
+					aria-label="Download {fileVersion.name}"
+				>
+					<CarbonDownload />
+				</a>
 			{/if}
 			<!-- close-large at text-base: the X glyph fills less of its viewBox than the
 			     sibling icons, so it needs the bump to read as the same visual size;
@@ -728,6 +797,8 @@
 					></div>
 				</div>
 			</div>
+		{:else if fileVersion}
+			<FileArtifactView version={fileVersion} {conversationId} />
 		{:else if !version}
 			<div class="flex h-full items-center justify-center text-sm text-gray-400">
 				{#if writingDraft}
@@ -873,9 +944,35 @@
 				>
 					<CarbonChevronRight />
 				</button>
+			{:else if fileVersion && fileTotalVersions > 1}
+				<button
+					type="button"
+					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
+					disabled={fileDisplayVersionNumber <= 1}
+					title="Previous version"
+					onclick={() => gotoFileVersion(fileDisplayVersionNumber - 1)}
+				>
+					<CarbonChevronLeft />
+				</button>
+				<span class="whitespace-nowrap tabular-nums">
+					{`v${fileDisplayVersionNumber} / ${fileTotalVersions}`}
+				</span>
+				<button
+					type="button"
+					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
+					disabled={fileDisplayVersionNumber >= fileTotalVersions}
+					title="Next version"
+					onclick={() => gotoFileVersion(fileDisplayVersionNumber + 1)}
+				>
+					<CarbonChevronRight />
+				</button>
 			{:else if version}
 				<span class="capitalize">
 					{version.type === "code" ? (version.language ?? "code") : version.type}
+				</span>
+			{:else if fileVersion}
+				<span class="capitalize">
+					{fileKindLabel(fileVersion.name)}
 				</span>
 			{/if}
 		</div>
@@ -937,7 +1034,9 @@
 
 <!-- A tool-mode draft of a new artifact has no registry entry until its call
      runs; it still mounts the pane, so the preview streams in while it is written. -->
-{#if sidePane.open && sidePane.view === "artifact" && (artifact || pendingDraft || writingDraft)}
+{#if sidePane.open &&
+	sidePane.view === "artifact" &&
+	(artifact || fileArtifact || pendingDraft || writingDraft)}
 	<SidePane label="Artifact panel" escapeDisabled={fullscreenOpen || loading}>
 		{#snippet children(resizing)}
 			{@render panelContent(resizing)}

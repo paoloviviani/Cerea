@@ -5,6 +5,8 @@
 
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { exportConversation } from "$lib/stores/exportConversation";
+	import type { FileArtifactRegistry } from "$lib/utils/fileArtifacts";
+	import { findFileVersionBySha } from "$lib/utils/fileArtifacts";
 	import * as styles from "$lib/components/overlay/styles";
 
 	import SidePane from "./SidePane.svelte";
@@ -27,7 +29,18 @@
 	 * conversationId (no cross-conversation index exists), so this lists the
 	 * open chat's files — persistent across reloads and devices for the
 	 * 30-day retention window, not across conversations.
+	 *
+	 * Rows open the file artifact in the panel (registry entry with versions
+	 * and preview) rather than a bare new-tab open, so the same file is never
+	 * shown twice: this list and the pane nav are two doors into the same
+	 * artifact view. The download stays per row. A row with no registry entry
+	 * (bytes uploaded but the outcome never recorded) keeps the legacy links.
 	 */
+	interface Props {
+		fileRegistry?: FileArtifactRegistry;
+	}
+
+	let { fileRegistry }: Props = $props();
 
 	interface DeliverableFile {
 		name: string;
@@ -77,6 +90,18 @@
 
 	function downloadUrl(sha256: string): string {
 		return `${base}/conversation/${conversationId}/code-execution/output/${sha256}`;
+	}
+
+	/**
+	 * Where a row opens: the file artifact at this row's version (following
+	 * latest when it already is), or null when the row has no registry entry.
+	 */
+	function artifactTarget(file: DeliverableFile): { name: string; version: number | null } | null {
+		if (!fileRegistry) return null;
+		const found = findFileVersionBySha(fileRegistry, file.sha256);
+		if (!found) return null;
+		const total = fileRegistry.artifacts.get(found.name)?.versions.length ?? found.version;
+		return { name: found.name, version: found.version >= total ? null : found.version };
 	}
 
 	function kindLabel(file: DeliverableFile): string {
@@ -209,6 +234,7 @@
 				{:else}
 					<ul class="space-y-2">
 						{#each files as file (file.sha256)}
+							{@const target = artifactTarget(file)}
 							<li
 								class="flex items-center gap-2 rounded-lg border border-line bg-surface px-2 py-1.5 text-xs"
 							>
@@ -224,16 +250,28 @@
 										</time>
 									</span>
 								</span>
-								<a
-									href={downloadUrl(file.sha256)}
-									target="_blank"
-									rel="noopener"
-									class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-									aria-label={`Open ${file.name}`}
-									title={`Open ${file.name}`}
-								>
-									<CarbonLaunch class="size-3.5" /> Open
-								</a>
+								{#if target}
+									<button
+										type="button"
+										class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
+										aria-label={`Open ${file.name} in panel`}
+										title={`Open ${file.name} in panel`}
+										onclick={() => sidePane.openArtifact(target.name, target.version)}
+									>
+										<CarbonLaunch class="size-3.5" /> Open
+									</button>
+								{:else}
+									<a
+										href={downloadUrl(file.sha256)}
+										target="_blank"
+										rel="noopener"
+										class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
+										aria-label={`Open ${file.name}`}
+										title={`Open ${file.name}`}
+									>
+										<CarbonLaunch class="size-3.5" /> Open
+									</a>
+								{/if}
 								<a
 									href={downloadUrl(file.sha256)}
 									download={file.name}
