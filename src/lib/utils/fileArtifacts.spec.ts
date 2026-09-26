@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { collectFileArtifacts, findFileVersionBySha } from "./fileArtifacts";
+import {
+	collectFileArtifacts,
+	dedupeDeliverablesByName,
+	findFileVersionBySha,
+} from "./fileArtifacts";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 
 const resolved = (
@@ -117,5 +121,16 @@ describe("findFileVersionBySha", () => {
 		]);
 		expect(findFileVersionBySha(registry, "s2")).toEqual({ name: "a.pdf", version: 2 });
 		expect(findFileVersionBySha(registry, "missing")).toBeUndefined();
+	});
+});
+
+describe("dedupeDeliverablesByName", () => {
+	it("keeps the newest row per filename (input is newest-first)", () => {
+		const rows = [
+			{ name: "a.pdf", mime: "application/pdf", size: 12, sha256: "s2", createdAt: "t2" },
+			{ name: "b.csv", mime: "text/csv", size: 3, sha256: "s3", createdAt: "t3" },
+			{ name: "a.pdf", mime: "application/pdf", size: 10, sha256: "s1", createdAt: "t1" },
+		];
+		expect(dedupeDeliverablesByName(rows).map((r) => r.sha256)).toEqual(["s2", "s3"]);
 	});
 });
