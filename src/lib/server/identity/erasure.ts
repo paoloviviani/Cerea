@@ -34,6 +34,9 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { dropMachineConnection } from "$lib/server/code/machines";
+import { ReviewStatus } from "$lib/types/Review";
+import type { ProjectShare } from "$lib/types/Project";
+import type { VectorStoreShare } from "$lib/types/VectorStore";
 import { findStrays } from "./gatewayLogin";
 import {
 	type EraseContext,
@@ -85,6 +88,102 @@ async function deviceIdsFor(userIds: ObjectId[]): Promise<ObjectId[]> {
 		.then((rows) => rows.map((r) => r._id));
 }
 
+/** One resource of the person that someone else can see, named, with who can
+ * see it — the confirmation dialog's "shared with others" section (ADR 0093
+ * §9.2: "every resource of the user that someone else can see, named, with
+ * who can see it"). Four sources, each only while it actually has an
+ * audience: a share-link row always does (its whole purpose is the link);
+ * a project or knowledge base only when its own `shares` list is non-empty;
+ * an assistant only once `review` is `APPROVED` — this fork wires no
+ * publish/browse route for assistants, but the field is the only fact this
+ * codebase has for "everyone can see it", so an approved row is read as
+ * published rather than inventing a second flag for the same thing. */
+export interface SharedResource {
+	kind: "shared_conversation" | "project" | "knowledge_base" | "assistant";
+	id: string;
+	title: string;
+	audience: string;
+}
+
+/** `shares: {kind: "user"|"group", ...}[]` names exactly who was invited —
+ * never how many people that resolves to, since resolving a group's
+ * membership would mean asking the gateway "who is in group X" on a bearer
+ * token, which nothing in this codebase does (`Project.ts`'s own docs on
+ * this). A person-only list can be counted; a group's true reach cannot, so
+ * a share list including a group is reported as "everyone" rather than
+ * printing a person-count this codebase cannot stand behind. */
+function audienceFor(shares: Pick<ProjectShare | VectorStoreShare, "kind">[]): string {
+	if (shares.some((share) => share.kind === "group")) return "everyone";
+	return `${shares.length} ${shares.length === 1 ? "person" : "people"}`;
+}
+
+async function sharedResourcesFor(userIds: ObjectId[]): Promise<SharedResource[]> {
+	if (userIds.length === 0) return [];
+	const resources: SharedResource[] = [];
+
+	const links = await collections.sharedConversations
+		.find({ userId: { $in: userIds } })
+		.project<{ _id: string; title: string }>({ _id: 1, title: 1 })
+		.toArray();
+	for (const row of links) {
+		resources.push({
+			kind: "shared_conversation",
+			id: row._id,
+			title: row.title,
+			audience: "anyone with the link",
+		});
+	}
+
+	const projects = await collections.projects
+		.find({ userId: { $in: userIds }, "shares.0": { $exists: true } })
+		.project<{ _id: ObjectId; name: string; shares: ProjectShare[] }>({
+			_id: 1,
+			name: 1,
+			shares: 1,
+		})
+		.toArray();
+	for (const row of projects) {
+		resources.push({
+			kind: "project",
+			id: row._id.toString(),
+			title: row.name,
+			audience: audienceFor(row.shares),
+		});
+	}
+
+	const bases = await collections.vectorStores
+		.find({ ownerId: { $in: userIds }, "shares.0": { $exists: true } })
+		.project<{ _id: ObjectId; name: string; shares: VectorStoreShare[] }>({
+			_id: 1,
+			name: 1,
+			shares: 1,
+		})
+		.toArray();
+	for (const row of bases) {
+		resources.push({
+			kind: "knowledge_base",
+			id: row._id.toString(),
+			title: row.name,
+			audience: audienceFor(row.shares),
+		});
+	}
+
+	const assistants = await collections.assistants
+		.find({ createdById: { $in: userIds }, review: ReviewStatus.APPROVED })
+		.project<{ _id: ObjectId; name: string }>({ _id: 1, name: 1 })
+		.toArray();
+	for (const row of assistants) {
+		resources.push({
+			kind: "assistant",
+			id: row._id.toString(),
+			title: row.name,
+			audience: "everyone",
+		});
+	}
+
+	return resources;
+}
+
 export interface ErasurePreview {
 	counts: Record<string, number>;
 	/** A caveat, not a per-person count: shares made before
@@ -94,6 +193,8 @@ export interface ErasurePreview {
 	 * any exist, system-wide, since they can never be tied to a person by
 	 * this or any later run. */
 	unattributedLegacyShares: number;
+	/** Named and audienced, per `SharedResource`'s own doc comment. */
+	shared: SharedResource[];
 }
 
 export async function previewErasure(
@@ -116,7 +217,9 @@ export async function previewErasure(
 		userId: { $exists: false },
 	});
 
-	return { counts, unattributedLegacyShares };
+	const shared = await sharedResourcesFor(userIds);
+
+	return { counts, unattributedLegacyShares, shared };
 }
 
 export interface ErasureResult {

@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 
 import { collections, ready } from "$lib/server/database";
+import { ReviewStatus } from "$lib/types/Review";
 
 const dropMachineConnection = vi.fn();
 vi.mock("$lib/server/code/machines", () => ({
@@ -116,6 +117,119 @@ describe("previewErasure", () => {
 		const preview = await previewErasure(`gw-${new ObjectId()}`, []);
 		expect(preview.counts.users).toBe(0);
 		expect(preview.counts.conversations).toBe(0);
+		expect(preview.shared).toEqual([]);
+	});
+
+	it("names every resource someone else can see, with its audience", async () => {
+		const gatewayUserId = `gw-${new ObjectId()}`;
+		const user = await makeUser({ gatewayUserId });
+
+		const shareId = `share-${new ObjectId().toString().slice(0, 8)}`;
+		await collections.sharedConversations.insertOne({
+			_id: shareId,
+			hash: shareId,
+			title: "A shared chat",
+			messages: [],
+			model: "m",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			userId: user._id,
+		} as never);
+
+		const projectId = new ObjectId();
+		await collections.projects.insertOne({
+			_id: projectId,
+			userId: user._id,
+			name: "Shared project",
+			instructions: "",
+			knowledgeBaseIds: [],
+			indexPastChats: false,
+			retrievalLimit: 5,
+			shares: [{ kind: "user", email: "colleague@example.org", createdAt: new Date() }],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		const unsharedProjectId = new ObjectId();
+		await collections.projects.insertOne({
+			_id: unsharedProjectId,
+			userId: user._id,
+			name: "Private project",
+			instructions: "",
+			knowledgeBaseIds: [],
+			indexPastChats: false,
+			retrievalLimit: 5,
+			shares: [],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		const baseId = new ObjectId();
+		await collections.vectorStores.insertOne({
+			_id: baseId,
+			ownerId: user._id,
+			name: "Shared base",
+			embeddingModel: "e",
+			dimensions: null,
+			chunkChars: 100,
+			chunkOverlap: 0,
+			shares: [{ kind: "group", principal: "engineering", role: "viewer" }],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		const assistantId = new ObjectId();
+		await collections.assistants.insertOne({
+			_id: assistantId,
+			createdById: user._id,
+			name: "Published assistant",
+			modelId: "m",
+			exampleInputs: [],
+			preprompt: "",
+			review: ReviewStatus.APPROVED,
+			searchTokens: [],
+			last24HoursCount: 0,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		try {
+			const preview = await previewErasure(gatewayUserId, []);
+			expect(preview.shared).toEqual(
+				expect.arrayContaining([
+					{
+						kind: "shared_conversation",
+						id: shareId,
+						title: "A shared chat",
+						audience: "anyone with the link",
+					},
+					{
+						kind: "project",
+						id: projectId.toString(),
+						title: "Shared project",
+						audience: "1 person",
+					},
+					{
+						kind: "knowledge_base",
+						id: baseId.toString(),
+						title: "Shared base",
+						audience: "everyone",
+					},
+					{
+						kind: "assistant",
+						id: assistantId.toString(),
+						title: "Published assistant",
+						audience: "everyone",
+					},
+				])
+			);
+			expect(preview.shared.some((r) => r.id === unsharedProjectId.toString())).toBe(false);
+		} finally {
+			await collections.sharedConversations.deleteOne({ _id: shareId });
+			await collections.projects.deleteMany({ _id: { $in: [projectId, unsharedProjectId] } });
+			await collections.vectorStores.deleteOne({ _id: baseId });
+			await collections.assistants.deleteOne({ _id: assistantId });
+		}
 	});
 });
 
