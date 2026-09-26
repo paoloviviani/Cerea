@@ -272,4 +272,18 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 		expect(sidePane.open).toBe(false);
 		await expect.element(screen.getByRole("button", { name: "Download report.pdf" })).toBeVisible();
 	});
+
+	it("refuses an oversized text file even though the recorded size is small", async () => {
+		// `size` is the metadata passed in as a prop, not the bytes themselves —
+		// this recreates a caller under-reporting it, the same gap the pdf/docx
+		// checks above already close on their own byte read.
+		const big = new Uint8Array(8 * 1024 * 1024 + 1);
+		sessionMock.readFile.mockResolvedValue(big.buffer as ArrayBuffer);
+		const screen = render(FileCard, {
+			file: { path: "/home/pyodide/notes.txt", size: 10 },
+		});
+		await screen.getByRole("button", { name: "Preview notes.txt" }).click();
+		await expect.element(screen.getByText("too large to preview", { exact: false })).toBeVisible();
+		expect(screen.baseElement.querySelector("pre")).toBeNull();
+	});
 });

@@ -114,7 +114,14 @@
 				const res = await fetch(url);
 				if (!res.ok) throw new Error("that file is no longer available");
 				if (selected === "text") {
-					const text = await res.text();
+					const blob = await res.blob();
+					if (cancelled) return;
+					// The recorded size is metadata from the message, not the bytes
+					// themselves — re-check what actually arrived before decoding it all.
+					if (blob.size > FILE_PREVIEW_TEXT_MAX_BYTES) {
+						throw new Error("too large to preview — download it to read the whole file");
+					}
+					const text = await blob.text();
 					if (cancelled) return;
 					payload =
 						text.length > FILE_PREVIEW_TEXT_CHARS
@@ -133,6 +140,12 @@
 				} else if (selected === "pdf") {
 					const blob = await res.blob();
 					if (cancelled) return;
+					// The recorded size is metadata from the message, not the bytes
+					// themselves — re-check what actually arrived before building the
+					// data: URL (base64 inflates a third on top of it).
+					if (blob.size > FILE_PREVIEW_MAX_BYTES) {
+						throw new Error("too large to preview — download it to read the whole document");
+					}
 					// Typed application/pdf by this app: a typeless blob framed
 					// here downloads instead of rendering.
 					const dataUrl = await dataUrlOf(new Blob([blob], { type: "application/pdf" }));
@@ -141,6 +154,12 @@
 				} else {
 					const buffer = await res.arrayBuffer();
 					if (cancelled) return;
+					// The recorded size is metadata from the message, not the bytes
+					// themselves — re-check what actually arrived before handing it to
+					// docx-preview.
+					if (buffer.byteLength > FILE_PREVIEW_MAX_BYTES) {
+						throw new Error("too large to preview — download it to read the whole document");
+					}
 					const bytes = new Uint8Array(buffer);
 					const { renderAsync } = await import("docx-preview");
 					if (cancelled) return;
