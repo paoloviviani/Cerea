@@ -116,6 +116,7 @@ export function getEnabledBuiltinTools(params: {
 		mlAssistant,
 		artifactsOverride: params.artifactsOverride,
 		supportsArtifacts: params.modelArtifacts?.supportsArtifacts,
+		supportsTools: params.modelArtifacts?.supportsTools,
 		toolsEnabled: params.toolsEnabled,
 		artifactsMode: params.modelArtifacts?.artifactsMode,
 	});

@@ -61,17 +61,32 @@ export function injectArtifactsPrompt(preprompt?: string): string {
 
 /**
  * Whether this turn carries the artifacts instructions: the ML Assistant
- * preset force-enables them, otherwise they stay opt-in per model with a
- * per-model user override. Single source of truth for both the system-prompt
- * assembly (`resolvePreprompt`) and the tool loop, which needs to know the
- * same answer to place the artifact/tool rule next to the tool guidance.
+ * preset force-enables them, otherwise the effective default is whether the
+ * model does tool calling at all — `supportsArtifacts` on the model entry,
+ * when set, always wins (an explicit `false` stays off even for a
+ * tool-capable model), and the per-user override wins over that in both
+ * directions. The fallback reads the model's own *capability*
+ * (`supportsTools`), not whether tools happen to be enabled for this
+ * particular turn (`forceTools` can turn tools off without making the model
+ * any less tool-capable) — a tool-capable model still defaults to artifacts
+ * on when its tools are off this turn, just rendered in tags instead of the
+ * tool (`artifactsModeForTurn` below). Single source of truth for both the
+ * system-prompt assembly (`resolvePreprompt`) and the tool loop, which needs
+ * to know the same answer to place the artifact/tool rule next to the tool
+ * guidance.
  */
 export function artifactsEnabledForTurn(input: {
 	mlAssistant: boolean;
 	artifactsOverride?: boolean;
 	supportsArtifacts?: boolean;
+	/** The model's own tool-calling capability — the fallback once neither
+	 * the model entry nor the user says otherwise. */
+	supportsTools?: boolean;
 }): boolean {
-	return input.mlAssistant || (input.artifactsOverride ?? input.supportsArtifacts ?? false);
+	return (
+		input.mlAssistant ||
+		(input.artifactsOverride ?? input.supportsArtifacts ?? input.supportsTools ?? false)
+	);
 }
 
 /**
@@ -100,7 +115,11 @@ export function artifactsModeForTurn(input: {
 	mlAssistant: boolean;
 	artifactsOverride?: boolean;
 	supportsArtifacts?: boolean;
-	/** Effective tool-calling for the turn (`forceTools ?? supportsTools`). */
+	/** The model's own tool-calling capability, forwarded to
+	 * `artifactsEnabledForTurn`'s default — not this turn's effective state. */
+	supportsTools?: boolean;
+	/** Effective tool-calling for the turn (`forceTools ?? supportsTools`), which
+	 * decides tool-vs-tags mode once artifacts are known to be on. */
 	toolsEnabled?: boolean;
 	/** Explicit per-model override; presets may set one. */
 	artifactsMode?: ArtifactsMode;

@@ -50,11 +50,26 @@
 		created_at: string;
 	}
 
+	interface ExtractorCandidate {
+		id: string;
+		/** This deployment's own infrastructure — Pystino's `?include=ocr`
+		 * `local: true`, hidden from every other listing. */
+		local: boolean;
+	}
+
 	interface Status {
 		enabled: boolean;
 		ready: boolean;
 		embedding_model: string | null;
+		/** What an upload would actually be read with — already resolved:
+		 * env, then the screen's own stored choice, then the local extractor,
+		 * then the first reader, then null. Never "Automatic": there is no
+		 * value left that means "let the deployment decide and show nothing". */
 		extractor_model: string | null;
+		/** `"env"` means `extractor_model` is fixed by the deployment's own
+		 * configuration and the picker is read-only; every other value is
+		 * choosable. */
+		extractor_source: "env" | "stored" | "local-default" | "first-available" | "none";
 		vector_store: string;
 		chunk_chars: number;
 		chunk_overlap: number;
@@ -63,7 +78,7 @@
 		propagation_seconds: number;
 		detail: string | null;
 		available_embedding_models: string[];
-		available_extractor_models: string[];
+		available_extractor_models: ExtractorCandidate[];
 		bases: BaseSummary[];
 		stale_base_count: number;
 		history: ConfigEntry[];
@@ -76,23 +91,22 @@
 	let notice = $state<string | null>(null);
 	let reindexing = $state<string | null>(null);
 
-	// The empty option is "Automatic" — the deployment default, not a reader of
-	// its own. There was once a third value here, a "built-in extractor" that
-	// was really the absence of one: choosing it extracted no documents at all
-	// while promising to read them. The deployment's own reader is an ordinary
-	// model in the list below once it is registered on the gateway.
-	const AUTOMATIC = "";
-
 	let embedding = $state("");
-	let extractor = $state(AUTOMATIC);
+	let extractor = $state("");
 	let chunkChars = $state("1200");
 	let chunkOverlap = $state("150");
 	let reason = $state("");
 
 	function seed(next: Status) {
 		status = next;
-		embedding = next.embedding_model ?? "";
-		extractor = next.extractor_model ?? AUTOMATIC;
+		// Pre-selected, not left on an empty "none chosen": the deployment's
+		// resolved default (embedding: the first available model; the
+		// document reader: `extractor_model`, already resolved the same way
+		// `extractDocument.ts` would). Untouched, a save has nothing to send —
+		// the diff below compares against this same default, not against a
+		// stored value that may be null.
+		embedding = next.embedding_model ?? next.available_embedding_models[0] ?? "";
+		extractor = next.extractor_model ?? "";
 		chunkChars = String(next.chunk_chars);
 		chunkOverlap = String(next.chunk_overlap);
 		reason = "";
@@ -114,14 +128,20 @@
 
 	onMount(load);
 
+	// The pre-filled default a save that touches nothing is compared against —
+	// the resolved value the picker showed, not the raw stored column, which
+	// may be null while the picker still shows something concrete.
+	const embeddingDefault = $derived(
+		status ? (status.embedding_model ?? status.available_embedding_models[0] ?? "") : ""
+	);
+	const extractorDefault = $derived(status ? (status.extractor_model ?? "") : "");
+
 	// The only change that alters *where documents go*, and therefore the only
 	// one that asks for a sentence. The gateway enforces this too; the form
-	// states it so the refusal is never a surprise.
-	const needsReason = $derived(
-		status !== null &&
-			extractor !== (status.extractor_model ?? AUTOMATIC) &&
-			extractor !== AUTOMATIC
-	);
+	// states it so the refusal is never a surprise. Never true while the
+	// picker is fixed by the environment: `extractor` cannot move away from
+	// `extractorDefault` when there is no select bound to it.
+	const needsReason = $derived(status !== null && extractor !== extractorDefault);
 
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
@@ -133,12 +153,11 @@
 		// not decide", so sending a whole document would overwrite settings
 		// nobody touched — and silently re-chunk every base created afterwards.
 		const body: Record<string, unknown> = {};
-		if (embedding && embedding !== (status.embedding_model ?? "")) {
+		if (embedding && embedding !== embeddingDefault) {
 			body.embedding_model = embedding;
 		}
-		if (extractor !== (status.extractor_model ?? AUTOMATIC)) {
-			if (extractor === AUTOMATIC) body.clear_extractor = true;
-			else body.extractor_model = extractor;
+		if (status.extractor_source !== "env" && extractor !== extractorDefault) {
+			body.extractor_model = extractor;
 		}
 		if (Number(chunkChars) !== status.chunk_chars) body.chunk_chars = Number(chunkChars);
 		if (Number(chunkOverlap) !== status.chunk_overlap) {
@@ -246,7 +265,6 @@
 					bind:value={embedding}
 					disabled={status.available_embedding_models.length === 0}
 				>
-					<option value="">— none chosen —</option>
 					{#each status.available_embedding_models as name (name)}
 						<option value={name}>{name}</option>
 					{/each}
@@ -264,21 +282,38 @@
 
 			<label class="flex flex-col gap-1">
 				<span class="text-sm font-medium">Document extraction</span>
-				<select
-					class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-					bind:value={extractor}
-				>
-					<option value={AUTOMATIC}>Automatic — the deployment default</option>
-					{#each status.available_extractor_models as name (name)}
-						<option value={name}>{name}</option>
-					{/each}
-				</select>
+				{#if status.extractor_source === "env"}
+					<div
+						class="rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+					>
+						{status.extractor_model} — <span class="text-xs">set in the environment</span>
+					</div>
+				{:else}
+					<select
+						class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+						bind:value={extractor}
+						disabled={status.available_extractor_models.length === 0}
+					>
+						{#each status.available_extractor_models as candidate (candidate.id)}
+							<option value={candidate.id}>
+								{candidate.local
+									? `Local extractor (${candidate.id}): on this server, text-layer PDFs and Office files`
+									: candidate.id}
+							</option>
+						{/each}
+					</select>
+				{/if}
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					Automatic reads with <code class="text-xs">CHAT_OCR_MODEL</code> when the environment names
-					one, else the first reader in the catalogue this account may use. This deployment's own reader
-					— Word, Excel, PowerPoint and text-layer PDFs, read on this hardware — appears in the list once
-					it is registered on the gateway. A scan needs an OCR model, which sends the document to that
-					provider.
+					{#if status.available_extractor_models.length === 0}
+						This deployment has no document reader in its catalogue. One has to be created — or this
+						deployment's own local extractor registered — in the gateway's own console first.
+					{:else if status.extractor_source === "env"}
+						Set with <code class="text-xs">CHAT_OCR_MODEL</code> in the environment; this deployment's
+						operator decided, not this screen.
+					{:else}
+						Every reader this account may use, including this deployment's own extractor when the
+						gateway has one. A scan needs an OCR model, which sends the document to that provider.
+					{/if}
 				</span>
 			</label>
 
@@ -444,7 +479,7 @@
 							</div>
 							<div>
 								{entry.embedding_model ?? "no embedding model"} · {entry.extractor_model ??
-									"automatic"}
+									"no reader chosen"}
 							</div>
 							{#if entry.reason}
 								<div class="text-xs text-gray-500">{entry.reason}</div>

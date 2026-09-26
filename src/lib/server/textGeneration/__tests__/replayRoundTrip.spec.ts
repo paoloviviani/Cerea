@@ -283,6 +283,12 @@ async function newConversation() {
 		_id: new ObjectId(),
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		toolApprovalPolicy: "always-allow",
+		// This harness is about replay and budget degradation, not artifacts —
+		// the fixture model is tool-capable, so it would otherwise default on
+		// (the new `supportsTools` fallback) and grow the system prompt with
+		// the tags instructions on every `withTools: false` turn here, which
+		// is not what any of these tests are measuring.
+		artifactsOverrides: { [MODEL_ID]: false },
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	} as never);

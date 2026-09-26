@@ -208,8 +208,15 @@
 				key: "artifacts",
 				label: "Artifacts",
 				detail: "Show substantial output in a side panel rather than inline.",
-				advertised: Boolean(model.supportsArtifacts),
-				current: $settings.artifactsOverrides?.[model.id] ?? Boolean(model.supportsArtifacts),
+				// The effective default (`artifactsEnabledForTurn`, server-side):
+				// an explicit flag on the model entry always wins; absent one, any
+				// tool-capable model has artifacts on. `Boolean(undefined)` would
+				// read "unset" as "off", which is the bug this replaces.
+				advertised: model.supportsArtifacts ?? Boolean(model.supportsTools),
+				current:
+					$settings.artifactsOverrides?.[model.id] ??
+					model.supportsArtifacts ??
+					Boolean(model.supportsTools),
 				set: (value) => setArtifacts(model.id, value),
 			},
 		];

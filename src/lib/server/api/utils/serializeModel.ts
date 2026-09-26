@@ -7,6 +7,7 @@ import type { GETModelResponse, GETModelsResponse } from "$lib/server/api/types"
 // functions, etc.). Every field that leaves the server is listed explicitly.
 
 export function serializeModelSummary(model: ProcessedModel): GETModelsResponse[number] {
+	const supportsTools = (model as unknown as { supportsTools?: boolean }).supportsTools ?? false;
 	return {
 		id: model.id,
 		name: model.name,
@@ -21,11 +22,15 @@ export function serializeModelSummary(model: ProcessedModel): GETModelsResponse[
 		preprompt: model.preprompt,
 		multimodal: model.multimodal,
 		multimodalAcceptedMimetypes: model.multimodalAcceptedMimetypes,
-		supportsTools: (model as unknown as { supportsTools?: boolean }).supportsTools ?? false,
+		supportsTools,
 		supportsReasoning:
 			(model as unknown as { supportsReasoning?: boolean }).supportsReasoning ?? false,
+		// The effective default (`artifactsEnabledForTurn`): an explicit flag on
+		// the model entry always wins; absent one, any tool-capable model has
+		// artifacts on — so this reports what a turn would actually do, not
+		// "unset" read as off.
 		supportsArtifacts:
-			(model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts ?? false,
+			(model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts ?? supportsTools,
 		unlisted: model.unlisted,
 		hasInferenceAPI: model.hasInferenceAPI,
 		isRouter: model.isRouter,

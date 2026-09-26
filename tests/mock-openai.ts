@@ -14,6 +14,23 @@ import { MODELS_FIXTURE } from "../src/lib/server/__fixtures__/models.ts";
 
 export const MOCK_OPENAI_PORT = Number(process.env.MOCK_OPENAI_PORT ?? 8788);
 
+/**
+ * Pystino's own `GET /v1/models?include=…` shape, distinct from `MODELS_FIXTURE`
+ * above (an OpenRouter-shaped catalogue for the boot-time model list). This is
+ * what `knowledge/service.ts` and `extractDocument.ts` read to build the
+ * document-reader and embedding-model pickers: an embedding model, an ordinary
+ * upstream OCR model, and this deployment's own local extractor, flagged
+ * `local: true` the way Pystino's `?include=ocr` does from a940516 onward.
+ */
+export const KNOWLEDGE_MODELS_FIXTURE = {
+	object: "list",
+	data: [
+		{ id: "test-embedding", kind: "embedding" },
+		{ id: "mistral-ocr-4.1", kind: "ocr" },
+		{ id: "markitdown", kind: "ocr", local: true },
+	],
+};
+
 /** A tool call the upstream asks the app to perform. */
 export interface ToolCallSpec {
 	id: string;
@@ -254,7 +271,30 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 
 		// ── Model list — the app hard-requires this at boot ──────────────────────
 		if (url.pathname === "/v1/models" && req.method === "GET") {
+			// `?include=` is Pystino's own gateway shape (`{id, kind, local}`),
+			// asked for by the Knowledge screen and `extractDocument.ts` — never
+			// by the boot-time catalogue fetch, which takes the plain path and
+			// gets the OpenRouter-shaped `MODELS_FIXTURE` below unchanged.
+			if (url.searchParams.has("include")) {
+				json(res, 200, KNOWLEDGE_MODELS_FIXTURE);
+				return;
+			}
 			json(res, 200, MODELS_FIXTURE);
+			return;
+		}
+
+		// ── Who am I — `admin.ts`'s `callerIdentity`, the gate on every admin
+		// route (the Knowledge screen among them). Fixed rather than scriptable:
+		// nothing here yet needs a non-admin caller to test a refusal.
+		if (url.pathname === "/v1/me" && req.method === "GET") {
+			json(res, 200, {
+				id: "e2e-admin",
+				email: "admin@example.test",
+				display_name: "E2E Admin",
+				is_admin: true,
+				groups: [],
+				default_billing_group: null,
+			});
 			return;
 		}
 
