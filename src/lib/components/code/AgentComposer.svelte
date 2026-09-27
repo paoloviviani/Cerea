@@ -51,6 +51,9 @@
 		setAgentMode,
 		setAgentModel,
 		setAgentEffort,
+		compactAgent,
+		unrevertAgent,
+		CodeApiError,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
@@ -70,6 +73,7 @@
 		AgentUsageUpdate,
 		CodeAgentSession,
 	} from "$lib/types/CodeAgent";
+	import { matchSlashCommand, type SlashCommand } from "$lib/utils/slashCommand.svelte";
 	import ContextMeter from "./ContextMeter.svelte";
 
 	interface Props {
@@ -125,6 +129,20 @@
 		/** Whether the backend advertised the `usage` capability in `hello` —
 		 * the meter renders nothing at all when it did not. */
 		usageSupported?: boolean;
+		/** Whether the backend can compact on request (`hello` capability
+		 * `compact`) — the `/compact` command needs it; ContextMeter's own
+		 * "Compact now" hides without it too. */
+		compactSupported?: boolean;
+		/** Whether the backend can roll a session back (`hello` capability
+		 * `revert`) — `/undo` and `/redo` need it. */
+		revertSupported?: boolean;
+		/** Opens the rollback confirmation for `/undo` — the view owns it,
+		 * because only the transcript knows the last user message's machine
+		 * id and carries the same confirm dialog the retry action uses. */
+		onundo?: () => void;
+		/** Opens the new-agent dialog on this agent's workspace — the view
+		 * owns the workspace object the dialog needs. */
+		onnew?: () => void;
 	}
 
 	let {
@@ -144,6 +162,10 @@
 		usage = null,
 		lastCompaction = null,
 		usageSupported = false,
+		compactSupported = false,
+		revertSupported = false,
+		onundo,
+		onnew,
 
 		effortsSupported = false,
 	}: Props = $props();
@@ -157,6 +179,28 @@
 		if (enrollmentExpired || offline) return;
 		const message = draft.trim();
 		if (!message || busy) return;
+		// A draft that names a panel command runs it instead of posting a
+		// message. The ChatInput Enter path parses the same rule and calls
+		// onslashcommand directly (below), so this re-parse is only reached
+		// by the send button's own form submit — either way one parse runs.
+		const run = matchSlashCommand(message, panelCommands);
+		if (run) {
+			if (running) {
+				// The send button is hidden while a turn runs, and a command
+				// must not join it half-explained: steering is a later wave.
+				errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+				return;
+			}
+			busy = true;
+			try {
+				await runCommand(run);
+				draft = "";
+				files = [];
+			} finally {
+				busy = false;
+			}
+			return;
+		}
 		busy = true;
 		try {
 			await onsend(message, files);
@@ -168,6 +212,165 @@
 			busy = false;
 		}
 	}
+
+	/** The one panel command run, shared by the Enter path (ChatInput's
+	 * `onslashcommand`) and the send button's own form submit. */
+	async function onSlashCommand(command: SlashCommand, args: string) {
+		if (enrollmentExpired || offline || busy) return;
+		if (running) {
+			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+			return;
+		}
+		busy = true;
+		try {
+			await runCommand({ command, args });
+			draft = "";
+			files = [];
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** Run one panel command over its existing route — no new API. A failure
+	 * lands in a toast; the command's draft is cleared only by the caller
+	 * after this resolves, so a refusal keeps the text to retry. */
+	async function runCommand({ command, args }: { command: SlashCommand; args: string }) {
+		switch (command.name) {
+			case "compact": {
+				try {
+					await compactAgent(deviceId, agentId);
+					onchanged();
+				} catch (err) {
+					if (err instanceof CodeApiError && err.status === 404) {
+						errorToast.set("This backend cannot compact on request.");
+					} else {
+						errorToast.set(err instanceof Error ? err.message : "The daemon refused to compact.");
+					}
+				}
+				return;
+			}
+			case "undo":
+				// The confirmation — and the machine id it needs — live in the
+				// view, the same dialog the transcript's retry action uses.
+				onundo?.();
+				return;
+			case "redo": {
+				try {
+					await unrevertAgent(deviceId, agentId);
+					onchanged();
+				} catch (err) {
+					errorToast.set(
+						err instanceof Error ? err.message : "The daemon refused to undo the rollback."
+					);
+				}
+				return;
+			}
+			case "model": {
+				// No argument: open the picker. An argument: the unique fuzzy
+				// match applies outright; anything else opens the picker for a
+				// proper search rather than guessing between near-misses.
+				const query = args.toLowerCase();
+				if (!query) {
+					modelPickerOpen = true;
+					return;
+				}
+				const matches = (models ?? []).filter(
+					(model) =>
+						model.id.toLowerCase().includes(query) || model.label.toLowerCase().includes(query)
+				);
+				if (matches.length === 1) {
+					rememberCodeModel(matches[0].id);
+					await applyModel(matches[0].id);
+				} else {
+					modelPickerOpen = true;
+				}
+				return;
+			}
+			case "mode": {
+				const query = args.toLowerCase();
+				if (!query) {
+					modeMenuOpen = true;
+					return;
+				}
+				const matches = (modes ?? []).filter(
+					(mode) =>
+						mode.id.toLowerCase().includes(query) || mode.label.toLowerCase().includes(query)
+				);
+				if (matches.length === 1) {
+					await applyMode(matches[0].id);
+				} else {
+					modeMenuOpen = true;
+				}
+				return;
+			}
+			case "effort": {
+				const query = args.toLowerCase();
+				const levels = effortLevels ?? [];
+				if (!query) {
+					modelPickerOpen = true;
+					return;
+				}
+				const matches = levels.filter((level) => level.toLowerCase().includes(query));
+				if (matches.length === 1) {
+					await applyEffort(matches[0]);
+				} else {
+					modelPickerOpen = true;
+				}
+				return;
+			}
+			case "new":
+				onnew?.();
+				return;
+			default:
+				return;
+		}
+	}
+
+	/**
+	 * The panel commands the `/` menu lists: only what this agent's backend
+	 * can actually do — compact and rollback gated on their `hello`
+	 * capabilities, effort on the model's levels — and nothing more. Panel
+	 * names are reserved; batch C's backend commands will shadow against
+	 * this list, not extend it.
+	 */
+	let panelCommands = $derived<SlashCommand[]>([
+		...(compactSupported
+			? [{ name: "compact", description: "Compact the conversation now", group: "panel" as const }]
+			: []),
+		...(revertSupported
+			? [
+					{
+						name: "undo",
+						description: "Roll back to before the last prompt",
+						group: "panel" as const,
+					},
+					{ name: "redo", description: "Undo the last rollback", group: "panel" as const },
+				]
+			: []),
+		{
+			name: "model",
+			description: "Switch the model the agent runs",
+			hint: "[model]",
+			group: "panel" as const,
+		},
+		{
+			name: "mode",
+			description: "Switch the agent's mode",
+			hint: "[mode]",
+			group: "panel" as const,
+		},
+		...(effortsSupported
+			? [
+					{
+						name: "effort",
+						description: "Set the thinking effort",
+						hint: "[level]",
+						group: "panel" as const,
+					},
+				]
+			: []),
+		{ name: "new", description: "Start a new agent on this workspace", group: "panel" as const },
+	]);
 
 	// The two option lists, live from the daemon for the agent's provider.
 	// Fetched eagerly rather than on first open: the pills resolve their
@@ -413,6 +616,11 @@
 	 * with chat's own "More models"), for a catalog longer than the pill's
 	 * six-row short list. */
 	let modelDialogOpen = $state(false);
+	/** The picker's popover, bindable from the component — `/model` (and
+	 * `/effort`) with no argument opens it instead of guessing a choice. */
+	let modelPickerOpen = $state(false);
+	/** The mode pill's menu, same reason: `/mode` with no argument opens it. */
+	let modeMenuOpen = $state(false);
 
 	// Below `sm` there is no hover to carry a machine-policy veto's reason, so
 	// a vetoed feature pill there stays tappable (not `disabled`) and opens a
@@ -488,6 +696,8 @@
 				bind:files
 				onsubmit={submit}
 				bind:focused
+				slashCommands={panelCommands}
+				onslashcommand={onSlashCommand}
 			>
 				{#snippet children()}
 					<!-- Only the state that belongs *in* the prompt box renders here:
@@ -499,7 +709,7 @@
 				     model/effort line; the mode (build/plan) pill stays here —
 				     a session toggle beside the toggles, not a trailing
 				     readout. -->
-					<DropdownMenu.Root>
+					<DropdownMenu.Root bind:open={modeMenuOpen}>
 						<DropdownMenu.Trigger
 							class={pillClass}
 							disabled={applying === "mode"}
@@ -725,6 +935,7 @@
 		</span>
 	{:else}
 		<ModelEffortPicker
+			bind:open={modelPickerOpen}
 			models={pickerModels}
 			currentId={currentModel?.id ?? agent?.modelId ?? ""}
 			recentIds={codeRecentIds}
