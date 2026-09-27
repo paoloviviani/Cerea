@@ -15,9 +15,10 @@
 		label: string;
 		title?: string;
 		disabled?: boolean;
-		/** /code's composer row goes icon-only under `sm`, keeping the label
-		 * for a screen reader (`sr-only`) rather than dropping it — chat's own
-		 * two toggles never compact, so this defaults off. */
+		/** Icon-only under `sm`, keeping the label for a screen reader
+		 * (`sr-only`) rather than dropping it. Icon size matches the
+		 * composer's plus button (`size-8` target, `text-base` icon), so the
+		 * compacted pills don't read as smaller siblings. */
 		compact?: boolean;
 		onclick: () => void;
 		/** The pill's own icon, since it differs per toggle (and, for /code's
@@ -31,7 +32,7 @@
 <button
 	type="button"
 	class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {compact
-		? 'max-sm:h-6 max-sm:gap-0.5 max-sm:px-1.5'
+		? 'max-sm:size-8 max-sm:justify-center max-sm:gap-0 max-sm:rounded-full max-sm:border-0 max-sm:bg-transparent max-sm:px-0 max-sm:text-base'
 		: ''} {pressed
 		? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
 		: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'} disabled:opacity-60"
