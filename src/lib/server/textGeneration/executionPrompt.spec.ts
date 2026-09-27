@@ -131,6 +131,16 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("no sockets, no urllib, no requests to any URL");
 	});
 
+	it("tells the model to install before importing, since the names differ", () => {
+		// Recorded live twice: the model wrote `from docx import Document` with
+		// no install and got ModuleNotFoundError. The runtime now auto-installs
+		// a run's own imports too (pyodide.worker.ts), but the prompt belt still
+		// teaches the model the correct order and that the names differ.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("Install before importing");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain('micropip.install("python-docx")');
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("the package name differs from the import name");
+	});
+
 	it("teaches the self-healing doctrine: translate non-Python steps, prefer the real package", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("Self-healing");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("bash, a shell one-liner, Node");

@@ -266,4 +266,43 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 		},
 		{ timeout: 180_000 }
 	);
+
+	it(
+		"the auto-install pass leaves ordinary runs alone and unknown imports fail normally",
+		async () => {
+			// The worker installs a run's own imports before it runs (see
+			// ./autoInstallImports): lock-file packages via
+			// loadPackagesFromImports, vendored document packages through
+			// micropip. Both tiers are best-effort — this guards the wiring
+			// against the real interpreter without needing any network: a
+			// stdlib-only run must come back clean with no install chatter,
+			// and an unrecognized import must still report the interpreter's
+			// own ModuleNotFoundError rather than hanging or crashing.
+			gateProcessFetch();
+			const scope = makeScope();
+
+			send(scope, {
+				type: "run",
+				id: 1,
+				code: "import collections\nprint(collections.Counter('aab'))",
+			});
+			const stdlib = (await until(scope, (m) => m.type === "result" && m.id === 1)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(stdlib.ok).toBe(true);
+			expect(stdlib.stdout).toContain("Counter");
+			expect(stdlib.stdout).not.toContain("Installing");
+
+			send(scope, { type: "run", id: 2, code: "import not_a_real_module_xyz" });
+			const unknown = (await until(scope, (m) => m.type === "result" && m.id === 2)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(unknown.ok).toBe(false);
+			expect(unknown.error).toContain("ModuleNotFoundError");
+			expect(unknown.error).toContain("not_a_real_module_xyz");
+		},
+		{ timeout: 180_000 }
+	);
 });
