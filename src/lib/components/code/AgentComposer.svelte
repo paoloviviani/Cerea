@@ -490,114 +490,17 @@
 				bind:focused
 			>
 				{#snippet children()}
-					<!-- The pills live inside the prompt box's own scrollable pill
-					     row (ChatInput's toolbar row), not a div of their own: below
-					     `sm` that row goes nowrap-and-scroll, and the `+` before it
-					     plus the ring after it (`trailingActions`, below) are pinned
-					     outside it, so neither ever scrolls away. -->
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger
-							class={pillClass}
-							disabled={applying === "mode"}
-							title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
-						>
-							<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
-							<IconChevronDown class={chevronClass} />
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Portal>
-							<DropdownMenu.Content
-								class={menuContentClass}
-								side="top"
-								align="start"
-								sideOffset={8}
-								trapFocus={false}
-								onCloseAutoFocus={(e) => e.preventDefault()}
-								interactOutsideBehavior="defer-otherwise-close"
-							>
-								{#if modes === null && !modesFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Loading modes…
-									</DropdownMenu.Item>
-								{:else if modesFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Could not load modes: {modesFailure}
-									</DropdownMenu.Item>
-								{:else if !modes?.length}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										The daemon lists no modes.
-									</DropdownMenu.Item>
-								{:else}
-									{#each modes as mode (mode.id)}
-										<DropdownMenu.Item
-											class={menuItemClass}
-											onSelect={() => void applyMode(mode.id)}
-										>
-											<IconCheck
-												class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
-													? 'opacity-100'
-													: 'opacity-0'}"
-											/>
-											<span class="whitespace-nowrap" title={mode.description}>
-												{mode.label}
-											</span>
-										</DropdownMenu.Item>
-									{/each}
-								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Portal>
-					</DropdownMenu.Root>
-
-					<!-- The model/effort pill: the chat composer's own
-					     `ModelEffortPicker`, not a /code-only dropdown — same
-					     look, same short list, same checkmark resolution
-					     (`resolveActiveModel`, above). The daemon's loading and
-					     failure states have no row to render inside an empty
-					     menu, so they stay a plain disabled pill beside it
-					     rather than forcing a fork of the shared menu's
-					     internals for a state chat never has. -->
-					{#if models === null && !modelsFailure}
-						<span class="{pillClass} opacity-60" aria-disabled="true">
-							<span class="max-sm:max-w-12 max-sm:truncate">Loading models…</span>
-						</span>
-					{:else if modelsFailure}
-						<span class="{pillClass} opacity-60" title={modelsFailure}>
-							<span class="max-w-48 truncate max-sm:max-w-20">Could not load models</span>
-						</span>
-					{:else if !models?.length}
-						<span class="{pillClass} opacity-60">
-							<span class="max-sm:max-w-12 max-sm:truncate">The daemon lists no models.</span>
-						</span>
-					{:else}
-						<ModelEffortPicker
-							models={pickerModels}
-							currentId={currentModel?.id ?? agent?.modelId ?? ""}
-							recentIds={codeRecentIds}
-							efforts={effortLevels}
-							effort={agent?.effort ?? undefined}
-							onpickModel={(id) => {
-								rememberCodeModel(id);
-								void applyModel(id);
-							}}
-							onpickEffort={(level) => void applyEffort(level ?? null)}
-							onmore={() => (modelDialogOpen = true)}
-							disabled={applying === "model" || applying === "effort"}
-							triggerClass={pillClass}
-						>
-							<span class="max-w-48 truncate max-sm:max-w-20" title={modelLabel}>{modelLabel}</span>
-							{#snippet footer()}
-								{#if modelsHidden > 0}
-									<div class={menuNoteClass}>
-										{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this
-										machine was enrolled without --allow-free-models.
-									</div>
-								{/if}
-							{/snippet}
-						</ModelEffortPicker>
-					{/if}
-
+					<!-- Only the state that belongs *in* the prompt box renders here:
+				     the feature toggles and the status banners. Below `sm` the
+				     toolbar row goes nowrap-and-scroll, with the `+` before it
+				     and the ring after it pinned outside it, so none of those
+				     scroll away. The mode/model/effort pills used to live here
+				     too, but the regular chat draws its model/effort row BELOW
+				     the composer — so they moved to their own row after the
+				     form (same look, same classes), matching chat's layout. -->
 					<!-- The provider's feature toggles, drawn like chat's own
-					     toggle pills (web search, tool approval): blue when on,
-					     gray when off, `aria-pressed` carrying the state, icon
+				     toggle pills (web search, tool approval): blue when on,
+				     gray when off, `aria-pressed` carrying the state, icon
 					     alone below `sm` (the label stays for a screen reader as
 					     `sr-only` text, so the accessible name survives going
 					     icon-only). The value is the agent snapshot's word; a
@@ -746,6 +649,109 @@
 		</div>
 	</div>
 </form>
+
+<!-- The mode/model/effort row, BELOW the composer like the regular chat's
+     model/effort row (`ChatWindow`'s `mt-1.5` line under its form): same
+     pills, same classes, same menus — only the row's address changed. It
+     sits outside ChatInput's scrollable toolbar row, so on mobile nothing
+     masks it and the pills keep their full labels. -->
+<div
+	class="mt-1.5 flex flex-wrap items-center gap-1.5 px-0.5 text-xs text-gray-500 max-md:mb-2 dark:text-gray-400"
+>
+	<DropdownMenu.Root>
+		<DropdownMenu.Trigger
+			class={pillClass}
+			disabled={applying === "mode"}
+			title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
+		>
+			<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
+			<IconChevronDown class={chevronClass} />
+		</DropdownMenu.Trigger>
+		<DropdownMenu.Portal>
+			<DropdownMenu.Content
+				class={menuContentClass}
+				side="top"
+				align="start"
+				sideOffset={8}
+				trapFocus={false}
+				onCloseAutoFocus={(e) => e.preventDefault()}
+				interactOutsideBehavior="defer-otherwise-close"
+			>
+				{#if modes === null && !modesFailure}
+					<DropdownMenu.Item class={menuNoteClass} disabled>Loading modes…</DropdownMenu.Item>
+				{:else if modesFailure}
+					<DropdownMenu.Item class={menuNoteClass} disabled>
+						Could not load modes: {modesFailure}
+					</DropdownMenu.Item>
+				{:else if !modes?.length}
+					<DropdownMenu.Item class={menuNoteClass} disabled>
+						The daemon lists no modes.
+					</DropdownMenu.Item>
+				{:else}
+					{#each modes as mode (mode.id)}
+						<DropdownMenu.Item class={menuItemClass} onSelect={() => void applyMode(mode.id)}>
+							<IconCheck
+								class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
+									? 'opacity-100'
+									: 'opacity-0'}"
+							/>
+							<span class="whitespace-nowrap" title={mode.description}>
+								{mode.label}
+							</span>
+						</DropdownMenu.Item>
+					{/each}
+				{/if}
+			</DropdownMenu.Content>
+		</DropdownMenu.Portal>
+	</DropdownMenu.Root>
+
+	<!-- The model/effort pill: the chat composer's own `ModelEffortPicker`,
+	     not a /code-only dropdown — same look, same short list, same
+	     checkmark resolution (`resolveActiveModel`, above). The daemon's
+	     loading and failure states have no row to render inside an empty
+	     menu, so they stay a plain disabled pill beside it rather than
+	     forcing a fork of the shared menu's internals for a state chat
+	     never has. -->
+	{#if models === null && !modelsFailure}
+		<span class="{pillClass} opacity-60" aria-disabled="true">
+			<span class="max-sm:max-w-12 max-sm:truncate">Loading models…</span>
+		</span>
+	{:else if modelsFailure}
+		<span class="{pillClass} opacity-60" title={modelsFailure}>
+			<span class="max-w-48 truncate max-sm:max-w-20">Could not load models</span>
+		</span>
+	{:else if !models?.length}
+		<span class="{pillClass} opacity-60">
+			<span class="max-sm:max-w-12 max-sm:truncate">The daemon lists no models.</span>
+		</span>
+	{:else}
+		<ModelEffortPicker
+			models={pickerModels}
+			currentId={currentModel?.id ?? agent?.modelId ?? ""}
+			recentIds={codeRecentIds}
+			efforts={effortLevels}
+			effort={agent?.effort ?? undefined}
+			onpickModel={(id) => {
+				rememberCodeModel(id);
+				void applyModel(id);
+			}}
+			onpickEffort={(level) => void applyEffort(level ?? null)}
+			onmore={() => (modelDialogOpen = true)}
+			disabled={applying === "model" || applying === "effort"}
+			triggerClass={pillClass}
+		>
+			<span class="max-w-48 truncate max-sm:max-w-20" title={modelLabel}>{modelLabel}</span>
+			{#snippet footer()}
+				{#if modelsHidden > 0}
+					<div class={menuNoteClass}>
+						{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this machine
+						was enrolled without --allow-free-models.
+					</div>
+				{/if}
+			{/snippet}
+		</ModelEffortPicker>
+	{/if}
+</div>
 
 {#if modelDialogOpen}
 	<ModelPickerDialog
