@@ -16,6 +16,7 @@ import {
 	type WorkerToHost,
 } from "./protocol";
 import { installNetworkGate, type NetworkGateController } from "./gate";
+import { autoInstallImports } from "./autoInstallImports";
 
 /**
  * The one Pyodide runtime. Runs inside a dedicated module worker so runaway
@@ -71,6 +72,11 @@ export function bootstrapWorker(
 	// always posted before the first "run" (see runtime.ts ensureWorker), so
 	// the very first micropip pin already sees the right value.
 	let pypiEnabled = false;
+	// Vendored packages installed through micropip this worker's lifetime, so
+	// a run that imports `docx` twice pays the install once. A fresh worker
+	// (after a timeout kill or a crash) starts with an empty set, correctly:
+	// its interpreter has nothing installed either.
+	const installedVendoredPackages = new Set<string>();
 
 	function post(message: WorkerToHost, transfer?: Transferable[]): void {
 		scope.postMessage(message, transfer ?? []);
@@ -225,12 +231,54 @@ export function bootstrapWorker(
 		}
 	}
 
+	/**
+	 * Install a run's own imports before it runs (see ./autoInstallImports):
+	 * Pyodide's own lock-file packages via `loadPackagesFromImports`, and the
+	 * vendored document packages through micropip against the same-origin
+	 * index only. `find_imports` on the `pyodide.code` module is a static
+	 * (AST-based) scan, not an execution — robust against code that never
+	 * actually runs far enough to import anything, unlike a regex over the
+	 * source text. It is reached through `pyimport`: the public API object
+	 * carries no `code` namespace, only the internal one does.
+	 */
+	function autoInstall(py: PyodideAPI, code: string): Promise<void> {
+		return autoInstallImports(
+			{
+				findImports: (c) => {
+					const codeModule = py.pyimport("pyodide.code") as unknown as {
+						find_imports(source: string): { toJs(): string[]; destroy(): void };
+						destroy(): void;
+					};
+					try {
+						const found = codeModule.find_imports(c);
+						try {
+							return found.toJs();
+						} finally {
+							found.destroy();
+						}
+					} finally {
+						codeModule.destroy();
+					}
+				},
+				loadPackagesFromImports: (c) => py.loadPackagesFromImports(c),
+				installPackage: (packageName) =>
+					py.runPythonAsync(
+						["import micropip", `await micropip.install(${JSON.stringify(packageName)})`].join("\n")
+					),
+				onInstalling: (packageName) => stdoutBuffer.push(`Installing ${packageName}…\n`),
+			},
+			code,
+			installedVendoredPackages
+		);
+	}
+
 	async function run(id: number, code: string): Promise<void> {
 		stdoutBuffer = [];
 		stderrBuffer = [];
 		let outcome: RunOutcome;
 		try {
 			const py = await getPyodide();
+			await autoInstall(py, code);
 			const result = await py.runPythonAsync(code);
 			outcome = { ok: true, ...drainBuffers(), result: reprResult(result) };
 		} catch (err) {
