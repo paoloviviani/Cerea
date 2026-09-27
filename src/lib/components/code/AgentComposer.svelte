@@ -610,21 +610,12 @@
 					{/if}
 				{/snippet}
 				{#snippet trailingActions()}
-					<!-- Pinned after the scrollable pill group: the ring never
-					     scrolls away, and on mobile it shows only the ring — the
-					     value and quotas stay in its own popup. Desktop's send/stop
-					     control (`sendControl`, below) sits right after it, in this
-					     same row, rather than floating absolutely over the
-					     composer — see that snippet's comment for why. -->
-					<ContextMeter
-						{deviceId}
-						{agentId}
-						{usage}
-						{lastCompaction}
-						supported={usageSupported}
-						{running}
-						{onchanged}
-					/>
+					<!-- Desktop's send/stop control (`sendControl`, below) sits
+					     after the pill group, in this same row, rather than
+					     floating absolutely over the composer — see that
+					     snippet's comment for why. The usage ring moved to the
+					     mode/model/effort row below the form, trailing it right
+					     the way chat's trailing actions clear its model line. -->
 					{#if !narrowViewport.current}
 						{@render sendControl(false)}
 					{/if}
@@ -651,12 +642,17 @@
 </form>
 
 <!-- The mode/model/effort row, BELOW the composer like the regular chat's
-     model/effort row (`ChatWindow`'s `mt-1.5` line under its form): same
-     pills, same classes, same menus — only the row's address changed. It
-     sits outside ChatInput's scrollable toolbar row, so on mobile nothing
-     masks it and the pills keep their full labels. -->
+     model/effort row (`ChatWindow`'s `mt-1.5` line under its form): the
+     mode pill keeps its composer look (it has no chat counterpart), while
+     the model/effort control renders exactly as chat's does — the shared
+     component's own default trigger, quiet gray underline-text, no pill
+     border. The usage ring moves here, pinned to the row's right edge —
+     chat's own layout keeps trailing actions out of the pill row's flow,
+     and the ring is the agent row's trailing action, not another pill.
+     Outside ChatInput's scrollable toolbar row, so on mobile nothing
+     masks any of it. -->
 <div
-	class="mt-1.5 flex flex-wrap items-center gap-1.5 px-0.5 text-xs text-gray-500 max-md:mb-2 dark:text-gray-400"
+	class="mt-1.5 flex h-5 flex-wrap items-center gap-1.5 self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2"
 >
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger
@@ -706,23 +702,20 @@
 	</DropdownMenu.Root>
 
 	<!-- The model/effort pill: the chat composer's own `ModelEffortPicker`,
-	     not a /code-only dropdown — same look, same short list, same
-	     checkmark resolution (`resolveActiveModel`, above). The daemon's
-	     loading and failure states have no row to render inside an empty
-	     menu, so they stay a plain disabled pill beside it rather than
-	     forcing a fork of the shared menu's internals for a state chat
-	     never has. -->
+	     rendered exactly as chat renders it below its composer — the
+	     component's own default trigger (underline-text, no pill border,
+	     `· effort ⌄`), with "Model:" and the model's name as its content.
+	     The daemon's loading and failure states keep the quiet-text look
+	     too. Only the machine-policy footer differs from chat's. -->
 	{#if models === null && !modelsFailure}
-		<span class="{pillClass} opacity-60" aria-disabled="true">
-			<span class="max-sm:max-w-12 max-sm:truncate">Loading models…</span>
-		</span>
+		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60"> Loading models… </span>
 	{:else if modelsFailure}
-		<span class="{pillClass} opacity-60" title={modelsFailure}>
-			<span class="max-w-48 truncate max-sm:max-w-20">Could not load models</span>
+		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60" title={modelsFailure}>
+			Could not load models
 		</span>
 	{:else if !models?.length}
-		<span class="{pillClass} opacity-60">
-			<span class="max-sm:max-w-12 max-sm:truncate">The daemon lists no models.</span>
+		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60">
+			The daemon lists no models.
 		</span>
 	{:else}
 		<ModelEffortPicker
@@ -738,9 +731,9 @@
 			onpickEffort={(level) => void applyEffort(level ?? null)}
 			onmore={() => (modelDialogOpen = true)}
 			disabled={applying === "model" || applying === "effort"}
-			triggerClass={pillClass}
 		>
-			<span class="max-w-48 truncate max-sm:max-w-20" title={modelLabel}>{modelLabel}</span>
+			<span class="shrink-0">Model:</span>
+			<span class="truncate" title={modelLabel}>{modelLabel}</span>
 			{#snippet footer()}
 				{#if modelsHidden > 0}
 					<div class={menuNoteClass}>
@@ -751,6 +744,22 @@
 			{/snippet}
 		</ModelEffortPicker>
 	{/if}
+
+	<!-- The usage ring, trailing the row: pinned right with `ml-auto`, out
+	     of the pill flow, exactly the way chat's trailing actions sit clear
+	     of its model/effort line. On mobile it shows only the ring — the
+	     value and quotas stay in its own popup. -->
+	<span class="ml-auto flex flex-none items-center">
+		<ContextMeter
+			{deviceId}
+			{agentId}
+			{usage}
+			{lastCompaction}
+			supported={usageSupported}
+			{running}
+			{onchanged}
+		/>
+	</span>
 </div>
 
 {#if modelDialogOpen}
