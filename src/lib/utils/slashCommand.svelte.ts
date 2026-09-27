@@ -40,6 +40,63 @@ export interface SlashRun {
 	args: string;
 }
 
+/** The capability flags the panel command list is gated on — the agent
+ * backend's `hello` capabilities (efforts additionally needs the current
+ * model to actually carry levels). */
+export interface PanelCommandFlags {
+	compact: boolean;
+	revert: boolean;
+	efforts: boolean;
+}
+
+/**
+ * The panel commands the `/` menu lists: only what this agent's backend can
+ * actually do — compact and rollback gated on their `hello` capabilities,
+ * effort on the model's levels — and nothing more. Panel names are
+ * reserved; batch C's backend commands will shadow against this list, not
+ * extend it.
+ */
+export function panelCommands(flags: PanelCommandFlags): SlashCommand[] {
+	return [
+		...(flags.compact
+			? [{ name: "compact", description: "Compact the conversation now", group: "panel" as const }]
+			: []),
+		...(flags.revert
+			? [
+					{
+						name: "undo",
+						description: "Roll back to before the last prompt",
+						group: "panel" as const,
+					},
+					{ name: "redo", description: "Undo the last rollback", group: "panel" as const },
+				]
+			: []),
+		{
+			name: "model",
+			description: "Switch the model the agent runs",
+			hint: "[model]",
+			group: "panel" as const,
+		},
+		{
+			name: "mode",
+			description: "Switch the agent's mode",
+			hint: "[mode]",
+			group: "panel" as const,
+		},
+		...(flags.efforts
+			? [
+					{
+						name: "effort",
+						description: "Set the thinking effort",
+						hint: "[level]",
+						group: "panel" as const,
+					},
+				]
+			: []),
+		{ name: "new", description: "Start a new agent on this workspace", group: "panel" as const },
+	];
+}
+
 /**
  * The submit rule: a draft shaped `/name args…` whose name is a known
  * command RUNS it; anything else — including `/etc/hosts is wrong` and the

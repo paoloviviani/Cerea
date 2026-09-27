@@ -692,7 +692,7 @@ describe("ChatInput: the / menu", () => {
 	}
 
 	async function typeDraft(container: HTMLElement, text: string) {
-		const box = find(container, "textarea");
+		const box = find(container, "textarea") as HTMLTextAreaElement;
 		box.value = text;
 		box.dispatchEvent(new Event("input", { bubbles: true }));
 		await vi.waitFor(() =>

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SlashCommandState, matchSlashCommand, type SlashCommand } from "./slashCommand.svelte";
+import {
+	SlashCommandState,
+	matchSlashCommand,
+	panelCommands,
+	type SlashCommand,
+} from "./slashCommand.svelte";
 
 const COMMANDS: SlashCommand[] = [
 	{ name: "compact", description: "Compact now", group: "panel" },
@@ -224,5 +229,53 @@ describe("matchSlashCommand", () => {
 		expect(matchSlashCommand("//x", COMMANDS)).toBeNull();
 		expect(matchSlashCommand("hello /compact", COMMANDS)).toBeNull();
 		expect(matchSlashCommand("/", COMMANDS)).toBeNull();
+	});
+});
+
+/**
+ * The panel command table the agent composer feeds the menu, gated on what
+ * the agent's backend reports. What is pinned: the full seven when every
+ * capability is on, the exact trims when one is off, and that model, mode
+ * and new are never gated — a composer that can prompt can always reach its
+ * pickers and the create dialog.
+ */
+describe("panelCommands", () => {
+	it("lists all seven commands with every capability on", () => {
+		expect(
+			panelCommands({ compact: true, revert: true, efforts: true }).map((c) => c.name)
+		).toEqual(["compact", "undo", "redo", "model", "mode", "effort", "new"]);
+	});
+
+	it("drops compact without the compact capability", () => {
+		const names = panelCommands({ compact: false, revert: true, efforts: true }).map((c) => c.name);
+		expect(names).toEqual(["undo", "redo", "model", "mode", "effort", "new"]);
+	});
+
+	it("drops undo and redo without the revert capability", () => {
+		const names = panelCommands({ compact: true, revert: false, efforts: true }).map((c) => c.name);
+		expect(names).toEqual(["compact", "model", "mode", "effort", "new"]);
+	});
+
+	it("drops effort without the efforts capability", () => {
+		const names = panelCommands({ compact: true, revert: true, efforts: false }).map((c) => c.name);
+		expect(names).toEqual(["compact", "undo", "redo", "model", "mode", "new"]);
+	});
+
+	it("model, mode and new are never gated", () => {
+		const names = panelCommands({ compact: false, revert: false, efforts: false }).map(
+			(c) => c.name
+		);
+		expect(names).toEqual(["model", "mode", "new"]);
+	});
+
+	it("the argument-taking commands carry their hints for the ghost text", () => {
+		const withHints = panelCommands({ compact: true, revert: true, efforts: true }).filter(
+			(c) => c.hint
+		);
+		expect(withHints.map((c) => `${c.name} ${c.hint}`)).toEqual([
+			"model [model]",
+			"mode [mode]",
+			"effort [level]",
+		]);
 	});
 });
