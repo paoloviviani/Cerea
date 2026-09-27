@@ -11,7 +11,6 @@ import {
 import { ERROR_MESSAGES } from "$lib/stores/errors";
 import { addWeeks } from "date-fns";
 import { logger } from "$lib/server/logger";
-import { adminTokenManager } from "$lib/server/adminToken";
 import { isHostLocalhost } from "$lib/server/isURLLocal";
 import { runWithRequestContext, updateRequestContext } from "$lib/server/requestContext";
 import { config, ready } from "$lib/server/config";
@@ -44,6 +43,16 @@ const MACHINE_ADMIN_PATHS = ["/admin/stats/compute"];
  * fixed allowlist of names (`galopinDist.ts`).
  */
 const PUBLIC_ROUTES = new Set(["/galopin/[file]"]);
+
+/**
+ * The gateway's own service-to-service calls (ADR 0093 §9.3): a static
+ * bearer (`CHAT_ERASURE_TOKEN`), compared in constant time by the route
+ * itself (`internalAuth.ts`'s `assertInternalRequest`), never a signed-in
+ * session — so, like `MACHINE_ADMIN_ROUTES`, exempted from the browser
+ * login wall rather than widened to fit it. Matched by route id: nothing
+ * else under `/internal/*` inherits this by accident.
+ */
+const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure/preview"]);
 
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
@@ -114,7 +123,8 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				loginEnabled &&
 				!auth.user &&
 				!event.url.pathname.startsWith(`${base}/.well-known/`) &&
-				!PUBLIC_ROUTES.has(event.route.id ?? "")
+				!PUBLIC_ROUTES.has(event.route.id ?? "") &&
+				!INTERNAL_SERVICE_ROUTES.has(event.route.id ?? "")
 			) {
 				if (config.AUTOMATIC_LOGIN === "true") {
 					// AUTOMATIC_LOGIN: always redirect to OAuth flow (unless already on login or healthcheck pages)
@@ -169,8 +179,32 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				updateRequestContext({ user: auth.user.username });
 			}
 
-			event.locals.isAdmin =
-				event.locals.user?.isAdmin || adminTokenManager.isAdmin(event.locals.sessionId);
+			// ADR 0093 §4.4: `auth.isAdmin` already folds in the gateway's answer
+			// (`gatewaySessionCheck`'s `is_admin`) and the admin-token fallback —
+			// this used to recompute from `event.locals.user?.isAdmin` instead,
+			// which is always `false` on a gateway preset
+			// (`updateUser.ts`'s login callback never sets it, by design: the
+			// gateway decides), so the gateway's admin grant never reached this
+			// app. Pre-existing, fixed here because it is this section's own
+			// wiring; flagged in the worker's report.
+			event.locals.isAdmin = auth.isAdmin;
+
+			// The gateway has been unreachable for more than five minutes
+			// straight for this session (`gatewaySessionCheck`'s `unavailable`).
+			// Answering normally would mean guessing whether the account is
+			// still active or still admin; 503 says plainly that verification
+			// failed. The session is not deleted — it resumes on its own once
+			// the gateway answers again — so login/logout/healthcheck still
+			// need to go through.
+			if (
+				auth.gatewayUnavailable &&
+				!event.url.pathname.startsWith(`${base}/healthcheck`) &&
+				!event.url.pathname.startsWith(`${base}/login`) &&
+				event.url.pathname !== `${base}/logout` &&
+				!event.url.pathname.startsWith(`${base}/.well-known/`)
+			) {
+				return errorResponse(503, "can't verify your account; the gateway is unreachable");
+			}
 
 			// CSRF protection
 			const requestContentType = event.request.headers.get("content-type")?.split(";")[0] ?? "";
@@ -263,6 +297,7 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// in. (The machine link has no such exemption to carry here: it
 				// never reaches this hook at all, see `isApi` above.)
 				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
+				!INTERNAL_SERVICE_ROUTES.has(event.route.id ?? "") &&
 				!event.url.pathname.startsWith(`${base}/settings`) &&
 				// And `/logout` answers for itself: refusing a 401 to a session
 				// that is already gone is refusing to clean up after it.

@@ -1,4 +1,4 @@
-import { GridFSBucket, MongoClient, ReadPreference } from "mongodb";
+import { GridFSBucket, MongoClient, ReadPreference, type Collection } from "mongodb";
 // The mongodb driver require()s these lazily at runtime when the connection
 // string uses authMechanism=MONGODB-AWS (IRSA / web identity in prod). Import
 // them statically so dependency-cleanup passes don't strip them from
@@ -30,6 +30,7 @@ import type { Assistant } from "$lib/types/Assistant";
 import type { Report } from "$lib/types/Report";
 import type { ConversationStats } from "$lib/types/ConversationStats";
 import type { MigrationResult } from "$lib/types/MigrationResult";
+import type { ErasureRecord } from "$lib/types/Erasure";
 import type { Semaphore } from "$lib/types/Semaphore";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import type { CodeRunFiles } from "$lib/types/CodeRunFiles";
@@ -48,6 +49,54 @@ import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
+
+/**
+ * ADR 0093: attribute a share made before `SharedConversation.userId`
+ * existed to the conversation it was shared from, by matching
+ * `rootMessageId` (every share has one, and it's copied byte for byte from
+ * the source conversation, `id` included) against
+ * `conversations.messages.id`. Left unattributed, and counted at a WARNING,
+ * when no conversation carries that message id (the source conversation was
+ * itself later deleted) or the match has no `userId` (a session-only
+ * share). Safe to run on every start: only rows still missing `userId` are
+ * considered, so an already-attributed share is never re-matched.
+ */
+export async function backfillLegacySharedConversationOwners(
+	sharedConversations: Pick<Collection<SharedConversation>, "find" | "updateOne">,
+	conversations: Pick<Collection<Conversation>, "findOne">
+): Promise<{ attributed: number; unattributed: number }> {
+	const legacy = await sharedConversations
+		.find({ userId: { $exists: false } } as never)
+		.project<{ _id: string; rootMessageId?: string }>({ _id: 1, rootMessageId: 1 })
+		.toArray();
+
+	let attributed = 0;
+	let unattributed = 0;
+	for (const share of legacy) {
+		const owner = share.rootMessageId
+			? await conversations.findOne(
+					{ "messages.id": share.rootMessageId, userId: { $exists: true } } as never,
+					{ projection: { userId: 1 } } as never
+				)
+			: null;
+		if (owner?.userId) {
+			await sharedConversations.updateOne(
+				{ _id: share._id } as never,
+				{ $set: { userId: owner.userId } } as never
+			);
+			attributed++;
+		} else {
+			unattributed++;
+		}
+	}
+	if (unattributed > 0) {
+		logger.warn(
+			{ unattributed },
+			`${unattributed} legacy shared link(s) could not be attributed to an owner`
+		);
+	}
+	return { attributed, unattributed };
+}
 
 export class Database {
 	private client?: MongoClient;
@@ -161,6 +210,10 @@ export class Database {
 		const configCollection = db.collection<ConfigKey>("config");
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
 		const sharedConversations = db.collection<SharedConversation>("sharedConversations");
+		// One row per erasure run (ADR 0093 §9.3), _id the gateway's own
+		// erasure_id — the idempotency and resume key across a retried
+		// delivery or a crash mid-run.
+		const erasures = db.collection<ErasureRecord>("erasures");
 		// Primary read preference, like conversations: the redirect after a
 		// create reads the project back immediately, and secondary lag there
 		// shows as a 404 on a project that does exist.
@@ -267,6 +320,7 @@ export class Database {
 			semaphores,
 			tools,
 			config: configCollection,
+			erasures,
 		};
 	}
 
@@ -305,6 +359,7 @@ export class Database {
 			codeExecutionOutputs,
 			codeRunFiles,
 			bucketFiles,
+			erasures,
 		} = this.getCollections();
 
 		conversations
@@ -569,6 +624,23 @@ export class Database {
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpElicitations by expiresAt"));
 
 		sharedConversations.createIndex({ hash: 1 }, { unique: true }).catch((e) => logger.error(e));
+		// ADR 0093: the merge/erasure registry's lookup of one person's share
+		// links (absent on links made before the field existed).
+		sharedConversations
+			.createIndex({ userId: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for sharedConversations by userId"));
+		// Best-effort backfill for a share made before `userId` existed: a
+		// share copies its source conversation's messages verbatim
+		// (`routes/conversation/[id]/share/+server.ts`), so its `rootMessageId`
+		// (every share has one) still names a message that lives, byte for
+		// byte, on the conversation it was shared from. Attribute the share to
+		// that conversation's owner. Idempotent (only rows still missing
+		// `userId` are considered) and safe to float: a share that can't be
+		// attributed this way stays that way and is counted, not retried in a
+		// tight loop.
+		backfillLegacySharedConversationOwners(sharedConversations, conversations).catch((e) =>
+			logger.error(e, "Error backfilling legacy sharedConversations owners")
+		);
 		settings
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by sessionId"));
@@ -578,9 +650,34 @@ export class Database {
 		settings
 			.createIndex({ assistants: 1 })
 			.catch((e) => logger.error(e, "Error creating index for settings by assistants"));
-		users
-			.createIndex({ hfUserId: 1 }, { unique: true })
-			.catch((e) => logger.error(e, "Error creating index for users by hfUserId"));
+		// Not unique any more (ADR 0093 §3.3): with resolution keyed on
+		// `gatewayUserId`, one `(issuer, hfUserId)` can legitimately appear on a
+		// stale record and on the record it will merge into — the old unique
+		// index on `hfUserId` alone would refuse the second row outright.
+		// Sequenced like the `skills` key change above, and done here rather than
+		// through a `Migration` routine: Mongo refuses index DDL inside the
+		// multi-document transaction every routine runs in (`migrations.ts`'s
+		// `session.withTransaction`). Awaited for the same ordering reason as
+		// `skills`: a write racing this build must not see a duplicate key
+		// refused by an index that is on its way out.
+		await users
+			.createIndex({ issuer: 1, hfUserId: 1 })
+			.then(() =>
+				// The gateway's own id, once resolution moves onto it: unique, but
+				// only over documents that have one, since not every account has
+				// been backfilled yet (§4.3's lazy adoption on first post-upgrade
+				// login).
+				users.createIndex(
+					{ gatewayUserId: 1 },
+					{ unique: true, partialFilterExpression: { gatewayUserId: { $type: "string" } } }
+				)
+			)
+			.then(() =>
+				// Absent on a fresh install (never created), and already gone on a
+				// re-run — either way not an error worth logging.
+				users.dropIndex("hfUserId_1").catch(() => undefined)
+			)
+			.catch((e) => logger.error(e, "Error migrating the users hfUserId index (ADR 0093)"));
 		users
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for users by sessionId"));
@@ -592,6 +689,13 @@ export class Database {
 		users
 			.createIndex({ createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for users by createdAt"));
+		// The generic preset's own migration match (§4.5), and the eventual
+		// gateway-preset link-by-email if this app ever needs to look accounts
+		// up by address; sparse since not every row has been touched since the
+		// field started being written.
+		users
+			.createIndex({ emailNormalized: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for users by emailNormalized"));
 		messageEvents
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 1 })
 			.catch((e) => logger.error(e, "Error creating index for messageEvents by expiresAt"));
@@ -669,6 +773,13 @@ export class Database {
 		config
 			.createIndex({ key: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for config by key"));
+
+		// The gateway's own banner ("N erasures waiting") and `pystino erasure
+		// list` both page by pending-first; `_id` (the erasure_id) is already
+		// the unique key.
+		erasures
+			.createIndex({ doneAt: 1, startedAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for erasures by doneAt and startedAt"));
 
 		// Dedup + the access-checked download lookup: one row per distinct
 		// deliverable a conversation has produced.

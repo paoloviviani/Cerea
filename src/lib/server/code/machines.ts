@@ -17,7 +17,11 @@ import type { WebSocket } from "ws";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import { revalidateMachineAuth, type MachinePrincipal } from "$lib/server/code/machineAuth";
+import {
+	resolveMachineUser,
+	revalidateMachineAuth,
+	type MachinePrincipal,
+} from "$lib/server/code/machineAuth";
 import {
 	parseMachineFrame,
 	opDeadlineMs,
@@ -52,6 +56,10 @@ const HELLO_TIMEOUT_MS = 10_000;
 const PING_INTERVAL_MS = 20_000;
 const PONG_DEAD_AFTER_MS = 60_000;
 const RENEWAL_GRACE_MS = 60_000;
+/** ADR 0093 §4.7: every live link is re-checked against the gateway at this
+ * cadence, independent of the machine's own renewal — catching an account
+ * disabled or merged between token renewals, not only an expired token. */
+const GATEWAY_REVALIDATION_INTERVAL_MS = 60_000;
 
 interface PendingRequest {
 	resolve: (value: unknown) => void;
@@ -63,6 +71,10 @@ interface ConnectionState {
 	deviceId: string;
 	ws: WebSocket;
 	principal: MachinePrincipal;
+	/** The current bearer, kept for the periodic gateway revalidation tick
+	 * (§4.7) — `MachinePrincipal` carries only what the JWT itself decoded to,
+	 * never the raw token. Updated on every successful "auth" renewal. */
+	token: string;
 	backends: Backend[];
 	policy: Policy;
 	pending: Map<string, PendingRequest>;
@@ -152,6 +164,102 @@ function closeConnection(state: ConnectionState, code: number, reason: string): 
 export function dropMachineConnection(deviceId: string, code: number, reason: string): void {
 	const state = registry.get(deviceId);
 	if (state) closeConnection(state, code, reason);
+}
+
+/** Revoke one device (§4.7: a fresh `galopin enroll` is required even once
+ * the account is re-enabled) and close its live link — the outcome for
+ * both a real refusal and a stale enrolment, so `revalidateLiveMachineConnections`
+ * states each once rather than repeating the write and the close. */
+async function revokeAndClose(state: ConnectionState, reason: string): Promise<void> {
+	logger.info({ deviceId: state.deviceId, reason }, "machine link: revoking on revalidation");
+	await collections.codeDevices
+		.updateOne(
+			{ _id: new ObjectId(state.deviceId) },
+			{
+				$set: {
+					status: "revoked",
+					revokedAt: new Date(),
+					revokedReason: "account_disabled",
+					updatedAt: new Date(),
+				},
+			}
+		)
+		.catch((err) =>
+			logger.warn({ err, deviceId: state.deviceId }, "machine link: failed to revoke device row")
+		);
+	closeConnection(state, 4403, "this account is no longer active");
+}
+
+/** One tick of the revalidation loop (ADR 0093 §4.7): every live connection,
+ * re-checked against the gateway.
+ *
+ * - **Valid**, and stale (`sessions_valid_after` newer than the device's own
+ *   `createdAt`): revoke the device (so a fresh `galopin enroll` is required
+ *   even once the account is re-enabled) and close the link.
+ * - **Refused** (`refused: true`): same — revoke and close. The account is
+ *   authoritatively no good any more.
+ * - **Unreachable past the bounded fail-open** (`ok: false, refused: false`
+ *   — `resolveMachineUser`'s own 5-minute grace since the last good answer
+ *   for that subject has already elapsed): close the link, but **do not**
+ *   revoke the device — an outage is not the gateway saying no, and the
+ *   machine reconnects on its own once it answers again.
+ * - **Valid and fresh**, or unreachable but still within the grace (fails
+ *   open, transparently, inside `resolveMachineUser`): leave the connection
+ *   exactly as it was.
+ *
+ * Exported for the test to drive one tick without waiting on the real
+ * interval.
+ */
+export async function revalidateLiveMachineConnections(): Promise<void> {
+	for (const state of [...registry.values()]) {
+		let resolution;
+		try {
+			resolution = await resolveMachineUser(state.principal.sub, state.principal.exp, state.token);
+		} catch (err) {
+			logger.warn({ err, deviceId: state.deviceId }, "machine link: revalidation check failed");
+			continue;
+		}
+
+		if (resolution.ok) {
+			const device = await collections.codeDevices
+				.findOne({ _id: new ObjectId(state.deviceId) })
+				.catch(() => null);
+			const sessionsValidAfter = resolution.sessionsValidAfter
+				? new Date(resolution.sessionsValidAfter)
+				: null;
+			const staleEnrolment = Boolean(
+				device && sessionsValidAfter && sessionsValidAfter.getTime() > device.createdAt.getTime()
+			);
+			if (!staleEnrolment) continue;
+			await revokeAndClose(state, "sessions_valid_after");
+		} else if (resolution.refused) {
+			await revokeAndClose(state, resolution.message);
+		} else {
+			// Unreachable, past the bounded fail-open: close, but the device
+			// stays enrolled — the machine reconnects on its own once the
+			// gateway answers again.
+			logger.info(
+				{ deviceId: state.deviceId },
+				"machine link: closing (not revoking) after the gateway stayed unreachable"
+			);
+			closeConnection(state, 1013, "the gateway is unreachable; reconnect shortly");
+		}
+	}
+}
+
+let revalidationInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Start the periodic tick above. Idempotent (a second call is a no-op) and
+ * called once from `initServer()`, like the other background loops there —
+ * not at module load, so it never starts before config/DB are ready and
+ * never runs in a test that merely imports this module. */
+export function startMachineRevalidationLoop(): void {
+	if (revalidationInterval) return;
+	revalidationInterval = setInterval(() => {
+		revalidateLiveMachineConnections().catch((err) =>
+			logger.warn({ err }, "machine link: revalidation tick failed")
+		);
+	}, GATEWAY_REVALIDATION_INTERVAL_MS);
 }
 
 /** Sent once the browser confirms a pending machine (spec §4). A no-op if
@@ -530,7 +638,8 @@ function touchDeviceRow(deviceId: string, patch: Partial<CodeDevice>): void {
 export function acceptMachineConnection(
 	ws: WebSocket,
 	_req: IncomingMessage,
-	principal: MachinePrincipal
+	principal: MachinePrincipal,
+	token: string
 ): void {
 	let helloReceived = false;
 	const helloTimer = setTimeout(() => {
@@ -584,7 +693,7 @@ export function acceptMachineConnection(
 			}
 			helloReceived = true;
 			clearTimeout(helloTimer);
-			void onHello(ws, principal, frame).then(
+			void onHello(ws, principal, frame, token).then(
 				(created) => {
 					state = created;
 				},
@@ -652,6 +761,7 @@ export function acceptMachineConnection(
 					.then((validated) => {
 						if (!state) return;
 						state.principal = { ...state.principal, exp: validated.exp, iss: validated.iss };
+						state.token = frame.token;
 						scheduleAuthDeadline(state);
 					})
 					.catch((err) => {
@@ -691,7 +801,8 @@ export function acceptMachineConnection(
 async function onHello(
 	ws: WebSocket,
 	principal: MachinePrincipal,
-	hello: import("$lib/types/machineProtocol").HelloFrame
+	hello: import("$lib/types/machineProtocol").HelloFrame,
+	token: string
 ): Promise<ConnectionState | null> {
 	const now = new Date();
 	const existing = await collections.codeDevices.findOne({
@@ -720,6 +831,7 @@ async function onHello(
 					name: principal.machineName,
 					sub: principal.sub,
 					iss: principal.iss,
+					enrolledIssuer: principal.iss,
 					backends: hello.backends,
 					...(hello.machine ? { machine: hello.machine } : {}),
 					policy: hello.policy,
@@ -738,6 +850,7 @@ async function onHello(
 			status: "pending",
 			sub: principal.sub,
 			iss: principal.iss,
+			enrolledIssuer: principal.iss,
 			backends: hello.backends,
 			...(hello.machine ? { machine: hello.machine } : {}),
 			policy: hello.policy,
@@ -766,6 +879,7 @@ async function onHello(
 		deviceId,
 		ws,
 		principal,
+		token,
 		backends: hello.backends,
 		policy: hello.policy,
 		pending: new Map(),

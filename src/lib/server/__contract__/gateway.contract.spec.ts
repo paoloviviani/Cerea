@@ -9,7 +9,9 @@
  * here parses — if the gateway changes it, this fails before a deployment does.
  */
 import { describe, expect, it } from "vitest";
+import { ObjectId } from "mongodb";
 import { gatewaySessionCheck } from "../gatewaySession";
+import { collections, ready } from "../database";
 
 const base = process.env.GATEWAY_CONTRACT_URL ?? "";
 const key = process.env.GATEWAY_CONTRACT_KEY ?? "";
@@ -27,16 +29,47 @@ describe.skipIf(!base || !key)("gateway contract", () => {
 	});
 
 	it("a credential the gateway accepts keeps the session; a bad one ends it", async () => {
-		const good = await gatewaySessionCheck("contract-good", key, {
-			baseUrl: base,
-			userToken: true,
-		});
-		expect(good?.valid).toBe(true);
-		const bad = await gatewaySessionCheck("contract-bad", "gwk_not_a_key", {
-			baseUrl: base,
-			userToken: true,
-		});
-		expect(bad).toEqual({ valid: false });
+		// ADR 0093 §4.4: the check now reads the chat's own session and user
+		// (createdAt, gatewayUserId), so a good credential needs a seeded row
+		// naming the same gateway id this key resolves to — a bare sessionId
+		// with nothing behind it is indistinguishable from one that ended.
+		await ready;
+		const meResponse = await fetch(`${base}/me`, { headers: { authorization: `Bearer ${key}` } });
+		const me = (await meResponse.json()) as { id: string };
+		const userId = new ObjectId();
+		await collections.users.insertOne({
+			_id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			name: "contract",
+			hfUserId: "contract",
+			gatewayUserId: me.id,
+		} as never);
+		const sessionId = "contract-good";
+		await collections.sessions.insertOne({
+			_id: new ObjectId(),
+			sessionId,
+			userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			expiresAt: new Date(Date.now() + 60_000),
+		} as never);
+
+		try {
+			const good = await gatewaySessionCheck(sessionId, key, {
+				baseUrl: base,
+				userToken: true,
+			});
+			expect(good?.kind).toBe("valid");
+			const bad = await gatewaySessionCheck("contract-bad", "gwk_not_a_key", {
+				baseUrl: base,
+				userToken: true,
+			});
+			expect(bad).toEqual({ kind: "ended" });
+		} finally {
+			await collections.users.deleteOne({ _id: userId });
+			await collections.sessions.deleteOne({ sessionId });
+		}
 	});
 
 	it("GET /v1/models answers without a credential, OpenAI-shaped (ADR 0081)", async () => {

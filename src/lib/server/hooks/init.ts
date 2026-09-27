@@ -1,6 +1,7 @@
 import { config, ready } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { registerMachineUpgrade } from "$lib/server/code/machineServer";
+import { startMachineRevalidationLoop } from "$lib/server/code/machines";
 import { initExitHandler } from "$lib/server/exitHandler";
 import { assertOcrConfigValid } from "$lib/server/files/extractDocument";
 import { configuredBackend } from "$lib/server/fetching";
@@ -46,6 +47,9 @@ export async function initServer(): Promise<void> {
 	// header for why. Registering here, rather than at module load, keeps
 	// the symbol's function from going live before config/DB are ready.
 	registerMachineUpgrade();
+	// ADR 0093 §4.7: re-check every live machine link against the gateway
+	// every 60s, independent of the machine's own token-renewal cadence.
+	startMachineRevalidationLoop();
 
 	if (config.METRICS_ENABLED === "true") {
 		MetricsServer.getInstance();
