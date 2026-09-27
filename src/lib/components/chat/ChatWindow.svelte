@@ -1378,7 +1378,7 @@
 	/>
 	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />
 	<TrackioPane items={paneItems} />
-	<DeliverablesPanel {fileRegistry} />
+	<DeliverablesPanel items={paneItems} registry={artifactRegistry} {fileRegistry} />
 </div>
 
 <!-- Outside the composer's wrapper on purpose: that subtree is
