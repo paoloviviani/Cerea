@@ -42,11 +42,18 @@ func (b *Backend) setOverlay(sessionID string, o sessionOverlay) error {
 // Prompt), this claims that pending clientMessageId for msg, persists the
 // new mapping, and clears the pending entry — "map the clientMessageId to
 // the next user message created for that session".
+//
+// The pending entry is the fallback half; the exact half is recorded by
+// Prompt against the messageID it minted and sent. When a map hit lands on
+// exactly that minted id, the server demonstrably honoured it, so the
+// fallback claim is spent at the same moment — it must not linger and
+// mis-tag some later, promptless user message on the session.
 func (b *Backend) resolveClientMessageID(sessionID string, msg *backend.Message) {
 	b.clientMsgMu.Lock()
 	if id, ok := b.clientMessageIDs[msg.ID]; ok {
 		b.clientMsgMu.Unlock()
 		msg.ClientMessageID = id
+		b.spendPendingClaim(sessionID, msg.ID)
 		return
 	}
 	b.clientMsgMu.Unlock()
@@ -65,24 +72,56 @@ func (b *Backend) resolveClientMessageID(sessionID string, msg *backend.Message)
 	}
 
 	b.clientMsgMu.Lock()
-	b.clientMessageIDs[msg.ID] = pending
+	b.clientMessageIDs[msg.ID] = pending.clientMessageID
 	b.clientMsgMu.Unlock()
-	msg.ClientMessageID = pending
+	msg.ClientMessageID = pending.clientMessageID
 	// Best effort: losing this on a crash between here and the write only
 	// costs one message's id being unrecoverable after that crash, not
 	// correctness of anything already sent to a client this epoch.
 	_ = b.saveOverlay()
 }
 
-// claimPendingClientMessageID records that the next new user message
-// created for sessionID should be tagged with clientMessageID. Called by
-// Prompt when session.prompt carried one.
-func (b *Backend) claimPendingClientMessageID(sessionID, clientMessageID string) {
+// spendPendingClaim clears sessionID's pending fallback claim when the id
+// it was minted for has shown up in the transcript (i.e. the server kept
+// it). A hit on any other id — the transcript re-lists old, already-mapped
+// messages on every read — leaves the claim alone.
+func (b *Backend) spendPendingClaim(sessionID, messageID string) {
+	b.pendingMu.Lock()
+	if pending, ok := b.pendingClientMsg[sessionID]; ok && pending.mintedID == messageID {
+		delete(b.pendingClientMsg, sessionID)
+	}
+	b.pendingMu.Unlock()
+}
+
+// pendingClaim is one outstanding prompt's client-message mapping. The
+// minted id rides along so the fallback can be spent the moment the exact
+// mapping proves itself (see resolveClientMessageID).
+type pendingClaim struct {
+	clientMessageID string
+	mintedID        string
+}
+
+// recordExactClientMessageID persists the primary mapping: the messageID
+// Prompt minted and sent -> the clientMessageId it carried. Unlike the
+// pending claim this is exact, so it is written (duly persisted) before the
+// POST goes out.
+func (b *Backend) recordExactClientMessageID(messageID, clientMessageID string) {
+	b.clientMsgMu.Lock()
+	b.clientMessageIDs[messageID] = clientMessageID
+	b.clientMsgMu.Unlock()
+	_ = b.saveOverlay()
+}
+
+// claimPendingClientMessageID records the fallback: if the server ignores
+// or rewrites the minted messageID, the next new user message created for
+// sessionID is tagged with clientMessageID instead. Called by Prompt when
+// session.prompt carried one.
+func (b *Backend) claimPendingClientMessageID(sessionID, mintedID, clientMessageID string) {
 	if clientMessageID == "" {
 		return
 	}
 	b.pendingMu.Lock()
-	b.pendingClientMsg[sessionID] = clientMessageID
+	b.pendingClientMsg[sessionID] = pendingClaim{clientMessageID: clientMessageID, mintedID: mintedID}
 	b.pendingMu.Unlock()
 }
 

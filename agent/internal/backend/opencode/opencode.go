@@ -89,15 +89,18 @@ type Backend struct {
 
 	// clientMsgMu/clientMessageIDs is the durable half of the
 	// clientMessageId mapping (PROTOCOL.md §7): opencode message id ->
-	// clientMessageId, persisted alongside the overlay. pendingMu
-	// /pendingClientMsg is the transient half — a sessionID -> clientMessageId
-	// waiting for Prompt's next new user message to show up in an event —
-	// and is not persisted: losing a pending entry to a crash only means
-	// one message's id can't be recovered, not a correctness problem.
+	// clientMessageId, persisted alongside the overlay. Since prompt_async
+	// takes a minted messageID, Prompt records this half before the POST —
+	// exact, not guessed. pendingMu/pendingClientMsg is the transient
+	// half — a sessionID -> pendingClaim waiting for the user message to
+	// show up in an event, spent at once when the minted id itself turns
+	// out to have been honoured — and is not persisted: losing a pending
+	// entry to a crash only means one message's id can't be recovered, not
+	// a correctness problem.
 	clientMsgMu      sync.Mutex
 	clientMessageIDs map[string]string
 	pendingMu        sync.Mutex
-	pendingClientMsg map[string]string
+	pendingClientMsg map[string]pendingClaim
 
 	// modelsMu/modelLimits caches GET /config/providers's context-window
 	// hints per model id, so Usage events (which only carry token counts)
@@ -138,7 +141,7 @@ func New(cfg Config) *Backend {
 		client:           &http.Client{},
 		overlay:          map[string]sessionOverlay{},
 		clientMessageIDs: map[string]string{},
-		pendingClientMsg: map[string]string{},
+		pendingClientMsg: map[string]pendingClaim{},
 		modelLimit:       map[string]int{},
 		sessionUsage:     map[string]*backend.Usage{},
 	}

@@ -503,7 +503,7 @@
 						<DropdownMenu.Trigger
 							class={pillClass}
 							disabled={applying === "mode"}
-							title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
+							title="How much the agent may do on its own — the machine's modes, as the backend defines them"
 						>
 							<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
 							<IconChevronDown class={chevronClass} />

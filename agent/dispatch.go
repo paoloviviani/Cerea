@@ -100,7 +100,17 @@ func opErrf(code, format string, args ...any) *link.OpError {
 
 func notFound(what string) *link.OpError  { return opErrf("not_found", "%s not found", what) }
 func invalidArgs(err error) *link.OpError { return opErrf("invalid", "bad arguments: %v", err) }
-func backendErr(err error) *link.OpError  { return opErrf("backend", "%v", err) }
+
+// backendErr wraps a backend's error. A sentinel the backend returns for a
+// caller-addressable state problem — a prompt on a session that is already
+// mid-turn — is the caller's mistake, not the backend's: it answers with
+// the invalid code every other invalid-state refusal uses, not "backend".
+func backendErr(err error) *link.OpError {
+	if errors.Is(err, backend.ErrSessionBusy) {
+		return opErrf("invalid", "%v", err)
+	}
+	return opErrf("backend", "%v", err)
+}
 
 // trackSession records sessionID's workspace both in the materializer
 // (which needs the directory) and here (which needs the registry's own

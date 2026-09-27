@@ -168,6 +168,18 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	}
 
 	st.mu.Lock()
+	// A second prompt on a busy session would overwrite the turn ids the
+	// running turn's updates are still arriving under (assistantMsgID,
+	// textPartID, ...) and forge its state. Unreachable from the composer
+	// today — it hides send while running — but steering will make it
+	// reachable, so it is refused outright: the same invalid-state refusal
+	// code session.revert's mid-turn guard carries (dispatch.go maps
+	// ErrSessionBusy to "invalid"). opencode queues instead; only ACP has
+	// nothing to do with a second prompt but clobber.
+	if st.busy {
+		st.mu.Unlock()
+		return backend.ErrSessionBusy
+	}
 	st.turn++
 	turn := st.turn
 	userMsgID := fmt.Sprintf("%s:t%d:user", sessionID, turn)

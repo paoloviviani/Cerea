@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -411,6 +412,79 @@ func TestCancelReachesIdleWithNoError(t *testing.T) {
 // wire, not once the turn ends. The fake agent here never responds to the
 // prompt request at all, so if Prompt were (incorrectly) waiting for a
 // reply, this test would time out instead of returning promptly.
+// TestPromptRefusedWhileBusy pins the busy guard: a second session/prompt
+// would overwrite the turn ids the running turn's updates are still
+// arriving under, so Prompt on a busy session returns ErrSessionBusy
+// (dispatch.go maps it to the wire code "invalid") without touching
+// anything — nothing more on the wire, no second user message, no state
+// change. The fake agent never answers the first prompt, so the session
+// stays busy for the whole test.
+func TestPromptRefusedWhileBusy(t *testing.T) {
+	b, fa := newTestBackend(t)
+	ctx := context.Background()
+	dir := "/work"
+
+	sess, err := b.CreateSession(ctx, dir, backend.CreateSessionOptions{})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	events, _ := b.Subscribe(ctx)
+
+	if err := b.Prompt(ctx, dir, sess.ID, backend.Prompt{Text: "first"}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	var first fakePromptReq
+	select {
+	case first = <-fa.promptReqs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fake agent never saw the first session/prompt")
+	}
+
+	if err := b.Prompt(ctx, dir, sess.ID, backend.Prompt{Text: "second"}); !errors.Is(err, backend.ErrSessionBusy) {
+		t.Fatalf("second Prompt error = %v, want ErrSessionBusy", err)
+	}
+
+	// No second session/prompt may reach the agent.
+	select {
+	case pr := <-fa.promptReqs:
+		t.Fatalf("a second session/prompt reached the agent for %s", pr.sessionID)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// And the session's own state is exactly the first turn's: one user
+	// message, still busy.
+	tr, err := b.Transcript(ctx, dir, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Status != backend.StatusBusy {
+		t.Errorf("status = %v, want busy", tr.Status)
+	}
+	users := 0
+	for _, m := range tr.Messages {
+		if m.Message.Role == "user" {
+			users++
+		}
+	}
+	if users != 1 {
+		t.Errorf("transcript has %d user messages, want exactly the first prompt's one", users)
+	}
+
+	// Once the turn ends, the same prompt goes through again: respond to
+	// the first request, wait for the idle status on the stream (the
+	// awaitPromptResult goroutine clears busy), and retry.
+	fa.respond(first.id, map[string]any{"stopReason": "end_turn"})
+	drainEvents(t, events, sess.ID, 5*time.Second, isIdle)
+	if err := b.Prompt(ctx, dir, sess.ID, backend.Prompt{Text: "second"}); err != nil {
+		t.Fatalf("Prompt after the turn ended: %v", err)
+	}
+	select {
+	case <-fa.promptReqs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fake agent never saw the second session/prompt")
+	}
+}
+
 func TestPromptReturnsBeforeTurnCompletes(t *testing.T) {
 	b, fa := newTestBackend(t)
 	ctx := context.Background()

@@ -156,7 +156,7 @@ func TestResolveClientMessageIDClaimsNextUserMessage(t *testing.T) {
 	if err := b.loadOverlay(); err != nil {
 		t.Fatal(err)
 	}
-	b.claimPendingClientMessageID("ses_1", "client-msg-abc")
+	b.claimPendingClientMessageID("ses_1", "", "client-msg-abc")
 
 	msg := backend.Message{ID: "msg_new", Role: "user"}
 	b.resolveClientMessageID("ses_1", &msg)
@@ -187,7 +187,7 @@ func TestResolveClientMessageIDClaimsNextUserMessage(t *testing.T) {
 
 func TestResolveClientMessageIDIgnoresAssistantMessages(t *testing.T) {
 	b := New(Config{})
-	b.claimPendingClientMessageID("ses_1", "client-msg-abc")
+	b.claimPendingClientMessageID("ses_1", "", "client-msg-abc")
 	msg := backend.Message{ID: "msg_assistant", Role: "assistant"}
 	b.resolveClientMessageID("ses_1", &msg)
 	if msg.ClientMessageID != "" {
