@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fallbackBlocks, type BlockToken } from "$lib/utils/markedLight";
+	import { fallbackBlocks, findClosedFences, type BlockToken } from "$lib/utils/markedLight";
 	import {
 		acquireMarkdownClientId,
 		cancelMarkdownClient,
@@ -7,6 +7,9 @@
 	} from "$lib/utils/markdownWorkerPool";
 	import MarkdownBlock from "./MarkdownBlock.svelte";
 	import { browser } from "$app/environment";
+	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
+	import { chatRunKey } from "$lib/utils/execution/keys";
+	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
 
 	import { onDestroy } from "svelte";
 	import { updateDebouncer } from "$lib/utils/updates";
@@ -39,9 +42,26 @@
 		updateDebouncer.endRender();
 	}
 
+	const runsStore = getRunsStore();
+	const messageRun = getMessageRunContext();
+
+	// Mark every closed fence in `content` as "seen live" right here, in the
+	// same effect (so the same reactive tick) that captures `loading` for
+	// this content — not in `handleBlocks`, which only fires once the async
+	// pipeline above has actually tokenized it. See `findClosedFences` for
+	// why that gap matters.
+	function markLiveFences(): void {
+		if (!loading || !runsStore) return;
+		const conversationId = messageRun?.conversationId ?? "";
+		for (const fence of findClosedFences(content)) {
+			runsStore.markSeenStreaming(`${conversationId}|${chatRunKey(fence.rawCode)}`);
+		}
+	}
+
 	$effect(() => {
 		if (!browser) return;
 		updateDebouncer.startRender();
+		markLiveFences();
 		latestRequestId = renderMarkdownBlocks(clientId, content, sources, loading, handleBlocks);
 	});
 
