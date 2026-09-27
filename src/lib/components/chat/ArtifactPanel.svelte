@@ -968,7 +968,9 @@
 				{#if pythonCell}
 					<MountedChips />
 					{#if cellRunState}
-						<RunOutput state={cellRunState} class="mx-3 mb-2" />
+						<!-- inPanel: a file card here must not offer to open the panel —
+						     the panel is already showing this cell's code. -->
+						<RunOutput state={cellRunState} class="mx-3 mb-2" inPanel />
 					{/if}
 				{/if}
 			</div>

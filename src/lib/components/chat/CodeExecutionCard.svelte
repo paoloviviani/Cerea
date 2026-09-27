@@ -5,7 +5,7 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import RunOutput from "./RunOutput.svelte";
-	import FileCard from "./FileCard.svelte";
+	import FileArtifactCard from "./FileArtifactCard.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
 	import { uploadRunFiles } from "$lib/utils/execution/runFiles";
 	import { chatRunKey } from "$lib/utils/execution/keys";
@@ -130,6 +130,7 @@
 			persistedFiles: resolved.files?.map((f) => ({
 				name: f.name,
 				size: f.size,
+				sha256: f.sha256,
 				downloadUrl: `${base}/conversation/${conversationId}/code-execution/output/${f.sha256}`,
 			})),
 		};
@@ -227,16 +228,21 @@
 		{/if}
 		{#if hasFiles}
 			<!-- Deliverables, never collapsed: a file the person asked for stays in
-			     its own box below the (foldable) code output. Each FileCard already
-			     carries a document icon, size, preview and download. -->
+			     its own box below the (foldable) code output. Cards with a sha the
+			     registry knows render as file artifact cards; a live run's listing
+			     (no sha yet) stays a plain FileCard. -->
 			<ul class="space-y-1 border-t border-blue-200/70 px-3 py-2 dark:border-blue-800/60">
 				{#if outputFiles.length > 0}
 					{#each outputFiles as file (file.path)}
-						<FileCard {file} />
+						<FileArtifactCard {file} />
 					{/each}
 				{:else}
 					{#each persistedFiles as file (file.downloadUrl)}
-						<FileCard file={{ path: file.name, size: file.size }} downloadUrl={file.downloadUrl} />
+						<FileArtifactCard
+							file={{ path: file.name, size: file.size }}
+							downloadUrl={file.downloadUrl}
+							sha256={file.sha256}
+						/>
 					{/each}
 				{/if}
 			</ul>

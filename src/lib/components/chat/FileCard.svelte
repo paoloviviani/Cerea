@@ -1,10 +1,67 @@
+<script module lang="ts">
+	import { getExecutionSession } from "$lib/utils/execution/runtime";
+
+	/**
+	 * The byte-reading and download machinery, shared with FileArtifactCard:
+	 * an artifact card presents the same file and must not grow a second copy
+	 * of the "which source holds the bytes" logic. The card's own preview and
+	 * error presentation stay instance-side.
+	 */
+	interface FileByteSource {
+		file: { path: string; size: number };
+		inlineContent?: string;
+		downloadUrl?: string;
+	}
+
+	/**
+	 * The card's byte sources: direct-emission blocks carry their own text
+	 * (the block content IS the file), persisted cards fetch the store, the
+	 * rest read out of the runtime. All land as transferable bytes — never
+	 * through the capped text output.
+	 */
+	export async function readFileBytes(
+		source: FileByteSource
+	): Promise<ArrayBuffer | Uint8Array<ArrayBuffer>> {
+		if (source.inlineContent !== undefined) return new TextEncoder().encode(source.inlineContent);
+		if (source.downloadUrl !== undefined) {
+			const res = await fetch(source.downloadUrl);
+			if (!res.ok) throw new Error("that file is no longer available");
+			return await res.arrayBuffer();
+		}
+		const session = getExecutionSession();
+		if (!session) throw new Error("the execution sandbox is not available in this context");
+		return session.readFile(source.file.path);
+	}
+
+	/**
+	 * Hand bytes to the browser as a download under `name`: they travel as
+	 * transferable bytes and land in a blob URL the anchor consumes.
+	 */
+	export function triggerBrowserDownload(
+		name: string,
+		data: ArrayBuffer | Uint8Array<ArrayBuffer>
+	): void {
+		const url = URL.createObjectURL(new Blob([data]));
+		try {
+			const link = window.document.createElement("a");
+			link.href = url;
+			link.download = name;
+			link.rel = "noopener";
+			window.document.body.appendChild(link);
+			link.click();
+			link.remove();
+		} finally {
+			URL.revokeObjectURL(url);
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { onDestroy } from "svelte";
 	import DOMPurify from "isomorphic-dompurify";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
 	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
-	import { getExecutionSession } from "$lib/utils/execution/runtime";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import {
 		FILE_PREVIEW_MAX_BYTES,
@@ -105,39 +162,19 @@
 	 * text output.
 	 */
 	async function readBytes(): Promise<ArrayBuffer | Uint8Array<ArrayBuffer>> {
-		if (inlineContent !== undefined) return new TextEncoder().encode(inlineContent);
-		if (downloadUrl !== undefined) {
-			const res = await fetch(downloadUrl);
-			if (!res.ok) throw new Error("that file is no longer available");
-			return await res.arrayBuffer();
-		}
-		const session = getExecutionSession();
-		if (!session) throw new Error("the execution sandbox is not available in this context");
-		return session.readFile(file.path);
+		return readFileBytes({ file, inlineContent, downloadUrl });
 	}
 
 	/**
-	 * Hand the bytes to the browser as a download: they travel as transferable
-	 * bytes — never through the capped text output — and land in a blob URL
-	 * the anchor consumes.
+	 * Hand the bytes to the browser as a download under the file's name —
+	 * shared machinery, see the module script.
 	 */
 	async function downloadFile(): Promise<void> {
 		downloading = true;
 		downloadError = null;
 		try {
 			const data = await readBytes();
-			const url = URL.createObjectURL(new Blob([data]));
-			try {
-				const link = window.document.createElement("a");
-				link.href = url;
-				link.download = name;
-				link.rel = "noopener";
-				window.document.body.appendChild(link);
-				link.click();
-				link.remove();
-			} finally {
-				URL.revokeObjectURL(url);
-			}
+			triggerBrowserDownload(name, data);
 		} catch (err) {
 			// The worker filesystem dies with the page load: a file listed by
 			// an earlier run may be gone already, and re-running the code is

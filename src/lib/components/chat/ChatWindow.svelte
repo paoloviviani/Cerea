@@ -232,6 +232,9 @@
 		get registry() {
 			return artifactRegistry;
 		},
+		get fileRegistry() {
+			return fileRegistry;
+		},
 		panel: sidePane,
 		// Deep consumers (e.g. the code-block preview modal) can't render a
 		// meaningful disabled state, so streaming also gates availability here;
