@@ -177,6 +177,25 @@ class TestRefusals(unittest.TestCase):
             build(preset="satellite", central_url="https://central.example.org",
                   upstream_api_key="k", oidc_chat_client_secret="c")
 
+    def test_external_idp_needs_an_admin_rule(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "admin rule"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b", admin_email="")
+
+    def test_external_idp_with_only_a_claim_rule_does_not_need_admin_email(self):
+        v = build(idp="external", oidc_issuer="https://id.example.org",
+                   oidc_console_client_secret="a", oidc_chat_client_secret="b", admin_email="",
+                   admin_claim="groups", admin_claim_value="admin").values
+        self.assertEqual(v["OIDC_ADMIN_CLAIM"], "groups")
+        self.assertEqual(v["OIDC_ADMIN_CLAIM_VALUE"], "admin")
+        self.assertEqual(v.get("OIDC_ADMIN_EMAIL", ""), "")
+
+    def test_half_a_claim_pair_is_refused(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "together"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  admin_claim="groups")
+
 
 class TestFreshInstall(unittest.TestCase):
     def test_every_preset_satisfies_its_own_check(self):
@@ -268,6 +287,32 @@ class TestFreshInstall(unittest.TestCase):
     def test_agents_switch(self):
         self.assertEqual(build(agents=True).values["CODE_AGENTS_ENABLED"], "true")
         self.assertEqual(build().values["CODE_AGENTS_ENABLED"], "")
+
+    def test_defaults_for_the_new_adr_0093_fields(self):
+        v = build().values
+        self.assertEqual(v["OIDC_GROUP_SYNC"], "every_login")
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "false")
+        self.assertEqual(v["OIDC_MACHINE_CLIENT_ID"], "opencode-enrollment")
+        self.assertEqual(v["SMTP_ENABLED"], "false")
+        self.assertEqual(v["SMTP_PORT"], "587")
+        self.assertEqual(v["SMTP_SECURITY"], "starttls")
+
+    def test_group_sync_and_link_by_email_and_machine_client_id(self):
+        v = build(group_sync="never", link_by_email=True, machine_client_id="my-agent").values
+        self.assertEqual(v["OIDC_GROUP_SYNC"], "never")
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "true")
+        self.assertEqual(v["OIDC_MACHINE_CLIENT_ID"], "my-agent")
+
+    def test_smtp_host_turns_mail_on_and_clearing_it_turns_mail_off(self):
+        v = build(smtp_host="smtp.example.org", smtp_port=465, smtp_username="u",
+                   smtp_password="p", smtp_from="noreply@example.org", smtp_security="tls").values
+        self.assertEqual(v["SMTP_ENABLED"], "true")
+        self.assertEqual(v["SMTP_HOST"], "smtp.example.org")
+        self.assertEqual(v["SMTP_PORT"], "465")
+        self.assertEqual(v["SMTP_SECURITY"], "tls")
+        cleared = build(existing=v, smtp_host="").values
+        self.assertEqual(cleared["SMTP_ENABLED"], "false")
+        self.assertEqual(cleared["SMTP_HOST"], "")
 
 
 class TestReRun(unittest.TestCase):
@@ -369,6 +414,31 @@ class TestCommands(Deploy):
         self.assertEqual(code, 2)
         self.assertFalse((self.dir / ".env").exists())
 
+    def test_import_smtp_reads_pystino_email_export_env(self):
+        exported = (
+            "SMTP_HOST=smtp.example.org\nSMTP_PORT=465\nSMTP_USERNAME=u\n"
+            "SMTP_PASSWORD=p\nSMTP_FROM=noreply@example.org\nSMTP_SECURITY=tls\n"
+        )
+        with mock.patch.object(
+            cfg, "_run",
+            return_value=subprocess.CompletedProcess([], 0, stdout=exported, stderr=""),
+        ):
+            code, _, err = self.configure("--import-smtp")
+        self.assertEqual(code, 0, err)
+        v = self.env()
+        self.assertEqual(v["SMTP_HOST"], "smtp.example.org")
+        self.assertEqual(v["SMTP_PORT"], "465")
+        self.assertEqual(v["SMTP_SECURITY"], "tls")
+        self.assertEqual(v["SMTP_ENABLED"], "true")
+
+    def test_import_smtp_failing_does_not_stop_the_write(self):
+        with mock.patch.object(cfg, "_run", return_value=None):
+            code, _, err = self.configure("--import-smtp")
+        self.assertEqual(code, 0, err)
+        self.assertIn("--import-smtp", err)
+        v = self.env()
+        self.assertEqual(v["SMTP_ENABLED"], "false")
+
     def test_set_and_unset(self):
         self.configure()
         code, out, _ = self.run_cli("--set", "PYSTINO_REGISTRY=local", "PYSTINO_VERSION=sha-abc1234")
@@ -413,6 +483,97 @@ class TestCommands(Deploy):
         self.assertIn("AUTHELIA_CHAT_CLIENT_DIGEST", text)
         self.assertIn("GATEWAY_SECRET_KEY", text)
 
+    def test_check_flags_a_bad_group_sync(self):
+        self.configure()
+        values = self.env()
+        values["OIDC_GROUP_SYNC"] = "sometimes"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("OIDC_GROUP_SYNC" in e for e in report.errors), report.errors)
+
+    def test_check_warns_link_by_email_on(self):
+        self.configure()
+        values = self.env()
+        values["OIDC_LINK_BY_EMAIL"] = "true"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("OIDC_LINK_BY_EMAIL" in w for w in report.warnings), report.warnings)
+
+    def test_check_warns_team_preset_without_smtp(self):
+        self.configure()
+        values = self.env()
+        self.assertEqual(values["PYSTINO_PRESET"], "team")
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("SMTP_HOST" in w for w in report.warnings), report.warnings)
+
+    def test_check_notes_bundled_authelia_without_smtp(self):
+        self.configure("--preset", "homelab")
+        values = self.env()
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("one-time password" in n for n in report.notes), report.notes)
+
+    def test_check_refuses_smtp_values_that_would_break_the_yaml_template(self):
+        """configuration.yml quotes SMTP_HOST/USERNAME/FROM with Authelia's own
+        `msquote`, which does not escape an embedded quote -- a value
+        `configure` let through would render a broken configuration.yml, not
+        just a rejected one. Refusing it here is the only place that can
+        actually stop that."""
+        self.configure("--smtp-host", "mail.example.org", "--smtp-from", "noreply@example.org")
+        for key, hostile in (
+            ("SMTP_HOST", "mail.example.org'; drop:"),
+            ("SMTP_USERNAME", "o'brien"),
+            ("SMTP_FROM", "noreply@example.org\nX-Injected: true"),
+        ):
+            with self.subTest(key):
+                values = self.env()
+                values[key] = hostile
+                report = cfg.Report()
+                cfg.check_values(values, report)
+                self.assertTrue(any(key in e for e in report.errors), report.errors)
+
+    def test_check_flags_a_non_numeric_smtp_port(self):
+        self.configure("--smtp-host", "mail.example.org", "--smtp-from", "noreply@example.org")
+        values = self.env()
+        values["SMTP_PORT"] = "587; rm -rf"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("SMTP_PORT" in e for e in report.errors), report.errors)
+
+    def test_check_flags_a_missing_reset_password_secret_only_with_smtp(self):
+        """An install that pulls this compose update without re-running
+        ./configure has AUTHELIA_RESET_PASSWORD_JWT_SECRET empty. That must
+        not be an error unless they also have SMTP_HOST set -- their
+        existing, SMTP-less setup keeps validating exactly as it did."""
+        self.configure("--preset", "homelab")
+        values = self.env()
+        values["AUTHELIA_RESET_PASSWORD_JWT_SECRET"] = ""
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertFalse(any("AUTHELIA_RESET_PASSWORD_JWT_SECRET" in e for e in report.errors), report.errors)
+
+        values["SMTP_HOST"] = "mail.example.org"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("AUTHELIA_RESET_PASSWORD_JWT_SECRET" in e for e in report.errors), report.errors)
+
+    def test_configure_mints_the_reset_password_secret(self):
+        self.configure("--smtp-host", "mail.example.org", "--smtp-from", "noreply@example.org")
+        values = self.env()
+        self.assertGreaterEqual(len(values["AUTHELIA_RESET_PASSWORD_JWT_SECRET"]), 48)
+
+    def test_check_flags_an_external_idp_with_no_admin_rule(self):
+        self.configure("--idp", "external", "--oidc-issuer", "https://id.example.org",
+                       "--oidc-console-client-secret", "a", "--oidc-chat-client-secret", "b",
+                       "--admin-claim", "groups", "--admin-claim-value", "admin")
+        values = self.env()
+        values["OIDC_ADMIN_CLAIM"] = ""
+        values["OIDC_ADMIN_CLAIM_VALUE"] = ""
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("admin rule" in e for e in report.errors), report.errors)
+
     def test_check_upstream_does_not_probe_the_front(self):
         self.configure("--tls", "upstream", "--http-port", "8443")
         report = cfg.Report()
@@ -435,6 +596,139 @@ class TestCommands(Deploy):
         path = ROOT / "configure"
         self.assertTrue(os.access(path, os.X_OK))
         self.assertTrue(path.read_text().startswith("#!/usr/bin/env python3\n"))
+
+
+class TestBreakGlass(TestCommands):
+    """`./configure --break-glass` (ADR 0093 §10 host steps). Every
+    `docker compose`/`pystino break-glass` call is mocked at `cfg._run`: what
+    is under test is the `.env` rewrite, the backup, and the call order and
+    stop-on-first-failure, not docker itself (`test_compose_accepts_what_
+    configure_writes` already covers that compose accepts what this script
+    writes)."""
+
+    def _mock_run(self, *, break_glass_stdout="login:    ops\npassword: hunter2\n", fail_at=None):
+        calls = []
+
+        def fake_run(cmd, timeout=30, cwd=None):
+            index = len(calls)
+            calls.append(cmd)
+            if fail_at is not None and index == fail_at:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+            if cmd[:5] == ["docker", "compose", "run", "--rm", "--no-deps"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=break_glass_stdout, stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        return calls, fake_run
+
+    def test_needs_an_existing_env(self):
+        code, _, err = self.run_cli(
+            "--break-glass", "--admin-email", "ops@example.org", "--reason", "x"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("run ./configure first", err)
+
+    def test_needs_reason_and_admin_email(self):
+        self.configure()
+        code, _, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 2)
+        self.assertIn("--reason", err)
+        code, _, err = self.run_cli("--break-glass", "--reason", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("--admin-email", err)
+
+    def test_switches_to_bundled_with_a_utc_backup_and_the_right_call_order(self):
+        self.configure(
+            "--idp", "external", "--oidc-issuer", "https://idp.example.org",
+            "--oidc-console-client-secret", "s1", "--oidc-chat-client-secret", "s2",
+        )
+        calls, fake_run = self._mock_run()
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org",
+                "--admin-login", "ops", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 0, err)
+
+        v = self.env()
+        self.assertEqual(v["OIDC_KIND"], "authelia")
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "false")
+        self.assertIn("authelia", v["COMPOSE_PROFILES"].split(","))
+        # The bundled issuer replaces the external one in the live .env --
+        # only the backup keeps the external value (asserted below), which
+        # is what makes the round trip back out possible.
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/authelia")
+
+        backups = list(self.dir.glob(".env.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertRegex(backups[0].name, r"\.env\.bak-\d{8}T\d{6}Z$")
+        self.assertEqual(stat.S_IMODE(backups[0].stat().st_mode), 0o600)
+        self.assertEqual(cfg.parse_env(backups[0].read_text())["OIDC_ISSUER"], "https://idp.example.org")
+
+        self.assertEqual(calls[0], ["docker", "compose", "up", "-d", "--wait", "postgres"])
+        self.assertEqual(calls[1], ["docker", "compose", "run", "--rm", "bootstrap"])
+        self.assertEqual(
+            calls[2][:8],
+            ["docker", "compose", "run", "--rm", "--no-deps", "gateway", "pystino", "break-glass"],
+        )
+        self.assertEqual(calls[2][calls[2].index("--email") + 1], "ops@example.org")
+        self.assertEqual(calls[2][calls[2].index("--reason") + 1], "lost every admin")
+        self.assertEqual(calls[2][calls[2].index("--login") + 1], "ops")
+        self.assertEqual(calls[3], ["docker", "compose", "up", "-d", "--wait"])
+
+        self.assertIn("ops", out)
+        self.assertIn("hunter2", out)
+        self.assertIn("https://chat.example.org/", out)
+        self.assertIn("re-enroll", out)
+
+    def test_forces_link_by_email_off_even_when_it_was_on(self):
+        # The happy-path test above starts from OIDC_LINK_BY_EMAIL unset
+        # (false by default), which never proves the forcing -- it would
+        # pass even if --break-glass just left the existing value alone.
+        self.configure(
+            "--idp", "external", "--oidc-issuer", "https://idp.example.org",
+            "--oidc-console-client-secret", "s1", "--oidc-chat-client-secret", "s2",
+            "--link-by-email",
+        )
+        self.assertEqual(self.env()["OIDC_LINK_BY_EMAIL"], "true")
+
+        calls, fake_run = self._mock_run()
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_LINK_BY_EMAIL"], "false")
+
+    def test_stops_at_the_first_failing_step_and_names_the_backup(self):
+        self.configure()
+        calls, fake_run = self._mock_run(fail_at=1)  # the bootstrap step
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("bootstrap", err)
+        backups = list(self.dir.glob(".env.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertIn(backups[0].name, err)
+        # .env was already switched before the failing step -- the message
+        # points at the backup rather than claim nothing happened.
+        self.assertEqual(self.env()["OIDC_KIND"], "authelia")
+        # up -d --wait (the last step) never ran.
+        self.assertEqual(len(calls), 2)
+
+    def test_a_break_glass_reply_without_login_or_password_is_a_failure(self):
+        self.configure()
+        calls, fake_run = self._mock_run(break_glass_stdout="something went sideways\n")
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, out, err = self.run_cli(
+                "--break-glass", "--admin-email", "ops@example.org", "--reason", "lost every admin",
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("break-glass", err)
+        # up -d --wait (the last step) never ran: three calls (postgres,
+        # bootstrap, break-glass), not four.
+        self.assertEqual(len(calls), 3)
 
 
 if __name__ == "__main__":

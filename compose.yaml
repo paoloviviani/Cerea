@@ -76,6 +76,10 @@ services:
       AUTHELIA_ADMIN_EMAIL: ${AUTHELIA_ADMIN_EMAIL:-}
       AUTHELIA_ADMIN_NAME: ${AUTHELIA_ADMIN_NAME:-}
       AUTHELIA_ADMIN_PASSWORD_DIGEST: ${AUTHELIA_ADMIN_PASSWORD_DIGEST:-}
+      # Written to a file under the authelia-config volume, at 0600 -- never
+      # this environment's own value, so it never appears in
+      # `docker compose config` or this container's own inspectable env.
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     volumes:
       - authelia-config:/authelia
       - authelia-data:/authelia-data
@@ -90,7 +94,7 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.11-alpine}
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:ca786d25fc9d981e"
+      cerea.config-rev: "sha256:4fa12ca9285f0d72"
     ports:
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
@@ -202,15 +206,54 @@ services:
       GATEWAY_OIDC__SCOPES: '["openid","profile","email","groups"]'
       GATEWAY_OIDC__GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM:-groups}
       GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE: ${OIDC_AUDIENCE:-pystino-api}
-      GATEWAY_OIDC__LINK_LOCAL_BY_EMAIL: ${OIDC_LINK_LOCAL_BY_EMAIL:-false}
+      GATEWAY_OIDC__LINK_BY_EMAIL: ${OIDC_LINK_BY_EMAIL:-false}
       # `authelia` for the bundled IdP (./configure writes it): the seeded provider
       # row then gets the users-file sync and the console's user management.
       GATEWAY_OIDC__KIND: ${OIDC_KIND:-generic}
+      # How far the directory's answer about groups reaches; forced to never
+      # with the bundled Authelia regardless of what is set here, since its
+      # users file carries no groups claim worth polling.
+      GATEWAY_OIDC__GROUP_SYNC: ${OIDC_GROUP_SYNC:-every_login}
+      # Overrides the provider's own end_session_endpoint; the chat reads the
+      # same value below (OPENID_LOGOUT_URL), so one sign-out ends both.
+      GATEWAY_OIDC__LOGOUT_URL: ${OIDC_LOGOUT_URL:-}
+      # Who is an administrator, from the environment rather than a console
+      # row. Set one pair — a comma-separated list of verified addresses, or
+      # a claim path plus the comma-separated values that confer it — or
+      # neither with the bundled Authelia, which uses
+      # PYSTINO_BOOTSTRAP_ADMIN_EMAIL below instead.
+      GATEWAY_OIDC__ADMIN_EMAILS: ${OIDC_ADMIN_EMAIL:-}
+      GATEWAY_OIDC__ADMIN_CLAIM: ${OIDC_ADMIN_CLAIM:-}
+      GATEWAY_OIDC__ADMIN_CLAIM_VALUES: ${OIDC_ADMIN_CLAIM_VALUE:-}
+      # A bearer token's azp (or client_id) must name one of these once an
+      # audience is set: the console, the chat, and galopin's machine client.
+      GATEWAY_OIDC__ACCEPTED_CLIENTS: ${OIDC_ACCEPTED_CLIENTS:-${OIDC_CONSOLE_CLIENT_ID:-pystino-console},${OIDC_CHAT_CLIENT_ID:-cerea},${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}}
+      # Which of those accepted clients is the chat, specifically: its own
+      # sign-in door (POST /v1/session/announce) refuses a token whose azp
+      # names the console or the machine client, not just any accepted one.
+      GATEWAY_OIDC__CHAT_CLIENT_ID: ${OIDC_CHAT_CLIENT_ID:-cerea}
       # One sign-out for both applications on this origin: signing out of the
       # console also expires the chat's session cookie (and the chat does the
       # same for the console's, below).
       GATEWAY_LOGOUT_ALSO_CLEAR_COOKIES: '["hf-chat"]'
       GATEWAY_BOOTSTRAP_ADMIN_EMAIL: ${PYSTINO_BOOTSTRAP_ADMIN_EMAIL:-}
+      # The stack's one mail setting: quota notices and the console's "send
+      # test". SMTP_ENABLED stays false until SMTP_HOST etc. are filled in.
+      GATEWAY_SMTP__ENABLED: ${SMTP_ENABLED:-false}
+      GATEWAY_SMTP__HOST: ${SMTP_HOST:-}
+      GATEWAY_SMTP__PORT: ${SMTP_PORT:-587}
+      GATEWAY_SMTP__USERNAME: ${SMTP_USERNAME:-}
+      GATEWAY_SMTP__PASSWORD: ${SMTP_PASSWORD:-}
+      GATEWAY_SMTP__FROM_ADDRESS: ${SMTP_FROM:-}
+      GATEWAY_SMTP__SECURITY: ${SMTP_SECURITY:-starttls}
+      # The chat's own erasure endpoint, over the compose network only --
+      # every preset that runs the gateway also runs the chat, so this is
+      # a fixed address, not an operator setting. Empty
+      # CHAT_ERASURE_TOKEN (an .env from before ./configure minted one)
+      # means delete refuses at request time with "this deployment's chat
+      # is not reachable from the gateway", not a startup failure.
+      GATEWAY_CHAT__ERASURE_URL: http://chat:3000/chat/internal/erasure
+      GATEWAY_CHAT__ERASURE_TOKEN: ${CHAT_ERASURE_TOKEN:-}
     volumes:
       # The bundled Authelia's users file, which the console manages
       # and the authelia_file adapter reads. Empty when the profile is off.
@@ -251,7 +294,7 @@ services:
     command: ["--config", "/etc/authelia/configuration.yml"]
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:57b95a56aa8c5336"
+      cerea.config-rev: "sha256:7e65be1f5d7fb4da"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
       # The gateway's uid: the console manages the bundled users file,
@@ -265,8 +308,29 @@ services:
       X_PYSTINO_SESSION_SECRET: ${AUTHELIA_SESSION_SECRET:-}
       X_PYSTINO_HMAC_SECRET: ${AUTHELIA_HMAC_SECRET:-}
       X_PYSTINO_STORAGE_KEY: ${AUTHELIA_STORAGE_KEY:-}
+      # Signs the reset-password link's token, needed once self-service
+      # reset is on; minted regardless, like the three secrets above, so
+      # turning SMTP on later needs nothing new.
+      X_PYSTINO_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_RESET_PASSWORD_JWT_SECRET:-}
       X_PYSTINO_CONSOLE_CLIENT_DIGEST: ${AUTHELIA_CONSOLE_CLIENT_DIGEST:-}
       X_PYSTINO_CHAT_CLIENT_DIGEST: ${AUTHELIA_CHAT_CLIENT_DIGEST:-}
+      # Empty SMTP_HOST is how configuration.yml's own template picks the
+      # filesystem notifier and a disabled password_reset -- the same one
+      # setting the gateway's mail reads, never a second copy to disagree
+      # with it. The SMTP password itself never travels through this
+      # environment: configuration.yml's `secret` call reads the file
+      # bootstrap writes directly from the authelia-config volume, mounted
+      # below at /config, the same one the JWKS key already uses.
+      X_PYSTINO_SMTP_HOST: ${SMTP_HOST:-}
+      X_PYSTINO_SMTP_PORT: ${SMTP_PORT:-587}
+      X_PYSTINO_SMTP_USERNAME: ${SMTP_USERNAME:-}
+      X_PYSTINO_SMTP_FROM: ${SMTP_FROM:-}
+      X_PYSTINO_SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      # SMTP_PASSWORD is optional even with SMTP_HOST set (an unauthenticated
+      # relay on a private network): empty is how configuration.yml's
+      # template knows to skip the `password` line entirely rather than
+      # reading a file bootstrap never wrote.
+      X_PYSTINO_SMTP_HAS_PASSWORD: ${SMTP_PASSWORD:+true}
     volumes:
       - ./authelia:/etc/authelia:ro
       - authelia-config:/config
@@ -342,9 +406,12 @@ services:
       # The browser terminal in /code: off unless exactly "true", and even then
       # only for machines enrolled with --allow-terminal.
       CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}
-      CODE_MACHINE_ISSUER: ${CODE_MACHINE_ISSUER:-}
-      CODE_MACHINE_AUDIENCE: ${CODE_MACHINE_AUDIENCE:-pystino-api}
-      CODE_MACHINE_CLIENT_ID: ${CODE_MACHINE_CLIENT_ID:-opencode-enrollment}
+      # One issuer for all three clients: the machine link reads the same
+      # OIDC_ISSUER, OIDC_AUDIENCE and OIDC_MACHINE_CLIENT_ID as the console
+      # and the chat.
+      CODE_MACHINE_ISSUER: ${OIDC_ISSUER:-}
+      CODE_MACHINE_AUDIENCE: ${OIDC_AUDIENCE:-pystino-api}
+      CODE_MACHINE_CLIENT_ID: ${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}
       OPENID_PROVIDER_URL: ${OIDC_ISSUER:-}
       # Same back-channel rule as the gateway: discovery, token and JWKS go
       # to the IdP on the compose network, never through the proxy.
@@ -359,6 +426,12 @@ services:
       OPENID_LOGOUT_URL: ${OIDC_LOGOUT_URL:-}
       LOGOUT_ALSO_CLEAR_COOKIES: gw_session,gw_idt:/auth
       CHAT_SECRET_KEY: ${CHAT_SECRET_KEY:-}
+      # The gateway's own credential for /chat/internal/erasure, over the
+      # compose network only. Never reachable from the edge regardless: the
+      # Caddyfile answers 404 for this path first, and this app refuses any
+      # request to /internal/* that carries a proxy header, whatever token
+      # it presents.
+      CHAT_ERASURE_TOKEN: ${CHAT_ERASURE_TOKEN:-}
       PUBLIC_APP_NAME: ${CHAT_APP_NAME:-Cerea}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
       ORIGIN: ${PUBLIC_ORIGIN}/chat

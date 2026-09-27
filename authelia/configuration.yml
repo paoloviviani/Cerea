@@ -29,7 +29,9 @@ log:
 
 authentication_backend:
   password_reset:
-    disable: true
+    # Self-service reset needs SMTP; without it, an administrator issues
+    # one-time passwords from the console instead.
+    disable: {{ if env "X_PYSTINO_SMTP_HOST" }}false{{ else }}true{{ end }}
   file:
     path: '/config/users_database.yml'
     watch: true
@@ -42,6 +44,16 @@ authentication_backend:
         parallelism: 4
         key_length: 32
         salt_length: 16
+
+# No second factor: the bundled Authelia is a local-accounts door, not an
+# MFA provider. A deployment that needs MFA runs an external IdP instead.
+# Stated outright, not just implied by every client's own `one_factor`
+# policy below, so it stays true even if a later edit adds one back there.
+totp:
+  disable: true
+webauthn:
+  disable: true
+# duo_api intentionally absent: Duo is unconfigured, not merely unused.
 
 access_control:
   default_policy: 'one_factor'
@@ -66,9 +78,43 @@ storage:
   # user is keyed on downstream. Changing it re-keys everyone: never rotate it.
   encryption_key: '{{ env "X_PYSTINO_STORAGE_KEY" }}'
 
+# Signs the reset-password link's token. Required once self-service reset is
+# on; set regardless, so turning on SMTP later never needs a fresh secret.
+identity_validation:
+  reset_password:
+    jwt_secret: {{ env "X_PYSTINO_RESET_PASSWORD_JWT_SECRET" | msquote }}
+
 notifier:
+{{ if env "X_PYSTINO_SMTP_HOST" }}
+{{ $scheme := "submission" }}
+{{ if eq (env "X_PYSTINO_SMTP_SECURITY") "tls" }}{{ $scheme = "submissions" }}{{ else if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}{{ $scheme = "smtp" }}{{ end }}
+  smtp:
+    address: {{ printf "%s://%s:%s" $scheme (env "X_PYSTINO_SMTP_HOST") (env "X_PYSTINO_SMTP_PORT") | msquote }}
+    username: {{ env "X_PYSTINO_SMTP_USERNAME" | msquote }}
+    sender: {{ env "X_PYSTINO_SMTP_FROM" | msquote }}
+    # A mail sink with no certificate at all needs this; a real server's own
+    # STARTTLS is otherwise required no matter which scheme above is picked.
+    disable_starttls: {{ if eq (env "X_PYSTINO_SMTP_SECURITY") "none" }}true{{ else }}false{{ end }}
+    # An unauthenticated relay on a private network needs no password: this
+    # line is then absent rather than pointing at a file that was never
+    # written, so it does not stop Authelia starting.
+    #
+    # A YAML block scalar, not msquote: msquote wraps a value in quotes
+    # without escaping one already inside it, so a password containing a
+    # quote character broke the file the same way the SMTP fields did before
+    # they gained input validation -- a password can hold any character and
+    # ./configure has no way to refuse one. `|2-` is the explicit form (content
+    # two columns past this line's own indent, chomping the trailing
+    # newline): a plain `|-` lets a leading space in the password collapse
+    # into indentation instead of surviving as content. Keep the `2` in step
+    # with this file's own nesting if `password:` ever moves.
+    {{ if env "X_PYSTINO_SMTP_HAS_PASSWORD" }}
+    password: |2-{{ secret "/config/keys/smtp_password" | nindent 6 }}
+    {{ end }}
+{{ else }}
   filesystem:
     filename: '/data/notification.txt'
+{{ end }}
 
 identity_providers:
   oidc:

@@ -34,6 +34,20 @@
 	# default; a glob that matches nothing is not an error.
 	import /etc/caddy.d/*.caddy
 
+	# The chat's own service credential is for the gateway, over the compose
+	# network, never for anyone arriving here. Answered before either
+	# backend's own `handle` block gets a chance to proxy it, so a route
+	# neither service happens to expose yet is refused the same way as one
+	# that does. The chat also refuses these itself if a proxy header is
+	# present, regardless of this rule; this is the other layer, not the
+	# only one.
+	handle /chat/internal/* {
+		respond 404
+	}
+	handle /internal/* {
+		respond 404
+	}
+
 	handle /chat/* {
 		reverse_proxy chat:3000 {
 			import to_app
