@@ -227,10 +227,11 @@ test.describe("the / menu", () => {
 		await expect(menu(page).getByRole("option", { name: "/compact" })).toHaveCount(0);
 
 		await page.keyboard.press("ArrowDown");
-		await expect(box(page)).toHaveAttribute(/aria-activedescendant/);
 		const active = await box(page).getAttribute("aria-activedescendant");
+		expect(active).toBeTruthy();
 		await page.keyboard.press("ArrowDown");
 		const next = await box(page).getAttribute("aria-activedescendant");
+		expect(next).toBeTruthy();
 		expect(next).not.toBe(active);
 	});
 
