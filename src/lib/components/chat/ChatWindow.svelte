@@ -232,6 +232,9 @@
 		get registry() {
 			return artifactRegistry;
 		},
+		get fileRegistry() {
+			return fileRegistry;
+		},
 		panel: sidePane,
 		// Deep consumers (e.g. the code-block preview modal) can't render a
 		// meaningful disabled state, so streaming also gates availability here;
@@ -1378,7 +1381,7 @@
 	/>
 	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />
 	<TrackioPane items={paneItems} />
-	<DeliverablesPanel {fileRegistry} />
+	<DeliverablesPanel items={paneItems} registry={artifactRegistry} {fileRegistry} />
 </div>
 
 <!-- Outside the composer's wrapper on purpose: that subtree is

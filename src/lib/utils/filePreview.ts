@@ -110,3 +110,53 @@ export function formatFileSize(bytes: number): string {
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/**
+ * The kind badge a produced file carries, from its name — the same label the
+ * library panel's file rows show, single-sourced here so the inline file
+ * artifact card and the library row cannot drift. `mime` only backs the
+ * untyped fallback for callers that have it (a stored row does; a bare
+ * filename does not).
+ */
+export function fileKindLabel(name: string, mime?: string): string {
+	const extension = name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : "";
+	switch (extension) {
+		case "pdf":
+			return "PDF";
+		case "csv":
+		case "tsv":
+			return "Spreadsheet";
+		case "md":
+		case "markdown":
+			return "Markdown";
+		case "json":
+		case "jsonl":
+		case "yaml":
+		case "yml":
+		case "toml":
+			return "Data";
+		case "png":
+		case "jpg":
+		case "jpeg":
+		case "gif":
+		case "webp":
+		case "svg":
+		case "bmp":
+		case "avif":
+			return "Image";
+		case "py":
+		case "js":
+		case "ts":
+		case "html":
+		case "xml":
+		case "tex":
+			return "Code";
+		case "docx":
+			return "Word";
+		case "txt":
+		case "log":
+			return "Text";
+		default:
+			return mime?.split("/")[0] === "text" ? "Text" : "File";
+	}
+}
