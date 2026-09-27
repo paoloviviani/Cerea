@@ -491,13 +491,65 @@
 			>
 				{#snippet children()}
 					<!-- Only the state that belongs *in* the prompt box renders here:
-				     the feature toggles and the status banners. Below `sm` the
-				     toolbar row goes nowrap-and-scroll, with the `+` before it
-				     and the ring after it pinned outside it, so none of those
-				     scroll away. The mode/model/effort pills used to live here
-				     too, but the regular chat draws its model/effort row BELOW
-				     the composer — so they moved to their own row after the
-				     form (same look, same classes), matching chat's layout. -->
+				     the mode pill, the feature toggles and the status banners.
+				     Below `sm` the toolbar row goes nowrap-and-scroll, with the
+				     `+` before it and the ring after it pinned outside it, so
+				     none of those scroll away. The model/effort control moved
+				     to its own row below the form, like the regular chat's
+				     model/effort line; the mode (build/plan) pill stays here —
+				     a session toggle beside the toggles, not a trailing
+				     readout. -->
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class={pillClass}
+							disabled={applying === "mode"}
+							title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
+						>
+							<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
+							<IconChevronDown class={chevronClass} />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								class={menuContentClass}
+								side="top"
+								align="start"
+								sideOffset={8}
+								trapFocus={false}
+								onCloseAutoFocus={(e) => e.preventDefault()}
+								interactOutsideBehavior="defer-otherwise-close"
+							>
+								{#if modes === null && !modesFailure}
+									<DropdownMenu.Item class={menuNoteClass} disabled
+										>Loading modes…</DropdownMenu.Item
+									>
+								{:else if modesFailure}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										Could not load modes: {modesFailure}
+									</DropdownMenu.Item>
+								{:else if !modes?.length}
+									<DropdownMenu.Item class={menuNoteClass} disabled>
+										The daemon lists no modes.
+									</DropdownMenu.Item>
+								{:else}
+									{#each modes as mode (mode.id)}
+										<DropdownMenu.Item
+											class={menuItemClass}
+											onSelect={() => void applyMode(mode.id)}
+										>
+											<IconCheck
+												class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
+													? 'opacity-100'
+													: 'opacity-0'}"
+											/>
+											<span class="whitespace-nowrap" title={mode.description}>
+												{mode.label}
+											</span>
+										</DropdownMenu.Item>
+									{/each}
+								{/if}
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
 					<!-- The provider's feature toggles, drawn like chat's own
 				     toggle pills (web search, tool approval): blue when on,
 				     gray when off, `aria-pressed` carrying the state, icon
@@ -643,64 +695,18 @@
 
 <!-- The mode/model/effort row, BELOW the composer like the regular chat's
      model/effort row (`ChatWindow`'s `mt-1.5` line under its form): the
-     mode pill keeps its composer look (it has no chat counterpart), while
-     the model/effort control renders exactly as chat's does — the shared
+     model/effort control renders exactly as chat's does — the shared
      component's own default trigger, quiet gray underline-text, no pill
-     border. The usage ring moves here, pinned to the row's right edge —
-     chat's own layout keeps trailing actions out of the pill row's flow,
-     and the ring is the agent row's trailing action, not another pill.
+     border. The usage ring trails the row right — chat's own layout keeps
+     trailing actions out of the pill row's flow, and the ring is the agent
+     row's trailing action, not another pill. The mode (build/plan) pill
+     lives back inside the composer's pill row with the feature toggles:
+     it is a session toggle like they are, not a trailing readout.
      Outside ChatInput's scrollable toolbar row, so on mobile nothing
      masks any of it. -->
 <div
 	class="mt-1.5 flex h-5 flex-wrap items-center gap-1.5 self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2"
 >
-	<DropdownMenu.Root>
-		<DropdownMenu.Trigger
-			class={pillClass}
-			disabled={applying === "mode"}
-			title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
-		>
-			<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
-			<IconChevronDown class={chevronClass} />
-		</DropdownMenu.Trigger>
-		<DropdownMenu.Portal>
-			<DropdownMenu.Content
-				class={menuContentClass}
-				side="top"
-				align="start"
-				sideOffset={8}
-				trapFocus={false}
-				onCloseAutoFocus={(e) => e.preventDefault()}
-				interactOutsideBehavior="defer-otherwise-close"
-			>
-				{#if modes === null && !modesFailure}
-					<DropdownMenu.Item class={menuNoteClass} disabled>Loading modes…</DropdownMenu.Item>
-				{:else if modesFailure}
-					<DropdownMenu.Item class={menuNoteClass} disabled>
-						Could not load modes: {modesFailure}
-					</DropdownMenu.Item>
-				{:else if !modes?.length}
-					<DropdownMenu.Item class={menuNoteClass} disabled>
-						The daemon lists no modes.
-					</DropdownMenu.Item>
-				{:else}
-					{#each modes as mode (mode.id)}
-						<DropdownMenu.Item class={menuItemClass} onSelect={() => void applyMode(mode.id)}>
-							<IconCheck
-								class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
-									? 'opacity-100'
-									: 'opacity-0'}"
-							/>
-							<span class="whitespace-nowrap" title={mode.description}>
-								{mode.label}
-							</span>
-						</DropdownMenu.Item>
-					{/each}
-				{/if}
-			</DropdownMenu.Content>
-		</DropdownMenu.Portal>
-	</DropdownMenu.Root>
-
 	<!-- The model/effort pill: the chat composer's own `ModelEffortPicker`,
 	     rendered exactly as chat renders it below its composer — the
 	     component's own default trigger (underline-text, no pill border,
