@@ -31,7 +31,10 @@ function normalizeIssuer(raw: string): string {
 	return raw.trim().replace(/\/+$/, "");
 }
 
-function machineIssuer(): string {
+/** The issuer a machine bearer is validated against — exported so the device
+ * list (`codeDevices.ts`) can flag `enrolledIssuer` drift against the exact
+ * same value, rather than a second resolution that could silently diverge. */
+export function machineIssuer(): string {
 	const configured = config.CODE_MACHINE_ISSUER?.trim() || config.OPENID_PROVIDER_URL?.trim();
 	if (!configured) {
 		throw new Error("No OIDC issuer is configured (CODE_MACHINE_ISSUER or OPENID_PROVIDER_URL).");
@@ -43,7 +46,10 @@ function machineAudience(): string {
 	return config.CODE_MACHINE_AUDIENCE?.trim() || "pystino-api";
 }
 
-function machineClientId(): string {
+/** Exported for the same reason as `machineIssuer`: the feature flags and the
+ * pairing dialog's one-liner need this deployment's actual configured client
+ * id, not a second guess at `CODE_MACHINE_CLIENT_ID`'s default. */
+export function machineClientId(): string {
 	return config.CODE_MACHINE_CLIENT_ID?.trim() || "opencode-enrollment";
 }
 
