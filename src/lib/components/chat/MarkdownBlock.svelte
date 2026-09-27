@@ -4,6 +4,7 @@
 
 	interface Props {
 		tokens: Token[];
+		/** Whether the message these tokens belong to is currently generating. */
 		loading?: boolean;
 		/** Assistant-written blocks may auto-run (see CodeBlock). */
 		autorun?: boolean;
@@ -24,6 +25,7 @@
 			code={token.code}
 			rawCode={token.rawCode}
 			loading={loading && !token.isClosed}
+			messageLoading={loading}
 			language={token.lang}
 			{autorun}
 		/>

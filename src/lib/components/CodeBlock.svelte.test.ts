@@ -53,10 +53,18 @@ const outcome = (over: Partial<RunOutcome>): RunOutcome => ({
 
 const mount = (props: Record<string, unknown>) => {
 	const rawCode = (props.rawCode as string) ?? "print('hi')";
+	const loading = (props.loading as boolean | undefined) ?? false;
 	const screen = render(CodeBlock, {
 		code: rawCode,
 		rawCode,
-		loading: false,
+		loading,
+		// In production `loading` (block-level) is `messageLoading &&
+		// !token.isClosed` (see MarkdownBlock.svelte): `loading: true` always
+		// implies the message itself was live too. Default it the same way
+		// here so existing callers that only set `loading` keep working;
+		// `...props` still lets a test override it explicitly (see the
+		// "arrives already closed" case below).
+		messageLoading: loading,
 		language: "python",
 		autorun: false,
 		...props,
@@ -97,6 +105,32 @@ describe("CodeBlock execution", () => {
 		const text = screen.baseElement.textContent ?? "";
 		expect(text).toContain("Finished");
 		expect(text).toContain("hi\n");
+	});
+
+	it("auto-runs a fence that arrives already closed in the final update — no streamed tokens, only the message-level generating flag was ever true", async () => {
+		// glm-5.3-flash (and other models) sometimes emit the whole visible
+		// answer, fence included, in one final chunk: MarkdownBlock computes
+		// this block's own `loading` as `loading && !token.isClosed`, and an
+		// already-closed fence makes that false from this component's very
+		// first render — `loading` alone can never mark it as seen streaming.
+		// `messageLoading` is the raw, uncombined signal (the message this
+		// fence belongs to is the one this tab is generating) and must still
+		// mark it.
+		const { screen } = mount({
+			rawCode: "print('whole')",
+			autorun: true,
+			loading: false,
+			messageLoading: true,
+		});
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledWith("print('whole')"));
+
+		// The turn settling afterwards must not run it again.
+		await screen.rerender({ messageLoading: false });
+		await tick();
+		expect(sessionMock.run).toHaveBeenCalledTimes(1);
+
+		sessionMock.settleNext(outcome({ stdout: "whole\n" }));
+		await tick();
 	});
 
 	it("never auto-runs fences that did not stream (history reloads stay inert)", async () => {
@@ -492,11 +526,14 @@ describe("CodeBlock keeps the files its run produced", () => {
 		context: MessageRunContext,
 		props: Record<string, unknown> = {}
 	) {
+		const loading = (props.loading as boolean | undefined) ?? false;
 		return render(CodeBlock, {
 			props: {
 				code: rawCode,
 				rawCode,
-				loading: false,
+				loading,
+				// See the `mount` helper above for why this mirrors `loading`.
+				messageLoading: loading,
 				language: "python",
 				autorun: false,
 				...props,
