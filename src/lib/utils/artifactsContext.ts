@@ -1,5 +1,6 @@
 import { getContext, setContext } from "svelte";
 import type { ArtifactRegistry } from "./artifacts";
+import type { FileArtifactRegistry } from "./fileArtifacts";
 import type { sidePane } from "$lib/stores/sidePane.svelte";
 
 /**
@@ -9,6 +10,8 @@ import type { sidePane } from "$lib/stores/sidePane.svelte";
  */
 export interface ArtifactsContext {
 	readonly registry: ArtifactRegistry;
+	/** Persisted run outputs as versioned file artifacts, for the inline file cards. */
+	readonly fileRegistry: FileArtifactRegistry;
 	panel: typeof sidePane;
 	/**
 	 * Sends a preview-error fix request straight to the chat as a user message,

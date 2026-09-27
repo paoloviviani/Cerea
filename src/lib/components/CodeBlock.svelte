@@ -276,6 +276,7 @@
 			persistedFiles: files.map((f) => ({
 				name: f.name,
 				size: f.size,
+				sha256: f.sha256,
 				downloadUrl: `${base}/conversation/${messageRun.conversationId}/code-execution/output/${f.sha256}`,
 			})),
 		};

@@ -45,9 +45,10 @@ export interface RunState {
 	 * Deliverables persisted server-side, rendered instead of `outputFiles` on
 	 * true replay (no live run holds the bytes). Set only by a replay fallback
 	 * (CodeExecutionCard's resolved state, CodeBlock's stored files), never by
-	 * a live run.
+	 * a live run. `sha256` travels when the source reference carries it — the
+	 * inline file artifact card joins the registry by it.
 	 */
-	persistedFiles?: Array<{ name: string; size: number; downloadUrl: string }>;
+	persistedFiles?: Array<{ name: string; size: number; sha256?: string; downloadUrl: string }>;
 	startedAt: number;
 	finishedAt?: number;
 }
