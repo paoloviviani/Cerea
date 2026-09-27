@@ -73,7 +73,11 @@
 		AgentUsageUpdate,
 		CodeAgentSession,
 	} from "$lib/types/CodeAgent";
-	import { matchSlashCommand, type SlashCommand } from "$lib/utils/slashCommand.svelte";
+	import {
+		matchSlashCommand,
+		panelCommands as panelCommandTable,
+		type SlashCommand,
+	} from "$lib/utils/slashCommand.svelte";
 	import ContextMeter from "./ContextMeter.svelte";
 
 	interface Props {
@@ -326,51 +330,16 @@
 		}
 	}
 
-	/**
-	 * The panel commands the `/` menu lists: only what this agent's backend
-	 * can actually do — compact and rollback gated on their `hello`
-	 * capabilities, effort on the model's levels — and nothing more. Panel
-	 * names are reserved; batch C's backend commands will shadow against
-	 * this list, not extend it.
-	 */
-	let panelCommands = $derived<SlashCommand[]>([
-		...(compactSupported
-			? [{ name: "compact", description: "Compact the conversation now", group: "panel" as const }]
-			: []),
-		...(revertSupported
-			? [
-					{
-						name: "undo",
-						description: "Roll back to before the last prompt",
-						group: "panel" as const,
-					},
-					{ name: "redo", description: "Undo the last rollback", group: "panel" as const },
-				]
-			: []),
-		{
-			name: "model",
-			description: "Switch the model the agent runs",
-			hint: "[model]",
-			group: "panel" as const,
-		},
-		{
-			name: "mode",
-			description: "Switch the agent's mode",
-			hint: "[mode]",
-			group: "panel" as const,
-		},
-		...(effortsSupported
-			? [
-					{
-						name: "effort",
-						description: "Set the thinking effort",
-						hint: "[level]",
-						group: "panel" as const,
-					},
-				]
-			: []),
-		{ name: "new", description: "Start a new agent on this workspace", group: "panel" as const },
-	]);
+	// The panel commands the `/` menu lists, gated on what this agent's
+	// backend reports — the table itself lives in slashCommand.svelte.ts,
+	// where it is tested.
+	let panelCommands = $derived(
+		panelCommandTable({
+			compact: compactSupported,
+			revert: revertSupported,
+			efforts: effortsSupported,
+		})
+	);
 
 	// The two option lists, live from the daemon for the agent's provider.
 	// Fetched eagerly rather than on first open: the pills resolve their
