@@ -106,7 +106,7 @@ This reports everything wrong at once:
 - in `acme` mode, whether the name resolves to this host and ports 80 and 443 answer.
 
 Among them, what identity configuration turns up:
-- an external IdP with no admin rule — set `--admin-email`, or `--admin-claim` with `--admin-claim-value`; a half-set claim pair, or an `OIDC_ADMIN_EMAIL` entry that is not a valid address, is named the same way;
+- an external IdP with no admin rule — set `--admin-email`, or `--admin-claim` with `--admin-claim-value`; a half-set claim pair, or an `OIDC_ADMIN_EMAIL` entry that is not a valid address, is reported the same way;
 - `OIDC_LINK_BY_EMAIL` on — the reminder to turn it off when the transition is done;
 - the `team` preset without SMTP — people cannot reset their own password;
 - `pystino idp check --discovery-only`, run in the gateway container against the configured issuer.
@@ -212,6 +212,9 @@ with `email_verified` as the JSON boolean `true`. If the IdP publishes no
 `--oidc-logout-url 'https://id.example.org/logout?redirect={redirect}'` so
 that signing out ends its session too.
 
+**Signing out** of either the console or the chat signs you out of both, and
+out of the IdP.
+
 ```sh
 ./configure --idp external --oidc-issuer https://id.example.org/realms/main \
   --admin-email ops@example.org \
@@ -266,9 +269,9 @@ link-by-email on — how many existing accounts a first sign-in would link to.
 4. **Existing users.** Their accounts and chat history stay. A person keeps
    theirs when one of these happens:
    - **Link by email.** With `OIDC_LINK_BY_EMAIL=true` (off by default; set
-     it with `--link-by-email on`), a first sign-in with a verified email
+     it with `--link-by-email`), a first sign-in with a verified email
      attaches to the one existing account with that address. It never
-     attaches to an administrator. Turn it off with `--link-by-email off`
+     attaches to an administrator. Turn it off with `--no-link-by-email`
      once the transition is done; a warning prints at every start while it
      is on.
    - **Merge.** An administrator picks **Merge into…** on the Users page and
