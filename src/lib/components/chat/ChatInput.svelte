@@ -1111,6 +1111,7 @@
 			     so a toggle with nothing behind it costs nothing and changes
 			     nothing. -->
 						<TogglePill
+							compact
 							pressed={webSearch}
 							label="Web search"
 							title="Search the web through this deployment's search backends (this chat only)"
@@ -1126,6 +1127,7 @@
 				     page there is no conversation yet, so it only flips the local
 				     state that rides into the create request. -->
 						<TogglePill
+							compact
 							pressed={autoApproveTools}
 							label={autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
 							title={autoApproveTools
