@@ -25,6 +25,17 @@
 		code?: string;
 		rawCode?: string;
 		loading?: boolean;
+		/**
+		 * Whether the message this fence belongs to is the one this tab is
+		 * currently generating — unlike `loading`, this stays true even once
+		 * the fence itself closes (MarkdownBlock computes `loading` as
+		 * `loading && !token.isClosed`, so a fence that arrives already closed
+		 * — the whole answer in one final chunk, no streamed tokens — makes
+		 * `loading` false from this component's very first render). Used only
+		 * to mark a fence as having been seen live; auto-run itself still
+		 * waits on `loading` to know the fence is actually closed.
+		 */
+		messageLoading?: boolean;
 		/** The fence's info string, e.g. "python" — decides runnability. */
 		language?: string;
 		/**
@@ -39,6 +50,7 @@
 		code = "",
 		rawCode = "",
 		loading = false,
+		messageLoading = false,
 		language = "",
 		autorun = false,
 	}: Props = $props();
@@ -134,23 +146,33 @@
 	let runKey = $derived(runnable ? chatRunKey(rawCode) : "");
 	let runState = $derived(runsStore && runKey ? runsStore.get(runKey) : undefined);
 
-	// Auto-run fires exactly once, when a fence that streamed in closed. Blocks
-	// loaded from history are born closed and never see `loading`, so they keep
-	// the manual affordance — a page load must not re-execute every snippet a
-	// conversation ever contained.
+	// Auto-run fires exactly once, for a fence that first appeared as part of
+	// the live turn this tab is generating — whether it streamed in token by
+	// token or (some models, sometimes) arrived whole in the final update.
+	// Blocks loaded from history are born closed with `messageLoading` false,
+	// so they keep the manual affordance — a page load must not re-execute
+	// every snippet a conversation ever contained.
 	//
-	// The "did this fence actually stream" signal lives on the store, keyed by
-	// runKey, rather than in a local `$state` here: the containing message's
-	// each-key swaps at settle (`stream-${index}` → `block.id`, see
-	// MarkdownRenderer.svelte), remounting this component right at the moment
-	// `loading` flips false — a local flag would reset to unset on the fresh
-	// instance and auto-run would never fire. `runsStore.run` is itself
-	// idempotent per key (re-renders, and so a remount too, never re-execute
-	// an already-run key), so marking-and-triggering on every render here is
-	// safe: it fires the run once, the first time some instance sees both
-	// signals true, remount or not.
+	// The "seen live" signal lives on the store, keyed by runKey, rather than
+	// in a local `$state` here: the containing message's each-key swaps at
+	// settle (`stream-${index}` → `block.id`, see MarkdownRenderer.svelte),
+	// remounting this component right at the moment `loading` flips false — a
+	// local flag would reset to unset on the fresh instance and auto-run
+	// would never fire. `runsStore.run` is itself idempotent per key
+	// (re-renders, and so a remount too, never re-execute an already-run
+	// key), so marking-and-triggering on every render here is safe: it fires
+	// the run once, the first time some instance sees both signals true,
+	// remount or not.
+	//
+	// Marked on `messageLoading`, not `loading`: `loading` is
+	// `messageLoading && !token.isClosed` (see MarkdownBlock.svelte), so an
+	// answer that arrives whole — fence already closed — makes `loading`
+	// false from this component's very first render, and marking on it would
+	// never fire. `messageLoading` stays true across that same render,
+	// because it does not know or care whether any individual fence inside
+	// the message has closed yet.
 	$effect(() => {
-		if (loading && runsStore && runKey) runsStore.markSeenStreaming(streamedKey());
+		if (messageLoading && runsStore && runKey) runsStore.markSeenStreaming(streamedKey());
 	});
 	$effect(() => {
 		if (!autorun || loading || !runsStore || !runKey) return;

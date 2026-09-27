@@ -1,6 +1,9 @@
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import { render } from "vitest-browser-svelte";
 import { page } from "@vitest/browser/context";
+import { tick } from "svelte";
+import { getRunsStore } from "$lib/utils/execution/runs.svelte";
+import { chatRunKey } from "$lib/utils/execution/keys";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -107,6 +110,23 @@ describe("MarkdownRenderer streaming", () => {
 			expect(baseElement.textContent).toContain("Second paragraph.");
 			expect(baseElement.textContent).toContain("Third paragraph.");
 		});
+	});
+
+	it("marks a fence that arrives already closed 'seen live' synchronously, without waiting for the async tokenizer", async () => {
+		// The bug this guards: some models stream only their thinking and
+		// deliver the whole visible answer, fence already closed, in one final
+		// chunk. The mark must not depend on the worker round trip (or a cold
+		// dynamically-imported rich module) that turns `content` into rendered
+		// blocks — that pipeline can easily outlast `loading` flipping false.
+		const rawCode = "print('sync-mark')";
+		render(MarkdownRenderer, {
+			content: `Here:\n\n\`\`\`python\n${rawCode}\n\`\`\`\n`,
+			loading: true,
+			autorun: true,
+		});
+		await tick();
+		const store = getRunsStore();
+		expect(store?.hasSeenStreaming(`|${chatRunKey(rawCode)}`)).toBe(true);
 	});
 
 	it("renders a trailing setext heading in completed messages", async () => {
