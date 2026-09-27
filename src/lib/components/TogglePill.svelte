@@ -34,13 +34,17 @@
 	class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {compact
 		? 'max-sm:size-8 max-sm:justify-center max-sm:gap-0 max-sm:rounded-full max-sm:border-0 max-sm:bg-transparent max-sm:px-0 max-sm:text-base'
 		: ''} {pressed
-		? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-		: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'} disabled:opacity-60"
+		? 'border-blue-600 bg-blue-100 text-blue-800 shadow-xs dark:border-blue-400 dark:bg-blue-900/60 dark:text-blue-100'
+		: 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'} disabled:opacity-60"
 	aria-pressed={pressed}
 	{title}
 	{disabled}
 	{onclick}
 >
+	<!-- The icon itself carries the state, not just the pill's chrome: on
+	     icons in full-saturation blue, off icons in muted gray — the pair a
+	     compacted icon-only pill shows is readable at a glance, where a
+	     tinted border and a pale wash were not. -->
 	{@render icon()}
 	<span class={compact ? "max-sm:sr-only" : ""}>{label}</span>
 </button>
