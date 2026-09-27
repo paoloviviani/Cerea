@@ -176,7 +176,12 @@ type ExtraConfigKeys =
 	| "CODE_MACHINE_AUDIENCE"
 	/** The authorized party (`azp`/`client_id`) a machine link's bearer must
 	 * carry — the enrollment CLI's OAuth client id. */
-	| "CODE_MACHINE_CLIENT_ID";
+	| "CODE_MACHINE_CLIENT_ID"
+	/** The gateway's own service credential for `/internal/*` (ADR 0093
+	 * §9.3): minted by `./configure`, passed over the compose network only,
+	 * compared in constant time (`internalAuth.ts`). Not in `.env` — a
+	 * deployment secret, not a documented setting a person edits. */
+	| "CHAT_ERASURE_TOKEN";
 
 type ConfigProxy = ConfigManager & { [K in ConfigKey | ExtraConfigKeys]: string };
 

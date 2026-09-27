@@ -65,7 +65,7 @@ async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer)
 	}
 
 	wss.handleUpgrade(req, socket, head, (client) => {
-		acceptMachineConnection(client, req, auth.principal);
+		acceptMachineConnection(client, req, auth.principal, auth.token);
 	});
 }
 
