@@ -617,7 +617,7 @@ describe("CodeBlock keeps the files its run produced", () => {
 		);
 	}
 
-	it("releases the claim on a refused record, so a remounted retry under the same id succeeds", async () => {
+	it("retries a refused record under the same id (the save landed, no id change), and records it once", async () => {
 		const seen: Seen[] = [];
 		let calls = 0;
 		stubServerWithRunFilesResponder(seen, () => {
@@ -637,13 +637,18 @@ describe("CodeBlock keeps the files its run produced", () => {
 		const context = messageRun({ messageId: "asst-retry" });
 
 		const first = await runWithFile("make_docx_retry()", context);
-		await vi.waitFor(() => expect(seen).toHaveLength(2));
+		// The upload, the refused record, then the retried record, with no
+		// remount and no id change needed to set it off.
+		await vi.waitFor(() => expect(seen).toHaveLength(3), { timeout: 5000 });
+		expect(seen[2].body).toMatchObject({ messageId: "asst-retry" });
+		await vi.waitFor(() => expect(runFiles.for("asst-retry").length).toBe(1));
 		first.unmount();
 
+		// A remount afterwards sees the run already recorded: nothing new.
 		mountWith("make_docx_retry()", context);
-		await vi.waitFor(() => expect(seen).toHaveLength(4));
-		expect(seen[3].body).toMatchObject({ messageId: "asst-retry" });
-		await vi.waitFor(() => expect(runFiles.for("asst-retry").length).toBe(1));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(seen).toHaveLength(3);
+		expect(runFiles.for("asst-retry").length).toBe(1);
 	});
 
 	it("records under the message id it has once the id changes, exactly once", async () => {

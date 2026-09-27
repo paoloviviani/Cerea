@@ -243,9 +243,17 @@
 		const listed = state.outputFiles;
 		void (async () => {
 			const files = await uploadRunFiles(conversationId, listed);
-			const update = await recordRunFiles({ conversationId, messageId, runKey: key, files });
+			const update = await recordRunFiles({
+				conversationId,
+				messageId,
+				currentMessageId: () => messageRun?.messageId,
+				runKey: key,
+				files,
+			});
 			if (update) {
-				runFiles.add(messageId, update);
+				// Under the id the record landed on, which a retry may have
+				// picked up after a swap to the server's.
+				runFiles.add(messageRun?.messageId ?? messageId, update);
 			} else {
 				// A 409 (message not saved yet) or any other failure: give up the
 				// claim so a later attempt — under the same id, or the server's

@@ -86,3 +86,83 @@ describe("recordRunFiles: keepalive across a reload", () => {
 		expect(init).toMatchObject({ keepalive: true });
 	});
 });
+
+describe("recordRunFiles: a 409 (message not saved yet) is retried", () => {
+	const files = [{ name: "hello.docx", size: 42, sha256: "b".repeat(64) }];
+	const refused = () => new Response("message not saved yet", { status: 409 });
+	const recorded = () => jsonResponse({ update: { type: "codeExecution", subtype: "outputs" } });
+	const idsSent = (fetchMock: ReturnType<typeof vi.mocked<typeof fetch>>) =>
+		fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).messageId);
+
+	beforeEach(() => {
+		vi.stubGlobal("fetch", vi.fn());
+	});
+
+	it("records once the save lands, with no id change", async () => {
+		const fetchMock = vi.mocked(fetch);
+		fetchMock.mockResolvedValueOnce(refused()).mockResolvedValueOnce(recorded());
+
+		const update = await recordRunFiles({
+			conversationId: "conv1",
+			messageId: "msg-final",
+			currentMessageId: () => "msg-final",
+			runKey: "chat:abc",
+			files,
+			retryDelaysMs: [0, 0, 0],
+		});
+
+		expect(update).toBeDefined();
+		expect(idsSent(fetchMock)).toEqual(["msg-final", "msg-final"]);
+	});
+
+	it("retries under the message's current id when it swaps meanwhile", async () => {
+		const fetchMock = vi.mocked(fetch);
+		fetchMock.mockResolvedValueOnce(refused()).mockResolvedValueOnce(recorded());
+		let current = "client-id";
+
+		const pending = recordRunFiles({
+			conversationId: "conv1",
+			messageId: "client-id",
+			currentMessageId: () => current,
+			runKey: "chat:abc",
+			files,
+			retryDelaysMs: [0],
+		});
+		current = "server-id";
+
+		expect(await pending).toBeDefined();
+		expect(idsSent(fetchMock)).toEqual(["client-id", "server-id"]);
+	});
+
+	it("gives up after the last retry", async () => {
+		const fetchMock = vi.mocked(fetch);
+		fetchMock.mockImplementation(async () => refused());
+
+		const update = await recordRunFiles({
+			conversationId: "conv1",
+			messageId: "msg1",
+			runKey: "chat:abc",
+			files,
+			retryDelaysMs: [0, 0, 0],
+		});
+
+		expect(update).toBeUndefined();
+		expect(fetchMock).toHaveBeenCalledTimes(4);
+	});
+
+	it("does not retry any other failure", async () => {
+		const fetchMock = vi.mocked(fetch);
+		fetchMock.mockResolvedValueOnce(new Response("nope", { status: 403 }));
+
+		const update = await recordRunFiles({
+			conversationId: "conv1",
+			messageId: "msg1",
+			runKey: "chat:abc",
+			files,
+			retryDelaysMs: [0, 0, 0],
+		});
+
+		expect(update).toBeUndefined();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});

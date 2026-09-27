@@ -63,38 +63,64 @@ export async function uploadRunFiles(
 	}
 }
 
+/** Waits between retries of a record the server refused with 409 ("message
+ * not saved yet"): about ten seconds in all, the time a turn's save takes. */
+export const RECORD_RETRY_DELAYS_MS = [1000, 3000, 6000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Attach a code block's or an artifact cell's uploaded files to the message
  * the code belongs to. The server rebuilds every ref from its own store and
  * answers with the record it keeps; `undefined` when it refused or failed.
+ *
+ * A 409 means the message is not saved under that id yet: the turn's save
+ * can land after the run settles without the id changing at all, so nothing
+ * would re-trigger the caller. The record is retried here instead, a few
+ * times over about ten seconds, each time under the message's current id
+ * (`currentMessageId`, when given), which also covers an id swapped from the
+ * client-minted one to the server's meanwhile. Any other failure is final.
  */
 export async function recordRunFiles(options: {
 	conversationId: string;
 	messageId: string;
+	/** The message's id right now, read again before each retry. */
+	currentMessageId?: () => string | undefined;
 	runKey: string;
 	files: PersistedDeliverableRef[];
+	retryDelaysMs?: number[];
 }): Promise<MessageCodeExecutionOutputsUpdate | undefined> {
 	if (options.files.length === 0) return undefined;
-	try {
-		const res = await fetch(
-			`${base}/conversation/${options.conversationId}/code-execution/run-files`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					messageId: options.messageId,
-					runKey: options.runKey,
-					sha256: options.files.map((f) => f.sha256),
-				}),
-				// Always small (hashes only): safe to keep alive past an unload
-				// unconditionally, unlike the byte upload above.
-				keepalive: true,
+	const delays = options.retryDelaysMs ?? RECORD_RETRY_DELAYS_MS;
+	for (let attempt = 0; ; attempt++) {
+		const messageId =
+			attempt === 0 ? options.messageId : (options.currentMessageId?.() ?? options.messageId);
+		let status: number;
+		try {
+			const res = await fetch(
+				`${base}/conversation/${options.conversationId}/code-execution/run-files`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						messageId,
+						runKey: options.runKey,
+						sha256: options.files.map((f) => f.sha256),
+					}),
+					// Always small (hashes only): safe to keep alive past an unload
+					// unconditionally, unlike the byte upload above.
+					keepalive: true,
+				}
+			);
+			if (res.ok) {
+				const body = (await res.json()) as { update?: MessageCodeExecutionOutputsUpdate };
+				return body.update;
 			}
-		);
-		if (!res.ok) return undefined;
-		const body = (await res.json()) as { update?: MessageCodeExecutionOutputsUpdate };
-		return body.update;
-	} catch {
-		return undefined;
+			status = res.status;
+		} catch {
+			return undefined;
+		}
+		if (status !== 409 || attempt >= delays.length) return undefined;
+		await sleep(delays[attempt]);
 	}
 }
