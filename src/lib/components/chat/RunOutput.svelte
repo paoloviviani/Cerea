@@ -2,7 +2,7 @@
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import CarbonWarningAlt from "~icons/carbon/warning-alt";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
-	import FileCard from "./FileCard.svelte";
+	import FileArtifactCard from "./FileArtifactCard.svelte";
 	import type { RunState } from "$lib/utils/execution/runs.svelte";
 
 	/**
@@ -22,9 +22,19 @@
 		 * deliverable the person asked for.
 		 */
 		showFiles?: boolean;
+		/**
+		 * Rendered inside the artifact panel: file cards must not offer to
+		 * open the panel (it is already showing this cell).
+		 */
+		inPanel?: boolean;
 	}
 
-	let { state: runState, class: className = "", showFiles = true }: Props = $props();
+	let {
+		state: runState,
+		class: className = "",
+		showFiles = true,
+		inPanel = false,
+	}: Props = $props();
 	// Bound off `state`: a `state` binding in scope turns every `$state` rune
 	// into a store reference (store_rune_conflict), so the runes below would
 	// stop compiling. Call sites still pass `state={...}`.
@@ -104,7 +114,9 @@
 							</div>
 							<ul class="space-y-1">
 								{#each runState.outputFiles as file (file.path)}
-									<FileCard {file} />
+									<!-- A live run's listing carries no sha256 yet: the card stays
+									     a plain FileCard until the run's record lands. -->
+									<FileArtifactCard {file} {inPanel} />
 								{/each}
 							</ul>
 						</div>
@@ -115,9 +127,11 @@
 							</div>
 							<ul class="space-y-1">
 								{#each runState.persistedFiles as file (file.downloadUrl)}
-									<FileCard
+									<FileArtifactCard
 										file={{ path: file.name, size: file.size }}
 										downloadUrl={file.downloadUrl}
+										sha256={file.sha256}
+										{inPanel}
 									/>
 								{/each}
 							</ul>

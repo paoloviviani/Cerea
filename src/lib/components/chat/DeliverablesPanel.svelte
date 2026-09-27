@@ -8,6 +8,7 @@
 	import type { ArtifactKind, ArtifactRegistry } from "$lib/utils/artifacts";
 	import type { FileArtifactRegistry } from "$lib/utils/fileArtifacts";
 	import { dedupeDeliverablesByName, findFileVersionBySha } from "$lib/utils/fileArtifacts";
+	import { fileKindLabel } from "$lib/utils/filePreview";
 	import type { PaneItem } from "$lib/utils/paneItems";
 	import * as styles from "$lib/components/overlay/styles";
 
@@ -177,49 +178,9 @@
 		return `trackio:${item.url}`;
 	}
 
+	/** Single-sourced in filePreview, shared with the inline file artifact card. */
 	function kindLabel(file: DeliverableFile): string {
-		const extension = file.name.includes(".")
-			? (file.name.split(".").pop()?.toLowerCase() ?? "")
-			: "";
-		switch (extension) {
-			case "pdf":
-				return "PDF";
-			case "csv":
-			case "tsv":
-				return "Spreadsheet";
-			case "md":
-			case "markdown":
-				return "Markdown";
-			case "json":
-			case "jsonl":
-			case "yaml":
-			case "yml":
-			case "toml":
-				return "Data";
-			case "png":
-			case "jpg":
-			case "jpeg":
-			case "gif":
-			case "webp":
-			case "svg":
-			case "bmp":
-			case "avif":
-				return "Image";
-			case "py":
-			case "js":
-			case "ts":
-			case "html":
-			case "xml":
-			case "tex":
-				return "Code";
-			case "docx":
-				return "Word";
-			case "txt":
-			case "log":
-				return "Text";
-			default:
-				return file.mime.split("/")[0] === "text" ? "Text" : "File";
-		}
+		return fileKindLabel(file.name, file.mime);
 	}
 
 	function formatSize(bytes: number): string {
