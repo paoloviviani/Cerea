@@ -176,7 +176,18 @@ func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt
 			"type": "file", "mime": a.Mime, "filename": a.Filename, "url": a.URL,
 		})
 	}
-	body := map[string]any{"parts": parts}
+	// prompt_async takes a caller-minted messageID (1.18.32's GET /doc and
+	// the plan's live probing of session.command, which honours the same
+	// field as the user message's id), so the id is minted here and the
+	// clientMessageId is recorded against it before the POST — exact
+	// mapping, not the "next new user message" guess. The guess survives
+	// only as a fallback: if a server ever ignored or rewrote the id, the
+	// minted id would never appear in the transcript and the pending claim
+	// below maps the clientMessageId to the next user message as before
+	// (prompt_async answers 204 empty, so there is nothing in the response
+	// to map from). The fake-server test pins both halves.
+	messageID := mintMessageID()
+	body := map[string]any{"parts": parts, "messageID": messageID}
 	ov := b.getOverlay(sessionID)
 	if ov.ModeID != "" {
 		body["agent"] = ov.ModeID
@@ -188,13 +199,10 @@ func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt
 	if ov.Effort != "" {
 		body["variant"] = ov.Effort
 	}
-	// prompt_async's documented body has no field for an externally chosen
-	// message id, so the clientMessageId is matched to whichever new user
-	// message shows up next for this session (PROTOCOL.md §7) rather than
-	// sent in the request. Worth re-checking against a live GET /doc if the
-	// IT test ever shows a way to pass one explicitly — that would be more
-	// precise than the "next message" heuristic.
-	b.claimPendingClientMessageID(sessionID, prompt.ClientMessageID)
+	if prompt.ClientMessageID != "" {
+		b.recordExactClientMessageID(messageID, prompt.ClientMessageID)
+		b.claimPendingClientMessageID(sessionID, messageID, prompt.ClientMessageID)
+	}
 	return b.doJSON(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body, nil)
 }
 
