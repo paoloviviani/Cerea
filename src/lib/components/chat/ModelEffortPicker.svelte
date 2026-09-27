@@ -45,6 +45,10 @@
 		 * machine-policy veto, "N non-gateway models hidden…") that have no
 		 * home in the shared list itself. Chat renders nothing here. */
 		footer?: Snippet;
+		/** Bindable so a caller can open the picker programmatically — the
+		 * agent composer's `/model` command with no argument opens it. Chat's
+		 * own use passes nothing and keeps the internal default. */
+		open?: boolean;
 	}
 
 	let {
@@ -61,9 +65,9 @@
 		disabled = false,
 		triggerClass = "inline-flex min-w-0 items-center gap-1 hover:underline disabled:no-underline",
 		footer,
+		open = $bindable(false),
 	}: Props = $props();
 
-	let open = $state(false);
 	let query = $state("");
 	let rows = $derived(shortList(models, currentId, recentIds, query));
 

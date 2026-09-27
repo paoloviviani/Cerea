@@ -648,3 +648,101 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		}
 	});
 });
+
+/**
+ * The `/` menu's wiring, for a composer that offers commands (the agent
+ * composer's case; chat itself passes none and never sees this). The state
+ * machine's own rules are unit-tested in `slashCommand.svelte.test.ts`; what
+ * is pinned here is the component around it: the panel opens on a leading
+ * slash, Tab accepts into the draft, and Enter hands a known command to
+ * `onslashcommand` instead of `onsubmit` — while an unknown one still sends.
+ */
+describe("ChatInput: the / menu", () => {
+	const COMMANDS = [
+		{ name: "compact", description: "Compact now", group: "panel" as const },
+		{ name: "model", description: "Switch the model", hint: "[model]", group: "panel" as const },
+	];
+
+	async function renderSlashComposer(props: {
+		onslashcommand: (command: { name: string }, args: string) => void;
+		onsubmit: () => void;
+	}) {
+		let host = document.getElementById("app");
+		if (!host) {
+			host = document.createElement("div");
+			host.id = "app";
+			document.body.appendChild(host);
+		}
+		const mounted = renderWithApp(
+			ChatInput,
+			{
+				slashCommands: COMMANDS,
+				...props,
+			},
+			{
+				page: {
+					params: {},
+					data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+				},
+				baseElement: host,
+				context: settingsContext,
+			}
+		);
+		return { ...mounted, container: host };
+	}
+
+	async function typeDraft(container: HTMLElement, text: string) {
+		const box = find(container, "textarea");
+		box.value = text;
+		box.dispatchEvent(new Event("input", { bubbles: true }));
+		await vi.waitFor(() =>
+			expect(Boolean(document.getElementById("slash-command-listbox"))).toBe(
+				text.startsWith("/") && !text.startsWith("//")
+			)
+		);
+		return box;
+	}
+
+	it("a leading slash opens the menu; an unknown name still sends as text", async () => {
+		const onslashcommand = vi.fn();
+		const onsubmit = vi.fn();
+		const { container } = await renderSlashComposer({ onslashcommand, onsubmit });
+
+		const box = await typeDraft(container, "/nonsense");
+		expect(document.getElementById("slash-command-listbox")).not.toBeNull();
+
+		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		await vi.waitFor(() => expect(onsubmit).toHaveBeenCalledTimes(1));
+		expect(onslashcommand).not.toHaveBeenCalled();
+	});
+
+	it("Enter runs a known command instead of sending, and carries its arguments", async () => {
+		const onslashcommand = vi.fn();
+		const onsubmit = vi.fn();
+		const { container } = await renderSlashComposer({ onslashcommand, onsubmit });
+
+		const box = await typeDraft(container, "/compact");
+		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		await vi.waitFor(() =>
+			expect(onslashcommand).toHaveBeenCalledWith(
+				{ name: "compact", description: "Compact now", group: "panel" },
+				""
+			)
+		);
+		expect(onsubmit).not.toHaveBeenCalled();
+	});
+
+	it("Tab accepts the highlighted-or-first result into the draft", async () => {
+		const onslashcommand = vi.fn();
+		const onsubmit = vi.fn();
+		const { container } = await renderSlashComposer({ onslashcommand, onsubmit });
+
+		const box = await typeDraft(container, "/mod");
+		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+		await vi.waitFor(() => expect(box.value).toBe("/model "));
+		// The menu is closed by the accept, and the ghost hint is announced.
+		expect(document.getElementById("slash-command-listbox")).toBeNull();
+		expect(onslashcommand).not.toHaveBeenCalled();
+		expect(onsubmit).not.toHaveBeenCalled();
+	});
+});

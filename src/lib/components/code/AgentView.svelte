@@ -64,6 +64,7 @@
 		revertAgent,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
+	import { error as errorToast } from "$lib/stores/errors";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { uploadComposerFiles } from "$lib/utils/composerFiles";
@@ -72,6 +73,7 @@
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
+	import AgentDialog from "./AgentDialog.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
@@ -209,6 +211,15 @@
 			.find((d) => d.id === deviceId)
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.efforts);
+	});
+	/** The `/` menu's capability gates: compact and rollback exist only for a
+	 * backend that reports them (the same word ContextMeter's "Compact now"
+	 * and the transcript's retry read). */
+	let compactSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.compact);
 	});
 	let revertRestoresFiles = $derived.by(() => {
 		const caps = codeDeviceList.devices
@@ -393,6 +404,56 @@
 	// no undo here: the re-sent prompt is what ends a revert's undo window
 	// (opencode drops the reverted turns on the next prompt).
 	let rollback = $state<{ userMessageId: string; text: string; files: string } | null>(null);
+
+	// ── /undo — the composer's roll-back command ─────────────────────
+	// Shares the capability facts and the confirmation idiom the retry
+	// action uses (same dialog, same files sentence), but never re-sends:
+	// undoing the last prompt is the whole command. The machine id comes
+	// from the transcript fold — the one thing only this view knows.
+	let undoTarget = $state<{ userMessageId: string; text: string; files: string } | null>(null);
+
+	function openUndoConfirm() {
+		for (let i = messages.length - 1; i >= 0; i -= 1) {
+			if (messages[i].from !== "user") continue;
+			const user = messages[i];
+			if (!user.machineMessageId) {
+				errorToast.set("The last prompt has no id on the machine's transcript yet.");
+				return;
+			}
+			undoTarget = {
+				userMessageId: user.machineMessageId,
+				text: user.content,
+				files: revertRestoresFiles
+					? "Files the agent changed from that point on are restored too."
+					: "Files on disk are NOT restored: only the conversation is rolled back.",
+			};
+			return;
+		}
+		errorToast.set("Nothing to roll back yet.");
+	}
+
+	async function confirmUndo() {
+		if (!undoTarget) return;
+		const { userMessageId } = undoTarget;
+		await revertAgent(deviceId, agentId, userMessageId);
+		undoTarget = null;
+		streamNonce += 1;
+	}
+
+	// ── /new — the new-agent dialog on this agent's workspace ────────
+	// The same AgentDialog the sidebar tree opens, hosted here because the
+	// workspace object it needs is the one this view already loaded. On
+	// creation the address moves to the new agent (the {#key} remount does
+	// the reset); the sidebar tree picks the new row up on its own poll.
+	let newAgentDialogOpen = $state(false);
+
+	function openNewAgentDialog() {
+		if (!workspace) {
+			errorToast.set("The agent's workspace is not loaded yet.");
+			return;
+		}
+		newAgentDialogOpen = true;
+	}
 
 	function onretry(payload: { id: Message["id"]; content?: string }) {
 		const index = messages.findIndex((m) => m.id === payload.id);
@@ -910,6 +971,10 @@
 					{lastCompaction}
 					{usageSupported}
 					{effortsSupported}
+					{compactSupported}
+					{revertSupported}
+					onundo={openUndoConfirm}
+					onnew={openNewAgentDialog}
 					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}
 				/>
 			{/snippet}
@@ -962,6 +1027,41 @@
 		busyLabel="Rolling back…"
 		onconfirm={confirmRollback}
 		onclose={() => (rollback = null)}
+	/>
+{/if}
+
+{#if undoTarget}
+	<!-- /undo's confirmation: the transcript's own revert dialog, without the
+	     re-send — the command undoes the last prompt and stops there. -->
+	<CodeConfirmDialog
+		title="Roll back?"
+		target={undoTarget.text.length > 80 ? `${undoTarget.text.slice(0, 80)}…` : undoTarget.text}
+		message="The conversation is rolled back to before this prompt. {undoTarget.files}"
+		confirmLabel="Roll back"
+		busyLabel="Rolling back…"
+		onconfirm={confirmUndo}
+		onclose={() => (undoTarget = null)}
+	/>
+{/if}
+
+{#if newAgentDialogOpen && workspace}
+	<!-- /new's dialog: the same create flow the tree opens, scoped to this
+	     agent's workspace. The callback copies the workspace out first — it
+	     runs after the dialog's own state settles, when the {#if} guard no
+	     longer narrows it. -->
+	<AgentDialog
+		{deviceId}
+		{workspace}
+		onclose={() => (newAgentDialogOpen = false)}
+		oncreated={(created) => {
+			const createdInto = workspace;
+			newAgentDialogOpen = false;
+			if (createdInto) {
+				void goto(`${base}/code?device=${deviceId}&ws=${createdInto.id}&agent=${created.id}`, {
+					keepFocus: true,
+				});
+			}
+		}}
 	/>
 {/if}
 

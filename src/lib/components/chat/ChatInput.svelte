@@ -44,12 +44,18 @@
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 	import { type HfHubResource } from "$lib/utils/hfHubSearch";
 	import { HubMentionState } from "$lib/utils/hubMention.svelte";
+	import {
+		SlashCommandState,
+		matchSlashCommand,
+		type SlashCommand,
+	} from "$lib/utils/slashCommand.svelte";
 	import { getCaretCoordinates } from "$lib/utils/caretCoordinates";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { gwGet, GatewayError, type VectorStore } from "$lib/gateway";
 	import { error as errorToast } from "$lib/stores/errors";
+	import SlashCommandAutocomplete from "./SlashCommandAutocomplete.svelte";
 
 	interface Props {
 		files?: File[];
@@ -95,6 +101,12 @@
 		onPaste?: (e: ClipboardEvent) => void;
 		focused?: boolean;
 		onsubmit?: () => void;
+		/** The slash commands the menu completes, or none for a composer
+		 * without the menu (chat itself passes none, unchanged). */
+		slashCommands?: SlashCommand[] | null;
+		/** Called instead of `onsubmit` when the submitted draft is a known
+		 * slash command — the caller runs it; the composer owns the routes. */
+		onslashcommand?: (command: SlashCommand, args: string) => void;
 	}
 
 	let {
@@ -117,6 +129,8 @@
 		onPaste,
 		focused = $bindable(false),
 		onsubmit,
+		slashCommands = null,
+		onslashcommand,
 	}: Props = $props();
 
 	async function toggleWebSearch() {
@@ -198,6 +212,7 @@
 	let isCompositionOn = $state(false);
 	let blurTimeout: ReturnType<typeof setTimeout> | null = $state(null);
 	let hubBlurTimeout: ReturnType<typeof setTimeout> | null = null;
+	let slashBlurTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Hub mentions reach out to huggingface.co, so they are a HuggingChat
 	// feature: a self-hosted deployment must not send a prefix of whatever the
@@ -206,8 +221,24 @@
 	const hub = new HubMentionState({ enabled: publicConfig.isHuggingChat });
 	const isHubMentionOpen = $derived(hub.open);
 
+	// The `/` menu, only for a composer that offers commands. The state
+	// machine is the hub mention's mirror (no network, no debounce), and the
+	// run decision stays with the caller: ChatInput only reports the parsed
+	// command when the draft is submitted.
+	const slash = new SlashCommandState();
+	$effect(() => {
+		slash.setCommands(slashCommands ?? []);
+	});
+	const isSlashMenuOpen = $derived(slash.open);
+	/** The accepted command's hint, rendered as ghost text after the token. */
+	let slashGhost = $derived(slash.ghostHint(value));
+
 	/** Panel anchor: the `@` of the mention being edited, in composer space. */
 	let hubAnchor = $state({ left: 0, bottom: 0 });
+	/** The `/` menu's anchor: its token always starts the draft, so the panel
+	 * floats above the composer's first line — clear of the mobile send/stop
+	 * overlay pinned to the composer's bottom edge. */
+	let slashAnchor = $state({ left: 0, bottom: 0 });
 	/** Panel width, kept in step with the `w-72` on the listbox. */
 	const HUB_PANEL_WIDTH = 288;
 	function updateHubAnchor() {
@@ -223,6 +254,18 @@
 			left: Math.min(Math.max(0, textareaElement.offsetLeft + caret.left), maxLeft),
 			// Measured from the composer's bottom edge so the panel sits just above
 			// the line the mention is on, clearing its glyphs.
+			bottom: parent ? parent.clientHeight - (textareaElement.offsetTop + caret.top) + 4 : 0,
+		};
+	}
+
+	function updateSlashAnchor() {
+		if (!textareaElement || !slash.token) return;
+		const caret = getCaretCoordinates(textareaElement, 0);
+		const parent =
+			textareaElement.offsetParent instanceof HTMLElement ? textareaElement.offsetParent : null;
+		const maxLeft = Math.max(0, (parent?.clientWidth ?? 0) - HUB_PANEL_WIDTH);
+		slashAnchor = {
+			left: Math.min(Math.max(0, textareaElement.offsetLeft + caret.left), maxLeft),
 			bottom: parent ? parent.clientHeight - (textareaElement.offsetTop + caret.top) + 4 : 0,
 		};
 	}
@@ -391,7 +434,9 @@
 
 	onDestroy(() => {
 		if (hubBlurTimeout) clearTimeout(hubBlurTimeout);
+		if (slashBlurTimeout) clearTimeout(slashBlurTimeout);
 		hub.destroy();
+		slash.destroy();
 	});
 
 	afterNavigate(() => {
@@ -423,11 +468,27 @@
 		updateHubAnchor();
 	}
 
+	function syncSlashFromTextarea() {
+		if (!textareaElement) return;
+		slash.update(textareaElement.value, textareaElement.selectionStart);
+		updateSlashAnchor();
+	}
+
+	/** Both autocompletes follow every caret move; they are mutually
+	 * exclusive (a draft cannot start with `@` and `/` at once), so each
+	 * ignores what is not its own. */
+	function syncAutocompleteFromTextarea() {
+		syncHubMentionFromTextarea();
+		syncSlashFromTextarea();
+	}
+
 	function handleInput(event: Event) {
 		const target = event.currentTarget as HTMLTextAreaElement;
 		if (disabled) return;
 		hub.update(target.value, target.selectionStart);
 		updateHubAnchor();
+		slash.update(target.value, target.selectionStart);
+		updateSlashAnchor();
 	}
 
 	// The textarea reports its own edits; a programmatic write (ChatWindow
@@ -435,6 +496,9 @@
 	// the mention it was tracking is gone.
 	$effect(() => {
 		hub.syncValue(value);
+	});
+	$effect(() => {
+		slash.syncValue(value);
 	});
 
 	async function selectHubResult(result: HfHubResource) {
@@ -448,7 +512,50 @@
 		adjustTextareaHeight();
 	}
 
+	async function selectSlashCommand(command: SlashCommand) {
+		const replacement = slash.accept(value, command);
+		if (!replacement) return;
+		value = replacement.value;
+
+		await tick();
+		textareaElement?.focus();
+		textareaElement?.setSelectionRange(replacement.caret, replacement.caret);
+		adjustTextareaHeight();
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
+		if (isSlashMenuOpen && !isCompositionOn) {
+			if (event.key === "ArrowDown" && slash.results.length > 0) {
+				event.preventDefault();
+				slash.move(1);
+				return;
+			}
+			if (event.key === "ArrowUp" && slash.results.length > 0) {
+				event.preventDefault();
+				slash.move(-1);
+				return;
+			}
+			// The same precedence the hub menu pins: Tab accepts the first
+			// result outright; Enter only accepts once the user has arrowed
+			// into the list. Otherwise `/etc/hosts is wrong` would be rewritten
+			// and swallowed by whatever the menu matched.
+			if (event.key === "Tab" && !event.shiftKey && slash.results.length > 0) {
+				event.preventDefault();
+				void selectSlashCommand(slash.activeResult ?? slash.results[0]);
+				return;
+			}
+			if (event.key === "Enter" && !event.shiftKey && slash.activeResult) {
+				event.preventDefault();
+				void selectSlashCommand(slash.activeResult);
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				slash.dismiss();
+				return;
+			}
+		}
+
 		if (isHubMentionOpen && !isCompositionOn) {
 			if (event.key === "ArrowDown" && hub.results.length > 0) {
 				event.preventDefault();
@@ -489,6 +596,17 @@
 			value.trim() !== ""
 		) {
 			event.preventDefault();
+			// A draft that names a known command runs it instead of sending:
+			// `/compact` never reaches the transcript as text, while `/etc/hosts
+			// is wrong` (an unknown name, or the `//` escape) still does. The
+			// caller runs it — the composer owns the routes — and a send-button
+			// submit bypasses this handler entirely, so the composer's own
+			// submit re-runs the same parse for that path.
+			const run = slashCommands ? matchSlashCommand(value, slashCommands) : null;
+			if (run && onslashcommand) {
+				onslashcommand(run.command, run.args);
+				return;
+			}
 			tick();
 			onsubmit?.();
 		}
@@ -506,6 +624,10 @@
 			clearTimeout(hubBlurTimeout);
 			hubBlurTimeout = null;
 		}
+		if (slashBlurTimeout) {
+			clearTimeout(slashBlurTimeout);
+			slashBlurTimeout = null;
+		}
 		focused = true;
 		// Deliberately does NOT open the panel: focusing a restored draft that
 		// happens to end in an @token would fire a request and hijack Enter
@@ -517,6 +639,16 @@
 		hubBlurTimeout = setTimeout(() => {
 			hubBlurTimeout = null;
 			hub.reset();
+		}, 100);
+
+		// The same grace period the hub menu gives its own rows: clicking a
+		// row keeps focus (its pointerdown is prevented), but opening the mode
+		// pill or the model/effort picker moves focus out — and the `/` menu
+		// yields to it rather than floating under it.
+		if (slashBlurTimeout) clearTimeout(slashBlurTimeout);
+		slashBlurTimeout = setTimeout(() => {
+			slashBlurTimeout = null;
+			slash.reset();
 		}, 100);
 
 		if (!isVirtualKeyboard()) {
@@ -574,6 +706,34 @@
 			/>
 		{/if}
 
+		{#if isSlashMenuOpen}
+			<SlashCommandAutocomplete
+				results={slash.results}
+				activeIndex={slash.activeIndex}
+				caretAnchor={slashAnchor}
+				onselect={(command) => void selectSlashCommand(command)}
+				onactivechange={(index) => slash.setActiveIndex(index)}
+			/>
+		{/if}
+
+		{#if slashGhost && !isSlashMenuOpen}
+			<!-- The accepted command's placeholder hint, as ghost text after the
+			     token: `/model ‹[model]›`. The typed text is re-rendered
+			     transparent so the hint lands exactly after it — same padding,
+			     same font, same wrapping — and retires with the first typed
+			     argument (ghostHint's own rule). -->
+			<div
+				class="pointer-events-none absolute inset-x-0 top-0 px-2.5 py-2.5 sm:px-3"
+				aria-hidden="true"
+			>
+				<span class="break-all whitespace-pre text-transparent select-none">{value}</span><span
+					class="whitespace-pre text-gray-400 select-none dark:text-gray-500"
+				>
+					‹{slashGhost}›</span
+				>
+			</div>
+		{/if}
+
 		<textarea
 			rows="1"
 			tabindex="0"
@@ -581,11 +741,17 @@
 			autocomplete="off"
 			role="combobox"
 			aria-autocomplete="list"
-			aria-expanded={isHubMentionOpen}
-			aria-controls={isHubMentionOpen ? "hf-hub-mention-listbox" : undefined}
+			aria-expanded={isHubMentionOpen || isSlashMenuOpen}
+			aria-controls={isHubMentionOpen
+				? "hf-hub-mention-listbox"
+				: isSlashMenuOpen
+					? "slash-command-listbox"
+					: undefined}
 			aria-activedescendant={isHubMentionOpen && hub.activeIndex >= 0
 				? `hf-hub-mention-option-${hub.activeIndex}`
-				: undefined}
+				: isSlashMenuOpen && slash.activeIndex >= 0
+					? `slash-command-option-${slash.activeIndex}`
+					: undefined}
 			class="scrollbar-custom max-h-[4lh] w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2.5 py-2.5 outline-hidden focus:ring-0 focus-visible:ring-0 sm:px-3 md:max-h-[8lh]"
 			class:text-gray-400={disabled}
 			bind:value
@@ -599,15 +765,15 @@
 				if (
 					["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
 				) {
-					syncHubMentionFromTextarea();
+					syncAutocompleteFromTextarea();
 				}
 			}}
-			onclick={syncHubMentionFromTextarea}
-			onselect={syncHubMentionFromTextarea}
+			onclick={syncAutocompleteFromTextarea}
+			onselect={syncAutocompleteFromTextarea}
 			oncompositionstart={() => (isCompositionOn = true)}
 			oncompositionend={() => {
 				isCompositionOn = false;
-				syncHubMentionFromTextarea();
+				syncAutocompleteFromTextarea();
 			}}
 			{placeholder}
 			{disabled}
