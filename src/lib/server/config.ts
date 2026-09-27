@@ -181,7 +181,13 @@ type ExtraConfigKeys =
 	 * §9.3): minted by `./configure`, passed over the compose network only,
 	 * compared in constant time (`internalAuth.ts`). Not in `.env` — a
 	 * deployment secret, not a documented setting a person edits. */
-	| "CHAT_ERASURE_TOKEN";
+	| "CHAT_ERASURE_TOKEN"
+	/** The gateway origin (or `/v1` base) `galopin enroll`'s `--gateway`
+	 * needs, printed by the pairing dialog and the device list's re-enroll
+	 * prompt. Unset on a deployment that serves no gateway to machines;
+	 * the dialog falls back to the browser's own origin rather than
+	 * guessing a gateway address server-side. */
+	| "CODE_GATEWAY_ORIGIN";
 
 type ConfigProxy = ConfigManager & { [K in ConfigKey | ExtraConfigKeys]: string };
 
