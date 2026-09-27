@@ -580,9 +580,15 @@
 		const listed = state.outputFiles;
 		void (async () => {
 			const files = await uploadRunFiles(cid, listed);
-			const update = await recordRunFiles({ conversationId: cid, messageId, runKey: key, files });
+			const update = await recordRunFiles({
+				conversationId: cid,
+				messageId,
+				currentMessageId: () => version?.messageId,
+				runKey: key,
+				files,
+			});
 			if (update) {
-				runFiles.add(messageId, update);
+				runFiles.add(version?.messageId ?? messageId, update);
 			} else {
 				runFiles.release(claimKey);
 			}
