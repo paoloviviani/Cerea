@@ -241,7 +241,11 @@ async function typeDraft(page: Page, text: string) {
 	await box(page).click();
 	await box(page).fill(text);
 	// fill() fires one input event; the menu reacts to it synchronously.
-	if (text.startsWith("/") && !text.startsWith("//")) {
+	// The menu only stays open while the caret is inside the FIRST token —
+	// a multi-word draft (`/deploy prod`) has its command word settled, so
+	// the menu is correctly closed there.
+	const singleToken = !/\s/.test(text);
+	if (singleToken && text.startsWith("/") && !text.startsWith("//")) {
 		await expect(menu(page)).toBeVisible();
 	}
 }
@@ -466,7 +470,7 @@ test.describe("backend commands", () => {
 		h.commandList.body = [BACKEND_COMMANDS[1]];
 		await goto(page);
 
-		await typeDraft(page, "/who");
+		await typeDraft(page, "/whoami");
 		await expect(option(page, "/whoami")).toBeVisible();
 		// The group heading the machine origin lands under.
 		await expect(menu(page).getByText("Machine", { exact: true })).toBeVisible();
@@ -524,6 +528,34 @@ test.describe("backend commands", () => {
 			page.getByText("This command changed on the machine; review it again.")
 		).toBeVisible({
 			timeout: 10_000,
+		});
+	});
+
+	test("arguments travel verbatim to session.command — the machine gates the expansion", async ({
+		page,
+	}) => {
+		// M1's Cerea half: the forwarder must not interpret, strip, or
+		// refuse argument text. The snippet and the @ref below are exactly
+		// what galopin's expanded-text gates refuse live (the IT pins the
+		// refusal); here the fake machine accepts, so the assertion is that
+		// every byte arrived verbatim.
+		const h = await installStubs(page);
+		h.commandList.body = [BACKEND_COMMANDS[1]];
+		await goto(page);
+
+		await typeDraft(page, "/whoami");
+		await page.keyboard.press("Enter");
+
+		await expect.poll(() => h.commandBodies, { timeout: 10_000 }).toHaveLength(1);
+		expect(h.commandBodies[0]).toMatchObject({ name: "whoami", arguments: "" });
+
+		await typeDraft(page, "/whoami run !`echo INJECTED` now @.env");
+		await page.keyboard.press("Enter");
+
+		await expect.poll(() => h.commandBodies, { timeout: 10_000 }).toHaveLength(2);
+		expect(h.commandBodies[1]).toMatchObject({
+			name: "whoami",
+			arguments: "run !`echo INJECTED` now @.env",
 		});
 	});
 
