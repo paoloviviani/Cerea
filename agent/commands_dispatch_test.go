@@ -278,15 +278,23 @@ func TestOpSessionCommandAgentEscalation(t *testing.T) {
 		t.Fatal("the refused subtask ran")
 	}
 
-	// Session in build, command names plan (less restrictive): the
-	// command's own agent applies.
+	// Session in build, command names plan: still refused. The live
+	// binary orders modes [build, plan], so there is no order to prove a
+	// de-escalation by — and the session's mode changes only by setMode,
+	// never smuggled in by a command.
+	falseShell := false
+	back.commands = append(back.commands, backend.Command{
+		Name: "planish", Source: backend.SourceCommand, Origin: backend.OriginProject,
+		Shell: &falseShell, Agent: "plan",
+	})
 	back.sessionMode = "build"
-	if _, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
-		`{"sessionId":"s1","name":"subtasked"}`)); operr != nil {
-		t.Fatalf("subtask de-escalation = %+v, want a run", operr)
+	_, operr = mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"planish"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("reverse-direction naming = %+v, want forbidden", operr)
 	}
-	if len(back.runs) != 1 || back.runs[0].Agent != "build" {
-		t.Fatalf("runs = %+v, want the command's own agent", back.runs)
+	if len(back.runs) != 0 {
+		t.Fatal("the refused command ran")
 	}
 }
 
@@ -408,27 +416,24 @@ func TestOpSessionCommandAgentModelGate(t *testing.T) {
 	}
 }
 
-func TestOverlayModeWinsAgentWithoutAnOrder(t *testing.T) {
-	// A backend that lists no modes: any named agent is an escalation while
-	// an overlay mode is set.
-	if !overlayModeWinsAgent("plan", "build", nil) {
-		t.Fatal("want the overlay to win with no mode order to prove otherwise")
+func TestOverlayModeWinsAgent(t *testing.T) {
+	// Any named agent differing from the overlay mode refuses. The live
+	// 1.18.32 listing orders modes [build, plan], so list order is not a
+	// restrictiveness scale and the gate reads none — the modes argument
+	// this pin used to take is gone with it.
+	if !overlayModeWinsAgent("plan", "build") {
+		t.Fatal("plan session + build command: must refuse")
 	}
-	if overlayModeWinsAgent("plan", "", nil) {
+	if !overlayModeWinsAgent("build", "plan") {
+		t.Fatal("build session + plan command: must refuse too — the session's mode changes only by setMode")
+	}
+	if overlayModeWinsAgent("plan", "") {
 		t.Fatal("an agentless command has nothing to override")
 	}
-	if overlayModeWinsAgent("", "build", nil) {
+	if overlayModeWinsAgent("", "build") {
 		t.Fatal("no overlay mode, no escalation to prevent")
 	}
-	// With an order, only the more-restrictive session mode wins.
-	modes := []backend.Mode{{ID: "plan"}, {ID: "build"}}
-	if !overlayModeWinsAgent("plan", "build", modes) {
-		t.Fatal("plan session + build command: the overlay must win")
-	}
-	if overlayModeWinsAgent("build", "plan", modes) {
-		t.Fatal("build session + plan command: the command's own agent applies")
-	}
-	if overlayModeWinsAgent("plan", "plan", modes) {
+	if overlayModeWinsAgent("plan", "plan") {
 		t.Fatal("the same mode is not an escalation")
 	}
 }
