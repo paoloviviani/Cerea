@@ -127,6 +127,10 @@ type Part struct {
 	Input      map[string]any `json:"input,omitempty"`
 	Output     string         `json:"output,omitempty"`
 	ToolError  string         `json:"error,omitempty"`
+	// Attachments are the images the call produced (a browser tool's
+	// screenshot), by reference: the bytes stay on the machine and are
+	// fetched by sha256 with session.attachment (PROTOCOL.md §6/§7).
+	Attachments []ToolAttachment `json:"attachments,omitempty"`
 
 	// file
 	Mime     string `json:"mime,omitempty"`
@@ -141,6 +145,16 @@ type Part struct {
 	// compaction (opencode's CompactionPart: a marker part on the assistant
 	// message that summarized the session, PROTOCOL.md §7)
 	Auto bool `json:"auto,omitempty"`
+}
+
+// ToolAttachment references one image a tool call produced (PROTOCOL.md §7).
+// It carries no bytes; SHA256 is the lowercase hex digest of the decoded
+// image, computed on the machine.
+type ToolAttachment struct {
+	SHA256   string `json:"sha256"`
+	Mime     string `json:"mime"`
+	Size     int    `json:"size"`
+	Filename string `json:"filename,omitempty"`
 }
 
 // Decision is a human's (or auto-accept's) answer to a PermissionRequest.

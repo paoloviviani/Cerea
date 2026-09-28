@@ -227,6 +227,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionUnrevert(ctx, args)
 	case "session.compact":
 		return mc.opSessionCompact(ctx, args)
+	case "session.attachment":
+		return mc.opSessionAttachment(ctx, args)
 
 	case "permission.reply":
 		return mc.opPermissionReply(ctx, args)
@@ -777,6 +779,50 @@ func (mc *machine) opSessionUnrevert(ctx context.Context, args json.RawMessage) 
 	}
 	mc.mat.Reseed(a.SessionID)
 	return map[string]any{}, nil
+}
+
+// opSessionAttachment serves one image a tool part listed (PROTOCOL.md §6),
+// as {mime, data: base64}. The sha is not a capability: the backend answers
+// only for images this session itself produced.
+func (mc *machine) opSessionAttachment(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string `json:"sessionId"`
+		SHA256    string `json:"sha256"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if !validSHA256(a.SHA256) {
+		return nil, opErrf("invalid", "sha256 must be 64 lowercase hex characters")
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	src, ok := mc.back.(backend.AttachmentSource)
+	if !ok {
+		return nil, opErrf("unsupported", "backend %s has no toolImages capability", mc.back.ID())
+	}
+	mime, data, err := src.Attachment(ctx, dir, a.SessionID, a.SHA256)
+	switch {
+	case errors.Is(err, backend.ErrAttachmentUnknown), errors.Is(err, backend.ErrAttachmentGone):
+		return nil, opErrf("not_found", "%v", err)
+	case err != nil:
+		return nil, backendErr(err)
+	}
+	return map[string]any{"mime": mime, "data": base64.StdEncoding.EncodeToString(data)}, nil
+}
+
+func validSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (mc *machine) opSessionCompact(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
