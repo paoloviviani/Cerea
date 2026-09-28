@@ -25,8 +25,9 @@ type fakeAgent struct {
 
 	sessionCounter int
 
-	promptReqs chan fakePromptReq
-	cancels    chan string
+	promptReqs   chan fakePromptReq
+	promptParams chan map[string]any
+	cancels      chan string
 }
 
 type fakePromptReq struct {
@@ -36,9 +37,10 @@ type fakePromptReq struct {
 
 func newFakeAgent(t *testing.T, w io.Writer) *fakeAgent {
 	fa := &fakeAgent{
-		t:          t,
-		promptReqs: make(chan fakePromptReq, 16),
-		cancels:    make(chan string, 16),
+		t:            t,
+		promptReqs:   make(chan fakePromptReq, 16),
+		promptParams: make(chan map[string]any, 16),
+		cancels:      make(chan string, 16),
 	}
 	fa.conn = newRPCConn(w, fa.handleRequest, fa.handleNotify, t.Logf)
 	return fa
@@ -64,6 +66,7 @@ func (fa *fakeAgent) handleRequest(id json.RawMessage, method string, params jso
 		var p map[string]any
 		_ = json.Unmarshal(params, &p)
 		fa.promptReqs <- fakePromptReq{id: id, sessionID: getStr(p, "sessionId")}
+		fa.promptParams <- p
 		// Deliberately no respond here: the test completes it later via
 		// fa.respond(pr.id, ...), which is what lets the async-Prompt-
 		// contract test observe Prompt() returning well before that.

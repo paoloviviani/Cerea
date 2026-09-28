@@ -83,6 +83,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false, AutoAccept: true,
 		Questions: true, Revert: true, RevertFiles: true, Efforts: true,
+		// Probed from the server's own GET /doc (never a version string):
+		// commands exist only when the server lists session.command there.
+		Commands: b.commandsSupported(),
 	}
 }
 

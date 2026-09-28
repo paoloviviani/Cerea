@@ -21,6 +21,10 @@ type overlayFile struct {
 	// ClientMessageIDs maps an opencode message id to the clientMessageId
 	// the prompt that created it carried.
 	ClientMessageIDs map[string]string `json:"clientMessageIds"`
+	// CommandMarkers maps the message id a command produced to the marker
+	// the transcript shows (PROTOCOL.md §6 session.command) — never the
+	// expanded template, only the name and the arguments as sent.
+	CommandMarkers map[string]backend.MessageCommand `json:"commandMarkers,omitempty"`
 }
 
 func (b *Backend) getOverlay(sessionID string) sessionOverlay {
@@ -49,6 +53,10 @@ func (b *Backend) setOverlay(sessionID string, o sessionOverlay) error {
 // fallback claim is spent at the same moment — it must not linger and
 // mis-tag some later, promptless user message on the session.
 func (b *Backend) resolveClientMessageID(sessionID string, msg *backend.Message) {
+	// The command marker rides on the message's own id, independent of the
+	// clientMessageId mapping a prompt may or may not have carried.
+	b.attachCommandMarker(msg)
+
 	b.clientMsgMu.Lock()
 	if id, ok := b.clientMessageIDs[msg.ID]; ok {
 		b.clientMsgMu.Unlock()
@@ -79,6 +87,16 @@ func (b *Backend) resolveClientMessageID(sessionID string, msg *backend.Message)
 	// costs one message's id being unrecoverable after that crash, not
 	// correctness of anything already sent to a client this epoch.
 	_ = b.saveOverlay()
+}
+
+// attachCommandMarker puts the command marker on a user message the
+// transcript is resolving, when that message is the one a command
+// produced. Only user messages carry it.
+func (b *Backend) attachCommandMarker(msg *backend.Message) {
+	if msg.Role != "user" {
+		return
+	}
+	msg.Command = b.commandMarkerFor(msg.ID)
 }
 
 // spendPendingClaim clears sessionID's pending fallback claim when the id
@@ -150,6 +168,11 @@ func (b *Backend) loadOverlay() error {
 		b.clientMessageIDs = f.ClientMessageIDs
 	}
 	b.clientMsgMu.Unlock()
+	b.markerMu.Lock()
+	if f.CommandMarkers != nil {
+		b.commandMarkers = f.CommandMarkers
+	}
+	b.markerMu.Unlock()
 	return nil
 }
 
@@ -171,9 +194,46 @@ func (b *Backend) saveOverlay() error {
 	}
 	b.clientMsgMu.Unlock()
 
-	body, err := json.MarshalIndent(overlayFile{Sessions: sessions, ClientMessageIDs: clientMessageIDs}, "", "  ")
+	b.markerMu.Lock()
+	commandMarkers := make(map[string]backend.MessageCommand, len(b.commandMarkers))
+	for k, v := range b.commandMarkers {
+		commandMarkers[k] = v
+	}
+	b.markerMu.Unlock()
+
+	body, err := json.MarshalIndent(overlayFile{
+		Sessions:         sessions,
+		ClientMessageIDs: clientMessageIDs,
+		CommandMarkers:   commandMarkers,
+	}, "", "  ")
 	if err != nil {
 		return err
 	}
 	return fsutil.WriteFileAtomic(b.cfg.OverlayPath, append(body, '\n'), 0o600)
+}
+
+// recordCommandMarker remembers, durably, that the message the minted
+// messageID names is the user message a command produced (PROTOCOL.md §6
+// session.command): name and arguments only — the expanded template is
+// never stored here, because it never needed storing.
+func (b *Backend) recordCommandMarker(messageID, name, arguments string) {
+	b.markerMu.Lock()
+	if b.commandMarkers == nil {
+		b.commandMarkers = map[string]backend.MessageCommand{}
+	}
+	b.commandMarkers[messageID] = backend.MessageCommand{Name: name, Arguments: arguments}
+	b.markerMu.Unlock()
+	_ = b.saveOverlay()
+}
+
+// commandMarkerFor looks up a message's command marker, nil when the
+// message was not produced by a command.
+func (b *Backend) commandMarkerFor(messageID string) *backend.MessageCommand {
+	b.markerMu.Lock()
+	defer b.markerMu.Unlock()
+	if marker, ok := b.commandMarkers[messageID]; ok {
+		marker := marker
+		return &marker
+	}
+	return nil
 }

@@ -60,6 +60,12 @@ type PolicyInfo struct {
 	FileDeny        []string `json:"fileDeny"`
 	Terminal        string   `json:"terminal"`
 	MaxTerminals    int      `json:"maxTerminals"`
+	// CommandShell is the slash-command shell-expansion veto (PROTOCOL.md
+	// §6 session.command): "allowed" or "denied". While denied the machine
+	// refuses every command whose template expands shell, and every command
+	// whose shell is unknown, so the menu can grey those rows with the
+	// reason instead of letting a 403 be the explanation.
+	CommandShell string `json:"commandShell"`
 }
 
 // MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can

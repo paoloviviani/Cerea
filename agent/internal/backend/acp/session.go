@@ -77,6 +77,13 @@ type sessionState struct {
 	textSeen        bool
 	reasoningPartID string
 	reasoningSeen   bool
+
+	// commands is the session's last available_commands_update list, mapped
+	// to the wire shape as it arrived (PROTOCOL.md §6 backend.commands):
+	// empty until the agent sends one, which is exactly what backend.commands
+	// answers before that — the menu is the help, and before an update there
+	// is nothing this session has said it can run.
+	commands []backend.Command
 }
 
 func newSessionState(id, workspaceDir string) *sessionState {
