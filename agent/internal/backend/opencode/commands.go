@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"galopin/internal/backend"
 )
@@ -34,13 +33,21 @@ import (
 // minimum is enforced by requiring a non-empty capture below.
 var shellSnippetRe = regexp.MustCompile("!`([^`]*)`")
 
+// jsSpace is JavaScript's \s spelled out for RE2 char classes — Go's \s
+// is [\t\n\f\r ] only, so a class that says \s stops where JS wouldn't:
+// "@.env<NBSP>x" must end the reference at ".env" the way opencode's own
+// FILE_REGEX does, or the scan captures one token and misses the
+// deny-listed file inside it. \v has no RE2 escape, hence \x{0b}.
+const jsSpace = `\t\n\x{0b}\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}`
+
 // fileRefRe is opencode's FILE_REGEX (/(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)/g)
 // minus the lookbehind Go cannot express: the caller drops matches whose
 // preceding character is a word character or a backtick (see
-// fileRefsIn). Trailing punctuation never survives the capture groups, so
-// "@.env." resolves to ".env" the way opencode reads it — and an email
-// address never matches at all.
-var fileRefRe = regexp.MustCompile("@(\\.?[^\\s`,.]*(?:\\.[^\\s`,.]+)*)")
+// fileRefsIn), and \s is spelled out as JS's set (see jsSpace). Trailing
+// punctuation never survives the capture groups, so "@.env." resolves to
+// ".env" the way opencode reads it — and an email address never matches
+// at all.
+var fileRefRe = regexp.MustCompile("@(\\.?[^" + jsSpace + "`,.]*(?:\\.[^" + jsSpace + "`,.]+)*)")
 
 // placeholderRe is opencode's placeholderRegex (/\$(\d+)/g), verbatim —
 // $0 included, which is where JavaScript's slice(-1)/"undefined" behaviour
@@ -133,21 +140,33 @@ func isASCIILetterOrDigit(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
-// splitArgs mirrors opencode's argsRegex: [Image N] counts as one token,
-// quoted strings keep their spaces, everything else splits on whitespace.
+// jsIsSpace reports whether r is in JavaScript's \s set — exactly, both
+// ways: unicode.IsSpace adds U+0085 (NEL) and misses U+FEFF (BOM), and
+// either drift desynchronizes the tokenizer from opencode's argsRegex —
+// a quoted token the engine would split stays glued (or vice versa), and
+// an argument boundary lands somewhere else than the run's expansion
+// does. The set matches jsSpace's class rune for rune.
+func jsIsSpace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ',
+		0x00a0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff:
+		return true
+	}
+	return r >= 0x2000 && r <= 0x200a
+}
+
 // splitArgs mirrors opencode's argsRegex split of the arguments string:
-// [Image N] counts as one token (case-insensitive, \s is Unicode there —
-// Go's \s is ASCII-only, so the scanner uses unicode.IsSpace), quoted
-// strings keep their spaces, everything else splits on whitespace. An
-// unterminated quote is skipped the way the engine skips an unmatched
-// alternation branch.
+// [Image N] counts as one token (case-insensitive, \s is JavaScript's
+// set there — see jsIsSpace), quoted strings keep their spaces,
+// everything else splits on whitespace. An unterminated quote is skipped
+// the way the engine skips an unmatched alternation branch.
 func splitArgs(arguments string) []string {
 	runes := []rune(arguments)
 	n := len(runes)
 	out := make([]string, 0, 4)
 	i := 0
 	for i < n {
-		if unicode.IsSpace(runes[i]) {
+		if jsIsSpace(runes[i]) {
 			i++
 			continue
 		}
@@ -170,7 +189,7 @@ func splitArgs(arguments string) []string {
 			continue
 		}
 		j := i
-		for j < n && !unicode.IsSpace(runes[j]) && runes[j] != '"' && runes[j] != '\'' {
+		for j < n && !jsIsSpace(runes[j]) && runes[j] != '"' && runes[j] != '\'' {
 			j++
 		}
 		out = append(out, trimOneQuote(string(runes[i:j])))
@@ -193,7 +212,7 @@ func imageTokenLen(runes []rune, i int) int {
 	}
 	j := i + len(prefix)
 	sawSpace := false
-	for j < len(runes) && unicode.IsSpace(runes[j]) {
+	for j < len(runes) && jsIsSpace(runes[j]) {
 		j++
 		sawSpace = true
 	}
@@ -294,6 +313,14 @@ func ExpandArguments(template, arguments string) string {
 // placeholderPosition parses one of placeholderRe's captured digit runs.
 func placeholderPosition(digits string) int {
 	var position int
+	// A $N with more digits than an int holds overflows Sscanf, which
+	// leaves position at its zero value: the index reads as $0 (the last
+	// argument) where JavaScript would read the full digit string as an
+	// enormous index and answer undefined. Over-refusal only — the gate
+	// may scan text the real substitution would not have produced — and
+	// recorded here rather than fixed: matching JS's float-index
+	// semantics for a 500-digit placeholder is not worth the gate's
+	// while.
 	fmt.Sscanf(digits, "%d", &position)
 	return position
 }
@@ -322,6 +349,14 @@ func jsSlice(args []string, index int) []string {
 // Go's is literal, and the difference is the whole exploit.
 func replaceArgumentsPlaceholder(template, arguments string, hadPlaceholders bool) string {
 	const placeholder = "$ARGUMENTS"
+	// original and abs carry the un-consumed string and the absolute
+	// offset of template's start within it: JS's $` inserts the ORIGINAL
+	// string up to the match, and template is re-sliced after every
+	// match — from the second $ARGUMENTS on, template[:i] would be only
+	// the text since the previous match, rebuilding a template that
+	// hides what JS's substitution would expose.
+	original := template
+	abs := 0
 	var out strings.Builder
 	for {
 		i := strings.Index(template, placeholder)
@@ -349,15 +384,21 @@ func replaceArgumentsPlaceholder(template, arguments string, hadPlaceholders boo
 				out.WriteString(placeholder)
 				j++
 			case '`':
-				out.WriteString(template[:i])
+				// $` is the original string up to the match — absolute,
+				// never the re-sliced template's prefix.
+				out.WriteString(original[:abs+i])
 				j++
 			case '\'':
+				// $' is the original's suffix after the match; the
+				// re-sliced template's remainder IS that suffix, because
+				// slicing only ever removed the consumed prefix.
 				out.WriteString(template[i+len(placeholder):])
 				j++
 			default:
 				out.WriteRune('$')
 			}
 		}
+		abs += i + len(placeholder)
 		template = template[i+len(placeholder):]
 	}
 	out.WriteString(template)

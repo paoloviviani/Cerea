@@ -86,6 +86,14 @@ func TestCommandsIntegration(t *testing.T) {
 	// The M5 decoy: the first @ match is rejected (word char before it),
 	// the retry must still resolve .env.
 	write("decoy.md", "---\ndescription: decoy ref\n---\nCheck a@:@.env now.")
+	// The M6 bypass: two $ARGUMENTS occurrences — $` from the second must
+	// pull the ORIGINAL's prefix (carrying the first substitution and the
+	// "!"), which only a faithful build sees.
+	write("dolltwo.md", "---\ndescription: two occurrences\n---\n`id` X $ARGUMENTS Y!$ARGUMENTS")
+	// The M7 case: an NBSP after .env — opencode's FILE_REGEX (JavaScript
+	// \s) ends the reference at ".env" and reads it; a Go-\s scan would
+	// glue ".env<NBSP>x" into one token and miss the deny list.
+	write("nbspref.md", "---\ndescription: NBSP ref\n---\nRead @.env\u00a0x now.")
 	if err := os.WriteFile(filepath.Join(workDir, ".env"), []byte("SECRET=it-secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -658,6 +666,49 @@ func TestCommandsIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("M6 live: $` from the second occurrence rebuilds the construct", func(t *testing.T) {
+		// The advisor's bypass end to end: the template has two
+		// $ARGUMENTS occurrences and is scan-clean raw; args "$`" make the
+		// SECOND substitution pull the original's prefix — which carries
+		// "Y!" next to the first substitution's backtick — into the
+		// expanded text. The raw-arguments net refuses the $` marker
+		// outright under the default deny; the faithful-expansion fix
+		// itself is pinned by TestExpandArgumentsBypassScan.
+		for _, cmd := range listed {
+			if cmd.Name == "dolltwo" && cmd.Shell != nil && *cmd.Shell {
+				t.Fatalf("dolltwo listed shell=true; the raw template must be clean for this case to mean anything")
+			}
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "dolltwo", "arguments": "$`"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("two-occurrence $` bypass = %+v, want forbidden", errShape)
+		}
+	})
+
+	t.Run("M7 live: an NBSP ends the @ref where JavaScript's whitespace does", func(t *testing.T) {
+		// The fileDeny bypass end to end: the real server's template
+		// carries "@.env<NBSP>x"; the listing scan must resolve ".env"
+		// (the glued token would miss the deny list), and the run refuses
+		// under the default fileDeny — from the live listing, not the
+		// unit fake.
+		var nbsp *backend.Command
+		for i, cmd := range listed {
+			if cmd.Name == "nbspref" {
+				nbsp = &listed[i]
+			}
+		}
+		if nbsp == nil {
+			t.Fatal("nbspref is not listed")
+		}
+		if len(nbsp.FileRefs) != 1 || nbsp.FileRefs[0] != ".env" {
+			t.Fatalf("nbspref fileRefs = %q, want [.env] — the scan must stop where JavaScript's \\s stops", nbsp.FileRefs)
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "nbspref"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("@.env<NBSP>x = %+v, want forbidden", errShape)
+		}
+	})
+
 	t.Run("a plan session refuses a build-naming command", func(t *testing.T) {
 		// M2, live: the command's own agent: frontmatter always wins
 		// server-side, so an escalation refuses outright instead of
@@ -679,6 +730,14 @@ func TestCommandsIntegration(t *testing.T) {
 		if !strings.Contains(errShape.Message, "more permissive") {
 			t.Errorf("refusal message = %q, want the escalation wording", errShape.Message)
 		}
+		// The plan-side M8 positive: plancmd in the plan session RUNS —
+		// the same agent-list resolution, the same fall-through.
+		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Looking."}, "chunkDelayMs": 5, "finishReason": "stop"})
+		if _, errShape := runCommand(t, map[string]any{"name": "plancmd"}); errShape != nil {
+			t.Fatalf("plan command in a plan session: %s (%s) — the agent list must resolve it", errShape.Code, errShape.Message)
+		}
+		awaitPrompt(t, "Look at the thing.")
+		waitIdle(sess.ID)
 		// The other direction refuses too: the live 1.18.32 mode listing
 		// orders [build, plan], so list order is not a restrictiveness
 		// scale and any named agent differing from the overlay refuses —
@@ -692,6 +751,18 @@ func TestCommandsIntegration(t *testing.T) {
 		if errShape == nil || errShape.Code != "forbidden" {
 			t.Fatalf("plan command in a build session = %+v, want forbidden", errShape)
 		}
+		// M8's positives, the functional half of the AgentLister fix: the
+		// agent list resolves the command's own agent (build/plan carry no
+		// model on 1.18.32, so it falls through to the session's), and the
+		// command RUNS under its matching mode — before the fix every
+		// agent-naming command was refused, invisible behind ITs that only
+		// expected forbidden.
+		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Doing."}, "chunkDelayMs": 5, "finishReason": "stop"})
+		if _, errShape := runCommand(t, map[string]any{"name": "buildcmd"}); errShape != nil {
+			t.Fatalf("build command in a build session: %s (%s) — the agent list must resolve it", errShape.Code, errShape.Message)
+		}
+		awaitPrompt(t, "Do the thing.")
+		waitIdle(sess.ID)
 		// Agentless in a mode still runs under it (the overlay rides along).
 		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Looking."}, "chunkDelayMs": 5, "finishReason": "stop"})
 		if _, errShape := runCommand(t, map[string]any{"name": "hi", "arguments": "again"}); errShape != nil {

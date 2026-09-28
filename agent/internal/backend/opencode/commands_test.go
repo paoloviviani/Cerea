@@ -32,6 +32,8 @@ type commandFake struct {
 	commandStarted chan struct{} // closed once a command POST arrives
 	startedOnce    sync.Once
 	docRequests    int
+	agents         []map[string]any // GET /agent's answer
+	failAgent      bool             // make GET /agent fail
 }
 
 func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFake) {
@@ -57,6 +59,15 @@ func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFak
 				body = `{"paths":{"/session/{id}/prompt_async":{"post":{"operationId":"session.prompt_async"}},"/session/{id}/command":{"post":{"operationId":"session.command"}}}}`
 			}
 			_, _ = io.WriteString(w, body)
+		case r.URL.Path == "/agent":
+			f.mu.Lock()
+			fail, agents := f.failAgent, f.agents
+			f.mu.Unlock()
+			if fail {
+				w.WriteHeader(http.StatusInternalServerError)
+				break
+			}
+			_ = json.NewEncoder(w).Encode(agents)
 		case r.URL.Path == "/command":
 			dir := r.URL.Query().Get("directory")
 			f.mu.Lock()
@@ -100,6 +111,42 @@ func (f *commandFake) last() map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// M8's pin: the real backend implements backend.AgentLister from the
+// FULL /agent list — primaries and subagents alike, name to model (""
+// when the agent pins none). The primary-only projection Modes reads is
+// not enough: a command naming a subagent must resolve too, and the
+// dispatch's AgentLister assertion must hold on the real backend, not
+// only on the test fakes.
+func TestAgentModelsListsPrimariesAndSubagents(t *testing.T) {
+	b, _ := newCommandFake(t, func(f *commandFake) {
+		f.agents = []map[string]any{
+			{"name": "build", "mode": "primary", "model": ""},
+			{"name": "plan", "mode": "primary"},
+			{"name": "general", "mode": "subagent", "model": "pystino/mock-model"},
+		}
+	})
+	got := b.AgentModels(context.Background(), "/ws")
+	if v, ok := got["build"]; !ok || v != "" {
+		t.Fatalf("AgentModels[build] = %q, %v; want \"\", listed", v, ok)
+	}
+	if _, ok := got["plan"]; !ok {
+		t.Fatalf("AgentModels has no plan entry; want every primary listed")
+	}
+	if got["general"] != "pystino/mock-model" {
+		t.Fatalf("AgentModels[general] = %q, want pystino/mock-model (the subagent's own model)", got["general"])
+	}
+}
+
+// A failed /agent read answers nil — the dispatch then refuses
+// agent-naming commands rather than assuming a model the server never
+// confirmed (the same fail-closed shape as L6).
+func TestAgentModelsNilOnFailure(t *testing.T) {
+	b, _ := newCommandFake(t, func(f *commandFake) { f.failAgent = true })
+	if got := b.AgentModels(context.Background(), "/ws"); got != nil {
+		t.Fatalf("AgentModels on a failed read = %v, want nil", got)
+	}
 }
 
 func TestCommandsSupportedProbesDocNotVersion(t *testing.T) {
@@ -430,12 +477,39 @@ func TestExpandArguments(t *testing.T) {
 		{"append when no placeholder", "Look.", "over there", "Look.\n\nover there"},
 		{"blank arguments append nothing", "Look.", "   ", "Look."},
 		{"no args, no placeholders", "Look.", "", "Look."},
+		// M6's bypass: $` from the SECOND $ARGUMENTS must pull the
+		// original's prefix (including the earlier placeholder's own
+		// substitution), not the slice since the previous match — the
+		// faithful build carries "Y!`id`", the drifted build "Y! Y".
+		{"backtick pattern from the second occurrence",
+			"`id` X $ARGUMENTS Y!$ARGUMENTS", "$`",
+			"`id` X `id` X  Y!`id` X $ARGUMENTS Y!"},
+		// $' stays the original's suffix from the second occurrence too:
+		// match 1's suffix is " Y$ARGUMENTS", match 2's is the empty tail.
+		{"quote pattern from the second occurrence",
+			"`id` X $ARGUMENTS Y$ARGUMENTS", "$'",
+			"`id` X  Y$ARGUMENTS Y"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ExpandArguments(tc.template, tc.args); got != tc.want {
 				t.Errorf("ExpandArguments(%q, %q) = %q, want %q", tc.template, tc.args, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestExpandArgumentsBypassScan is the M6 gate-level pin: the faithful
+// build of the two-occurrence $` bypass reconstructs "Y!`id`", so the
+// expanded scan must see shell — under the denied policy that refusal is
+// the whole point. The drifted build ("Y! Y") scanned clean and passed.
+func TestExpandArgumentsBypassScan(t *testing.T) {
+	expanded := ExpandArguments("`id` X $ARGUMENTS Y!$ARGUMENTS", "$`")
+	if !strings.Contains(expanded, "Y!`id`") {
+		t.Fatalf("expansion = %q, want the reconstructed %q", expanded, "Y!`id`")
+	}
+	shell, _, _ := ScanExpanded(expanded)
+	if !shell {
+		t.Fatalf("ScanExpanded(%q) = shell false, want true", expanded)
 	}
 }
 
@@ -453,6 +527,14 @@ func TestFileRefsIn(t *testing.T) {
 		{"email is not a ref", "mail foo@bar.com today", nil},
 		{"backtick text is not a ref", "run !`echo @x` now", []string{"x"}},
 		{"no refs", "plain text", nil},
+		// M7: JavaScript's \s ends the reference where Go's \s wouldn't —
+		// opencode resolves ".env" and reads it, so the gate must deny
+		// ".env", not the glued ".env<NBSP>x" (or VT) that misses the
+		// deny list.
+		{"NBSP ends the reference", "@.env\u00a0x", []string{".env"}},
+		{"vertical tab ends the reference", "@.env\u000bx", []string{".env"}},
+		{"BOM ends the reference", "@.env\ufeffx", []string{".env"}},
+		{"en-quad ends the reference", "@.env\u2000x", []string{".env"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := fileRefsIn(tc.text)
@@ -462,6 +544,38 @@ func TestFileRefsIn(t *testing.T) {
 			for i := range got {
 				if got[i] != tc.want[i] {
 					t.Fatalf("fileRefsIn(%q) = %v, want %v", tc.text, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// TestSplitArgsWhitespace pins the tokenizer's whitespace class against
+// opencode's argsRegex: JavaScript's \s splits, and the two characters
+// unicode.IsSpace gets wrong both ways behave as the engine does — NBSP
+// and BOM split (Go misses them), U+0085 does not (Go would split it).
+// A drifted boundary moves an argument across a quote, and the expanded
+// text the gate reads stops being the text the run produces.
+func TestSplitArgsWhitespace(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+		want []string
+	}{
+		{"NBSP splits", "a\u00a0b", []string{"a", "b"}},
+		{"BOM splits", "a\ufeffb", []string{"a", "b"}},
+		{"NEL does not split", "a\u0085b", []string{"a\u0085b"}},
+		{"en-quad splits", "a\u2000b", []string{"a", "b"}},
+		{"plain spaces split", "a b", []string{"a", "b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := splitArgs(tc.args)
+			if len(got) != len(tc.want) {
+				t.Fatalf("splitArgs(%q) = %q, want %q", tc.args, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("splitArgs(%q) = %q, want %q", tc.args, got, tc.want)
 				}
 			}
 		})

@@ -1026,6 +1026,21 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 	gateShell := (command.Shell != nil && *command.Shell) || expandedShell
 	gateRefs := append(append([]string{}, command.FileRefs...), expandedRefs...)
 
+	// The raw-arguments safety net (M6): the gates read the text the
+	// emulation expands, and the emulation is a pin against a probed
+	// binary — if opencode's substitution drifts (a $` from the second
+	// $ARGUMENTS, a new JS pattern), an expanded scan alone could pass a
+	// construct the server would actually run. Under the denied policy the
+	// raw arguments carrying any substitution marker are refused outright:
+	// the emulation's blind spot must never be the run's green light.
+	if !mc.pol.CommandShellAllowed() {
+		for _, marker := range []string{"!`", "$`", "$'"} {
+			if strings.Contains(a.Arguments, marker) {
+				return refuse("forbidden", "these arguments carry the substitution marker %q, and this machine denies command shell", marker)
+			}
+		}
+	}
+
 	// The commandShell veto: a template that expands shell runs outside
 	// every permission rule, so denied means refused — and so does unknown
 	// (an MCP prompt, an ACP command: nobody has seen a template to scan),
