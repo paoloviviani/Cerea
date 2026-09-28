@@ -15,8 +15,10 @@
  */
 import { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
+import { OpError } from "../src/lib/types/machineProtocol";
 import type {
 	Backend,
+	Command,
 	Directory,
 	Envelope,
 	HelloFrame,
@@ -72,6 +74,9 @@ export interface FakeMachineModel {
 	seq: Map<string, number>;
 	modes: Mode[];
 	models: Model[];
+	/** The workspace's slash commands `backend.commands` answers with —
+	 * tests set this directly; empty by default. */
+	commands: Command[];
 	terminals: Map<string, FakeTerminalState>;
 }
 
@@ -88,6 +93,7 @@ export function emptyModel(): FakeMachineModel {
 			{ id: "build", label: "Build" },
 		],
 		models: [{ id: "opencode/coder", label: "Coder", providerId: "opencode", isDefault: true }],
+		commands: [],
 		terminals: new Map(),
 	};
 }
@@ -388,12 +394,16 @@ export class FakeMachine {
 			this.ws.send(JSON.stringify({ type: "res", id: req.id, ok: true, result }));
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
+			// A thrown OpError carries its own code — the gate refusals the
+			// command specs need to map (unsupported/conflict/forbidden);
+			// anything else is the generic invalid.
+			const code = err instanceof OpError ? err.code : "invalid";
 			this.ws.send(
 				JSON.stringify({
 					type: "res",
 					id: req.id,
 					ok: false,
-					error: { code: "invalid", message },
+					error: { code, message },
 				})
 			);
 		}
@@ -562,6 +572,10 @@ export class FakeMachine {
 				};
 			case "backend.modes":
 				return { modes: model.modes };
+			case "backend.commands":
+				return { commands: model.commands ?? [] };
+			case "session.command":
+				return {};
 			case "backend.models":
 				return { models: model.models };
 			case "terminal.list": {

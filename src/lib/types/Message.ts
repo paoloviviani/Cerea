@@ -40,6 +40,12 @@ export type Message = Partial<Timestamps> & {
 	 */
 	machineMessageId?: string;
 
+	/** The transcript marker on the user message a coding-agent slash
+	 * command produced (PROTOCOL.md §7): the bubble renders "/name args"
+	 * and the expanded template folds beneath it. Never set on an ordinary
+	 * chat message. */
+	command?: { name: string; arguments: string };
+
 	// Router metadata when using llm-router
 	routerMetadata?: {
 		route: string;

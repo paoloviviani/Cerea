@@ -38,6 +38,7 @@ import {
 	permissionRequestToUpdate,
 	snapshotToUpdates,
 	userMessageIdsOf,
+	commandMarkersOf,
 	type ChildContext,
 } from "$lib/server/code/machineTimeline";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
@@ -131,15 +132,20 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	let initial: AgentStreamUpdate[];
 	let lastAssistantError: string | undefined;
 	let userMessageIds: Map<string, string>;
+	// The command markers ride the same tracking: seeded from the snapshot,
+	// learned live, resolved per part (PROTOCOL.md §7).
+	let commandMarkers: Map<string, { name: string; arguments: string }>;
 	if ("snapshot" in sync) {
 		initial = snapshotToUpdates(sync.snapshot);
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
 		userMessageIds = userMessageIdsOf(sync.snapshot);
+		commandMarkers = commandMarkersOf(sync.snapshot);
 	} else {
 		const folded = foldEnvelopeEvents(sync.events);
 		initial = folded.updates;
 		lastAssistantError = folded.lastAssistantError;
 		userMessageIds = folded.userMessageIds;
+		commandMarkers = folded.commandMarkers;
 	}
 
 	// Seed the cards for approvals already waiting on a subagent: opening
@@ -203,10 +209,12 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		dedupeSeeded(drainedNow),
 		lastAssistantError,
 		userMessageIds,
-		childOf
+		childOf,
+		commandMarkers
 	);
 	lastAssistantError = drainedFolded.lastAssistantError;
 	userMessageIds = drainedFolded.userMessageIds;
+	commandMarkers = drainedFolded.commandMarkers;
 
 	// A user frame carries its clientMessageId; the files uploaded under that id
 	// (the attachment store) ride on the frame so the transcript renders them,
@@ -308,6 +316,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							// mislabel the new epoch's own first frames.
 							lastAssistantError = undefined;
 							userMessageIds = new Map();
+							commandMarkers = new Map();
 							seenChildAsks.clear();
 							// A subagent's envelope can be the first to show the new
 							// epoch; its seq is not this session's cursor.
@@ -321,6 +330,9 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							} else if (next.event.message.clientMessageId) {
 								userMessageIds.set(next.event.message.id, next.event.message.clientMessageId);
 							}
+							if (next.event.message.role === "user" && next.event.message.command) {
+								commandMarkers.set(next.event.message.id, next.event.message.command);
+							}
 						}
 						// A re-announced ask this connection already carded
 						// folds once — its resolutions still flow, only the
@@ -330,7 +342,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							next.event,
 							lastAssistantError,
 							(messageId) => userMessageIds.get(messageId),
-							child
+							child,
+							(messageId) => commandMarkers.get(messageId)
 						);
 						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;

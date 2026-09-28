@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SlashCommand, SlashCommandGroup } from "$lib/utils/slashCommand.svelte";
+	import LucideTerminal from "~icons/lucide/terminal";
 
 	interface Props {
 		results: SlashCommand[];
@@ -90,22 +91,45 @@
 							type="button"
 							role="option"
 							aria-selected={option.index === activeIndex}
+							aria-disabled={option.result.shadowed ? "true" : undefined}
 							class={[
 								"flex w-full items-center gap-2 px-2.5 py-1 text-left focus:outline-hidden",
-								option.index === activeIndex
-									? "bg-gray-100 dark:bg-gray-800"
-									: "hover:bg-gray-50 dark:hover:bg-gray-800/60",
+								option.result.shadowed
+									? "cursor-not-allowed text-gray-400 dark:text-gray-500"
+									: option.index === activeIndex
+										? "bg-gray-100 dark:bg-gray-800"
+										: "hover:bg-gray-50 dark:hover:bg-gray-800/60",
 							]}
 							onpointerdown={(event) => event.preventDefault()}
 							onmouseenter={() => onactivechange(option.index)}
-							onclick={() => onselect(option.result)}
+							onclick={() => {
+								// A shadowed name is the panel's own: the row is
+								// information, not a second way to run it.
+								if (!option.result.shadowed) onselect(option.result);
+							}}
 						>
+							{#if option.result.shell}
+								<!-- The machine's own word (backend.commands' shell
+								     fact): the snippets themselves live in the
+								     confirmation sheet, not here. -->
+								<LucideTerminal
+									class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+									aria-hidden="true"
+								/>
+								<span class="sr-only">runs shell on the machine</span>
+							{/if}
 							<span class="font-mono text-gray-800 dark:text-gray-200">
 								/{option.result.name}
 							</span>
-							<span class="min-w-0 flex-1 truncate text-right text-gray-500 dark:text-gray-400">
-								{option.result.description}
-							</span>
+							{#if option.result.shadowed}
+								<span class="min-w-0 flex-1 truncate text-right text-gray-400 dark:text-gray-500">
+									shadowed by a panel command
+								</span>
+							{:else}
+								<span class="min-w-0 flex-1 truncate text-right text-gray-500 dark:text-gray-400">
+									{option.result.description}
+								</span>
+							{/if}
 						</button>
 					{/each}
 				</div>

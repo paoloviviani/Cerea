@@ -39,7 +39,13 @@ import { promptAttachments } from "$lib/server/code/promptAttachments";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
-import { OpError, type Directory, type Session, type Workspace } from "$lib/types/machineProtocol";
+import {
+	OpError,
+	type Command,
+	type Directory,
+	type Session,
+	type Workspace,
+} from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import {
 	HANDOFF_TITLE_PREFIX,
@@ -52,7 +58,7 @@ import {
 	type CodeTurnState,
 	type CodeWorkspace,
 } from "$lib/types/CodeAgent";
-import type { CodeProviderFeature } from "$lib/codeApi";
+import type { CodeCommand, CodeProviderFeature } from "$lib/codeApi";
 
 const ID = "[A-Za-z0-9_.:~-]+";
 
@@ -84,6 +90,8 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents/${ID}/timeline$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/commands$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/command$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/handoff$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permissions/${ID}$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/questions/${ID}$`) },
@@ -312,6 +320,26 @@ function toFileChanges(
 	return files.map((file) => ({ path: file.path, oldText: file.before, newText: file.after }));
 }
 
+/** The machine's Command (PROTOCOL.md §6) is the panel's shape as-is: the
+ * mapping exists so the wire type and the UI type can drift without a
+ * silent field rename crossing the seam. */
+function toCommand(command: Command): CodeCommand {
+	return {
+		name: command.name,
+		...(command.description ? { description: command.description } : {}),
+		source: command.source,
+		...(command.origin ? { origin: command.origin } : {}),
+		hints: command.hints ?? [],
+		...(command.agent ? { agent: command.agent } : {}),
+		...(command.model ? { model: command.model } : {}),
+		...(command.subtask ? { subtask: true } : {}),
+		...(command.shell !== undefined ? { shell: command.shell } : {}),
+		...(command.shellSnippets?.length ? { shellSnippets: command.shellSnippets } : {}),
+		...(command.fileRefs?.length ? { fileRefs: command.fileRefs } : {}),
+		...(command.templateHash ? { templateHash: command.templateHash } : {}),
+	};
+}
+
 function requireJsonBody(request: Request): void {
 	const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
 	if (contentType !== "application/json") {
@@ -528,10 +556,21 @@ export const GET: RequestHandler = async (event) => {
 	// mapped through the same `machineTimeline` the parent's stream uses.
 	const subagentsMatch = new RegExp(`^v1/agents/(${ID})/subagents$`).exec(path);
 	if (subagentsMatch) {
-		const { sessions } = await callOp(() =>
-			link.sessionChildren({ sessionId: decodeURIComponent(subagentsMatch[1]) })
-		);
+		const sessionId = decodeURIComponent(subagentsMatch[1]);
+		const { sessions } = await callOp(() => link.sessionChildren({ sessionId }));
 		return superjsonResponse({ subagents: sessions.map(toSubagent) });
+	}
+
+	// The `/` menu's backend half (PROTOCOL.md §6 backend.commands): the
+	// session's workspace's slash commands with their origins, shell facts
+	// and template hashes — and never a template. A backend without the
+	// capability answers unsupported, which maps to the 404 the composer
+	// reads as "panel commands only".
+	const commandsMatch = new RegExp(`^v1/agents/(${ID})/commands$`).exec(path);
+	if (commandsMatch) {
+		const sessionId = decodeURIComponent(commandsMatch[1]);
+		const { commands } = await callOp(() => link.backendCommands({ sessionId }));
+		return superjsonResponse({ commands: commands.map(toCommand) });
 	}
 
 	const subagentTimelineMatch = new RegExp(`^v1/agents/(${ID})/subagents/(${ID})/timeline$`).exec(
@@ -563,6 +602,18 @@ const messageSchema = z.object({
 	// store lands (spec's `session.prompt`, always carries one) — minted
 	// here when the caller does not supply its own.
 	messageId: z.string().trim().min(1).max(128).optional(),
+});
+
+/** `session.command`'s shape (PROTOCOL.md §6): the name is the command's
+ * own, the arguments are the raw string the person typed (the same cap the
+ * messages route applies — the expansion can only be shorter), and the
+ * templateHash is what a confirmed first run carries back. The attachments
+ * travel exactly as `messages` carries them, keyed under messageId. */
+const commandSchema = z.object({
+	name: z.string().regex(/^[A-Za-z0-9][\w.:-]{0,63}$/),
+	arguments: z.string().max(16_000),
+	messageId: z.string().trim().min(1).max(128).optional(),
+	templateHash: z.string().trim().min(1).max(128).optional(),
 });
 
 // A fork handoff (parity plan §4.2(a)): a new session, on the caller's own
@@ -790,6 +841,48 @@ export const POST: RequestHandler = async (event) => {
 				sessionId,
 				text: parsed.data.text,
 				clientMessageId: parsed.data.messageId ?? randomUUID(),
+				...(attachments.length ? { attachments } : {}),
+			})
+		);
+		return superjsonResponse({ ok: true });
+	}
+
+	// A slash command run (PROTOCOL.md §6 session.command): accepted at
+	// once, the turn streams as events. The machine owns every gate — the
+	// shell veto, fileDeny, the model policy, the agent-escalation rule —
+	// and answers not_found / conflict / forbidden / invalid, which callOp
+	// maps onto their statuses. This side re-lists once so its own audit row
+	// can carry the command's origin and shell fact, and never its
+	// arguments; a name the machine no longer lists is refused here with
+	// the same not_found the machine would give.
+	const commandMatch = new RegExp(`^v1/agents/(${ID})/command$`).exec(path);
+	if (commandMatch) {
+		const parsed = commandSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { name, arguments, messageId?, templateHash? }.");
+		const sessionId = decodeURIComponent(commandMatch[1]);
+		const listed = await callOp(() => link.backendCommands({ sessionId }));
+		const command = listed.commands.find((candidate) => candidate.name === parsed.data.name);
+		if (!command) error(404, `No command named "${parsed.data.name}" on this machine.`);
+		await recordCodeAudit(event, {
+			action: "code.command",
+			deviceId,
+			name: command.name,
+			origin: command.origin ?? "unknown",
+			shell: command.shell === undefined ? "unknown" : command.shell ? "true" : "false",
+		});
+		const attachments = parsed.data.messageId
+			? await promptAttachments(
+					codeAttachmentKey(device._id.toHexString(), sessionId),
+					parsed.data.messageId
+				)
+			: [];
+		await callOp(() =>
+			link.sessionCommand({
+				sessionId,
+				name: parsed.data.name,
+				arguments: parsed.data.arguments,
+				clientMessageId: parsed.data.messageId ?? randomUUID(),
+				...(parsed.data.templateHash ? { templateHash: parsed.data.templateHash } : {}),
 				...(attachments.length ? { attachments } : {}),
 			})
 		);
