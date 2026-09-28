@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"galopin/internal/backend"
@@ -430,5 +432,75 @@ func TestOpWorkspaceArchiveRemoveWorktree(t *testing.T) {
 	_, operr3 := mc.Handle(context.Background(), "workspace.archive", archiveArgs2)
 	if operr3 == nil || operr3.Code != "invalid" {
 		t.Fatalf("operr = %+v, want invalid", operr3)
+	}
+}
+
+// attachmentBackend serves one image for one session, through the optional
+// toolImages capability.
+type attachmentBackend struct {
+	fakeBackend
+	gone bool
+}
+
+func (a *attachmentBackend) Capabilities() backend.Capabilities {
+	return backend.Capabilities{ToolImages: true}
+}
+
+func (a *attachmentBackend) Attachment(_ context.Context, _, sessionID, sha string) (string, []byte, error) {
+	switch {
+	case sessionID != "s1":
+		return "", nil, backend.ErrAttachmentUnknown
+	case a.gone:
+		return "", nil, backend.ErrAttachmentGone
+	}
+	return "image/png", []byte("\x89PNGbytes"), nil
+}
+
+func TestOpSessionAttachment(t *testing.T) {
+	sha := strings.Repeat("ab", 32)
+	args := func(s, h string) json.RawMessage {
+		b, _ := json.Marshal(map[string]string{"sessionId": s, "sha256": h})
+		return b
+	}
+	back := &attachmentBackend{}
+	mc := newTestMachine(t, back)
+	trackTestSession(t, mc, "s1")
+	trackTestSession(t, mc, "s2")
+
+	res, operr := mc.Handle(context.Background(), "session.attachment", args("s1", sha))
+	if operr != nil {
+		t.Fatalf("unexpected error: %+v", operr)
+	}
+	m := res.(map[string]any)
+	if m["mime"] != "image/png" || m["data"] != base64.StdEncoding.EncodeToString([]byte("\x89PNGbytes")) {
+		t.Fatalf("result = %#v", m)
+	}
+
+	for name, tc := range map[string]struct {
+		args json.RawMessage
+		code string
+	}{
+		"another session's sha is not found": {args("s2", sha), "not_found"},
+		"unknown session":                    {args("nope", sha), "not_found"},
+		"malformed sha":                      {args("s1", "../../etc/passwd"), "invalid"},
+		"uppercase sha":                      {args("s1", strings.ToUpper(sha)), "invalid"},
+	} {
+		if _, operr := mc.Handle(context.Background(), "session.attachment", tc.args); operr == nil || operr.Code != tc.code {
+			t.Errorf("%s: got %+v, want %s", name, operr, tc.code)
+		}
+	}
+
+	back.gone = true
+	if _, operr := mc.Handle(context.Background(), "session.attachment", args("s1", sha)); operr == nil || operr.Code != "not_found" || !strings.Contains(operr.Message, "no longer on the machine") {
+		t.Fatalf("gone: %+v", operr)
+	}
+}
+
+func TestOpSessionAttachmentUnsupportedBackend(t *testing.T) {
+	mc := newTestMachine(t, &fakeBackend{})
+	trackTestSession(t, mc, "s1")
+	b, _ := json.Marshal(map[string]string{"sessionId": "s1", "sha256": strings.Repeat("0", 64)})
+	if _, operr := mc.Handle(context.Background(), "session.attachment", b); operr == nil || operr.Code != "unsupported" {
+		t.Fatalf("got %+v", operr)
 	}
 }

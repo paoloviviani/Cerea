@@ -14,3 +14,12 @@ var ErrSessionBusy = errors.New("the session is mid-turn; stop it before sending
 // listing does not carry — a menu gone stale, never a server error.
 // dispatch.go maps it to the wire code "not_found".
 var ErrCommandNotFound = errors.New("no such command here")
+
+// ErrAttachmentUnknown is session.attachment's answer for a sha the session
+// never listed. dispatch.go maps it to "not_found".
+var ErrAttachmentUnknown = errors.New("no such attachment in this session")
+
+// ErrAttachmentGone is its answer for an image that was listed but is no
+// longer on the machine (the ACP backend keeps them in memory only; a galopin
+// restart loses them). dispatch.go maps it to "not_found".
+var ErrAttachmentGone = errors.New("this image is no longer on the machine")

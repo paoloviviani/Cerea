@@ -106,7 +106,8 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 64*1024), 4<<20)
+	// A tool part can carry an 8 MiB screenshot inline as a base64 data: URL.
+	scanner.Buffer(make([]byte, 64*1024), 16<<20)
 	var dataLines []string
 	flush := func() {
 		if len(dataLines) == 0 {
@@ -238,11 +239,11 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 		if partMap == nil {
 			return nil
 		}
-		part := partFromMap(partMap)
 		sid := getStr(partMap, "sessionID", "sessionId")
 		if sid == "" {
 			sid = sessionID
 		}
+		part := b.mapPart(sid, partMap)
 		return []backend.BackendEvent{wrap(sid, backend.Event{Kind: backend.EventPart, Part: &part})}
 
 	case "message.part.delta":

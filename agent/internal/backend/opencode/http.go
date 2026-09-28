@@ -26,17 +26,29 @@ const doJSONTimeout = 20 * time.Second
 // Compile-time checks: Backend must satisfy the floor interface and every
 // optional capability its Capabilities() advertises as true.
 var (
-	_ backend.Backend    = (*Backend)(nil)
-	_ backend.Differ     = (*Backend)(nil)
-	_ backend.Childrener = (*Backend)(nil)
-	_ backend.Compactor  = (*Backend)(nil)
-	_ backend.Asker      = (*Backend)(nil)
+	_ backend.Backend          = (*Backend)(nil)
+	_ backend.Differ           = (*Backend)(nil)
+	_ backend.Childrener       = (*Backend)(nil)
+	_ backend.Compactor        = (*Backend)(nil)
+	_ backend.Asker            = (*Backend)(nil)
+	_ backend.AttachmentSource = (*Backend)(nil)
 )
 
 // doJSON issues one request against the supervised opencode instance,
 // basic-authenticated, and decodes a JSON response into out (nil to
 // discard the body — POST /session/:id/prompt_async answers 204).
 func (b *Backend) doJSON(ctx context.Context, method, path string, body any, out any) error {
+	return b.doJSONLimit(ctx, method, path, body, out, 4<<20)
+}
+
+// maxTranscriptBytes bounds a response that can carry tool images inline as
+// data: URLs (a session's messages): a screenshot is up to 8 MiB decoded, so
+// the general 4 MiB read limit would truncate the JSON and lose the whole
+// transcript.
+const maxTranscriptBytes = 256 << 20
+
+// doJSONLimit is doJSON with an explicit cap on the response body read.
+func (b *Backend) doJSONLimit(ctx context.Context, method, path string, body any, out any, limit int64) error {
 	ctx, cancel := context.WithTimeout(ctx, doJSONTimeout)
 	defer cancel()
 	var reader io.Reader
@@ -61,7 +73,7 @@ func (b *Backend) doJSON(ctx context.Context, method, path string, body any, out
 		return fmt.Errorf("opencode %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("opencode %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
@@ -82,7 +94,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false, AutoAccept: true,
-		Questions: true, Revert: true, RevertFiles: true, Efforts: true,
+		Questions: true, Revert: true, RevertFiles: true, Efforts: true, ToolImages: true,
 		// Probed from the server's own GET /doc (never a version string):
 		// commands exist only when the server lists session.command there.
 		Commands: b.commandsSupported(),
@@ -166,6 +178,7 @@ func (b *Backend) RenameSession(ctx context.Context, _ string, sessionID, title 
 }
 
 func (b *Backend) DeleteSession(ctx context.Context, _ string, sessionID string) error {
+	b.att.Forget(sessionID)
 	return b.doJSON(ctx, http.MethodDelete, "/session/"+url.PathEscape(sessionID), nil, nil)
 }
 
@@ -350,7 +363,7 @@ func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error)
 
 func (b *Backend) Transcript(ctx context.Context, workspaceDir string, sessionID string) (backend.Transcript, error) {
 	var raw []any
-	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message", nil, &raw); err != nil {
+	if err := b.doJSONLimit(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message", nil, &raw, maxTranscriptBytes); err != nil {
 		return backend.Transcript{}, err
 	}
 	tr := backend.Transcript{Status: backend.StatusIdle}
@@ -369,7 +382,7 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir string, sessionID
 		b.resolveClientMessageID(sessionID, &msg)
 		var parts []backend.Part
 		for _, pm := range asMaps(getSlice(entry, "parts")) {
-			parts = append(parts, partFromMap(pm))
+			parts = append(parts, b.mapPart(sessionID, pm))
 		}
 		tr.Messages = append(tr.Messages, backend.TranscriptEntry{Message: msg, Parts: parts})
 		if msg.Role == "assistant" {

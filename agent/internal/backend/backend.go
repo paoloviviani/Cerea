@@ -35,6 +35,9 @@ type Capabilities struct {
 	// never a version string. ACP reports it always: its
 	// available_commands_update carries the list per session.
 	Commands bool `json:"commands"`
+	// ToolImages is listing a tool call's images on its part and serving
+	// their bytes by sha256 (PROTOCOL.md §6 session.attachment).
+	ToolImages bool `json:"toolImages"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -155,4 +158,12 @@ type Compactor interface {
 type Asker interface {
 	ReplyQuestion(ctx context.Context, workspaceDir, sessionID, requestID string, answers [][]string) error
 	RejectQuestion(ctx context.Context, workspaceDir, sessionID, requestID string) error
+}
+
+// AttachmentSource is the optional "toolImages" capability: the bytes of an
+// image a tool part listed, by the sha256 it listed. A backend that no longer
+// holds them answers ErrAttachmentGone; a sha the session never produced is
+// ErrAttachmentUnknown.
+type AttachmentSource interface {
+	Attachment(ctx context.Context, workspaceDir, sessionID, sha256 string) (mime string, data []byte, err error)
 }
