@@ -55,6 +55,7 @@
 	// is at least the address the person is looking at right now.
 	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
 	let allowTerminal = $state(false);
+	let installOpencode = $state(false);
 	const command = $derived(
 		buildEnrollCommand({
 			origin,
@@ -62,6 +63,7 @@
 			gatewayOrigin,
 			clientId: page.data.codeOidcClientId,
 			allowTerminal,
+			installOpencode,
 		})
 	);
 	const downloads = [
@@ -164,6 +166,15 @@
 				Or build it from the Cerea repository's <code class="font-mono">agent/</code> (see its README).
 			</p>
 		</details>
+
+		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
+			<input type="checkbox" class="mt-0.5" bind:checked={installOpencode} />
+			<span>
+				<span class="font-medium text-ink">Install opencode.</span> The agent runs the opencode binary
+				as its coding engine — check this on a fresh machine that does not have it yet (leave it unchecked
+				if it is already installed).
+			</span>
+		</label>
 
 		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
 			<input type="checkbox" class="mt-0.5" bind:checked={allowTerminal} />
