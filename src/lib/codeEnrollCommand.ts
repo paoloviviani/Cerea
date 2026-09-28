@@ -41,6 +41,11 @@ export interface EnrollCommandOptions {
 	clientId?: string;
 	/** Adds `--allow-terminal`, off by default. */
 	allowTerminal?: boolean;
+	/** Adds the opencode install line before enroll — galopin runs the
+	 * opencode binary as its agent, and a fresh machine has neither it nor
+	 * a reason to know that. Off by default because a machine that already
+	 * has opencode (or runs the acp backend) should not re-install it. */
+	installOpencode?: boolean;
 }
 
 /** The binary's path as the installer installs it — `${GALOPIN_INSTALL_DIR:-
@@ -56,6 +61,14 @@ export const GALOPIN_BIN = '"${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}/galopin"';
 export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const origin = opts.origin.replace(/\/+$/, "");
 	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`;
+	// opencode's own installer: it appends $HOME/.opencode/bin to PATH in
+	// the rc files but NOT in this shell, so the same fresh-machine trap as
+	// galopin's applies — galopin falls back to $HOME/.opencode/bin/opencode
+	// itself (agent opencode.go's Start), which is why no export is needed
+	// here and the line stays honest on both a fresh and a loaded PATH.
+	const installOpencode = opts.installOpencode
+		? `curl -fsSL https://opencode.ai/install | bash`
+		: null;
 
 	const enroll = [
 		GALOPIN_BIN,
@@ -75,5 +88,10 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 		enroll.push("--allow-terminal");
 	}
 
-	return [install, enroll.join(" "), `${GALOPIN_BIN} run`].join(" && ");
+	const steps = [install];
+	if (installOpencode) {
+		steps.push(installOpencode);
+	}
+	steps.push(enroll.join(" "), `${GALOPIN_BIN} run`);
+	return steps.join(" && ");
 }

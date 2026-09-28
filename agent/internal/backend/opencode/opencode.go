@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -167,7 +168,41 @@ func randomHex(n int) (string, error) {
 
 // Start picks a port and password if not already set, launches the
 // supervise loop, and waits for the first health check to pass.
+//
+// A bare cfg.Bin name is resolved against PATH here, before any loop: a
+// missing binary is a permanent condition, and letting the supervise loop
+// find out per attempt (exec reports it from Wait, after the process table
+// entry exists) burns the whole backoff ladder on a machine that can never
+// come healthy. The absolute-path case keeps exec's own check: the file
+// being gone between Start and the first launch is the restart loop's
+// problem, not a startup one.
 func (b *Backend) Start(ctx context.Context) error {
+	if !strings.ContainsRune(b.cfg.Bin, '/') {
+		// PATH first (the ordinary case), then the opencode installer's own
+		// directory: opencode.ai/install puts the binary in
+		// $HOME/.opencode/bin and only joins it to PATH via the rc files —
+		// so a shell that just installed it (galopin's printed one-liner
+		// does exactly that) cannot see it until the next login. Falling
+		// back here is what makes the fresh-machine one-liner work in one
+		// shot, without an export step.
+		if resolved, err := exec.LookPath(b.cfg.Bin); err == nil {
+			b.cfg.Bin = resolved
+		} else if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			if candidate := filepath.Join(home, ".opencode", "bin", "opencode"); fileExecutable(candidate) {
+				b.cfg.Bin = candidate
+			} else {
+				return fmt.Errorf(
+					"opencode: the %q binary was not found on PATH or in $HOME/.opencode/bin — galopin runs it as its agent; install it first (https://opencode.ai/install) or point --opencode-bin at it",
+					b.cfg.Bin,
+				)
+			}
+		} else {
+			return fmt.Errorf(
+				"opencode: the %q binary was not found on PATH — galopin runs it as its agent; install it first (https://opencode.ai/install) or point --opencode-bin at it",
+				b.cfg.Bin,
+			)
+		}
+	}
 	if b.cfg.Port == 0 {
 		port, err := pickFreePort()
 		if err != nil {
@@ -203,6 +238,13 @@ func (b *Backend) Start(ctx context.Context) error {
 
 func (b *Backend) baseURL() string {
 	return fmt.Sprintf("http://%s:%d", b.cfg.Hostname, b.cfg.Port)
+}
+
+// fileExecutable reports whether stat succeeds and any executable bit is
+// set — the check LookPath would do, against a path we constructed.
+func fileExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 // superviseLoop keeps opencode running: launch, wait for it to exit, and —
