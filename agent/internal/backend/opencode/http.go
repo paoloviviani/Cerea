@@ -267,6 +267,31 @@ func (b *Backend) Modes(ctx context.Context, _ string) ([]backend.Mode, error) {
 	return out, nil
 }
 
+// AgentModels implements backend.AgentLister from the same GET /agent
+// Modes reads: every agent the server can run — primary modes AND
+// subagents (mode "subagent", build/plan carry none on 1.18.32) — mapped
+// to its configured model, "" when the agent pins none. The command gate
+// needs the FULL list, not the primary projection: a command naming a
+// subagent must resolve too. A failed read answers nil — the dispatch
+// then refuses agent-naming commands rather than assuming a model the
+// server never confirmed (the same fail-closed shape as L6).
+func (b *Backend) AgentModels(ctx context.Context, _ string) map[string]string {
+	var raw []any
+	if err := b.doJSON(ctx, http.MethodGet, "/agent", nil, &raw); err != nil {
+		b.cfg.Logf("opencode: listing agents for the command gate: %v", err)
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for _, m := range asMaps(raw) {
+		name := getStr(m, "name")
+		if name == "" {
+			continue
+		}
+		out[name] = getStr(m, "model")
+	}
+	return out
+}
+
 func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error) {
 	var root map[string]any
 	if err := b.doJSON(ctx, http.MethodGet, "/config/providers", nil, &root); err != nil {
