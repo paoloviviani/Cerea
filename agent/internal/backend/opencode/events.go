@@ -33,7 +33,8 @@ func (b *Backend) Subscribe(ctx context.Context) (<-chan backend.BackendEvent, e
 	b.injectCh = inject
 	b.injectMu.Unlock()
 	go func() {
-		defer close(sse)
+		// subscribeLoop closes sse itself when it ends (its own defer); the
+		// pump below only drains.
 		b.subscribeLoop(ctx, sse)
 	}()
 	go func() {
