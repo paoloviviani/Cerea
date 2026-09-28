@@ -33,6 +33,14 @@ describe("buildEnrollCommand", () => {
 		expect(command).not.toMatch(/(^| && | )galopin /);
 	});
 
+	it("adds the opencode install line only when asked, between the two installs", () => {
+		const off = buildEnrollCommand(BASE_OPTIONS);
+		const on = buildEnrollCommand({ ...BASE_OPTIONS, installOpencode: true });
+
+		expect(off).not.toContain("opencode.ai");
+		expect(on).toContain(" && curl -fsSL https://opencode.ai/install | bash && ");
+	});
+
 	it("omits --client-id when it equals the CLI's own default, explicitly", () => {
 		const command = buildEnrollCommand({ ...BASE_OPTIONS, clientId: DEFAULT_CODE_CLIENT_ID });
 		expect(command).not.toContain("--client-id");
