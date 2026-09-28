@@ -52,12 +52,30 @@ var namedScenarios = map[string]Scenario{"plainText": defaultScenario}
 type Server struct {
 	mu       sync.Mutex
 	scenario Scenario
+	// requests records every chat-completion request's prompt texts, most
+	// recent last, for the integration tests to assert on: "the command's
+	// expanded text reached the mock" is exactly the fact only the mock can
+	// see. Capped so a long IT run cannot grow it without bound.
+	requests [][]string
 }
 
 func New() *Server { return &Server{scenario: defaultScenario} }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.URL.Path == "/__control/requests":
+		s.mu.Lock()
+		out := s.requests
+		s.mu.Unlock()
+		if out == nil {
+			out = [][]string{}
+		}
+		writeJSON(w, map[string]any{"requests": out})
+	case r.URL.Path == "/__control/reset-requests" && r.Method == http.MethodPost:
+		s.mu.Lock()
+		s.requests = nil
+		s.mu.Unlock()
+		writeJSON(w, map[string]bool{"ok": true})
 	case r.URL.Path == "/__control/health":
 		writeJSON(w, map[string]bool{"ok": true})
 	case r.URL.Path == "/__control/scenario" && r.Method == http.MethodPost:
@@ -122,6 +140,18 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 			toolResultSeen = true
 		}
 	}
+	var prompts []string
+	for _, m := range req.Messages {
+		if m["role"] == "user" || m["role"] == "system" {
+			if text, ok := m["content"].(string); ok {
+				prompts = append(prompts, text)
+			}
+		}
+	}
+	s.mu.Lock()
+	s.requests = append(s.requests, prompts)
+	s.mu.Unlock()
+
 	calls := sc.ToolCalls
 	if toolResultSeen {
 		calls = nil
