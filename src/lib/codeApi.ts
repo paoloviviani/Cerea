@@ -33,7 +33,7 @@ import type {
 	CodeWorkspace,
 } from "$lib/types/CodeAgent";
 
-export type { CodeCommand };
+export type { CodeCommand, CodeProviderMode, CodeProviderModel };
 
 export type { CodeDeviceView };
 
