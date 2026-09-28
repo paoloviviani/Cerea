@@ -9,7 +9,11 @@ import { EXECUTION_CWD } from "./protocol";
  * `plt.show()` is replaced by "save every open figure as figure-<n>.png, then
  * close it", and whatever is still open when the run ends is saved the same
  * way. `<n>` counts from 1 within each run, so the name is stable: a later
- * run's figure-1.png is a new version of the same file artifact.
+ * run's figure-1.png is a new version of the same file artifact. A figure the
+ * code saved itself (`savefig`) is left out of the sweep: its own file is its
+ * card. Earlier runs' figures stay in the working directory, for code that
+ * wants them again; the run's listing only reports files changed since it
+ * started.
  *
  * The Python lives here as a module body, run once per interpreter and
  * registered as `_cerea_figures` in `sys.modules`; nothing lands in the
@@ -33,11 +37,15 @@ import sys
 
 _CWD = ${JSON.stringify(EXECUTION_CWD)}
 _MAX = ${MAX_FIGURES_PER_RUN}
-_state = {"n": 0, "written": [], "capped": False, "patched": False}
+_state = {"n": 0, "capped": False, "patched": False}
 
 
 def _save_open(plt):
     for num in list(plt.get_fignums()):
+        if getattr(plt.figure(num), "_cerea_saved", False):
+            # The code saved this figure itself: that file is its card.
+            plt.close(num)
+            continue
         if _state["n"] >= _MAX:
             plt.close(num)
             if not _state["capped"]:
@@ -50,7 +58,6 @@ def _save_open(plt):
         path = "%s/figure-%d.png" % (_CWD, _state["n"])
         try:
             plt.figure(num).savefig(path, format="png", bbox_inches="tight")
-            _state["written"].append(path)
         except Exception as exc:
             sys.stderr.write("Could not save figure %s: %s\\n" % (num, exc))
         finally:
@@ -58,14 +65,7 @@ def _save_open(plt):
 
 
 def begin(import_matplotlib):
-    # Last run's figures were delivered with that run: leaving them in the
-    # listing would show them again under every later run.
-    for path in _state["written"]:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-    _state.update(n=0, written=[], capped=False)
+    _state.update(n=0, capped=False)
     os.environ["MPLBACKEND"] = "Agg"
     if not import_matplotlib or _state["patched"]:
         return
@@ -80,6 +80,19 @@ def begin(import_matplotlib):
         _save_open(plt)
 
     plt.show = show
+
+    # A figure the code saved itself already has its file; the sweep must not
+    # turn the same image into a second card.
+    from matplotlib.figure import Figure
+
+    saved = Figure.savefig
+
+    def savefig(self, *args, **kwargs):
+        result = saved(self, *args, **kwargs)
+        self._cerea_saved = True
+        return result
+
+    Figure.savefig = savefig
     _state["patched"] = True
 
 

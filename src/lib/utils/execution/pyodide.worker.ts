@@ -79,6 +79,10 @@ export function bootstrapWorker(
 	// its interpreter has nothing installed either.
 	const installedVendoredPackages = new Set<string>();
 
+	// When the current run began (ms). The listing reports files written since
+	// then, so an earlier run's output is not offered again under this one.
+	let runStartedAt = 0;
+
 	function post(message: WorkerToHost, transfer?: Transferable[]): void {
 		scope.postMessage(message, transfer ?? []);
 	}
@@ -304,6 +308,7 @@ export function bootstrapWorker(
 	}
 
 	async function run(id: number, code: string): Promise<void> {
+		runStartedAt = Date.now();
 		stdoutBuffer = [];
 		stderrBuffer = [];
 		let outcome: RunOutcome;
@@ -434,15 +439,17 @@ export function bootstrapWorker(
 					const full = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
 					let mode: number | undefined;
 					let size = 0;
+					let changed = true;
 					try {
 						const st = py.FS.stat(full);
 						mode = st.mode;
 						size = st.size;
+						changed = new Date(st.mtime).getTime() >= runStartedAt;
 					} catch {
 						continue;
 					}
 					if (mode !== undefined && py.FS.isDir(mode)) walk(full);
-					else found.push({ path: full, size });
+					else if (changed) found.push({ path: full, size });
 				}
 			};
 			walk(EXECUTION_CWD);

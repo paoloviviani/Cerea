@@ -355,14 +355,34 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 				0x89, 0x50, 0x4e, 0x47,
 			]);
 
-			// Numbering restarts each run (stable names), and a run that draws
-			// nothing does not re-list the last run's figures.
+			// Numbering restarts each run (stable names). A run that draws
+			// nothing lists nothing, but the last run's figure is still on
+			// disk for code that wants it again.
 			send(scope, { type: "run", id: 4, code: "import matplotlib.pyplot as plt\nplt.plot([1])" });
 			expect((await runCode(4)).ok).toBe(true);
 			expect(await list(5)).toEqual(["figure-1.png"]);
-			send(scope, { type: "run", id: 6, code: "print('no plot')" });
-			expect((await runCode(6)).ok).toBe(true);
+			send(scope, {
+				type: "run",
+				id: 6,
+				code: "import os\nprint('kept', os.path.exists('figure-1.png'))",
+			});
+			const quiet = await runCode(6);
+			expect(quiet.stdout).toContain("kept True");
 			expect(await list(7)).toEqual([]);
+
+			// A figure the code saved itself is its own card, not a second one
+			// from the sweep — with or without a close() or show() after it.
+			send(scope, {
+				type: "run",
+				id: 12,
+				code: [
+					"import matplotlib.pyplot as plt",
+					"plt.plot([1]); plt.savefig('chart.png')",
+					"plt.figure(); plt.plot([2]); plt.savefig('other.png'); plt.show()",
+				].join("\n"),
+			});
+			expect((await runCode(12)).ok).toBe(true);
+			expect(await list(13)).toEqual(["chart.png", "other.png"]);
 
 			// A run that fails after drawing still keeps its figure.
 			send(scope, {
