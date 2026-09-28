@@ -343,8 +343,9 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, logf f
 			OverlayPath: filepath.Join(stateDir, "opencode-overlay.json"),
 			// opencode's own temp dir, emptied on every (re)start: its binary
 			// extracts native libraries there each start and never cleans up.
-			TmpDir: filepath.Join(stateDir, "opencode-tmp"),
-			Logf:   func(format string, args ...any) { logf(format, args...) },
+			TmpDir:   filepath.Join(stateDir, "opencode-tmp"),
+			StateDir: stateDir,
+			Logf:     func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
 			return nil, fmt.Errorf("starting opencode: %w", err)
@@ -417,7 +418,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 				"compact": caps.Compact, "images": caps.Images, "files": caps.Files,
 				"worktrees": caps.Worktrees, "autoAccept": caps.AutoAccept,
 				"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
-				"efforts": caps.Efforts,
+				"efforts": caps.Efforts, "commands": caps.Commands,
 			},
 		}},
 		Machine: link.MachineInfo{Capabilities: map[string]bool{
@@ -431,6 +432,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			FileDeny:        orEmptyStrings(pol.EffectiveFileDeny()),
 			Terminal:        terminalPolicyWord(pol),
 			MaxTerminals:    pol.EffectiveMaxTerminals(),
+			CommandShell:    commandShellPolicyWord(pol),
 		},
 	}
 }
@@ -533,6 +535,13 @@ func filesPolicyWord(pol policy.Policy) string {
 
 func terminalPolicyWord(pol policy.Policy) string {
 	if pol.TerminalAllowed() {
+		return policy.TerminalAllowed
+	}
+	return policy.TerminalDenied
+}
+
+func commandShellPolicyWord(pol policy.Policy) string {
+	if pol.CommandShellAllowed() {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied

@@ -71,6 +71,11 @@ type Message struct {
 	// — a Backend implementation is responsible for remembering the
 	// mapping durably enough to survive a restart (PROTOCOL.md §7).
 	ClientMessageID string `json:"clientMessageId,omitempty"`
+	// Command is the transcript marker on the user message a slash command
+	// produced (PROTOCOL.md §6 session.command): "/name args" renders as
+	// the bubble, the expanded template folds below it. opencode derives it
+	// from the minted messageID; ACP sets it on the message it synthesizes.
+	Command *MessageCommand `json:"command,omitempty"`
 }
 
 // PartType discriminates Part's per-type fields (PROTOCOL.md §7).

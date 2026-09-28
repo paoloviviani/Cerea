@@ -198,6 +198,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionCreate(ctx, args)
 	case "session.prompt":
 		return mc.opSessionPrompt(ctx, args)
+	case "session.command":
+		return mc.opSessionCommand(ctx, args)
 	case "session.cancel":
 		return mc.opSessionCancel(ctx, args)
 	case "session.rename":
@@ -235,6 +237,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opBackendModes(ctx, args)
 	case "backend.models":
 		return mc.opBackendModels(ctx, args)
+	case "backend.commands":
+		return mc.opBackendCommands(ctx, args)
 
 	default:
 		return nil, opErrf("unsupported", "unknown op %q", op)
@@ -913,6 +917,245 @@ func (mc *machine) opBackendModels(ctx context.Context, args json.RawMessage) (a
 	// hidden lets the panel say why the list is short (PROTOCOL.md §6) instead
 	// of looking broken; the ids themselves never leave the machine.
 	return map[string]any{"models": orEmpty(models), "hidden": hidden}, nil
+}
+
+// opBackendCommands answers the / menu's listing (PROTOCOL.md §6
+// backend.commands): the workspace's commands with their origin, shell
+// facts and template hash — never a template. Like backend.models, the
+// caller names a workspace or a session; one of the two is required,
+// because a command list is a directory's.
+func (mc *machine) opBackendCommands(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		WorkspaceID string `json:"workspaceId,omitempty"`
+		SessionID   string `json:"sessionId,omitempty"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &a); err != nil {
+			return nil, invalidArgs(err)
+		}
+	}
+	dir := ""
+	if a.SessionID != "" {
+		d, _, operr := mc.resolveSession(a.SessionID)
+		if operr != nil {
+			return nil, operr
+		}
+		dir = d
+	} else if a.WorkspaceID != "" {
+		w, ok := mc.workspaces.Get(a.WorkspaceID)
+		if !ok {
+			return nil, notFound("workspace")
+		}
+		dir = w.Path
+	} else {
+		return nil, opErrf("invalid", "workspaceId or sessionId is required")
+	}
+	commander, ok := mc.commander()
+	if !ok {
+		return nil, opErrf("unsupported", "backend %s cannot list commands", mc.back.ID())
+	}
+	commands, err := commander.ListCommands(ctx, dir, a.SessionID)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	return map[string]any{"commands": orEmpty(commands)}, nil
+}
+
+// opSessionCommand runs one slash command in one session (PROTOCOL.md §6).
+// The gates run in this order — capability, the command existing, the
+// template the caller reviewed being the one still on disk, the policy
+// vetoes, the agent-escalation rule — because each later gate is only
+// meaningful once the earlier ones held. Every refusal is audited with the
+// command's name, origin and shell fact and never its arguments; so is the
+// run itself.
+func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID       string               `json:"sessionId"`
+		Name            string               `json:"name"`
+		Arguments       string               `json:"arguments"`
+		ClientMessageID string               `json:"clientMessageId,omitempty"`
+		Attachments     []backend.Attachment `json:"attachments,omitempty"`
+		TemplateHash    string               `json:"templateHash,omitempty"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.Name == "" {
+		return nil, opErrf("invalid", "name is required")
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	commander, ok := mc.commander()
+	if !ok {
+		return nil, opErrf("unsupported", "backend %s cannot run commands", mc.back.ID())
+	}
+
+	// The command's own record: re-listed now, never trusted from a listing
+	// the panel saw minutes ago (the template may have changed under it).
+	commands, err := commander.ListCommands(ctx, dir, a.SessionID)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	var command *backend.Command
+	for i := range commands {
+		if commands[i].Name == a.Name {
+			command = &commands[i]
+			break
+		}
+	}
+	if command == nil {
+		return nil, opErrf("not_found", "no command named %q here", a.Name)
+	}
+	shellWord := shellWord(command.Shell)
+	origin := string(command.Origin)
+
+	refuse := func(code, format string, args ...any) (any, *link.OpError) {
+		mc.audit.command(command.Name, origin, shellWord, "refused")
+		mc.audit.refusal("session.command", fmt.Sprintf(format, args...))
+		return nil, opErrf(code, format, args...)
+	}
+
+	// The template the panel confirmed is the template still on disk.
+	if a.TemplateHash != "" && a.TemplateHash != command.TemplateHash {
+		return refuse("conflict", "this command changed on the machine since it was reviewed; review it again")
+	}
+
+	// The commandShell veto: a template that expands shell runs outside
+	// every permission rule, so denied means refused — and so does unknown
+	// (an MCP prompt, an ACP command: nobody has seen a template to scan),
+	// which is what keeps MCP prompts and ACP commands off until opted in.
+	if !mc.pol.CommandShellAllowed() && (command.Shell == nil || *command.Shell) {
+		if command.Shell == nil {
+			return refuse("forbidden", "this command's shell expansion is unknown, and this machine denies command shell")
+		}
+		return refuse("forbidden", "this command's template runs shell, and this machine denies command shell: re-enroll with --allow-command-shell to allow it")
+	}
+
+	// @path references go into the prompt verbatim at expansion time, so a
+	// denied file would land in the transcript and the gateway's logs with
+	// no ask. The same deny list the explorer redacts with.
+	for _, ref := range command.FileRefs {
+		if files.MatchDeny(mc.pol.EffectiveFileDeny(), ref) {
+			return refuse("forbidden", "this command reads %q, which this machine's file deny list refuses", ref)
+		}
+	}
+
+	// A command's own model: frontmatter can name a non-gateway provider,
+	// which spends outside the enrolled account — the same gate setModel
+	// applies, and the same answer.
+	if command.Model != "" && !mc.pol.AllowFreeModels {
+		if filtered := mc.pol.FilterModelIDs([]string{command.Model}); len(filtered) == 0 {
+			return refuse("forbidden", "this command pins model %q, which is not a gateway model, and this machine does not allow free models", command.Model)
+		}
+	}
+
+	// The agent-escalation gate (rev1 §3.1): a repo command naming a
+	// permissive agent while the session sits in a more restrictive mode is
+	// the one way a command could leave plan mode. The overlay mode wins
+	// instead — sent verbatim, the command's agent ignored — and a subtask
+	// command in that spot is refused outright, because its child would run
+	// unsupervised in the other agent.
+	sessionMode := ""
+	if s, err := mc.back.GetSession(ctx, dir, a.SessionID); err == nil {
+		sessionMode = s.ModeID
+	}
+	// The effective agent: an agentless command runs under the session's
+	// own mode (the 2026-09-26 plan's step 5); a command with an agent of
+	// its own keeps it unless the escalation gate says the overlay wins.
+	agent := command.Agent
+	if command.Agent == "" {
+		agent = sessionMode
+	}
+	if overlayModeWinsAgent(sessionMode, command.Agent, mc.modesOrEmpty(ctx, dir)) {
+		agent = sessionMode
+		if command.Subtask {
+			return refuse("forbidden", "this command runs in agent %q as a subtask, and this session is in the more restrictive mode %q", command.Agent, sessionMode)
+		}
+	}
+
+	mc.audit.command(command.Name, origin, shellWord, "run")
+	run := backend.CommandRun{
+		Name:            command.Name,
+		Arguments:       a.Arguments,
+		ClientMessageID: a.ClientMessageID,
+		Attachments:     a.Attachments,
+		TemplateHash:    a.TemplateHash,
+		Agent:           agent,
+	}
+	if err := commander.RunCommand(ctx, dir, a.SessionID, run); err != nil {
+		if errors.Is(err, backend.ErrSessionBusy) {
+			return nil, opErrf("invalid", "%v", err)
+		}
+		return nil, backendErr(err)
+	}
+	return map[string]any{}, nil
+}
+
+// commander reports the backend's commands capability as a usable
+// Commander, or that it has none: both the advertised capability and the
+// interface must hold, because a backend that claims commands without
+// implementing the half would otherwise answer every call unsupported.
+func (mc *machine) commander() (backend.Commander, bool) {
+	if !mc.back.Capabilities().Commands {
+		return nil, false
+	}
+	commander, ok := mc.back.(backend.Commander)
+	return commander, ok
+}
+
+// modesOrEmpty lists the backend's modes, an empty slice when it cannot
+// answer — the escalation gate then treats any named agent as an
+// escalation while an overlay mode is set (PROTOCOL.md §6).
+func (mc *machine) modesOrEmpty(ctx context.Context, dir string) []backend.Mode {
+	modes, err := mc.back.Modes(ctx, dir)
+	if err != nil {
+		return nil
+	}
+	return modes
+}
+
+// shellWord names the command's shell fact for the audit row: true, false,
+// or unknown — never the snippets themselves.
+func shellWord(shell *bool) string {
+	switch {
+	case shell == nil:
+		return "unknown"
+	case *shell:
+		return "true"
+	default:
+		return "false"
+	}
+}
+
+// overlayModeWinsAgent is the agent-escalation gate's decision (rev1 §3.1):
+// true means the session's overlay mode is sent and the command's own
+// agent ignored. It wins when the command names an agent at all, the
+// session has an overlay mode, and the two differ while the backend gives
+// no order to prove the command's agent is not an escalation — or when the
+// order says the session's mode is the more restrictive one (the list's
+// order is the restriction scale, most restrictive first: plan < build).
+func overlayModeWinsAgent(sessionMode, cmdAgent string, modes []backend.Mode) bool {
+	if sessionMode == "" || cmdAgent == "" || cmdAgent == sessionMode {
+		return false
+	}
+	sessionAt, sessionKnown := modeIndex(modes, sessionMode)
+	agentAt, agentKnown := modeIndex(modes, cmdAgent)
+	if !sessionKnown || !agentKnown {
+		return true
+	}
+	return sessionAt < agentAt
+}
+
+// modeIndex finds a mode's position in the backend's list.
+func modeIndex(modes []backend.Mode, id string) (int, bool) {
+	for i, mode := range modes {
+		if mode.ID == id {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // orEmpty turns a nil slice into an empty one. Go marshals nil as null, and

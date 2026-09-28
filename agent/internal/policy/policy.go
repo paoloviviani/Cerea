@@ -47,6 +47,15 @@ type Policy struct {
 	// MaxTerminals caps concurrently open terminals per machine (default 8).
 	// terminal.open beyond it answers invalid.
 	MaxTerminals int `json:"maxTerminals,omitempty"`
+	// CommandShell gates the shell expansion a slash command's template can
+	// do (PROTOCOL.md §6 session.command): "allowed" or "denied" (the
+	// default; `enroll --allow-command-shell` opens it). While denied,
+	// session.command refuses a command whose template expands shell AND
+	// every command whose shell is unknown (an MCP prompt, an ACP command)
+	// — the expansion runs outside every permission rule, so it is off
+	// until an owner explicitly opts in. A local `galopin policy set` can
+	// only turn it off.
+	CommandShell string `json:"commandShell,omitempty"`
 }
 
 // FilesRead and FilesOff are Policy.Files's two values.
@@ -83,6 +92,11 @@ func (p Policy) FilesAllowed() bool { return p.Files != FilesOff }
 // all. Default denied: an owner opts in with `enroll --allow-terminal`.
 func (p Policy) TerminalAllowed() bool { return p.Terminal == TerminalAllowed }
 
+// CommandShellAllowed reports whether this machine permits a command's
+// template to expand shell. Default denied: an owner opts in with
+// `enroll --allow-command-shell`.
+func (p Policy) CommandShellAllowed() bool { return p.CommandShell == TerminalAllowed }
+
 // EffectiveMaxTerminals is p.MaxTerminals, or DefaultMaxTerminals when unset.
 func (p Policy) EffectiveMaxTerminals() int {
 	if p.MaxTerminals <= 0 {
@@ -110,7 +124,13 @@ const GatewayProviderID = "pystino"
 // Default is what a machine with no policy.json at all gets: everything
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
-	return Policy{AutoAccept: AutoAcceptDenied, AllowFreeModels: false, Files: FilesRead, Terminal: TerminalDenied}
+	return Policy{
+		AutoAccept:      AutoAcceptDenied,
+		AllowFreeModels: false,
+		Files:           FilesRead,
+		Terminal:        TerminalDenied,
+		CommandShell:    TerminalDenied,
+	}
 }
 
 // Load reads policy.json, or returns Default() when the file does not
@@ -136,6 +156,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.Terminal == "" {
 		p.Terminal = TerminalDenied
+	}
+	if p.CommandShell == "" {
+		p.CommandShell = TerminalDenied
 	}
 	return p, nil
 }

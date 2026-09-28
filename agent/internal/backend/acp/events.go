@@ -125,11 +125,50 @@ func (b *Backend) handleNotify(method string, params json.RawMessage) {
 		b.handlePlan(st, upd)
 	case "current_mode_update":
 		b.handleModeUpdate(st, upd)
+	case "available_commands_update":
+		b.handleAvailableCommands(st, upd)
 	default:
-		// available_commands_update, usage_update (no Usage capability),
-		// config_option_update: unmapped, dropped per PROTOCOL.md §5's
-		// forward-compatibility rule (unknown kinds are ignored).
+		// usage_update (no Usage capability), config_option_update:
+		// unmapped, dropped per PROTOCOL.md §5's forward-compatibility rule
+		// (unknown kinds are ignored).
 	}
+}
+
+// handleAvailableCommands caches the session's command list (PROTOCOL.md §6
+// backend.commands): the one ACP message that says what this session can
+// run. Fields map directly — name, description, input.hint — and nothing
+// more is claimed: no origin, no template, so shell stays unknown and the
+// commandShell policy gates every ACP command until an owner opts in.
+func (b *Backend) handleAvailableCommands(st *sessionState, upd map[string]any) {
+	var commands []backend.Command
+	for _, raw := range getSlice(upd, "availableCommands") {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := getStr(m, "name")
+		if name == "" {
+			continue
+		}
+		cmd := backend.Command{
+			Name:        name,
+			Description: getStr(m, "description"),
+			Source:      backend.SourceCommand,
+			Hints:       []string{},
+		}
+		if input := getMap(m, "input"); input != nil {
+			if hint := getStr(input, "hint"); hint != "" {
+				cmd.Hints = append(cmd.Hints, hint)
+			}
+		}
+		commands = append(commands, cmd)
+	}
+	if commands == nil {
+		commands = []backend.Command{}
+	}
+	st.mu.Lock()
+	st.commands = commands
+	st.mu.Unlock()
 }
 
 // handleTextChunk folds one agent_message_chunk/agent_thought_chunk
