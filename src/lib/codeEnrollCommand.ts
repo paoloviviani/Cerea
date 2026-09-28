@@ -43,12 +43,22 @@ export interface EnrollCommandOptions {
 	allowTerminal?: boolean;
 }
 
+/** The binary's path as the installer installs it — `${GALOPIN_INSTALL_DIR:-
+ * $HOME/.local/bin}/galopin` (galopinDist.ts's renderInstallScript). The
+ * printed command uses it instead of a bare `galopin` because on a fresh
+ * machine `~/.local/bin` is not on the installing shell's PATH yet, and a
+ * bare name fails with "command not found" between the `&&`s. `$HOME` is
+ * POSIX-guaranteed enough for a login shell; if some shell leaves it unset
+ * the enroll step fails loudly instead of silently running the wrong
+ * binary. */
+export const GALOPIN_BIN = '"${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}/galopin"';
+
 export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const origin = opts.origin.replace(/\/+$/, "");
 	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`;
 
 	const enroll = [
-		"galopin",
+		GALOPIN_BIN,
 		"enroll",
 		"--issuer",
 		quoteShellArg(opts.issuer),
@@ -65,5 +75,5 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 		enroll.push("--allow-terminal");
 	}
 
-	return [install, enroll.join(" "), "galopin run"].join(" && ");
+	return [install, enroll.join(" "), `${GALOPIN_BIN} run`].join(" && ");
 }
