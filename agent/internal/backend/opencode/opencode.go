@@ -108,7 +108,7 @@ type Backend struct {
 	// proofs): full entries, so builtin metadata and machine-scope hashes
 	// both compare against the same baseline.
 	stateCmdMu       sync.Mutex
-	stateCmdBaseline map[string]backend.Command
+	stateCmdBaseline map[string]listedCommand
 	// markerMu/commandMarkers map a command's minted messageID to the
 	// transcript marker, persisted alongside the id map.
 	markerMu       sync.Mutex

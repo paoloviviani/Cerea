@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"galopin/internal/backend"
@@ -52,7 +53,12 @@ func (c *commandingBackend) Modes(context.Context, string) ([]backend.Mode, erro
 // opencode backend's ResolveCommand answers.
 type resolvingBackend struct {
 	commandingBackend
-	templates map[string]string
+	templates   map[string]string
+	agentModels map[string]string
+}
+
+func (r *resolvingBackend) AgentModels(context.Context, string) map[string]string {
+	return r.agentModels
 }
 
 func (r *resolvingBackend) ResolveCommand(_ context.Context, _, _ string, name, arguments string) (backend.ResolvedCommand, error) {
@@ -68,11 +74,49 @@ func (r *resolvingBackend) ResolveCommand(_ context.Context, _, _ string, name, 
 	return backend.ResolvedCommand{}, backend.ErrCommandNotFound
 }
 
+// sessionErrorBackend fails GetSession, simulating an unreadable session
+// mode.
+type sessionErrorBackend struct {
+	commandingBackend
+}
+
+func (s *sessionErrorBackend) GetSession(context.Context, string, string) (backend.Session, error) {
+	return backend.Session{}, errors.New("unreadable")
+}
+
+// TestOpSessionCommandM5FileRefRetry: the @ scan's reject-and-retry must
+// find the ref the JS engine finds — "a@:@.env" resolves ".env" for
+// opencode (the second @ follows a colon), so the fileDeny gate refuses a
+// template that the decoy'd first match would have hidden.
+func TestOpSessionCommandM5FileRefRetry(t *testing.T) {
+	falseShell := false
+	back := &resolvingBackend{
+		commandingBackend: commandingBackend{commands: []backend.Command{
+			{Name: "decoy", Source: backend.SourceCommand, Origin: backend.OriginProject, Shell: &falseShell,
+				FileRefs: []string{".env"}},
+		}},
+		templates: map[string]string{"decoy": "Check a@:@.env now."},
+	}
+	mc := newTestMachine(t, back)
+	trackTestSession(t, mc, "s1")
+
+	_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"decoy"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("a@:@.env template = %+v, want forbidden", operr)
+	}
+}
+
 // modeListing makes the escalation gate's order explicit, and reports the
 // session's mode the way the real backend would.
 type commandingWithModes struct {
 	commandingBackend
 	sessionMode string
+	agentModels map[string]string
+}
+
+func (c *commandingWithModes) AgentModels(context.Context, string) map[string]string {
+	return c.agentModels
 }
 
 func (c *commandingWithModes) Modes(context.Context, string) ([]backend.Mode, error) {
@@ -390,7 +434,7 @@ func TestOpSessionCommandAgentModelGate(t *testing.T) {
 			{Name: "freeagent", Source: backend.SourceCommand, Shell: &falseShell, Agent: "free"},
 			{Name: "unknownagent", Source: backend.SourceCommand, Shell: &falseShell, Agent: "ghost"},
 		},
-	}}
+	}, agentModels: map[string]string{"build": "", "free": "freebie/free-model"}}
 	mc := newTestMachine(t, back)
 	mc.pol.CommandShell = "allowed"
 	trackTestSession(t, mc, "s1")
@@ -493,4 +537,87 @@ func TestCommandFileDenyMatchesPathTails(t *testing.T) {
 	if !files.MatchDeny([]string{"config/prod.yml"}, "repo/config/prod.yml") {
 		t.Fatal("a path-tail deny entry must match the ref")
 	}
+}
+
+// L5: a listed agent with no configured model safely falls through to the
+// session's model (setModel already gates it) — the old gate refused
+// everywhere because primary agents carry no model on 1.18.32. The full
+// agent list — including subagents — is what decides "listed".
+func TestOpSessionCommandAgentListing(t *testing.T) {
+	falseShell := false
+	back := &resolvingBackend{
+		commandingBackend: commandingBackend{commands: []backend.Command{
+			{Name: "withbuild", Source: backend.SourceCommand, Shell: &falseShell, Agent: "build"},
+			{Name: "withfree", Source: backend.SourceCommand, Shell: &falseShell, Agent: "free"},
+			{Name: "withghost", Source: backend.SourceCommand, Shell: &falseShell, Agent: "ghost"},
+		}},
+		agentModels: map[string]string{"build": "", "free": "freebie/free-model"},
+	}
+	mc := newTestMachine(t, back)
+	mc.pol.CommandShell = "allowed"
+	trackTestSession(t, mc, "s1")
+
+	if _, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"withbuild"}`)); operr != nil {
+		t.Fatalf("listed agent without a model = %+v, want a run", operr)
+	}
+	_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"withfree"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("listed agent with a non-gateway model = %+v, want forbidden", operr)
+	}
+	_, operr = mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"withghost"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("unlisted agent = %+v, want forbidden", operr)
+	}
+}
+
+// L6: an unreadable session mode must not fail the escalation check open —
+// a command naming an agent is refused rather than gated on an empty mode.
+func TestOpSessionCommandUnreadableModeRefusesNamedAgent(t *testing.T) {
+	back := &sessionErrorBackend{commandingBackend: commandingBackend{
+		commands: []backend.Command{
+			func() backend.Command {
+				f := false
+				return backend.Command{Name: "named", Source: backend.SourceCommand, Shell: &f, Agent: "build"}
+			}(),
+		},
+	}}
+	mc := newTestMachine(t, back)
+	trackTestSession(t, mc, "s1")
+
+	_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"named"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("unreadable mode + named agent = %+v, want forbidden", operr)
+	}
+}
+
+// L7: the no-resolver path (ACP-style listings without templates) gates on
+// the RAW arguments — fileDeny and the shell scan apply whatever the shell
+// policy, or the args walk past both.
+func TestOpSessionCommandNoResolverGatesRawArguments(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		falseShell := false
+		back := &commandingBackend{commands: []backend.Command{
+			{Name: "plain", Source: backend.SourceCommand, Origin: backend.OriginMachine, Shell: &falseShell},
+		}}
+		mc := newTestMachine(t, back)
+		mc.pol.CommandShell = terminalWord(allowed)
+		trackTestSession(t, mc, "s1")
+
+		_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+			`{"sessionId":"s1","name":"plain","arguments":"check @.env and !`+"`id`"+`"}`))
+		if operr == nil || operr.Code != "forbidden" {
+			t.Fatalf("allowed=%v raw-args gate = %+v, want forbidden", allowed, operr)
+		}
+	}
+}
+
+func terminalWord(allowed bool) string {
+	if allowed {
+		return "allowed"
+	}
+	return "denied"
 }

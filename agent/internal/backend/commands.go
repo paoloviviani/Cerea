@@ -116,6 +116,15 @@ type ResolvedCommand struct {
 	Expanded string
 }
 
+// AgentLister is the optional "full agent list" half: every agent the
+// backend can run — primary modes and subagents alike — mapped to its
+// configured model ("" when the agent pins none). The command free-model
+// gate reads it for a command naming an agent; an unlisted agent is
+// refused rather than assumed gateway.
+type AgentLister interface {
+	AgentModels(ctx context.Context, workspaceDir string) map[string]string
+}
+
 // CommanderResolver is the optional half of Commander backends whose
 // commands carry server-side templates (opencode): resolving the expanded
 // text machine-side, which the gates then scan. Backends without it (ACP
