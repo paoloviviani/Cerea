@@ -1041,9 +1041,51 @@ describe("the slash commands' forwarder rows", () => {
 		expect(row.name).toBe("deploy");
 		expect(row.origin).toBe("project");
 		expect(row.shell).toBe("true");
+		expect(row.outcome).toBe("run");
 		expect(String(row.deviceId)).toBe(deviceId);
 		expect(JSON.stringify(row)).not.toContain("SECRET-VALUE");
 		expect(JSON.stringify(rows[0])).not.toContain("SECRET-VALUE");
+		machine.close();
+	});
+
+	it("audits a wire-null shell as unknown, not false", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		machine.model.commands = [
+			commandFixture({ name: "plain", shell: undefined, shellSnippets: undefined }) as never,
+		];
+		machine.onOp("session.command", () => ({}));
+		await forwarder(forwarderPOST, `/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`, {
+			method: "POST",
+			body: JSON.stringify({ name: "plain", arguments: "" }),
+			locals: user.locals,
+		});
+		const rows = await collections.codeAudit
+			.find({ action: "code.command" })
+			.sort({ _id: -1 })
+			.limit(1)
+			.toArray();
+		expect(rows).toHaveLength(1);
+		expect((rows[0] as Record<string, unknown>).shell).toBe("unknown");
+		machine.close();
+	});
+
+	it("audits a refused run with the machine's refusal code", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		machine.onOp("session.command", () => {
+			throw new OpError("conflict", "changed");
+		});
+		await forwarder(forwarderPOST, `/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`, {
+			method: "POST",
+			body: JSON.stringify({ name: "deploy", arguments: "" }),
+			locals: user.locals,
+		});
+		const rows = await collections.codeAudit
+			.find({ action: "code.command" })
+			.sort({ _id: -1 })
+			.limit(1)
+			.toArray();
+		expect(rows).toHaveLength(1);
+		expect((rows[0] as Record<string, unknown>).outcome).toBe("conflict");
 		machine.close();
 	});
 

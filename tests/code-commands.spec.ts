@@ -118,7 +118,6 @@ async function installStubs(page: Page): Promise<Harness> {
 		})
 	);
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) => {
-		if (process.env.COMMANDS_DEBUG) console.log("AGENT-ROUTE", route.request().url().slice(-70));
 		route.fulfill({
 			contentType: "application/json",
 			body: superjsonBody({ agent: h.agent, features: [], cwd: "/repo" }),
@@ -146,18 +145,20 @@ async function installStubs(page: Page): Promise<Harness> {
 	);
 
 	// The menu's backend half: empty by default so the panel-only tests stay
-	// quiet; a test overrides `h.commandList` before navigating.
-	await page.route(`**/api/v2/code/v1/agents/${AGENT}/commands?*`, (route) => {
-		if (process.env.COMMANDS_DEBUG) console.log("COMMANDS-ROUTE", route.request().url().slice(-70));
+	// quiet; a test overrides `h.commandList` before navigating. The
+	// forwarder answers `{commands: [...]}` (never the raw list — the
+	// client reads `result.commands`, so a bare array would poison the
+	// menu's own derived with undefined on every keystroke).
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/commands?*`, (route) =>
 		route.fulfill({
 			status: commandListStub.status,
 			contentType: "application/json",
 			body:
 				commandListStub.status === 200
-					? superjsonBody(commandListStub.body)
+					? superjsonBody({ commands: commandListStub.body })
 					: JSON.stringify({ message: commandListStub.body }),
-		});
-	});
+		})
+	);
 
 	// The transcript stream. The same server-side cursor the stop spec uses:
 	// each response carries only frames the browser has not seen yet.
@@ -218,18 +219,6 @@ async function installStubs(page: Page): Promise<Harness> {
 }
 
 const goto = async (page: Page) => {
-	if (process.env.COMMANDS_DEBUG) {
-		page.on("request", (request) => {
-			if (request.url().includes("/api/")) console.log("REQ", request.url().slice(-90));
-		});
-		page.on("response", (response) => {
-			if (response.url().includes("/api/v2/code/devices"))
-				console.log("DEVICES-RESP", response.status());
-		});
-		page.on("console", (message) =>
-			console.log("PAGE", message.type(), message.text().slice(0, 160))
-		);
-	}
 	// The capabilities that gate the panel command list ride the devices
 	// fetch; typing before it lands would snapshot an ungated menu. The stub
 	// answers instantly — this only synchronizes the fetch.
@@ -243,6 +232,10 @@ const goto = async (page: Page) => {
 
 const box = (page: Page) => page.getByRole("combobox");
 const menu = (page: Page) => page.getByRole("listbox", { name: "Slash commands" });
+// `name:` matches substrings ("/mode" also matches "/model …"), so options
+// are pinned by the exact data attribute the listbox renders per row.
+const option = (page: Page, name: string) =>
+	menu(page).locator(`[data-command-name="${name.replace(/^\//, "")}"]`);
 
 async function typeDraft(page: Page, text: string) {
 	await box(page).click();
@@ -260,19 +253,19 @@ test.describe("the / menu", () => {
 		await expect(box(page)).toBeVisible();
 
 		await typeDraft(page, "/");
-		await expect(menu(page).getByRole("option", { name: "/compact" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/undo" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/redo" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/model" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/mode" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/effort" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/new" })).toBeVisible();
+		await expect(option(page, "/compact")).toBeVisible();
+		await expect(option(page, "/undo")).toBeVisible();
+		await expect(option(page, "/redo")).toBeVisible();
+		await expect(option(page, "/model")).toBeVisible();
+		await expect(option(page, "/mode")).toBeVisible();
+		await expect(option(page, "/effort")).toBeVisible();
+		await expect(option(page, "/new")).toBeVisible();
 
 		// Filtering narrows the list; ArrowDown moves the highlight, which the
 		// combobox announces via aria-activedescendant.
 		await typeDraft(page, "/mo");
-		await expect(menu(page).getByRole("option", { name: "/model" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/compact" })).toHaveCount(0);
+		await expect(option(page, "/model")).toBeVisible();
+		await expect(option(page, "/compact")).toHaveCount(0);
 
 		await page.keyboard.press("ArrowDown");
 		const active = await box(page).getAttribute("aria-activedescendant");
@@ -431,7 +424,7 @@ test.describe("the / menu", () => {
 		// option row is visible AND tappable — Playwright's click refuses to
 		// fire when another element covers the target, which is the check.
 		await typeDraft(page, "/compact");
-		await menu(page).getByRole("option", { name: "/compact" }).click();
+		await option(page, "/compact").click();
 		await expect(box(page)).toHaveValue("/compact ");
 	});
 });
@@ -474,7 +467,7 @@ test.describe("backend commands", () => {
 		await goto(page);
 
 		await typeDraft(page, "/who");
-		await expect(menu(page).getByRole("option", { name: "/whoami" })).toBeVisible();
+		await expect(option(page, "/whoami")).toBeVisible();
 		// The group heading the machine origin lands under.
 		await expect(menu(page).getByText("Machine", { exact: true })).toBeVisible();
 
@@ -541,8 +534,8 @@ test.describe("backend commands", () => {
 		await goto(page);
 
 		await typeDraft(page, "/");
-		await expect(menu(page).getByRole("option", { name: "/compact" })).toBeVisible();
-		await expect(menu(page).getByRole("option", { name: "/whoami" })).toHaveCount(0);
+		await expect(option(page, "/compact")).toBeVisible();
+		await expect(option(page, "/whoami")).toHaveCount(0);
 		// No error surfaced: the fallback is silent by design.
 		await page.keyboard.press("Escape");
 		await expect(page.getByText("This command runs on your machine")).toHaveCount(0);

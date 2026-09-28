@@ -429,7 +429,6 @@
 	// backend reports — the table itself lives in slashCommand.svelte.ts,
 	// where it is tested.
 	let panelCommands = $derived.by(() => {
-		console.log("PANEL-CMDS compact=", compactSupported, "revert=", revertSupported);
 		return panelCommandTable({
 			compact: compactSupported,
 			revert: revertSupported,
@@ -471,16 +470,6 @@
 		// must re-evaluate on THAT flip, not only on its own inputs'
 		// intermediates (the e2e caught the menu staying stale otherwise).
 		void agent?.provider;
-		console.log(
-			"ALL-CMDS panel=",
-			panelCommands.length,
-			"backend=",
-			backendCommands.length,
-			"compact=",
-			compactSupported,
-			"revert=",
-			revertSupported
-		);
 		const panel = panelCommandTable({
 			compact: compactSupported,
 			revert: revertSupported,
