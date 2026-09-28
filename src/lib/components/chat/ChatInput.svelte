@@ -227,7 +227,7 @@
 	// command when the draft is submitted.
 	const slash = new SlashCommandState();
 	$effect(() => {
-		slash.setCommands(slashCommands ?? []);
+		slash.setCommands(() => slashCommands ?? []);
 	});
 	const isSlashMenuOpen = $derived(slash.open);
 	/** The accepted command's hint, rendered as ghost text after the token. */

@@ -137,7 +137,14 @@ function findSlashToken(value: string, caret: number): SlashToken | null {
 
 export class SlashCommandState {
 	token = $state<SlashToken | null>(null);
-	results = $state<SlashCommand[]>([]);
+	/** The filtered list, recomputed whenever the tracked token, the live
+	 * command list (read through the getter the component bound), or the
+	 * highlight changes — so a list that lands while the menu is open
+	 * refreshes it without needing another keystroke. */
+	results = $derived.by(() => {
+		if (this.token === null) return [];
+		return this.#filter(this.token.query, this.#getCommands());
+	});
 	/**
 	 * -1 means "nothing chosen". Enter only accepts once the user has
 	 * arrowed into the list, so an ordinary `/word` in prose never swallows
@@ -146,6 +153,10 @@ export class SlashCommandState {
 	activeIndex = $state(-1);
 
 	#commands: SlashCommand[] = [];
+	/** The live list getter, bound once by the component: the menu's results
+	 * re-filter against whatever the component's own scope currently holds
+	 * (the machine's list can land after the first keystroke). */
+	#getCommands: () => SlashCommand[] = () => this.#commands;
 	/** The full token text syncValue checks programmatic writes against. */
 	#tokenText: string | null = null;
 	/**
@@ -167,16 +178,9 @@ export class SlashCommandState {
 		return this.activeIndex >= 0 ? this.results[this.activeIndex] : undefined;
 	}
 
-	setCommands(commands: SlashCommand[]): void {
-		this.#commands = commands;
-		// A list that arrives while the menu is already open (the machine's
-		// capability fetch landing after the first keystroke) recomputes the
-		// visible results in place rather than leaving a stale, half-empty
-		// menu until the next keystroke.
-		if (this.token) {
-			this.results = this.#filter(this.token.query);
-			if (this.activeIndex >= this.results.length) this.activeIndex = -1;
-		}
+	setCommands(getCommands: () => SlashCommand[]): void {
+		// Bound once; the getter is read reactively by `results`'s derived.
+		this.#getCommands = getCommands;
 	}
 
 	/**
@@ -187,7 +191,7 @@ export class SlashCommandState {
 	update(value: string, caret: number | null): void {
 		// No commands, no menu — a composer that passes none must not open one
 		// on a stray slash, even to say "no matching commands".
-		if (this.#commands.length === 0) {
+		if (this.#getCommands().length === 0) {
 			if (this.token !== null) this.reset();
 			return;
 		}
@@ -214,7 +218,6 @@ export class SlashCommandState {
 
 		this.token = next;
 		this.#tokenText = `/${value.slice(1, next.end)}`;
-		this.results = this.#filter(next.query);
 		if (this.activeIndex >= this.results.length) this.activeIndex = -1;
 	}
 
@@ -269,7 +272,6 @@ export class SlashCommandState {
 	reset(): void {
 		this.token = null;
 		this.#tokenText = null;
-		this.results = [];
 		this.activeIndex = -1;
 	}
 
@@ -291,12 +293,13 @@ export class SlashCommandState {
 		return null;
 	}
 
-	/** Prefix matches first (in list order), then substring matches. */
-	#filter(query: string): SlashCommand[] {
+	/** Prefix matches first (in list order), then substring matches. The
+	 * list arrives per call — the live one, not a stale copy. */
+	#filter(query: string, commands: SlashCommand[]): SlashCommand[] {
 		const needle = query.toLowerCase();
 		const prefix: SlashCommand[] = [];
 		const substring: SlashCommand[] = [];
-		for (const command of this.#commands) {
+		for (const command of commands) {
 			const name = command.name.toLowerCase();
 			if (!needle || name.startsWith(needle)) prefix.push(command);
 			else if (name.includes(needle)) substring.push(command);

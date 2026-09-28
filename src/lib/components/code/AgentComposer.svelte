@@ -428,13 +428,14 @@
 	// The panel commands the `/` menu lists, gated on what this agent's
 	// backend reports — the table itself lives in slashCommand.svelte.ts,
 	// where it is tested.
-	let panelCommands = $derived(
-		panelCommandTable({
+	let panelCommands = $derived.by(() => {
+		console.log("PANEL-CMDS compact=", compactSupported, "revert=", revertSupported);
+		return panelCommandTable({
 			compact: compactSupported,
 			revert: revertSupported,
 			efforts: effortsSupported,
-		})
-	);
+		});
+	});
 
 	// The menu's backend half: the machine's own command list, fetched once
 	// per open agent (and again after each backend run — the template a
@@ -465,7 +466,27 @@
 	 * marked shadowed rather than dropped, so the menu explains the rule it
 	 * enforces instead of silently hiding half of it. */
 	let allCommands = $derived.by(() => {
-		const panelNames = new Set(panelCommands.map((command) => command.name.toLowerCase()));
+		// Read the agent prop directly: the device-row flip that turns the
+		// capability gates on arrives with the snapshot, and this derived
+		// must re-evaluate on THAT flip, not only on its own inputs'
+		// intermediates (the e2e caught the menu staying stale otherwise).
+		void agent?.provider;
+		console.log(
+			"ALL-CMDS panel=",
+			panelCommands.length,
+			"backend=",
+			backendCommands.length,
+			"compact=",
+			compactSupported,
+			"revert=",
+			revertSupported
+		);
+		const panel = panelCommandTable({
+			compact: compactSupported,
+			revert: revertSupported,
+			efforts: effortsSupported,
+		});
+		const panelNames = new Set(panel.concat(panelCommands).map((c) => c.name.toLowerCase()));
 		const backend = backendCommands.map((command) => {
 			const slash: SlashCommand = {
 				name: command.name,
@@ -484,7 +505,7 @@
 			if (panelNames.has(command.name.toLowerCase())) slash.shadowed = true;
 			return slash;
 		});
-		return [...panelCommands, ...backend];
+		return [...panel, ...backend];
 	});
 
 	/** The command the confirmation sheet is open for: a project-origin or
