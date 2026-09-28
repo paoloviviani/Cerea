@@ -354,6 +354,36 @@ func TestCommandsIntegration(t *testing.T) {
 		t.Fatal("no user message carried a command marker")
 	})
 
+	t.Run("a stale templateHash conflicts and the re-list retry runs", func(t *testing.T) {
+		// The IT3 acceptance: the caller's templateHash gate is live — a
+		// stale hash refuses with the review wording, the fresh hash from
+		// a re-list runs, and nothing else about the run changes.
+		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Fresh."}, "chunkDelayMs": 5, "finishReason": "stop"})
+		var fresh string
+		for _, cmd := range listed {
+			if cmd.Name == "hi" && cmd.TemplateHash != "" {
+				fresh = cmd.TemplateHash
+			}
+		}
+		if fresh == "" {
+			t.Fatal("the listing carried no templateHash for hi")
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "hi", "arguments": "stale",
+			"templateHash": "0000000000000000000000000000000000000000000000000000000000000000"})
+		if errShape == nil || errShape.Code != "conflict" {
+			t.Fatalf("stale hash = %+v, want conflict", errShape)
+		}
+		if !strings.Contains(errShape.Message, "changed on the machine since it was reviewed") {
+			t.Errorf("conflict message = %q, want the review wording", errShape.Message)
+		}
+		if _, errShape := runCommand(t, map[string]any{"name": "hi", "arguments": "fresh",
+			"templateHash": fresh}); errShape != nil {
+			t.Fatalf("fresh hash retry: %s (%s)", errShape.Code, errShape.Message)
+		}
+		awaitPrompt(t, "Say hi to fresh")
+		waitIdle(sess.ID)
+	})
+
 	t.Run("a shell template runs only with commandShell allowed", func(t *testing.T) {
 		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Ran."}, "chunkDelayMs": 5, "finishReason": "stop"})
 
