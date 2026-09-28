@@ -44,6 +44,7 @@ import {
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import { OpError, type Envelope } from "$lib/types/machineProtocol";
 import { logger } from "$lib/server/logger";
+import { toolImageUrl } from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { findAttachments } from "$lib/server/files/attachmentStore";
 import type { MessageFile } from "$lib/types/Message";
@@ -58,6 +59,9 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	const device = await getPairedDevice(locals, url.searchParams.get("device"));
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
+	// Tool images ride the stream as URLs into the forwarder's attachment
+	// route (PROTOCOL.md §7), never as bytes.
+	const imageUrl = (sha256: string) => toolImageUrl(deviceId, sessionId, sha256);
 
 	// Subscribe first and buffer, so events fired while `session.sync` is in
 	// flight are queued rather than lost at the seam. The subscription is
@@ -136,12 +140,19 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// learned live, resolved per part (PROTOCOL.md §7).
 	let commandMarkers: Map<string, { name: string; arguments: string }>;
 	if ("snapshot" in sync) {
-		initial = snapshotToUpdates(sync.snapshot);
+		initial = snapshotToUpdates(sync.snapshot, imageUrl);
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
 		userMessageIds = userMessageIdsOf(sync.snapshot);
 		commandMarkers = commandMarkersOf(sync.snapshot);
 	} else {
-		const folded = foldEnvelopeEvents(sync.events);
+		const folded = foldEnvelopeEvents(
+			sync.events,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			imageUrl
+		);
 		initial = folded.updates;
 		lastAssistantError = folded.lastAssistantError;
 		userMessageIds = folded.userMessageIds;
@@ -210,7 +221,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		lastAssistantError,
 		userMessageIds,
 		childOf,
-		commandMarkers
+		commandMarkers,
+		imageUrl
 	);
 	lastAssistantError = drainedFolded.lastAssistantError;
 	userMessageIds = drainedFolded.userMessageIds;
@@ -343,7 +355,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							lastAssistantError,
 							(messageId) => userMessageIds.get(messageId),
 							child,
-							(messageId) => commandMarkers.get(messageId)
+							(messageId) => commandMarkers.get(messageId),
+							imageUrl
 						);
 						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;

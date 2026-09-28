@@ -36,6 +36,9 @@ export interface Backend {
 		revertFiles?: boolean;
 		/** A per-session thinking effort (session.setEffort). */
 		efforts?: boolean;
+		/** Tool calls list their images on the part (`attachments`) and
+		 * `session.attachment` serves the bytes (§6/§7). */
+		toolImages?: boolean;
 	};
 }
 
@@ -219,6 +222,15 @@ export interface Command {
 	templateHash?: string;
 }
 
+/** One image a tool call produced (§7). No bytes; `sha256` is the lowercase
+ * hex digest of the decoded image, computed on the machine. */
+export interface ToolAttachment {
+	sha256: string;
+	mime: string;
+	size: number;
+	filename?: string;
+}
+
 export type Part =
 	| ({ id: string; messageId: string; role: string; type: "text" } & {
 			text: string;
@@ -233,6 +245,9 @@ export type Part =
 			input: Record<string, unknown>;
 			output?: string;
 			error?: string;
+			/** Images the call produced, by reference (§7): the bytes are
+			 * fetched with `session.attachment` by sha256. */
+			attachments?: ToolAttachment[];
 	  })
 	| ({ id: string; messageId: string; role: string; type: "file" } & {
 			mime: string;
@@ -341,6 +356,7 @@ export type OpName =
 	| "session.diff"
 	| "session.children"
 	| "session.compact"
+	| "session.attachment"
 	| "session.revert"
 	| "files.list"
 	| "files.stat"
@@ -479,6 +495,7 @@ const backendSchema = z.object({
 		worktrees: z.boolean(),
 		autoAccept: z.boolean(),
 		questions: z.boolean(),
+		toolImages: z.boolean().optional(),
 	}),
 });
 

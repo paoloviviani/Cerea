@@ -46,11 +46,12 @@
 	);
 
 	type ToolOutput = Record<string, unknown>;
-	type McpImageContent = {
-		type: "image";
-		data: string;
-		mimeType: string;
-	};
+	// An MCP tool's image arrives inline as base64 `data`; a coding-agent
+	// machine's arrives as a `url` into the forwarder's attachment route
+	// (PROTOCOL.md §7), so the stream never carries the bytes.
+	type McpImageContent =
+		| { type: "image"; data: string; mimeType: string }
+		| { type: "image"; url: string; mimeType: string };
 
 	const formatValue = (value: unknown): string => {
 		if (value == null) return "";
@@ -70,15 +71,22 @@
 		return maybeText;
 	};
 
+	// Only a same-origin path is loaded from a `url`: this is server-built
+	// (toolImageUrl), and anything else — another origin, a protocol-relative
+	// or scheme URL — is not something a tool result gets to make the page fetch.
+	const isSameOriginPath = (url: string): boolean =>
+		url.startsWith("/") && !url.startsWith("//") && !url.includes("\\");
+
 	const isImageBlock = (value: unknown): value is McpImageContent => {
 		if (typeof value !== "object" || value === null) return false;
 		const obj = value as Record<string, unknown>;
-		return (
-			obj["type"] === "image" &&
-			typeof obj["data"] === "string" &&
-			typeof obj["mimeType"] === "string"
-		);
+		if (obj["type"] !== "image" || typeof obj["mimeType"] !== "string") return false;
+		if (typeof obj["data"] === "string") return true;
+		return typeof obj["url"] === "string" && isSameOriginPath(obj["url"]);
 	};
+
+	const imageSrc = (image: McpImageContent): string =>
+		"url" in image ? image.url : `data:${image.mimeType};base64,${image.data}`;
 
 	const getImageBlocks = (output: ToolOutput): McpImageContent[] => {
 		const blocks = output["content"];
@@ -205,7 +213,7 @@
 												<img
 													alt={`Tool result image ${imageIndex + 1}`}
 													class="max-h-60 cursor-pointer rounded-sm border border-gray-200 dark:border-gray-700"
-													src={`data:${image.mimeType};base64,${image.data}`}
+													src={imageSrc(image)}
 												/>
 											{/each}
 										</div>
