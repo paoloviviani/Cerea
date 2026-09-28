@@ -143,7 +143,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	var prompts []string
 	for _, m := range req.Messages {
 		if m["role"] == "user" || m["role"] == "system" {
-			if text, ok := m["content"].(string); ok {
+			if text := contentText(m["content"]); text != "" {
 				prompts = append(prompts, text)
 			}
 		}
@@ -221,6 +221,32 @@ func (sc Scenario) route(messages []map[string]any) (Scenario, bool) {
 		}
 	}
 	return Scenario{}, false
+}
+
+// contentText reads an OpenAI-shaped message's content field, which is
+// either a plain string or an array of parts (opencode sends the latter,
+// e.g. [{"type":"text","text":"…"}], whenever a message carries more than
+// one text segment — a plan-mode system-reminder appended to the user's
+// own prompt is one such case). Non-text parts (images, etc.) are skipped.
+func contentText(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		var parts []string
+		for _, p := range v {
+			part, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := part["text"].(string); ok {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
 }
 
 func wireCalls(calls []ToolCall) []map[string]any {
