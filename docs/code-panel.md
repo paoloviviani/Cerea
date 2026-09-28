@@ -105,7 +105,9 @@ their content.
   they still show after a reload. They are deleted when the device is.
 
 Everything else (workspaces, sessions, transcripts, the code) stays on the
-machine.
+machine. That includes **images a tool produced** (a browser tool's
+screenshot, an image the agent read): the panel fetches each from the machine
+whenever it is shown, and the chat keeps no copy.
 
 ## What the panel does
 
@@ -126,6 +128,26 @@ and the machine's policy can still refuse it.
 | Forks                    | "Fork from here" on a finished assistant message                                    | `POST v1/agents/:id/handoff`: a new session (same machine or another of the person's paired machines, any allowed mode/model), prompted with the person's text plus, optionally, the conversation up to that turn as a `chat-history.md` attachment. The new session is titled `Fork: …` (older forks: `Handoff: …`) and says where it came from.                               |
 | Retry and rollback       | ↻ on an answer, or editing a prompt (when the machine reports `revert`)             | `POST v1/agents/:id/revert {messageId}` rolls the session back to before that prompt (opencode `POST /session/:id/revert`), then the prompt (or the edited text) is sent again. The confirmation says whether files come back: opencode restores them from its snapshots in a git repository only. `POST v1/agents/:id/unrevert` undoes it before the next prompt.              |
 | Workspaces and worktrees | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
+
+### Tool images (the `toolImages` capability)
+
+When a tool call produces an image, its card shows it under "Output". The
+machine lists the image on the tool part (a sha256, a type and a size) and
+keeps the bytes: galopin holds up to 64 MiB of recent tool images, and for
+opencode an older one is re-read from opencode's own history. A person's
+browser asks the chat for the image, the chat asks the machine, and the answer
+is cached in the browser only.
+
+- **Only PNG, JPEG, GIF and WebP are shown, inline as images.** SVG is never
+  displayed inline, whatever the machine calls it.
+- **The chat does not take the machine's word for the type.** It checks the
+  file's own header, refuses anything over 8 MiB or past about 50 megapixels
+  (a tiny file can decompress to gigabytes), and refuses bytes that do not
+  match the checksum the tool part listed. Seeing a broken image usually
+  means the machine no longer has it: an ACP agent keeps images in memory
+  only, so a galopin restart loses them.
+- Up to 8 images are shown per tool call. An image the agent saved as a file
+  is the file explorer's, not this.
 
 ### Slash commands (the `commands` capability)
 
