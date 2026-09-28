@@ -169,7 +169,8 @@ func TestListCommandsDiffOriginsAndScanTemplates(t *testing.T) {
 				"template": "plain text, no expansion @notes.md", "hints": []string{}},
 		}
 		f.commandsByDir["/state"] = []map[string]any{
-			{"name": "init", "description": "guided setup", "source": "command"},
+			{"name": "init", "description": "guided setup", "source": "command",
+				"template": "read @docs/plan.md and go"},
 			{"name": "usercmd", "source": "command", "template": "plain text, no expansion @notes.md"},
 		}
 	})

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"galopin/internal/backend"
 )
@@ -41,11 +42,9 @@ var shellSnippetRe = regexp.MustCompile("!`([^`]*)`")
 // address never matches at all.
 var fileRefRe = regexp.MustCompile("@(\\.?[^\\s`,.]*(?:\\.[^\\s`,.]+)*)")
 
-// argsTokenRe, quoteTrimRe and placeholderRe are opencode's argument
-// machine, verbatim: how `session.command` splits the arguments string
-// before substituting $1..$n and $ARGUMENTS into the template.
-var argsTokenRe = regexp.MustCompile(`(?i)\[Image\s+[0-9]+\]|"[^"]*"|'[^']*'|[^\s"']+`)
-
+// placeholderRe is opencode's placeholderRegex (/\$(\d+)/g), verbatim —
+// $0 included, which is where JavaScript's slice(-1)/"undefined" behaviour
+// lives.
 var placeholderRe = regexp.MustCompile(`\$([0-9]+)`)
 
 // maxShellSnippets caps how many snippets one command's scan keeps.
@@ -92,25 +91,40 @@ func scanTemplate(template string) (shell bool, shellSnippets []string, fileRefs
 
 // fileRefsIn lists the @path references a text resolves, emulating
 // opencode's negative lookbehind by hand: a match preceded by a word
-// character or a backtick is not a reference (an email address, or text
-// inside a shell snippet's own backticks).
+// character or a backtick is rejected — and the scan RESUMES one character
+// after the rejected match's START (JavaScript's engine retries at the
+// next position, so a later @ inside the rejected span is still a
+// reference: "a@:@.env" resolves ".env" for opencode and must for the
+// gate, or a repo template hides a deny-listed file behind a decoy).
 func fileRefsIn(text string) []string {
 	var refs []string
-	for _, loc := range fileRefRe.FindAllStringSubmatchIndex(text, -1) {
-		if len(loc) < 4 || loc[2] < 0 {
-			continue
+	pos := 0
+	for pos <= len(text) {
+		loc := fileRefRe.FindStringSubmatchIndex(text[pos:])
+		if loc == nil {
+			break
 		}
-		if loc[0] > 0 {
-			prev := text[loc[0]-1]
-			if prev == '_' || prev == '`' || isASCIILetterOrDigit(prev) {
-				continue
+		start := pos + loc[0]
+		refStart := pos + loc[2]
+		refEnd := pos + loc[3]
+		rejected := start > 0
+		if rejected {
+			switch text[start-1] {
+			case '_', '`':
+			default:
+				if !isASCIILetterOrDigit(text[start-1]) {
+					rejected = false
+				}
 			}
 		}
-		ref := text[loc[2]:loc[3]]
-		if ref == "" {
+		if rejected {
+			pos = start + 1
 			continue
 		}
-		refs = append(refs, ref)
+		if refEnd > refStart {
+			refs = append(refs, text[refStart:refEnd])
+		}
+		pos = refEnd
 	}
 	return refs
 }
@@ -121,13 +135,90 @@ func isASCIILetterOrDigit(c byte) bool {
 
 // splitArgs mirrors opencode's argsRegex: [Image N] counts as one token,
 // quoted strings keep their spaces, everything else splits on whitespace.
+// splitArgs mirrors opencode's argsRegex split of the arguments string:
+// [Image N] counts as one token (case-insensitive, \s is Unicode there —
+// Go's \s is ASCII-only, so the scanner uses unicode.IsSpace), quoted
+// strings keep their spaces, everything else splits on whitespace. An
+// unterminated quote is skipped the way the engine skips an unmatched
+// alternation branch.
 func splitArgs(arguments string) []string {
-	raw := argsTokenRe.FindAllString(arguments, -1)
-	out := make([]string, 0, len(raw))
-	for _, token := range raw {
-		out = append(out, trimOneQuote(token))
+	runes := []rune(arguments)
+	n := len(runes)
+	out := make([]string, 0, 4)
+	i := 0
+	for i < n {
+		if unicode.IsSpace(runes[i]) {
+			i++
+			continue
+		}
+		if runes[i] == '[' {
+			if l := imageTokenLen(runes, i); l > 0 {
+				out = append(out, trimOneQuote(string(runes[i:i+l])))
+				i += l
+				continue
+			}
+		}
+		if q := runes[i]; q == '"' || q == '\'' {
+			if j := closingQuote(runes, i); j > i {
+				out = append(out, trimOneQuote(string(runes[i:j+1])))
+				i = j + 1
+				continue
+			}
+			// No closing quote: no alternation branch matches at this
+			// position, so the engine advances past it.
+			i++
+			continue
+		}
+		j := i
+		for j < n && !unicode.IsSpace(runes[j]) && runes[j] != '"' && runes[j] != '\'' {
+			j++
+		}
+		out = append(out, trimOneQuote(string(runes[i:j])))
+		i = j
 	}
 	return out
+}
+
+// imageTokenLen matches opencode's [Image\s+\d+] token (case-insensitive,
+// Unicode whitespace) at i, returning its length or 0.
+func imageTokenLen(runes []rune, i int) int {
+	const prefix = "[Image"
+	if i+len(prefix) >= len(runes) {
+		return 0
+	}
+	for k := 0; k < len(prefix); k++ {
+		if !strings.EqualFold(string(runes[i+k]), string(prefix[k])) {
+			return 0
+		}
+	}
+	j := i + len(prefix)
+	sawSpace := false
+	for j < len(runes) && unicode.IsSpace(runes[j]) {
+		j++
+		sawSpace = true
+	}
+	if !sawSpace {
+		return 0
+	}
+	sawDigit := false
+	for j < len(runes) && runes[j] >= '0' && runes[j] <= '9' {
+		j++
+		sawDigit = true
+	}
+	if !sawDigit || j >= len(runes) || runes[j] != ']' {
+		return 0
+	}
+	return j - i + 1
+}
+
+// closingQuote finds the matching quote for the opener at i, or -1.
+func closingQuote(runes []rune, i int) int {
+	for j := i + 1; j < len(runes); j++ {
+		if runes[j] == runes[i] {
+			return j
+		}
+	}
+	return -1
 }
 
 // trimOneQuote mirrors opencode's quoteTrimRegex (/^["']|["']$/g): exactly
@@ -151,40 +242,145 @@ func trimOneQuote(token string) string {
 }
 
 // ExpandArguments reproduces opencode's session.command substitution
-// machine-side (SessionPrompt.command): $N placeholders take the Nth
-// argument (the highest-numbered one swallowing the rest), $ARGUMENTS
-// takes the whole string, and with neither present a non-blank argument
-// string is appended. The gates scan the RESULT — opencode detects shell
-// and resolves @files on the combined text, so scanning the bare template
-// would miss a snippet or a ref smuggled in through the arguments.
+// machine-side, faithful to JavaScript's semantics — because opencode
+// detects shell and resolves @files on the RESULT, and the two halves of
+// the substitution are where a template's clean scan goes wrong:
+//
+//   - $N placeholders: the highest-numbered one swallows the remaining
+//     arguments (args.slice(N-1)); $0 — matched by /\$(\d+)/ — takes the
+//     LAST argument when it is the highest (args.slice(-1)), and becomes
+//     the literal text "undefined" otherwise (JS args[-1]);
+//   - $ARGUMENTS is replaced with STRING-replacement semantics: the
+//     arguments' own $$, $&, $` and $' sequences expand against the
+//     template — $$ is a literal dollar, $& the placeholder itself, and
+//     $`/`$' the template text before/after the placeholder. A repo
+//     template chooses that surrounding text, which is exactly how
+//     "!$'" pulls the closing half of a code span into a shell construct
+//     the template's own scan never saw.
 func ExpandArguments(template, arguments string) string {
 	args := splitArgs(arguments)
 	matches := placeholderRe.FindAllStringSubmatch(template, -1)
 	last := 0
 	for _, m := range matches {
-		var position int
-		fmt.Sscanf(m[1], "%d", &position)
-		if position > last {
+		if position := placeholderPosition(m[1]); position > last {
 			last = position
 		}
 	}
 	withArgs := placeholderRe.ReplaceAllStringFunc(template, func(match string) string {
-		var position int
-		fmt.Sscanf(match[1:], "%d", &position)
+		position := placeholderPosition(match[1:])
 		argIndex := position - 1
-		if argIndex < 0 || argIndex >= len(args) {
+		if argIndex >= len(args) {
 			return ""
 		}
 		if position == last {
-			return strings.Join(args[argIndex:], " ")
+			return strings.Join(jsSlice(args, argIndex), " ")
+		}
+		if argIndex < 0 {
+			// JS args[-1] is undefined; String(undefined) is the text that
+			// lands in the template.
+			return "undefined"
 		}
 		return args[argIndex]
 	})
-	expanded := strings.ReplaceAll(withArgs, "$ARGUMENTS", arguments)
-	if len(matches) == 0 && !strings.Contains(template, "$ARGUMENTS") && strings.TrimSpace(arguments) != "" {
-		expanded = expanded + "\n\n" + arguments
+	return replaceArgumentsPlaceholder(withArgs, arguments,
+		len(matches) > 0 || strings.Contains(template, "$ARGUMENTS"))
+}
+
+// replaceArgumentsPlaceholder applies $ARGUMENTS with JavaScript's
+// string-replacement semantics (see the ExpandArguments note). hadPlaceholders
+// carries whether the template named any $N: with none AND no $ARGUMENTS, a
+// non-blank argument string is appended (opencode's own rule).
+
+// placeholderPosition parses one of placeholderRe's captured digit runs.
+func placeholderPosition(digits string) int {
+	var position int
+	fmt.Sscanf(digits, "%d", &position)
+	return position
+}
+
+// jsSlice mirrors JavaScript's Array.slice for the indices the command
+// substitution produces (including -1, which reads from the end).
+func jsSlice(args []string, index int) []string {
+	if index < 0 {
+		if len(args) == 0 {
+			return nil
+		}
+		return args[len(args)-1:]
 	}
-	return expanded
+	if index >= len(args) {
+		return nil
+	}
+	return args[index:]
+}
+
+// replaceArgumentsPlaceholder applies $ARGUMENTS with JavaScript's
+// string-replacement semantics: the replacement string's own $$, $&,
+// $` and $' sequences expand against the template ($$ a literal dollar,
+// $& the placeholder itself, $`/`$' the template text before/after the
+// match). $1..$9 stay literal: the pattern carries no capture groups.
+// The substitution is done by hand rather than with strings.ReplaceAll —
+// Go's is literal, and the difference is the whole exploit.
+func replaceArgumentsPlaceholder(template, arguments string, hadPlaceholders bool) string {
+	const placeholder = "$ARGUMENTS"
+	var out strings.Builder
+	for {
+		i := strings.Index(template, placeholder)
+		if i < 0 {
+			break
+		}
+		out.WriteString(template[:i])
+		runes := []rune(arguments)
+		for j := 0; j < len(runes); j++ {
+			if runes[j] != '$' {
+				out.WriteRune(runes[j])
+				continue
+			}
+			// A dollar in the replacement is JS's substitution pattern: the
+			// next rune decides, and a trailing dollar stays literal.
+			if j+1 >= len(runes) {
+				out.WriteRune('$')
+				break
+			}
+			switch runes[j+1] {
+			case '$':
+				out.WriteRune('$')
+				j++
+			case '&':
+				out.WriteString(placeholder)
+				j++
+			case '`':
+				out.WriteString(template[:i])
+				j++
+			case '\'':
+				out.WriteString(template[i+len(placeholder):])
+				j++
+			default:
+				out.WriteRune('$')
+			}
+		}
+		template = template[i+len(placeholder):]
+	}
+	out.WriteString(template)
+	// opencode's own rule: with no $N placeholder and no $ARGUMENTS in the
+	// original template, a non-blank argument string is appended.
+	if !hadPlaceholders && strings.TrimSpace(arguments) != "" {
+		return out.String() + "\n\n" + arguments
+	}
+	return out.String()
+}
+
+// hashOf is the template hash the wire shape and the origin proofs share.
+func hashOf(template string) string {
+	sum := sha256.Sum256([]byte(template))
+	return hex.EncodeToString(sum[:])
+}
+
+// listedCommand is one GET /command entry with its template alongside: the
+// scan's display facts ride the Command, but the origin proofs and the run
+// path's expansion need the template text itself.
+type listedCommand struct {
+	cmd      backend.Command
+	template string
 }
 
 // commandFromRaw maps one GET /command entry plus its own template scan
@@ -221,17 +417,8 @@ func commandFromRaw(raw map[string]any) backend.Command {
 	cmd.Shell = &shell
 	cmd.ShellSnippets = snippets
 	cmd.FileRefs = refs
-	sum := sha256.Sum256([]byte(template))
-	cmd.TemplateHash = hex.EncodeToString(sum[:])
+	cmd.TemplateHash = hashOf(template)
 	return cmd
-}
-
-// listedCommand is one GET /command entry with its template alongside:
-// the scan's display facts ride the Command, but the dispatch's gates need
-// the expanded text, and only the template plus the arguments produce it.
-type listedCommand struct {
-	cmd      backend.Command
-	template string
 }
 
 // listRawCommands answers one directory's command list, scanned, templates
@@ -253,18 +440,16 @@ func (b *Backend) listRawCommands(ctx context.Context, directory string) ([]list
 }
 
 // stateCommands lists galopin's own state directory once per process: the
-// baseline the workspace listing's origins are proven against. A name is
-// only ever machine or builtin here when the state entry says the same
-// thing the workspace entry says (hash for machine scope, metadata for the
-// two builtins whose templates interpolate the worktree path); anything
-// else is the repo's, whatever name it borrowed.
-func (b *Backend) stateCommands(ctx context.Context) map[string]backend.Command {
+// baseline the workspace listing's origins are proven against. Full
+// entries, so builtin metadata and machine-scope hashes both compare
+// against the same baseline.
+func (b *Backend) stateCommands(ctx context.Context) map[string]listedCommand {
 	b.stateCmdMu.Lock()
 	defer b.stateCmdMu.Unlock()
 	if b.stateCmdBaseline != nil {
 		return b.stateCmdBaseline
 	}
-	b.stateCmdBaseline = map[string]backend.Command{}
+	b.stateCmdBaseline = map[string]listedCommand{}
 	if b.cfg.StateDir == "" {
 		return b.stateCmdBaseline
 	}
@@ -276,7 +461,7 @@ func (b *Backend) stateCommands(ctx context.Context) map[string]backend.Command 
 		return b.stateCmdBaseline
 	}
 	for _, entry := range listed {
-		b.stateCmdBaseline[entry.cmd.Name] = entry.cmd
+		b.stateCmdBaseline[entry.cmd.Name] = entry
 	}
 	return b.stateCmdBaseline
 }
@@ -286,9 +471,7 @@ func (b *Backend) stateCommands(ctx context.Context) map[string]backend.Command 
 // model, subtask, source and hints must all match the state baseline's.
 // The template hash is deliberately excluded — init's template interpolates
 // the worktree path, so byte-identical builtins hash differently per
-// directory. Residual, documented in PROTOCOL.md §6: a body-modified copy
-// with byte-identical frontmatter mislabels as builtin (but its shell
-// snippets still gate, because those are scanned from the actual text).
+// directory.
 func builtinMetadataEqual(state, workspace backend.Command) bool {
 	return state.Description == workspace.Description &&
 		state.Agent == workspace.Agent &&
@@ -296,6 +479,93 @@ func builtinMetadataEqual(state, workspace backend.Command) bool {
 		state.Subtask == workspace.Subtask &&
 		state.Source == workspace.Source &&
 		strings.Join(state.Hints, "\x00") == strings.Join(workspace.Hints, "\x00")
+}
+
+// builtinTemplateMatches says whether a workspace entry's template is the
+// builtin's: review's is static (exact hash); init's interpolates the
+// instance directory, so the hashes compare only after the state
+// directory's path is substituted with the workspace's.
+func builtinTemplateMatches(name, baseTemplate, workspaceTemplate, stateDir, workspaceDir string) bool {
+	if baseTemplate == "" || workspaceTemplate == "" {
+		return false
+	}
+	switch name {
+	case "init":
+		adapted := strings.Replace(baseTemplate, stateDir, workspaceDir, 1)
+		return hashOf(adapted) == hashOf(workspaceTemplate)
+	default:
+		return hashOf(baseTemplate) == hashOf(workspaceTemplate)
+	}
+}
+
+// assignOrigin proves a listed entry's origin against the state baseline
+// (L8): machine scope and the builtin label need CONTENT proof, not a
+// name match — a repo file borrowing a machine command's name, or a
+// builtin's, reads as the repo's (project), which is what routes it
+// through the confirmation sheet. Skills diff by hash the same way; MCP
+// commands stay machine (their definitions come from connected servers,
+// not files).
+func assignOrigin(cmd *backend.Command, workspaceTemplate string, baseline map[string]listedCommand, stateDir, workspaceDir string) {
+	base, ok := baseline[cmd.Name]
+	switch {
+	case builtinCommands[cmd.Name]:
+		if ok && builtinMetadataEqual(base.cmd, *cmd) &&
+			builtinTemplateMatches(cmd.Name, base.template, workspaceTemplate, stateDir, workspaceDir) {
+			cmd.Origin = backend.OriginBuiltin
+		} else {
+			cmd.Origin = backend.OriginProject
+		}
+	case cmd.Source == backend.SourceSkill:
+		if ok && base.cmd.TemplateHash != "" && base.cmd.TemplateHash == cmd.TemplateHash {
+			cmd.Origin = backend.OriginMachine
+		} else {
+			cmd.Origin = backend.OriginProject
+		}
+	case cmd.Source == backend.SourceMCP:
+		cmd.Origin = backend.OriginMachine
+	default:
+		if ok && base.cmd.TemplateHash != "" && base.cmd.TemplateHash == cmd.TemplateHash {
+			cmd.Origin = backend.OriginMachine
+		} else {
+			cmd.Origin = backend.OriginProject
+		}
+	}
+}
+
+func (b *Backend) ListCommands(ctx context.Context, workspaceDir, _ string) ([]backend.Command, error) {
+	listed, err := b.listRawCommands(ctx, workspaceDir)
+	if err != nil {
+		return nil, err
+	}
+	state := b.stateCommands(ctx)
+	out := make([]backend.Command, 0, len(listed))
+	for _, entry := range listed {
+		cmd := entry.cmd
+		assignOrigin(&cmd, entry.template, state, b.cfg.StateDir, workspaceDir)
+		out = append(out, cmd)
+	}
+	return out, nil
+}
+
+// ResolveCommand answers the run path's question — the listed command plus
+// its template expanded with opencode's own argument substitution — in one
+// listing, so the run and the gates read the same text. Unknown names
+// answer errCommandNotFound; the dispatch maps it to not_found.
+func (b *Backend) ResolveCommand(ctx context.Context, workspaceDir, _ string, name, arguments string) (backend.ResolvedCommand, error) {
+	listed, err := b.listRawCommands(ctx, workspaceDir)
+	if err != nil {
+		return backend.ResolvedCommand{}, err
+	}
+	state := b.stateCommands(ctx)
+	for _, entry := range listed {
+		if entry.cmd.Name != name {
+			continue
+		}
+		cmd := entry.cmd
+		assignOrigin(&cmd, entry.template, state, b.cfg.StateDir, workspaceDir)
+		return backend.ResolvedCommand{Command: cmd, Expanded: ExpandArguments(entry.template, arguments)}, nil
+	}
+	return backend.ResolvedCommand{}, backend.ErrCommandNotFound
 }
 
 // commandsSupported reports whether the opencode server's own GET /doc
@@ -346,70 +616,6 @@ func docListsSessionCommand(doc map[string]any) bool {
 		}
 	}
 	return false
-}
-
-// ListCommands implements backend.Commander for opencode: the workspace's
-// list diffed against the state directory's (cached per process) to derive
-// each command's origin. sessionID is unused — opencode's list is
-// per-directory, not per-session.
-// assignOrigin proves a listed entry's origin against the state baseline:
-// builtin only when every field but the (worktree-interpolated) template
-// matches, machine scope only on a template-hash match, the repo's
-// otherwise — whatever name the repo borrowed.
-func assignOrigin(cmd *backend.Command, baseline map[string]backend.Command) {
-	base, ok := baseline[cmd.Name]
-	switch {
-	case builtinCommands[cmd.Name]:
-		if ok && builtinMetadataEqual(base, *cmd) {
-			cmd.Origin = backend.OriginBuiltin
-		} else {
-			cmd.Origin = backend.OriginProject
-		}
-	case cmd.Source == backend.SourceMCP || cmd.Source == backend.SourceSkill:
-		cmd.Origin = backend.OriginMachine
-	default:
-		if ok && base.TemplateHash != "" && base.TemplateHash == cmd.TemplateHash {
-			cmd.Origin = backend.OriginMachine
-		} else {
-			cmd.Origin = backend.OriginProject
-		}
-	}
-}
-
-func (b *Backend) ListCommands(ctx context.Context, workspaceDir, _ string) ([]backend.Command, error) {
-	listed, err := b.listRawCommands(ctx, workspaceDir)
-	if err != nil {
-		return nil, err
-	}
-	state := b.stateCommands(ctx)
-	out := make([]backend.Command, 0, len(listed))
-	for _, entry := range listed {
-		cmd := entry.cmd
-		assignOrigin(&cmd, state)
-		out = append(out, cmd)
-	}
-	return out, nil
-}
-
-// ResolveCommand answers the run path's question — the listed command plus
-// its template expanded with opencode's own argument substitution — in one
-// listing, so the run and the gates read the same text. Unknown names
-// answer errCommandNotFound; the dispatch maps it to not_found.
-func (b *Backend) ResolveCommand(ctx context.Context, workspaceDir, _ string, name, arguments string) (backend.ResolvedCommand, error) {
-	listed, err := b.listRawCommands(ctx, workspaceDir)
-	if err != nil {
-		return backend.ResolvedCommand{}, err
-	}
-	state := b.stateCommands(ctx)
-	for _, entry := range listed {
-		if entry.cmd.Name != name {
-			continue
-		}
-		cmd := entry.cmd
-		assignOrigin(&cmd, state)
-		return backend.ResolvedCommand{Command: cmd, Expanded: ExpandArguments(entry.template, arguments)}, nil
-	}
-	return backend.ResolvedCommand{}, backend.ErrCommandNotFound
 }
 
 // RunCommand implements backend.Commander's run half: the exact

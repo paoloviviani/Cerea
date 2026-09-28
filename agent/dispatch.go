@@ -1058,6 +1058,11 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 	sessionMode := ""
 	if s, err := mc.back.GetSession(ctx, dir, a.SessionID); err == nil {
 		sessionMode = s.ModeID
+	} else if command.Agent != "" {
+		// L6: an unreadable mode must not fail the escalation check open —
+		// a command naming an agent is refused rather than gated on an
+		// empty mode.
+		return refuse("forbidden", "the session's mode could not be read, and this command names agent %q", command.Agent)
 	}
 	escalating := overlayModeWinsAgent(sessionMode, command.Agent)
 	if escalating {
@@ -1077,20 +1082,29 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 	// A command's own model: frontmatter can name a non-gateway provider,
 	// which spends outside the enrolled account — the same gate setModel
 	// applies, and the same answer.
-	modelsToGate := []string{}
-	if command.Model != "" {
-		modelsToGate = append(modelsToGate, command.Model)
-	}
-	if command.Agent != "" {
-		if agentModel, known := mc.agentModel(ctx, dir, command.Agent); known {
-			modelsToGate = append(modelsToGate, agentModel)
-		} else if !mc.pol.AllowFreeModels {
-			return refuse("forbidden", "this command runs in agent %q, whose model is unknown, and this machine does not allow free models", command.Agent)
+	if command.Model != "" && !mc.pol.AllowFreeModels {
+		if filtered := mc.pol.FilterModelIDs([]string{command.Model}); len(filtered) == 0 {
+			return refuse("forbidden", "this command pins model %q, which is not a gateway model, and this machine does not allow free models", command.Model)
 		}
 	}
-	if !mc.pol.AllowFreeModels {
-		if filtered := mc.pol.FilterModelIDs(modelsToGate); len(filtered) != len(modelsToGate) {
-			return refuse("forbidden", "this command pins a model outside the gateway (%q), and this machine does not allow free models", strings.Join(modelsToGate, ", "))
+
+	// L5: the command's agent must be LISTED by the backend — the full
+	// agent list including subagents — and its own configured model gets
+	// the free-model gate. A listed agent with no model safely falls
+	// through to the session's model (setModel already gates it); an
+	// unlisted agent would answer "Agent not found" server-side anyway.
+	if command.Agent != "" {
+		agentModel, listed := "", false
+		if lister, ok := mc.back.(backend.AgentLister); ok {
+			agentModel, listed = lister.AgentModels(ctx, dir)[command.Agent]
+		}
+		if !listed {
+			return refuse("forbidden", "this command names agent %q, which this backend does not list", command.Agent)
+		}
+		if agentModel != "" && !mc.pol.AllowFreeModels {
+			if filtered := mc.pol.FilterModelIDs([]string{agentModel}); len(filtered) == 0 {
+				return refuse("forbidden", "this command runs in agent %q, whose model %q is not a gateway model, and this machine does not allow free models", command.Agent, agentModel)
+			}
 		}
 	}
 
@@ -1135,18 +1149,6 @@ func (mc *machine) modesOrEmpty(ctx context.Context, dir string) []backend.Mode 
 	return modes
 }
 
-// agentModel reads the named agent's configured model from the backend's
-// own agent list, for the free-model gate's second input. Unknown when the
-// backend lists no such agent or exposes no model for it.
-func (mc *machine) agentModel(ctx context.Context, dir, agent string) (string, bool) {
-	for _, mode := range mc.modesOrEmpty(ctx, dir) {
-		if mode.ID == agent {
-			return mode.Model, mode.Model != ""
-		}
-	}
-	return "", false
-}
-
 // resolveCommand answers the run path's command record plus its template
 // expanded with the caller's arguments. Backends whose commands carry
 // server-side templates resolve both halves; the rest (ACP has nothing to
@@ -1172,7 +1174,10 @@ func (mc *machine) resolveCommand(ctx context.Context, dir, sessionID, name, arg
 	}
 	for i := range commands {
 		if commands[i].Name == name {
-			return commands[i], "", nil
+			// L7: without a resolver the raw arguments ARE the expansion —
+			// the gates scan them (fileDeny and shell), whatever the shell
+			// policy.
+			return commands[i], arguments, nil
 		}
 	}
 	return backend.Command{}, "", opErrf("not_found", "no command named %q here", name)
