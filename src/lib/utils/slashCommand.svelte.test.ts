@@ -22,7 +22,7 @@ const find = (name: string): SlashCommand => {
 describe("SlashCommandState", () => {
 	it("opens on a leading slash and shows every command for a bare one", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/", 1);
 		expect(slash.open).toBe(true);
 		expect(slash.results.map((c) => c.name)).toEqual(["compact", "mode", "model", "new"]);
@@ -31,21 +31,21 @@ describe("SlashCommandState", () => {
 
 	it("does not open for a slash that is not the draft's first character", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("run /compact", 11);
 		expect(slash.open).toBe(false);
 	});
 
 	it("`//` at the very start escapes to a literal slash", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("//etc/hosts is wrong", 5);
 		expect(slash.open).toBe(false);
 	});
 
 	it("closes once the caret crosses the first token", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/model", 6);
 		expect(slash.open).toBe(true);
 
@@ -61,7 +61,7 @@ describe("SlashCommandState", () => {
 
 	it("filters by prefix first, then substring", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands([
+		slash.setCommands(() => [
 			{ name: "mode", description: "", group: "panel" },
 			{ name: "model", description: "", group: "panel" },
 			{ name: "remodel", description: "", group: "panel" },
@@ -78,14 +78,14 @@ describe("SlashCommandState", () => {
 
 	it("matching is case-insensitive in both directions", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/COMPACT", 8);
 		expect(slash.results.map((c) => c.name)).toEqual(["compact"]);
 	});
 
 	it("Enter accepts nothing until the user has arrowed into the list", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/", 1);
 		expect(slash.activeResult).toBeUndefined();
 
@@ -100,7 +100,7 @@ describe("SlashCommandState", () => {
 
 	it("accept works without arrowing, which is Tab's contract", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/mo", 3);
 		const replacement = slash.accept("/mo", find("mode"));
 		expect(replacement?.value).toBe("/mode ");
@@ -109,7 +109,7 @@ describe("SlashCommandState", () => {
 
 	it("accept inserts the name plus a space and closes the panel", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/comp", 5);
 		const replacement = slash.accept("/comp", find("compact"));
 		expect(replacement?.value).toBe("/compact ");
@@ -118,7 +118,7 @@ describe("SlashCommandState", () => {
 
 	it("a completed command does not re-open at the next update", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/mo", 3);
 		const replacement = slash.accept("/mo", find("model"));
 
@@ -133,7 +133,7 @@ describe("SlashCommandState", () => {
 		// draft that already carries arguments — the rest's own space is the
 		// separator, so accepting never doubles it.
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/model g", 3);
 		const replacement = slash.accept("/model g", find("model"));
 		expect(replacement?.value).toBe("/model g");
@@ -142,7 +142,7 @@ describe("SlashCommandState", () => {
 
 	it("stays dismissed after Escape until the query changes", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/comp", 5);
 		slash.dismiss();
 		expect(slash.open).toBe(false);
@@ -160,7 +160,7 @@ describe("SlashCommandState", () => {
 		// The composer clears the draft after a command runs; no input event
 		// fires, so syncValue has to notice on its own.
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/comp", 5);
 		expect(slash.open).toBe(true);
 
@@ -171,7 +171,7 @@ describe("SlashCommandState", () => {
 
 	it("stays open through syncValue while the token is still there", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/comp", 5);
 		slash.syncValue("/comp");
 		expect(slash.open).toBe(true);
@@ -179,7 +179,7 @@ describe("SlashCommandState", () => {
 
 	it("the ghost hint lives exactly as long as the accepted token", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/mod", 4);
 		const replacement = slash.accept("/mod", find("model"));
 
@@ -193,7 +193,7 @@ describe("SlashCommandState", () => {
 
 	it("a command without a hint renders no ghost text", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands(COMMANDS);
+		slash.setCommands(() => COMMANDS);
 		slash.update("/comp", 5);
 		const replacement = slash.accept("/comp", find("compact"));
 		expect(slash.ghostHint(replacement?.value ?? "")).toBeNull();
@@ -201,7 +201,7 @@ describe("SlashCommandState", () => {
 
 	it("an empty command list keeps the menu shut", () => {
 		const slash = new SlashCommandState();
-		slash.setCommands([]);
+		slash.setCommands(() => []);
 		slash.update("/", 1);
 		expect(slash.open).toBe(false);
 	});
