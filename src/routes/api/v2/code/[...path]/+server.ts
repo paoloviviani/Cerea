@@ -863,29 +863,57 @@ export const POST: RequestHandler = async (event) => {
 		const listed = await callOp(() => link.backendCommands({ sessionId }));
 		const command = listed.commands.find((candidate) => candidate.name === parsed.data.name);
 		if (!command) error(404, `No command named "${parsed.data.name}" on this machine.`);
-		await recordCodeAudit(event, {
-			action: "code.command",
-			deviceId,
-			name: command.name,
-			origin: command.origin ?? "unknown",
-			shell: command.shell === undefined ? "unknown" : command.shell ? "true" : "false",
-		});
+		// Wire-null and field-absent both mean unknown: the machine never
+		// affirmed anything about this command's shell.
+		const shell = command.shell == null ? "unknown" : command.shell ? "true" : "false";
+		const auditCommand = (outcome: string) =>
+			recordCodeAudit(event, {
+				action: "code.command",
+				deviceId,
+				name: command.name,
+				origin: command.origin ?? "unknown",
+				shell,
+				outcome,
+			});
 		const attachments = parsed.data.messageId
 			? await promptAttachments(
 					codeAttachmentKey(device._id.toHexString(), sessionId),
 					parsed.data.messageId
 				)
 			: [];
-		await callOp(() =>
-			link.sessionCommand({
-				sessionId,
-				name: parsed.data.name,
-				arguments: parsed.data.arguments,
-				clientMessageId: parsed.data.messageId ?? randomUUID(),
-				...(parsed.data.templateHash ? { templateHash: parsed.data.templateHash } : {}),
-				...(attachments.length ? { attachments } : {}),
-			})
-		);
+		try {
+			await callOp(() =>
+				link.sessionCommand({
+					sessionId,
+					name: parsed.data.name,
+					arguments: parsed.data.arguments,
+					clientMessageId: parsed.data.messageId ?? randomUUID(),
+					...(parsed.data.templateHash ? { templateHash: parsed.data.templateHash } : {}),
+					...(attachments.length ? { attachments } : {}),
+				})
+			);
+		} catch (err) {
+			// The row records the refusal too. callOp already mapped the
+			// machine's OpError onto its HTTP status by now, so the outcome
+			// reads back off the status (SvelteKit's HttpError carries it).
+			const status =
+				typeof err === "object" && err !== null && "status" in err
+					? (err as { status?: unknown }).status
+					: undefined;
+			await auditCommand(
+				status === 409
+					? "conflict"
+					: status === 403
+						? "forbidden"
+						: status === 404
+							? "not_found"
+							: status === 400
+								? "invalid"
+								: "error"
+			);
+			throw err;
+		}
+		await auditCommand("run");
 		return superjsonResponse({ ok: true });
 	}
 
