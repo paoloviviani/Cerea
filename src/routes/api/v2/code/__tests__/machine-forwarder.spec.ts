@@ -23,6 +23,7 @@ import { testRequest, TEST_ORIGIN } from "$lib/server/__tests__/testRequest";
 import { acceptMachineConnection } from "$lib/server/code/machines";
 import type { MachinePrincipal } from "$lib/server/code/machineAuth";
 import { FakeMachine, type FakeMachineOptions } from "../../../../../../tests/fake-machine";
+import { OpError } from "$lib/types/machineProtocol";
 import { GET as forwarderGET, POST as forwarderPOST } from "../[...path]/+server";
 import { PATCH as devicesPATCH } from "../devices/+server";
 import { GET as streamGET } from "../agents/[id]/stream/+server";
@@ -916,3 +917,243 @@ async function readOneFrame(
 		return frame;
 	}
 }
+
+/**
+ * The slash commands' two rows (PROTOCOL.md §6 backend.commands /
+ * session.command): the listing maps the machine's Command shape onto the
+ * panel's (and never carries a template), a run is zod-shaped, audited with
+ * the command's own facts and never its arguments, and the machine's gate
+ * refusals land on their statuses — 404 unknown, 409 changed-since-review,
+ * 403 policy (the copy names the enroll flag), 400 invalid.
+ */
+describe("the slash commands' forwarder rows", () => {
+	function commandFixture(overrides: Record<string, unknown> = {}) {
+		return {
+			name: "deploy",
+			description: "ship it",
+			source: "command",
+			origin: "project",
+			hints: ["$ARGUMENTS"],
+			shell: true,
+			shellSnippets: ["echo hello"],
+			fileRefs: ["notes.md"],
+			templateHash: "a".repeat(64),
+			...overrides,
+		};
+	}
+
+	async function machineWithCommands(options: Record<string, unknown> = {}) {
+		const machine = await connectAndPair();
+		machine.model.commands = [commandFixture(options) as never];
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+		return { machine, deviceId, agentId: agent.id };
+	}
+
+	it("lists the session workspace's commands with their shell facts, and never a template", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		const res = await forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/agents/${agentId}/commands?device=${deviceId}`,
+			{ locals: user.locals }
+		);
+		expect(res.status).toBe(200);
+		const { commands } = await parse<{ commands: Array<Record<string, unknown>> }>(res);
+		expect(commands).toHaveLength(1);
+		expect(commands[0]).toMatchObject({
+			name: "deploy",
+			origin: "project",
+			shell: true,
+			shellSnippets: ["echo hello"],
+			templateHash: "a".repeat(64),
+		});
+		// The template itself never crosses this wire (PROTOCOL.md §6): the
+		// snippets are what a person must see.
+		expect(JSON.stringify(commands[0])).not.toContain("template:");
+		machine.close();
+	});
+
+	it("maps a capability-less machine to 404, which the menu reads as panel-only", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+		// An old galopin without the capability answers `unsupported`
+		// (PROTOCOL.md §6) — the forwarder maps that to the 404 the
+		// composer reads as "panel commands only".
+		machine.onOp("backend.commands", () => {
+			throw new OpError("unsupported", "backend fake cannot list commands");
+		});
+		const res = await forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/agents/${agent.id}/commands?device=${deviceId}`,
+			{ locals: user.locals }
+		);
+		expect(res.status).toBe(404);
+		machine.close();
+	});
+
+	it("runs a command: the op carries the arguments verbatim, a minted clientMessageId, and the templateHash", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		const commandArgs: Array<Record<string, unknown>> = [];
+		machine.onOp("session.command", (args: Record<string, unknown>) => {
+			commandArgs.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ name: "deploy", arguments: "--env prod" }),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(200);
+		expect(commandArgs).toHaveLength(1);
+		expect(commandArgs[0].name).toBe("deploy");
+		expect(commandArgs[0].arguments).toBe("--env prod");
+		expect(commandArgs[0].clientMessageId).toEqual(expect.any(String));
+		// No templateHash travels unless the caller confirmed one (the
+		// confirmation sheet's accept): the machine answers conflict on a
+		// hash it disagrees with, and this run confirmed nothing.
+		expect(commandArgs[0].templateHash).toBeUndefined();
+		machine.close();
+	});
+
+	it("audits the run with the command's own facts, and never its arguments", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		machine.onOp("session.command", () => ({}));
+		await forwarder(forwarderPOST, `/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`, {
+			method: "POST",
+			body: JSON.stringify({ name: "deploy", arguments: "--env SECRET-VALUE" }),
+			locals: user.locals,
+		});
+		const rows = await collections.codeAudit
+			.find({ action: "code.command" })
+			.sort({ _id: -1 })
+			.limit(1)
+			.toArray();
+		expect(rows).toHaveLength(1);
+		const row = rows[0] as Record<string, unknown>;
+		expect(row.name).toBe("deploy");
+		expect(row.origin).toBe("project");
+		expect(row.shell).toBe("true");
+		expect(row.outcome).toBe("run");
+		expect(String(row.deviceId)).toBe(deviceId);
+		expect(JSON.stringify(row)).not.toContain("SECRET-VALUE");
+		expect(JSON.stringify(rows[0])).not.toContain("SECRET-VALUE");
+		machine.close();
+	});
+
+	it("audits a wire-null shell as unknown, not false", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		machine.model.commands = [
+			commandFixture({ name: "plain", shell: undefined, shellSnippets: undefined }) as never,
+		];
+		machine.onOp("session.command", () => ({}));
+		await forwarder(forwarderPOST, `/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`, {
+			method: "POST",
+			body: JSON.stringify({ name: "plain", arguments: "" }),
+			locals: user.locals,
+		});
+		const rows = await collections.codeAudit
+			.find({ action: "code.command" })
+			.sort({ _id: -1 })
+			.limit(1)
+			.toArray();
+		expect(rows).toHaveLength(1);
+		expect((rows[0] as Record<string, unknown>).shell).toBe("unknown");
+		machine.close();
+	});
+
+	it("audits a refused run with the machine's refusal code", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		machine.onOp("session.command", () => {
+			throw new OpError("conflict", "changed");
+		});
+		await forwarder(forwarderPOST, `/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`, {
+			method: "POST",
+			body: JSON.stringify({ name: "deploy", arguments: "" }),
+			locals: user.locals,
+		});
+		const rows = await collections.codeAudit
+			.find({ action: "code.command" })
+			.sort({ _id: -1 })
+			.limit(1)
+			.toArray();
+		expect(rows).toHaveLength(1);
+		expect((rows[0] as Record<string, unknown>).outcome).toBe("conflict");
+		machine.close();
+	});
+
+	it("refuses a malformed name with 400, and an unknown one with 404", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		const bad = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ name: "-nope", arguments: "" }),
+				locals: user.locals,
+			}
+		);
+		expect(bad.status).toBe(400);
+
+		const unknown = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ name: "absent", arguments: "" }),
+				locals: user.locals,
+			}
+		);
+		expect(unknown.status).toBe(404);
+		machine.close();
+	});
+
+	it("maps the machine's gate refusals: 409 conflict, 403 policy with the enroll flag named", async () => {
+		const { machine, deviceId, agentId } = await machineWithCommands();
+		machine.onOp("session.command", () => {
+			throw new OpError(
+				"conflict",
+				"this command changed on the machine since it was reviewed; review it again"
+			);
+		});
+		const conflict = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ name: "deploy", arguments: "" }),
+				locals: user.locals,
+			}
+		);
+		expect(conflict.status).toBe(409);
+		expect(((await conflict.json()) as { message: string }).message).toContain("review it again");
+
+		machine.onOp("session.command", () => {
+			throw new OpError(
+				"forbidden",
+				"this command's template runs shell, and this machine denies command shell: re-enroll with --allow-command-shell to allow it"
+			);
+		});
+		const forbidden = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agentId}/command?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({ name: "deploy", arguments: "" }),
+				locals: user.locals,
+			}
+		);
+		expect(forbidden.status).toBe(403);
+		expect(((await forbidden.json()) as { message: string }).message).toContain(
+			"--allow-command-shell"
+		);
+		machine.close();
+	});
+});

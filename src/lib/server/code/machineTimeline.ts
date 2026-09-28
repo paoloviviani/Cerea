@@ -131,8 +131,14 @@ function usageToUpdate(usage: Usage): AgentUsageUpdate {
  * a snapshot read and a live `part` event both call this the same way.
  * `clientMessageId` (the owning message's, when it is a user message) rides
  * onto the `user` frame — the key attachments will use once the attachment
- * store lands; the fold ignores it for now. */
-function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[] {
+ * store lands; the fold ignores it for now. So does the message's `command`
+ * marker (PROTOCOL.md §7): the bubble renders "/name args" and folds the
+ * expanded text beneath it. */
+function partToUpdates(
+	part: Part,
+	clientMessageId?: string,
+	command?: { name: string; arguments: string }
+): AgentStreamUpdate[] {
 	switch (part.type) {
 		case "text":
 			if (part.synthetic) return [];
@@ -143,6 +149,7 @@ function partToUpdates(part: Part, clientMessageId?: string): AgentStreamUpdate[
 							type: "user",
 							text: part.text,
 							...(clientMessageId ? { messageId: clientMessageId } : {}),
+							...(command ? { command } : {}),
 						},
 					]
 				: [{ type: MessageUpdateType.Stream, token: part.text }];
@@ -332,7 +339,8 @@ export function eventToUpdates(
 	event: NormalizedEvent,
 	lastAssistantError?: string,
 	resolveClientMessageId?: (messageId: string) => string | undefined,
-	child?: ChildContext
+	child?: ChildContext,
+	resolveCommand?: (messageId: string) => { name: string; arguments: string } | undefined
 ): AgentStreamUpdate[] {
 	if (child) {
 		switch (event.kind) {
@@ -377,7 +385,8 @@ export function eventToUpdates(
 		case "part":
 			return partToUpdates(
 				event.part,
-				event.part.role === "user" ? resolveClientMessageId?.(event.part.messageId) : undefined
+				event.part.role === "user" ? resolveClientMessageId?.(event.part.messageId) : undefined,
+				event.part.role === "user" ? resolveCommand?.(event.part.messageId) : undefined
 			);
 		case "delta":
 			return event.field === "text" ? [{ type: MessageUpdateType.Stream, token: event.delta }] : [];
@@ -496,9 +505,13 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 	// empty one (Go's nil slices) must degrade to "nothing", not a 500.
 	for (const { message, parts } of transcript.messages ?? []) {
 		const clientMessageId = message.role === "user" ? message.clientMessageId : undefined;
+		const command = message.role === "user" ? message.command : undefined;
 		updates.push({ type: "messageBoundary", role: message.role, messageId: message.id });
 		for (const part of parts ?? []) {
-			updates.push(...partToUpdates(part, clientMessageId), ...answeredQuestionFromPart(part));
+			updates.push(
+				...partToUpdates(part, clientMessageId, command),
+				...answeredQuestionFromPart(part)
+			);
 		}
 		if (message.role === "assistant") lastAssistantError = message.error;
 	}
@@ -550,6 +563,21 @@ export function userMessageIdsOf(transcript: Transcript): Map<string, string> {
 	return ids;
 }
 
+/** The snapshot's command markers, by message id — the seed for the same
+ * live lookup `eventToUpdates` threads into user frames (PROTOCOL.md §7):
+ * a marker rides the message, the panel's bubble renders from it. */
+export function commandMarkersOf(
+	transcript: Transcript
+): Map<string, { name: string; arguments: string }> {
+	const markers = new Map<string, { name: string; arguments: string }>();
+	for (const { message } of transcript.messages ?? []) {
+		if (message.role === "user" && message.command) {
+			markers.set(message.id, message.command);
+		}
+	}
+	return markers;
+}
+
 /** A replayed run of envelopes (`session.sync`'s `events` branch, when the
  * machine's ring buffer still holds the gap) → panel frames, threading
  * `lastAssistantError` and the user-message-id lookup across them the same
@@ -565,14 +593,17 @@ export function foldEnvelopeEvents(
 	envelopes: Envelope[],
 	initialLastAssistantError?: string,
 	initialUserMessageIds?: Map<string, string>,
-	childOf?: (sessionId: string) => ChildContext | undefined
+	childOf?: (sessionId: string) => ChildContext | undefined,
+	initialCommandMarkers?: Map<string, { name: string; arguments: string }>
 ): {
 	updates: AgentStreamUpdate[];
 	lastAssistantError: string | undefined;
 	userMessageIds: Map<string, string>;
+	commandMarkers: Map<string, { name: string; arguments: string }>;
 } {
 	let lastAssistantError = initialLastAssistantError;
 	const userMessageIds = new Map(initialUserMessageIds ?? []);
+	const commandMarkers = new Map(initialCommandMarkers ?? []);
 	const updates: AgentStreamUpdate[] = [];
 	for (const { sessionId, event } of envelopes) {
 		const child = childOf?.(sessionId);
@@ -582,17 +613,21 @@ export function foldEnvelopeEvents(
 			} else if (event.message.clientMessageId) {
 				userMessageIds.set(event.message.id, event.message.clientMessageId);
 			}
+			if (event.message.role === "user" && event.message.command) {
+				commandMarkers.set(event.message.id, event.message.command);
+			}
 		}
 		updates.push(
 			...eventToUpdates(
 				event,
 				lastAssistantError,
 				(messageId) => userMessageIds.get(messageId),
-				child
+				child,
+				(messageId) => commandMarkers.get(messageId)
 			)
 		);
 	}
-	return { updates, lastAssistantError, userMessageIds };
+	return { updates, lastAssistantError, userMessageIds, commandMarkers };
 }
 
 /** A frame's identity for seam de-duplication (the SSE bridge, spec §8):

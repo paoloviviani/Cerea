@@ -83,6 +83,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false, AutoAccept: true,
 		Questions: true, Revert: true, RevertFiles: true, Efforts: true,
+		// Probed from the server's own GET /doc (never a version string):
+		// commands exist only when the server lists session.command there.
+		Commands: b.commandsSupported(),
 	}
 }
 
@@ -176,7 +179,18 @@ func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt
 			"type": "file", "mime": a.Mime, "filename": a.Filename, "url": a.URL,
 		})
 	}
-	body := map[string]any{"parts": parts}
+	// prompt_async takes a caller-minted messageID (1.18.32's GET /doc and
+	// the plan's live probing of session.command, which honours the same
+	// field as the user message's id), so the id is minted here and the
+	// clientMessageId is recorded against it before the POST — exact
+	// mapping, not the "next new user message" guess. The guess survives
+	// only as a fallback: if a server ever ignored or rewrote the id, the
+	// minted id would never appear in the transcript and the pending claim
+	// below maps the clientMessageId to the next user message as before
+	// (prompt_async answers 204 empty, so there is nothing in the response
+	// to map from). The fake-server test pins both halves.
+	messageID := mintMessageID()
+	body := map[string]any{"parts": parts, "messageID": messageID}
 	ov := b.getOverlay(sessionID)
 	if ov.ModeID != "" {
 		body["agent"] = ov.ModeID
@@ -188,13 +202,10 @@ func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt
 	if ov.Effort != "" {
 		body["variant"] = ov.Effort
 	}
-	// prompt_async's documented body has no field for an externally chosen
-	// message id, so the clientMessageId is matched to whichever new user
-	// message shows up next for this session (PROTOCOL.md §7) rather than
-	// sent in the request. Worth re-checking against a live GET /doc if the
-	// IT test ever shows a way to pass one explicitly — that would be more
-	// precise than the "next message" heuristic.
-	b.claimPendingClientMessageID(sessionID, prompt.ClientMessageID)
+	if prompt.ClientMessageID != "" {
+		b.recordExactClientMessageID(messageID, prompt.ClientMessageID)
+		b.claimPendingClientMessageID(sessionID, messageID, prompt.ClientMessageID)
+	}
 	return b.doJSON(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body, nil)
 }
 
@@ -242,9 +253,9 @@ func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir string, _ st
 	return b.doJSON(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply"+directoryQuery(workspaceDir), body, nil)
 }
 
-func (b *Backend) Modes(ctx context.Context, _ string) ([]backend.Mode, error) {
+func (b *Backend) Modes(ctx context.Context, workspaceDir string) ([]backend.Mode, error) {
 	var raw []any
-	if err := b.doJSON(ctx, http.MethodGet, "/agent", nil, &raw); err != nil {
+	if err := b.doJSON(ctx, http.MethodGet, "/agent"+directoryQuery(workspaceDir), nil, &raw); err != nil {
 		return nil, err
 	}
 	out := make([]backend.Mode, 0, len(raw))
@@ -254,6 +265,41 @@ func (b *Backend) Modes(ctx context.Context, _ string) ([]backend.Mode, error) {
 		}
 	}
 	return out, nil
+}
+
+// AgentModels implements backend.AgentLister from the same GET /agent
+// Modes reads: every agent the server can run — primary modes AND
+// subagents (mode "subagent", build/plan carry none on 1.18.32) — mapped
+// to its configured model, "" when the agent pins none. The command gate
+// needs the FULL list, not the primary projection: a command naming a
+// subagent must resolve too. A failed read answers nil — the dispatch
+// then refuses agent-naming commands rather than assuming a model the
+// server never confirmed (the same fail-closed shape as L6).
+//
+// M9: opencode answers /agent per directory — a project's own
+// .opencode/agent/*.md and opencode.json agents exist only for that
+// workspace. Omitting directory reads the server's own working directory
+// instead, which for a machine supervising opencode is never the
+// workspace: every project-defined agent then reads as absent (the gate
+// falls through to "unlisted", not "listed with this model"), and a
+// project agent redefining a builtin's name masks it in the other
+// direction — the gate sees the global builtin's real model (or its lack
+// of one) rather than the project's.
+func (b *Backend) AgentModels(ctx context.Context, workspaceDir string) map[string]string {
+	var raw []any
+	if err := b.doJSON(ctx, http.MethodGet, "/agent"+directoryQuery(workspaceDir), nil, &raw); err != nil {
+		b.cfg.Logf("opencode: listing agents for the command gate: %v", err)
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for _, m := range asMaps(raw) {
+		name := getStr(m, "name")
+		if name == "" {
+			continue
+		}
+		out[name] = getStr(m, "model")
+	}
+	return out
 }
 
 func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error) {

@@ -152,6 +152,10 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		Diff: false, Children: false, Usage: false, Compact: false,
 		Images: images, Files: false, Worktrees: false, AutoAccept: true,
 		Questions: false,
+		// Commands: always — the agent's available_commands_update carries
+		// the list per session (PROTOCOL.md §6 backend.commands), and before
+		// the first update the list answers empty rather than unclaimable.
+		Commands: true,
 	}
 }
 

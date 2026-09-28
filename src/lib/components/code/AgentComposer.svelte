@@ -44,13 +44,15 @@
 	import LucideShieldOff from "~icons/lucide/shield-off";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import {
-		listProviderFeatures,
-		listProviderModes,
-		listProviderModels,
 		setAgentFeature,
 		setAgentMode,
 		setAgentModel,
 		setAgentEffort,
+		compactAgent,
+		unrevertAgent,
+		listAgentCommands,
+		runAgentCommand,
+		CodeApiError,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
@@ -70,7 +72,14 @@
 		AgentUsageUpdate,
 		CodeAgentSession,
 	} from "$lib/types/CodeAgent";
+	import {
+		matchSlashCommand,
+		panelCommands as panelCommandTable,
+		type SlashCommand,
+	} from "$lib/utils/slashCommand.svelte";
+	import type { CodeCommand } from "$lib/types/CodeAgent";
 	import ContextMeter from "./ContextMeter.svelte";
+	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 
 	interface Props {
 		deviceId: string;
@@ -83,9 +92,6 @@
 		 * toggle's live value. Empty when the snapshot read failed: a toggle
 		 * with no daemon word behind it does not render as on or off. */
 		features?: CodeProviderFeature[];
-		/** The agent's working directory, which the feature list query needs
-		 * (the daemon resolves features per working directory). */
-		cwd?: string | null;
 		/** Whether a turn is live on the transcript — the send button's spot
 		 * carries the stop control while it is, permission prompts included. */
 		running?: boolean;
@@ -122,9 +128,39 @@
 		 * the view's own fold — null until the first one arrives. */
 		usage?: AgentUsageUpdate["usage"] | null;
 		lastCompaction?: AgentCompactionUpdate | null;
+		/** The two option lists, live from the daemon for the agent's
+		 * provider — fetched by the view (whose effects re-run when the
+		 * device row lands; the composer's own effects proved unreliable
+		 * under hydration, which the e2e caught). Null = still loading; a
+		 * failure arrives as the failure string beside it. */
+		modes?: CodeProviderMode[] | null;
+		modesFailure?: string | null;
+		models?: CodeProviderModel[] | null;
+		modelsFailure?: string | null;
+		/** Models the machine listed but its enrollment policy keeps off the
+		 * panel. */
+		modelsHidden?: number;
+		/** What toggles the provider offers at all — the descriptor list, not
+		 * the values. The live values come from the agent's snapshot
+		 * (`features`). Null while the view is fetching. */
+		featureCatalog?: CodeProviderFeature[] | null;
 		/** Whether the backend advertised the `usage` capability in `hello` —
 		 * the meter renders nothing at all when it did not. */
 		usageSupported?: boolean;
+		/** Whether the backend can compact on request (`hello` capability
+		 * `compact`) — the `/compact` command needs it; ContextMeter's own
+		 * "Compact now" hides without it too. */
+		compactSupported?: boolean;
+		/** Whether the backend can roll a session back (`hello` capability
+		 * `revert`) — `/undo` and `/redo` need it. */
+		revertSupported?: boolean;
+		/** Opens the rollback confirmation for `/undo` — the view owns it,
+		 * because only the transcript knows the last user message's machine
+		 * id and carries the same confirm dialog the retry action uses. */
+		onundo?: () => void;
+		/** Opens the new-agent dialog on this agent's workspace — the view
+		 * owns the workspace object the dialog needs. */
+		onnew?: () => void;
 	}
 
 	let {
@@ -132,7 +168,6 @@
 		agentId,
 		agent,
 		features = [],
-		cwd = null,
 		running = false,
 		enrollmentExpired = false,
 		offline = false,
@@ -144,6 +179,16 @@
 		usage = null,
 		lastCompaction = null,
 		usageSupported = false,
+		modes = null,
+		modesFailure = null,
+		models = null,
+		modelsFailure = null,
+		modelsHidden = 0,
+		featureCatalog = null,
+		compactSupported = false,
+		revertSupported = false,
+		onundo,
+		onnew,
 
 		effortsSupported = false,
 	}: Props = $props();
@@ -157,6 +202,32 @@
 		if (enrollmentExpired || offline) return;
 		const message = draft.trim();
 		if (!message || busy) return;
+		// A draft that names a command — panel or the machine's own — runs it
+		// instead of posting a message. The ChatInput Enter path parses the
+		// same rule and calls onslashcommand directly (below), so this
+		// re-parse is only reached by the send button's own form submit —
+		// either way one parse runs.
+		const run = matchSlashCommand(message, allCommands);
+		if (run) {
+			if (running) {
+				// The send button is hidden while a turn runs, and a command
+				// must not join it half-explained: steering is a later wave.
+				errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+				return;
+			}
+			busy = true;
+			try {
+				const ran = await runCommand(run);
+				// A command deferred to the confirmation sheet keeps its draft.
+				if (ran) {
+					draft = "";
+					files = [];
+				}
+			} finally {
+				busy = false;
+			}
+			return;
+		}
 		busy = true;
 		try {
 			await onsend(message, files);
@@ -169,102 +240,289 @@
 		}
 	}
 
-	// The two option lists, live from the daemon for the agent's provider.
-	// Fetched eagerly rather than on first open: the pills resolve their
-	// labels through these lists, so a closed menu would still want them.
-	// A daemon that cannot answer leaves the failure in the menu — the
-	// composer keeps working, because sending a follow-up never needed the
-	// lists.
-	let modes = $state<CodeProviderMode[] | null>(null);
-	let modesFailure = $state<string | null>(null);
-	let models = $state<CodeProviderModel[] | null>(null);
-	let modelsFailure = $state<string | null>(null);
-	/** Models the machine listed but its enrollment policy keeps off the panel. */
-	let modelsHidden = $state(0);
-	/** What toggles the provider offers at all — the descriptor list, not
-	 * the values. The live values come from the agent's snapshot
-	 * (`features`), so this only ever decides that a toggle exists and
-	 * what it is called. */
-	let featureCatalog = $state<CodeProviderFeature[] | null>(null);
-
-	// The parent (`AgentView`) never patches the snapshot in place — every
-	// `onchanged()` reassigns `agent` wholesale from a fresh read. Reading
-	// `agent?.provider` straight off that prop would re-run these effects on
-	// EVERY such reassignment, not only ones that actually change the
-	// provider, because the dependency is the `agent` reference itself, not
-	// its `.provider` field. `$derived` breaks that: it recomputes on the
-	// same reassignments, but a same-valued string result does not mark this
-	// effect dirty, so a mode/model/effort/feature apply that leaves the
-	// provider alone leaves these lists (and the model/effort pill they
-	// feed) alone too — no refetch, no loading flash. `cwd` arrives as its
-	// own primitive prop already, so it needs no equivalent wrapper.
-	let provider = $derived(agent?.provider ?? null);
-
-	// Guards the in-flight fetches against a provider swap (the view remounts
-	// per address, so only a same-mount race exists): a stale answer must not
-	// paint over the fresh one. No snapshot yet means no provider known — the
-	// lists wait for it, and the effect re-runs when it lands. Modes and
-	// models need nothing but the provider; the feature list additionally
-	// waits for a working directory, which the daemon resolves features
-	// per — so the two reads are separate effects, and a snapshot without a
-	// cwd (or a features endpoint that fails) never holds the pills
-	// hostage. Both stay untracked so a mode/model switch's snapshot
-	// refresh does not tear the list down mid-read (opencode's feature set
-	// does not vary by mode, and the draft's modeId/model are best-effort
-	// echoes of the agent's config).
-	let listsToken = 0;
-	$effect(() => {
-		if (!provider) return;
-		const token = ++listsToken;
-		modes = null;
-		models = null;
-		modesFailure = null;
-		modelsFailure = null;
-		untrack(async () => {
-			try {
-				const result = await listProviderModes(deviceId, provider);
-				if (token === listsToken) modes = result.modes;
-			} catch (err) {
-				if (token === listsToken) {
-					modesFailure = err instanceof Error ? err.message : "Could not load the modes.";
-				}
+	/** The one panel command run, shared by the Enter path (ChatInput's
+	 * `onslashcommand`) and the send button's own form submit. */
+	async function onSlashCommand(command: SlashCommand, args: string) {
+		if (enrollmentExpired || offline || busy) return;
+		if (running) {
+			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+			return;
+		}
+		busy = true;
+		try {
+			const ran = await runCommand({ command, args });
+			// A command deferred to the confirmation sheet keeps its draft —
+			// the sheet's own run (or a Cancel) decides what happens next.
+			if (ran) {
+				draft = "";
+				files = [];
 			}
-			try {
-				const result = await listProviderModels(deviceId, provider);
-				if (token === listsToken) {
-					models = result.models;
-					modelsHidden = result.hidden ?? 0;
-				}
-			} catch (err) {
-				if (token === listsToken) {
-					modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
-				}
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** Run one `/` command: a panel command over its existing route, a
+	 * backend command through the confirmation gate and `session.command`.
+	 * Returns whether the run actually went out — a command held by the
+	 * confirmation sheet did not, and the caller keeps its draft. A failure
+	 * lands in a toast; the refusal keeps the text to retry. */
+	async function runBackendCommand(command: SlashCommand, args: string): Promise<boolean> {
+		const full = backendCommands.find((candidate) => candidate.name === command.name);
+		if (!full) {
+			errorToast.set("That command is no longer listed on this machine.");
+			return true;
+		}
+		// A project-origin or shell-expanding command asks once per (device,
+		// name, templateHash) before its first run — the sheet is a speed
+		// bump, the machine's commandShell policy the real veto.
+		if (
+			(full.origin === "project" || full.shell === true) &&
+			confirmedHash(full) !== (full.templateHash ?? "")
+		) {
+			confirming = { command: full, args };
+			return false;
+		}
+		await executeBackendCommand(full, args);
+		return true;
+	}
+
+	async function executeBackendCommand(full: CodeCommand, args: string) {
+		try {
+			await runAgentCommand(deviceId, agentId, {
+				name: full.name,
+				arguments: args,
+				...(full.templateHash ? { templateHash: full.templateHash } : {}),
+			});
+			// The template a refused run described may have changed since the
+			// menu was filled; re-read so the next open is current.
+			void refreshBackendCommands();
+		} catch (err) {
+			if (err instanceof CodeApiError && err.status === 409) {
+				errorToast.set("This command changed on the machine; review it again.");
+			} else if (err instanceof Error) {
+				errorToast.set(err.message);
+			} else {
+				errorToast.set("The daemon refused the command.");
 			}
+		}
+	}
+
+	async function confirmBackendCommand() {
+		const pending = confirming;
+		if (!pending) return;
+		rememberConfirmation(pending.command);
+		await executeBackendCommand(pending.command, pending.args);
+		confirming = null;
+	}
+
+	async function refreshBackendCommands() {
+		const token = ++commandsToken;
+		try {
+			const result = await listAgentCommands(deviceId, agentId);
+			if (token === commandsToken) backendCommands = result.commands;
+		} catch {
+			if (token === commandsToken) backendCommands = [];
+		}
+	}
+
+	async function runCommand({
+		command,
+		args,
+	}: {
+		command: SlashCommand;
+		args: string;
+	}): Promise<boolean> {
+		if (command.group !== "panel") return runBackendCommand(command, args);
+		switch (command.name) {
+			case "compact": {
+				try {
+					await compactAgent(deviceId, agentId);
+					onchanged();
+				} catch (err) {
+					if (err instanceof CodeApiError && err.status === 404) {
+						errorToast.set("This backend cannot compact on request.");
+					} else {
+						errorToast.set(err instanceof Error ? err.message : "The daemon refused to compact.");
+					}
+				}
+				return true;
+			}
+			case "undo":
+				// The confirmation — and the machine id it needs — live in the
+				// view, the same dialog the transcript's retry action uses.
+				onundo?.();
+				return true;
+			case "redo": {
+				try {
+					await unrevertAgent(deviceId, agentId);
+					onchanged();
+				} catch (err) {
+					errorToast.set(
+						err instanceof Error ? err.message : "The daemon refused to undo the rollback."
+					);
+				}
+				return true;
+			}
+			case "model": {
+				// No argument: open the picker. An argument: the unique fuzzy
+				// match applies outright; anything else opens the picker for a
+				// proper search rather than guessing between near-misses.
+				const query = args.toLowerCase();
+				if (!query) {
+					modelPickerOpen = true;
+					return true;
+				}
+				const matches = (models ?? []).filter(
+					(model) =>
+						model.id.toLowerCase().includes(query) || model.label.toLowerCase().includes(query)
+				);
+				if (matches.length === 1) {
+					rememberCodeModel(matches[0].id);
+					await applyModel(matches[0].id);
+				} else {
+					modelPickerOpen = true;
+				}
+				return true;
+			}
+			case "mode": {
+				const query = args.toLowerCase();
+				if (!query) {
+					modeMenuOpen = true;
+					return true;
+				}
+				const matches = (modes ?? []).filter(
+					(mode) =>
+						mode.id.toLowerCase().includes(query) || mode.label.toLowerCase().includes(query)
+				);
+				if (matches.length === 1) {
+					await applyMode(matches[0].id);
+				} else {
+					modeMenuOpen = true;
+				}
+				return true;
+			}
+			case "effort": {
+				const query = args.toLowerCase();
+				const levels = effortLevels ?? [];
+				if (!query) {
+					modelPickerOpen = true;
+					return true;
+				}
+				const matches = levels.filter((level) => level.toLowerCase().includes(query));
+				if (matches.length === 1) {
+					await applyEffort(matches[0]);
+				} else {
+					modelPickerOpen = true;
+				}
+				return true;
+			}
+			case "new":
+				onnew?.();
+				return true;
+			default:
+				return true;
+		}
+	}
+
+	// The panel commands the `/` menu lists, gated on what this agent's
+	// backend reports — the table itself lives in slashCommand.svelte.ts,
+	// where it is tested.
+	let panelCommands = $derived.by(() => {
+		return panelCommandTable({
+			compact: compactSupported,
+			revert: revertSupported,
+			efforts: effortsSupported,
 		});
 	});
 
-	let featuresToken = 0;
+	// The menu's backend half: the machine's own command list, fetched once
+	// per open agent (and again after each backend run — the template a
+	// failed run described may have changed). A machine without the
+	// capability (an old galopin: the op 404s) leaves the list empty and
+	// the menu panel-only, exactly what batch B already handles.
+	let backendCommands = $state<CodeCommand[]>([]);
+	let commandsToken = 0;
 	$effect(() => {
-		if (!provider || !cwd) return;
-		const token = ++featuresToken;
-		featureCatalog = null;
-		const draft = untrack(() => ({
-			cwd,
-			...(agent?.modeId ? { modeId: agent.modeId } : {}),
-			...(agent?.modelId ? { model: agent.modelId } : {}),
-		}));
+		const token = ++commandsToken;
+		backendCommands = [];
 		untrack(async () => {
-			// The feature list fails quietly: a toggle has no menu to carry
-			// the failure into, and the pills keep working — the same
-			// reading as the lists above, minus the surface.
 			try {
-				const result = await listProviderFeatures(deviceId, provider, draft);
-				if (token === featuresToken) featureCatalog = result.features;
+				const result = await listAgentCommands(deviceId, agentId);
+				if (token === commandsToken) backendCommands = result.commands;
 			} catch {
-				if (token === featuresToken) featureCatalog = [];
+				// Silent fallback by design: the menu is the help, and a
+				// machine that cannot answer it still runs every panel
+				// command. The refusal that matters comes at run time.
+				if (token === commandsToken) backendCommands = [];
 			}
 		});
 	});
+
+	/** The machine's commands mapped into the menu's shape: the group from
+	 * the origin (project commands are repo code — the badge says so), the
+	 * hint from the template's own placeholders, and a panel-name collision
+	 * marked shadowed rather than dropped, so the menu explains the rule it
+	 * enforces instead of silently hiding half of it. */
+	let allCommands = $derived.by(() => {
+		// Read the agent prop directly: the device-row flip that turns the
+		// capability gates on arrives with the snapshot, and this derived
+		// must re-evaluate on THAT flip, not only on its own inputs'
+		// intermediates (the e2e caught the menu staying stale otherwise).
+		void agent?.provider;
+		const panel = panelCommandTable({
+			compact: compactSupported,
+			revert: revertSupported,
+			efforts: effortsSupported,
+		});
+		const panelNames = new Set(panel.concat(panelCommands).map((c) => c.name.toLowerCase()));
+		const backend = backendCommands.map((command) => {
+			const slash: SlashCommand = {
+				name: command.name,
+				description: command.description ?? "",
+				hint: command.hints.length ? command.hints.join(" ") : undefined,
+				group:
+					command.source === "mcp"
+						? "mcp"
+						: command.source === "skill"
+							? "skill"
+							: command.origin === "project"
+								? "project"
+								: "machine",
+				shell: command.shell === true,
+			};
+			if (panelNames.has(command.name.toLowerCase())) slash.shadowed = true;
+			return slash;
+		});
+		return [...panel, ...backend];
+	});
+
+	/** The command the confirmation sheet is open for: a project-origin or
+	 * shell-expanding command whose (name, templateHash) this device has
+	 * not confirmed yet. Everything else runs straight away. */
+	let confirming = $state<{ command: CodeCommand; args: string } | null>(null);
+	const CONFIRMED_KEY = "code:command-confirmations:";
+
+	function confirmedHash(command: CodeCommand): string | undefined {
+		try {
+			const stored = JSON.parse(globalThis.localStorage?.getItem(CONFIRMED_KEY + deviceId) ?? "{}");
+			return stored[command.name];
+		} catch {
+			return undefined;
+		}
+	}
+
+	function rememberConfirmation(command: CodeCommand) {
+		try {
+			const key = CONFIRMED_KEY + deviceId;
+			const stored = JSON.parse(globalThis.localStorage?.getItem(key) ?? "{}");
+			stored[command.name] = command.templateHash ?? "";
+			globalThis.localStorage?.setItem(key, JSON.stringify(stored));
+		} catch {
+			// Storage unavailable (private mode): the confirmation simply
+			// re-asks next run — a speed bump, not a correctness problem.
+		}
+	}
 
 	// A feature toggle's own optimistic value, keyed by feature id: flipped
 	// the instant it is clicked, the same discipline chat's own web-search
@@ -413,6 +671,11 @@
 	 * with chat's own "More models"), for a catalog longer than the pill's
 	 * six-row short list. */
 	let modelDialogOpen = $state(false);
+	/** The picker's popover, bindable from the component — `/model` (and
+	 * `/effort`) with no argument opens it instead of guessing a choice. */
+	let modelPickerOpen = $state(false);
+	/** The mode pill's menu, same reason: `/mode` with no argument opens it. */
+	let modeMenuOpen = $state(false);
 
 	// Below `sm` there is no hover to carry a machine-policy veto's reason, so
 	// a vetoed feature pill there stays tappable (not `disabled`) and opens a
@@ -488,6 +751,8 @@
 				bind:files
 				onsubmit={submit}
 				bind:focused
+				slashCommands={allCommands}
+				onslashcommand={onSlashCommand}
 			>
 				{#snippet children()}
 					<!-- Only the state that belongs *in* the prompt box renders here:
@@ -499,11 +764,11 @@
 				     model/effort line; the mode (build/plan) pill stays here —
 				     a session toggle beside the toggles, not a trailing
 				     readout. -->
-					<DropdownMenu.Root>
+					<DropdownMenu.Root bind:open={modeMenuOpen}>
 						<DropdownMenu.Trigger
 							class={pillClass}
 							disabled={applying === "mode"}
-							title="How much the agent may do on its own — paseo's modes, as the daemon defines them"
+							title="How much the agent may do on its own — the machine's modes, as the backend defines them"
 						>
 							<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
 							<IconChevronDown class={chevronClass} />
@@ -725,6 +990,7 @@
 		</span>
 	{:else}
 		<ModelEffortPicker
+			bind:open={modelPickerOpen}
 			models={pickerModels}
 			currentId={currentModel?.id ?? agent?.modelId ?? ""}
 			recentIds={codeRecentIds}
@@ -780,6 +1046,17 @@
 			void applyModel(id);
 		}}
 		onclose={() => (modelDialogOpen = false)}
+	/>
+{/if}
+
+{#if confirming}
+	<!-- The first-run confirmation for a project or shell command: the
+	     snippets and file refs the machine's listing carried, the accept
+	     remembered per device in localStorage. -->
+	<CommandConfirmSheet
+		command={confirming.command}
+		onconfirm={() => confirmBackendCommand()}
+		onclose={() => (confirming = null)}
 	/>
 {/if}
 

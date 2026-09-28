@@ -11,6 +11,7 @@ import type {
 import {
 	answersFromQuestionOutput,
 	eventToUpdates,
+	commandMarkersOf,
 	foldEnvelopeEvents,
 	frameKey,
 	lastAssistantErrorOf,
@@ -901,5 +902,119 @@ describe("foldEnvelopeEvents with a session tree", () => {
 		);
 		expect(lastAssistantError).toBeUndefined();
 		expect(userMessageIds.size).toBe(0);
+	});
+});
+
+/**
+ * The command marker (PROTOCOL.md §7): the machine tags the user message a
+ * `session.command` produced, the timeline carries it on the `user` frame,
+ * and the panel renders "/name args" as the bubble with the expanded
+ * template folded beneath. Pinned here because the marker's two paths — a
+ * snapshot read and a live part event resolved against the tracked
+ * markers — must agree, or a reload changes what the transcript shows.
+ */
+describe("the command marker", () => {
+	function commandMessage(id: string, name: string, args: string): Message {
+		return {
+			id,
+			role: "user",
+			createdAt: new Date().toISOString(),
+			command: { name, arguments: args },
+		};
+	}
+
+	it("rides the snapshot's user frame, with the expanded text as its own text", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: commandMessage("m1", "deploy", "--env prod"),
+					parts: [textPart("p1", "m1", "user", "Run the deploy pipeline for prod now.")],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(updates[1]).toEqual({
+			type: "user",
+			text: "Run the deploy pipeline for prod now.",
+			command: { name: "deploy", arguments: "--env prod" },
+		});
+	});
+
+	it("rides a live part event resolved against the tracked markers", () => {
+		const marker = { name: "deploy", arguments: "" };
+		const { updates } = foldEnvelopeEvents(
+			[
+				{
+					sessionId: "s1",
+					epoch: "e1",
+					seq: 1,
+					rootSessionId: "s1",
+					event: {
+						kind: "message",
+						message: {
+							id: "m1",
+							role: "user",
+							createdAt: new Date().toISOString(),
+							command: marker,
+						},
+					},
+				},
+				{
+					sessionId: "s1",
+					epoch: "e1",
+					seq: 2,
+					rootSessionId: "s1",
+					event: { kind: "part", part: textPart("p1", "m1", "user", "expanded text") },
+				},
+			],
+			undefined,
+			new Map(),
+			undefined,
+			new Map([["m1", marker]])
+		);
+		const user = updates.find((update) => update.type === "user");
+		expect(user).toEqual({
+			type: "user",
+			text: "expanded text",
+			command: { name: "deploy", arguments: "" },
+		});
+	});
+
+	it("commandMarkersOf seeds the lookup from a snapshot", () => {
+		const transcript: Transcript = {
+			messages: [
+				{ message: commandMessage("m1", "hi", "gamma"), parts: [] },
+				{ message: assistantMessage("m2"), parts: [] },
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const markers = commandMarkersOf(transcript);
+		expect(markers.get("m1")).toEqual({ name: "hi", arguments: "gamma" });
+		expect(markers.has("m2")).toBe(false);
+	});
+
+	it("a plain user message carries no command field at all", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: userMessage("m1", "client-1"),
+					parts: [textPart("p1", "m1", "user", "just a message")],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(updates[1]).toEqual({ type: "user", text: "just a message", messageId: "client-1" });
+		expect(updates[1]).not.toHaveProperty("command");
 	});
 });

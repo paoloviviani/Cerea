@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"galopin/internal/backend"
+	backendopencode "galopin/internal/backend/opencode"
 	"galopin/internal/checkout"
 	"galopin/internal/files"
 	"galopin/internal/link"
@@ -100,7 +101,17 @@ func opErrf(code, format string, args ...any) *link.OpError {
 
 func notFound(what string) *link.OpError  { return opErrf("not_found", "%s not found", what) }
 func invalidArgs(err error) *link.OpError { return opErrf("invalid", "bad arguments: %v", err) }
-func backendErr(err error) *link.OpError  { return opErrf("backend", "%v", err) }
+
+// backendErr wraps a backend's error. A sentinel the backend returns for a
+// caller-addressable state problem — a prompt on a session that is already
+// mid-turn — is the caller's mistake, not the backend's: it answers with
+// the invalid code every other invalid-state refusal uses, not "backend".
+func backendErr(err error) *link.OpError {
+	if errors.Is(err, backend.ErrSessionBusy) {
+		return opErrf("invalid", "%v", err)
+	}
+	return opErrf("backend", "%v", err)
+}
 
 // trackSession records sessionID's workspace both in the materializer
 // (which needs the directory) and here (which needs the registry's own
@@ -188,6 +199,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionCreate(ctx, args)
 	case "session.prompt":
 		return mc.opSessionPrompt(ctx, args)
+	case "session.command":
+		return mc.opSessionCommand(ctx, args)
 	case "session.cancel":
 		return mc.opSessionCancel(ctx, args)
 	case "session.rename":
@@ -225,6 +238,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opBackendModes(ctx, args)
 	case "backend.models":
 		return mc.opBackendModels(ctx, args)
+	case "backend.commands":
+		return mc.opBackendCommands(ctx, args)
 
 	default:
 		return nil, opErrf("unsupported", "unknown op %q", op)
@@ -903,6 +918,310 @@ func (mc *machine) opBackendModels(ctx context.Context, args json.RawMessage) (a
 	// hidden lets the panel say why the list is short (PROTOCOL.md §6) instead
 	// of looking broken; the ids themselves never leave the machine.
 	return map[string]any{"models": orEmpty(models), "hidden": hidden}, nil
+}
+
+// opBackendCommands answers the / menu's listing (PROTOCOL.md §6
+// backend.commands): the workspace's commands with their origin, shell
+// facts and template hash — never a template. Like backend.models, the
+// caller names a workspace or a session; one of the two is required,
+// because a command list is a directory's.
+func (mc *machine) opBackendCommands(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		WorkspaceID string `json:"workspaceId,omitempty"`
+		SessionID   string `json:"sessionId,omitempty"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &a); err != nil {
+			return nil, invalidArgs(err)
+		}
+	}
+	dir := ""
+	if a.SessionID != "" {
+		d, _, operr := mc.resolveSession(a.SessionID)
+		if operr != nil {
+			return nil, operr
+		}
+		dir = d
+	} else if a.WorkspaceID != "" {
+		w, ok := mc.workspaces.Get(a.WorkspaceID)
+		if !ok {
+			return nil, notFound("workspace")
+		}
+		dir = w.Path
+	} else {
+		return nil, opErrf("invalid", "workspaceId or sessionId is required")
+	}
+	commander, ok := mc.commander()
+	if !ok {
+		return nil, opErrf("unsupported", "backend %s cannot list commands", mc.back.ID())
+	}
+	commands, err := commander.ListCommands(ctx, dir, a.SessionID)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	return map[string]any{"commands": orEmpty(commands)}, nil
+}
+
+// opSessionCommand runs one slash command in one session (PROTOCOL.md §6).
+// The gates run in this order — capability, the command existing, the
+// template the caller reviewed being the one still on disk, the policy
+// vetoes, the agent-escalation rule — because each later gate is only
+// meaningful once the earlier ones held. Every refusal is audited with the
+// command's name, origin and shell fact and never its arguments; so is the
+// run itself.
+func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID       string               `json:"sessionId"`
+		Name            string               `json:"name"`
+		Arguments       string               `json:"arguments"`
+		ClientMessageID string               `json:"clientMessageId,omitempty"`
+		Attachments     []backend.Attachment `json:"attachments,omitempty"`
+		TemplateHash    string               `json:"templateHash,omitempty"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.Name == "" {
+		return nil, opErrf("invalid", "name is required")
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	commander, ok := mc.commander()
+	if !ok {
+		return nil, opErrf("unsupported", "backend %s cannot run commands", mc.back.ID())
+	}
+
+	// The command's own record, resolved now: the listed entry plus its
+	// template expanded with opencode's own argument substitution ($1..$n,
+	// $ARGUMENTS, append-when-no-placeholder) — never trusted from a listing
+	// the panel saw minutes ago, and never scanned from the bare template
+	// alone (a snippet or a ref smuggled in through the arguments only
+	// exists after substitution).
+	command, expanded, operr := mc.resolveCommand(ctx, dir, a.SessionID, a.Name, a.Arguments)
+	if operr != nil {
+		return nil, operr
+	}
+	shellWord := shellWord(command.Shell)
+	origin := string(command.Origin)
+
+	refuse := func(code, format string, args ...any) (any, *link.OpError) {
+		mc.audit.command(command.Name, origin, shellWord, "refused")
+		mc.audit.refusal("session.command", fmt.Sprintf(format, args...))
+		return nil, opErrf(code, format, args...)
+	}
+
+	// The template the panel confirmed is the template still on disk.
+	if a.TemplateHash != "" && a.TemplateHash != command.TemplateHash {
+		return refuse("conflict", "this command changed on the machine since it was reviewed; review it again")
+	}
+
+	// The expanded text is what opencode detects shell on and resolves
+	// @files from — so it is what the gates read too. The listing's own
+	// scan still decides the menu badge and the confirmation sheet (the
+	// reviewable unit), but a gate that read only the template would miss
+	// everything the arguments smuggle in.
+	expandedShell, _, expandedRefs := backendopencode.ScanExpanded(expanded)
+	gateShell := (command.Shell != nil && *command.Shell) || expandedShell
+	gateRefs := append(append([]string{}, command.FileRefs...), expandedRefs...)
+
+	// The raw-arguments safety net (M6): the gates read the text the
+	// emulation expands, and the emulation is a pin against a probed
+	// binary — if opencode's substitution drifts (a $` from the second
+	// $ARGUMENTS, a new JS pattern), an expanded scan alone could pass a
+	// construct the server would actually run. Under the denied policy the
+	// raw arguments carrying any substitution marker are refused outright:
+	// the emulation's blind spot must never be the run's green light.
+	if !mc.pol.CommandShellAllowed() {
+		for _, marker := range []string{"!`", "$`", "$'"} {
+			if strings.Contains(a.Arguments, marker) {
+				return refuse("forbidden", "these arguments carry the substitution marker %q, and this machine denies command shell", marker)
+			}
+		}
+	}
+
+	// The commandShell veto: a template that expands shell runs outside
+	// every permission rule, so denied means refused — and so does unknown
+	// (an MCP prompt, an ACP command: nobody has seen a template to scan),
+	// which is what keeps MCP prompts and ACP commands off until opted in.
+	if !mc.pol.CommandShellAllowed() && (command.Shell == nil || gateShell) {
+		if command.Shell == nil {
+			return refuse("forbidden", "this command's shell expansion is unknown, and this machine denies command shell")
+		}
+		return refuse("forbidden", "this command expands shell, and this machine denies command shell: re-enroll with --allow-command-shell to allow it")
+	}
+
+	// @path references go into the prompt at expansion time, so a denied
+	// file would land in the transcript and the gateway's logs with no ask.
+	// The same deny list the explorer redacts with — and checked whether or
+	// not the shell policy allowed the run.
+	for _, ref := range gateRefs {
+		if files.MatchDeny(mc.pol.EffectiveFileDeny(), ref) {
+			return refuse("forbidden", "this command reads %q, which this machine's file deny list refuses", ref)
+		}
+	}
+
+	// The agent-escalation gate (rev1 §3.1, corrected against the real
+	// binary): opencode picks the run's agent as the command's own `agent:`
+	// frontmatter whenever one is set — whatever agent this process sends
+	// along is ignored in that case. Overriding is therefore impossible, so
+	// an escalation is refused outright rather than rewritten: a repo
+	// command naming a more permissive agent than the session's overlay mode
+	// never runs there, subtask or not (a subtask's child would additionally
+	// run unsupervised in the other agent).
+	sessionMode := ""
+	if s, err := mc.back.GetSession(ctx, dir, a.SessionID); err == nil {
+		sessionMode = s.ModeID
+	} else if command.Agent != "" {
+		// L6: an unreadable mode must not fail the escalation check open —
+		// a command naming an agent is refused rather than gated on an
+		// empty mode.
+		return refuse("forbidden", "the session's mode could not be read, and this command names agent %q", command.Agent)
+	}
+	escalating := overlayModeWinsAgent(sessionMode, command.Agent)
+	if escalating {
+		if command.Subtask {
+			return refuse("forbidden", "this command runs in agent %q as a subtask, and this session is in the more restrictive mode %q", command.Agent, sessionMode)
+		}
+		return refuse("forbidden", "this command names agent %q, which is more permissive than this session's mode %q", command.Agent, sessionMode)
+	}
+	// No escalation: the command's agent applies when it names one (that is
+	// what opencode runs), else the session's own mode rides along for an
+	// agentless command (the 2026-09-26 plan's step 5).
+	agent := command.Agent
+	if agent == "" {
+		agent = sessionMode
+	}
+
+	// A command's own model: frontmatter can name a non-gateway provider,
+	// which spends outside the enrolled account — the same gate setModel
+	// applies, and the same answer.
+	if command.Model != "" && !mc.pol.AllowFreeModels {
+		if filtered := mc.pol.FilterModelIDs([]string{command.Model}); len(filtered) == 0 {
+			return refuse("forbidden", "this command pins model %q, which is not a gateway model, and this machine does not allow free models", command.Model)
+		}
+	}
+
+	// L5: the command's agent must be LISTED by the backend — the full
+	// agent list including subagents — and its own configured model gets
+	// the free-model gate. A listed agent with no model safely falls
+	// through to the session's model (setModel already gates it); an
+	// unlisted agent would answer "Agent not found" server-side anyway.
+	if command.Agent != "" {
+		agentModel, listed := "", false
+		if lister, ok := mc.back.(backend.AgentLister); ok {
+			agentModel, listed = lister.AgentModels(ctx, dir)[command.Agent]
+		}
+		if !listed {
+			return refuse("forbidden", "this command names agent %q, which this backend does not list", command.Agent)
+		}
+		if agentModel != "" && !mc.pol.AllowFreeModels {
+			if filtered := mc.pol.FilterModelIDs([]string{agentModel}); len(filtered) == 0 {
+				return refuse("forbidden", "this command runs in agent %q, whose model %q is not a gateway model, and this machine does not allow free models", command.Agent, agentModel)
+			}
+		}
+	}
+
+	mc.audit.command(command.Name, origin, shellWord, "run")
+	run := backend.CommandRun{
+		Name:            command.Name,
+		Arguments:       a.Arguments,
+		ClientMessageID: a.ClientMessageID,
+		Attachments:     a.Attachments,
+		TemplateHash:    a.TemplateHash,
+		Agent:           agent,
+	}
+	if err := commander.RunCommand(ctx, dir, a.SessionID, run); err != nil {
+		if errors.Is(err, backend.ErrSessionBusy) {
+			return nil, opErrf("invalid", "%v", err)
+		}
+		return nil, backendErr(err)
+	}
+	return map[string]any{}, nil
+}
+
+// commander reports the backend's commands capability as a usable
+// Commander, or that it has none: both the advertised capability and the
+// interface must hold, because a backend that claims commands without
+// implementing the half would otherwise answer every call unsupported.
+func (mc *machine) commander() (backend.Commander, bool) {
+	if !mc.back.Capabilities().Commands {
+		return nil, false
+	}
+	commander, ok := mc.back.(backend.Commander)
+	return commander, ok
+}
+
+// modesOrEmpty lists the backend's modes, an empty slice when it cannot
+// answer — the escalation gate then treats any named agent as an
+// escalation while an overlay mode is set (PROTOCOL.md §6).
+func (mc *machine) modesOrEmpty(ctx context.Context, dir string) []backend.Mode {
+	modes, err := mc.back.Modes(ctx, dir)
+	if err != nil {
+		return nil
+	}
+	return modes
+}
+
+// resolveCommand answers the run path's command record plus its template
+// expanded with the caller's arguments. Backends whose commands carry
+// server-side templates resolve both halves; the rest (ACP has nothing to
+// expand) resolve the listing and gate from it.
+func (mc *machine) resolveCommand(ctx context.Context, dir, sessionID, name, arguments string) (backend.Command, string, *link.OpError) {
+	commander, ok := mc.commander()
+	if !ok {
+		return backend.Command{}, "", opErrf("unsupported", "backend %s cannot run commands", mc.back.ID())
+	}
+	if resolver, ok := commander.(backend.CommanderResolver); ok {
+		resolved, err := resolver.ResolveCommand(ctx, dir, sessionID, name, arguments)
+		if err != nil {
+			if errors.Is(err, backend.ErrCommandNotFound) {
+				return backend.Command{}, "", opErrf("not_found", "no command named %q here", name)
+			}
+			return backend.Command{}, "", backendErr(err)
+		}
+		return resolved.Command, resolved.Expanded, nil
+	}
+	commands, err := commander.ListCommands(ctx, dir, sessionID)
+	if err != nil {
+		return backend.Command{}, "", backendErr(err)
+	}
+	for i := range commands {
+		if commands[i].Name == name {
+			// L7: without a resolver the raw arguments ARE the expansion —
+			// the gates scan them (fileDeny and shell), whatever the shell
+			// policy.
+			return commands[i], arguments, nil
+		}
+	}
+	return backend.Command{}, "", opErrf("not_found", "no command named %q here", name)
+}
+
+// shellWord names the command's shell fact for the audit row: true, false,
+// or unknown — never the snippets themselves.
+func shellWord(shell *bool) string {
+	switch {
+	case shell == nil:
+		return "unknown"
+	case *shell:
+		return "true"
+	default:
+		return "false"
+	}
+}
+
+// overlayModeWinsAgent is the agent-escalation gate's decision (rev1 §3.1,
+// corrected twice: first against the real binary, which runs cmd.agent
+// whenever one is set (overriding is impossible), and then against its
+// live mode listing, which orders [build, plan] — list order is not a
+// restrictiveness scale, so the gate reads none. Any named agent differing
+// from the session's overlay mode refuses: the session's mode can only be
+// changed by setMode, never smuggled in by a command. A command that names
+// no agent, or the session's own mode, is not an escalation — the overlay
+// (or nothing) rides along exactly as before.
+func overlayModeWinsAgent(sessionMode, cmdAgent string) bool {
+	return sessionMode != "" && cmdAgent != "" && cmdAgent != sessionMode
 }
 
 // orEmpty turns a nil slice into an empty one. Go marshals nil as null, and

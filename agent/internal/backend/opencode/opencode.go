@@ -46,6 +46,11 @@ type Config struct {
 	// (opencode has no server-side memory of a session's chosen mode/model
 	// across prompts) across agent restarts.
 	OverlayPath string
+	// StateDir is galopin's own state directory, whose command listing is
+	// the baseline the workspace list is diffed against for origin
+	// (backend.commands). Empty skips the diff: every non-builtin command
+	// then reads as "machine".
+	StateDir string
 	// TmpDir, if set, is opencode's own TMPDIR, emptied before every start.
 	// opencode is a Bun single-file binary that extracts its native
 	// libraries (~5 MB of .so each start) into TMPDIR and never removes
@@ -76,6 +81,10 @@ type Backend struct {
 	cfg Config
 
 	client *http.Client
+	// longClient carries the calls that legitimately run long — today only
+	// POST /session/:id/command, which blocks for the whole turn. The fast
+	// CRUD client's doJSONTimeout would cut it off mid-turn.
+	longClient *http.Client
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -84,21 +93,49 @@ type Backend struct {
 
 	stopCh chan struct{}
 	doneCh chan struct{}
+	// lifecycle is the context Start was called with: the process's own
+	// lifetime. A command's blocking POST runs on it, not on the request
+	// context that accepted the run — an op reply must not cancel a turn.
+	lifecycle context.Context
+	// commandsMu guards the /doc probe's cache: commandsCacheGen is the
+	// backend generation the answer belongs to (bumped per supervised
+	// start), so a restart re-probes.
+	commandsMu  sync.Mutex
+	backendGen  int
+	commandsGen int
+	commandsPtr *bool
+	// stateCmdMu/stateCmdBaseline cache the state directory's command
+	// listing for the process's lifetime (backend.commands's origin
+	// proofs): full entries, so builtin metadata and machine-scope hashes
+	// both compare against the same baseline.
+	stateCmdMu       sync.Mutex
+	stateCmdBaseline map[string]listedCommand
+	// markerMu/commandMarkers map a command's minted messageID to the
+	// transcript marker, persisted alongside the id map.
+	markerMu       sync.Mutex
+	commandMarkers map[string]backend.MessageCommand
+	// injectMu/injectCh is where backend-generated events enter the
+	// Subscribe stream (a late command failure). Nil until Subscribe runs.
+	injectMu sync.Mutex
+	injectCh chan backend.BackendEvent
 
 	overlayMu sync.Mutex
 	overlay   map[string]sessionOverlay
 
 	// clientMsgMu/clientMessageIDs is the durable half of the
 	// clientMessageId mapping (PROTOCOL.md §7): opencode message id ->
-	// clientMessageId, persisted alongside the overlay. pendingMu
-	// /pendingClientMsg is the transient half — a sessionID -> clientMessageId
-	// waiting for Prompt's next new user message to show up in an event —
-	// and is not persisted: losing a pending entry to a crash only means
-	// one message's id can't be recovered, not a correctness problem.
+	// clientMessageId, persisted alongside the overlay. Since prompt_async
+	// takes a minted messageID, Prompt records this half before the POST —
+	// exact, not guessed. pendingMu/pendingClientMsg is the transient
+	// half — a sessionID -> pendingClaim waiting for the user message to
+	// show up in an event, spent at once when the minted id itself turns
+	// out to have been honoured — and is not persisted: losing a pending
+	// entry to a crash only means one message's id can't be recovered, not
+	// a correctness problem.
 	clientMsgMu      sync.Mutex
 	clientMessageIDs map[string]string
 	pendingMu        sync.Mutex
-	pendingClientMsg map[string]string
+	pendingClientMsg map[string]pendingClaim
 
 	// modelsMu/modelLimits caches GET /config/providers's context-window
 	// hints per model id, so Usage events (which only carry token counts)
@@ -137,17 +174,30 @@ func New(cfg Config) *Backend {
 	return &Backend{
 		cfg:              cfg,
 		client:           &http.Client{},
+		longClient:       &http.Client{},
 		overlay:          map[string]sessionOverlay{},
 		clientMessageIDs: map[string]string{},
-		pendingClientMsg: map[string]string{},
+		pendingClientMsg: map[string]pendingClaim{},
 		modelLimit:       map[string]int{},
 		sessionUsage:     map[string]*backend.Usage{},
+		commandMarkers:   map[string]backend.MessageCommand{},
 	}
 }
 
 // ID/Version implement backend.Backend.
 func (b *Backend) ID() string      { return "opencode" }
 func (b *Backend) Version() string { return "1.18.31" }
+
+// lifecycleContext returns the context Start was called with, or ok=false
+// when Start has not completed (or was never called).
+func (b *Backend) lifecycleContext() (context.Context, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.lifecycle == nil {
+		return nil, false
+	}
+	return b.lifecycle, true
+}
 
 func pickFreePort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -220,6 +270,9 @@ func (b *Backend) Start(ctx context.Context) error {
 	if err := b.loadOverlay(); err != nil {
 		return err
 	}
+	b.mu.Lock()
+	b.lifecycle = ctx
+	b.mu.Unlock()
 
 	b.stopCh = make(chan struct{})
 	b.doneCh = make(chan struct{})
@@ -324,6 +377,11 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting opencode: %w", err)
 	}
+	// A new process is a new server: the cached /doc probe answer belongs to
+	// the previous one, so the next capabilities() call re-probes.
+	b.commandsMu.Lock()
+	b.backendGen++
+	b.commandsMu.Unlock()
 	exited := make(chan struct{})
 	b.mu.Lock()
 	b.cmd = cmd

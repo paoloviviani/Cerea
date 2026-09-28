@@ -17,6 +17,15 @@ export interface CodeAuditInput {
 	/** A terminal action's target (open/attach/close, refusals, ticket
 	 * failures) — never the terminal's content or keystrokes. */
 	terminalId?: string;
+	/** A command run's own facts (code.command): its name, the machine's
+	 * derived origin, whether its template expands shell ("unknown" when the
+	 * wire said nothing — a null shell is the absence of an affirmation,
+	 * not a false), and the outcome ("run", or the machine's refusal code)
+	 * — never the arguments, never any expanded text. */
+	name?: string;
+	origin?: string;
+	shell?: string;
+	outcome?: string;
 }
 
 /** The row-writing core, independent of a SvelteKit `RequestEvent`: the
@@ -39,6 +48,10 @@ export async function recordCodeAuditRow(
 			...(input.path ? { path: input.path.slice(0, 1024) } : {}),
 			...(input.bytes !== undefined ? { bytes: input.bytes } : {}),
 			...(input.terminalId ? { terminalId: input.terminalId } : {}),
+			...(input.name ? { name: input.name } : {}),
+			...(input.origin ? { origin: input.origin } : {}),
+			...(input.shell ? { shell: input.shell } : {}),
+			...(input.outcome ? { outcome: input.outcome } : {}),
 			...(context.ip ? { ip: context.ip } : {}),
 			...(context.userAgent ? { userAgent: context.userAgent.slice(0, 256) } : {}),
 			at: new Date(),

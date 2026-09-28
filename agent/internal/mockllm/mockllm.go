@@ -52,12 +52,30 @@ var namedScenarios = map[string]Scenario{"plainText": defaultScenario}
 type Server struct {
 	mu       sync.Mutex
 	scenario Scenario
+	// requests records every chat-completion request's prompt texts, most
+	// recent last, for the integration tests to assert on: "the command's
+	// expanded text reached the mock" is exactly the fact only the mock can
+	// see. Capped so a long IT run cannot grow it without bound.
+	requests [][]string
 }
 
 func New() *Server { return &Server{scenario: defaultScenario} }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.URL.Path == "/__control/requests":
+		s.mu.Lock()
+		out := s.requests
+		s.mu.Unlock()
+		if out == nil {
+			out = [][]string{}
+		}
+		writeJSON(w, map[string]any{"requests": out})
+	case r.URL.Path == "/__control/reset-requests" && r.Method == http.MethodPost:
+		s.mu.Lock()
+		s.requests = nil
+		s.mu.Unlock()
+		writeJSON(w, map[string]bool{"ok": true})
 	case r.URL.Path == "/__control/health":
 		writeJSON(w, map[string]bool{"ok": true})
 	case r.URL.Path == "/__control/scenario" && r.Method == http.MethodPost:
@@ -122,6 +140,18 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 			toolResultSeen = true
 		}
 	}
+	var prompts []string
+	for _, m := range req.Messages {
+		if m["role"] == "user" || m["role"] == "system" {
+			if text := contentText(m["content"]); text != "" {
+				prompts = append(prompts, text)
+			}
+		}
+	}
+	s.mu.Lock()
+	s.requests = append(s.requests, prompts)
+	s.mu.Unlock()
+
 	calls := sc.ToolCalls
 	if toolResultSeen {
 		calls = nil
@@ -191,6 +221,32 @@ func (sc Scenario) route(messages []map[string]any) (Scenario, bool) {
 		}
 	}
 	return Scenario{}, false
+}
+
+// contentText reads an OpenAI-shaped message's content field, which is
+// either a plain string or an array of parts (opencode sends the latter,
+// e.g. [{"type":"text","text":"…"}], whenever a message carries more than
+// one text segment — a plan-mode system-reminder appended to the user's
+// own prompt is one such case). Non-text parts (images, etc.) are skipped.
+func contentText(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		var parts []string
+		for _, p := range v {
+			part, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := part["text"].(string); ok {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
 }
 
 func wireCalls(calls []ToolCall) []map[string]any {

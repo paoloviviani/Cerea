@@ -85,3 +85,54 @@ func TestPolicySetHasNoWayToLoosenFilesOrTerminal(t *testing.T) {
 		t.Fatal("policy set must not accept a flag that loosens the policy")
 	}
 }
+
+// commandShell joins the tighten-only set: `policy set --no-command-shell`
+// turns it off, and there is no flag that turns it back on — loosening
+// needs enroll, like every other veto here.
+func TestPolicySetTightensCommandShell(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	pol := policy.Default()
+	pol.CommandShell = policy.TerminalAllowed
+	if err := policy.Save(path, pol); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runPolicySet([]string{"--state-dir", dir, "--no-command-shell"}); err != nil {
+		t.Fatalf("--no-command-shell: %v", err)
+	}
+	got, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CommandShellAllowed() {
+		t.Error("command shell should now be denied")
+	}
+}
+
+func TestPolicySetHasNoWayToLoosenCommandShell(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	if err := policy.Save(path, policy.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--allow-command-shell"}); err == nil {
+		t.Fatal("policy set must not accept a flag that re-opens command shell")
+	}
+}
+
+func TestDefaultPolicyDeniesCommandShell(t *testing.T) {
+	// The default is the whole point of the gate: a machine enrolled before
+	// the flag existed denies command shell, and so does a policy.json that
+	// predates the field.
+	if policy.Default().CommandShellAllowed() {
+		t.Fatal("the default policy must deny command shell")
+	}
+	pol, err := policy.Load(filepath.Join(t.TempDir(), "missing.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pol.CommandShellAllowed() {
+		t.Fatal("a missing policy file must deny command shell")
+	}
+}

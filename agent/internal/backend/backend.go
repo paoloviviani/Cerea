@@ -29,6 +29,12 @@ type Capabilities struct {
 	// Efforts is a per-session thinking effort (session.setEffort), picked
 	// from the model's Efforts: opencode sends it as the prompt's variant.
 	Efforts bool `json:"efforts"`
+	// Commands is listing and running slash commands (PROTOCOL.md §6
+	// backend.commands / session.command). opencode advertises it only when
+	// the server's own GET /doc lists the session.command operation — probed,
+	// never a version string. ACP reports it always: its
+	// available_commands_update carries the list per session.
+	Commands bool `json:"commands"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -44,6 +50,11 @@ type Prompt struct {
 	Text            string
 	ClientMessageID string
 	Attachments     []Attachment
+	// Command, when set, marks the user message this prompt creates as a
+	// slash command run (PROTOCOL.md §6 session.command). The ACP backend
+	// sets it — the message is its own synthesis; opencode ignores it, its
+	// marker is derived from the minted messageID instead.
+	Command *MessageCommand
 }
 
 // Backend is what internal/sessions drives per coding-agent backend: create
