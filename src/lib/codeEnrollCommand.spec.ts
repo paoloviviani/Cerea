@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildEnrollCommand, quoteShellArg, DEFAULT_CODE_CLIENT_ID } from "./codeEnrollCommand";
+import {
+	buildEnrollCommand,
+	quoteShellArg,
+	DEFAULT_CODE_CLIENT_ID,
+	GALOPIN_BIN,
+} from "./codeEnrollCommand";
 
 const BASE_OPTIONS = {
 	origin: "https://cerea.example.org/chat",
@@ -13,10 +18,19 @@ describe("buildEnrollCommand", () => {
 
 		expect(command).toBe(
 			"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh && " +
-				"galopin enroll --issuer 'https://idp.example.org' " +
+				`${GALOPIN_BIN} enroll --issuer 'https://idp.example.org' ` +
 				"--gateway 'https://gateway.example.org' --cerea 'https://cerea.example.org/chat' && " +
-				"galopin run"
+				`${GALOPIN_BIN} run`
 		);
+	});
+
+	it("invokes the binary by its installed path, not a bare name", () => {
+		// A fresh machine has ~/.local/bin off PATH in the installing shell;
+		// a bare `galopin` fails with "command not found" between the &&s.
+		const command = buildEnrollCommand(BASE_OPTIONS);
+
+		expect(GALOPIN_BIN).toBe('"${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}/galopin"');
+		expect(command).not.toMatch(/(^| && | )galopin /);
 	});
 
 	it("omits --client-id when it equals the CLI's own default, explicitly", () => {
@@ -40,7 +54,7 @@ describe("buildEnrollCommand", () => {
 
 		expect(off).not.toContain("--allow-terminal");
 		expect(on).toContain(
-			"--cerea 'https://cerea.example.org/chat' --allow-terminal && galopin run"
+			`--cerea 'https://cerea.example.org/chat' --allow-terminal && ${GALOPIN_BIN} run`
 		);
 	});
 
