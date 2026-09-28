@@ -88,7 +88,8 @@ function toolResultUpdate(
 	input: Record<string, unknown>,
 	output: string | undefined,
 	attachments: ToolAttachment[] = [],
-	imageUrl?: ToolImageUrl
+	imageUrl?: ToolImageUrl,
+	omitted = 0
 ): MessageToolResultUpdate {
 	const outputs: Record<string, unknown>[] = output ? [{ text: output }] : [];
 	// Images ride as URLs into the forwarder's attachment route, never as
@@ -97,6 +98,16 @@ function toolResultUpdate(
 	if (imageUrl && images.length) {
 		outputs.push({
 			content: images.map((a) => ({ type: "image", mimeType: a.mime, url: imageUrl(a.sha256) })),
+		});
+	}
+	// Say so when images were left out, whether the machine dropped them
+	// (`attachmentsOmitted`) or this side did (an entry it will not put in a url).
+	const notShown = imageUrl
+		? Math.max(0, omitted) + (Array.isArray(attachments) ? attachments.length - images.length : 0)
+		: 0;
+	if (notShown > 0) {
+		outputs.push({
+			text: `${notShown} ${notShown === 1 ? "image" : "images"} not shown (too many, too large or not a supported type).`,
 		});
 	}
 	const result: ToolResult = {
@@ -180,7 +191,8 @@ function partToUpdates(
 					part.input,
 					part.output,
 					part.attachments,
-					imageUrl
+					imageUrl,
+					part.attachmentsOmitted
 				),
 			];
 		}

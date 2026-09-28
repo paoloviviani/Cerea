@@ -58,7 +58,15 @@ func noisePNG(t *testing.T, w, h int) []byte {
 // in it, session.attachment returns the bytes, a snapshot (a reload) lists the
 // same sha, and an image evicted from galopin's cache is re-read from
 // opencode's own transcript. Gated behind GALOPIN_OPENCODE_IT=1.
-func TestToolImagesIntegration(t *testing.T) {
+func TestToolImagesIntegration(t *testing.T) { toolImagesIT(t, 0) }
+
+// TestToolImagesOversizedEventIntegration is the same battery with galopin's
+// SSE line limit lowered to 16 MiB, so the nine-screenshot call (~24 MiB in
+// one event line) takes the skip-and-resync path for real: the stream must
+// stay up and the images must still arrive, through the transcript.
+func TestToolImagesOversizedEventIntegration(t *testing.T) { toolImagesIT(t, 16<<20) }
+
+func toolImagesIT(t *testing.T, sseLimit int) {
 	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
 		t.Skip("set GALOPIN_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
 	}
@@ -79,9 +87,8 @@ func TestToolImagesIntegration(t *testing.T) {
 
 	shots := map[string][]byte{
 		"a.png": testPNG(t, 40, 30, 10),
-		"b.png": testPNG(t, 41, 31, 90),
-		// ~5.7 MB of noise (see the large-image case).
-		"big.png": noisePNG(t, 1200, 1200),
+		// ~1.9 MB of noise: with the nine screenshots it overflows the cache.
+		"b.png": noisePNG(t, 700, 700),
 	}
 	for name, b := range shots {
 		if err := os.WriteFile(filepath.Join(workDir, name), b, 0o644); err != nil {
@@ -89,6 +96,14 @@ func TestToolImagesIntegration(t *testing.T) {
 		}
 	}
 
+	mcpImagesPath := filepath.Join(root, "mcp-images.mjs")
+	mcpSrc, err := os.ReadFile("internal/backend/opencode/testdata-mcp-images.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mcpImagesPath, mcpSrc, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	configBody, _ := json.Marshal(map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{"pystino": map[string]any{
@@ -99,14 +114,18 @@ func TestToolImagesIntegration(t *testing.T) {
 			}},
 		}},
 		"enabled_providers": []string{"pystino"},
+		"permission":        map[string]any{"itimg_shots": "allow"},
+		"mcp": map[string]any{"itimg": map[string]any{
+			"type": "local", "command": []string{"node", mcpImagesPath}, "enabled": true,
+		}},
 	})
 	configPath := filepath.Join(root, "opencode.json")
 	if err := os.WriteFile(configPath, configBody, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// A cache too small for two images: the second evicts the first, which
-	// forces the re-read path for real.
+	// A 17 MiB cache: the nine screenshots nearly fill it, so a later image
+	// evicts the first one, which forces the re-read path for real.
 	ocBackend := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath,
 		Env: []string{
@@ -117,7 +136,8 @@ func TestToolImagesIntegration(t *testing.T) {
 		StateDir:             dirs["state"],
 		StartupTimeout:       90 * time.Second,
 		Logf:                 t.Logf,
-		AttachmentCacheBytes: int64(len(shots["a.png"])) + 8,
+		AttachmentCacheBytes: 17 << 20,
+		SSEMaxLineBytes:      sseLimit,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -256,6 +276,65 @@ func TestToolImagesIntegration(t *testing.T) {
 		}
 	})
 
+	// One call, nine ~2 MiB screenshots, ~24 MiB of data: URLs in the tool
+	// part's SSE line: past a 16 MiB line limit, so (in the lowered-limit run)
+	// the event is skipped and the session resynced; either way the stream
+	// must stay up and the images must arrive, capped at 8 with the ninth
+	// counted, and be servable.
+	t.Run("a call with nine large screenshots keeps the stream up and delivers the images", func(t *testing.T) {
+		sessS := newSession("it-images-shots")
+		setMockScenario(t, mockOrigin, map[string]any{
+			"toolCalls": []map[string]any{{"id": "call_shots", "name": "itimg_shots", "arguments": `{}`}},
+			"content":   []string{"Shot."}, "finishReason": "stop",
+		})
+		if _, operr := machine.Handle(ctx, "session.prompt", mustJSONArgs(t, map[string]any{"sessionId": sessS.ID, "text": "shoot"})); operr != nil {
+			t.Fatalf("prompt: %+v", operr)
+		}
+		var part *backend.Part
+		done := false
+		drainEvents(t, mat, sessS.ID, 120*time.Second, func(ev backend.Event) bool {
+			if ev.Kind == backend.EventPart && ev.Part != nil && ev.Part.CallID == "call_shots" && ev.Part.ToolStatus == backend.ToolCompleted && len(ev.Part.Attachments) > 0 {
+				part, done = ev.Part, true
+			}
+			return done
+		})
+		// With the lowered limit the part arrives late, through the resync,
+		// after the turn's idle: wait for the turn to be over by its status.
+		for i := 0; i < 120; i++ {
+			if st, _ := mat.Status(sessS.ID); st == backend.StatusIdle {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if len(part.Attachments) != 8 || part.AttachmentsOmitted != 1 {
+			t.Fatalf("listed %d omitted %d, want 8 and 1", len(part.Attachments), part.AttachmentsOmitted)
+		}
+		res, operr := machine.Handle(ctx, "session.attachment", mustJSONArgs(t, map[string]any{"sessionId": sessS.ID, "sha256": part.Attachments[3].SHA256}))
+		if operr != nil {
+			t.Fatalf("fetch: %+v", operr)
+		}
+		data, _ := base64.StdEncoding.DecodeString(res.(map[string]any)["data"].(string))
+		if attach.Sum(data) != part.Attachments[3].SHA256 || len(data) != part.Attachments[3].Size {
+			t.Fatal("served bytes do not match the listing")
+		}
+		// The stream survived: a later ordinary turn still streams to idle.
+		setMockScenario(t, mockOrigin, "plainText")
+		if _, operr := machine.Handle(ctx, "session.prompt", mustJSONArgs(t, map[string]any{"sessionId": sessS.ID, "text": "still there?"})); operr != nil {
+			t.Fatalf("prompt: %+v", operr)
+		}
+		// opencode reports idle more than once per turn: wait for text first.
+		sawText := false
+		drainEvents(t, mat, sessS.ID, 60*time.Second, func(ev backend.Event) bool {
+			if ev.Kind == backend.EventDelta {
+				sawText = true
+			}
+			return sawText && isIdle(ev)
+		})
+		if !sawText {
+			t.Fatal("no events after the big call: the stream is down")
+		}
+	})
+
 	t.Run("an evicted image is re-read from opencode's transcript", func(t *testing.T) {
 		sessB = newSession("it-images-b")
 		shaB = readImage(t, sessB, "b.png")[0].SHA256
@@ -265,27 +344,6 @@ func TestToolImagesIntegration(t *testing.T) {
 		mime, data, errMsg := fetch(t, shaA) // evicted by b.png in the tiny cache
 		if errMsg != "" || mime != "image/png" || !bytes.Equal(data, shots["a.png"]) {
 			t.Fatalf("re-read of the evicted image: mime=%q err=%q", mime, errMsg)
-		}
-	})
-
-	// Found live: opencode's read tool downscales and re-encodes a large image
-	// (this 5.7 MB PNG comes back a ~2 MB JPEG), so galopin lists what
-	// opencode itself holds — sha and mime of the bytes served, not the file's.
-	t.Run("a large image is listed as opencode re-encoded it, and serves those bytes", func(t *testing.T) {
-		sessC := newSession("it-images-big")
-		atts := readImage(t, sessC, "big.png")
-		res, operr := machine.Handle(ctx, "session.attachment", mustJSONArgs(t, map[string]any{"sessionId": sessC.ID, "sha256": atts[0].SHA256}))
-		if operr != nil {
-			t.Fatalf("fetch: %+v", operr)
-		}
-		m := res.(map[string]any)
-		data, _ := base64.StdEncoding.DecodeString(m["data"].(string))
-		if attach.Sum(data) != atts[0].SHA256 || len(data) != atts[0].Size || m["mime"] != atts[0].Mime {
-			t.Fatalf("listed %+v does not describe the served bytes (%d, %v)", atts[0], len(data), m["mime"])
-		}
-		t.Logf("opencode served the %d-byte PNG as %s, %d bytes", len(shots["big.png"]), atts[0].Mime, atts[0].Size)
-		if _, operr := machine.Handle(ctx, "session.sync", mustJSONArgs(t, map[string]any{"sessionId": sessC.ID})); operr != nil {
-			t.Fatalf("sync: %+v", operr)
 		}
 	})
 

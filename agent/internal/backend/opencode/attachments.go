@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,25 +42,46 @@ func (b *Backend) absorbToolImages(sessionID string, m map[string]any, p *backen
 	if state == nil {
 		return
 	}
-	for _, am := range asMaps(getSlice(state, "attachments")) {
+	for i, am := range asMaps(getSlice(state, "attachments")) {
+		url := getStr(am, "url")
+		if !strings.HasPrefix(getStr(am, "mime"), "image/") && !strings.HasPrefix(url, "data:image/") {
+			continue // not an image at all: not counted as a dropped one
+		}
 		if len(p.Attachments) >= attach.MaxPerToolCall {
-			return
-		}
-		mime, data, ok := attach.ParseDataURL(getStr(am, "url"))
-		if !ok || !rasterMime(mime) {
+			p.AttachmentsOmitted++
 			continue
 		}
-		ref, ok := b.att.Put(sessionID, attach.Ref{
-			Mime: mime, Filename: getStr(am, "filename"),
-			MessageID: p.MessageID, PartID: p.ID, CallID: p.CallID,
-		}, data)
+		// A snapshot re-maps every part: an image already held is recognised
+		// by where it came from and neither decoded nor hashed again.
+		source := fmt.Sprintf("%s/%s/%d/%d/%s", p.MessageID, p.ID, i, len(url), urlEnds(url))
+		ref, ok := b.att.BySource(sessionID, source)
 		if !ok {
-			continue
+			mime, data, parsed := attach.ParseDataURL(url)
+			if !parsed || !rasterMime(mime) {
+				p.AttachmentsOmitted++
+				continue
+			}
+			ref, ok = b.att.Put(sessionID, attach.Ref{
+				Mime: mime, Filename: getStr(am, "filename"), Source: source,
+				MessageID: p.MessageID, PartID: p.ID, CallID: p.CallID,
+			}, data)
+			if !ok {
+				p.AttachmentsOmitted++
+				continue
+			}
 		}
 		p.Attachments = append(p.Attachments, backend.ToolAttachment{
 			SHA256: ref.SHA256, Mime: ref.Mime, Size: ref.Size, Filename: ref.Filename,
 		})
 	}
+}
+
+// urlEnds is a cheap fingerprint of a long URL's head and tail.
+func urlEnds(u string) string {
+	if len(u) <= 96 {
+		return u
+	}
+	return u[:48] + "…" + u[len(u)-48:]
 }
 
 // Attachment serves a listed image. Held bytes answer at once; an evicted one

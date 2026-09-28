@@ -61,3 +61,32 @@ func TestForget(t *testing.T) {
 		t.Fatal("forgotten session keeps refs")
 	}
 }
+
+func TestBySourceSkipsRework(t *testing.T) {
+	s := New(1 << 20)
+	r, _ := s.Put("s", Ref{Mime: "image/png", Source: "p1:0:100"}, []byte("img"))
+	got, ok := s.BySource("s", "p1:0:100")
+	if !ok || got.SHA256 != r.SHA256 {
+		t.Fatalf("BySource = %+v %v", got, ok)
+	}
+	if _, ok := s.BySource("other", "p1:0:100"); ok {
+		t.Fatal("another session must not hit")
+	}
+	// Once the bytes are evicted the source no longer short-circuits a re-read.
+	small := New(4)
+	small.Put("s", Ref{Source: "a"}, []byte("aaa"))
+	small.Put("s", Ref{Source: "b"}, []byte("bbb"))
+	if _, ok := small.BySource("s", "a"); ok {
+		t.Fatal("evicted bytes must not count as held")
+	}
+}
+
+func TestRefTrimReleasesOldEntries(t *testing.T) {
+	s := New(1 << 30)
+	for i := 0; i < maxRefs+5; i++ {
+		s.Put("s", Ref{}, []byte{byte(i), byte(i >> 8), byte(i >> 16), 1})
+	}
+	if len(s.refOrder) > maxRefs || len(s.refs) != len(s.refOrder) {
+		t.Fatalf("refOrder=%d refs=%d", len(s.refOrder), len(s.refs))
+	}
+}

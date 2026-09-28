@@ -131,6 +131,10 @@ type Part struct {
 	// screenshot), by reference: the bytes stay on the machine and are
 	// fetched by sha256 with session.attachment (PROTOCOL.md §6/§7).
 	Attachments []ToolAttachment `json:"attachments,omitempty"`
+	// AttachmentsOmitted counts images the call produced that are not listed
+	// (over the per-call cap, over the size cap, or not a raster type), so the
+	// card can say so instead of silently showing fewer.
+	AttachmentsOmitted int `json:"attachmentsOmitted,omitempty"`
 
 	// file
 	Mime     string `json:"mime,omitempty"`
@@ -337,6 +341,10 @@ const (
 	// permission.replied already does for once/always/reject).
 	EventQuestionAsked    EventKind = "question.asked"
 	EventQuestionResolved EventKind = "question.resolved"
+	// EventResync is internal, never on the wire: the backend lost an event
+	// it could not read (an oversized SSE line) and asks the materializer to
+	// re-read the session's transcript and re-announce what changed.
+	EventResync EventKind = "resync"
 )
 
 // Event is one normalized stream event (PROTOCOL.md §7). Its fields are
