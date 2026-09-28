@@ -1047,6 +1047,33 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 		}
 	}
 
+	// The agent-escalation gate (rev1 §3.1, corrected against the real
+	// binary): opencode picks the run's agent as the command's own `agent:`
+	// frontmatter whenever one is set — whatever agent this process sends
+	// along is ignored in that case. Overriding is therefore impossible, so
+	// an escalation is refused outright rather than rewritten: a repo
+	// command naming a more permissive agent than the session's overlay mode
+	// never runs there, subtask or not (a subtask's child would additionally
+	// run unsupervised in the other agent).
+	sessionMode := ""
+	if s, err := mc.back.GetSession(ctx, dir, a.SessionID); err == nil {
+		sessionMode = s.ModeID
+	}
+	escalating := overlayModeWinsAgent(sessionMode, command.Agent)
+	if escalating {
+		if command.Subtask {
+			return refuse("forbidden", "this command runs in agent %q as a subtask, and this session is in the more restrictive mode %q", command.Agent, sessionMode)
+		}
+		return refuse("forbidden", "this command names agent %q, which is more permissive than this session's mode %q", command.Agent, sessionMode)
+	}
+	// No escalation: the command's agent applies when it names one (that is
+	// what opencode runs), else the session's own mode rides along for an
+	// agentless command (the 2026-09-26 plan's step 5).
+	agent := command.Agent
+	if agent == "" {
+		agent = sessionMode
+	}
+
 	// A command's own model: frontmatter can name a non-gateway provider,
 	// which spends outside the enrolled account — the same gate setModel
 	// applies, and the same answer.
@@ -1065,34 +1092,6 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 		if filtered := mc.pol.FilterModelIDs(modelsToGate); len(filtered) != len(modelsToGate) {
 			return refuse("forbidden", "this command pins a model outside the gateway (%q), and this machine does not allow free models", strings.Join(modelsToGate, ", "))
 		}
-	}
-
-	// The agent-escalation gate (rev1 §3.1, corrected against the real
-	// binary): opencode picks the run's agent as the command's own `agent:`
-	// frontmatter whenever one is set — whatever agent this process sends
-	// along is ignored in that case. Overriding is therefore impossible, so
-	// an escalation is refused outright rather than rewritten: a repo
-	// command naming a more permissive agent than the session's overlay mode
-	// never runs there, subtask or not (a subtask's child would additionally
-	// run unsupervised in the other agent).
-	sessionMode := ""
-	if s, err := mc.back.GetSession(ctx, dir, a.SessionID); err == nil {
-		sessionMode = s.ModeID
-	}
-	sessionModes := mc.modesOrEmpty(ctx, dir)
-	escalating := overlayModeWinsAgent(sessionMode, command.Agent, sessionModes)
-	if escalating {
-		if command.Subtask {
-			return refuse("forbidden", "this command runs in agent %q as a subtask, and this session is in the more restrictive mode %q", command.Agent, sessionMode)
-		}
-		return refuse("forbidden", "this command names agent %q, which is more permissive than this session's mode %q", command.Agent, sessionMode)
-	}
-	// No escalation: the command's agent applies when it names one (that is
-	// what opencode runs), else the session's own mode rides along for an
-	// agentless command (the 2026-09-26 plan's step 5).
-	agent := command.Agent
-	if agent == "" {
-		agent = sessionMode
 	}
 
 	mc.audit.command(command.Name, origin, shellWord, "run")
@@ -1192,33 +1191,17 @@ func shellWord(shell *bool) string {
 	}
 }
 
-// overlayModeWinsAgent is the agent-escalation gate's decision (rev1 §3.1):
-// true means the session's overlay mode is sent and the command's own
-// agent ignored. It wins when the command names an agent at all, the
-// session has an overlay mode, and the two differ while the backend gives
-// no order to prove the command's agent is not an escalation — or when the
-// order says the session's mode is the more restrictive one (the list's
-// order is the restriction scale, most restrictive first: plan < build).
-func overlayModeWinsAgent(sessionMode, cmdAgent string, modes []backend.Mode) bool {
-	if sessionMode == "" || cmdAgent == "" || cmdAgent == sessionMode {
-		return false
-	}
-	sessionAt, sessionKnown := modeIndex(modes, sessionMode)
-	agentAt, agentKnown := modeIndex(modes, cmdAgent)
-	if !sessionKnown || !agentKnown {
-		return true
-	}
-	return sessionAt < agentAt
-}
-
-// modeIndex finds a mode's position in the backend's list.
-func modeIndex(modes []backend.Mode, id string) (int, bool) {
-	for i, mode := range modes {
-		if mode.ID == id {
-			return i, true
-		}
-	}
-	return 0, false
+// overlayModeWinsAgent is the agent-escalation gate's decision (rev1 §3.1,
+// corrected twice: first against the real binary, which runs cmd.agent
+// whenever one is set (overriding is impossible), and then against its
+// live mode listing, which orders [build, plan] — list order is not a
+// restrictiveness scale, so the gate reads none. Any named agent differing
+// from the session's overlay mode refuses: the session's mode can only be
+// changed by setMode, never smuggled in by a command. A command that names
+// no agent, or the session's own mode, is not an escalation — the overlay
+// (or nothing) rides along exactly as before.
+func overlayModeWinsAgent(sessionMode, cmdAgent string) bool {
+	return sessionMode != "" && cmdAgent != "" && cmdAgent != sessionMode
 }
 
 // orEmpty turns a nil slice into an empty one. Go marshals nil as null, and
