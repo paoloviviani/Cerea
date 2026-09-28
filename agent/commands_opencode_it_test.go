@@ -76,6 +76,16 @@ func TestCommandsIntegration(t *testing.T) {
 	write("bangtest.md", "---\ndescription: bangs one arg\n---\nRun !$1 now.")
 	write("buildcmd.md", "---\ndescription: needs build\nagent: build\n---\nDo the thing.")
 	write("plancmd.md", "---\ndescription: needs plan\nagent: plan\n---\nLook at the thing.")
+	// The M4 templates: scan-clean raw (no "!" anywhere), each carrying
+	// one of opencode's faithful-substitution paths — the review shape's
+	// backticks around $ARGUMENTS (the $'/$` fuel) and $0 (the last
+	// argument).
+	write("dollquote.md", "---\ndescription: quoted args\n---\n`Run $ARGUMENTS` and `ls`.")
+	write("dollback.md", "---\ndescription: backtick args\n---\n`Run $ARGUMENTS` and `ls`.")
+	write("dollzero.md", "---\ndescription: last arg\n---\nRun $0 now.")
+	// The M5 decoy: the first @ match is rejected (word char before it),
+	// the retry must still resolve .env.
+	write("decoy.md", "---\ndescription: decoy ref\n---\nCheck a@:@.env now.")
 	if err := os.WriteFile(filepath.Join(workDir, ".env"), []byte("SECRET=it-secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -567,6 +577,85 @@ func TestCommandsIntegration(t *testing.T) {
 			t.Fatalf("plain !$1 argument: %s (%s)", errShape.Code, errShape.Message)
 		}
 		waitIdle(sess.ID)
+	})
+
+	t.Run("M4 live: $' reconstructs the construct from the review-shaped template", func(t *testing.T) {
+		// The exact bypass the advisor demonstrated, end to end: the
+		// template is scan-clean raw, opencode's $' substitution pulls the
+		// text after the placeholder (the closing backtick of the review
+		// shape) next to the argument's "!", and the expanded-text gate
+		// refuses under the default deny. Proves the unit pin's emulation
+		// matches the real server's substitution where it matters.
+		for _, cmd := range listed {
+			if cmd.Name == "dollquote" && cmd.Shell != nil && *cmd.Shell {
+				t.Fatalf("dollquote listed shell=true; the raw template must be clean for this case to mean anything")
+			}
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "dollquote", "arguments": "!$'"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("$' reconstruction = %+v, want forbidden", errShape)
+		}
+	})
+
+	t.Run("M4 live: $` pulls the template text before the placeholder", func(t *testing.T) {
+		// Same shape, the other JS pattern: $` inserts the text BEFORE the
+		// match (the opening backtick), so the argument's "!" lands next
+		// to template text instead of a literal backtick.
+		for _, cmd := range listed {
+			if cmd.Name == "dollback" && cmd.Shell != nil && *cmd.Shell {
+				t.Fatalf("dollback listed shell=true; the raw template must be clean for this case to mean anything")
+			}
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "dollback", "arguments": "!$`"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("$` reconstruction = %+v, want forbidden", errShape)
+		}
+	})
+
+	t.Run("M4 live: $0 resolves the last argument", func(t *testing.T) {
+		// The Q.slice(-1) path: $0 takes the LAST argument, so a shell
+		// snippet smuggled in as the final argument reaches the expanded
+		// text and the gate refuses. The positive control proves the
+		// resolution (not a blanket refusal): a clean last argument runs.
+		for _, cmd := range listed {
+			if cmd.Name == "dollzero" && cmd.Shell != nil && *cmd.Shell {
+				t.Fatalf("dollzero listed shell=true; the raw template must be clean for this case to mean anything")
+			}
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "dollzero", "arguments": "x !`id`"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("$0 last-arg snippet = %+v, want forbidden", errShape)
+		}
+		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Ran."}, "chunkDelayMs": 5, "finishReason": "stop"})
+		if _, errShape := runCommand(t, map[string]any{"name": "dollzero", "arguments": "x uptime"}); errShape != nil {
+			t.Fatalf("$0 clean last argument: %s (%s)", errShape.Code, errShape.Message)
+		}
+		awaitPrompt(t, "Run uptime now")
+		waitIdle(sess.ID)
+	})
+
+	t.Run("M5 live: a@:@.env resolves past the decoy @", func(t *testing.T) {
+		// The reject-and-retry live: the listing scan itself must resolve
+		// ".env" from "a@:@.env" (the first @ is rejected for the word
+		// char before it, the scan resumes and finds the second), and the
+		// run gate refuses under the default fileDeny — from the real
+		// server's template, not the dispatch fake.
+		var decoy *backend.Command
+		for i, cmd := range listed {
+			if cmd.Name == "decoy" {
+				decoy = &listed[i]
+			}
+		}
+		if decoy == nil {
+			t.Fatal("decoy is not listed")
+		}
+		if len(decoy.FileRefs) != 1 || decoy.FileRefs[0] != ".env" {
+			t.Fatalf("decoy fileRefs = %v, want [.env] — the live scan must resolve past the decoy @", decoy.FileRefs)
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "decoy"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("a@:@.env template = %+v, want forbidden", errShape)
+		}
 	})
 
 	t.Run("a plan session refuses a build-naming command", func(t *testing.T) {
