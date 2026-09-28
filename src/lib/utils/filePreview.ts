@@ -47,6 +47,24 @@ const TEXT_EXTENSIONS = new Set([
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"]);
 
+const INLINE_RASTER_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+const INLINE_RASTER_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/**
+ * The one rule for what may show as an image without being asked: raster
+ * png/jpeg/gif/webp. SVG is script-capable and never qualifies, nor do the
+ * formats a browser may not decode (bmp, avif) — those keep the click-to-
+ * preview and the download.
+ */
+export function isInlineRasterImage(name: string): boolean {
+	return INLINE_RASTER_EXTENSIONS.has(fileExtensionOf(name));
+}
+
+/** The same rule for a MIME type a server reported. */
+export function isInlineRasterMime(mime: string | undefined): boolean {
+	return mime !== undefined && INLINE_RASTER_MIMES.has(mime.toLowerCase());
+}
+
 /** Lower-cased extension without the dot, or "" when the name has none. */
 export function fileExtensionOf(name: string): string {
 	const base = name.split("/").pop() || name;
