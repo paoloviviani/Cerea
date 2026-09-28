@@ -104,4 +104,69 @@ describe("RunOutput file presentation", () => {
 		).toBeNull();
 		await expect.element(screen.getByRole("button", { name: "Download notes.txt" })).toBeVisible();
 	});
+
+	it("opens a live run's raster figure without waiting for a click", async () => {
+		sessionMock.readFile.mockResolvedValueOnce(
+			new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer as ArrayBuffer
+		);
+		const state: RunState = {
+			status: "done",
+			startedAt: 0,
+			finishedAt: 1,
+			outputFiles: [{ path: "/home/pyodide/figure-1.png", size: 8 }],
+		};
+		const screen = mount(state);
+		await expect
+			.element(screen.getByRole("img", { name: "Preview of figure-1.png" }))
+			.toBeVisible();
+	});
+
+	it("renders a persisted raster figure as an image under its artifact header", async () => {
+		const FIG_SHA = "f".repeat(64);
+		const figureRegistry: FileArtifactRegistry = {
+			artifacts: new Map([
+				[
+					"figure-1.png",
+					{
+						name: "figure-1.png",
+						versions: [
+							{ name: "figure-1.png", size: 8, sha256: FIG_SHA, version: 1, messageId: "m1" },
+						],
+					},
+				],
+			]),
+		};
+		const figureContext = new Map<unknown, unknown>([
+			[
+				ARTIFACTS_CONTEXT_KEY,
+				{
+					registry: { artifacts: new Map(), byMessageOp: new Map() },
+					fileRegistry: figureRegistry,
+					panel: sidePane,
+				} satisfies ArtifactsContext,
+			],
+		]);
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer))
+		);
+		try {
+			const state: RunState = {
+				status: "done",
+				startedAt: 0,
+				finishedAt: 1,
+				persistedFiles: [
+					{ name: "figure-1.png", size: 8, sha256: FIG_SHA, downloadUrl: "/conversation/c/x" },
+				],
+			};
+			const screen = render(RunOutput, { props: { state }, context: figureContext } as never);
+			await expect.element(screen.getByText("figure-1.png")).toBeVisible();
+			await expect
+				.element(screen.getByRole("img", { name: "Preview of figure-1.png" }))
+				.toBeVisible();
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
 });
