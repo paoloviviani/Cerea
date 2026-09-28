@@ -117,12 +117,13 @@ async function installStubs(page: Page): Promise<Harness> {
 			}),
 		})
 	);
-	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) =>
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) => {
+		if (process.env.COMMANDS_DEBUG) console.log("AGENT-ROUTE", route.request().url().slice(-70));
 		route.fulfill({
 			contentType: "application/json",
 			body: superjsonBody({ agent: h.agent, features: [], cwd: "/repo" }),
-		})
-	);
+		});
+	});
 	await page.route("**/api/v2/code/v1/workspaces?*", (route) =>
 		route.fulfill({
 			contentType: "application/json",
@@ -146,7 +147,8 @@ async function installStubs(page: Page): Promise<Harness> {
 
 	// The menu's backend half: empty by default so the panel-only tests stay
 	// quiet; a test overrides `h.commandList` before navigating.
-	await page.route(`**/api/v2/code/v1/agents/${AGENT}/commands?*`, (route) =>
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/commands?*`, (route) => {
+		if (process.env.COMMANDS_DEBUG) console.log("COMMANDS-ROUTE", route.request().url().slice(-70));
 		route.fulfill({
 			status: commandListStub.status,
 			contentType: "application/json",
@@ -154,8 +156,8 @@ async function installStubs(page: Page): Promise<Harness> {
 				commandListStub.status === 200
 					? superjsonBody(commandListStub.body)
 					: JSON.stringify({ message: commandListStub.body }),
-		})
-	);
+		});
+	});
 
 	// The transcript stream. The same server-side cursor the stop spec uses:
 	// each response carries only frames the browser has not seen yet.
@@ -216,6 +218,18 @@ async function installStubs(page: Page): Promise<Harness> {
 }
 
 const goto = async (page: Page) => {
+	if (process.env.COMMANDS_DEBUG) {
+		page.on("request", (request) => {
+			if (request.url().includes("/api/")) console.log("REQ", request.url().slice(-90));
+		});
+		page.on("response", (response) => {
+			if (response.url().includes("/api/v2/code/devices"))
+				console.log("DEVICES-RESP", response.status());
+		});
+		page.on("console", (message) =>
+			console.log("PAGE", message.type(), message.text().slice(0, 160))
+		);
+	}
 	// The capabilities that gate the panel command list ride the devices
 	// fetch; typing before it lands would snapshot an ungated menu. The stub
 	// answers instantly — this only synchronizes the fetch.

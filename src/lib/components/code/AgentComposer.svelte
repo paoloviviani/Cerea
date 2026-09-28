@@ -44,9 +44,6 @@
 	import LucideShieldOff from "~icons/lucide/shield-off";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import {
-		listProviderFeatures,
-		listProviderModes,
-		listProviderModels,
 		setAgentFeature,
 		setAgentMode,
 		setAgentModel,
@@ -95,9 +92,6 @@
 		 * toggle's live value. Empty when the snapshot read failed: a toggle
 		 * with no daemon word behind it does not render as on or off. */
 		features?: CodeProviderFeature[];
-		/** The agent's working directory, which the feature list query needs
-		 * (the daemon resolves features per working directory). */
-		cwd?: string | null;
 		/** Whether a turn is live on the transcript — the send button's spot
 		 * carries the stop control while it is, permission prompts included. */
 		running?: boolean;
@@ -134,6 +128,22 @@
 		 * the view's own fold — null until the first one arrives. */
 		usage?: AgentUsageUpdate["usage"] | null;
 		lastCompaction?: AgentCompactionUpdate | null;
+		/** The two option lists, live from the daemon for the agent's
+		 * provider — fetched by the view (whose effects re-run when the
+		 * device row lands; the composer's own effects proved unreliable
+		 * under hydration, which the e2e caught). Null = still loading; a
+		 * failure arrives as the failure string beside it. */
+		modes?: CodeProviderMode[] | null;
+		modesFailure?: string | null;
+		models?: CodeProviderModel[] | null;
+		modelsFailure?: string | null;
+		/** Models the machine listed but its enrollment policy keeps off the
+		 * panel. */
+		modelsHidden?: number;
+		/** What toggles the provider offers at all — the descriptor list, not
+		 * the values. The live values come from the agent's snapshot
+		 * (`features`). Null while the view is fetching. */
+		featureCatalog?: CodeProviderFeature[] | null;
 		/** Whether the backend advertised the `usage` capability in `hello` —
 		 * the meter renders nothing at all when it did not. */
 		usageSupported?: boolean;
@@ -158,7 +168,6 @@
 		agentId,
 		agent,
 		features = [],
-		cwd = null,
 		running = false,
 		enrollmentExpired = false,
 		offline = false,
@@ -170,6 +179,12 @@
 		usage = null,
 		lastCompaction = null,
 		usageSupported = false,
+		modes = null,
+		modesFailure = null,
+		models = null,
+		modelsFailure = null,
+		modelsHidden = 0,
+		featureCatalog = null,
 		compactSupported = false,
 		revertSupported = false,
 		onundo,
@@ -498,103 +513,6 @@
 			// re-asks next run — a speed bump, not a correctness problem.
 		}
 	}
-
-	// The two option lists, live from the daemon for the agent's provider.
-	// Fetched eagerly rather than on first open: the pills resolve their
-	// labels through these lists, so a closed menu would still want them.
-	// A daemon that cannot answer leaves the failure in the menu — the
-	// composer keeps working, because sending a follow-up never needed the
-	// lists.
-	let modes = $state<CodeProviderMode[] | null>(null);
-	let modesFailure = $state<string | null>(null);
-	let models = $state<CodeProviderModel[] | null>(null);
-	let modelsFailure = $state<string | null>(null);
-	/** Models the machine listed but its enrollment policy keeps off the panel. */
-	let modelsHidden = $state(0);
-	/** What toggles the provider offers at all — the descriptor list, not
-	 * the values. The live values come from the agent's snapshot
-	 * (`features`), so this only ever decides that a toggle exists and
-	 * what it is called. */
-	let featureCatalog = $state<CodeProviderFeature[] | null>(null);
-
-	// The parent (`AgentView`) never patches the snapshot in place — every
-	// `onchanged()` reassigns `agent` wholesale from a fresh read. Reading
-	// `agent?.provider` straight off that prop would re-run these effects on
-	// EVERY such reassignment, not only ones that actually change the
-	// provider, because the dependency is the `agent` reference itself, not
-	// its `.provider` field. `$derived` breaks that: it recomputes on the
-	// same reassignments, but a same-valued string result does not mark this
-	// effect dirty, so a mode/model/effort/feature apply that leaves the
-	// provider alone leaves these lists (and the model/effort pill they
-	// feed) alone too — no refetch, no loading flash. `cwd` arrives as its
-	// own primitive prop already, so it needs no equivalent wrapper.
-	let provider = $derived(agent?.provider ?? null);
-
-	// Guards the in-flight fetches against a provider swap (the view remounts
-	// per address, so only a same-mount race exists): a stale answer must not
-	// paint over the fresh one. No snapshot yet means no provider known — the
-	// lists wait for it, and the effect re-runs when it lands. Modes and
-	// models need nothing but the provider; the feature list additionally
-	// waits for a working directory, which the daemon resolves features
-	// per — so the two reads are separate effects, and a snapshot without a
-	// cwd (or a features endpoint that fails) never holds the pills
-	// hostage. Both stay untracked so a mode/model switch's snapshot
-	// refresh does not tear the list down mid-read (opencode's feature set
-	// does not vary by mode, and the draft's modeId/model are best-effort
-	// echoes of the agent's config).
-	let listsToken = 0;
-	$effect(() => {
-		if (!provider) return;
-		const token = ++listsToken;
-		modes = null;
-		models = null;
-		modesFailure = null;
-		modelsFailure = null;
-		untrack(async () => {
-			try {
-				const result = await listProviderModes(deviceId, provider);
-				if (token === listsToken) modes = result.modes;
-			} catch (err) {
-				if (token === listsToken) {
-					modesFailure = err instanceof Error ? err.message : "Could not load the modes.";
-				}
-			}
-			try {
-				const result = await listProviderModels(deviceId, provider);
-				if (token === listsToken) {
-					models = result.models;
-					modelsHidden = result.hidden ?? 0;
-				}
-			} catch (err) {
-				if (token === listsToken) {
-					modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
-				}
-			}
-		});
-	});
-
-	let featuresToken = 0;
-	$effect(() => {
-		if (!provider || !cwd) return;
-		const token = ++featuresToken;
-		featureCatalog = null;
-		const draft = untrack(() => ({
-			cwd,
-			...(agent?.modeId ? { modeId: agent.modeId } : {}),
-			...(agent?.modelId ? { model: agent.modelId } : {}),
-		}));
-		untrack(async () => {
-			// The feature list fails quietly: a toggle has no menu to carry
-			// the failure into, and the pills keep working — the same
-			// reading as the lists above, minus the surface.
-			try {
-				const result = await listProviderFeatures(deviceId, provider, draft);
-				if (token === featuresToken) featureCatalog = result.features;
-			} catch {
-				if (token === featuresToken) featureCatalog = [];
-			}
-		});
-	});
 
 	// A feature toggle's own optimistic value, keyed by feature id: flipped
 	// the instant it is clicked, the same discipline chat's own web-search

@@ -56,6 +56,9 @@
 		cancelAgent,
 		fetchSubagentTimeline,
 		getAgent,
+		listProviderFeatures,
+		listProviderModes,
+		listProviderModels,
 		listSubagents,
 		listWorkspaces,
 		respondPermission,
@@ -63,7 +66,7 @@
 		sendFollowUp,
 		revertAgent,
 	} from "$lib/codeApi";
-	import type { CodeProviderFeature } from "$lib/codeApi";
+	import type { CodeProviderFeature, CodeProviderMode, CodeProviderModel } from "$lib/codeApi";
 	import { error as errorToast } from "$lib/stores/errors";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -110,6 +113,18 @@
 	let showReenroll = $state(false);
 
 	let agent = $state<CodeAgentSession | null>(null);
+	// The composer's option lists (modes/models/feature catalog), fetched
+	// HERE rather than in the composer: the view's own effects re-run when
+	// the device row lands (the e2e caught the composer's effects running
+	// once under hydration and never again), and the view already owns the
+	// snapshot read that tells them what provider to ask.
+	let modes = $state<CodeProviderMode[] | null>(null);
+	let modesFailure = $state<string | null>(null);
+	let models = $state<CodeProviderModel[] | null>(null);
+	let modelsFailure = $state<string | null>(null);
+	/** Models the machine listed but its enrollment policy keeps off the panel. */
+	let modelsHidden = $state(0);
+	let featureCatalog = $state<CodeProviderFeature[] | null>(null);
 	/** The provider features the agent itself reports — the auto-accept
 	 * toggle's live value. Cleared with the snapshot on a failed read: a
 	 * toggle with no daemon word behind it does not render as on or off. */
@@ -319,12 +334,62 @@
 			// grant, say so immediately rather than waiting on the device
 			// probe's next poll to catch up.
 			if (detail.enrollmentExpired) codeEnrollment[deviceId] = "expired";
+			void refreshLists();
 		} catch {
 			// The transcript carries its own states; a strip that only
 			// errors when the daemon is off is worse than fallbacks.
 			agent = null;
 			features = [];
 			agentCwd = null;
+		}
+	}
+
+	/** The composer's option lists, refetched after every snapshot read:
+	 * they hang off the snapshot's provider (and, for features, its
+	 * mode/model), so each fresh read re-asks the daemon. A failure lands
+	 * in the pill's own menu — sending a follow-up never needed the lists.
+	 * The feature list fails quietly, exactly as it did in the composer. */
+	async function refreshLists() {
+		const provider = agent?.provider;
+		if (!provider) {
+			modes = null;
+			models = null;
+			featureCatalog = null;
+			return;
+		}
+		try {
+			const result = await listProviderModes(deviceId, provider);
+			modes = result.modes;
+			modesFailure = null;
+		} catch (err) {
+			modes = [];
+			modesFailure = err instanceof Error ? err.message : "Could not load the modes.";
+		}
+		try {
+			const result = await listProviderModels(deviceId, provider);
+			models = result.models;
+			modelsHidden = result.hidden ?? 0;
+			modelsFailure = null;
+		} catch (err) {
+			models = [];
+			modelsHidden = 0;
+			modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
+		}
+		if (!agentCwd) {
+			featureCatalog = [];
+			return;
+		}
+		try {
+			const result = await listProviderFeatures(deviceId, provider, {
+				cwd: agentCwd,
+				...(agent?.modeId ? { modeId: agent.modeId } : {}),
+				...(agent?.modelId ? { model: agent.modelId } : {}),
+			});
+			featureCatalog = result.features;
+		} catch {
+			// A toggle has no menu to carry the failure into; the pills keep
+			// working — the same reading the composer's own effect had.
+			featureCatalog = [];
 		}
 	}
 
@@ -959,7 +1024,12 @@
 					{agentId}
 					{agent}
 					{features}
-					cwd={agentCwd}
+					{modes}
+					{modesFailure}
+					{models}
+					{modelsFailure}
+					{modelsHidden}
+					{featureCatalog}
 					running={loading}
 					{enrollmentExpired}
 					offline={deviceOffline}
