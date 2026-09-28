@@ -14,6 +14,7 @@ import (
 
 	"galopin/internal/backend"
 	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/link"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
 	"galopin/internal/workspaces"
@@ -79,6 +80,18 @@ func TestCommandsIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The IT's own MCP server: one prompt, so opencode lists it as a
+	// source:"mcp" command. SDK 2.0's stdio transport requires CRLF framing
+	// (bare \n is silently discarded — probed before wiring this up).
+	mcpServerPath := filepath.Join(root, "mcp-server.mjs")
+	mcpServerSrc, err := os.ReadFile("internal/backend/opencode/testdata-mcp-server.mjs")
+	if err != nil {
+		t.Fatalf("reading the embedded MCP server: %v", err)
+	}
+	if err := os.WriteFile(mcpServerPath, mcpServerSrc, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	opencodeConfig := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{
@@ -102,6 +115,13 @@ func TestCommandsIntegration(t *testing.T) {
 		// permission on .env is "ask" — whether that applies to @
 		// expansion is one of the open items this IT records.
 		"permission": map[string]any{"bash": "allow", "read": map[string]any{"*.env": "ask"}},
+		"mcp": map[string]any{
+			"itmcp": map[string]any{
+				"type":    "local",
+				"command": []string{"node", mcpServerPath},
+				"enabled": true,
+			},
+		},
 	}
 	configBody, err := json.MarshalIndent(opencodeConfig, "", "  ")
 	if err != nil {
@@ -591,6 +611,101 @@ func TestCommandsIntegration(t *testing.T) {
 			return
 		}
 		t.Fatal("review is not listed at all")
+	})
+
+	t.Run("the MCP server's prompt lists as a source:mcp command", func(t *testing.T) {
+		// The MCP connect is asynchronous (a 5s default timeout); the
+		// prompt's listing is the acceptance signal, so poll for it.
+		var res any
+		var operr *link.OpError
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			res, operr = machine.Handle(ctx, "backend.commands", mustJSONArgs(t, map[string]any{"sessionId": sess.ID}))
+			if operr != nil {
+				t.Fatalf("backend.commands: %+v", operr)
+			}
+			found := false
+			for _, cmd := range res.(map[string]any)["commands"].([]backend.Command) {
+				if cmd.Name == "itprompt" {
+					found = true
+				}
+			}
+			if found || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		for _, cmd := range res.(map[string]any)["commands"].([]backend.Command) {
+			// opencode prefixes MCP commands with the client name
+			// (catalog's clientName_name — the probe on 1.18.32 pinned
+			// "itmcp:itprompt").
+			if !strings.HasSuffix(cmd.Name, ":itprompt") && cmd.Name != "itprompt" {
+				continue
+			}
+			if cmd.Source != backend.SourceMCP {
+				t.Errorf("%s source = %q, want mcp", cmd.Name, cmd.Source)
+			}
+			if cmd.Origin != backend.OriginMachine {
+				t.Errorf("%s origin = %q, want machine", cmd.Name, cmd.Origin)
+			}
+			// shell: null — nobody has scanned an MCP prompt's text at
+			// listing time.
+			if cmd.Shell != nil {
+				t.Errorf("%s shell = %+v, want null (unknown)", cmd.Name, cmd.Shell)
+			}
+			return
+		}
+		t.Fatal("the MCP server's prompt did not become a command")
+	})
+
+	t.Run("the MCP prompt is refused under the default commandShell policy", func(t *testing.T) {
+		_, errShape := runCommand(t, map[string]any{"name": "itmcp:itprompt"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("itprompt under a denied policy = %+v, want forbidden (shell unknown)", errShape)
+		}
+	})
+
+	t.Run("the MCP prompt with commandShell allowed reaches the mock", func(t *testing.T) {
+		if _, err := http.Post(mockOrigin+"/__control/reset-requests", "application/json", nil); err != nil {
+			t.Fatal(err)
+		}
+		machine.pol.CommandShell = policy.TerminalAllowed
+		defer func() { machine.pol.CommandShell = policy.TerminalDenied }()
+		if _, err := http.Post(mockOrigin+"/__control/reset-requests", "application/json", nil); err != nil {
+			t.Fatal(err)
+		}
+		_, errShape := runCommand(t, map[string]any{"name": "itmcp:itprompt"})
+		if errShape != nil {
+			t.Fatalf("itprompt with commandShell allowed: %s (%s)", errShape.Code, errShape.Message)
+		}
+		// opencode maps the prompt's own arguments to $1 placeholders and
+		// then runs the same substitution as commands — with empty
+		// arguments the text reads "ran with ." here.
+		awaitPrompt(t, "The MCP prompt ran with")
+		// rev1 §3.2/§6, open item 2, RECORDED with the evidence: the MCP
+		// prompt's text reached the mock with the bang construct as literal
+		// text — opencode does NOT apply shell expansion to MCP prompt
+		// text (the shell gate's null is safe; expansion only happens for
+		// source:"command" templates).
+		joined := ""
+		if raw, err := http.Get(mockOrigin + "/__control/requests"); err == nil {
+			body, _ := io.ReadAll(raw.Body)
+			raw.Body.Close()
+			joined = string(body)
+			if strings.Contains(joined, "MCPSHELL_RAN") {
+				t.Log("RECORDED (rev1 §6, open item 2): opencode DOES apply shell expansion to MCP prompt text")
+			} else if strings.Contains(joined, "MCPSHELL") {
+				t.Log("RECORDED (rev1 §6, open item 2): opencode does NOT apply shell expansion to MCP prompt text — the bang construct reached the prompt as literal text")
+			} else {
+				t.Log("RECORDED (rev1 §6, open item 2): the MCP prompt's expansion reached the mock; no shell construct observed")
+			}
+		}
+		// rev1 §3.2/§6, open item 2: does opencode apply shell expansion to
+		// MCP prompt text? Probe it by having the MCP prompt's expansion
+		// carry a bang construct and reading whether the mock sees its
+		// output. Recorded, not asserted: whichever way this version
+		// behaves, the commandShell policy already refused the run at the
+		// machine when denied.
 	})
 }
 
