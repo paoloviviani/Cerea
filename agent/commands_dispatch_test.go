@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"galopin/internal/backend"
+	backendopencode "galopin/internal/backend/opencode"
 	"galopin/internal/files"
 )
 
@@ -46,6 +47,27 @@ func (c *commandingBackend) Modes(context.Context, string) ([]backend.Mode, erro
 	return nil, nil
 }
 
+// resolvingBackend is commandingBackend plus the run path's expansion:
+// templates ride along so the gates read the substituted text, the way the
+// opencode backend's ResolveCommand answers.
+type resolvingBackend struct {
+	commandingBackend
+	templates map[string]string
+}
+
+func (r *resolvingBackend) ResolveCommand(_ context.Context, _, _ string, name, arguments string) (backend.ResolvedCommand, error) {
+	for _, cmd := range r.commands {
+		if cmd.Name == name {
+			template, ok := r.templates[name]
+			if !ok {
+				template = ""
+			}
+			return backend.ResolvedCommand{Command: cmd, Expanded: backendopencode.ExpandArguments(template, arguments)}, nil
+		}
+	}
+	return backend.ResolvedCommand{}, backend.ErrCommandNotFound
+}
+
 // modeListing makes the escalation gate's order explicit, and reports the
 // session's mode the way the real backend would.
 type commandingWithModes struct {
@@ -54,9 +76,12 @@ type commandingWithModes struct {
 }
 
 func (c *commandingWithModes) Modes(context.Context, string) ([]backend.Mode, error) {
+	// Gateway models throughout: the escalation tests are about the agent
+	// choice, and the model gate must not fire on them.
 	return []backend.Mode{
-		{ID: "plan", Label: "Plan"},
-		{ID: "build", Label: "Build"},
+		{ID: "plan", Label: "Plan", Model: "pystino/mock"},
+		{ID: "build", Label: "Build", Model: "pystino/mock"},
+		{ID: "free", Label: "Free", Model: "freebie/free-model"},
 	}, nil
 }
 
@@ -220,7 +245,7 @@ func TestOpSessionCommandFreeModelGate(t *testing.T) {
 }
 
 func TestOpSessionCommandAgentEscalation(t *testing.T) {
-	back := &commandingWithModes{commandingBackend{commands: commandList()}, ""}
+	back := &commandingWithModes{commandingBackend: commandingBackend{commands: commandList()}}
 	// The default policy denies command shell; every command here is
 	// shell-free, so the gates below are the only thing under test.
 	mc := newTestMachine(t, back)
@@ -262,6 +287,124 @@ func TestOpSessionCommandAgentEscalation(t *testing.T) {
 	}
 	if len(back.runs) != 1 || back.runs[0].Agent != "build" {
 		t.Fatalf("runs = %+v, want the command's own agent", back.runs)
+	}
+}
+
+func TestOpSessionCommandEscalationRefusesEveryCommand(t *testing.T) {
+	// The override is impossible — opencode runs cmd.agent whenever one is
+	// set, whatever this process sends — so a more-permissive command agent
+	// than the session's overlay mode refuses every command, subtask or
+	// plain alike. The unit pin runs against the fake server; the live IT
+	// runs the same shape against the real binary (batch A's arbiter rule).
+	back := &commandingWithModes{commandingBackend: commandingBackend{
+		commands: []backend.Command{
+			{Name: "needsbuild", Source: backend.SourceCommand, Agent: "build"},
+		},
+	}, sessionMode: "plan"}
+	mc := newTestMachine(t, back)
+	mc.pol.CommandShell = "allowed"
+	trackTestSession(t, mc, "s1")
+
+	_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"needsbuild"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("plain-command escalation = %+v, want forbidden", operr)
+	}
+	if len(back.runs) != 0 {
+		t.Fatal("the refused command ran")
+	}
+}
+
+func TestOpSessionCommandExpandedShellGate(t *testing.T) {
+	// The three M1 paths: a snippet smuggled in through the arguments lands
+	// in the expanded text opencode scans, so the gate must read the
+	// expansion, never the bare template.
+	falseShell := false
+	mk := func(template string) *resolvingBackend {
+		return &resolvingBackend{
+			commandingBackend: commandingBackend{commands: []backend.Command{
+				{Name: "x", Source: backend.SourceCommand, Origin: backend.OriginProject, Shell: &falseShell},
+			}},
+			templates: map[string]string{"x": template},
+		}
+	}
+	mcDenied := func(t *testing.T, template string) (*machine, *resolvingBackend) {
+		t.Helper()
+		back := mk(template)
+		mc := newTestMachine(t, back)
+		trackTestSession(t, mc, "s1")
+		return mc, back
+	}
+
+	// 1. The snippet rides $ARGUMENTS.
+	mc, back := mcDenied(t, "Say $ARGUMENTS.")
+	_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"x","arguments":"hi"}`))
+	if operr != nil {
+		t.Fatalf("clean arguments = %+v, want a run", operr)
+	}
+	mc2, _ := mcDenied(t, "Say $ARGUMENTS.")
+	_, operr = mc2.Handle(context.Background(), "session.command", json.RawMessage(
+		"{\"sessionId\":\"s1\",\"name\":\"x\",\"arguments\":\"run !`echo pwned` now\"}"))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("snippet-in-args = %+v, want forbidden", operr)
+	}
+	_ = back
+
+	// 2. The snippet rides a @ref.
+	mc3, _ := mcDenied(t, "Read $1.")
+	_, operr = mc3.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"x","arguments":"@.env"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("@.env-in-args = %+v, want forbidden", operr)
+	}
+
+	// 3. !$1 becomes shell only after substitution.
+	mc4, _ := mcDenied(t, "Run !$1 now.")
+	_, operr = mc4.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"x","arguments":"uptime"}`))
+	if operr != nil {
+		t.Fatalf("plain !$1 arg = %+v, want a run (no backticks, no shell)", operr)
+	}
+	mc5, _ := mcDenied(t, "Run !$1 now.")
+	_, operr = mc5.Handle(context.Background(), "session.command", json.RawMessage(
+		"{\"sessionId\":\"s1\",\"name\":\"x\",\"arguments\":\"`echo pwned`\"}"))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("backticked !$1 arg = %+v, want forbidden", operr)
+	}
+}
+
+func TestOpSessionCommandAgentModelGate(t *testing.T) {
+	falseShell := false
+	back := &commandingWithModes{commandingBackend: commandingBackend{
+		commands: []backend.Command{
+			{Name: "gatewayagent", Source: backend.SourceCommand, Shell: &falseShell, Agent: "build"},
+			{Name: "freeagent", Source: backend.SourceCommand, Shell: &falseShell, Agent: "free"},
+			{Name: "unknownagent", Source: backend.SourceCommand, Shell: &falseShell, Agent: "ghost"},
+		},
+	}}
+	mc := newTestMachine(t, back)
+	mc.pol.CommandShell = "allowed"
+	trackTestSession(t, mc, "s1")
+
+	// The command's agent carries a gateway model: runs.
+	if _, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"gatewayagent"}`)); operr != nil {
+		t.Fatalf("gateway agent model = %+v, want a run", operr)
+	}
+	// The command's agent carries a non-gateway model: refused while free
+	// models are disallowed (the setModel gate's second input).
+	_, operr := mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"freeagent"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("non-gateway agent model = %+v, want forbidden", operr)
+	}
+	// The command's agent is unknown to the backend: refused too, rather
+	// than assumed gateway.
+	_, operr = mc.Handle(context.Background(), "session.command", json.RawMessage(
+		`{"sessionId":"s1","name":"unknownagent"}`))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("unknown agent model = %+v, want forbidden", operr)
 	}
 }
 

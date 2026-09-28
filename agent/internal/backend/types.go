@@ -172,6 +172,10 @@ type Mode struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+	// Model is the agent's own configured model ("provider/model"), when
+	// the backend exposes one per agent — what the command free-model gate
+	// reads for a command naming that agent. Empty when unknown.
+	Model string `json:"model,omitempty"`
 }
 
 // Model is one selectable model, id "<providerId>/<model>".

@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -168,8 +169,8 @@ func TestListCommandsDiffOriginsAndScanTemplates(t *testing.T) {
 				"template": "plain text, no expansion @notes.md", "hints": []string{}},
 		}
 		f.commandsByDir["/state"] = []map[string]any{
-			{"name": "init", "source": "command"},
-			{"name": "usercmd", "source": "command"},
+			{"name": "init", "description": "guided setup", "source": "command"},
+			{"name": "usercmd", "source": "command", "template": "plain text, no expansion @notes.md"},
 		}
 	})
 	b.cfg.StateDir = "/state"
@@ -404,5 +405,134 @@ func TestRunCommandMapsTheClientMessageIDExactly(t *testing.T) {
 	}
 	if got := tr.Messages[0].Message.ClientMessageID; got != "cm-1" {
 		t.Errorf("ClientMessageID = %q, want cm-1 recorded against the minted id", got)
+	}
+}
+
+// The substitution machine, opencode's own (SessionPrompt.command),
+// ported case by case: $N positional, the last placeholder swallowing the
+// rest, $ARGUMENTS, and the append-when-no-placeholder rule.
+func TestExpandArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		template string
+		args     string
+		want     string
+	}{
+		{"positional", "Say hi to $1.", "gamma", "Say hi to gamma."},
+		{"two positionals, last swallows", "$1 says $2", "a b c", "a says b c"},
+		{"last swallows the rest", "Report $1 then $2", "a b c", "Report a then b c"},
+		{"only placeholder takes all", "Summarize $1", "a b c", "Summarize a b c"},
+		{"missing arg is empty", "Hi $1$2.", "a", "Hi a."},
+		{"arguments placeholder", "Do $ARGUMENTS now.", "x y", "Do x y now."},
+		{"quoted args keep spaces", `Run "$1"`, `"a b" c`, `Run "a b c"`},
+		{"single-quoted args", "Run $1", "'a b'", "Run a b"},
+		{"append when no placeholder", "Look.", "over there", "Look.\n\nover there"},
+		{"blank arguments append nothing", "Look.", "   ", "Look."},
+		{"no args, no placeholders", "Look.", "", "Look."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExpandArguments(tc.template, tc.args); got != tc.want {
+				t.Errorf("ExpandArguments(%q, %q) = %q, want %q", tc.template, tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
+// The scan must run on the same text opencode detects shell and resolves
+// @files on — the combined text. The L1 regex emulates opencode's own
+// (/(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)/), lookbehind by hand.
+func TestFileRefsIn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"plain ref", "read @docs/plan.md", []string{"docs/plan.md"}},
+		{"trailing dot is not the ref", "see @.env. next", []string{".env"}},
+		{"email is not a ref", "mail foo@bar.com today", nil},
+		{"backtick text is not a ref", "run !`echo @x` now", []string{"x"}},
+		{"no refs", "plain text", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fileRefsIn(tc.text)
+			if len(got) != len(tc.want) {
+				t.Fatalf("fileRefsIn(%q) = %v, want %v", tc.text, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("fileRefsIn(%q) = %v, want %v", tc.text, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// A repo borrowing a builtin's name with different frontmatter is the
+// repo's: the builtin label needs the state's metadata to agree.
+func TestBuiltinSpoofReadsAsProject(t *testing.T) {
+	b, _ := newCommandFake(t, func(f *commandFake) {
+		f.commandsByDir["/ws"] = []map[string]any{
+			{"name": "review", "description": "ship it, no review", "source": "command",
+				"template": "do it", "hints": []string{}},
+		}
+		f.commandsByDir["/state"] = []map[string]any{
+			{"name": "review", "description": "review changes", "source": "command",
+				"subtask": true, "template": "look", "hints": []string{}},
+		}
+	})
+	b.cfg.StateDir = "/state"
+
+	commands, err := b.ListCommands(context.Background(), "/ws", "ses_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0].Origin != backend.OriginProject {
+		t.Fatalf("commands = %+v, want the spoofed review as project", commands)
+	}
+}
+
+// A user-level name the repo reuses reads as the repo's on a hash
+// mismatch — the machine's own text, not the user's.
+func TestMachineNameReuseReadsAsProject(t *testing.T) {
+	b, _ := newCommandFake(t, func(f *commandFake) {
+		f.commandsByDir["/ws"] = []map[string]any{
+			{"name": "deploy", "source": "command", "template": "repo text", "hints": []string{}},
+		}
+		f.commandsByDir["/state"] = []map[string]any{
+			{"name": "deploy", "source": "command", "template": "user text", "hints": []string{}},
+		}
+	})
+	b.cfg.StateDir = "/state"
+
+	commands, err := b.ListCommands(context.Background(), "/ws", "ses_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0].Origin != backend.OriginProject {
+		t.Fatalf("commands = %+v, want the reused name as project", commands)
+	}
+}
+
+func TestResolveCommandExpands(t *testing.T) {
+	b, _ := newCommandFake(t, func(f *commandFake) {
+		f.commandsByDir["/ws"] = []map[string]any{
+			{"name": "hi", "source": "command", "template": "Say hi to $1.", "hints": []string{}},
+		}
+	})
+	b.cfg.StateDir = "/state"
+
+	resolved, err := b.ResolveCommand(context.Background(), "/ws", "ses_1", "hi", "gamma delta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Command.Name != "hi" || resolved.Command.Origin != backend.OriginProject {
+		t.Errorf("resolved command = %+v, want hi/project", resolved.Command)
+	}
+	if resolved.Expanded != "Say hi to gamma delta." {
+		t.Errorf("expanded = %q, want the substitution applied", resolved.Expanded)
+	}
+
+	if _, err := b.ResolveCommand(context.Background(), "/ws", "ses_1", "nope", ""); !errors.Is(err, backend.ErrCommandNotFound) {
+		t.Errorf("unknown name err = %v, want ErrCommandNotFound", err)
 	}
 }

@@ -296,7 +296,7 @@ func modeFromAgentMap(m map[string]any) (backend.Mode, bool) {
 	case "compaction", "summary", "title":
 		return backend.Mode{}, false
 	}
-	return backend.Mode{ID: name, Label: name, Description: getStr(m, "description")}, true
+	return backend.Mode{ID: name, Label: name, Description: getStr(m, "description"), Model: getStr(m, "model")}, true
 }
 
 func fileDiffFromMap(m map[string]any) backend.FileDiff {

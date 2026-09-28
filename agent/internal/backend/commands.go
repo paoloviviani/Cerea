@@ -107,3 +107,20 @@ type Commander interface {
 	ListCommands(ctx context.Context, workspaceDir, sessionID string) ([]Command, error)
 	RunCommand(ctx context.Context, workspaceDir, sessionID string, run CommandRun) error
 }
+
+// ResolvedCommand is the run path's answer: the listed command plus its
+// template expanded with opencode's own argument substitution, in one
+// listing — so the run and the gates read the same text.
+type ResolvedCommand struct {
+	Command  Command
+	Expanded string
+}
+
+// CommanderResolver is the optional half of Commander backends whose
+// commands carry server-side templates (opencode): resolving the expanded
+// text machine-side, which the gates then scan. Backends without it (ACP
+// has no template to expand) are gated from the listing alone.
+type CommanderResolver interface {
+	Commander
+	ResolveCommand(ctx context.Context, workspaceDir, sessionID, name, arguments string) (ResolvedCommand, error)
+}
