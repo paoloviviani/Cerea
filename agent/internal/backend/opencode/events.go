@@ -21,9 +21,51 @@ const (
 // stream ends — including every time opencode itself restarts underneath
 // it — for as long as ctx lives; the returned channel only closes when ctx
 // is done.
+//
+// Backend-generated events (a late command failure) merge into the same
+// stream through an internal channel, so a subscriber sees one ordered
+// event flow per process and needs no second path for them.
 func (b *Backend) Subscribe(ctx context.Context) (<-chan backend.BackendEvent, error) {
 	out := make(chan backend.BackendEvent, 256)
-	go b.subscribeLoop(ctx, out)
+	sse := make(chan backend.BackendEvent, 256)
+	inject := make(chan backend.BackendEvent, 64)
+	b.injectMu.Lock()
+	b.injectCh = inject
+	b.injectMu.Unlock()
+	go func() {
+		// subscribeLoop closes sse itself when it ends (its own defer); the
+		// pump below only drains.
+		b.subscribeLoop(ctx, sse)
+	}()
+	go func() {
+		defer close(out)
+		for sse != nil || inject != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-sse:
+				if !ok {
+					sse = nil
+					continue
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
+			case ev, ok := <-inject:
+				if !ok {
+					inject = nil
+					continue
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
 	return out, nil
 }
 

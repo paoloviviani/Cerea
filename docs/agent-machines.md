@@ -233,17 +233,18 @@ bundled Authelia's.) Then confirm the machine in the `/code` panel.
 the machine's own `policy.json`. The chat can never loosen them over the
 link: whatever the panel sends, the machine refuses what its policy denies.
 
-| Flag                        | Default              | What it allows                                                                                                |
-| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `--allow-terminal`          | denied               | the `/code` panel may open a real shell on this machine (see below)                                           |
-| `--max-terminals N`         | 8                    | how many terminals may be open at once                                                                        |
-| `--allow-auto-accept`       | denied               | a session may run the model's commands without asking each time                                               |
-| `--workspace-root PATH`     | unrestricted         | workspaces only under this path (repeatable)                                                                  |
-| `--allow-free-models`       | denied               | models from providers other than the gateway's; by default only the gateway's, so spend lands in your account |
-| `--allow-opencode-provider` | denied               | opencode's built-in providers stay enabled next to the gateway's                                              |
-| `--no-files`                | read-only browsing   | no file explorer at all                                                                                       |
-| `--file-deny GLOB`          | built-in secret list | redact more files from the explorer (repeatable)                                                              |
-| `--no-default-file-deny`    | built-in list on     | drop the built-in secret list, keeping only `--file-deny`'s                                                   |
+| Flag                        | Default              | What it allows                                                                                                               |
+| --------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--allow-terminal`          | denied               | the `/code` panel may open a real shell on this machine (see below)                                                          |
+| `--allow-command-shell`     | denied               | a slash command's template may run its shell snippets (and unknown-shell commands such as MCP prompts are no longer refused) |
+| `--max-terminals N`         | 8                    | how many terminals may be open at once                                                                                       |
+| `--allow-auto-accept`       | denied               | a session may run the model's commands without asking each time                                                              |
+| `--workspace-root PATH`     | unrestricted         | workspaces only under this path (repeatable)                                                                                 |
+| `--allow-free-models`       | denied               | models from providers other than the gateway's; by default only the gateway's, so spend lands in your account                |
+| `--allow-opencode-provider` | denied               | opencode's built-in providers stay enabled next to the gateway's                                                             |
+| `--no-files`                | read-only browsing   | no file explorer at all                                                                                                      |
+| `--file-deny GLOB`          | built-in secret list | redact more files from the explorer (repeatable)                                                                             |
+| `--no-default-file-deny`    | built-in list on     | drop the built-in secret list, keeping only `--file-deny`'s                                                                  |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
 `--group NAME` to preselect the billing group, `--output PATH` for the
@@ -459,6 +460,50 @@ Inside the prompt box, in the chat's own pill idiom:
 
 Mode and model apply **to the session**, live, not to one send. Switching
 either changes the licence the session runs under until it is switched again.
+
+### Slash commands
+
+Type `/` at the start of the prompt box and a menu opens with the commands
+this session can run. It is also the help: what it lists is exactly what
+there is.
+
+- **Panel** — commands this panel runs itself: `/compact`, `/undo`,
+  `/redo`, `/model`, `/mode`, `/effort`, `/new`. These drive the same
+  routes the pills and the transcript use; nothing new runs on the machine.
+- **Project** (badge "from this repo") — commands defined in the open
+  workspace's repository (`.opencode/command/*.md`). Running one is running
+  repository code on your machine; the first run asks (see below).
+- **Machine** — commands from your user-level or the machine's config.
+- **Skills** and **MCP** — when the agent exposes them.
+
+Type to filter (prefix first, then substring), ↑/↓ to choose, Enter or Tab
+to accept. A command that takes arguments shows its placeholder as ghost
+text (`/review ‹$ARGUMENTS›`); type the arguments after the name and Enter
+sends. `//` at the very start is an ordinary slash: a message that begins
+with a path (`/etc/hosts is wrong`) still sends as text.
+
+A command whose template would run shell — and any command whose shell
+behaviour is unknown, such as an MCP prompt — is refused unless the machine
+was enrolled with `--allow-command-shell` (see below). A command that reads
+files through `@path` is refused if the file matches the machine's deny
+list (the same list that redacts the explorer). A command pinned to a
+non-gateway model is refused unless the machine allows free models. None of
+these run halfway: the refusal names the flag or the file.
+
+**The first run of a project command** (or any command that expands shell)
+opens a confirmation showing the exact shell snippets it would run and the
+files it reads. Accepting remembers the decision for that command on this
+machine; if the command's definition changes afterwards, the next run is
+refused until you confirm the new version again.
+
+A command cannot move the session out of a more restrictive mode: while the
+session is in plan, a command that names the build agent runs under plan
+anyway (and a command that would run unsupervised in another agent is
+refused). While a turn is running, commands are refused until it finishes
+or you stop it — send is hidden while it runs.
+
+On an older galopin (before these capabilities) the menu shows the panel
+commands only.
 
 ### Stopping a turn
 

@@ -127,6 +127,46 @@ and the machine's policy can still refuse it.
 | Retry and rollback       | ↻ on an answer, or editing a prompt (when the machine reports `revert`)             | `POST v1/agents/:id/revert {messageId}` rolls the session back to before that prompt (opencode `POST /session/:id/revert`), then the prompt (or the edited text) is sent again. The confirmation says whether files come back: opencode restores them from its snapshots in a git repository only. `POST v1/agents/:id/unrevert` undoes it before the next prompt.              |
 | Workspaces and worktrees | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
 
+### Slash commands (the `commands` capability)
+
+The machine lists each workspace's slash commands (`backend.commands`):
+name, description, where the definition lives (the agent's own `init`/
+`review` are `builtin`; a name only the workspace list reports is
+`project` — repository code), whether its template expands shell, the
+exact snippets it would run (at most ten, each truncated), the `@path`
+files it reads, and a hash of the template. **The template itself never
+crosses the link** — the snippets and the hash are what a person confirms
+against.
+
+`session.command` runs one behind the machine's gates, each refused before
+anything runs and each audited in the machine's own `audit.log` as
+`command {name, origin, shell, decision}` — never the arguments, never the
+expanded text:
+
+- unknown name → `not_found` (the list is re-read at run time, never
+  trusted from an old menu);
+- the panel's confirmation carried a `templateHash` that no longer matches
+  → `conflict` (the definition changed since it was reviewed);
+- `commandShell: denied` (the default) and the template expands shell — or
+  its shell behaviour is unknown (MCP prompts, ACP commands) → `forbidden`;
+- an `@path` ref matching `fileDeny` → `forbidden`;
+- a command pinned to a non-gateway model with `allowFreeModels` denied →
+  `forbidden` (the same gate `session.setModel` applies);
+- a command naming a more permissive agent while the session sits in a
+  more restrictive mode → the session's mode is sent instead and the
+  command's agent ignored; a `subtask` command in that spot is refused
+  outright (it would run unsupervised in the other agent).
+
+The capability is probed, never versioned: opencode advertises `commands`
+only when its own `GET /doc` lists the operation (cached per process,
+re-probed on restart). Cerea maps a 404 to "panel commands only".
+
+The panel's first run of a project or shell-expanding command opens a
+confirmation sheet (snippets, file refs, "running a project command is
+running repository code"), remembered per device in `localStorage` keyed
+by the template hash; a later run whose hash differs answers the 409 above
+and the sheet re-asks.
+
 A machine can run an ACP agent instead of opencode (`galopin run --backend acp
 --acp-command "<agent>"`): Gemini CLI, Claude Code or Codex through their ACP
 adapters, or `opencode acp`. Those report fewer capabilities (no usage,

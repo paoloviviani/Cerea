@@ -96,3 +96,13 @@ func (a *auditLogger) terminalClose(id string) {
 func (a *auditLogger) refusal(op, reason string) {
 	a.write(map[string]any{"action": "refusal", "op": op, "reason": reason})
 }
+
+// command records one session.command decision (PROTOCOL.md §6): the
+// command's name, its derived origin, whether its template expands shell,
+// and the decision ("run" or "refused") — never the arguments and never
+// the expanded text, which are the parts that could carry a secret.
+func (a *auditLogger) command(name, origin, shell, decision string) {
+	a.write(map[string]any{
+		"action": "command", "name": name, "origin": origin, "shell": shell, "decision": decision,
+	})
+}

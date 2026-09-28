@@ -59,6 +59,30 @@ export interface AgentUserMessageUpdate {
 	/** Those attachments, as the store returns them (`findAttachments`),
 	 * added by the bridge; the fold puts them on the user message. */
 	files?: MessageFile[];
+	/** The transcript marker on a message a slash command produced
+	 * (PROTOCOL.md §7): the bubble renders "/name args" and the expanded
+	 * template (this update's own `text`) folds beneath it. */
+	command?: { name: string; arguments: string };
+}
+
+/** One slash command a machine lists (PROTOCOL.md §6 backend.commands) —
+ * the exact shape the forwarder maps the machine's answer onto. A command
+ * has a prompt's power once run; these fields are what the panel shows
+ * instead of the template: where it comes from, whether it expands shell,
+ * and the hash a first-run confirmation carries back. */
+export interface CodeCommand {
+	name: string;
+	description?: string;
+	source: "command" | "mcp" | "skill";
+	origin?: "builtin" | "machine" | "project";
+	hints: string[];
+	agent?: string;
+	model?: string;
+	subtask?: boolean;
+	shell?: boolean;
+	shellSnippets?: string[];
+	fileRefs?: string[];
+	templateHash?: string;
 }
 
 /**

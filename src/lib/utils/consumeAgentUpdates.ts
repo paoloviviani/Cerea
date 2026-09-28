@@ -251,7 +251,9 @@ export async function consumeAgentUpdates(
 			case "user": {
 				closeTurn();
 				// The one property a user frame adds: its attachments, which
-				// ChatMessage already renders on a user message.
+				// ChatMessage already renders on a user message. A slash
+				// command's marker rides the same way (PROTOCOL.md §7): the
+				// bubble renders "/name args" and the expanded text folds.
 				messages.push({
 					id: v4(),
 					from: "user",
@@ -259,6 +261,7 @@ export async function consumeAgentUpdates(
 					children: [],
 					...(pendingMessageId ? { machineMessageId: pendingMessageId } : {}),
 					...(update.files?.length ? { files: update.files } : {}),
+					...(update.command ? { command: update.command } : {}),
 				});
 				pendingMessageId = undefined;
 				break;
