@@ -498,6 +498,14 @@ export class MachineLink {
 	sessionCompact(args: { sessionId: string }): Promise<Record<string, never>> {
 		return this.call("session.compact", args);
 	}
+	/** One image a tool part listed (§6 session.attachment): base64 `data`,
+	 * the machine's claimed `mime` (never trusted — the route checks the bytes). */
+	sessionAttachment(args: {
+		sessionId: string;
+		sha256: string;
+	}): Promise<{ mime: string; data: string }> {
+		return this.call("session.attachment", args);
+	}
 	backendModes(args: { backend?: string; workspaceId?: string } = {}): Promise<{ modes: Mode[] }> {
 		return this.call("backend.modes", args);
 	}

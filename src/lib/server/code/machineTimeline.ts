@@ -44,9 +44,11 @@ import type {
 	Question,
 	SessionStatus,
 	Todo,
+	ToolAttachment,
 	Transcript,
 	Usage,
 } from "$lib/types/machineProtocol";
+import { usableAttachments, type ToolImageUrl } from "./toolImages";
 import type { ElicitationField, ElicitationValue } from "$lib/types/McpElicitation";
 
 let planVersion = 0;
@@ -84,12 +86,23 @@ function toolResultUpdate(
 	callId: string,
 	tool: string,
 	input: Record<string, unknown>,
-	output: string | undefined
+	output: string | undefined,
+	attachments: ToolAttachment[] = [],
+	imageUrl?: ToolImageUrl
 ): MessageToolResultUpdate {
+	const outputs: Record<string, unknown>[] = output ? [{ text: output }] : [];
+	// Images ride as URLs into the forwarder's attachment route, never as
+	// bytes (PROTOCOL.md §7): a snapshot and the live stream share this map.
+	const images = imageUrl ? usableAttachments(attachments) : [];
+	if (imageUrl && images.length) {
+		outputs.push({
+			content: images.map((a) => ({ type: "image", mimeType: a.mime, url: imageUrl(a.sha256) })),
+		});
+	}
 	const result: ToolResult = {
 		status: ToolResultStatus.Success,
 		call: { name: tool, parameters: (input ?? {}) as Record<string, string | number | boolean> },
-		outputs: output ? [{ text: output }] : [],
+		outputs,
 		display: true,
 	};
 	return {
@@ -137,7 +150,8 @@ function usageToUpdate(usage: Usage): AgentUsageUpdate {
 function partToUpdates(
 	part: Part,
 	clientMessageId?: string,
-	command?: { name: string; arguments: string }
+	command?: { name: string; arguments: string },
+	imageUrl?: ToolImageUrl
 ): AgentStreamUpdate[] {
 	switch (part.type) {
 		case "text":
@@ -158,7 +172,17 @@ function partToUpdates(
 			if (part.status === "pending" || part.status === "running") return [call];
 			if (part.status === "error")
 				return [call, toolErrorUpdate(part.callId, part.error ?? "The call failed.")];
-			return [call, toolResultUpdate(part.callId, part.tool, part.input, part.output)];
+			return [
+				call,
+				toolResultUpdate(
+					part.callId,
+					part.tool,
+					part.input,
+					part.output,
+					part.attachments,
+					imageUrl
+				),
+			];
 		}
 		case "compaction": {
 			const update: AgentCompactionUpdate = { type: "compaction", auto: part.auto };
@@ -340,7 +364,8 @@ export function eventToUpdates(
 	lastAssistantError?: string,
 	resolveClientMessageId?: (messageId: string) => string | undefined,
 	child?: ChildContext,
-	resolveCommand?: (messageId: string) => { name: string; arguments: string } | undefined
+	resolveCommand?: (messageId: string) => { name: string; arguments: string } | undefined,
+	imageUrl?: ToolImageUrl
 ): AgentStreamUpdate[] {
 	if (child) {
 		switch (event.kind) {
@@ -386,7 +411,8 @@ export function eventToUpdates(
 			return partToUpdates(
 				event.part,
 				event.part.role === "user" ? resolveClientMessageId?.(event.part.messageId) : undefined,
-				event.part.role === "user" ? resolveCommand?.(event.part.messageId) : undefined
+				event.part.role === "user" ? resolveCommand?.(event.part.messageId) : undefined,
+				imageUrl
 			);
 		case "delta":
 			return event.field === "text" ? [{ type: MessageUpdateType.Stream, token: event.delta }] : [];
@@ -498,7 +524,10 @@ function answeredQuestionFromPart(part: Part): AgentStreamUpdate[] {
 
 /** A whole snapshot (`session.sync`'s `Transcript`, or an offline read) →
  * the panel frames a fresh mount replays. */
-export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
+export function snapshotToUpdates(
+	transcript: Transcript,
+	imageUrl?: ToolImageUrl
+): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	let lastAssistantError: string | undefined;
 	// The protocol types these lists as arrays, but a machine that omits an
@@ -509,7 +538,7 @@ export function snapshotToUpdates(transcript: Transcript): AgentStreamUpdate[] {
 		updates.push({ type: "messageBoundary", role: message.role, messageId: message.id });
 		for (const part of parts ?? []) {
 			updates.push(
-				...partToUpdates(part, clientMessageId, command),
+				...partToUpdates(part, clientMessageId, command, imageUrl),
 				...answeredQuestionFromPart(part)
 			);
 		}
@@ -594,7 +623,8 @@ export function foldEnvelopeEvents(
 	initialLastAssistantError?: string,
 	initialUserMessageIds?: Map<string, string>,
 	childOf?: (sessionId: string) => ChildContext | undefined,
-	initialCommandMarkers?: Map<string, { name: string; arguments: string }>
+	initialCommandMarkers?: Map<string, { name: string; arguments: string }>,
+	imageUrl?: ToolImageUrl
 ): {
 	updates: AgentStreamUpdate[];
 	lastAssistantError: string | undefined;
@@ -623,7 +653,8 @@ export function foldEnvelopeEvents(
 				lastAssistantError,
 				(messageId) => userMessageIds.get(messageId),
 				child,
-				(messageId) => commandMarkers.get(messageId)
+				(messageId) => commandMarkers.get(messageId),
+				imageUrl
 			)
 		);
 	}

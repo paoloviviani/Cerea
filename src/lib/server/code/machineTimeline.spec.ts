@@ -1018,3 +1018,118 @@ describe("the command marker", () => {
 		expect(updates[1]).not.toHaveProperty("command");
 	});
 });
+
+describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
+	const shaA = "a".repeat(64);
+	const shaB = "b".repeat(64);
+	const url = (sha: string) => `/api/v2/code/v1/agents/s1/attachments/${sha}?device=d1`;
+
+	function toolPart(attachments: unknown): Part {
+		return {
+			id: "p1",
+			messageId: "m1",
+			role: "assistant",
+			type: "tool",
+			callId: "call-img",
+			tool: "playwright_screenshot",
+			status: "completed",
+			input: {},
+			output: "took a screenshot",
+			attachments,
+		} as Part;
+	}
+
+	function resultOutputs(updates: ReturnType<typeof snapshotToUpdates>) {
+		const result = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "result");
+		return result && "result" in result && result.result.status === "success"
+			? result.result.outputs
+			: undefined;
+	}
+
+	function transcriptWith(part: Part): Transcript {
+		return {
+			messages: [{ message: assistantMessage("m1"), parts: [part] }],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+	}
+
+	it("maps attachments to url image blocks beside the call's text, and no bytes", () => {
+		const outputs = resultOutputs(
+			snapshotToUpdates(
+				transcriptWith(
+					toolPart([
+						{ sha256: shaA, mime: "image/png", size: 100 },
+						{ sha256: shaB, mime: "image/jpeg", size: 200, filename: "b.jpg" },
+					])
+				),
+				url
+			)
+		);
+		expect(outputs).toEqual([
+			{ text: "took a screenshot" },
+			{
+				content: [
+					{ type: "image", mimeType: "image/png", url: url(shaA) },
+					{ type: "image", mimeType: "image/jpeg", url: url(shaB) },
+				],
+			},
+		]);
+		expect(JSON.stringify(outputs)).not.toContain("base64");
+	});
+
+	it("adds nothing when there are no attachments, or no way to build a url", () => {
+		expect(resultOutputs(snapshotToUpdates(transcriptWith(toolPart(undefined)), url))).toEqual([
+			{ text: "took a screenshot" },
+		]);
+		expect(
+			resultOutputs(
+				snapshotToUpdates(transcriptWith(toolPart([{ sha256: shaA, mime: "image/png", size: 1 }])))
+			)
+		).toEqual([{ text: "took a screenshot" }]);
+	});
+
+	it("drops what the machine may not put in a url: a bad sha, an svg, an oversized image", () => {
+		const outputs = resultOutputs(
+			snapshotToUpdates(
+				transcriptWith(
+					toolPart([
+						{ sha256: "../../x", mime: "image/png", size: 1 },
+						{ sha256: shaA, mime: "image/svg+xml", size: 1 },
+						{ sha256: shaB, mime: "image/png", size: 9 * 1024 * 1024 },
+					])
+				),
+				url
+			)
+		);
+		expect(outputs).toEqual([{ text: "took a screenshot" }]);
+	});
+
+	it("caps the images taken from one call", () => {
+		const many = Array.from({ length: 20 }, (_, i) => ({
+			sha256: i.toString(16).padStart(64, "0"),
+			mime: "image/png",
+			size: 10,
+		}));
+		const outputs = resultOutputs(snapshotToUpdates(transcriptWith(toolPart(many)), url));
+		const content = (outputs?.[1] as { content: unknown[] }).content;
+		expect(content).toHaveLength(8);
+	});
+
+	it("gives a live part event the same frames a snapshot does (one mapping)", () => {
+		const part = toolPart([{ sha256: shaA, mime: "image/png", size: 100 }]);
+		const live = foldEnvelopeEvents(
+			[{ sessionId: "s1", epoch: "e", seq: 1, event: { kind: "part", part } }],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			url
+		).updates;
+		const snap = snapshotToUpdates(transcriptWith(part), url);
+		expect(resultOutputs(live)).toEqual(resultOutputs(snap));
+		expect(resultOutputs(live)).toHaveLength(2);
+	});
+});
