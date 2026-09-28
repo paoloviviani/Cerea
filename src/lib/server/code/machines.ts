@@ -33,6 +33,7 @@ import {
 	BIN_TERM_ACK,
 	type Backend,
 	type Directory,
+	type Command,
 	type Envelope,
 	type FileDiff,
 	type Mode,
@@ -504,6 +505,28 @@ export class MachineLink {
 		args: { backend?: string; workspaceId?: string } = {}
 	): Promise<{ models: Model[]; hidden?: number }> {
 		return this.call("backend.models", args);
+	}
+	/** The workspace's slash commands (PROTOCOL.md §6 backend.commands):
+	 * origins, shell facts and template hashes — never a template. */
+	backendCommands(args: {
+		backend?: string;
+		workspaceId?: string;
+		sessionId?: string;
+	}): Promise<{ commands: Command[] }> {
+		return this.call("backend.commands", args);
+	}
+	/** Run one slash command in a session (PROTOCOL.md §6
+	 * session.command): accepted at once, the turn streams as events. The
+	 * machine's gates answer not_found / conflict / forbidden / invalid. */
+	sessionCommand(args: {
+		sessionId: string;
+		name: string;
+		arguments: string;
+		clientMessageId?: string;
+		attachments?: Array<{ type: "file"; mime: string; filename: string; url: string }>;
+		templateHash?: string;
+	}): Promise<Record<string, never>> {
+		return this.call("session.command", args);
 	}
 }
 

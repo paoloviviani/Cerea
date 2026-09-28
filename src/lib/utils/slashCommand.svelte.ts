@@ -21,9 +21,13 @@ export interface SlashCommand {
 	/** Placeholder hint rendered as ghost text after accept (`/model [model]`). */
 	hint?: string;
 	group: SlashCommandGroup;
-	/** Marks a command that expands a shell snippet — batch C's backend
-	 * commands; the menu marks these with a shell icon. */
+	/** Marks a command that expands a shell snippet — the menu marks these
+	 * rows with a shell icon, and the confirmation sheet shows the snippets
+	 * before a first run. */
 	shell?: boolean;
+	/** A backend command whose name a panel command reserved: rendered
+	 * greyed with the reason, never selectable — the panel's own wins. */
+	shadowed?: boolean;
 }
 
 /** The token the menu is completing: the draft's first `/word`. */

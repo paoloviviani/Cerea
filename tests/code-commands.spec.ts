@@ -48,9 +48,15 @@ interface Harness {
 	messageBodies: unknown[];
 	modeBodies: unknown[];
 	modelBodies: unknown[];
+	commandBodies: unknown[];
+	commandList: { body: unknown; status: number };
 	frames: unknown[];
 	agent: Record<string, unknown>;
 }
+
+/** The backend commands the stubbed listing answers with, overridable per
+ * test before `goto` — a test assigns `h.commandList.body/.status`. */
+const commandListStub: { body: unknown; status: number } = { body: [], status: 200 };
 
 async function installStubs(page: Page): Promise<Harness> {
 	const h: Harness = {
@@ -60,6 +66,8 @@ async function installStubs(page: Page): Promise<Harness> {
 		messageBodies: [],
 		modeBodies: [],
 		modelBodies: [],
+		commandBodies: [],
+		commandList: commandListStub,
 		frames: [],
 		agent: {
 			id: AGENT,
@@ -136,6 +144,19 @@ async function installStubs(page: Page): Promise<Harness> {
 		route.fulfill({ contentType: "application/json", body: superjsonBody({ features: [] }) })
 	);
 
+	// The menu's backend half: empty by default so the panel-only tests stay
+	// quiet; a test overrides `h.commandList` before navigating.
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/commands?*`, (route) =>
+		route.fulfill({
+			status: commandListStub.status,
+			contentType: "application/json",
+			body:
+				commandListStub.status === 200
+					? superjsonBody(commandListStub.body)
+					: JSON.stringify({ message: commandListStub.body }),
+		})
+	);
+
 	// The transcript stream. The same server-side cursor the stop spec uses:
 	// each response carries only frames the browser has not seen yet.
 	let served = 0;
@@ -178,6 +199,10 @@ async function installStubs(page: Page): Promise<Harness> {
 		const body = route.request().postDataJSON() as { modelId: string };
 		h.modelBodies.push(body);
 		h.agent = { ...h.agent, modelId: body.modelId };
+		await route.fulfill({ contentType: "application/json", body: superjsonBody({ ok: true }) });
+	});
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/command?*`, async (route) => {
+		h.commandBodies.push(route.request().postDataJSON());
 		await route.fulfill({ contentType: "application/json", body: superjsonBody({ ok: true }) });
 	});
 
@@ -385,5 +410,118 @@ test.describe("the / menu", () => {
 		await typeDraft(page, "/compact");
 		await menu(page).getByRole("option", { name: "/compact" }).click();
 		await expect(box(page)).toHaveValue("/compact ");
+	});
+});
+
+/**
+ * The menu's backend half (PROTOCOL.md §6 backend.commands /
+ * session.command): the machine's own commands list under their groups, a
+ * project command's first run asking once with the shell snippets it would
+ * expand, the run carrying the template hash it was confirmed against, the
+ * 409 copy when that template changed on the machine, and the panel-only
+ * fallback when the machine cannot answer the listing at all.
+ */
+test.describe("backend commands", () => {
+	const BACKEND_COMMANDS = [
+		{
+			name: "deploy",
+			description: "ship it",
+			source: "command",
+			origin: "project",
+			hints: ["$ARGUMENTS"],
+			shell: true,
+			shellSnippets: ["echo DEPLOY_RAN"],
+			templateHash: "c".repeat(64),
+		},
+		{
+			name: "whoami",
+			description: "who runs here",
+			source: "command",
+			origin: "machine",
+			hints: [],
+			shell: false,
+		},
+	];
+
+	test("machine commands list under their groups and run without a confirmation", async ({
+		page,
+	}) => {
+		const h = await installStubs(page);
+		h.commandList.body = [BACKEND_COMMANDS[1]];
+		await goto(page);
+
+		await typeDraft(page, "/who");
+		await expect(menu(page).getByRole("option", { name: "/whoami" })).toBeVisible();
+		// The group heading the machine origin lands under.
+		await expect(menu(page).getByText("Machine", { exact: true })).toBeVisible();
+
+		await page.keyboard.press("Enter");
+		await expect.poll(() => h.commandBodies, { timeout: 10_000 }).toHaveLength(1);
+		expect(h.commandBodies[0]).toMatchObject({ name: "whoami", arguments: "" });
+		await expect.poll(() => h.messageBodies).toEqual([]);
+	});
+
+	test("a project command's first run opens the confirmation sheet with its snippets", async ({
+		page,
+	}) => {
+		const h = await installStubs(page);
+		h.commandList.body = BACKEND_COMMANDS;
+		await goto(page);
+
+		await typeDraft(page, "/deploy prod");
+		await page.keyboard.press("Enter");
+
+		const sheet = page.getByRole("dialog");
+		await expect(sheet).toBeVisible();
+		await expect(sheet).toContainText("This command runs on your machine");
+		await expect(sheet).toContainText("echo DEPLOY_RAN");
+		// Nothing ran yet: the sheet is the only thing that happened.
+		expect(h.commandBodies).toEqual([]);
+
+		await sheet.getByRole("button", { name: "Run /deploy" }).click();
+		await expect.poll(() => h.commandBodies, { timeout: 10_000 }).toHaveLength(1);
+		expect(h.commandBodies[0]).toMatchObject({
+			name: "deploy",
+			arguments: "prod",
+			templateHash: "c".repeat(64),
+		});
+	});
+
+	test("a changed template answers 409 and the toast names the review", async ({ page }) => {
+		const h = await installStubs(page);
+		h.commandList.body = [BACKEND_COMMANDS[1]];
+		await page.route(`**/api/v2/code/v1/agents/${AGENT}/command?*`, (route) =>
+			route.fulfill({
+				status: 409,
+				contentType: "application/json",
+				body: JSON.stringify({
+					message: "This command changed on the machine; review it again.",
+				}),
+			})
+		);
+		await goto(page);
+
+		await typeDraft(page, "/whoami");
+		await page.keyboard.press("Enter");
+
+		await expect(
+			page.getByText("This command changed on the machine; review it again.")
+		).toBeVisible({
+			timeout: 10_000,
+		});
+	});
+
+	test("a machine that cannot list commands leaves the menu panel-only", async ({ page }) => {
+		const h = await installStubs(page);
+		h.commandList.status = 404;
+		h.commandList.body = "Not available through this endpoint.";
+		await goto(page);
+
+		await typeDraft(page, "/");
+		await expect(menu(page).getByRole("option", { name: "/compact" })).toBeVisible();
+		await expect(menu(page).getByRole("option", { name: "/whoami" })).toHaveCount(0);
+		// No error surfaced: the fallback is silent by design.
+		await page.keyboard.press("Escape");
+		await expect(page.getByText("This command runs on your machine")).toHaveCount(0);
 	});
 });

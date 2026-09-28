@@ -182,6 +182,41 @@ export interface Message {
 	 * server-side when the browser's request omits it). The key later
 	 * attachments (images/files) key off, once the attachment store lands. */
 	clientMessageId?: string;
+	/** The transcript marker on the user message a `session.command`
+	 * produced (PROTOCOL.md §7): the panel renders "/name args" as the
+	 * bubble and folds the expanded template beneath it. Never the expanded
+	 * text itself — that travels as the message's own content. */
+	command?: { name: string; arguments: string };
+}
+
+/** One listed slash command (PROTOCOL.md §6 backend.commands). A command
+ * has a prompt's power once run; these fields exist so the panel can show
+ * what a run would do without ever carrying the template — the shell
+ * snippets and file refs are what a person must see. */
+export interface Command {
+	name: string;
+	description?: string;
+	source: "command" | "mcp" | "skill";
+	/** builtin (opencode's own init/review), project (this repo's — code
+	 * the person may never have reviewed), machine (user-level or config),
+	 * or absent when the backend cannot say (ACP). */
+	origin?: "builtin" | "machine" | "project";
+	hints: string[];
+	/** The command's own `agent:` frontmatter — the escalation gate's input
+	 * on the machine; informational here. */
+	agent?: string;
+	/** The command's own `model:` frontmatter, "provider/model". */
+	model?: string;
+	subtask?: boolean;
+	/** true = the template expands a `` !`…` `` snippet; false = provably
+	 * not; absent = unknown (an MCP prompt, an ACP command) — the machine's
+	 * commandShell policy refuses unknown and true alike while denied. */
+	shell?: boolean;
+	shellSnippets?: string[];
+	fileRefs?: string[];
+	/** sha256 of the template: what a first-run confirmation carries back,
+	 * and what answers 409 when the template changed since. */
+	templateHash?: string;
 }
 
 export type Part =
@@ -315,6 +350,8 @@ export type OpName =
 	| "session.unrevert"
 	| "backend.modes"
 	| "backend.models"
+	| "backend.commands"
+	| "session.command"
 	| "terminal.list"
 	| "terminal.open"
 	| "terminal.attach"
@@ -343,7 +380,10 @@ export class OpError extends Error {
 	}
 }
 
-/** Per-op default deadlines (§3): 15s, except `session.sync` at 20s. */
+/** Per-op default deadlines (§3): 15s, except `session.sync` at 20s and
+ * `session.command` at none — the machine accepts the run at once and the
+ * turn streams as events; the op itself never blocks, so its deadline is
+ * the generic one. */
 export function opDeadlineMs(op: OpName): number {
 	return op === "session.sync" ? 20_000 : 15_000;
 }

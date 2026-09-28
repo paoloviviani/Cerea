@@ -53,6 +53,8 @@
 		setAgentEffort,
 		compactAgent,
 		unrevertAgent,
+		listAgentCommands,
+		runAgentCommand,
 		CodeApiError,
 	} from "$lib/codeApi";
 	import type { CodeProviderFeature } from "$lib/codeApi";
@@ -78,7 +80,9 @@
 		panelCommands as panelCommandTable,
 		type SlashCommand,
 	} from "$lib/utils/slashCommand.svelte";
+	import type { CodeCommand } from "$lib/types/CodeAgent";
 	import ContextMeter from "./ContextMeter.svelte";
+	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 
 	interface Props {
 		deviceId: string;
@@ -183,11 +187,12 @@
 		if (enrollmentExpired || offline) return;
 		const message = draft.trim();
 		if (!message || busy) return;
-		// A draft that names a panel command runs it instead of posting a
-		// message. The ChatInput Enter path parses the same rule and calls
-		// onslashcommand directly (below), so this re-parse is only reached
-		// by the send button's own form submit — either way one parse runs.
-		const run = matchSlashCommand(message, panelCommands);
+		// A draft that names a command — panel or the machine's own — runs it
+		// instead of posting a message. The ChatInput Enter path parses the
+		// same rule and calls onslashcommand directly (below), so this
+		// re-parse is only reached by the send button's own form submit —
+		// either way one parse runs.
+		const run = matchSlashCommand(message, allCommands);
 		if (run) {
 			if (running) {
 				// The send button is hidden while a turn runs, and a command
@@ -197,9 +202,12 @@
 			}
 			busy = true;
 			try {
-				await runCommand(run);
-				draft = "";
-				files = [];
+				const ran = await runCommand(run);
+				// A command deferred to the confirmation sheet keeps its draft.
+				if (ran) {
+					draft = "";
+					files = [];
+				}
 			} finally {
 				busy = false;
 			}
@@ -227,18 +235,90 @@
 		}
 		busy = true;
 		try {
-			await runCommand({ command, args });
-			draft = "";
-			files = [];
+			const ran = await runCommand({ command, args });
+			// A command deferred to the confirmation sheet keeps its draft —
+			// the sheet's own run (or a Cancel) decides what happens next.
+			if (ran) {
+				draft = "";
+				files = [];
+			}
 		} finally {
 			busy = false;
 		}
 	}
 
-	/** Run one panel command over its existing route — no new API. A failure
-	 * lands in a toast; the command's draft is cleared only by the caller
-	 * after this resolves, so a refusal keeps the text to retry. */
-	async function runCommand({ command, args }: { command: SlashCommand; args: string }) {
+	/** Run one `/` command: a panel command over its existing route, a
+	 * backend command through the confirmation gate and `session.command`.
+	 * Returns whether the run actually went out — a command held by the
+	 * confirmation sheet did not, and the caller keeps its draft. A failure
+	 * lands in a toast; the refusal keeps the text to retry. */
+	async function runBackendCommand(command: SlashCommand, args: string): Promise<boolean> {
+		const full = backendCommands.find((candidate) => candidate.name === command.name);
+		if (!full) {
+			errorToast.set("That command is no longer listed on this machine.");
+			return true;
+		}
+		// A project-origin or shell-expanding command asks once per (device,
+		// name, templateHash) before its first run — the sheet is a speed
+		// bump, the machine's commandShell policy the real veto.
+		if (
+			(full.origin === "project" || full.shell === true) &&
+			confirmedHash(full) !== (full.templateHash ?? "")
+		) {
+			confirming = { command: full, args };
+			return false;
+		}
+		await executeBackendCommand(full, args);
+		return true;
+	}
+
+	async function executeBackendCommand(full: CodeCommand, args: string) {
+		try {
+			await runAgentCommand(deviceId, agentId, {
+				name: full.name,
+				arguments: args,
+				...(full.templateHash ? { templateHash: full.templateHash } : {}),
+			});
+			// The template a refused run described may have changed since the
+			// menu was filled; re-read so the next open is current.
+			void refreshBackendCommands();
+		} catch (err) {
+			if (err instanceof CodeApiError && err.status === 409) {
+				errorToast.set("This command changed on the machine; review it again.");
+			} else if (err instanceof Error) {
+				errorToast.set(err.message);
+			} else {
+				errorToast.set("The daemon refused the command.");
+			}
+		}
+	}
+
+	async function confirmBackendCommand() {
+		const pending = confirming;
+		if (!pending) return;
+		rememberConfirmation(pending.command);
+		await executeBackendCommand(pending.command, pending.args);
+		confirming = null;
+	}
+
+	async function refreshBackendCommands() {
+		const token = ++commandsToken;
+		try {
+			const result = await listAgentCommands(deviceId, agentId);
+			if (token === commandsToken) backendCommands = result.commands;
+		} catch {
+			if (token === commandsToken) backendCommands = [];
+		}
+	}
+
+	async function runCommand({
+		command,
+		args,
+	}: {
+		command: SlashCommand;
+		args: string;
+	}): Promise<boolean> {
+		if (command.group !== "panel") return runBackendCommand(command, args);
 		switch (command.name) {
 			case "compact": {
 				try {
@@ -251,13 +331,13 @@
 						errorToast.set(err instanceof Error ? err.message : "The daemon refused to compact.");
 					}
 				}
-				return;
+				return true;
 			}
 			case "undo":
 				// The confirmation — and the machine id it needs — live in the
 				// view, the same dialog the transcript's retry action uses.
 				onundo?.();
-				return;
+				return true;
 			case "redo": {
 				try {
 					await unrevertAgent(deviceId, agentId);
@@ -267,7 +347,7 @@
 						err instanceof Error ? err.message : "The daemon refused to undo the rollback."
 					);
 				}
-				return;
+				return true;
 			}
 			case "model": {
 				// No argument: open the picker. An argument: the unique fuzzy
@@ -276,7 +356,7 @@
 				const query = args.toLowerCase();
 				if (!query) {
 					modelPickerOpen = true;
-					return;
+					return true;
 				}
 				const matches = (models ?? []).filter(
 					(model) =>
@@ -288,13 +368,13 @@
 				} else {
 					modelPickerOpen = true;
 				}
-				return;
+				return true;
 			}
 			case "mode": {
 				const query = args.toLowerCase();
 				if (!query) {
 					modeMenuOpen = true;
-					return;
+					return true;
 				}
 				const matches = (modes ?? []).filter(
 					(mode) =>
@@ -305,14 +385,14 @@
 				} else {
 					modeMenuOpen = true;
 				}
-				return;
+				return true;
 			}
 			case "effort": {
 				const query = args.toLowerCase();
 				const levels = effortLevels ?? [];
 				if (!query) {
 					modelPickerOpen = true;
-					return;
+					return true;
 				}
 				const matches = levels.filter((level) => level.toLowerCase().includes(query));
 				if (matches.length === 1) {
@@ -320,13 +400,13 @@
 				} else {
 					modelPickerOpen = true;
 				}
-				return;
+				return true;
 			}
 			case "new":
 				onnew?.();
-				return;
+				return true;
 			default:
-				return;
+				return true;
 		}
 	}
 
@@ -340,6 +420,84 @@
 			efforts: effortsSupported,
 		})
 	);
+
+	// The menu's backend half: the machine's own command list, fetched once
+	// per open agent (and again after each backend run — the template a
+	// failed run described may have changed). A machine without the
+	// capability (an old galopin: the op 404s) leaves the list empty and
+	// the menu panel-only, exactly what batch B already handles.
+	let backendCommands = $state<CodeCommand[]>([]);
+	let commandsToken = 0;
+	$effect(() => {
+		const token = ++commandsToken;
+		backendCommands = [];
+		untrack(async () => {
+			try {
+				const result = await listAgentCommands(deviceId, agentId);
+				if (token === commandsToken) backendCommands = result.commands;
+			} catch {
+				// Silent fallback by design: the menu is the help, and a
+				// machine that cannot answer it still runs every panel
+				// command. The refusal that matters comes at run time.
+				if (token === commandsToken) backendCommands = [];
+			}
+		});
+	});
+
+	/** The machine's commands mapped into the menu's shape: the group from
+	 * the origin (project commands are repo code — the badge says so), the
+	 * hint from the template's own placeholders, and a panel-name collision
+	 * marked shadowed rather than dropped, so the menu explains the rule it
+	 * enforces instead of silently hiding half of it. */
+	let allCommands = $derived.by(() => {
+		const panelNames = new Set(panelCommands.map((command) => command.name.toLowerCase()));
+		const backend = backendCommands.map((command) => {
+			const slash: SlashCommand = {
+				name: command.name,
+				description: command.description ?? "",
+				hint: command.hints.length ? command.hints.join(" ") : undefined,
+				group:
+					command.source === "mcp"
+						? "mcp"
+						: command.source === "skill"
+							? "skill"
+							: command.origin === "project"
+								? "project"
+								: "machine",
+				shell: command.shell === true,
+			};
+			if (panelNames.has(command.name.toLowerCase())) slash.shadowed = true;
+			return slash;
+		});
+		return [...panelCommands, ...backend];
+	});
+
+	/** The command the confirmation sheet is open for: a project-origin or
+	 * shell-expanding command whose (name, templateHash) this device has
+	 * not confirmed yet. Everything else runs straight away. */
+	let confirming = $state<{ command: CodeCommand; args: string } | null>(null);
+	const CONFIRMED_KEY = "code:command-confirmations:";
+
+	function confirmedHash(command: CodeCommand): string | undefined {
+		try {
+			const stored = JSON.parse(globalThis.localStorage?.getItem(CONFIRMED_KEY + deviceId) ?? "{}");
+			return stored[command.name];
+		} catch {
+			return undefined;
+		}
+	}
+
+	function rememberConfirmation(command: CodeCommand) {
+		try {
+			const key = CONFIRMED_KEY + deviceId;
+			const stored = JSON.parse(globalThis.localStorage?.getItem(key) ?? "{}");
+			stored[command.name] = command.templateHash ?? "";
+			globalThis.localStorage?.setItem(key, JSON.stringify(stored));
+		} catch {
+			// Storage unavailable (private mode): the confirmation simply
+			// re-asks next run — a speed bump, not a correctness problem.
+		}
+	}
 
 	// The two option lists, live from the daemon for the agent's provider.
 	// Fetched eagerly rather than on first open: the pills resolve their
@@ -665,7 +823,7 @@
 				bind:files
 				onsubmit={submit}
 				bind:focused
-				slashCommands={panelCommands}
+				slashCommands={allCommands}
 				onslashcommand={onSlashCommand}
 			>
 				{#snippet children()}
@@ -960,6 +1118,17 @@
 			void applyModel(id);
 		}}
 		onclose={() => (modelDialogOpen = false)}
+	/>
+{/if}
+
+{#if confirming}
+	<!-- The first-run confirmation for a project or shell command: the
+	     snippets and file refs the machine's listing carried, the accept
+	     remembered per device in localStorage. -->
+	<CommandConfirmSheet
+		command={confirming.command}
+		onconfirm={() => confirmBackendCommand()}
+		onclose={() => (confirming = null)}
 	/>
 {/if}
 

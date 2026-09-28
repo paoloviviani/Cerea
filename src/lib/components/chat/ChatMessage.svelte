@@ -1041,11 +1041,40 @@
 
 			<div class="flex w-full flex-row flex-nowrap">
 				{#if !editMode}
-					<p
-						class="disabled w-full appearance-none bg-inherit px-5 py-3.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-500 dark:text-gray-400"
-					>
-						{message.content.trim()}
-					</p>
+					{#if message.command}
+						<!-- A slash command run (PROTOCOL.md §7): the bubble is the
+						     invocation; the expanded template — which opencode ran
+						     on this machine as the prompt — folds into a collapsed
+						     disclosure beneath it, so the transcript reads the
+						     command while keeping every word it produced. -->
+						<div class="w-full px-5 py-3.5">
+							<p
+								class="w-fit rounded-lg bg-gray-100 px-2 py-1 font-mono text-sm wrap-break-word text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+							>
+								/{message.command.name}{message.command.arguments
+									? ` ${message.command.arguments}`
+									: ""}
+							</p>
+							<details class="mt-1">
+								<summary
+									class="cursor-pointer text-xs text-gray-400 select-none dark:text-gray-500"
+								>
+									Expanded command
+								</summary>
+								<p
+									class="mt-1 text-sm text-wrap wrap-break-word whitespace-break-spaces text-gray-500 dark:text-gray-400"
+								>
+									{message.content.trim()}
+								</p>
+							</details>
+						</div>
+					{:else}
+						<p
+							class="disabled w-full appearance-none bg-inherit px-5 py-3.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-500 dark:text-gray-400"
+						>
+							{message.content.trim()}
+						</p>
+					{/if}
 				{:else}
 					<form
 						class="mt-3 flex w-full flex-col"

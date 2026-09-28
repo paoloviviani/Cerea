@@ -24,6 +24,7 @@ import type { CodeDeviceView } from "$lib/server/codeDevices";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
 	CodeAgentSession,
+	CodeCommand,
 	CodeDirectory,
 	CodeFileChange,
 	CodeProviderMode,
@@ -31,6 +32,8 @@ import type {
 	CodeSubagent,
 	CodeWorkspace,
 } from "$lib/types/CodeAgent";
+
+export type { CodeCommand };
 
 export type { CodeDeviceView };
 
@@ -338,6 +341,43 @@ export async function listSubagents(
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}/subagents?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** The open agent's slash commands from the machine (PROTOCOL.md §6
+ * backend.commands): origins, shell facts and template hashes — and never
+ * a template. A backend without the capability 404s; the composer reads
+ * that as "panel commands only". */
+export async function listAgentCommands(
+	deviceId: string,
+	agentId: string
+): Promise<{ commands: CodeCommand[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/commands?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** Run one slash command in the open agent (PROTOCOL.md §6
+ * session.command): accepted at once, the turn streams as events. The
+ * machine's gates answer 404 (unknown), 409 (the template changed since it
+ * was reviewed), 403 (a policy veto — the shell one names the enroll flag)
+ * and 400 (a busy session, malformed arguments). */
+export async function runAgentCommand(
+	deviceId: string,
+	agentId: string,
+	input: { name: string; arguments: string; messageId?: string; templateHash?: string }
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/command?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+			}
 		)
 	);
 }

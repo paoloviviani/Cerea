@@ -17,6 +17,12 @@ export interface CodeAuditInput {
 	/** A terminal action's target (open/attach/close, refusals, ticket
 	 * failures) — never the terminal's content or keystrokes. */
 	terminalId?: string;
+	/** A command run's own facts (code.command): its name, the machine's
+	 * derived origin, and whether its template expands shell — never the
+	 * arguments, never any expanded text. */
+	name?: string;
+	origin?: string;
+	shell?: string;
 }
 
 /** The row-writing core, independent of a SvelteKit `RequestEvent`: the
@@ -35,11 +41,14 @@ export async function recordCodeAuditRow(
 			userId,
 			deviceId: new ObjectId(input.deviceId),
 			action: input.action,
-			...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
-			...(input.path ? { path: input.path.slice(0, 1024) } : {}),
-			...(input.bytes !== undefined ? { bytes: input.bytes } : {}),
-			...(input.terminalId ? { terminalId: input.terminalId } : {}),
-			...(context.ip ? { ip: context.ip } : {}),
+		...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+		...(input.path ? { path: input.path.slice(0, 1024) } : {}),
+		...(input.bytes !== undefined ? { bytes: input.bytes } : {}),
+		...(input.terminalId ? { terminalId: input.terminalId } : {}),
+		...(input.name ? { name: input.name } : {}),
+		...(input.origin ? { origin: input.origin } : {}),
+		...(input.shell ? { shell: input.shell } : {}),
+		...(context.ip ? { ip: context.ip } : {}),
 			...(context.userAgent ? { userAgent: context.userAgent.slice(0, 256) } : {}),
 			at: new Date(),
 		});
