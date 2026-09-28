@@ -29,7 +29,9 @@ const (
 	MaxImageBytes = 8 << 20
 	// MaxPerToolCall caps the attachments listed on one tool part.
 	MaxPerToolCall = 8
-	// maxRefs bounds the remembered references (a few hundred bytes each).
+	// maxRefs bounds the remembered references (a few hundred bytes each);
+	// past it the oldest tenth is dropped at once, so the trim is amortized
+	// and the backing array of what was dropped is released.
 	maxRefs = 20000
 )
 
@@ -46,6 +48,12 @@ type Ref struct {
 	MessageID string
 	PartID    string
 	CallID    string
+
+	// Source is a cheap fingerprint of where the bytes were read from (the
+	// part, position and the encoded form's length and ends). A backend that
+	// re-maps the same part on every snapshot asks BySource first and skips
+	// decoding and hashing when the image is already held.
+	Source string
 }
 
 type refKey struct{ session, sha string }
@@ -64,6 +72,7 @@ type Store struct {
 	items    map[string]*list.Element
 	refs     map[refKey]Ref
 	refOrder []refKey
+	sources  map[refKey]string // {session, Source} -> sha256
 }
 
 // New returns a Store holding at most maxBytes (DefaultMaxBytes when <= 0).
@@ -72,10 +81,11 @@ func New(maxBytes int64) *Store {
 		maxBytes = DefaultMaxBytes
 	}
 	return &Store{
-		max:   maxBytes,
-		lru:   list.New(),
-		items: map[string]*list.Element{},
-		refs:  map[refKey]Ref{},
+		max:     maxBytes,
+		lru:     list.New(),
+		items:   map[string]*list.Element{},
+		refs:    map[refKey]Ref{},
+		sources: map[refKey]string{},
 	}
 }
 
@@ -112,12 +122,37 @@ func (s *Store) Put(sessionID string, ref Ref, data []byte) (Ref, bool) {
 	if _, ok := s.refs[k]; !ok {
 		s.refOrder = append(s.refOrder, k)
 		if len(s.refOrder) > maxRefs {
-			delete(s.refs, s.refOrder[0])
-			s.refOrder = s.refOrder[1:]
+			drop := maxRefs / 10
+			for _, old := range s.refOrder[:drop] {
+				delete(s.sources, refKey{old.session, s.refs[old].Source})
+				delete(s.refs, old)
+			}
+			s.refOrder = append(make([]refKey, 0, maxRefs+1), s.refOrder[drop:]...)
 		}
 	}
 	s.refs[k] = ref
+	if ref.Source != "" {
+		s.sources[refKey{sessionID, ref.Source}] = ref.SHA256
+	}
 	return ref, true
+}
+
+// BySource returns the reference sessionID recorded for a Source whose bytes
+// are still held, so the caller can skip decoding them again.
+func (s *Store) BySource(sessionID, source string) (Ref, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sha, ok := s.sources[refKey{sessionID, source}]
+	if !ok {
+		return Ref{}, false
+	}
+	el, held := s.items[sha]
+	r, known := s.refs[refKey{sessionID, sha}]
+	if !held || !known {
+		return Ref{}, false
+	}
+	s.lru.MoveToFront(el)
+	return r, true
 }
 
 // Ref reports what sessionID knows about sha, whether or not the bytes are
@@ -152,9 +187,10 @@ func (s *Store) Get(sessionID, sha string) (Ref, []byte, bool) {
 func (s *Store) Forget(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	kept := s.refOrder[:0]
+	kept := make([]refKey, 0, len(s.refOrder))
 	for _, k := range s.refOrder {
 		if k.session == sessionID {
+			delete(s.sources, refKey{k.session, s.refs[k].Source})
 			delete(s.refs, k)
 			continue
 		}

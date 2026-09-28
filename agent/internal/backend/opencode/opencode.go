@@ -30,6 +30,10 @@ type Config struct {
 	// AttachmentCacheBytes bounds the tool-image cache (default 64 MiB); the
 	// live IT shrinks it to force the re-read path.
 	AttachmentCacheBytes int64
+	// SSEMaxLineBytes bounds one line of opencode's event stream (default
+	// 128 MiB); a longer one is skipped and its session resynced. The live IT
+	// lowers it to exercise that path.
+	SSEMaxLineBytes int
 	// Bin is the opencode binary (default "opencode": resolved via PATH).
 	Bin string
 	// Hostname/Port are what opencode serve binds. Port 0 picks a free one.

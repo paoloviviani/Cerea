@@ -532,3 +532,46 @@ func TestChildSummariesMatchesChildSummary(t *testing.T) {
 		}
 	}
 }
+
+// A resync (the backend skipped an event it could not read) re-reads the
+// transcript and announces its tool parts again, images included.
+func TestResyncReannouncesToolPartsFromTheTranscript(t *testing.T) {
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	back.transcripts["s1"] = backend.Transcript{
+		Status: backend.StatusIdle,
+		Messages: []backend.TranscriptEntry{{
+			Message: backend.Message{ID: "m1", Role: "assistant"},
+			Parts: []backend.Part{
+				{ID: "t1", MessageID: "m1", Type: backend.PartText, Text: "hi"},
+				{ID: "p1", MessageID: "m1", Type: backend.PartTool, CallID: "c1", Tool: "shot", ToolStatus: backend.ToolCompleted,
+					Attachments: []backend.ToolAttachment{{SHA256: "a", Mime: "image/png", Size: 3}}},
+			},
+		}},
+	}
+	mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/work", SessionID: "s1", Event: backend.Event{Kind: backend.EventResync}})
+
+	select {
+	case env := <-mat.Events():
+		if env.SessionID != "s1" || env.Event.Kind != backend.EventPart || env.Event.Part.CallID != "c1" || len(env.Event.Part.Attachments) != 1 {
+			t.Fatalf("envelope = %+v", env)
+		}
+		if env.Event.Part.Role != "assistant" {
+			t.Fatalf("role not filled: %q", env.Event.Part.Role)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no part re-announced")
+	}
+	// The held history is the fresh transcript, and a snapshot carries it.
+	res, err := mat.Sync(context.Background(), "s1", "", 0)
+	if err != nil || res.Snapshot == nil || len(res.Snapshot.Messages) != 1 {
+		t.Fatalf("sync: %+v %v", res, err)
+	}
+	// An unknown session is ignored, never created.
+	mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{SessionID: "ghost", Event: backend.Event{Kind: backend.EventResync}})
+	time.Sleep(100 * time.Millisecond)
+	if _, err := mat.Sync(context.Background(), "ghost", "", 0); err == nil {
+		t.Fatal("resync created an unknown session")
+	}
+}

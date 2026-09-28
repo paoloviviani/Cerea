@@ -14,8 +14,7 @@ var _ backend.AttachmentSource = (*Backend)(nil)
 // toolImages lifts the image content items of a tool_call / tool_call_update
 // ({content:[{type:"content",content:{type:"image",data,mimeType}}]}) into the
 // store, returning the by-reference list the wire part carries.
-func (b *Backend) toolImages(sessionID string, upd map[string]any) []backend.ToolAttachment {
-	var out []backend.ToolAttachment
+func (b *Backend) toolImages(sessionID string, upd map[string]any) (out []backend.ToolAttachment, omitted int) {
 	for _, c := range asMaps(getSlice(upd, "content")) {
 		inner := getMap(c, "content")
 		if inner == nil {
@@ -25,25 +24,29 @@ func (b *Backend) toolImages(sessionID string, upd map[string]any) []backend.Too
 			continue
 		}
 		if len(out) >= attach.MaxPerToolCall {
-			break
+			omitted++
+			continue
 		}
 		mime := strings.ToLower(getStr(inner, "mimeType", "mime"))
 		switch mime {
 		case "image/png", "image/jpeg", "image/gif", "image/webp":
 		default:
+			omitted++
 			continue
 		}
 		data, err := base64.StdEncoding.DecodeString(getStr(inner, "data"))
 		if err != nil {
+			omitted++
 			continue
 		}
 		ref, ok := b.att.Put(sessionID, attach.Ref{Mime: mime}, data)
 		if !ok {
+			omitted++
 			continue
 		}
 		out = append(out, backend.ToolAttachment{SHA256: ref.SHA256, Mime: ref.Mime, Size: ref.Size})
 	}
-	return out
+	return out, omitted
 }
 
 // Attachment serves a listed image from memory. ACP cannot be asked for it

@@ -248,6 +248,9 @@ export type Part =
 			/** Images the call produced, by reference (§7): the bytes are
 			 * fetched with `session.attachment` by sha256. */
 			attachments?: ToolAttachment[];
+			/** Images the call produced that `attachments` does not list (over
+			 * the per-call cap, over 8 MiB, or not a raster type). */
+			attachmentsOmitted?: number;
 	  })
 	| ({ id: string; messageId: string; role: string; type: "file" } & {
 			mime: string;

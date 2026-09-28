@@ -45,7 +45,7 @@ describe("a tool result's images", () => {
 	});
 
 	it("renders a coding-agent image from its same-origin url, beside a data one", async () => {
-		const url = `/api/v2/code/v1/agents/s1/attachments/${"a".repeat(64)}?device=d1`;
+		const url = `/api/v2/code/v1/agents/s1/attachments/${"a".repeat(64)}?device=${"b".repeat(24)}`;
 		const images = await open([
 			call,
 			result([
@@ -57,6 +57,26 @@ describe("a tool result's images", () => {
 			url,
 			"data:image/png;base64,iVBORw0KGgo=",
 		]);
+	});
+
+	it("loads nothing but the attachment route, even from this origin", async () => {
+		const sha = "a".repeat(64);
+		const device = "b".repeat(24);
+		const hostile = [
+			"/api/v2/conversation/abc/delete",
+			"/logout",
+			`/api/v2/code/v1/agents/s1/attachments/${sha}?device=${device}&x=1`,
+			`/api/v2/code/v1/agents/s1/attachments/${sha}`,
+			`/api/v2/code/v1/agents/s1/attachments/${"A".repeat(64)}?device=${device}`,
+			`/api/v2/code/v1/agents/s1/attachments/${sha}?device=d1`,
+			`/api/v2/code/v1/agents/../../../logout/attachments/${sha}?device=${device}`,
+			`/api/v2/code/v1/agents/s1/attachments/${sha}?device=${device}#frag`,
+		];
+		const images = await open([
+			call,
+			result(hostile.map((url) => ({ type: "image", mimeType: "image/png", url }))),
+		]);
+		expect(images).toHaveLength(0);
 	});
 
 	it("does not load a url that leaves this origin", async () => {

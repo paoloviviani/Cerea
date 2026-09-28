@@ -1104,7 +1104,25 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 				url
 			)
 		);
-		expect(outputs).toEqual([{ text: "took a screenshot" }]);
+		expect(outputs).toEqual([
+			{ text: "took a screenshot" },
+			{ text: "3 images not shown (too many, too large or not a supported type)." },
+		]);
+	});
+
+	it("says when the machine itself left images out", () => {
+		const part = {
+			...toolPart([{ sha256: shaA, mime: "image/png", size: 100 }]),
+			attachmentsOmitted: 1,
+		};
+		const outputs = resultOutputs(snapshotToUpdates(transcriptWith(part as Part), url));
+		expect(outputs?.[2]).toEqual({
+			text: "1 image not shown (too many, too large or not a supported type).",
+		});
+		// No url builder, no images, no note.
+		expect(resultOutputs(snapshotToUpdates(transcriptWith(part as Part)))).toEqual([
+			{ text: "took a screenshot" },
+		]);
 	});
 
 	it("caps the images taken from one call", () => {
@@ -1116,6 +1134,9 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		const outputs = resultOutputs(snapshotToUpdates(transcriptWith(toolPart(many)), url));
 		const content = (outputs?.[1] as { content: unknown[] }).content;
 		expect(content).toHaveLength(8);
+		expect(outputs?.[2]).toEqual({
+			text: "12 images not shown (too many, too large or not a supported type).",
+		});
 	});
 
 	it("gives a live part event the same frames a snapshot does (one mapping)", () => {

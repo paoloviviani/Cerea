@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -105,11 +107,22 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 	}
 	defer resp.Body.Close()
 
-	scanner := bufio.NewScanner(resp.Body)
-	// A tool part can carry an 8 MiB screenshot inline as a base64 data: URL.
-	scanner.Buffer(make([]byte, 64*1024), 16<<20)
+	// Lines are read with a bounded reader, not bufio.Scanner: a tool part
+	// carries its images inline as data: URLs, so one message.part.updated
+	// line can be tens of MiB, and Scanner's ErrTooLong would end the stream
+	// for every session. An oversized line is skipped and its session resynced.
+	reader := bufio.NewReaderSize(resp.Body, 64*1024)
+	limit := b.cfg.SSEMaxLineBytes
+	if limit <= 0 {
+		limit = defaultSSEMaxLine
+	}
 	var dataLines []string
+	var oversized *oversizedLine
 	flush := func() {
+		if oversized != nil {
+			b.resyncAfterOversized(oversized, out)
+			oversized = nil
+		}
 		if len(dataLines) == 0 {
 			return
 		}
@@ -117,22 +130,31 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 		dataLines = nil
 		b.handleSSEData(raw, out)
 	}
-	for scanner.Scan() {
+	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		line := scanner.Text()
+		line, big, err := readBoundedLine(reader, limit)
 		switch {
+		case big != nil:
+			oversized = big
 		case line == "":
-			flush()
+			if err == nil {
+				flush()
+			}
 		case strings.HasPrefix(line, "data:"):
 			dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		default:
 			// event:/id:/comment lines and anything else are not needed.
 		}
+		if err != nil {
+			flush()
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
 	}
-	flush()
-	return scanner.Err()
 }
 
 // sseFrame is GET /global/event's per-message envelope: {directory,
@@ -339,4 +361,76 @@ func (b *Backend) fillContextMax(info map[string]any, u *backend.Usage) {
 		max := limit
 		u.ContextMax = &max
 	}
+}
+
+// defaultSSEMaxLine bounds one SSE line. It sits inside the link's own frame
+// limit (160 MiB) and above what eight full-size screenshots need inline.
+const defaultSSEMaxLine = 128 << 20
+
+// oversizedLine is what is kept of a line past the limit: enough of its head
+// to say whose event it was.
+type oversizedLine struct {
+	head string
+	size int
+}
+
+// readBoundedLine reads one line (without its newline). A line longer than
+// limit is consumed to its end without being kept and reported in big, so the
+// stream carries on; err is the reader's, with a final unterminated line still
+// returned alongside io.EOF.
+func readBoundedLine(r *bufio.Reader, limit int) (line string, big *oversizedLine, err error) {
+	var buf []byte
+	total := 0
+	for {
+		chunk, e := r.ReadSlice('\n')
+		total += len(chunk)
+		if total <= limit {
+			buf = append(buf, chunk...)
+		} else {
+			if big == nil {
+				buf = append(buf, chunk...)
+				head := buf
+				if len(head) > 64*1024 {
+					head = head[:64*1024]
+				}
+				big = &oversizedLine{head: string(head)}
+				buf = nil
+			}
+		}
+		if e == bufio.ErrBufferFull {
+			continue
+		}
+		err = e
+		break
+	}
+	if big != nil {
+		big.size = total
+		return "", big, err
+	}
+	return strings.TrimRight(string(buf), "\r\n"), nil, err
+}
+
+var (
+	sseSessionRe   = regexp.MustCompile(`"sessionI[Dd]":"([^"]+)"`)
+	sseDirectoryRe = regexp.MustCompile(`"directory":"((?:[^"\\]|\\.)*)"`)
+)
+
+// resyncAfterOversized drops the unreadable event and asks for the session's
+// transcript to be re-read, so what it carried (the images, the tool's final
+// state) arrives through the snapshot path instead. The session is named by
+// the head of the line; a line that never says is only logged.
+func (b *Backend) resyncAfterOversized(o *oversizedLine, out chan<- backend.BackendEvent) {
+	m := sseSessionRe.FindStringSubmatch(o.head)
+	b.cfg.Logf("opencode: skipped an oversized event line (%d bytes)", o.size)
+	if m == nil {
+		return
+	}
+	dir := ""
+	if d := sseDirectoryRe.FindStringSubmatch(o.head); d != nil {
+		var s string
+		if json.Unmarshal([]byte(`"`+d[1]+`"`), &s) == nil {
+			dir = s
+		}
+	}
+	out <- backend.BackendEvent{WorkspaceDir: dir, SessionID: m[1], Event: backend.Event{Kind: backend.EventResync}}
 }

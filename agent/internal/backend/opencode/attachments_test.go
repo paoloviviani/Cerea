@@ -148,3 +148,31 @@ func fakeServerBackend(t *testing.T, srv *httptest.Server) *Backend {
 	port, _ := strconv.Atoi(portStr)
 	return New(Config{Hostname: host, Port: port, Password: "x"})
 }
+
+func TestMapPartCountsWhatItDropsAndSkipsRework(t *testing.T) {
+	b := New(Config{})
+	var atts []any
+	for i := 0; i < attach.MaxPerToolCall+2; i++ {
+		atts = append(atts, map[string]any{"mime": "image/png", "url": dataURL("image/png", append([]byte("\x89PNG"), byte(i)))})
+	}
+	atts = append(atts,
+		map[string]any{"mime": "image/svg+xml", "url": dataURL("image/svg+xml", []byte("<svg/>"))},
+		map[string]any{"mime": "application/pdf", "url": dataURL("application/pdf", []byte("%PDF"))}, // not an image: not counted
+	)
+	p := b.mapPart("ses1", toolPartWith(atts...))
+	if len(p.Attachments) != attach.MaxPerToolCall || p.AttachmentsOmitted != 3 {
+		t.Fatalf("listed %d omitted %d, want %d and 3", len(p.Attachments), p.AttachmentsOmitted, attach.MaxPerToolCall)
+	}
+	// Mapping the same part again (a snapshot) yields the same list without
+	// storing anything new.
+	before := b.att
+	q := b.mapPart("ses1", toolPartWith(atts...))
+	if b.att != before || len(q.Attachments) != len(p.Attachments) || q.Attachments[0] != p.Attachments[0] || q.AttachmentsOmitted != 3 {
+		t.Fatalf("second mapping differs: %+v", q)
+	}
+	oversized := b.mapPart("ses1", map[string]any{"id": "prt9", "messageID": "m9", "type": "tool", "callID": "c9",
+		"state": map[string]any{"status": "completed", "attachments": []any{map[string]any{"mime": "image/png", "url": dataURL("image/png", make([]byte, attach.MaxImageBytes+1))}}}})
+	if len(oversized.Attachments) != 0 || oversized.AttachmentsOmitted != 1 {
+		t.Fatalf("oversized: %+v", oversized)
+	}
+}

@@ -278,12 +278,13 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 	} else if part.ToolStatus == backend.ToolFailed {
 		part.ToolError = toolCallText(upd)
 	}
-	part.Attachments = b.toolImages(st.id, upd)
-	if len(part.Attachments) == 0 {
+	part.Attachments, part.AttachmentsOmitted = b.toolImages(st.id, upd)
+	if len(part.Attachments) == 0 && part.AttachmentsOmitted == 0 {
 		// An update that repeats the call without its content must not
 		// erase images an earlier one delivered.
 		if idx, ok := st.partIndex[partID]; ok {
-			part.Attachments = st.messages[st.partOwner[partID]].Parts[idx].Attachments
+			prev := st.messages[st.partOwner[partID]].Parts[idx]
+			part.Attachments, part.AttachmentsOmitted = prev.Attachments, prev.AttachmentsOmitted
 		}
 	}
 	st.upsertPart(part)
