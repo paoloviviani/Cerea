@@ -710,6 +710,20 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("a plan session refuses a build-naming command", func(t *testing.T) {
+		// L (2026-09-28 follow-up): this subtest flips the session's
+		// overlay mode mid-run — a t.Fatal partway through (M8's own
+		// failure did exactly this, live) would otherwise leave it on
+		// "plan" for every later subtest, which is what turned an
+		// unrelated MCP case into a false failure downstream. t.Cleanup
+		// still runs after FailNow, unlike code merely placed at the end
+		// of this function.
+		t.Cleanup(func() {
+			if _, operr := machine.Handle(ctx, "session.setMode", mustJSONArgs(t, map[string]any{
+				"sessionId": sess.ID, "modeId": "build",
+			})); operr != nil {
+				t.Logf("cleanup: resetting session mode to build: %+v", operr)
+			}
+		})
 		// M2, live: the command's own agent: frontmatter always wins
 		// server-side, so an escalation refuses outright instead of
 		// pretending the overlay overrides it.

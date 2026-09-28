@@ -34,6 +34,7 @@ type commandFake struct {
 	docRequests    int
 	agents         []map[string]any // GET /agent's answer
 	failAgent      bool             // make GET /agent fail
+	lastAgentDir   string           // the directory query GET /agent last saw
 }
 
 func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFake) {
@@ -62,6 +63,7 @@ func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFak
 		case r.URL.Path == "/agent":
 			f.mu.Lock()
 			fail, agents := f.failAgent, f.agents
+			f.lastAgentDir = r.URL.Query().Get("directory")
 			f.mu.Unlock()
 			if fail {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -101,6 +103,12 @@ func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFak
 	port, _ := strconv.Atoi(portStr)
 	b := New(Config{Hostname: host, Port: port, Password: "x"})
 	return b, f
+}
+
+func (f *commandFake) agentDir() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastAgentDir
 }
 
 func (f *commandFake) last() map[string]any {
@@ -146,6 +154,34 @@ func TestAgentModelsNilOnFailure(t *testing.T) {
 	b, _ := newCommandFake(t, func(f *commandFake) { f.failAgent = true })
 	if got := b.AgentModels(context.Background(), "/ws"); got != nil {
 		t.Fatalf("AgentModels on a failed read = %v, want nil", got)
+	}
+}
+
+// M9: opencode answers /agent per directory — a project's own
+// .opencode/agent/*.md and opencode.json agents exist only for that
+// workspace. Omitting the query reads the server's own working directory
+// instead, which is never the workspace, so project-defined agents read
+// as absent from the gate's point of view. Modes shares the same
+// omission and the same fix.
+func TestAgentModelsSendsWorkspaceDirectory(t *testing.T) {
+	b, f := newCommandFake(t, func(f *commandFake) {
+		f.agents = []map[string]any{{"name": "build", "mode": "primary", "model": ""}}
+	})
+	b.AgentModels(context.Background(), "/ws/project")
+	if got := f.agentDir(); got != "/ws/project" {
+		t.Fatalf("GET /agent directory query = %q, want /ws/project", got)
+	}
+}
+
+func TestModesSendsWorkspaceDirectory(t *testing.T) {
+	b, f := newCommandFake(t, func(f *commandFake) {
+		f.agents = []map[string]any{{"name": "build", "mode": "primary", "model": ""}}
+	})
+	if _, err := b.Modes(context.Background(), "/ws/project"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.agentDir(); got != "/ws/project" {
+		t.Fatalf("GET /agent directory query = %q, want /ws/project", got)
 	}
 }
 

@@ -253,9 +253,9 @@ func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir string, _ st
 	return b.doJSON(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply"+directoryQuery(workspaceDir), body, nil)
 }
 
-func (b *Backend) Modes(ctx context.Context, _ string) ([]backend.Mode, error) {
+func (b *Backend) Modes(ctx context.Context, workspaceDir string) ([]backend.Mode, error) {
 	var raw []any
-	if err := b.doJSON(ctx, http.MethodGet, "/agent", nil, &raw); err != nil {
+	if err := b.doJSON(ctx, http.MethodGet, "/agent"+directoryQuery(workspaceDir), nil, &raw); err != nil {
 		return nil, err
 	}
 	out := make([]backend.Mode, 0, len(raw))
@@ -275,9 +275,19 @@ func (b *Backend) Modes(ctx context.Context, _ string) ([]backend.Mode, error) {
 // subagent must resolve too. A failed read answers nil — the dispatch
 // then refuses agent-naming commands rather than assuming a model the
 // server never confirmed (the same fail-closed shape as L6).
-func (b *Backend) AgentModels(ctx context.Context, _ string) map[string]string {
+//
+// M9: opencode answers /agent per directory — a project's own
+// .opencode/agent/*.md and opencode.json agents exist only for that
+// workspace. Omitting directory reads the server's own working directory
+// instead, which for a machine supervising opencode is never the
+// workspace: every project-defined agent then reads as absent (the gate
+// falls through to "unlisted", not "listed with this model"), and a
+// project agent redefining a builtin's name masks it in the other
+// direction — the gate sees the global builtin's real model (or its lack
+// of one) rather than the project's.
+func (b *Backend) AgentModels(ctx context.Context, workspaceDir string) map[string]string {
 	var raw []any
-	if err := b.doJSON(ctx, http.MethodGet, "/agent", nil, &raw); err != nil {
+	if err := b.doJSON(ctx, http.MethodGet, "/agent"+directoryQuery(workspaceDir), nil, &raw); err != nil {
 		b.cfg.Logf("opencode: listing agents for the command gate: %v", err)
 		return nil
 	}
