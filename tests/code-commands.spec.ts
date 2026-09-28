@@ -215,8 +215,17 @@ async function installStubs(page: Page): Promise<Harness> {
 	return h;
 }
 
-const goto = (page: Page) =>
-	page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+const goto = async (page: Page) => {
+	// The capabilities that gate the panel command list ride the devices
+	// fetch; typing before it lands would snapshot an ungated menu. The stub
+	// answers instantly — this only synchronizes the fetch.
+	const devices = page.waitForResponse(
+		(response) =>
+			response.url().includes("/api/v2/code/devices") && response.request().method() === "GET"
+	);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
+	await devices;
+};
 
 const box = (page: Page) => page.getByRole("combobox");
 const menu = (page: Page) => page.getByRole("listbox", { name: "Slash commands" });

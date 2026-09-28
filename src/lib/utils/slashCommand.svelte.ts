@@ -169,6 +169,14 @@ export class SlashCommandState {
 
 	setCommands(commands: SlashCommand[]): void {
 		this.#commands = commands;
+		// A list that arrives while the menu is already open (the machine's
+		// capability fetch landing after the first keystroke) recomputes the
+		// visible results in place rather than leaving a stale, half-empty
+		// menu until the next keystroke.
+		if (this.token) {
+			this.results = this.#filter(this.token.query);
+			if (this.activeIndex >= this.results.length) this.activeIndex = -1;
+		}
 	}
 
 	/**
