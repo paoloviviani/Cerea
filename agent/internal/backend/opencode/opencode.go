@@ -103,10 +103,12 @@ type Backend struct {
 	backendGen  int
 	commandsGen int
 	commandsPtr *bool
-	// stateCmdMu/stateCmdNames cache the state directory's command listing
-	// for the process's lifetime (backend.commands's origin diff).
-	stateCmdMu    sync.Mutex
-	stateCmdNames map[string]bool
+	// stateCmdMu/stateCmdBaseline cache the state directory's command
+	// listing for the process's lifetime (backend.commands's origin
+	// proofs): full entries, so builtin metadata and machine-scope hashes
+	// both compare against the same baseline.
+	stateCmdMu       sync.Mutex
+	stateCmdBaseline map[string]backend.Command
 	// markerMu/commandMarkers map a command's minted messageID to the
 	// transcript marker, persisted alongside the id map.
 	markerMu       sync.Mutex
