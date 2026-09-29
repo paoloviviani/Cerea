@@ -65,6 +65,11 @@ type Config struct {
 	// them; on a machine whose /tmp is tmpfs, a supervisor restarting it
 	// would slowly fill RAM. Nothing else lives there between starts.
 	TmpDir string
+	// ToolsDir, if set, is the directory galopin owns for its own opencode
+	// tools (session_list/session_spawn/session_send, tools.go): written at
+	// every start and exported as OPENCODE_CONFIG_DIR. Empty installs no
+	// tools and the agentTools capability is false.
+	ToolsDir string
 	// StartupTimeout bounds Start's wait for the first health check
 	// (default 30s). A first run on a cold cache can be slower than that;
 	// the integration test overrides it rather than this package assuming
@@ -133,6 +138,15 @@ type Backend struct {
 	overlayMu sync.Mutex
 	overlay   map[string]sessionOverlay
 
+	// toolsMu guards the galopin tool relay (tools.go): the loopback server
+	// plus its held approvals, and the handler answering the calls.
+	toolsMu       sync.Mutex
+	tools         *toolPlan
+	toolHandlerFn backend.ToolHandler
+	// sentMarkers maps a session_send message's minted id to its sender,
+	// persisted with the overlay (guarded by markerMu).
+	sentMarkers map[string]backend.MessageSender
+
 	// clientMsgMu/clientMessageIDs is the durable half of the
 	// clientMessageId mapping (PROTOCOL.md §7): opencode message id ->
 	// clientMessageId, persisted alongside the overlay. Since prompt_async
@@ -166,6 +180,8 @@ type Backend struct {
 type sessionOverlay struct {
 	ModeID  string `json:"modeId,omitempty"`
 	ModelID string `json:"modelId,omitempty"`
+	// SpawnedBy marks a session_spawn session (PROTOCOL.md §7).
+	SpawnedBy *backend.SpawnedBy `json:"spawnedBy,omitempty"`
 	// Effort is the model variant id sent with every prompt (opencode's
 	// thinking-effort knob), "" for the model's default.
 	Effort string `json:"effort,omitempty"`
@@ -282,6 +298,9 @@ func (b *Backend) Start(ctx context.Context) error {
 	if err := b.loadOverlay(); err != nil {
 		return err
 	}
+	if err := b.startTools(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	b.lifecycle = ctx
 	b.mu.Unlock()
@@ -381,6 +400,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	if b.cfg.ConfigPath != "" {
 		env = append(env, "OPENCODE_CONFIG="+b.cfg.ConfigPath)
 	}
+	env = append(env, b.toolEnv()...)
 	cmd.Env = env
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -472,5 +492,6 @@ func (b *Backend) Stop() error {
 	if doneCh != nil {
 		<-doneCh
 	}
+	b.stopTools()
 	return b.saveOverlay()
 }

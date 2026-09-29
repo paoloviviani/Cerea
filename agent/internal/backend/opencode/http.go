@@ -95,6 +95,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false, AutoAccept: true,
 		Questions: true, Revert: true, RevertFiles: true, Efforts: true, ToolImages: true,
+		// galopin's own tools are installed only with a ToolsDir; opencode
+		// folds a prompt sent mid-turn into the running turn (prompt_async).
+		AgentTools: b.toolsEnabled(), Steer: true,
 		// Probed from the server's own GET /doc (never a version string):
 		// commands exist only when the server lists session.command there.
 		Commands: b.commandsSupported(),
@@ -157,8 +160,8 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 		return backend.Session{}, err
 	}
 	s := sessionFromMap(m)
-	if opts.ModeID != "" || opts.ModelID != "" {
-		if err := b.setOverlay(s.ID, sessionOverlay{ModeID: opts.ModeID, ModelID: opts.ModelID}); err != nil {
+	if opts.ModeID != "" || opts.ModelID != "" || opts.SpawnedBy != nil {
+		if err := b.setOverlay(s.ID, sessionOverlay{ModeID: opts.ModeID, ModelID: opts.ModelID, SpawnedBy: opts.SpawnedBy}); err != nil {
 			return backend.Session{}, err
 		}
 	}
@@ -183,7 +186,12 @@ func (b *Backend) DeleteSession(ctx context.Context, _ string, sessionID string)
 }
 
 func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt backend.Prompt) error {
-	parts := make([]map[string]any, 0, 1+len(prompt.Attachments))
+	parts := make([]map[string]any, 0, 2+len(prompt.Attachments))
+	if prompt.Preface != "" {
+		// A synthetic part: the model reads it, the transcript never shows it
+		// as the person's text (PROTOCOL.md §7).
+		parts = append(parts, map[string]any{"type": "text", "text": prompt.Preface, "synthetic": true})
+	}
 	if prompt.Text != "" {
 		parts = append(parts, map[string]any{"type": "text", "text": prompt.Text})
 	}
@@ -214,6 +222,9 @@ func (b *Backend) Prompt(ctx context.Context, _ string, sessionID string, prompt
 	}
 	if ov.Effort != "" {
 		body["variant"] = ov.Effort
+	}
+	if prompt.SentBy != nil {
+		b.recordSentMarker(messageID, *prompt.SentBy)
 	}
 	if prompt.ClientMessageID != "" {
 		b.recordExactClientMessageID(messageID, prompt.ClientMessageID)
@@ -254,7 +265,12 @@ func (b *Backend) SetEffort(ctx context.Context, workspaceDir, sessionID, effort
 	return b.GetSession(ctx, workspaceDir, sessionID)
 }
 
-func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir string, _ string, requestID string, decision backend.Decision, message string) error {
+func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir string, sessionID string, requestID string, decision backend.Decision, message string) error {
+	// galopin's own approvals (session_spawn/session_send) are held here and
+	// never forwarded: opencode does not know them.
+	if strings.HasPrefix(requestID, galopinAskPrefix) {
+		return b.replyGalopinAsk(ctx, sessionID, requestID, decision, message)
+	}
 	body := map[string]any{"reply": string(decision)}
 	if message != "" {
 		body["message"] = message
