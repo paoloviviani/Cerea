@@ -39,7 +39,7 @@ at source:
 ## The rest of the stack
 
 - **Pystino**, the gateway and console that every call goes through, has its own
-  [documentation](https://github.com/paoloviviani/Pystino/tree/main/docs):
+  [documentation site](https://paoloviviani.github.io/Pystino/):
   identity and administrators, accounting and quotas, redaction, the console, and
   what the gateway provides to coding agents.
 - **cerea-deploy**, the deployment, has the
