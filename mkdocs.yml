@@ -86,6 +86,7 @@ validation:
 nav:
   - Home: index.md
   - Using Cerea:
+      - Chat: chat.md
       - "Python in the browser": pyodide.md
       - "Knowledge and projects": rag.md
       - "Agent machines": agent-machines.md
