@@ -17,6 +17,20 @@ the deployment's own commented list, and `./configure --set KEY=VALUE` changes a
 single one (see [Deploying](deploy.md)). Switches take the string `true` or
 `false`; the defaults below say which way an unset one goes.
 
+## The variables that choose your deployment shape
+
+Three upstream-named variables decide what kind of deployment you are
+running, before any of the fork's variables below matter:
+
+| Variable              | What it decides                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OPENAI_BASE_URL`     | Where inference goes: a Pystino gateway's `/v1`, or any OpenAI-compatible endpoint.                                                                                                                                                                                                                                                                                            |
+| `USE_USER_TOKEN`      | With `OPENAI_BASE_URL` set, `true` makes this a **gateway deployment**: people sign in through the gateway and every inference call carries their own token, so quotas and the ledger are theirs. Unset or `false` means one shared `OPENAI_API_KEY` and no per-person billing. A hand-built chat pointed at Pystino without this silently bills everything to the shared key. |
+| `OPENID_PROVIDER_URL` | The identity provider people sign in with. The machine agent's issuer (`CODE_MACHINE_ISSUER`) defaults to it.                                                                                                                                                                                                                                                                  |
+
+The [Deploying](deploy.md) page shows the two complete variable sets, for a
+chat against Pystino and for a chat against any other endpoint.
+
 ## Sign-in
 
 | Variable                    | What                                                                                                                                                                                                                          |
