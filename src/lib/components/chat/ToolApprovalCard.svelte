@@ -123,6 +123,37 @@
 		submitted = action;
 	}
 
+	/**
+	 * galopin's own approvals (`session_spawn`, `session_send`; PROTOCOL.md §6
+	 * "Agent tools") are recognised by the request itself, never by the tool's
+	 * name, exactly as the machine does. They read as a person-facing summary
+	 * of what the model is about to do — the whole prompt or message, since a
+	 * truncated preview would approve text the person never saw — and offer no
+	 * "always": the machine never remembers one, so a button for it would lie.
+	 * Only on the agent surface (`onanswer`): in chat the args are a model's own
+	 * tool arguments, which may say anything.
+	 */
+	const galopin = $derived(onanswer !== undefined && toolApproval?.args?.galopin === true);
+	type Fact = { label: string; value: string; long?: boolean };
+	const galopinFacts = $derived.by((): Fact[] => {
+		const args = toolApproval?.args;
+		if (!galopin || !args) return [];
+		const text = (value: unknown) => (typeof value === "string" ? value : "");
+		const facts: Fact[] = [];
+		if (toolApproval?.tool === "session_spawn") {
+			facts.push({ label: "Title", value: text(args.title) });
+			facts.push({ label: "Mode", value: text(args.modeId) });
+			facts.push({ label: "Model", value: text(args.modelId) || "this session's model" });
+			facts.push({ label: "Prompt", value: text(args.prompt), long: true });
+		} else if (toolApproval?.tool === "session_send") {
+			const target = args.target as { title?: unknown } | undefined;
+			facts.push({ label: "To", value: text(target?.title) });
+			facts.push({ label: "Message", value: text(args.text), long: true });
+			if (typeof args.hop === "number") facts.push({ label: "Hop", value: `${args.hop} of 3` });
+		}
+		return facts.filter((fact) => fact.value !== "");
+	});
+
 	const argsJson = $derived.by(() => {
 		if (!toolApproval) return "";
 		try {
@@ -180,7 +211,7 @@
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
 					>{#if subagentLabel}{subagentLabel} ·
-					{/if}Tool approval</span
+					{/if}{galopin ? "Agent action" : "Tool approval"}</span
 				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					wants to call <code
@@ -195,8 +226,26 @@
 				{/if}
 			</div>
 
-			<pre
-				class="mt-3 max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-600 dark:bg-gray-800/70 dark:text-gray-300">{argsJson}</pre>
+			{#if galopin && galopinFacts.length > 0}
+				<dl class="mt-3 space-y-2 text-sm" data-testid="galopin-approval">
+					{#each galopinFacts as fact (fact.label)}
+						<div class={fact.long ? "" : "flex flex-wrap gap-x-2"}>
+							<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{fact.label}</dt>
+							<dd class="min-w-0 text-gray-800 dark:text-gray-100">
+								{#if fact.long}
+									<pre
+										class="mt-1 max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-sans text-sm whitespace-pre-wrap text-gray-700 dark:bg-gray-800/70 dark:text-gray-200">{fact.value}</pre>
+								{:else}
+									{fact.value}
+								{/if}
+							</dd>
+						</div>
+					{/each}
+				</dl>
+			{:else}
+				<pre
+					class="mt-3 max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-600 dark:bg-gray-800/70 dark:text-gray-300">{argsJson}</pre>
+			{/if}
 
 			{#if error}
 				<p class="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>
@@ -212,14 +261,16 @@
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
 					{approveLabel}
 				</button>
-				<button
-					type="button"
-					onclick={() => send("accept", onanswer ? "always" : "conversation")}
-					disabled={submitting !== null}
-					class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-				>
-					{onanswer ? "Always allow" : "Allow for this conversation"}
-				</button>
+				{#if !galopin}
+					<button
+						type="button"
+						onclick={() => send("accept", onanswer ? "always" : "conversation")}
+						disabled={submitting !== null}
+						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+					>
+						{onanswer ? "Always allow" : "Allow for this conversation"}
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={() => send("decline")}
