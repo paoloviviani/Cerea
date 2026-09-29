@@ -134,9 +134,17 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	}
 	// Once a tool result is in the history the call has happened: answer with
 	// text, or the client loops forever.
+	// Only results after the latest user message count: an earlier turn's
+	// tool call must not stop a later prompt from making its own.
+	lastUser := -1
+	for i, m := range req.Messages {
+		if m["role"] == "user" {
+			lastUser = i
+		}
+	}
 	toolResultSeen := false
-	for _, m := range req.Messages {
-		if m["role"] == "tool" {
+	for i, m := range req.Messages {
+		if m["role"] == "tool" && i > lastUser {
 			toolResultSeen = true
 		}
 	}
