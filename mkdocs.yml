@@ -89,7 +89,7 @@ nav:
       - Chat: chat.md
       - Artifacts: artifacts.md
       - "Python in the browser": pyodide.md
-      - "Knowledge and projects": rag.md
+      - "Knowledge and projects": knowledge.md
       - "Agent machines": agent-machines.md
       - "The headless browser": browser.md
   - Operating Cerea:

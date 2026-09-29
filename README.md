@@ -21,7 +21,7 @@ greeting that means both _buongiorno_ and _arrivederci_.
 - **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no
   network access.
 - **Knowledge bases and projects**, shareable with people or groups, with an
-  optional project memory ([docs/rag.md](docs/rag.md)).
+  optional project memory ([docs/knowledge.md](docs/knowledge.md)).
 - **Python in your browser**, in a WebAssembly sandbox with the scientific and
   office libraries ([docs/pyodide.md](docs/pyodide.md)).
 - **The `/code` agents panel**: coding agents on your own machines through
@@ -113,7 +113,7 @@ git fetch upstream && git merge upstream/main
 ## Documentation
 
 [code-panel](docs/code-panel.md) ·
-[agent-machines](docs/agent-machines.md) · [rag](docs/rag.md) ·
+[agent-machines](docs/agent-machines.md) · [knowledge](docs/knowledge.md) ·
 [pyodide](docs/pyodide.md) · [browser](docs/browser.md) ·
 [PRIVACY](PRIVACY.md). [docs/source](docs/source) is **upstream chat-ui's**
 documentation, kept as upstream wrote it; parts of it do not apply to Cerea.
