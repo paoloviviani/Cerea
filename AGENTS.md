@@ -509,6 +509,13 @@ changing the code:
   the _same_ update channel `consumeAgentUpdates.ts` already parses, and the
   connection's listeners migrate across a machine reconnect
   (`machines.ts`'s `onHello`) rather than going silently stale.
+- **Tool-output images are references, never bytes on the stream.** A tool
+  part lists `attachments` (`sha256`, `mime`, `size`); `machineTimeline.ts`
+  maps them to `{type:"image", url}` blocks pointing at the forwarder's
+  `v1/agents/:id/attachments/:sha256` route, which calls `session.attachment`
+  and judges the bytes itself (`server/code/toolImages.ts`: magic numbers, not
+  the claimed mime; ≤50 megapixels; ≤8 MiB; must hash to the sha). Nothing is
+  persisted in Cerea. SVG is never inline.
 - **The panel owns mutations, the pane owns display.** `CodeNavTree.svelte` has
   every dialog and every write; `CodePanel`/`AgentView` render whatever
   `?device=&ws=&agent=` names, and a new address remounts the view. Removals

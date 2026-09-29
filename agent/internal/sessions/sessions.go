@@ -380,6 +380,10 @@ func (m *Materializer) Start(ctx context.Context) error {
 // publishing whatever should reach a client. Exported so tests can drive it
 // synchronously without a live goroutine or a real backend.
 func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.BackendEvent) {
+	if be.Event.Kind == backend.EventResync {
+		go m.resync(ctx, be.WorkspaceDir, be.SessionID)
+		return
+	}
 	m.mu.Lock()
 	st, exists := m.sessions[be.SessionID]
 	if !exists {
@@ -424,6 +428,50 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 			By:        "auto",
 		})
 		m.mu.Unlock()
+		m.publish(env)
+	}
+}
+
+// resync recovers from an event the backend could not deliver (an oversized
+// line it had to skip): the session's held history is forgotten and re-read
+// from the backend, and every tool part of the fresh transcript is announced
+// again as a part event — a viewer already showing a call's result drops the
+// repeat (its frames are keyed by call id), one that missed it now gets it.
+// No status is announced: a transcript cannot say whether a turn is still
+// running, and the backend's own next status event will. A session this process never saw is left
+// alone: its first snapshot reads the backend anyway.
+func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID string) {
+	m.mu.Lock()
+	st, ok := m.sessions[sessionID]
+	if ok && workspaceDir == "" {
+		workspaceDir = st.workspaceDir
+	}
+	m.mu.Unlock()
+	if !ok {
+		return
+	}
+	tr, err := m.back.Transcript(ctx, workspaceDir, sessionID)
+	if err != nil {
+		return
+	}
+	m.Reseed(sessionID)
+	m.mu.Lock()
+	mergeSeedLocked(st, tr)
+	var envs []Envelope
+	for _, entry := range tr.Messages {
+		for _, p := range entry.Parts {
+			if p.Type != backend.PartTool {
+				continue
+			}
+			part := p
+			if part.Role == "" {
+				part.Role = entry.Message.Role
+			}
+			envs = append(envs, m.appendRingLocked(st, backend.Event{Kind: backend.EventPart, Part: &part}))
+		}
+	}
+	m.mu.Unlock()
+	for _, env := range envs {
 		m.publish(env)
 	}
 }

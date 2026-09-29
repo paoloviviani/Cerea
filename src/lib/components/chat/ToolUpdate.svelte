@@ -9,6 +9,7 @@
 	import { formatToolProgressCount, formatToolProgressLines } from "$lib/utils/toolProgress";
 	import { ToolResultStatus, type ToolFront } from "$lib/types/Tool";
 	import { page } from "$app/state";
+	import { base } from "$app/paths";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideTriangleAlert from "~icons/lucide/triangle-alert";
 	import LucideWrench from "~icons/lucide/wrench";
@@ -46,11 +47,12 @@
 	);
 
 	type ToolOutput = Record<string, unknown>;
-	type McpImageContent = {
-		type: "image";
-		data: string;
-		mimeType: string;
-	};
+	// An MCP tool's image arrives inline as base64 `data`; a coding-agent
+	// machine's arrives as a `url` into the forwarder's attachment route
+	// (PROTOCOL.md §7), so the stream never carries the bytes.
+	type McpImageContent =
+		| { type: "image"; data: string; mimeType: string }
+		| { type: "image"; url: string; mimeType: string };
 
 	const formatValue = (value: unknown): string => {
 		if (value == null) return "";
@@ -70,15 +72,27 @@
 		return maybeText;
 	};
 
+	// A `url` is loaded only if it is EXACTLY what toolImageUrl builds: the
+	// forwarder's attachment route for one 64-hex image of a device. Any other
+	// path — same-origin or not — is refused, because a tool result from a
+	// remote MCP connector is also rendered here and must not be able to make
+	// the browser send a cookie-bearing request to an endpoint of its choosing.
+	const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const attachmentUrl = new RegExp(
+		`^${escapedBase}/api/v2/code/v1/agents/[A-Za-z0-9_.~%-]+/attachments/[0-9a-f]{64}\\?device=[0-9a-f]{24}$`
+	);
+	const isAttachmentUrl = (url: string): boolean => attachmentUrl.test(url);
+
 	const isImageBlock = (value: unknown): value is McpImageContent => {
 		if (typeof value !== "object" || value === null) return false;
 		const obj = value as Record<string, unknown>;
-		return (
-			obj["type"] === "image" &&
-			typeof obj["data"] === "string" &&
-			typeof obj["mimeType"] === "string"
-		);
+		if (obj["type"] !== "image" || typeof obj["mimeType"] !== "string") return false;
+		if (typeof obj["data"] === "string") return true;
+		return typeof obj["url"] === "string" && isAttachmentUrl(obj["url"]);
 	};
+
+	const imageSrc = (image: McpImageContent): string =>
+		"url" in image ? image.url : `data:${image.mimeType};base64,${image.data}`;
 
 	const getImageBlocks = (output: ToolOutput): McpImageContent[] => {
 		const blocks = output["content"];
@@ -205,7 +219,7 @@
 												<img
 													alt={`Tool result image ${imageIndex + 1}`}
 													class="max-h-60 cursor-pointer rounded-sm border border-gray-200 dark:border-gray-700"
-													src={`data:${image.mimeType};base64,${image.data}`}
+													src={imageSrc(image)}
 												/>
 											{/each}
 										</div>

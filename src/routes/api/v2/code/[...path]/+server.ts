@@ -22,7 +22,7 @@
  *   sessions, not machines.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
@@ -36,6 +36,12 @@ import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
 import { buildHandoffHistory } from "$lib/server/code/handoff";
 import { logger } from "$lib/server/logger";
 import { promptAttachments } from "$lib/server/code/promptAttachments";
+import {
+	MAX_TOOL_IMAGE_BYTES,
+	inspectImage,
+	toolImageUrl,
+	withinPixelBudget,
+} from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
@@ -87,6 +93,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/features$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}$`) },
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/attachments/[0-9a-f]{64}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents/${ID}/timeline$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
@@ -554,6 +561,54 @@ export const GET: RequestHandler = async (event) => {
 	// (never on an interval): the roster is session.children, and its own
 	// transcript is the ordinary agent-stream history (`session.sync`),
 	// mapped through the same `machineTimeline` the parent's stream uses.
+	// A tool call's image (PROTOCOL.md §6 session.attachment, §7): raw bytes,
+	// fetched from the machine on each view and never persisted here. The
+	// machine is untrusted, so the bytes are judged on their own — magic
+	// numbers decide the type (its claimed mime is ignored), the header's
+	// pixel count must fit the budget, and the content must hash to the sha
+	// asked for (which is what makes the immutable caching below sound). The
+	// sha in the URL is not a capability: the op answers only for a session
+	// of this person's paired machine, and only for an image that session
+	// itself listed.
+	const attachmentMatch = new RegExp(`^v1/agents/(${ID})/attachments/([0-9a-f]{64})$`).exec(path);
+	if (attachmentMatch) {
+		const sessionId = decodeURIComponent(attachmentMatch[1]);
+		const sha256 = attachmentMatch[2];
+		const { data } = await callOp(() => link.sessionAttachment({ sessionId, sha256 }));
+		// Refuse before decoding what could not be served anyway.
+		if (typeof data !== "string" || data.length > Math.ceil((MAX_TOOL_IMAGE_BYTES * 4) / 3) + 4) {
+			error(413, "That image is too large to show.");
+		}
+		const bytes = Buffer.from(data, "base64");
+		if (bytes.length === 0 || bytes.length > MAX_TOOL_IMAGE_BYTES) {
+			error(413, "That image is too large to show.");
+		}
+		const image = inspectImage(bytes);
+		if (!image) error(415, "Only raster images (PNG, JPEG, GIF, WebP) are shown.");
+		if (!withinPixelBudget(image)) error(413, "That image has too many pixels to show.");
+		if (createHash("sha256").update(bytes).digest("hex") !== sha256) {
+			logger.warn({ deviceId, sessionId }, "code: attachment bytes do not match their sha256");
+			error(502, "The machine sent a different image than it listed.");
+		}
+		await recordCodeAudit(event, {
+			action: "attachment.raw",
+			deviceId,
+			path: `${sessionId}/${sha256}`,
+			bytes: bytes.length,
+		});
+		return new Response(bytes, {
+			headers: {
+				"content-type": image.mime,
+				"content-disposition": "inline",
+				"x-content-type-options": "nosniff",
+				"content-security-policy": "sandbox; default-src 'none'",
+				// Keyed by sha, so the answer never changes; private because a
+				// shared cache must not keep a person's screenshots.
+				"cache-control": "private, max-age=31536000, immutable",
+			},
+		});
+	}
+
 	const subagentsMatch = new RegExp(`^v1/agents/(${ID})/subagents$`).exec(path);
 	if (subagentsMatch) {
 		const sessionId = decodeURIComponent(subagentsMatch[1]);
@@ -578,10 +633,12 @@ export const GET: RequestHandler = async (event) => {
 	);
 	if (subagentTimelineMatch) {
 		const { snapshotToUpdates } = await import("$lib/server/code/machineTimeline");
-		const sync = await callOp(() =>
-			link.sessionSync({ sessionId: decodeURIComponent(subagentTimelineMatch[2]) })
-		);
-		const updates = "snapshot" in sync ? snapshotToUpdates(sync.snapshot) : [];
+		const childId = decodeURIComponent(subagentTimelineMatch[2]);
+		const sync = await callOp(() => link.sessionSync({ sessionId: childId }));
+		const updates =
+			"snapshot" in sync
+				? snapshotToUpdates(sync.snapshot, (sha256) => toolImageUrl(deviceId, childId, sha256))
+				: [];
 		return superjsonResponse({ updates });
 	}
 
