@@ -16,6 +16,7 @@ npm run check        # TypeScript validation (svelte-kit sync + svelte-check)
 npm run lint         # Check formatting (Prettier) and linting (ESLint)
 npm run format       # Auto-format with Prettier
 npm run test         # Run all tests (Vitest)
+uv run --with-requirements docs/requirements.txt mkdocs build --strict   # the docs site (docs/, not docs/source)
 ```
 
 ### Against a running stack
