@@ -59,9 +59,9 @@ in panel**.
 ### Images
 
 A **raster image** a run produces (PNG, JPEG, GIF or WebP) is shown **inline**
-under its card, without a click. Matplotlib charts are captured automatically
-and arrive this way, as `figure-1.png` and so on ([Matplotlib
-figures](pyodide.md#matplotlib-figures)). **SVG is never shown inline**, because an
+under its card, without a click. Charts the assistant draws arrive this way, as
+`figure-1.png` and so on (or under the name you asked for; see
+[Charts](pyodide.md#charts)). **SVG is never shown inline**, because an
 SVG can carry script, and neither are formats a browser may not decode; those
 keep the click-to-preview and the download.
 
