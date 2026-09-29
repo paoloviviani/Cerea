@@ -228,12 +228,6 @@
 	let terminalVetoed = $derived(
 		codeDeviceList.devices.find((d) => d.id === deviceId)?.policy?.terminal !== "allowed"
 	);
-	let terminalAcknowledged = $state(false);
-	$effect(() => {
-		terminalAcknowledged = Boolean(
-			codeDeviceList.devices.find((d) => d.id === deviceId)?.terminalAckAt
-		);
-	});
 	let effortsSupported = $derived.by(() => {
 		const caps = codeDeviceList.devices
 			.find((d) => d.id === deviceId)
@@ -1149,13 +1143,7 @@
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}
 			<SidePane label="Terminal">
-				<CodeTerminals
-					{deviceId}
-					workspaceId={(workspace?.id ?? workspaceId) as string}
-					machineName={codeDeviceList.devices.find((d) => d.id === deviceId)?.name ??
-						"this machine"}
-					bind:acknowledged={terminalAcknowledged}
-				/>
+				<CodeTerminals {deviceId} workspaceId={(workspace?.id ?? workspaceId) as string} />
 			</SidePane>
 		{/if}
 	</div>

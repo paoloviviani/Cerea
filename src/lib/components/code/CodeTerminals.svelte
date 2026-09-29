@@ -11,26 +11,21 @@
 	import IconRenew from "~icons/carbon/renew";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import CodeTerminal from "./CodeTerminal.svelte";
-	import Modal from "$lib/components/Modal.svelte";
-	import * as s from "$lib/components/overlay/styles";
 	import { base } from "$app/paths";
 	import {
 		listWorkspaceTerminals,
 		openTerminal as apiOpenTerminal,
 		renameTerminal,
 		closeTerminal as apiCloseTerminal,
-		acknowledgeTerminal,
 	} from "$lib/codeApi";
 	import type { Terminal } from "$lib/types/machineProtocol";
 
 	interface Props {
 		deviceId: string;
 		workspaceId: string;
-		machineName: string;
-		acknowledged: boolean;
 	}
 
-	let { deviceId, workspaceId, machineName, acknowledged = $bindable() }: Props = $props();
+	let { deviceId, workspaceId }: Props = $props();
 
 	let terminals = $state<Terminal[]>([]);
 	let activeId = $state<string | null>(null);
@@ -42,7 +37,6 @@
 	let renaming = $state<string | null>(null);
 	let renameValue = $state("");
 	let renameInput = $state<HTMLInputElement | undefined>();
-	let showAck = $state(false);
 	let pendingOpen = $state(false);
 	let failure = $state<string | null>(null);
 	let loading = $state(false);
@@ -90,18 +84,7 @@
 	}
 
 	function requestNew() {
-		if (!acknowledged) {
-			showAck = true;
-			return;
-		}
 		void reallyOpen();
-	}
-
-	async function confirmAck() {
-		await acknowledgeTerminal(deviceId);
-		acknowledged = true;
-		showAck = false;
-		await reallyOpen();
 	}
 
 	function select(id: string) {
@@ -288,31 +271,3 @@
 		{/if}
 	</div>
 </div>
-
-{#if showAck}
-	<Modal
-		width="max-w-md"
-		closeButton
-		labelledBy="terminal-ack-title"
-		onclose={() => (showAck = false)}
-	>
-		<div class="p-6">
-			<div class="mb-4 flex items-center gap-3">
-				<div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger/15">
-					<IconWarning class="size-5 text-danger" />
-				</div>
-				<h2 id="terminal-ack-title" class={s.TITLE}>A terminal is a full shell</h2>
-			</div>
-			<p class="text-sm text-ink-muted">
-				A terminal is a full shell on <strong>{machineName}</strong>. Anything typed here runs on
-				that machine, unmediated by the agent or any permission rule.
-			</p>
-			<div class="mt-4 flex justify-end gap-2">
-				<button type="button" onclick={() => (showAck = false)} class={s.SECONDARY}>Cancel</button>
-				<button type="button" class={s.PRIMARY} onclick={() => void confirmAck()}>
-					I understand
-				</button>
-			</div>
-		</div>
-	</Modal>
-{/if}

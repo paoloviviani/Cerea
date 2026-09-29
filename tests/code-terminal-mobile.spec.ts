@@ -104,10 +104,10 @@ async function clickNewTerminal(page: Page) {
 }
 
 async function acknowledgeIfShown(page: Page) {
-	const heading = page.getByRole("heading", { name: "A terminal is a full shell" });
-	if (await heading.isVisible({ timeout: 2000 }).catch(() => false)) {
-		await page.getByRole("button", { name: "I understand" }).click();
-	}
+	// The one-time "a terminal is a full shell" acknowledgement no longer
+	// exists. Kept as a guard so an unexpected dialog fails loudly instead
+	// of hanging the run.
+	await expect(page.getByRole("heading", { name: "A terminal is a full shell" })).toHaveCount(0);
 }
 
 function soleTerminalId(fake: FakeMachine): string {
@@ -122,8 +122,8 @@ async function waitForAttach(fake: FakeMachine, terminalId: string): Promise<voi
 		.toBeGreaterThan(0);
 }
 
-/** Opens the terminal tab, its one terminal, past the one-time
- * acknowledgement — the state every test below starts from. */
+/** Opens the terminal tab and its one terminal — opening asks nothing.
+ * The state every test below starts from. */
 async function openOneTerminal(page: Page, fake: FakeMachine): Promise<string> {
 	await openTerminalTab(page);
 	await clickNewTerminal(page);

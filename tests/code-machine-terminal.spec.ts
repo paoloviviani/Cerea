@@ -41,16 +41,14 @@ test.describe("the terminal on a real machine", () => {
 	}
 
 	/** Opening the Terminal tab only shows the (possibly empty) roster — a
-	 * terminal only exists once "+ New" is clicked, which for the first one
-	 * on a given machine shows the one-time acknowledgement instead of
-	 * opening it directly. */
+	 * terminal only exists once "+ New" is clicked, and opening asks
+	 * nothing. */
 	async function openTerminalTab(page: import("playwright/test").Page) {
 		await page.getByRole("button", { name: "Terminal", exact: true }).click();
 		await page.getByRole("button", { name: "New", exact: true }).click();
-		const ackDialog = page.getByRole("heading", { name: "A terminal is a full shell" });
-		if (await ackDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await page.getByRole("button", { name: "I understand" }).click();
-		}
+		// The one-time "a terminal is a full shell" acknowledgement no
+		// longer exists; assert its absence so a regression fails loudly.
+		await expect(page.getByRole("heading", { name: "A terminal is a full shell" })).toHaveCount(0);
 		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 30_000 });
 	}
 
