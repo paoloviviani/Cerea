@@ -45,16 +45,10 @@ PDF, a Word document, a chart) is a file artifact. The card under the output
 looks like a text artifact's: name, kind and size, with **Download** and **Open
 in panel**.
 
-- **Versions follow the filename.** Each run that writes the same filename adds
-  a version: a re-run that rewrites `report.pdf` makes v2 of the same artifact.
-  A re-run whose bytes are identical adds nothing.
-- **Cards are matched by content, not by name.** A card opens the exact version
-  its checksum belongs to (following the latest only when it _is_ the latest),
-  so a filename that was reused can never open the wrong version.
+- **Versions follow the name.** When you ask for a change and the assistant writes `report.pdf` again, that is v2 of the same artifact; an identical file adds nothing.
+- **A card always opens what it showed.** An older card in the conversation opens the version it produced at the time, even after later versions exist; the panel moves you between versions.
 - **Produced files are kept for 30 days**, per person, and survive reloads and
-  other devices, so a chart or a document is still there the next day. How a
-  file came to exist (a tool run, a code block that ran itself, an artifact
-  cell) changes nothing about how it is kept or shown.
+  other devices, so a chart or a document is still there the next day, however the assistant ran the code.
 
 ### Images
 
@@ -70,7 +64,7 @@ keep the click-to-preview and the download.
 The conversation's menu opens the **Artifacts** panel in the same side pane the
 previews use, so the list sits beside the chat instead of replacing it. It lists
 everything this conversation produced, in the order it appeared: the text
-artifacts, the files a run wrote, and any dashboards. Each row opens the
+artifacts, and the files the assistant's code wrote. Each row opens the
 artifact in the panel with its versions and preview; each file has its own
 **Download**, and the list has a reload button.
 
