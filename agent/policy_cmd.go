@@ -14,8 +14,8 @@ Usage:
   galopin policy show [--creds PATH] [--state-dir PATH]
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
-'set' may only TIGHTEN the policy: turn files, the terminal or command
-shell off, lower maxTerminals, or add to the file deny list. This file is
+'set' may only TIGHTEN the policy: turn files, the terminal, command
+shell or agent tools off, lower maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
 command shell back on, a higher maxTerminals, dropping a deny entry —
@@ -25,6 +25,8 @@ refuses and names the 'enroll' re-run that does it instead.
   --no-terminal       Turn the terminal off.
   --no-command-shell  Refuse every command whose template expands shell,
                       and every command whose shell is unknown.
+  --no-agent-tools    Stop installing session_list/session_spawn/session_send
+                      into opencode (takes effect at the next 'run').
   --max-terminals N   Lower the concurrent-terminal cap (must be less than
                       the current value).
   --file-deny GLOB    Add GLOB to the deny list (repeatable).
@@ -86,6 +88,7 @@ func runPolicyShow(args []string) error {
 	fmt.Println(filesPolicySummary(pol))
 	fmt.Println(terminalPolicySummary(pol))
 	fmt.Println(commandShellPolicySummary(pol))
+	fmt.Println(agentToolsPolicySummary(pol))
 	fmt.Printf("autoAccept: %s\n", pol.AutoAccept)
 	fmt.Printf("allowFreeModels: %v\n", pol.AllowFreeModels)
 	fmt.Printf("workspaceRoots: %v\n", pol.WorkspaceRoots)
@@ -98,6 +101,7 @@ func runPolicySet(args []string) error {
 	noFiles := fs.Bool("no-files", false, "")
 	noTerminal := fs.Bool("no-terminal", false, "")
 	noCommandShell := fs.Bool("no-command-shell", false, "")
+	noAgentTools := fs.Bool("no-agent-tools", false, "")
 	maxTerminals := fs.Int("max-terminals", 0, "")
 	var fileDeny []string
 	fs.Var(stringListFlag{&fileDeny}, "file-deny", "")
@@ -133,6 +137,10 @@ func runPolicySet(args []string) error {
 		pol.CommandShell = policy.TerminalDenied
 		changed = true
 	}
+	if *noAgentTools {
+		pol.AgentTools = policy.TerminalDenied
+		changed = true
+	}
 	if *maxTerminals != 0 {
 		current := pol.EffectiveMaxTerminals()
 		if *maxTerminals >= current {
@@ -154,5 +162,6 @@ func runPolicySet(args []string) error {
 	fmt.Fprintln(os.Stderr, filesPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	return nil
 }

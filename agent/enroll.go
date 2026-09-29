@@ -72,6 +72,11 @@ Usage:
                 inside opencode before any permission rule is asked, so
                 the snippets are code from the repo — off until an owner
                 explicitly opts in.
+   --no-agent-tools  Install none of galopin's agent-coordination tools
+                (session_list/session_spawn/session_send) into opencode, and
+                leave OPENCODE_CONFIG_DIR alone (default: installed; every
+                spawn and send needs a person's approval each time, which
+                auto-accept never answers).
    --yes        Overwrite existing files without asking.
 `
 
@@ -101,6 +106,7 @@ type enrollOptions struct {
 	allowFreeModels        bool
 	allowTerminal          bool
 	allowCommandShell      bool
+	noAgentTools           bool
 	maxTerminals           int
 	yes                    bool
 }
@@ -148,6 +154,7 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.noDefaultFileDeny, "no-default-file-deny", false, "")
 	fs.BoolVar(&opts.allowTerminal, "allow-terminal", false, "")
 	fs.BoolVar(&opts.allowCommandShell, "allow-command-shell", false, "")
+	fs.BoolVar(&opts.noAgentTools, "no-agent-tools", false, "")
 	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	if err := fs.Parse(args); err != nil {
@@ -288,6 +295,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if opts.allowCommandShell {
 		pol.CommandShell = policy.TerminalAllowed
 	}
+	if opts.noAgentTools {
+		pol.AgentTools = policy.TerminalDenied
+	}
 	pol.MaxTerminals = opts.maxTerminals
 	if opts.allowTerminal && !opts.allowAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're denying unattended agent commands but allowing a remote shell.")
@@ -298,6 +308,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, filesPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -480,6 +491,15 @@ func terminalPolicySummary(pol policy.Policy) string {
 		"Terminals: ALLOWED — anyone who controls your Cerea session can run commands as %s on this machine (max %d concurrent).",
 		who, pol.EffectiveMaxTerminals(),
 	)
+}
+
+// agentToolsPolicySummary says, in plain words, whether galopin installs its
+// agent-coordination tools on this machine.
+func agentToolsPolicySummary(pol policy.Policy) string {
+	if !pol.AgentToolsAllowed() {
+		return "Agent tools: OFF — no session_list/session_spawn/session_send is installed into the agent."
+	}
+	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (auto-accept never does)."
 }
 
 // commandShellPolicySummary says, in plain words, whether a slash command's
