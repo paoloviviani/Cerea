@@ -323,6 +323,7 @@
 							type="button"
 							class="flex h-12 items-center rounded-md border border-gray-200 bg-gray-50 px-2 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
 							data-testid="tool-image-gated"
+							aria-label={`Load image ${index + 1} of ${stripImages.length} (${formatMegabytes(image.size)})`}
 							onclick={() => (stripLoaded = new Set(stripLoaded).add(key))}
 						>
 							image · {formatMegabytes(image.size)} — tap to load

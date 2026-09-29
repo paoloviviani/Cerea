@@ -418,16 +418,20 @@
 		void goto(`${base}/code?device=${device.id}`, { keepFocus: true });
 	}
 
-	function row(active: boolean): string {
+	function row(active: boolean, holdsSelection = false): string {
 		// flex-1, not flex-none: the row's link fills the row so its
 		// trailing actions (the add button, the kebab) pin to the sidebar's
 		// right edge. A second flex utility on the call site would lose to
 		// stylesheet order regardless of class order, so growth lives here
 		// alone — call sites carry no flex sizing of their own.
+		// `holdsSelection`: a folded row with the selection hidden inside it —
+		// a lighter wash, so it does not read as the selected row itself.
 		return `flex h-8 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-sm ${
 			active
 				? "bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white"
-				: "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+				: holdsSelection
+					? "bg-gray-50 font-medium text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+					: "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
 		}`;
 	}
 </script>
@@ -525,7 +529,13 @@
 					{:else}
 						<a
 							href="{base}/code?device={device.id}"
-							class="min-w-0 {row(deviceActive && (!selectedAgentId || !deviceExpanded))}"
+							class="min-w-0 {row(
+								deviceActive && !selectedAgentId,
+								deviceActive && !!selectedAgentId && !deviceExpanded
+							)}"
+							data-holds-selection={deviceActive && !!selectedAgentId && !deviceExpanded
+								? ""
+								: undefined}
 							title={device.name}
 						>
 							<IconLaptop class="size-3.5 shrink-0" />
@@ -681,7 +691,15 @@
 												class="size-3 shrink-0 transition-transform {wsExpanded ? 'rotate-90' : ''}"
 											/>
 										</button>
-										<span class="min-w-0 {row(wsActive && (!selectedAgentId || !wsExpanded))}">
+										<span
+											class="min-w-0 {row(
+												wsActive && !selectedAgentId,
+												wsActive && !!selectedAgentId && !wsExpanded
+											)}"
+											data-holds-selection={wsActive && !!selectedAgentId && !wsExpanded
+												? ""
+												: undefined}
+										>
 											<IconFolder class="size-3 shrink-0" />
 											<span class="min-w-0 flex-1 truncate">{ws.name}</span>
 											{#if ws.branch}
@@ -796,176 +814,186 @@
 													tree?.agents ?? [],
 													tree?.workspaces ?? []
 												)}
-												<div class="group flex items-center gap-1 pr-1">
-													<a
-														href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
-														class="min-w-0 {row(agentActive)}"
-														title={agent.title}
-													>
-														<IconCode class="size-3 shrink-0" />
-														<span class="min-w-0 flex-1 truncate">{agent.title}</span>
-														{#if sub}
-															<span
-																class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
-																data-testid="subagent-badge">sub</span
-															>
-														{/if}
-														{#if agent.state === "waiting-permission" || kids?.waiting}
-															<span
-																class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-																title={agent.state === "waiting-permission"
-																	? "Waiting for your approval"
-																	: "A subagent is waiting for your approval"}
-																data-testid="waiting-approval"
-																>{agent.state === "waiting-permission"
-																	? "waiting for approval"
-																	: "subagent waiting"}</span
-															>
-														{:else}
-															<span
-																class="size-1.5 shrink-0 rounded-full {agent.state === 'running'
-																	? 'bg-blue-600'
-																	: agent.state === 'error'
-																		? 'bg-red-600'
-																		: agent.state === 'done'
-																			? 'bg-green-700'
-																			: 'bg-gray-400'}"
-																title={agent.state}
-															></span>
-														{/if}
-													</a>
-													{#if kids}
-														<DropdownMenu.Root>
-															<DropdownMenu.Trigger
-																class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																title="Subagents of this session"
-																data-testid="subagent-count"
-															>
-																{kids.count}
-																{kids.count === 1 ? "subagent" : "subagents"}
-															</DropdownMenu.Trigger>
-															<DropdownMenu.Portal>
-																<DropdownMenu.Content
-																	class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-																	side="bottom"
-																	align="end"
-																	sideOffset={6}
+												<!-- A subagent's rows sit in a rail of their own, one level
+												     under the workspace's: the rail idiom again, so the badge
+												     is not the only thing that says "not a top-level session". -->
+												<div
+													class={sub
+														? "ml-3 border-l border-gray-200 pl-1.5 dark:border-gray-700"
+														: ""}
+													data-testid={sub ? "subagent-rail" : undefined}
+												>
+													<div class="group flex items-center gap-1 pr-1">
+														<a
+															href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
+															class="min-w-0 {row(agentActive)}"
+															title={agent.title}
+														>
+															<IconCode class="size-3 shrink-0" />
+															<span class="min-w-0 flex-1 truncate">{agent.title}</span>
+															{#if sub}
+																<span
+																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
+																	data-testid="subagent-badge">sub</span
 																>
-																	{#each kids.children as child (child.id)}
-																		<DropdownMenu.Item
-																			class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-																			onSelect={() =>
-																				goto(
-																					`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
-																				)}
-																		>
-																			<span class="min-w-0 flex-1 truncate">{child.title}</span>
-																			{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
-																				<span class="shrink-0 text-xs text-gray-400"
-																					>· {child.workspaceName}</span
-																				>
-																			{/if}
-																		</DropdownMenu.Item>
-																	{:else}
-																		<p class="px-2 py-1 text-xs text-gray-500">
-																			In another workspace not listed here.
-																		</p>
-																	{/each}
-																</DropdownMenu.Content>
-															</DropdownMenu.Portal>
-														</DropdownMenu.Root>
-													{/if}
-													<!-- The session's actions live in the same kebab
+															{/if}
+															{#if agent.state === "waiting-permission" || kids?.waiting}
+																<span
+																	class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+																	title={agent.state === "waiting-permission"
+																		? "Waiting for your approval"
+																		: "A subagent is waiting for your approval"}
+																	data-testid="waiting-approval"
+																	>{agent.state === "waiting-permission"
+																		? "waiting for approval"
+																		: "subagent waiting"}</span
+																>
+															{:else}
+																<span
+																	class="size-1.5 shrink-0 rounded-full {agent.state === 'running'
+																		? 'bg-blue-600'
+																		: agent.state === 'error'
+																			? 'bg-red-600'
+																			: agent.state === 'done'
+																				? 'bg-green-700'
+																				: 'bg-gray-400'}"
+																	title={agent.state}
+																></span>
+															{/if}
+														</a>
+														{#if kids}
+															<DropdownMenu.Root>
+																<DropdownMenu.Trigger
+																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+																	title="Subagents of this session"
+																	data-testid="subagent-count"
+																>
+																	{kids.count}
+																	{kids.count === 1 ? "subagent" : "subagents"}
+																</DropdownMenu.Trigger>
+																<DropdownMenu.Portal>
+																	<DropdownMenu.Content
+																		class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+																		side="bottom"
+																		align="end"
+																		sideOffset={6}
+																	>
+																		{#each kids.children as child (child.id)}
+																			<DropdownMenu.Item
+																				class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+																				onSelect={() =>
+																					goto(
+																						`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
+																					)}
+																			>
+																				<span class="min-w-0 flex-1 truncate">{child.title}</span>
+																				{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
+																					<span class="shrink-0 text-xs text-gray-400"
+																						>· {child.workspaceName}</span
+																					>
+																				{/if}
+																			</DropdownMenu.Item>
+																		{:else}
+																			<p class="px-2 py-1 text-xs text-gray-500">
+																				In another workspace not listed here.
+																			</p>
+																		{/each}
+																	</DropdownMenu.Content>
+																</DropdownMenu.Portal>
+															</DropdownMenu.Root>
+														{/if}
+														<!-- The session's actions live in the same kebab
 									     as the workspace's, at the row's right edge:
 									     rename and archive are occasional, and a bare
 									     trash can was the only visible offer for both. -->
-													<DropdownMenu.Root>
-														<!-- Reserved-space trigger, same as the workspace
+														<DropdownMenu.Root>
+															<!-- Reserved-space trigger, same as the workspace
 										     kebab above: opacity toggles, display never
 										     does, so the presence dot never jumps on
 										     hover. -->
-														<DropdownMenu.Trigger
-															class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-															title="Session actions"
-															aria-label="Session actions"
-														>
-															<IconKebab class="size-3.5" />
-														</DropdownMenu.Trigger>
-														<DropdownMenu.Portal>
-															<DropdownMenu.Content
-																class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-																side="bottom"
-																align="end"
-																sideOffset={6}
-																trapFocus={false}
-																onCloseAutoFocus={(e) => e.preventDefault()}
-																interactOutsideBehavior="defer-otherwise-close"
+															<DropdownMenu.Trigger
+																class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+																title="Session actions"
+																aria-label="Session actions"
 															>
-																<DropdownMenu.Item
-																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-																	onSelect={() => (renameAgentFor = { device, agent })}
+																<IconKebab class="size-3.5" />
+															</DropdownMenu.Trigger>
+															<DropdownMenu.Portal>
+																<DropdownMenu.Content
+																	class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+																	side="bottom"
+																	align="end"
+																	sideOffset={6}
+																	trapFocus={false}
+																	onCloseAutoFocus={(e) => e.preventDefault()}
+																	interactOutsideBehavior="defer-otherwise-close"
 																>
-																	<IconEdit class="size-4 opacity-90 dark:opacity-80" />
-																	Rename
-																</DropdownMenu.Item>
-																<DropdownMenu.Item
-																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-																	onSelect={() =>
-																		(confirmRequest = { kind: "agent", device, agent })}
-																>
-																	<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-																	Archive
-																</DropdownMenu.Item>
-																<DropdownMenu.Item
-																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-600 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10"
-																	onSelect={() =>
-																		(confirmRequest = { kind: "agent-delete", device, agent })}
-																>
-																	<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-																	Delete
-																</DropdownMenu.Item>
-															</DropdownMenu.Content>
-														</DropdownMenu.Portal>
-													</DropdownMenu.Root>
+																	<DropdownMenu.Item
+																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+																		onSelect={() => (renameAgentFor = { device, agent })}
+																	>
+																		<IconEdit class="size-4 opacity-90 dark:opacity-80" />
+																		Rename
+																	</DropdownMenu.Item>
+																	<DropdownMenu.Item
+																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+																		onSelect={() =>
+																			(confirmRequest = { kind: "agent", device, agent })}
+																	>
+																		<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+																		Archive
+																	</DropdownMenu.Item>
+																	<DropdownMenu.Item
+																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-600 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10"
+																		onSelect={() =>
+																			(confirmRequest = { kind: "agent-delete", device, agent })}
+																	>
+																		<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+																		Delete
+																	</DropdownMenu.Item>
+																</DropdownMenu.Content>
+															</DropdownMenu.Portal>
+														</DropdownMenu.Root>
+													</div>
+													{#if spawned}
+														{#if spawned.workspaceId}
+															<a
+																href="{base}/code?device={device.id}&ws={spawned.workspaceId}&agent={spawned.sessionId}"
+																class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+																data-testid="spawned-from"
+																>↳ from {spawned.title}{spawned.elsewhere
+																	? ` · ${spawned.elsewhere}`
+																	: ""}</a
+															>
+														{:else}
+															<p
+																class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
+																data-testid="spawned-from"
+															>
+																↳ from {spawned.title}
+															</p>
+														{/if}
+													{/if}
+													{#if sub}
+														{#if sub.parentWorkspaceId}
+															<a
+																href="{base}/code?device={device.id}&ws={sub.parentWorkspaceId}&agent={sub.parentId}"
+																class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+																data-testid="subagent-from"
+																>↳ from {sub.parentTitle}{sub.elsewhere
+																	? ` · ${sub.elsewhere}`
+																	: ""}</a
+															>
+														{:else}
+															<p
+																class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
+																data-testid="subagent-from"
+															>
+																↳ from a session not listed here
+															</p>
+														{/if}
+													{/if}
 												</div>
-												{#if spawned}
-													{#if spawned.workspaceId}
-														<a
-															href="{base}/code?device={device.id}&ws={spawned.workspaceId}&agent={spawned.sessionId}"
-															class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-															data-testid="spawned-from"
-															>↳ from {spawned.title}{spawned.elsewhere
-																? ` · ${spawned.elsewhere}`
-																: ""}</a
-														>
-													{:else}
-														<p
-															class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
-															data-testid="spawned-from"
-														>
-															↳ from {spawned.title}
-														</p>
-													{/if}
-												{/if}
-												{#if sub}
-													{#if sub.parentWorkspaceId}
-														<a
-															href="{base}/code?device={device.id}&ws={sub.parentWorkspaceId}&agent={sub.parentId}"
-															class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-															data-testid="subagent-from"
-															>↳ from {sub.parentTitle}{sub.elsewhere
-																? ` · ${sub.elsewhere}`
-																: ""}</a
-														>
-													{:else}
-														<p
-															class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
-															data-testid="subagent-from"
-														>
-															↳ from a session not listed here
-														</p>
-													{/if}
-												{/if}
 											{/each}
 											{#if wsActive && agentsOf(tree, ws.id).length === 0}
 												<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">

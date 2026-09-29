@@ -20,13 +20,26 @@
 		 * composer's plus button (`size-8` target, `text-base` icon), so the
 		 * compacted pills don't read as smaller siblings. */
 		compact?: boolean;
+		/** A short figure ("3/7") kept visible when `compact` hides the label,
+		 * so progress does not vanish on a phone. Part of the accessible name
+		 * only through `label`, which the caller already carries it in. */
+		badge?: string;
 		onclick: () => void;
 		/** The pill's own icon, since it differs per toggle (and, for /code's
 		 * feature pills, per state — on/off/vetoed). */
 		icon: Snippet;
 	}
 
-	let { pressed, label, title, disabled = false, compact = false, onclick, icon }: Props = $props();
+	let {
+		pressed,
+		label,
+		title,
+		disabled = false,
+		compact = false,
+		badge,
+		onclick,
+		icon,
+	}: Props = $props();
 </script>
 
 <button
@@ -47,4 +60,11 @@
 	     tinted border and a pale wash were not. -->
 	{@render icon()}
 	<span class={compact ? "max-sm:sr-only" : ""}>{label}</span>
+	{#if compact && badge}
+		<span
+			class="hidden text-[10px] leading-none font-semibold tabular-nums max-sm:inline"
+			aria-hidden="true"
+			data-testid="pill-badge">{badge}</span
+		>
+	{/if}
 </button>

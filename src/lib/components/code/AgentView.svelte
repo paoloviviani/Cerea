@@ -984,6 +984,7 @@
 				label={tasksProgress.total > 0
 					? `Tasks ${tasksProgress.done}/${tasksProgress.total}`
 					: "Tasks"}
+				badge={tasksProgress.total > 0 ? `${tasksProgress.done}/${tasksProgress.total}` : undefined}
 				title="The agent's task list"
 				onclick={() => sidePane.toggleTasks()}
 			>
