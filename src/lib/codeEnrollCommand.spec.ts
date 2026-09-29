@@ -41,6 +41,15 @@ describe("buildEnrollCommand", () => {
 		expect(on).toContain(" && curl -fsSL https://opencode.ai/install | bash && ");
 	});
 
+	it("adds --allow-auto-accept only when asked, before --allow-terminal", () => {
+		const off = buildEnrollCommand(BASE_OPTIONS);
+		const on = buildEnrollCommand({ ...BASE_OPTIONS, allowAutoAccept: true, allowTerminal: true });
+
+		expect(off).not.toContain("--allow-auto-accept");
+		expect(on).toContain("--allow-auto-accept");
+		expect(on.indexOf("--allow-auto-accept")).toBeLessThan(on.indexOf("--allow-terminal"));
+	});
+
 	it("omits --client-id when it equals the CLI's own default, explicitly", () => {
 		const command = buildEnrollCommand({ ...BASE_OPTIONS, clientId: DEFAULT_CODE_CLIENT_ID });
 		expect(command).not.toContain("--client-id");

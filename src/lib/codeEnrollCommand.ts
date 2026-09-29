@@ -41,6 +41,12 @@ export interface EnrollCommandOptions {
 	clientId?: string;
 	/** Adds `--allow-terminal`, off by default. */
 	allowTerminal?: boolean;
+	/** Adds `--allow-auto-accept`, off by default. Auto-accept lets the
+	 * agent answer its own tool permission asks without a person — the
+	 * machine-side gate behind the panel's Auto-accept toggle
+	 * (`Policy.autoAccept`; handoffs and questions are never
+	 * auto-accepted whatever this says). */
+	allowAutoAccept?: boolean;
 	/** Adds the opencode install line before enroll — galopin runs the
 	 * opencode binary as its agent, and a fresh machine has neither it nor
 	 * a reason to know that. Off by default because a machine that already
@@ -83,6 +89,9 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
 	if (clientId !== DEFAULT_CODE_CLIENT_ID) {
 		enroll.push("--client-id", quoteShellArg(clientId));
+	}
+	if (opts.allowAutoAccept) {
+		enroll.push("--allow-auto-accept");
 	}
 	if (opts.allowTerminal) {
 		enroll.push("--allow-terminal");
