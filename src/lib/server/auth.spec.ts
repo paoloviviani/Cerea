@@ -3,8 +3,9 @@
  * through a *plain* login is a no-op at most IdPs, Authelia included — an
  * active SSO session answers it without re-prompting, so `auth_time` never
  * moves and the person can never open a terminal. `?reauth=1` must make
- * the authorization request carry `prompt=login` and `max_age=0`, which
- * force real re-authentication; a normal login must carry neither.
+ * the authorization request carry `prompt=login` (and never `max_age=0`,
+ * which Authelia treats as "always re-authenticate", looping the login
+ * forever); a normal login must carry neither.
  *
  * `openid-client` is mocked at the module boundary — this is a URL-building
  * unit, not an integration test of the OIDC exchange itself (that path is
@@ -72,7 +73,7 @@ describe("getOIDCAuthorizationUrl's reauth flag", () => {
 		expect(authorizationUrlCalls[0].max_age).toBeUndefined();
 	});
 
-	it("reauth:true carries prompt=login and max_age=0", async () => {
+	it("reauth:true carries prompt=login and never max_age (Authelia loops on max_age=0)", async () => {
 		await getOIDCAuthorizationUrl(
 			{ redirectURI: "https://cerea.invalid/login/callback" },
 			{
@@ -84,7 +85,7 @@ describe("getOIDCAuthorizationUrl's reauth flag", () => {
 		);
 		expect(authorizationUrlCalls).toHaveLength(1);
 		expect(authorizationUrlCalls[0].prompt).toBe("login");
-		expect(authorizationUrlCalls[0].max_age).toBe(0);
+		expect(authorizationUrlCalls[0].max_age).toBeUndefined();
 	});
 
 	it("still carries the return path (next) under reauth, same-origin only", async () => {
