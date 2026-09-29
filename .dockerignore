@@ -11,3 +11,4 @@ node_modules/
 .env.local
 db
 models/**
+site

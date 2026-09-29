@@ -1,14 +1,18 @@
 # Agent machines: galopin, setting one up, and driving it
 
+!!! info "For people using the Agents panel"
+
+    Pairing your own machine and driving it from the chat; **see also**
+    [The `/code` panel](code-panel.md), the operator's side of the same feature.
+
 The Agents panel in the sidebar drives coding agents that run **on your own
 machine**, not here. Your code never leaves it; the chat is a remote control.
 `galopin` is the one binary that makes that possible: it lives in this
 repository as `agent/`, and this page covers using it: getting the binary,
 pairing a machine, and what the panel does once it is paired.
 
-If you are deploying the feature rather than using it, read
-[The `/code` panel](code-panel.md) first — none of this works until
-`CODE_AGENTS_ENABLED=true`.
+None of this works until the deployment has set `CODE_AGENTS_ENABLED=true`; if
+you run the deployment, [The `/code` panel](code-panel.md) is the page for that.
 
 ## The shape of it
 
@@ -117,13 +121,12 @@ Support` on macOS). `run` then supervises opencode and dials out to the
 chat. Open the sidebar's **Agents** panel, and the machine is listed as
 pending until someone confirms it (**Confirm this machine**).
 
-| Flag                                           | When                                                                                                                                                                                                                                                                                                                        |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--cerea …/chat`                               | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                             |
-| `--output PATH`                                | the file is **replaced whole**. `enroll` asks before replacing an existing one, and `--yes` skips the question. If you keep your own opencode config, point `--output` somewhere else and pass `run --opencode-config PATH`                                                                                                 |
-| `--allow-free-models`                          | also offer models from providers other than the gateway's. By default only `pystino/*` models are listed, so spend always lands in the account the machine enrolled under                                                                                                                                                   |
-| `--device`                                     | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser |
-| `--allow-auto-accept`, `--workspace-root PATH` | the machine's own vetoes, fixed at enrol time (`agent/PROTOCOL.md` §4)                                                                                                                                                                                                                                                      |
+| Flag             | When                                                                                                                                                                                                                                                                                                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cerea …/chat` | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                             |
+| `--output PATH`  | the file is **replaced whole**. `enroll` asks before replacing an existing one, and `--yes` skips the question. If you keep your own opencode config, point `--output` somewhere else and pass `run --opencode-config PATH`                                                                                                 |
+| `--device`       | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser |
+| the policy flags | `--allow-terminal`, `--allow-auto-accept`, `--allow-free-models`, `--workspace-root PATH` and the rest are the machine's own vetoes, fixed at enroll time: see [The machine policy](#the-machine-policy)                                                                                                                    |
 
 If `enroll` warns that model discovery failed, the gateway offered no model
 yet (no provider configured, or none granted to the person's group). It then
@@ -229,22 +232,46 @@ galopin run
 (`--issuer` is your identity provider's issuer; `<origin>/authelia` is the
 bundled Authelia's.) Then confirm the machine in the `/code` panel.
 
-**The machine's vetoes.** These flags are fixed at enroll time and stored in
-the machine's own `policy.json`. The chat can never loosen them over the
-link: whatever the panel sends, the machine refuses what its policy denies.
+### The pairing dialog
 
-| Flag                        | Default              | What it allows                                                                                                               |
-| --------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `--allow-terminal`          | denied               | the `/code` panel may open a real shell on this machine (see below)                                                          |
-| `--allow-command-shell`     | denied               | a slash command's template may run its shell snippets (and unknown-shell commands such as MCP prompts are no longer refused) |
-| `--max-terminals N`         | 8                    | how many terminals may be open at once                                                                                       |
-| `--allow-auto-accept`       | denied               | a session may run the model's commands without asking each time                                                              |
-| `--workspace-root PATH`     | unrestricted         | workspaces only under this path (repeatable)                                                                                 |
-| `--allow-free-models`       | denied               | models from providers other than the gateway's; by default only the gateway's, so spend lands in your account                |
-| `--allow-opencode-provider` | denied               | opencode's built-in providers stay enabled next to the gateway's                                                             |
-| `--no-files`                | read-only browsing   | no file explorer at all                                                                                                      |
-| `--file-deny GLOB`          | built-in secret list | redact more files from the explorer (repeatable)                                                                             |
-| `--no-default-file-deny`    | built-in list on     | drop the built-in secret list, keeping only `--file-deny`'s                                                                  |
+You do not have to assemble that command. **Pair a machine** in the Agents
+panel (the "Pair a new device" button in the sidebar) opens a dialog that prints it for this deployment, with the origin, the
+issuer and the gateway filled in, and three checkboxes that change what it
+prints (all off by default):
+
+| Checkbox              | What it adds to the printed command                                                              | Check it when                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Install opencode**  | opencode's own installer line, `curl -fsSL https://opencode.ai/install \| bash`, before `enroll` | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed                                          |
+| **Allow auto-accept** | `--allow-auto-accept` on `enroll`                                                                | you want the panel's Auto-accept toggle to exist for this machine: the agent may answer its own tool-permission asks without you. Handoffs and questions still ask |
+| **Allow terminal**    | `--allow-terminal` on `enroll`                                                                   | you accept that anyone who controls your Cerea session can run commands as you on this machine, with no model and no permission rule in the way                    |
+
+The command is chained with `&&`, so a failed step never runs the next one: the
+installer, then (if checked) opencode's installer, then `enroll`, then `run`.
+It calls the binary by its installed path rather than a bare `galopin`,
+because on a fresh machine `~/.local/bin` is not yet on the shell's `PATH`. The
+dialog also lists the binaries and `SHA256SUMS` for a manual download, and the
+machines waiting for confirmation.
+
+The checkboxes only set flags on the printed line. Every other policy setting
+is a flag you add yourself.
+
+### The machine policy
+
+These are the machine's own vetoes. They are fixed at enroll time, stored in
+the machine's `policy.json`, and **the chat can never loosen them over the
+link**: whatever the panel sends, the machine refuses what its policy denies.
+`galopin policy show` prints what a machine currently allows. `galopin policy
+set` can only **tighten**; loosening anything needs a new `enroll`.
+
+| Policy                       | Enroll flag                                                | Default                              | What it decides                                                                                                                                                                                                                                                                                                           | Tighten later                                         |
+| ---------------------------- | ---------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Files**                    | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                                          | `policy set --no-files`, `--file-deny GLOB`           |
+| **Terminals**                | `--allow-terminal`, `--max-terminals N`                    | denied; at most 8 open at once       | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal-off-by-default))                                                                                                                                         | `policy set --no-terminal`, a lower `--max-terminals` |
+| **Auto-accept**              | `--allow-auto-accept`                                      | denied                               | Whether a session may answer the model's tool-permission asks without a person. The machine-side gate behind the panel's Auto-accept toggle: while denied, the agent refuses the toggle and never auto-replies, whatever the panel sends. **Handoff approvals and questions are never auto-accepted**, even when it is on | re-enroll                                             |
+| **Slash-command shell**      | `--allow-command-shell`                                    | denied                               | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                            | `policy set --no-command-shell`                       |
+| **Models from elsewhere**    | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                          | re-enroll                                             |
+| **opencode's own providers** | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                  | re-enroll                                             |
+| **Workspace roots**          | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                             | re-enroll                                             |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
 `--group NAME` to preselect the billing group, `--output PATH` for the
@@ -270,12 +297,8 @@ to the workspace directory (symlinks that leave it are listed, never
 followed), with secrets redacted: `.env` files (not `.env.example`), private
 keys, `.netrc`/`.npmrc`/`.pypirc`, cloud credentials files, `*.tfstate` and
 the like. Redaction keeps secrets off screens and out of logs; it is not a
-boundary against the agent, which can read any file. Enroll flags:
-
-- `--no-files`: no browsing at all;
-- `--file-deny GLOB` (repeatable): redact more, by name (`*.secret`) or path
-  tail (`config/prod.yml`);
-- `--no-default-file-deny`: drop the built-in list, keeping only yours.
+boundary against the agent, which can read any file. The flags that turn it
+off or extend the list are in [The machine policy](#the-machine-policy).
 
 ### The terminal (off by default)
 
@@ -292,9 +315,6 @@ ever governs the _model's_ unattended commands. `enroll` prints a warning
 `--allow-auto-accept`, since that combination denies the model unattended
 commands while still handing a person a shell.
 
-- `--allow-terminal`: turn the terminal on (default: denied);
-- `--max-terminals N`: cap how many can be open at once (default 8).
-
 A terminal's shell starts in the workspace's own directory and never sees
 galopin's own secrets (the opencode server password, the shim secret, or
 anything shaped like a token or credential) — but once it's running, it is
@@ -302,7 +322,7 @@ an ordinary shell: it is not sandboxed to the workspace the way file
 browsing is.
 
 Once a terminal is allowed, you can locally **tighten** its policy again
-without a full re-enroll:
+without a full re-enroll (the flags are in [The machine policy](#the-machine-policy)):
 
 ```sh
 galopin policy show                       # what this machine currently allows
@@ -465,16 +485,22 @@ either changes the licence the session runs under until it is switched again.
 
 Type `/` at the start of the prompt box and a menu opens with the commands
 this session can run. It is also the help: what it lists is exactly what
-there is.
+there is. The menu groups them under headings, in this order:
 
 - **Panel** — commands this panel runs itself: `/compact`, `/undo`,
-  `/redo`, `/model`, `/mode`, `/effort`, `/new`. These drive the same
-  routes the pills and the transcript use; nothing new runs on the machine.
+  `/redo`, `/model`, `/mode`, `/effort`, `/new`. Each is listed only when the
+  agent's backend can do it. They drive the same routes the pills and the
+  transcript use; nothing new runs on the machine.
 - **Project** (badge "from this repo") — commands defined in the open
   workspace's repository (`.opencode/command/*.md`). Running one is running
   repository code on your machine; the first run asks (see below).
 - **Machine** — commands from your user-level or the machine's config.
 - **Skills** and **MCP** — when the agent exposes them.
+
+A command whose template expands shell carries a **shell icon** in the menu.
+A machine command whose name a panel command already uses is **shadowed**: it
+stays in the list, greyed with the reason, and cannot be selected, because the
+panel's own command wins.
 
 Type to filter (prefix first, then substring), ↑/↓ to choose, Enter or Tab
 to accept. A command that takes arguments shows its placeholder as ghost
@@ -482,28 +508,51 @@ text (`/review ‹$ARGUMENTS›`); type the arguments after the name and Enter
 sends. `//` at the very start is an ordinary slash: a message that begins
 with a path (`/etc/hosts is wrong`) still sends as text.
 
-A command whose template would run shell — and any command whose shell
-behaviour is unknown, such as an MCP prompt — is refused unless the machine
-was enrolled with `--allow-command-shell` (see below). A command that reads
-files through `@path` is refused if the file matches the machine's deny
-list (the same list that redacts the explorer). A command pinned to a
-non-gateway model is refused unless the machine allows free models. None of
-these run halfway: the refusal names the flag or the file.
+**The machine can refuse a command, and says why.** The refusal names the flag
+or the file; nothing runs halfway:
+
+| Refusal                                                     | Cause                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **403**                                                     | an enroll flag is needed: the template expands shell (or its shell behaviour is unknown, such as an MCP prompt) and the machine was not enrolled with `--allow-command-shell`; a command pinned to a non-gateway model without `--allow-free-models`; or a file the command reads through `@path` matches the machine's file deny list |
+| **409**                                                     | the command's template changed since you reviewed it: the confirmation is asked again                                                                                                                                                                                                                                                  |
+| "no longer listed"                                          | the machine's list is re-read at run time, so a command that was deleted after the menu opened is refused                                                                                                                                                                                                                              |
+| "The agent is mid-turn. Stop it, or wait for it to finish." | commands are refused while a turn is running (the send button is hidden then, too)                                                                                                                                                                                                                                                     |
 
 **The first run of a project command** (or any command that expands shell)
-opens a confirmation showing the exact shell snippets it would run and the
-files it reads. Accepting remembers the decision for that command on this
-machine; if the command's definition changes afterwards, the next run is
-refused until you confirm the new version again.
+opens a confirmation sheet showing the exact shell snippets it would run and
+the files it reads. The template itself never crosses to the chat: the
+snippets and a hash of the template are what you confirm against. Accepting
+remembers the decision **per device, per command name and per template hash**,
+in your browser; if the definition changes afterwards, the hash no longer
+matches and the next run is refused with the 409 above until you confirm the
+new version. The sheet is a speed bump for a person; the machine's
+slash-command shell policy is the real veto.
 
 A command cannot move the session out of a more restrictive mode: while the
 session is in plan, a command that names the build agent runs under plan
-anyway (and a command that would run unsupervised in another agent is
-refused). While a turn is running, commands are refused until it finishes
-or you stop it — send is hidden while it runs.
+anyway, and a command that would run unsupervised in another agent is
+refused.
 
-On an older galopin (before these capabilities) the menu shows the panel
-commands only.
+On an older galopin, one that predates slash commands, the menu shows the
+panel commands only. That is a capability probe, never a version check: the
+machine advertises `commands` only when its opencode supports them.
+
+### Agent images
+
+When a tool call produces an image, its card shows it inline under "Output":
+most often a screenshot from a browser tool such as the Playwright MCP, or an
+image the agent read. Only **PNG, JPEG, GIF and WebP** are shown; SVG is never
+displayed inline, whatever the machine calls it.
+
+The machine keeps the bytes and the chat fetches each image from it whenever
+it is shown; the chat keeps no copy. Before showing one it checks the file's
+own header rather than the type the machine claimed, and refuses anything
+over 8 MiB or past about 50 megapixels, or that does not match the checksum
+the tool listed. At most **8 images are shown per tool call**. When some are
+left out, the card says so: _"3 images not shown (too many, too large or not a
+supported type)."_ A broken image usually means the machine no longer has it:
+an ACP agent keeps images in memory only, so a galopin restart loses them. An
+image the agent saved as a file is the file explorer's business, not this.
 
 ### Stopping a turn
 
