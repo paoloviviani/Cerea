@@ -199,7 +199,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		logf("shim listening on http://%s", addr)
 	}
 
-	back, err := startBackend(ctx, opts, stateDir, logf)
+	back, err := startBackend(ctx, opts, stateDir, pol, logf)
 	if err != nil {
 		return err
 	}
@@ -334,9 +334,12 @@ type runningBackend interface {
 // startBackend builds and starts whichever concrete backend --backend
 // selects (PROTOCOL.md §2: opencode is the default, richer implementation;
 // acp is the generic adapter any ACP agent can be plugged in behind).
-func startBackend(ctx context.Context, opts *runOptions, stateDir string, logf func(string, ...any)) (runningBackend, error) {
+func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, logf func(string, ...any)) (runningBackend, error) {
 	switch opts.backendKind {
 	case "", "opencode":
+		// galopin's own agent-coordination tools are installed unless the
+		// machine's policy opts out; denied leaves OPENCODE_CONFIG_DIR alone.
+		toolsDir := agentToolsDir(pol, stateDir)
 		ocBackend := backendopencode.New(backendopencode.Config{
 			Bin:         opts.opencodeBin,
 			ConfigPath:  opts.opencodeConfig,
@@ -346,7 +349,7 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, logf f
 			TmpDir:   filepath.Join(stateDir, "opencode-tmp"),
 			StateDir: stateDir,
 			// galopin's own agent-coordination tools (session_list/spawn/send).
-			ToolsDir: filepath.Join(stateDir, "opencode-tools"),
+			ToolsDir: toolsDir,
 			Logf:     func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
@@ -435,6 +438,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			Terminal:        terminalPolicyWord(pol),
 			MaxTerminals:    pol.EffectiveMaxTerminals(),
 			CommandShell:    commandShellPolicyWord(pol),
+			AgentTools:      agentToolsPolicyWord(pol),
 		},
 	}
 }
@@ -544,6 +548,23 @@ func terminalPolicyWord(pol policy.Policy) string {
 
 func commandShellPolicyWord(pol policy.Policy) string {
 	if pol.CommandShellAllowed() {
+		return policy.TerminalAllowed
+	}
+	return policy.TerminalDenied
+}
+
+// agentToolsDir is where galopin installs its opencode tools: beside the
+// state, unless the machine's policy opted out — then "" and galopin installs
+// nothing and sets no OPENCODE_CONFIG_DIR.
+func agentToolsDir(pol policy.Policy, stateDir string) string {
+	if !pol.AgentToolsAllowed() {
+		return ""
+	}
+	return filepath.Join(stateDir, "opencode-tools")
+}
+
+func agentToolsPolicyWord(pol policy.Policy) string {
+	if pol.AgentToolsAllowed() {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied

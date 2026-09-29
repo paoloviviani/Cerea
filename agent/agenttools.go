@@ -65,7 +65,7 @@ type agentTools struct {
 // installAgentTools wires the tools when the backend has them.
 func (mc *machine) installAgentTools() {
 	host, ok := mc.back.(backend.ToolHost)
-	if !ok || !mc.back.Capabilities().AgentTools {
+	if !ok || !mc.back.Capabilities().AgentTools || !mc.pol.AgentToolsAllowed() {
 		return
 	}
 	at := &agentTools{
