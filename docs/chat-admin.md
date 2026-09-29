@@ -21,10 +21,7 @@ The chat's own admin flag, inherited from upstream, comes from a HuggingFace
 organisation claim and means nothing in this deployment, so it is not used.
 
 Anyone else who opens `/admin` is told plainly that the area is for
-administrators, not shown a page of buttons that all refuse. A person who signed in
-with a local password rather than through the identity provider is asked to
-sign in again through the provider, because an administration decision needs
-evidence that a person just signed in. Every write is checked again on the
+administrators, not shown a page of buttons that all refuse. Anyone whose session the gateway does not accept (one that predates the sign-in token, say) is asked to sign in again through the identity provider, because an administration decision needs recent proof of who is at the keyboard. Every write is checked again on the
 server; the page's gate is for navigation, never a permission.
 
 ## The four sections

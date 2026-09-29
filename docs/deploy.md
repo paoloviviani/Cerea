@@ -79,14 +79,7 @@ passages — see [Configuration](configuration.md)). What you lose is what
 the _gateway_ provides, not the chat: per-user tokens (inference bills to
 the one key you set, not to the signed-in person), quotas and the usage
 ledger, per-caller model access and catalogue capabilities, redaction on
-the wire, the console, and the `/code` panel's machine enrollment (galopin
-authenticates against the deployment's own IdP; with a third-party
-gateway's OIDC trust is what the agents ride). The `/code` panel still
-pairs machines against your identity provider, but its agents call models
-through a gateway that trusts that provider; without Pystino they need
-opencode's own providers with their own keys (enroll with
-`--allow-opencode-provider` / `--allow-free-models`), and nothing they run
-is metered. The `generic` preset below is exactly this shape, and it is a
+the wire, the console, and gateway-billed coding agents. The `/code` panel still pairs machines against your identity provider, but with no Pystino the agents can't call models through it: enroll them with `--allow-opencode-provider` or `--allow-free-models` so they use opencode's own providers and keys, and nothing they spend is metered. The `generic` preset below is exactly this shape, and it is a
 supported way to run the chat — just with the governance features off.
 
 ## Presets (the deploy kit)
@@ -104,11 +97,7 @@ presets never leaves a feature key behind.
 | `satellite`  | the chat only, against a central Pystino and its IdP            | a second site          |
 | `generic`    | the chat only, against any OpenAI-compatible endpoint           | no gateway at all      |
 
-Two of those are the "without Pystino" paths: `satellite` runs the chat
-against a _central_ Pystino (per-user tokens and quotas still apply, but
-administered at the centre, and `CHAT_CONSOLE_ENABLED` is off because
-administration lives there), and `generic` runs it against any endpoint
-with one shared key. A central Pystino serves only **one** chat client
+Two presets run the chat alone: `satellite`, against a _central_ Pystino (per-user tokens and quotas still apply, administered at the centre, and `CHAT_CONSOLE_ENABLED` is off because administration lives there), and `generic`, the "without Pystino" path, against any endpoint with one shared key. A central Pystino serves only **one** chat client
 (gateway-side, several satellite chats share the client id, each with its
 redirect URI registered), and its erasure reaches only **one** chat:
 deleting a person at the centre does not erase their data on satellite
