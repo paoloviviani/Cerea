@@ -77,6 +77,11 @@ export async function consumeAgentUpdates(
 	 * message's own content, live and replayed alike) — consumed by whichever
 	 * of `openAssistant`/the `user` case creates the next `Message`. */
 	let pendingMessageId: string | undefined;
+	/** A person's message arrived while the turn was open (a steer): opencode
+	 * folds it into the NEXT step, so the assistant message that answers it
+	 * follows with no fresh busy/idle pair. Set at the echo, cleared where
+	 * the follow-up message takes over or the turn ends. */
+	let steered = false;
 
 	const flushBuffer = () => {
 		if (!current) {
@@ -166,6 +171,10 @@ export async function consumeAgentUpdates(
 		current = null;
 	}
 
+	function openMessage(): Message | null {
+		return current;
+	}
+
 	function pushUpdate(update: MessageUpdate) {
 		updatesBuffer = [...updatesBuffer, update];
 		updatesDirty = true;
@@ -244,12 +253,33 @@ export async function consumeAgentUpdates(
 				toolOpen.clear();
 				toolClosed.clear();
 				pendingMessageId = undefined;
+				steered = false;
 				ctx.onTurnEvent();
 				ctx.onReset?.();
 				break;
 			}
 			case "user": {
-				closeTurn();
+				// `current` alone does not say so: a follow-up's `running` frame
+				// can land before its echo and adopt the PREVIOUS turn's message,
+				// which already carries its ending. A message that has ended a
+				// turn is not one that is mid-step.
+				const midStep =
+					current !== null &&
+					!updatesBuffer.some(
+						(candidate) =>
+							candidate.type === MessageUpdateType.TurnState && candidate.state !== "running"
+					);
+				if (current && midStep) {
+					// A steer, not a new turn: the open assistant message keeps
+					// receiving the step it is in the middle of (opencode does
+					// not cut it short), so it stays open beneath the person's
+					// message; the message that answers the steer takes over at
+					// its own boundary.
+					flushBuffer();
+					steered = true;
+				} else {
+					closeTurn();
+				}
 				// The one property a user frame adds: its attachments, which
 				// ChatMessage already renders on a user message. A slash
 				// command's marker rides the same way (PROTOCOL.md §7): the
@@ -270,7 +300,41 @@ export async function consumeAgentUpdates(
 			// opens/closes a turn itself, just names the id the very next
 			// message (whichever case creates it) should carry.
 			case "messageBoundary": {
+				// Read through a function: the closures above assign `current`, which
+				// this loop's flow analysis cannot see.
+				const open = openMessage();
+				if (update.role === "assistant" && open && !open.machineMessageId && !steered) {
+					// The live order is `busy` then the message event, so the bubble
+					// `busy` adopted is already open when its own boundary arrives:
+					// name it, or the seam below cannot tell it from its successor.
+					open.machineMessageId = update.messageId;
+					break;
+				}
 				pendingMessageId = update.messageId;
+				if (
+					steered &&
+					open &&
+					update.role === "assistant" &&
+					open.machineMessageId !== update.messageId
+				) {
+					// The answer to the steer: settle the message that was
+					// mid-step and open its successor, running, at once — the turn
+					// continues there, and no frame between the two may read idle.
+					closeTurn();
+					attach(open, {
+						type: MessageUpdateType.TurnState,
+						state: "done",
+						serverNow: Date.now(),
+					});
+					steered = false;
+					openAssistant();
+					pushUpdate({
+						type: MessageUpdateType.TurnState,
+						state: "running",
+						serverNow: Date.now(),
+					});
+					scheduleFrameFlush();
+				}
 				break;
 			}
 			// Side channel (M3): never opens/closes a turn, never touches
@@ -393,6 +457,7 @@ export async function consumeAgentUpdates(
 				const target = stateTarget();
 				if (target) attach(target, update);
 				closeTurn();
+				steered = false;
 				break;
 			}
 			default:
