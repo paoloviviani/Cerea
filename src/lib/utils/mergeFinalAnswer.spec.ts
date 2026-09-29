@@ -90,6 +90,28 @@ describe("mergeFinalAnswerContent — tools (case A: already streamed)", () => {
 			})
 		).toBe("story\nanswer  ");
 	});
+
+	test("keeps existing when the final differs only by line endings", () => {
+		expect(
+			merge({
+				existing: "Ciao!\n\nFatto, eccola.",
+				finalText: "Fatto, eccola.\r\n",
+				hadTools: true,
+				isInterrupted: false,
+			})
+		).toBe("Ciao!\n\nFatto, eccola.");
+	});
+
+	test("keeps existing when the final differs only by Unicode normalization", () => {
+		expect(
+			merge({
+				existing: `Intro\n\n${"più di una?".normalize("NFD")}`,
+				finalText: "più di una?",
+				hadTools: true,
+				isInterrupted: false,
+			})
+		).toBe(`Intro\n\n${"più di una?".normalize("NFD")}`);
+	});
 });
 
 describe("mergeFinalAnswerContent — tools (case B: final includes streamed prefix)", () => {
