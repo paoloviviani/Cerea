@@ -14,7 +14,6 @@
 
 	import SidePane from "./SidePane.svelte";
 
-	import CarbonCloseLarge from "~icons/carbon/close-large";
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonDashboard from "~icons/carbon/dashboard";
 	import CarbonDocument from "~icons/carbon/document";
@@ -202,43 +201,25 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "library"}
-	<SidePane label="Artifacts panel">
-		{#snippet children()}
-			<header
-				class="relative z-10 flex h-12 flex-none items-center gap-2 border-b border-line bg-surface px-3"
+	<SidePane label="Artifacts panel" title="Artifacts">
+		{#snippet actions()}
+			{#if showCount}
+				<span class="flex-none rounded-sm bg-sunken px-1 py-px font-mono text-xxs text-ink-muted">
+					{headerCount}
+				</span>
+			{/if}
+			<button
+				type="button"
+				class="btn rounded-md p-1.5 text-xs text-ink-muted hover:bg-sunken hover:text-ink"
+				title="Reload the list"
+				aria-label="Reload artifacts"
+				disabled={loadState === "loading"}
+				onclick={refresh}
 			>
-				<div class="flex min-w-0 flex-1 items-center gap-2">
-					<h2 class="truncate text-sm font-semibold text-ink">Artifacts</h2>
-					{#if showCount}
-						<span
-							class="flex-none rounded-sm bg-sunken px-1 py-px font-mono text-xxs text-ink-muted"
-						>
-							{headerCount}
-						</span>
-					{/if}
-				</div>
-				<div class="flex flex-none items-center gap-0.5 text-ink-muted">
-					<button
-						type="button"
-						class="btn rounded-md p-1.5 text-xs hover:bg-sunken hover:text-ink"
-						title="Reload the list"
-						aria-label="Reload artifacts"
-						disabled={loadState === "loading"}
-						onclick={refresh}
-					>
-						<CarbonRenew />
-					</button>
-					<button
-						type="button"
-						class="ml-0.5 btn rounded-md p-1 text-base hover:bg-sunken hover:text-ink"
-						title="Close panel (Esc)"
-						onclick={() => sidePane.close()}
-					>
-						<CarbonCloseLarge />
-					</button>
-				</div>
-			</header>
-
+				<CarbonRenew />
+			</button>
+		{/snippet}
+		{#snippet children()}
 			<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto bg-surface p-4">
 				{#snippet fileRow(file: DeliverableFile)}
 					{@const target = artifactTarget(file)}
