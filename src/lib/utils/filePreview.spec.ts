@@ -7,6 +7,8 @@ import {
 	filePreviewKindFor,
 	filePreviewMimeType,
 	formatFileSize,
+	isInlineRasterImage,
+	isInlineRasterMime,
 } from "./filePreview";
 
 describe("filePreviewKindFor", () => {
@@ -59,5 +61,28 @@ describe("caps and formatting", () => {
 		expect(formatFileSize(512)).toBe("512 B");
 		expect(formatFileSize(2048)).toBe("2.0 KB");
 		expect(formatFileSize(3 * 1024 * 1024)).toBe("3.0 MB");
+	});
+});
+
+describe("the inline raster rule", () => {
+	test("admits png, jpeg, gif and webp by name, in any case", () => {
+		for (const name of ["a.png", "b.JPG", "c.jpeg", "d.gif", "e.WebP", "dir/figure-1.png"]) {
+			expect(isInlineRasterImage(name), name).toBe(true);
+		}
+	});
+
+	test("never admits SVG, or a type a browser may not decode", () => {
+		for (const name of ["a.svg", "b.SVG", "c.bmp", "d.avif", "e.pdf", "png", "f.png.svg"]) {
+			expect(isInlineRasterImage(name), name).toBe(false);
+		}
+	});
+
+	test("applies the same rule to a reported MIME type", () => {
+		for (const mime of ["image/png", "image/jpeg", "image/gif", "image/webp", "IMAGE/PNG"]) {
+			expect(isInlineRasterMime(mime), mime).toBe(true);
+		}
+		for (const mime of ["image/svg+xml", "text/html", "application/octet-stream", "", undefined]) {
+			expect(isInlineRasterMime(mime), String(mime)).toBe(false);
+		}
 	});
 });

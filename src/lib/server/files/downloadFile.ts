@@ -38,7 +38,8 @@ export async function downloadFile(
  * "Download, never render": the response every stored-attachment route
  * answers with. An `<img>` still displays it (it ignores the disposition);
  * navigating to it saves a file instead of running whatever the bytes are,
- * and the sandbox CSP holds even if a browser renders it anyway.
+ * the sandbox CSP holds even if a browser renders it anyway, and nosniff
+ * stops a renderer from second-guessing a model-written Content-Type.
  */
 export function attachmentResponse(
 	sha256: string,
@@ -51,6 +52,7 @@ export function attachmentResponse(
 			"Content-Type": mime ?? "application/octet-stream",
 			"Content-Security-Policy":
 				"default-src 'none'; script-src 'none'; style-src 'none'; sandbox;",
+			"X-Content-Type-Options": "nosniff",
 			"Content-Disposition": `attachment; filename="${sha256.slice(0, 8)}.${
 				mime ? mimeTypes.extension(mime) || "bin" : "bin"
 			}"`,

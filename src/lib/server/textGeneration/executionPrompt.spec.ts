@@ -43,6 +43,8 @@ describe("execution prompt", () => {
 			"the file is the deliverable, not the code: write it to the working directory"
 		);
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("anything they will download or open");
+		// Figures are captured automatically; reuse needs an explicit savefig.
+		expect(EXECUTION_SYSTEM_PROMPT).toContain('plt.savefig("name.png")');
 		// The no-phantom-files rule survives the rewording, path-independent.
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("only ever describe files you actually produced");
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain(

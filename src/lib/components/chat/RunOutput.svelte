@@ -115,8 +115,9 @@
 							<ul class="space-y-1">
 								{#each runState.outputFiles as file (file.path)}
 									<!-- A live run's listing carries no sha256 yet: the card stays
-									     a plain FileCard until the run's record lands. -->
-									<FileArtifactCard {file} {inPanel} />
+									     a plain FileCard until the run's record lands. Raster
+									     figures open their image preview unasked. -->
+									<FileArtifactCard {file} {inPanel} autoExpand />
 								{/each}
 							</ul>
 						</div>
@@ -132,6 +133,7 @@
 										downloadUrl={file.downloadUrl}
 										sha256={file.sha256}
 										{inPanel}
+										autoExpand
 									/>
 								{/each}
 							</ul>
