@@ -21,11 +21,19 @@ import (
 	"sync"
 	"time"
 
+	"galopin/internal/attach"
 	"galopin/internal/backend"
 )
 
 // Config is everything needed to spawn and reach one opencode instance.
 type Config struct {
+	// AttachmentCacheBytes bounds the tool-image cache (default 64 MiB); the
+	// live IT shrinks it to force the re-read path.
+	AttachmentCacheBytes int64
+	// SSEMaxLineBytes bounds one line of opencode's event stream (default
+	// 128 MiB); a longer one is skipped and its session resynced. The live IT
+	// lowers it to exercise that path.
+	SSEMaxLineBytes int
 	// Bin is the opencode binary (default "opencode": resolved via PATH).
 	Bin string
 	// Hostname/Port are what opencode serve binds. Port 0 picks a free one.
@@ -79,6 +87,9 @@ const (
 // process.
 type Backend struct {
 	cfg Config
+
+	// att holds the images tool calls produced (attachments.go).
+	att *attach.Store
 
 	client *http.Client
 	// longClient carries the calls that legitimately run long — today only
@@ -173,6 +184,7 @@ func New(cfg Config) *Backend {
 	}
 	return &Backend{
 		cfg:              cfg,
+		att:              attach.New(cfg.AttachmentCacheBytes),
 		client:           &http.Client{},
 		longClient:       &http.Client{},
 		overlay:          map[string]sessionOverlay{},

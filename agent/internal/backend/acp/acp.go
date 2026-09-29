@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"galopin/internal/attach"
 	"io"
 	"os"
 	"os/exec"
@@ -85,6 +86,10 @@ func parseAgentCapabilities(raw map[string]any) acpAgentCapabilities {
 type Backend struct {
 	cfg Config
 
+	// att holds the images tool calls produced, in memory only: ACP has no
+	// way to ask the agent for one again (tool_images.go).
+	att *attach.Store
+
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	conn    *rpcConn
@@ -116,6 +121,7 @@ func New(cfg Config) *Backend {
 	}
 	return &Backend{
 		cfg:   cfg,
+		att:   attach.New(0),
 		reg:   newRegistry(),
 		ready: make(chan struct{}),
 	}
@@ -156,6 +162,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		// the list per session (PROTOCOL.md §6 backend.commands), and before
 		// the first update the list answers empty rather than unclaimable.
 		Commands: true,
+		// ToolImages: an image content item on a tool call, served from
+		// memory ("no longer on the machine" after a galopin restart).
+		ToolImages: true,
 	}
 }
 

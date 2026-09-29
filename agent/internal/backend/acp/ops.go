@@ -147,6 +147,7 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 		}
 	}
 	b.reg.delete(sessionID)
+	b.att.Forget(sessionID)
 	return nil
 }
 

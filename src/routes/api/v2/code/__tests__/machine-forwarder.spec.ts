@@ -8,7 +8,7 @@
  * registry, the forwarder's op mapping and the bridge's cursor.
  */
 import { createServer, type Server } from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { WebSocketServer } from "ws";
 import superjson from "superjson";
 import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
@@ -851,6 +851,235 @@ describe("the SSE bridge over a live machine link", () => {
 		const second = await readOneFrame(reader);
 		expect(JSON.parse(second.data).type).toBe("elicitation");
 
+		controller.abort();
+		await reader.cancel().catch(() => {});
+		machine.close();
+	});
+});
+
+/**
+ * Tool-output images (PROTOCOL.md §6 session.attachment, §7 attachments): the
+ * raw route is the one place a machine's bytes become something a browser
+ * renders, so its refusals are the spec. The machine is untrusted: the type
+ * comes from the bytes, the pixel count from the header, and the content must
+ * hash to the sha asked for.
+ */
+describe("tool-output images through the forwarder", () => {
+	const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+	function png(width: number, height: number, extra = 0): Buffer {
+		const b = Buffer.alloc(33 + extra);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b);
+		Buffer.from([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]).copy(b, 8);
+		b.writeUInt32BE(width, 16);
+		b.writeUInt32BE(height, 20);
+		return b;
+	}
+
+	async function attachmentSession() {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent } = await createSession(machine, deviceId, workspace.id);
+		return { machine, deviceId, agentId: agent.id };
+	}
+
+	function fetchImage(deviceId: string, agentId: string, digest: string, locals = user.locals) {
+		return forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/agents/${agentId}/attachments/${digest}?device=${deviceId}`,
+			{ locals }
+		);
+	}
+
+	it("serves the image inline, sandboxed, cacheable per sha, and audits it without content", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		const image = png(64, 48, 100);
+		const asked: unknown[] = [];
+		machine.onOp("session.attachment", (args: unknown) => {
+			asked.push(args);
+			return { mime: "image/png", data: image.toString("base64") };
+		});
+
+		const res = await fetchImage(deviceId, agentId, sha(image));
+		expect(res.status).toBe(200);
+		expect(asked).toEqual([{ sessionId: agentId, sha256: sha(image) }]);
+		expect(res.headers.get("content-type")).toBe("image/png");
+		expect(res.headers.get("content-disposition")).toBe("inline");
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(res.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
+		expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+		expect(Buffer.from(await res.arrayBuffer()).equals(image)).toBe(true);
+
+		const audited = await collections.codeAudit
+			.find({ deviceId: new ObjectId(deviceId) })
+			.toArray();
+		expect(audited.map((a) => [a.action, a.path, a.bytes])).toEqual([
+			["attachment.raw", `${agentId}/${sha(image)}`, image.length],
+		]);
+		expect(JSON.stringify(audited)).not.toContain(image.toString("base64").slice(0, 20));
+		machine.close();
+	});
+
+	it("decides the type from the bytes: a PNG claimed as HTML is a PNG", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		const image = png(10, 10);
+		machine.onOp("session.attachment", () => ({
+			mime: "text/html",
+			data: image.toString("base64"),
+		}));
+		const res = await fetchImage(deviceId, agentId, sha(image));
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("image/png");
+		machine.close();
+	});
+
+	it("refuses SVG and HTML however they are labelled", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		for (const body of [
+			'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>',
+			"<!doctype html><script>alert(1)</script>",
+		]) {
+			const bytes = Buffer.from(body);
+			machine.onOp("session.attachment", () => ({
+				mime: "image/png",
+				data: bytes.toString("base64"),
+			}));
+			const res = await fetchImage(deviceId, agentId, sha(bytes));
+			expect(res.status).toBe(415);
+			expect(res.headers.get("content-type")).not.toContain("image/");
+		}
+		machine.close();
+	});
+
+	it("refuses a decompression bomb by its header, before serving a byte", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		const bomb = png(60000, 60000); // ~3.6 gigapixels in 33 bytes
+		machine.onOp("session.attachment", () => ({
+			mime: "image/png",
+			data: bomb.toString("base64"),
+		}));
+		const res = await fetchImage(deviceId, agentId, sha(bomb));
+		expect(res.status).toBe(413);
+		machine.close();
+	});
+
+	it("refuses an image over 8 MiB", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		const big = png(100, 100, 8 * 1024 * 1024);
+		machine.onOp("session.attachment", () => ({ mime: "image/png", data: big.toString("base64") }));
+		expect((await fetchImage(deviceId, agentId, sha(big))).status).toBe(413);
+		machine.close();
+	});
+
+	it("refuses bytes that are not the image whose sha was asked for", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		const listed = png(20, 20, 5);
+		const swapped = png(20, 20, 6);
+		machine.onOp("session.attachment", () => ({
+			mime: "image/png",
+			data: swapped.toString("base64"),
+		}));
+		expect((await fetchImage(deviceId, agentId, sha(listed))).status).toBe(502);
+		machine.close();
+	});
+
+	it("maps the machine's answers: gone or unknown is 404, no capability is 404", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		machine.onOp("session.attachment", () => {
+			throw new OpError("not_found", "this image is no longer on the machine");
+		});
+		const gone = await fetchImage(deviceId, agentId, "c".repeat(64));
+		expect(gone.status).toBe(404);
+		machine.onOp("session.attachment", () => {
+			throw new OpError("unsupported", "backend fake has no toolImages capability");
+		});
+		expect((await fetchImage(deviceId, agentId, "c".repeat(64))).status).toBe(404);
+		machine.close();
+	});
+
+	it("only accepts a lowercase 64-hex sha in the path, and never asks the machine otherwise", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		let asked = false;
+		machine.onOp("session.attachment", () => {
+			asked = true;
+			return { mime: "image/png", data: "" };
+		});
+		for (const bad of ["abc", "C".repeat(64), "c".repeat(63), "c".repeat(65), "..%2F..%2Fetc"]) {
+			const res = await fetchImage(deviceId, agentId, bad);
+			expect(res.status).toBeGreaterThanOrEqual(400);
+		}
+		expect(asked).toBe(false);
+		machine.close();
+	});
+
+	it("is not a capability: another person's request for this machine's image is refused", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		let asked = false;
+		const image = png(8, 8);
+		machine.onOp("session.attachment", () => {
+			asked = true;
+			return { mime: "image/png", data: image.toString("base64") };
+		});
+		const other = await createTestUser();
+		const res = await fetchImage(deviceId, agentId, sha(image), other.locals);
+		expect(res.status).toBeGreaterThanOrEqual(400);
+		expect(res.status).not.toBe(200);
+		expect(asked).toBe(false);
+		machine.close();
+	});
+
+	it("carries the images to a reloaded view as urls, with no bytes on the stream", async () => {
+		const { machine, deviceId, agentId } = await attachmentSession();
+		const image = png(32, 32, 50);
+		const digest = sha(image);
+		machine.onOp("session.sync", () => ({
+			epoch: "e1",
+			seq: 3,
+			snapshot: {
+				messages: [
+					{
+						message: { id: "m1", role: "assistant", createdAt: new Date().toISOString() },
+						parts: [
+							{
+								id: "p1",
+								messageId: "m1",
+								role: "assistant",
+								type: "tool",
+								callId: "call-1",
+								tool: "playwright_screenshot",
+								status: "completed",
+								input: {},
+								output: "ok",
+								attachments: [{ sha256: digest, mime: "image/png", size: image.length }],
+							},
+						],
+					},
+				],
+				permissions: [],
+				questions: [],
+				status: "idle",
+				usage: null,
+				todos: [],
+			},
+		}));
+
+		const controller = new AbortController();
+		const res = await testRequest(streamGET, {
+			path: `/api/v2/code/agents/${agentId}/stream?device=${deviceId}`,
+			params: { id: agentId },
+			locals: user.locals,
+			signal: controller.signal,
+		});
+		expect(res.status).toBe(200);
+		const reader = res.body?.getReader();
+		if (!reader) throw new Error("no stream body");
+		let seen = "";
+		for (let i = 0; i < 6 && !seen.includes(digest); i++) seen += (await readOneFrame(reader)).data;
+		expect(seen).toContain(
+			`/api/v2/code/v1/agents/${agentId}/attachments/${digest}?device=${deviceId}`
+		);
+		expect(seen).not.toContain(image.toString("base64").slice(0, 24));
 		controller.abort();
 		await reader.cancel().catch(() => {});
 		machine.close();
