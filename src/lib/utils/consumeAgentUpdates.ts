@@ -8,6 +8,7 @@ import {
 import type { Message } from "$lib/types/Message";
 import type {
 	AgentCompactionUpdate,
+	AgentMessageBoundaryUpdate,
 	AgentStreamUpdate,
 	AgentUsageUpdate,
 } from "$lib/types/CodeAgent";
@@ -77,6 +78,13 @@ export async function consumeAgentUpdates(
 	 * message's own content, live and replayed alike) — consumed by whichever
 	 * of `openAssistant`/the `user` case creates the next `Message`. */
 	let pendingMessageId: string | undefined;
+	/** Ids already given to a message of this transcript. opencode re-emits
+	 * `message.updated` for a message it has already announced (twice for the
+	 * first user message in the captured order), and a repeat must not become
+	 * the pending id of whatever opens next. */
+	const stampedIds = new Set<string>();
+	/** Same, for the sender of a message another session wrote. */
+	let pendingSentBy: AgentMessageBoundaryUpdate["sentBy"];
 	/** A person's message arrived while the turn was open (a steer): opencode
 	 * folds it into the NEXT step, so the assistant message that answers it
 	 * follows with no fresh busy/idle pair. Set at the echo, cleared where
@@ -140,6 +148,7 @@ export async function consumeAgentUpdates(
 			children: [],
 			...(pendingMessageId ? { machineMessageId: pendingMessageId } : {}),
 		};
+		if (pendingMessageId) stampedIds.add(pendingMessageId);
 		pendingMessageId = undefined;
 		buffer = "";
 		messages.push(message);
@@ -209,6 +218,7 @@ export async function consumeAgentUpdates(
 		const last = messages.at(-1);
 		if (last && last.from === "assistant") {
 			current = last;
+			if (last.machineMessageId) stampedIds.add(last.machineMessageId);
 			updatesBuffer = [...(last.updates ?? [])];
 			updatesDirty = false;
 			return last;
@@ -253,6 +263,8 @@ export async function consumeAgentUpdates(
 				toolOpen.clear();
 				toolClosed.clear();
 				pendingMessageId = undefined;
+				pendingSentBy = undefined;
+				stampedIds.clear();
 				steered = false;
 				ctx.onTurnEvent();
 				ctx.onReset?.();
@@ -290,10 +302,13 @@ export async function consumeAgentUpdates(
 					content: update.text,
 					children: [],
 					...(pendingMessageId ? { machineMessageId: pendingMessageId } : {}),
+					...(pendingSentBy ? { sentBy: pendingSentBy } : {}),
 					...(update.files?.length ? { files: update.files } : {}),
 					...(update.command ? { command: update.command } : {}),
 				});
+				if (pendingMessageId) stampedIds.add(pendingMessageId);
 				pendingMessageId = undefined;
+				pendingSentBy = undefined;
 				break;
 			}
 			// A pure boundary marker (see `AgentMessageBoundaryUpdate`): never
@@ -302,15 +317,18 @@ export async function consumeAgentUpdates(
 			case "messageBoundary": {
 				// Read through a function: the closures above assign `current`, which
 				// this loop's flow analysis cannot see.
+				if (stampedIds.has(update.messageId)) break; // a repeat of one already announced
 				const open = openMessage();
 				if (update.role === "assistant" && open && !open.machineMessageId && !steered) {
 					// The live order is `busy` then the message event, so the bubble
 					// `busy` adopted is already open when its own boundary arrives:
 					// name it, or the seam below cannot tell it from its successor.
 					open.machineMessageId = update.messageId;
+					stampedIds.add(update.messageId);
 					break;
 				}
 				pendingMessageId = update.messageId;
+				pendingSentBy = update.role === "user" ? update.sentBy : undefined;
 				if (
 					steered &&
 					open &&

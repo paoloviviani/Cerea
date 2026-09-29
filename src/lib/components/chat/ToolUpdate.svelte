@@ -14,6 +14,7 @@
 	import LucideTriangleAlert from "~icons/lucide/triangle-alert";
 	import LucideWrench from "~icons/lucide/wrench";
 	import BlockWrapper from "./BlockWrapper.svelte";
+	import { coordinationCall, getCodeSessionLinks } from "$lib/utils/codeSessionLinks";
 	import ImageLightbox from "./ImageLightbox.svelte";
 
 	interface Props {
@@ -24,6 +25,42 @@
 	let { tool, loading = false }: Props = $props();
 
 	let isOpen = $state(false);
+
+	// Between-session tools of a coding-agent transcript (`session_spawn`,
+	// `session_send`) read as what they did, with a link to the other session.
+	// Only where an agent view provides the lookup; a refused call keeps the
+	// plain card.
+	const sessionLinks = getCodeSessionLinks();
+	let coordination = $derived.by(() => {
+		if (!sessionLinks) return null;
+		const call = tool.find(isMessageToolCallUpdate);
+		const result = tool.find(isMessageToolResultUpdate);
+		const error = tool.find(isMessageToolErrorUpdate);
+		const read = coordinationCall(
+			call?.call.name,
+			call?.call.parameters as Record<string, unknown> | undefined,
+			error
+				? { text: undefined, failed: true }
+				: result
+					? {
+							text:
+								result.result.status === ToolResultStatus.Success
+									? result.result.outputs.map((out) => getOutputText(out) ?? "").join("")
+									: undefined,
+							failed: result.result.status !== ToolResultStatus.Success,
+						}
+					: undefined
+		);
+		if (!read || read.state === "refused") return null;
+		const known = read.sessionId ? sessionLinks.title(read.sessionId) : undefined;
+		const title = read.title ?? known ?? "another session";
+		const label = read.kind === "send" ? "Sent to" : read.state === "done" ? "Spawned" : "Spawning";
+		return {
+			label: read.kind === "send" && read.state === "pending" ? "Sending to" : label,
+			title,
+			href: read.sessionId ? sessionLinks.href(read.sessionId) : undefined,
+		};
+	});
 
 	let toolFnName = $derived(tool.find(isMessageToolCallUpdate)?.call.name);
 	let toolError = $derived(tool.some(isMessageToolErrorUpdate));
@@ -182,52 +219,88 @@
 	<BlockWrapper>
 		<!-- Header row -->
 		<div class="flex max-w-full flex-col items-start gap-1 select-none">
-			<button
-				type="button"
-				class="group/header flex max-w-full cursor-pointer items-center gap-1 text-left whitespace-nowrap focus:outline-hidden"
-				onclick={() => (isOpen = !isOpen)}
-				aria-label={isOpen ? "Collapse" : "Expand"}
-			>
-				<!-- Errors here are often recoverable (the model retries or works around
+			<div class="flex max-w-full items-center gap-1">
+				<button
+					type="button"
+					class="group/header flex max-w-full cursor-pointer items-center gap-1 text-left whitespace-nowrap focus:outline-hidden"
+					onclick={() => (isOpen = !isOpen)}
+					aria-label={isOpen ? "Collapse" : "Expand"}
+				>
+					<!-- Errors here are often recoverable (the model retries or works around
 				     them), so the header stays in the same muted gray as every other
 				     state; the amber icon is the only signal until the row is expanded. -->
-				<!-- One leading glyph, which says either what the row is or what
+					<!-- One leading glyph, which says either what the row is or what
 				     happened to it: a wrench for an ordinary call, the amber
 				     triangle when it failed. Not both — the text beside it already
 				     reads "Error calling tool", so nothing is lost by the swap, and
 				     a second icon in a row that also carries a label, a name and a
 				     chevron is where this stops being scannable. -->
-				{#if toolError}
-					<LucideTriangleAlert class="size-3.5 shrink-0 text-amber-500 dark:text-amber-400" />
-				{:else}
-					<LucideWrench
-						class="size-3.5 shrink-0 text-gray-400 transition-colors group-hover/header:text-gray-600 dark:text-gray-500 dark:group-hover/header:text-gray-300"
-					/>
-				{/if}
-				<span
-					class="shrink-0 text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
-						? 'text-gray-600 dark:text-gray-300'
-						: 'text-gray-500 dark:text-gray-400'}"
-					class:router-shimmer={isExecuting}
-				>
-					{toolError ? "Error calling" : toolDone ? "Called" : "Calling"} tool
-				</span>
-				<code
-					class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
-				>
-					{availableTools.find((entry) => entry.name === toolFnName)?.displayName ?? toolFnName}
-				</code>
-				{#if isExecuting && progressCount}
-					<span class="shrink-0 text-xs text-gray-500 tabular-nums dark:text-gray-400"
-						>({progressCount})</span
+					{#if toolError}
+						<LucideTriangleAlert class="size-3.5 shrink-0 text-amber-500 dark:text-amber-400" />
+					{:else}
+						<LucideWrench
+							class="size-3.5 shrink-0 text-gray-400 transition-colors group-hover/header:text-gray-600 dark:text-gray-500 dark:group-hover/header:text-gray-300"
+						/>
+					{/if}
+					<span
+						class="shrink-0 text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
+							? 'text-gray-600 dark:text-gray-300'
+							: 'text-gray-500 dark:text-gray-400'}"
+						class:router-shimmer={isExecuting}
 					>
+						{#if coordination}{coordination.label}{:else}{toolError
+								? "Error calling"
+								: toolDone
+									? "Called"
+									: "Calling"} tool{/if}
+					</span>
+					{#if !coordination}
+						<code
+							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+						>
+							{availableTools.find((entry) => entry.name === toolFnName)?.displayName ?? toolFnName}
+						</code>
+					{/if}
+					{#if isExecuting && progressCount}
+						<span class="shrink-0 text-xs text-gray-500 tabular-nums dark:text-gray-400"
+							>({progressCount})</span
+						>
+					{/if}
+					{#if !coordination}
+						<CarbonChevronRight
+							class="size-3.5 shrink-0 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
+								? 'rotate-90 text-gray-600 dark:text-gray-300'
+								: 'text-gray-400'}"
+						/>
+					{/if}
+				</button>
+				{#if coordination}
+					{#if coordination.href}
+						<a
+							href={coordination.href}
+							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px text-xs text-blue-700 underline-offset-2 hover:underline dark:bg-blue-900/30 dark:text-blue-300"
+							data-testid="session-link">{coordination.title}</a
+						>
+					{:else}
+						<span
+							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+							>{coordination.title}</span
+						>
+					{/if}
+					<button
+						type="button"
+						class="group/chevron shrink-0 cursor-pointer focus:outline-hidden"
+						onclick={() => (isOpen = !isOpen)}
+						aria-label={isOpen ? "Collapse" : "Expand"}
+					>
+						<CarbonChevronRight
+							class="size-3.5 transition-all duration-200 group-hover/chevron:text-gray-600 dark:group-hover/chevron:text-gray-300 {isOpen
+								? 'rotate-90 text-gray-600 dark:text-gray-300'
+								: 'text-gray-400'}"
+						/>
+					</button>
 				{/if}
-				<CarbonChevronRight
-					class="size-3.5 shrink-0 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
-						? 'rotate-90 text-gray-600 dark:text-gray-300'
-						: 'text-gray-400'}"
-				/>
-			</button>
+			</div>
 			{#if isExecuting && progressLines.length}
 				<div class="flex min-w-0 flex-col gap-0.5">
 					{#each progressLines as line (line)}

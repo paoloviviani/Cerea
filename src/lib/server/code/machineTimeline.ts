@@ -448,6 +448,9 @@ export function eventToUpdates(
 				type: "messageBoundary",
 				role: event.message.role,
 				messageId: event.message.id,
+				...(event.message.role === "user" && event.message.sentBy
+					? { sentBy: event.message.sentBy }
+					: {}),
 			};
 			return [boundary];
 		}
@@ -580,7 +583,12 @@ export function snapshotToUpdates(
 	for (const { message, parts } of transcript.messages ?? []) {
 		const clientMessageId = message.role === "user" ? message.clientMessageId : undefined;
 		const command = message.role === "user" ? message.command : undefined;
-		updates.push({ type: "messageBoundary", role: message.role, messageId: message.id });
+		updates.push({
+			type: "messageBoundary",
+			role: message.role,
+			messageId: message.id,
+			...(message.role === "user" && message.sentBy ? { sentBy: message.sentBy } : {}),
+		});
 		for (const part of parts ?? []) {
 			updates.push(
 				...partToUpdates(part, clientMessageId, command, imageUrl),
