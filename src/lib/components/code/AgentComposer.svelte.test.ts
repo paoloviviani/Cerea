@@ -25,12 +25,13 @@ const onstop = vi.fn<() => Promise<boolean>>(async () => {
 	return true;
 });
 
-function mount(running: boolean) {
+function mount(running: boolean, steer = true) {
 	return renderWithApp(AgentComposer, {
 		deviceId: "d1",
 		agentId: "a1",
 		agent: null,
 		running,
+		steerSupported: steer,
 		onsend,
 		onstop,
 		onchanged: () => {},
@@ -90,6 +91,14 @@ for (const [label, width] of [
 			await screen.getByRole("button", { name: "Send message" }).click();
 			await vi.waitFor(() => expect(get(errorToast)).toMatch(/mid-turn/));
 			expect(onsend).not.toHaveBeenCalled();
+		});
+
+		it("shows Stop alone when the backend cannot fold a mid-turn prompt", async () => {
+			await browserPage.viewport(width, 800);
+			const screen = mount(true, false);
+			await expect.element(screen.getByRole("button", { name: "Stop generating" })).toBeVisible();
+			expect(screen.getByRole("button", { name: "Send message" }).elements()).toHaveLength(0);
+			expect(screen.getByRole("button", { name: "More ways to send" }).elements()).toHaveLength(0);
 		});
 
 		it("Stop and send stops first, then sends, in that order", async () => {

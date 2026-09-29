@@ -158,6 +158,11 @@
 		/** Whether the backend can roll a session back (`hello` capability
 		 * `revert`) — `/undo` and `/redo` need it. */
 		revertSupported?: boolean;
+		/** Whether the backend folds a prompt sent mid-turn into the running
+		 * turn (`hello` capability `steer`): Send stays beside Stop and the
+		 * "Stop and send" chevron shows only then. Without it the stop
+		 * control stands alone, as it did before steering. */
+		steerSupported?: boolean;
 		/** Opens the rollback confirmation for `/undo` — the view owns it,
 		 * because only the transcript knows the last user message's machine
 		 * id and carries the same confirm dialog the retry action uses. */
@@ -191,6 +196,7 @@
 		featureCatalog = null,
 		compactSupported = false,
 		revertSupported = false,
+		steerSupported = false,
 		onundo,
 		onnew,
 
@@ -1109,51 +1115,55 @@
 					: 'size-7'} self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
 			/>
 		{/if}
-		<span class="flex items-end">
-			<button
-				class="{pinned
-					? 'size-8'
-					: 'size-7'} btn self-end border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {running
-					? 'rounded-l-full rounded-r-none'
-					: 'rounded-full'} {!draft ? '' : 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-				disabled={!draft.trim() || busy || enrollmentExpired || offline}
-				type="submit"
-				aria-label="Send message"
-				title={running ? "Send to the running turn" : undefined}
-				name="submit"
-			>
-				<IconArrowUp />
-			</button>
-			{#if running}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger
-						class="btn {pinned
-							? 'h-8'
-							: 'h-7'} w-5 flex-none self-end rounded-l-none rounded-r-full border border-l-0 bg-white px-0 text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
-							? ''
-							: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-						disabled={!draft.trim() || busy || enrollmentExpired || offline}
-						aria-label="More ways to send"
-					>
-						<IconChevronDown class="size-3" />
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Portal>
-						<DropdownMenu.Content
-							class={menuContentClass}
-							side="top"
-							align="end"
-							sideOffset={8}
-							trapFocus={false}
-							onCloseAutoFocus={(e) => e.preventDefault()}
-							interactOutsideBehavior="defer-otherwise-close"
+		{#if !running || steerSupported}
+			<span class="flex items-end">
+				<button
+					class="{pinned
+						? 'size-8'
+						: 'size-7'} btn self-end border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {running
+						? 'rounded-l-full rounded-r-none'
+						: 'rounded-full'} {!draft
+						? ''
+						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+					disabled={!draft.trim() || busy || enrollmentExpired || offline}
+					type="submit"
+					aria-label="Send message"
+					title={running ? "Send to the running turn" : undefined}
+					name="submit"
+				>
+					<IconArrowUp />
+				</button>
+				{#if running}
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class="btn {pinned
+								? 'h-8'
+								: 'h-7'} w-5 flex-none self-end rounded-l-none rounded-r-full border border-l-0 bg-white px-0 text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
+								? ''
+								: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+							disabled={!draft.trim() || busy || enrollmentExpired || offline}
+							aria-label="More ways to send"
 						>
-							<DropdownMenu.Item class={menuItemClass} onSelect={() => void stopAndSend()}>
-								<span class="whitespace-nowrap">Stop and send</span>
-							</DropdownMenu.Item>
-						</DropdownMenu.Content>
-					</DropdownMenu.Portal>
-				</DropdownMenu.Root>
-			{/if}
-		</span>
+							<IconChevronDown class="size-3" />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								class={menuContentClass}
+								side="top"
+								align="end"
+								sideOffset={8}
+								trapFocus={false}
+								onCloseAutoFocus={(e) => e.preventDefault()}
+								interactOutsideBehavior="defer-otherwise-close"
+							>
+								<DropdownMenu.Item class={menuItemClass} onSelect={() => void stopAndSend()}>
+									<span class="whitespace-nowrap">Stop and send</span>
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+				{/if}
+			</span>
+		{/if}
 	</span>
 {/snippet}
