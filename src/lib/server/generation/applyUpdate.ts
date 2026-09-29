@@ -194,14 +194,43 @@ export function applyUpdateToMessage(
 
 		if (hadTools) {
 			const existing = message.content.slice(initialContent.length);
+			// Whitespace-tolerant matching, mirroring the client's
+			// mergeFinalAnswerContent (including its normForCompare: line
+			// endings and Unicode normalization routinely differ between a
+			// provider's streamed tokens and its final text while rendering
+			// identically — byte comparison would duplicate the stored
+			// message permanently). The two implementations must stay in
+			// sync or views diverge.
+			const norm = (text: string): string => text.replace(/\r\n/g, "\n").normalize("NFC");
+			const normExisting = norm(existing);
+			const normFinal = norm(event.text ?? "");
+			const finalText = event.text ?? "";
+			const trimmedExistingSuffix = normExisting.replace(/\s+$/, "");
+			const trimmedFinalPrefix = normFinal.replace(/^\s+/, "");
+			// Right-trimmed final for the trailing-junk case: a provider
+			// final that is the streamed text plus a trailing newline (or
+			// CRLF) must still count as streamed, or it falls through to
+			// the paragraph-break join and the answer is stored twice,
+			// permanently.
+			const trimmedFinalSuffix = normFinal.replace(/\s+$/, "");
+			const alreadyStreamed =
+				!!finalText &&
+				(normExisting.endsWith(normFinal) ||
+					(trimmedFinalPrefix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalPrefix)) ||
+					(trimmedFinalSuffix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalSuffix)));
 			if (existing && existing.length > 0) {
 				// A. If we already streamed the same final text, keep as-is.
-				if (event.text && existing.endsWith(event.text)) {
+				if (alreadyStreamed) {
 					message.content = initialContent + existing;
 				}
 				// B. If the final text already includes the streamed prefix, use it verbatim.
-				else if (event.text && event.text.startsWith(existing)) {
-					message.content = initialContent + event.text;
+				else if (
+					finalText &&
+					(normFinal.startsWith(normExisting) ||
+						(trimmedExistingSuffix.length > 0 &&
+							trimmedFinalPrefix.startsWith(trimmedExistingSuffix)))
+				) {
+					message.content = initialContent + finalText;
 				}
 				// C. Otherwise, merge with a paragraph break for readability.
 				else {

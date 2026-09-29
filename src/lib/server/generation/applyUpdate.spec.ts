@@ -124,6 +124,66 @@ describe("applyUpdateToMessage", () => {
 			expect(m.content).toBe("a story\n\na caption");
 		});
 
+		it("A: a trailing newline on the final text still counts as streamed", () => {
+			// The reported duplication class: streamed text vs final text
+			// differing invisibly (trailing newline, CRLF, NFD accents)
+			// must never fall through to the paragraph-break join. A trailing
+			// newline the stream never had is dropped, not stored twice.
+			const m = message({ content: "Ciao!\n\nFatto, eccola.", updates: [toolCall] });
+			applyUpdateToMessage(
+				{ type: MessageUpdateType.FinalAnswer, text: "Fatto, eccola.\n", interrupted: false },
+				ctx(m, "Ciao!\n\n")
+			);
+
+			expect(m.content).toBe("Ciao!\n\nFatto, eccola.");
+		});
+
+		it("A: CRLF line endings in the final text still count as streamed", () => {
+			const m = message({ content: "Ciao!\n\nFatto, eccola.", updates: [toolCall] });
+			applyUpdateToMessage(
+				{
+					type: MessageUpdateType.FinalAnswer,
+					text: "Fatto, eccola.\r\n",
+					interrupted: false,
+				},
+				ctx(m, "Ciao!\n\n")
+			);
+
+			expect(m.content).toBe("Ciao!\n\nFatto, eccola.");
+		});
+
+		it("A: NFD accents in the streamed text match the NFC final", () => {
+			const nfd = "più di una?".normalize("NFD");
+			const nfc = "più di una?";
+			const m = message({ content: `Intro\n\n${nfd}`, updates: [toolCall] });
+			applyUpdateToMessage(
+				{ type: MessageUpdateType.FinalAnswer, text: nfc, interrupted: false },
+				ctx(m, "Intro\n\n")
+			);
+
+			expect(m.content).toBe(`Intro\n\n${nfd}`);
+		});
+
+		it("A: leading whitespace on the final text still counts as streamed", () => {
+			const m = message({ content: "a story", updates: [toolCall] });
+			applyUpdateToMessage(
+				{ type: MessageUpdateType.FinalAnswer, text: "\n\nstory", interrupted: false },
+				ctx(m, "a ")
+			);
+
+			expect(m.content).toBe("a story");
+		});
+
+		it("B: trailing whitespace on the streamed prefix still takes the final verbatim", () => {
+			const m = message({ content: "a story   ", updates: [toolCall] });
+			applyUpdateToMessage(
+				{ type: MessageUpdateType.FinalAnswer, text: "a story and more", interrupted: false },
+				ctx(m)
+			);
+
+			expect(m.content).toBe("a story and more");
+		});
+
 		it("does not add a second gap when one is already there", () => {
 			const m = message({ content: "a story\n\n", updates: [toolCall] });
 			applyUpdateToMessage(
