@@ -388,8 +388,10 @@ cp "$B/.env" .env && chmod 600 .env
 docker compose up -d --wait postgres chat-mongo
 docker compose exec -T postgres psql -U gateway -d postgres < "$B/postgres.sql"
 docker compose exec -T chat-mongo mongorestore --quiet --archive --gzip --drop < "$B/chat-mongo.archive.gz"
+# The archive (deploy-backup.sh) stores `authelia-config/` and `authelia-data/`
+# at its root; unpack, then move each into its volume.
 docker run --rm -v cerea_authelia-config:/c -v cerea_authelia-data:/d -v "$PWD/$B:/in:ro" \
-  alpine tar xzf /in/authelia.tgz -C /
+  alpine sh -c "tar xzf /in/authelia.tgz -C /tmp && cp -a /tmp/authelia-config/. /c/ && cp -a /tmp/authelia-data/. /d/"
 docker compose up -d --wait
 ```
 
