@@ -23,6 +23,41 @@ export interface SubagentRow {
 	status: SubagentStatus;
 }
 
+/** A spawned session (`session_spawn`): a top-level row, not a subagent —
+ * it has no parent edge — that still says who created it, in the same
+ * "↳ from" line a subagent carries. */
+export interface SpawnedRow {
+	sessionId: string;
+	/** The spawner's title when the session was created; the live title when
+	 * the spawner is still listed. */
+	title: string;
+	/** Where the spawner lives, when it is in the list: the link's target. */
+	workspaceId: string | null;
+	elsewhere: string | null;
+}
+
+export function spawnedRow(
+	agent: CodeAgentSession,
+	agents: CodeAgentSession[],
+	workspaces: CodeWorkspace[]
+): SpawnedRow | null {
+	const marker = agent.spawnedBy;
+	if (!marker || agent.parentId) return null;
+	const spawner = agents.find((a) => a.id === marker.sessionId);
+	const spawnerWorkspace = spawner
+		? workspaces.find((w) => w.id === spawner.workspaceId)
+		: undefined;
+	return {
+		sessionId: marker.sessionId,
+		title: spawner?.title ?? marker.title,
+		workspaceId: spawner?.workspaceId ?? null,
+		elsewhere:
+			spawner && spawner.workspaceId !== agent.workspaceId
+				? (spawnerWorkspace?.name ?? null)
+				: null,
+	};
+}
+
 export interface ParentRow {
 	count: number;
 	waiting: boolean;

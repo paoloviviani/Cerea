@@ -228,6 +228,7 @@ function toSession(session: Session): CodeAgentSession {
 		effort: session.effort ?? null,
 		...(session.rootId ? { rootId: session.rootId } : {}),
 		...(session.childSummary ? { childSummary: session.childSummary } : {}),
+		...(session.spawnedBy ? { spawnedBy: session.spawnedBy } : {}),
 	};
 }
 

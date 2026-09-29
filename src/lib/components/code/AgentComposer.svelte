@@ -16,10 +16,13 @@
 	auto-accept), drawn like chat's own toggle pills — blue when on, gray
 	when off — and claimed only from the agent's snapshot.
 
-	While a turn is live the send button's spot carries the stop control,
-	chat's own swap (`ChatWindow` renders `StopGeneratingBtn` in the same
-	place) — and it stays while a permission card is up, because stopping
-	a prompt nobody wants to answer is the point of it.
+	While a turn is live the stop control joins the send button in its spot
+	(chat's own swap has `ChatWindow` render `StopGeneratingBtn` there) — and
+	it stays while a permission card is up, because stopping a prompt nobody
+	wants to answer is the point of it. The send button stays too: a prompt
+	sent mid-turn STEERS it (opencode folds it into the next step), and its
+	chevron offers "Stop and send" for the stop-then-prompt path. Steering
+	is for prompts only — a `/` command is still refused while a turn runs.
 
 	There is no provider field: the agent already has one, and
 	`session.prompt` takes none.
@@ -110,8 +113,9 @@
 		/** What the picker, paste and chips accept; empty hides the picker. */
 		mimeTypes?: string[];
 		/** Stops the live turn. The transcript records the ending; this only
-		 * carries the request to the daemon. */
-		onstop?: () => void;
+		 * carries the request to the daemon. Resolves `false` when the daemon
+		 * did not take it, which "Stop and send" reads as "do not send". */
+		onstop?: () => void | boolean | Promise<void | boolean>;
 		/** Whether this agent's backend takes a per-session thinking effort
 		 * (`hello` capability `efforts`); the effort pill needs it too. */
 		effortsSupported?: boolean;
@@ -154,6 +158,11 @@
 		/** Whether the backend can roll a session back (`hello` capability
 		 * `revert`) — `/undo` and `/redo` need it. */
 		revertSupported?: boolean;
+		/** Whether the backend folds a prompt sent mid-turn into the running
+		 * turn (`hello` capability `steer`): Send stays beside Stop and the
+		 * "Stop and send" chevron shows only then. Without it the stop
+		 * control stands alone, as it did before steering. */
+		steerSupported?: boolean;
 		/** Opens the rollback confirmation for `/undo` — the view owns it,
 		 * because only the transcript knows the last user message's machine
 		 * id and carries the same confirm dialog the retry action uses. */
@@ -187,6 +196,7 @@
 		featureCatalog = null,
 		compactSupported = false,
 		revertSupported = false,
+		steerSupported = false,
 		onundo,
 		onnew,
 
@@ -210,8 +220,8 @@
 		const run = matchSlashCommand(message, allCommands);
 		if (run) {
 			if (running) {
-				// The send button is hidden while a turn runs, and a command
-				// must not join it half-explained: steering is a later wave.
+				// A prompt steers a running turn; a command must not join it
+				// half-explained, so it waits for the turn or for a stop.
 				errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
 				return;
 			}
@@ -233,6 +243,28 @@
 			await onsend(message, files);
 			// Cleared only on a landed send: a refused follow-up keeps its text
 			// and its files, like every composer here.
+			draft = "";
+			files = [];
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** "Stop and send": end the live turn, then send the draft as the next
+	 * turn's prompt. A stop the daemon refused sends nothing and keeps the
+	 * draft — the stop's own failure is already on the view's banner. */
+	async function stopAndSend() {
+		if (enrollmentExpired || offline || busy) return;
+		const message = draft.trim();
+		if (!message) return;
+		if (matchSlashCommand(message, allCommands)) {
+			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+			return;
+		}
+		busy = true;
+		try {
+			if ((await onstop?.()) === false) return;
+			await onsend(message, files);
 			draft = "";
 			files = [];
 		} finally {
@@ -1061,33 +1093,77 @@
 {/if}
 
 {#snippet sendControl(pinned: boolean)}
-	{#if running}
-		<!-- The stop control, exactly where chat's sits: ChatWindow swaps the
-		     send button for StopGeneratingBtn in this same spot while a turn
-		     is live. It stays while a permission card is up — stopping a
-		     prompt nobody wants to answer is the point of it — and the
-		     turn's end comes from the transcript's stream, not from this
-		     click. -->
-		<StopGeneratingBtn
-			onClick={onstop}
-			showBorder={true}
-			classNames="{pinned
-				? 'absolute right-2 bottom-2 size-8'
-				: 'size-7'} self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
-		/>
-	{:else}
-		<button
-			class="{pinned
-				? 'absolute right-2 bottom-2 size-8'
-				: 'size-7'} btn self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
-				? ''
-				: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
-			disabled={!draft.trim() || busy || enrollmentExpired || offline}
-			type="submit"
-			aria-label="Send message"
-			name="submit"
-		>
-			<IconArrowUp />
-		</button>
-	{/if}
+	<!-- One cluster, pinned or inline: while a turn runs it is stop, then
+	     send (a steer) with its "Stop and send" chevron; otherwise send alone.
+	     Pinned (mobile) the cluster is what floats over the corner, so the
+	     buttons stay together at the width of a thumb. -->
+	<span
+		class="{pinned ? 'absolute right-2 bottom-2' : ''} flex flex-none items-end gap-1.5 self-end"
+	>
+		{#if running}
+			<!-- The stop control, exactly where chat's sits: ChatWindow swaps the
+			     send button for StopGeneratingBtn in this same spot while a turn
+			     is live. It stays while a permission card is up — stopping a
+			     prompt nobody wants to answer is the point of it — and the
+			     turn's end comes from the transcript's stream, not from this
+			     click. -->
+			<StopGeneratingBtn
+				onClick={onstop}
+				showBorder={true}
+				classNames="{pinned
+					? 'size-8'
+					: 'size-7'} self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
+			/>
+		{/if}
+		{#if !running || steerSupported}
+			<span class="flex items-end">
+				<button
+					class="{pinned
+						? 'size-8'
+						: 'size-7'} btn self-end border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {running
+						? 'rounded-l-full rounded-r-none'
+						: 'rounded-full'} {!draft
+						? ''
+						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+					disabled={!draft.trim() || busy || enrollmentExpired || offline}
+					type="submit"
+					aria-label="Send message"
+					title={running ? "Send to the running turn" : undefined}
+					name="submit"
+				>
+					<IconArrowUp />
+				</button>
+				{#if running}
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class="btn {pinned
+								? 'h-8'
+								: 'h-7'} w-5 flex-none self-end rounded-l-none rounded-r-full border border-l-0 bg-white px-0 text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
+								? ''
+								: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+							disabled={!draft.trim() || busy || enrollmentExpired || offline}
+							aria-label="More ways to send"
+						>
+							<IconChevronDown class="size-3" />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								class={menuContentClass}
+								side="top"
+								align="end"
+								sideOffset={8}
+								trapFocus={false}
+								onCloseAutoFocus={(e) => e.preventDefault()}
+								interactOutsideBehavior="defer-otherwise-close"
+							>
+								<DropdownMenu.Item class={menuItemClass} onSelect={() => void stopAndSend()}>
+									<span class="whitespace-nowrap">Stop and send</span>
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+				{/if}
+			</span>
+		{/if}
+	</span>
 {/snippet}

@@ -394,6 +394,26 @@ describe("eventToUpdates: one live event at a time", () => {
 		]);
 	});
 
+	it("carries the sender of a session_send message on the boundary, live and in a snapshot", () => {
+		const sentBy = { sessionId: "ses_a", title: "Docs agent", hop: 1 };
+		const message = { ...userMessage("m9"), sentBy };
+		expect(eventToUpdates({ kind: "message", message })).toEqual([
+			{ type: "messageBoundary", role: "user", messageId: "m9", sentBy },
+		]);
+		const updates = snapshotToUpdates({
+			messages: [{ message, parts: [textPart("p9", "m9", "user", "please review")] }],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		});
+		expect(updates[0]).toEqual({ type: "messageBoundary", role: "user", messageId: "m9", sentBy });
+		// An assistant message never carries one, whatever the wire says.
+		expect(
+			eventToUpdates({ kind: "message", message: { ...assistantMessage("a9"), sentBy } })
+		).toEqual([{ type: "messageBoundary", role: "assistant", messageId: "a9" }]);
+	});
+
 	it("maps a message event to a pure boundary marker, and drops session (no panel shape)", () => {
 		expect(eventToUpdates({ kind: "message", message: assistantMessage("a1") })).toEqual([
 			{ type: "messageBoundary", role: "assistant", messageId: "a1" },

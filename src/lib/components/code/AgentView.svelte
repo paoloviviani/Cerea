@@ -22,7 +22,7 @@
 	person's message back, and the stream is the transcript's source of truth.
 -->
 <script lang="ts">
-	import { untrack } from "svelte";
+	import { setContext, untrack } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
 	import { goto } from "$app/navigation";
@@ -55,6 +55,7 @@
 	import {
 		CodeApiError,
 		cancelAgent,
+		listAgents,
 		fetchSubagentTimeline,
 		getAgent,
 		listProviderFeatures,
@@ -74,6 +75,11 @@
 	import { uploadComposerFiles } from "$lib/utils/composerFiles";
 	import { keepReportedUsage } from "$lib/utils/agentUsage";
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
+	import {
+		CODE_SESSION_LINKS,
+		referencedSessionIds,
+		type CodeSessionLinks,
+	} from "$lib/utils/codeSessionLinks";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import TogglePill from "$lib/components/TogglePill.svelte";
@@ -243,6 +249,14 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.compact);
 	});
+	/** Steering: a prompt sent mid-turn is folded into the running turn
+	 * (`hello` capability `steer`), so the composer keeps Send beside Stop. */
+	let steerSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.steer);
+	});
 	let revertRestoresFiles = $derived.by(() => {
 		const caps = codeDeviceList.devices
 			.find((d) => d.id === deviceId)
@@ -399,6 +413,33 @@
 			featureCatalog = [];
 		}
 	}
+
+	// Other sessions this transcript names (a "From agent" bubble, a
+	// `session_send` target, a spawn's child): one read of the machine's own
+	// list per new id, so a link can carry the workspace and a title can be
+	// current. An id the list does not know stays a link without a workspace,
+	// which the panel resolves from the agent itself.
+	let knownSessions = $state<Record<string, CodeAgentSession>>({});
+	let sessionsTried = new Set<string>();
+	let referencedSessions = $derived(referencedSessionIds(messages));
+	$effect(() => {
+		const wanted = referencedSessions.filter(
+			(id) => !(id in knownSessions) && !sessionsTried.has(id)
+		);
+		if (wanted.length === 0 || skipMachineFetches) return;
+		for (const id of wanted) sessionsTried.add(id);
+		void listAgents(deviceId)
+			.then(({ agents }) => {
+				knownSessions = { ...knownSessions, ...Object.fromEntries(agents.map((a) => [a.id, a])) };
+			})
+			.catch(() => {});
+	});
+	const sessionLinks: CodeSessionLinks = {
+		href: (sessionId) =>
+			`${base}/code?device=${deviceId}&ws=${knownSessions[sessionId]?.workspaceId ?? ""}&agent=${sessionId}`,
+		title: (sessionId) => knownSessions[sessionId]?.title,
+	};
+	setContext(CODE_SESSION_LINKS, sessionLinks);
 
 	// A subagent's view names where it came from, with a link back: the
 	// parent's own row (title, workspace), read once per parent id.
@@ -740,7 +781,8 @@
 			failure = "This machine's enrollment expired or was revoked — re-enroll to send.";
 			return;
 		}
-		pending = true;
+		// A steer joins a turn that already shows its own indicator.
+		pending = !loading;
 		failure = null;
 		// The send is the request to see the exchange — same contract as chat.
 		column?.notifySend();
@@ -770,12 +812,14 @@
 	 * the daemon resolves it denied, which settles the card through the
 	 * fold's existing resolution path. Stopping is exactly the move for a
 	 * prompt nobody wants to answer. */
-	async function stopAgent() {
+	async function stopAgent(): Promise<boolean> {
 		failure = null;
 		try {
 			await cancelAgent(deviceId, agentId);
+			return true;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not stop the agent.";
+			return false;
 		}
 	}
 
@@ -912,6 +956,17 @@
 					>sub</span
 				>
 				<span class="truncate">Subagent of {parentAgent?.title ?? "its parent session"}</span>
+			</a>
+		{/if}
+		{#if agent?.spawnedBy && !agent.parentId}
+			<a
+				class="flex min-w-0 items-center gap-1 text-xs text-ink-muted hover:text-ink"
+				href={sessionLinks.href(agent.spawnedBy.sessionId)}
+				data-testid="spawned-by"
+			>
+				<span class="truncate"
+					>↳ from {sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title}</span
+				>
 			</a>
 		{/if}
 		<div class="flex items-center gap-2">
@@ -1068,6 +1123,7 @@
 					{effortsSupported}
 					{compactSupported}
 					{revertSupported}
+					{steerSupported}
 					onundo={openUndoConfirm}
 					onnew={openNewAgentDialog}
 					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}

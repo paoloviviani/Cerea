@@ -29,6 +29,8 @@
 	import ArtifactCard from "./ArtifactCard.svelte";
 	import ElicitationForm from "./ElicitationForm.svelte";
 	import ToolApprovalCard from "./ToolApprovalCard.svelte";
+	import LucideBot from "~icons/lucide/bot";
+	import { getCodeSessionLinks } from "$lib/utils/codeSessionLinks";
 	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import MemoryCard from "./MemoryCard.svelte";
@@ -149,6 +151,7 @@
 		conversationId,
 	}: Props = $props();
 
+	const sessionLinks = getCodeSessionLinks();
 	const convId = $derived(conversationId ?? page.params.id ?? "");
 
 	// What a code block in this message needs to keep the files its run
@@ -1041,7 +1044,37 @@
 
 			<div class="flex w-full flex-row flex-nowrap">
 				{#if !editMode}
-					{#if message.command}
+					{#if message.sentBy}
+						<!-- Another session wrote this with `session_send`: not the
+						     person's words, so it is drawn as a different voice — a
+						     tinted card, headed by who it is from and a link to them. -->
+						<div class="w-full px-5 py-3.5" data-testid="sent-by-agent">
+							<div
+								class="w-fit max-w-full rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2 dark:border-violet-800/50 dark:bg-violet-900/15"
+							>
+								<p
+									class="mb-1 flex min-w-0 items-center gap-1 text-xs font-medium text-violet-700 dark:text-violet-300"
+								>
+									<LucideBot class="size-3.5 shrink-0" />
+									<span class="shrink-0">From agent</span>
+									{#if sessionLinks}
+										<a
+											href={sessionLinks.href(message.sentBy.sessionId)}
+											class="min-w-0 truncate underline-offset-2 hover:underline"
+											data-testid="sent-by-link">{message.sentBy.title}</a
+										>
+									{:else}
+										<span class="min-w-0 truncate">{message.sentBy.title}</span>
+									{/if}
+								</p>
+								<p
+									class="text-wrap wrap-break-word whitespace-break-spaces text-gray-600 dark:text-gray-300"
+								>
+									{message.content.trim()}
+								</p>
+							</div>
+						</div>
+					{:else if message.command}
 						<!-- A slash command run (PROTOCOL.md §7): the bubble is the
 						     invocation; the expanded template — which opencode ran
 						     on this machine as the prompt — folds into a collapsed
