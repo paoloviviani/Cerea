@@ -243,6 +243,14 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.compact);
 	});
+	/** Steering: a prompt sent mid-turn is folded into the running turn
+	 * (`hello` capability `steer`), so the composer keeps Send beside Stop. */
+	let steerSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return Boolean(caps?.steer);
+	});
 	let revertRestoresFiles = $derived.by(() => {
 		const caps = codeDeviceList.devices
 			.find((d) => d.id === deviceId)
@@ -1071,6 +1079,7 @@
 					{effortsSupported}
 					{compactSupported}
 					{revertSupported}
+					{steerSupported}
 					onundo={openUndoConfirm}
 					onnew={openNewAgentDialog}
 					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}

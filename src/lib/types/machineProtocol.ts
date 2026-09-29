@@ -39,6 +39,13 @@ export interface Backend {
 		/** Tool calls list their images on the part (`attachments`) and
 		 * `session.attachment` serves the bytes (§6/§7). */
 		toolImages?: boolean;
+		/** galopin installed its agent-coordination tools into the backend
+		 * (§6 "Agent tools"): `session_list`/`session_spawn`/`session_send`. */
+		agentTools?: boolean;
+		/** A `session.prompt` sent mid-turn is accepted and folded into the
+		 * running turn (steering) rather than refused. Older machines omit
+		 * it: read as false. */
+		steer?: boolean;
 	};
 }
 
@@ -499,6 +506,8 @@ const backendSchema = z.object({
 		autoAccept: z.boolean(),
 		questions: z.boolean(),
 		toolImages: z.boolean().optional(),
+		agentTools: z.boolean().optional(),
+		steer: z.boolean().optional(),
 	}),
 });
 
