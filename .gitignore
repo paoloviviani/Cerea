@@ -8,3 +8,6 @@ proxy.d/*.caddy
 # Source checkouts dev/build.sh builds from.
 dev/src/
 __pycache__/
+# The built mkdocs sites served on /docs/* (OC builds them on this box;
+# built output never belongs in git).
+docs-site/
