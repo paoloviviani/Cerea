@@ -45,10 +45,13 @@ type machine struct {
 	// audit is galopin's local, tamper-resistant record (PROTOCOL.md §9.3):
 	// terminal open/close and policy refusals, never content. Nil-safe.
 	audit *auditLogger
+	// agentTools is the agent-coordination tools' state (agenttools.go); nil
+	// when the backend has none.
+	agentTools *agentTools
 }
 
 func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Materializer, pol policy.Policy) *machine {
-	return &machine{
+	mc := &machine{
 		workspaces:         reg,
 		back:               back,
 		mat:                mat,
@@ -58,6 +61,8 @@ func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Ma
 		sessionWorkspaceID: map[string]string{},
 		channelTerminal:    map[string]string{},
 	}
+	mc.installAgentTools()
+	return mc
 }
 
 // AttachLink wires the machine to its live link, once both exist (run.go
