@@ -28,6 +28,12 @@ Each call the chat makes carries the signed-in person's own token, so quotas
 and billing are theirs. Pystino has its own documentation; this site links to it from the
 [reference](reference.md) page rather than repeating it.
 
+!!! tip "Three ways to run it"
+
+    The whole stack from the deploy kit, the chat without the kit, or the
+    chat without Pystino at all — each a supported path with a different
+    feature set. [Deploying](deploy.md) lays them out side by side.
+
 ## Which section is yours
 
 | If you are…              | Read                                                                                                                                                                                                                                                             |
