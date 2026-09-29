@@ -163,3 +163,30 @@ func TestBuildOpencodeConfigGivesReasoningModelsEffortVariants(t *testing.T) {
 		t.Errorf("plain variants = %v, want none", got)
 	}
 }
+
+func TestBuildOpencodeConfigMarksImageModels(t *testing.T) {
+	cfg := buildOpencodeConfig("127.0.0.1:1", "s", []gatewayModel{
+		{ID: "vision", InputModalities: []string{"text", "image"}},
+		{ID: "textonly", InputModalities: []string{"text"}},
+		{ID: "legacy"},
+	}, false)
+	models := cfg.Provider["pystino"].Models
+
+	v := models["vision"]
+	if v.Attachment == nil || *v.Attachment != true {
+		t.Errorf("vision attachment = %v, want true", v.Attachment)
+	}
+	if v.Modalities == nil || !reflect.DeepEqual(v.Modalities.Input, []string{"text", "image"}) {
+		t.Errorf("vision modalities = %+v, want input [text image]", v.Modalities)
+	}
+
+	for _, id := range []string{"textonly", "legacy"} {
+		m := models[id]
+		if m.Attachment != nil {
+			t.Errorf("%s attachment = %v, want unset (gateway said no image / said nothing)", id, *m.Attachment)
+		}
+		if m.Modalities != nil {
+			t.Errorf("%s modalities = %+v, want unset", id, m.Modalities)
+		}
+	}
+}

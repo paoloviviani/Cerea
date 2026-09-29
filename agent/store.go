@@ -176,6 +176,23 @@ type opencodeModel struct {
 	// each one reasoningEffort, which @ai-sdk/openai-compatible sends as the
 	// request's reasoning_effort.
 	Variants map[string]map[string]string `json:"variants,omitempty"`
+	// Attachment mirrors opencode's per-model `attachment` flag: true means
+	// the Read tool renders image files into the prompt instead of
+	// answering "this model does not support image input". Set from the
+	// gateway's input_modalities, so the catalogue — not galopin — decides.
+	Attachment *bool `json:"attachment,omitempty"`
+	// Modalities carries the gateway's input list through to opencode's
+	// per-model `modalities.input` (its schema: text, audio, image, video,
+	// pdf), so UI affordances follow the same claim. Omitted when the
+	// gateway says nothing (a pre-modality catalogue): opencode's own
+	// defaults then apply.
+	Modalities *opencodeModalities `json:"modalities,omitempty"`
+}
+
+// opencodeModalities is opencode's per-model modality claim
+// (config.json's $defs/ModalitiesConfig).
+type opencodeModalities struct {
+	Input []string `json:"input,omitempty"`
 }
 
 // effortVariants are the levels a reasoning-capable gateway model gets.
@@ -282,6 +299,11 @@ func buildOpencodeConfig(
 		entry.Limit = &opencodeLimit{Context: context, Output: output}
 		if hasFeature(m.SupportedFeatures, "reasoning") {
 			entry.Variants = effortVariants()
+		}
+		if hasFeature(m.InputModalities, "image") {
+			t := true
+			entry.Attachment = &t
+			entry.Modalities = &opencodeModalities{Input: m.InputModalities}
 		}
 		entries[m.ID] = entry
 	}

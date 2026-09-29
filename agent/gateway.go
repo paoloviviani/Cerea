@@ -63,6 +63,13 @@ type gatewayModel struct {
 	// SupportedFeatures is the gateway's per-model capability list; a
 	// "reasoning" entry gets thinking-effort variants in opencode.json.
 	SupportedFeatures []string `json:"supported_features"`
+	// InputModalities is the gateway's flat capability list (CLAUDE.md's
+	// open-set contract: membership, not a boolean per feature). An
+	// "image" entry means the model accepts image attachments, which
+	// becomes opencode's per-model `attachment` + `modalities.input` so
+	// the Read tool renders images into prompts instead of refusing with
+	// "this model does not support image input".
+	InputModalities []string `json:"input_modalities"`
 }
 
 // fetchModels discovers the caller's catalogue for the opencode models map.
