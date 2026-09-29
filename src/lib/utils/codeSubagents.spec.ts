@@ -3,6 +3,7 @@ import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 import {
 	parentRow,
 	readShowSubagents,
+	spawnedRow,
 	subagentRow,
 	subagentStatus,
 	visibleAgents,
@@ -89,5 +90,43 @@ describe("the subagent filter", () => {
 		expect(readShowSubagents(undefined)).toBe(true);
 		expect(readShowSubagents({ getItem: () => null })).toBe(true);
 		expect(readShowSubagents({ getItem: () => "false" })).toBe(false);
+	});
+});
+
+describe("a spawned session's row", () => {
+	const spawned = agent({
+		id: "s",
+		title: "Docs",
+		workspaceId: "w1",
+		parentId: null,
+		spawnedBy: { sessionId: "p", title: "Main (then)" },
+	});
+
+	it("is top level, and names its spawner by the live title with a link target", () => {
+		expect(spawnedRow(spawned, [parent, spawned], workspaces)).toEqual({
+			sessionId: "p",
+			title: "Main",
+			workspaceId: "w1",
+			elsewhere: null,
+		});
+	});
+
+	it("names the spawner's workspace only when it lives elsewhere", () => {
+		const far = agent({ ...spawned, workspaceId: "w2" });
+		expect(spawnedRow(far, [parent, far], workspaces)).toMatchObject({ elsewhere: "repo" });
+	});
+
+	it("keeps the title it was created with when the spawner is not listed", () => {
+		expect(spawnedRow(spawned, [spawned], workspaces)).toEqual({
+			sessionId: "p",
+			title: "Main (then)",
+			workspaceId: null,
+			elsewhere: null,
+		});
+	});
+
+	it("is null for an ordinary session, and for a subagent", () => {
+		expect(spawnedRow(parent, [parent], workspaces)).toBeNull();
+		expect(spawnedRow(child, [parent, child], workspaces)).toBeNull();
 	});
 });

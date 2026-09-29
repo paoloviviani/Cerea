@@ -171,3 +171,30 @@ describe("CodeNavTree rails", () => {
 		expect(rails(screen, "workspace")).toHaveLength(0);
 	});
 });
+
+describe("CodeNavTree spawned sessions", () => {
+	it("lists a spawned session as its own top-level row, with a ↳ from link to its spawner", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1 (then)" } },
+			// A spawner that is gone: the title it was created with still reads.
+			{ ...agent("a4", "w1"), spawnedBy: { sessionId: "gone", title: "Old planner" } },
+		];
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount();
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+
+		const froms = [...screen.baseElement.querySelectorAll('[data-testid="spawned-from"]')];
+		expect(froms.map((el) => el.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+			"↳ from Agent a1",
+			"↳ from Old planner",
+		]);
+		// Linked when the spawner is listed, plain text when it is not; never a
+		// subagent badge, since a spawned session has no parent edge.
+		expect(froms[0]?.getAttribute("href")).toContain("agent=a1");
+		expect(froms[0]?.getAttribute("href")).toContain("ws=w1");
+		expect(froms[1]?.tagName).toBe("P");
+		expect(screen.baseElement.querySelectorAll('[data-testid="subagent-badge"]')).toHaveLength(0);
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+	});
+});
