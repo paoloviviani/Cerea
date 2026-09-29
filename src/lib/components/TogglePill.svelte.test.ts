@@ -6,7 +6,7 @@ import TogglePill from "./TogglePill.svelte";
 
 const icon = createRawSnippet(() => ({ render: () => `<svg data-testid="pill-icon"></svg>` }));
 
-function mount(props: { pressed: boolean; compact?: boolean }) {
+function mount(props: { pressed: boolean; compact?: boolean; badge?: string }) {
 	return render(TogglePill, { label: "Changes", onclick: () => {}, icon, ...props });
 }
 
@@ -44,5 +44,26 @@ describe("TogglePill compact", () => {
 		await expect
 			.element(on.getByRole("button", { name: "Changes" }))
 			.toHaveAttribute("aria-pressed", "true");
+	});
+});
+
+describe("TogglePill badge", () => {
+	it("keeps a small count visible under sm, where the label is hidden", async () => {
+		await page.viewport(400, 800);
+		const screen = mount({ pressed: false, compact: true, badge: "3/7" });
+		const badge = screen.getByTestId("pill-badge");
+		await expect.element(badge).toBeVisible();
+		expect(badge.element().textContent).toBe("3/7");
+	});
+
+	it("is hidden at sm and up, where the label already carries it", async () => {
+		await page.viewport(1000, 800);
+		const screen = mount({ pressed: false, compact: true, badge: "3/7" });
+		await expect.element(screen.getByTestId("pill-badge")).not.toBeVisible();
+	});
+
+	it("does not add a second copy of the count to the accessible name", async () => {
+		const screen = mount({ pressed: false, compact: true, badge: "3/7" });
+		await expect.element(screen.getByRole("button", { name: "Changes" })).toBeInTheDocument();
 	});
 });

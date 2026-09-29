@@ -138,10 +138,25 @@ describe("CodeNavTree collapse", () => {
 
 		await screen.getByRole("button", { name: "Collapse alpha" }).click();
 		const wsRow = screen.getByText("alpha").element().closest("span.flex");
-		expect(wsRow?.className).toContain("font-semibold");
+		// Holds the selection, is not the selection: a lighter wash, not the
+		// selected row's tint.
+		expect(wsRow?.className).not.toContain("font-semibold");
+		expect(wsRow?.className).toContain("bg-gray-50");
+		expect(wsRow?.hasAttribute("data-holds-selection")).toBe(true);
 
 		await screen.getByRole("button", { name: "Collapse Box d1" }).click();
-		expect(link().className).toContain("font-semibold");
+		expect(link().className).not.toContain("font-semibold");
+		expect(link().className).toContain("bg-gray-50");
+		expect(link().hasAttribute("data-holds-selection")).toBe(true);
+	});
+
+	it("gives the full tint to a row that is itself the selection", async () => {
+		go("?device=d1&ws=w1");
+		const screen = mount();
+		await expect.element(screen.getByText("alpha")).toBeVisible();
+		const wsRow = screen.getByText("alpha").element().closest("span.flex");
+		expect(wsRow?.className).toContain("bg-gray-100 font-semibold");
+		expect(wsRow?.hasAttribute("data-holds-selection")).toBe(false);
 	});
 });
 
@@ -169,6 +184,25 @@ describe("CodeNavTree rails", () => {
 		await screen.getByRole("button", { name: "Collapse Box d2" }).click();
 		expect(rails(screen, "device")).toHaveLength(1);
 		expect(rails(screen, "workspace")).toHaveLength(0);
+	});
+});
+
+describe("CodeNavTree subagent rails", () => {
+	it("puts a subagent in a rail of its own, and leaves ordinary sessions out of one", async () => {
+		AGENTS.d1 = [agent("a1", "w1"), { ...agent("a2", "w1"), parentId: "a1" }];
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount();
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+		const subRails = screen.baseElement.querySelectorAll('[data-testid="subagent-rail"]');
+		expect(subRails).toHaveLength(1);
+		expect(subRails[0]?.className).toContain("border-l");
+		expect(subRails[0]?.textContent).toContain("Agent a2");
+		// a1 is an ordinary session, outside it (its name appears only in the
+		// subagent's own "↳ from" line).
+		expect(subRails[0]?.querySelector('a[title="Agent a1"]')).toBeNull();
+		// Nested inside the workspace's rail.
+		expect(subRails[0]?.closest('[data-testid="workspace-rail"]')).not.toBeNull();
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
 	});
 });
 

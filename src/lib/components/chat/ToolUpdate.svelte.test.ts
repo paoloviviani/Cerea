@@ -182,6 +182,8 @@ describe("the collapsed card's thumbnail strip", () => {
 		// Only the small one has a request behind it.
 		expect(thumbs(view)).toHaveLength(1);
 		expect(gated?.getBoundingClientRect().height).toBe(48);
+		// Position in the name, so several gated images are told apart.
+		expect(gated?.getAttribute("aria-label")).toBe("Load image 1 of 2 (5.2 MB)");
 		gated?.click();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(thumbs(view)).toHaveLength(2);
