@@ -65,7 +65,7 @@
 
 	let providers = $state<Array<{ id: string; available: boolean }>>([]);
 	let provider = $state("");
-	let posture = $state<"plan" | "write">("plan");
+	let posture = $state<"plan" | "build">("plan");
 	let title = $state("");
 	let busy = $state(true);
 	let failure = $state<string | null>(null);
@@ -183,11 +183,11 @@
 				</button>
 				<button
 					type="button"
-					class={posture === "write" ? s.PRIMARY : s.SECONDARY}
-					onclick={() => (posture = "write")}
+					class={posture === "build" ? s.PRIMARY : s.SECONDARY}
+					onclick={() => (posture = "build")}
 					disabled={busy}
 				>
-					Write
+					Build
 				</button>
 			</div>
 			<p class={s.HINT}>

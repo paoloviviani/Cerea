@@ -99,6 +99,7 @@
 	let confirmRequest = $state<
 		| { kind: "agent"; device: CodeDeviceView; agent: CodeAgentSession }
 		| { kind: "workspace"; device: CodeDeviceView; workspace: CodeWorkspace }
+		| { kind: "device"; device: CodeDeviceView }
 		| null
 	>(null);
 
@@ -504,7 +505,7 @@
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
 							title="Reject this machine"
-							onclick={() => void handleRevoke(device.id)}
+							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconClose class="size-3.5" />
 						</button>
@@ -569,8 +570,8 @@
 						</button>
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Remove this pairing"
-							onclick={() => void handleRevoke(device.id)}
+						title="Remove this pairing"
+						onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconTrash class="size-3.5" />
 						</button>
@@ -952,6 +953,18 @@
 			confirmLabel="Archive session"
 			busyLabel="Archiving…"
 			onconfirm={() => handleArchiveAgent(request.device, request.agent)}
+			onclose={() => (confirmRequest = null)}
+		/>
+	{:else if request.kind === "device"}
+		<CodeConfirmDialog
+			title={request.device.status === "pending" ? "Reject this machine" : "Remove this pairing"}
+			target={request.device.name}
+			message={request.device.status === "pending"
+				? "A rejected machine never pairs: the row becomes a tombstone and a reconnect under the same machine id is refused. The machine must re-enroll to try again."
+				: "Revoking ends this machine's access: the row becomes a tombstone, a reconnect under the same machine id is refused, and its sessions stop. The machine must re-enroll to pair again."}
+			confirmLabel={request.device.status === "pending" ? "Reject machine" : "Revoke pairing"}
+			busyLabel="Revoking…"
+			onconfirm={() => handleRevoke(request.device.id)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{:else}

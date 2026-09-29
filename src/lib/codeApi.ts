@@ -400,7 +400,7 @@ export async function fetchSubagentTimeline(
 /** How much licence a new agent starts with. Creation-time only: the live
  * switch is the mode pill on the open agent, which lists the machine's own
  * modes (ADR 0089). */
-export type AgentPosture = "plan" | "write";
+export type AgentPosture = "plan" | "build";
 
 /** The daemon's own `permission.reply` vocabulary (spec §8), carried through
  * unmediated: "once" answers this call only, "always" grants the rest of
