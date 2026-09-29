@@ -33,8 +33,7 @@ docker compose up -d
 `./configure` asks for your origin (`https://chat.example.org`), the
 administrator's email, a preset, the TLS mode and the identity provider. It
 generates every secret and writes `.env` at mode 0600. The first sign-in for
-the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at
-`https://<your origin>/`, then delete that file.
+the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at `https://<your origin>/` (the console; the chat is at `/chat/`), then delete that file.
 
 Prefer to edit by hand? Run `cp .env.example .env && chmod 600 .env`, then fill
 it in. Every option is explained there, and every secret names the command that
@@ -260,7 +259,7 @@ link-by-email on — how many existing accounts a first sign-in would link to.
 ### Switching the identity provider
 
 1. **Back up** (see [Backup and restore](#backup-and-restore)).
-2. **Make sure everyone has signed in once** since upgrading. Accounts are
+2. **Ask everyone to sign in once** since upgrading, before you switch. Accounts are
    keyed by their gateway id, which the chat learns at each person's first
    sign-in; for anyone who has not signed in yet, keeping their chat history
    falls to the merge in the next step.
@@ -279,9 +278,7 @@ link-by-email on — how many existing accounts a first sign-in would link to.
      chat follows automatically: the person's conversations appear under the
      surviving account at their next sign-in, or within a minute of their
      next activity.
-5. **Agent machines re-enroll.** Every enrolled galopin machine shows
-   **Re-enroll this machine: the identity provider changed** in `/chat/code`,
-   with the same one command to run.
+5. **Each person with an agent machine re-enrolls it.** Their `/chat/code` shows **Re-enroll this machine: the identity provider changed** with the command to run on that machine; tell them before you switch.
 
 ### Merging accounts
 
@@ -309,8 +306,7 @@ stack up, and grants admin to the account with that email: creating it if it
 does not exist, re-enabling their bundled login if it was disabled, or
 creating one if they never had it. It prints the sign-in URL, the login and
 a one-time password, once. Everyone else's accounts, memberships and chat
-history are untouched. Agent machines re-enroll, because their tokens name
-the old issuer.
+history are untouched. Each person with an agent machine has to re-enroll it, because its tokens name the old issuer; tell them before you switch.
 
 To go back to your external IdP afterwards, switch again with its values from
 the backup file: `./configure --idp external … --oidc-issuer …`, then
