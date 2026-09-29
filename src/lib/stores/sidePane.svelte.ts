@@ -10,7 +10,7 @@ export const SIDE_PANE_DEFAULT_FRACTION = "60%";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
 export type SidePaneView =
-	"artifact" | "trackio" | "library" | "preview" | "diff" | "files" | "terminal";
+	"artifact" | "trackio" | "library" | "preview" | "diff" | "files" | "terminal" | "tasks";
 
 /**
  * A one-shot rendered view of a single fence or file: no registry entry, no
@@ -188,6 +188,36 @@ class SidePaneStore {
 			return;
 		}
 		this.openTerminal();
+	}
+
+	/** The /code Tasks view: the session's current todo list. Like Changes it
+	 * holds no selection; the list is derived from the timeline by the caller. */
+	openTasks() {
+		this.view = "tasks";
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/** What the Tasks button does: open, or close what it already opened. */
+	toggleTasks() {
+		if (this.open && this.view === "tasks") {
+			this.close();
+			return;
+		}
+		this.openTasks();
+	}
+
+	/**
+	 * Open the Tasks view for a list that has just become active, once per
+	 * list. It only ever fills an empty slot: a pane already showing
+	 * something is never replaced, and the list is spent either way, so
+	 * closing that other view later does not bring Tasks up unasked. A
+	 * pane the person closed stays closed for the same reason.
+	 */
+	maybeAutoOpenTasks(key: string, allowed: boolean) {
+		if (this.autoOpenedKeys.has(key)) return;
+		this.autoOpenedKeys.add(key);
+		if (allowed && !this.open) this.openTasks();
 	}
 
 	/** What the Changes button does: open, or close what it already opened. */
