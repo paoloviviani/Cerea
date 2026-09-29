@@ -49,7 +49,6 @@ export interface CodeDeviceView {
 	createdAt: Date;
 	lastSeenAt?: Date;
 	pairedAt?: Date;
-	terminalAckAt?: Date;
 	/**
 	 * Set when this device needs a fresh `galopin enroll` (ADR 0093 §12):
 	 * `"issuer_changed"` when its `enrolledIssuer` no longer matches this
@@ -80,7 +79,6 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		createdAt: device.createdAt,
 		...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
 		...(device.pairedAt ? { pairedAt: device.pairedAt } : {}),
-		...(device.terminalAckAt ? { terminalAckAt: device.terminalAckAt } : {}),
 		...(reenroll ? { reenroll } : {}),
 	};
 }

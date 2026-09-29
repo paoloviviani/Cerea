@@ -44,6 +44,7 @@
 		confirmDevice,
 		revokeDevice,
 		archiveAgent,
+		deleteAgent,
 		archiveWorkspace,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
@@ -99,6 +100,7 @@
 	/** A removal waiting for its confirmation: which row, on which device. */
 	let confirmRequest = $state<
 		| { kind: "agent"; device: CodeDeviceView; agent: CodeAgentSession }
+		| { kind: "agent-delete"; device: CodeDeviceView; agent: CodeAgentSession }
 		| { kind: "workspace"; device: CodeDeviceView; workspace: CodeWorkspace }
 		| { kind: "device"; device: CodeDeviceView }
 		| null
@@ -369,6 +371,19 @@
 	 */
 	async function handleArchiveAgent(device: CodeDeviceView, agent: CodeAgentSession) {
 		await archiveAgent(device.id, agent.id);
+		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
+			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
+		}
+		await reloadDevice(device.id);
+	}
+
+	/**
+	 * Delete one session for good: unlike archive, its attachments go with
+	 * it. Same redraw discipline as archive — the daemon answers first, the
+	 * person leaves the deleted address second, the tree is re-read last.
+	 */
+	async function handleDeleteAgent(device: CodeDeviceView, agent: CodeAgentSession) {
+		await deleteAgent(device.id, agent.id);
 		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
 			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
 		}
@@ -901,6 +916,14 @@
 																	<IconTrash class="size-4 opacity-90 dark:opacity-80" />
 																	Archive
 																</DropdownMenu.Item>
+																<DropdownMenu.Item
+																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-600 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10"
+																	onSelect={() =>
+																		(confirmRequest = { kind: "agent-delete", device, agent })}
+																>
+																	<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+																	Delete
+																</DropdownMenu.Item>
 															</DropdownMenu.Content>
 														</DropdownMenu.Portal>
 													</DropdownMenu.Root>
@@ -1025,6 +1048,16 @@
 			confirmLabel="Archive session"
 			busyLabel="Archiving…"
 			onconfirm={() => handleArchiveAgent(request.device, request.agent)}
+			onclose={() => (confirmRequest = null)}
+		/>
+	{:else if request.kind === "agent-delete"}
+		<CodeConfirmDialog
+			title="Delete session"
+			target={request.agent.title}
+			message="The session is gone for good: its transcript and any files attached to it are deleted too. Local files on the device are untouched."
+			confirmLabel="Delete session"
+			busyLabel="Deleting…"
+			onconfirm={() => handleDeleteAgent(request.device, request.agent)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{:else if request.kind === "device"}

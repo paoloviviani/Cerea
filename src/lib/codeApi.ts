@@ -648,6 +648,19 @@ export async function archiveAgent(deviceId: string, agentId: string): Promise<{
 	);
 }
 
+/** Delete a session for good: unlike archive, its attachments go with it.
+ * The row leaves the tree when the daemon is re-read. */
+export async function deleteAgent(deviceId: string, agentId: string): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "DELETE",
+			}
+		)
+	);
+}
+
 /** Delete (archive) a workspace: its sessions go with it, local files stay.
  * `removeWorktree` additionally runs `git worktree remove` on the daemon
  * (only meaningful for a workspace that is itself a worktree); `force`
@@ -806,17 +819,6 @@ export async function closeTerminal(
 	return unwrap(
 		await fetch(`${root()}/v1/terminals/${encodeURIComponent(terminalId)}?${query}`, {
 			method: "DELETE",
-		})
-	);
-}
-
-/** The one-time-per-machine "a terminal is a full shell" acknowledgement. */
-export async function acknowledgeTerminal(deviceId: string): Promise<{ ok: true }> {
-	return unwrap(
-		await fetch(`${root()}/v1/terminals/acknowledge?device=${encodeURIComponent(deviceId)}`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: "{}",
 		})
 	);
 }

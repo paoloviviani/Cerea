@@ -80,18 +80,16 @@ async function togglePane(page: Page) {
 }
 
 /** Opening the Terminal tab only shows the (possibly empty) roster — a
- * terminal only exists once "+ New" is clicked, which for the first one on
- * a given machine shows the one-time acknowledgement instead of opening it
- * directly (see `acknowledgeIfShown`). */
+ * terminal only exists once "+ New" is clicked, and opening asks nothing. */
 async function clickNewTerminal(page: Page) {
 	await page.getByRole("button", { name: "New", exact: true }).click();
 }
 
 async function acknowledgeIfShown(page: Page) {
-	const heading = page.getByRole("heading", { name: "A terminal is a full shell" });
-	if (await heading.isVisible({ timeout: 2000 }).catch(() => false)) {
-		await page.getByRole("button", { name: "I understand" }).click();
-	}
+	// The one-time "a terminal is a full shell" acknowledgement no longer
+	// exists. Kept as a guard so an unexpected dialog fails loudly instead
+	// of hanging the run.
+	await expect(page.getByRole("heading", { name: "A terminal is a full shell" })).toHaveCount(0);
 }
 
 /** The one terminal a test has opened so far, read off the fake's own
@@ -141,11 +139,7 @@ test.describe("the terminal, hermetic", () => {
 		);
 	});
 
-	test("the one-time acknowledgement, then open, type, echo, resize", async ({
-		page,
-		db,
-		session,
-	}) => {
+	test("open, type, echo, resize", async ({ page, db, session }) => {
 		const sub = `e2e-${randomUUID()}`;
 		await seedUser(db, session.sessionId, sub);
 		const name = `term-${randomUUID().slice(0, 6)}`;
@@ -154,8 +148,6 @@ test.describe("the terminal, hermetic", () => {
 		await pairAndOpenWorkspace(page, name);
 		await openTerminalTab(page);
 		await clickNewTerminal(page);
-		await expect(page.getByRole("heading", { name: "A terminal is a full shell" })).toBeVisible();
-		await page.getByRole("button", { name: "I understand" }).click();
 
 		const term = page.getByTestId("code-terminal");
 		await expect(term).toBeVisible({ timeout: 15_000 });

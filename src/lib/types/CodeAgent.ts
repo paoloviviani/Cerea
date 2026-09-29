@@ -312,10 +312,6 @@ export interface CodeDevice {
 	createdAt: Date;
 	updatedAt: Date;
 	pairedAt?: Date;
-	/** When the owner acknowledged this machine's terminal warning ("a
-	 * terminal is a full shell on ‹machine›…", ADR 0090 §2.3/§6.2) — once per
-	 * machine, so a later ticket mint for the same device never asks again. */
-	terminalAckAt?: Date;
 	/** The issuer this device last enrolled against (ADR 0093 §4.7, §12),
 	 * recorded on every successful machine auth. A device whose enrolledIssuer
 	 * no longer matches the configured issuer shows "re-enroll". */
