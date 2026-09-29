@@ -16,28 +16,19 @@ it authenticates, so you never declare that yourself. There are three outcomes:
 
 - **OAuth.** The connector gets a **Sign in** button. Signing in leaves the page,
   because it is a consent screen on the provider's own site, and returns to the
-  chat with the result. Where a provider offers no dynamic client
-  registration, an operator can enter a client id and secret they already
-  hold instead.
+  chat with the result. Where the service doesn't let apps register themselves, sign-in needs a client id and secret from that service. Enter them when adding the connector, or ask whoever runs the service for them.
 - **A static token.** You paste an API token, and, if the server expects it under
   a particular header name, that header (for `Authorization` the value is sent
   as a bearer token).
 - **None**, for a server on a private network or a public one.
 
-**Your credential never comes back to the browser.** OAuth tokens and static
-tokens are kept on the server, encrypted (with `CHAT_SECRET_KEY`), and the
-connector row only knows _whether you are connected_. An OAuth token belongs to
-you alone, so a connector you share with others means each person reading
-**their own** workspace as themselves.
+**Your credential never comes back to the browser.** OAuth tokens and static tokens are kept on the server, encrypted, and never sent back to your browser; the connector row only knows _whether you are connected_. An OAuth sign-in is yours alone: when an administrator publishes a connector to everybody, each person signs in to it as themselves and sees their own data.
 
 Only connect to servers you trust.
 
 ## Using them
 
-Enable a connector and its tools become available in chat; a project can start
-new chats with particular connectors selected
-([Knowledge and projects](knowledge.md#projects)). Tools reach the model as
-ordinary function calls.
+Switch a connector on for a conversation from the composer: the **+** menu, then **MCP Servers**. Its tools are then available to the assistant. A project can start new chats with particular connectors selected ([Knowledge and projects](knowledge.md#projects)).
 
 **Every call to an MCP tool asks first, by default.** The approval card shows
 the tool and its arguments, and you can allow that one call, allow the tool for
