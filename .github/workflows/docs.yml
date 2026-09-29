@@ -45,15 +45,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The deploy-kit page's --8<-- "cerea-deploy/README.md" include:
-      # the sibling repo checked out next to this one, exactly where the
-      # snippets base_path ([".", ".."]) expects it. check_paths:true makes
-      # the strict build fail if this ever goes missing, so the page can
-      # not silently render stale.
-      - uses: actions/checkout@v4
-        with:
-          repository: paoloviviani/cerea-deploy
-          path: cerea-deploy
+      # The deploy-kit page's --8<-- "cerea-deploy/README.md" include: the
+      # PUBLIC live main of the cerea-deploy repository, fetched here at
+      # build time into the sibling path the snippets base_path expects
+      # ([".", ".."]). Not a pinned checkout: the site renders whatever the
+      # kit's main says today, the same single source of truth the box
+      # build reads. check_paths:true fails the strict build if the include
+      # is missing, so the page cannot silently render without its README.
+      - run: |
+          mkdir -p cerea-deploy
+          curl -fsSL https://raw.githubusercontent.com/paoloviviani/cerea-deploy/main/README.md -o cerea-deploy/README.md
+          test -s cerea-deploy/README.md
 
       # astral-sh/setup-uv installs uv; the pinned set lives in
       # docs/requirements.txt with no Python project file in the repo.
