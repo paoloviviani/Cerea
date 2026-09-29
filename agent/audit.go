@@ -106,3 +106,18 @@ func (a *auditLogger) command(name, origin, shell, decision string) {
 		"action": "command", "name": name, "origin": origin, "shell": shell, "decision": decision,
 	})
 }
+
+// agentTool records one agent-coordination tool call (PROTOCOL.md §6 "Agent
+// tools"): the tool, the calling session, the target (the spawned child, or
+// the addressed session), the decision and the reason for a refusal — never
+// the prompt or message text.
+func (a *auditLogger) agentTool(tool, from, to, decision, reason string) {
+	entry := map[string]any{"action": "agent_tool", "tool": tool, "from": from, "decision": decision}
+	if to != "" {
+		entry["to"] = to
+	}
+	if reason != "" {
+		entry["reason"] = reason
+	}
+	a.write(entry)
+}

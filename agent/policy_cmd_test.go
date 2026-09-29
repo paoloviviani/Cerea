@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,5 +135,49 @@ func TestDefaultPolicyDeniesCommandShell(t *testing.T) {
 	}
 	if pol.CommandShellAllowed() {
 		t.Fatal("a missing policy file must deny command shell")
+	}
+}
+
+func TestAgentToolsPolicyDefaultsAllowedAndOnlyTightens(t *testing.T) {
+	// On by default, including for a policy.json that predates the field.
+	if !policy.Default().AgentToolsAllowed() {
+		t.Fatal("the default policy must allow agent tools")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	if err := os.WriteFile(path, []byte(`{"autoAccept":"denied"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := policy.Load(path)
+	if err != nil || !old.AgentToolsAllowed() {
+		t.Fatalf("a policy.json without the field must load as allowed: %+v %v", old, err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--no-agent-tools"}); err != nil {
+		t.Fatalf("--no-agent-tools: %v", err)
+	}
+	got, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentToolsAllowed() {
+		t.Error("agent tools should now be denied")
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--allow-agent-tools"}); err == nil {
+		t.Fatal("policy set must not accept a flag that turns agent tools back on")
+	}
+}
+
+func TestAgentToolsDirFollowsPolicy(t *testing.T) {
+	on := policy.Default()
+	if got := agentToolsDir(on, "/state"); got != "/state/opencode-tools" {
+		t.Errorf("allowed: %q", got)
+	}
+	off := policy.Default()
+	off.AgentTools = policy.TerminalDenied
+	if got := agentToolsDir(off, "/state"); got != "" {
+		t.Errorf("denied must install nothing, got %q", got)
+	}
+	if agentToolsPolicyWord(off) != policy.TerminalDenied || agentToolsPolicyWord(on) != policy.TerminalAllowed {
+		t.Error("hello.policy.agentTools does not follow the policy")
 	}
 }
