@@ -17,13 +17,10 @@ Create and fill a base from the **Workspace** page, under **Knowledge**
 **read once, at upload**, and you can open a document to see the text that
 search actually uses.
 
-- A **scan with no text layer** needs an OCR model; the deployment's own reader
-  reads text layers only.
+- A **scanned PDF** (pictures of pages, with no selectable text) comes out empty unless your administrator has chosen an OCR model. Open the document to check: if its text is empty, ask them.
 - Your bases are **yours to own and to share**. Sharing a base lets somebody
   read it; only you can change it.
-- **Reindex** after an administrator changes the embedding model. A base
-  remembers the width its vectors were built at, so the reindex is what
-  brings it in step.
+- **After an administrator changes the embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it.
 
 Indexing is billed to the person indexing, like any other call.
 
@@ -55,9 +52,7 @@ discovering.
 - The memory base is an **ordinary knowledge base**, named after its project,
   visible on the Knowledge tab and deletable there. The transcripts are
   somewhere you can look.
-- Indexing is idempotent per chat: a conversation's transcript is stored under
-  one handle and _replaces_ itself, so a ten-turn thread does not leave ten
-  overlapping copies for every search to return.
+- Each conversation is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
 
 This is a different thing from [personal memory](chat.md#memory), a short list
 of facts about you that goes into every conversation.
@@ -67,13 +62,7 @@ of facts about you that goes into every conversation.
 You can share a **base** or a **project** with a person (by email address) or a
 group (by name).
 
-- **Access is decided against the viewer's own identity**: their email, and the
-  groups the gateway reports for _their_ token. Nothing asks the gateway who
-  is in a group, because a bearer token cannot ask, and a route that could
-  would let a chat client list the directory. The cost is that a share names a
-  principal that may not exist: **a typo and a colleague who has not signed in
-  yet look the same**, and you see the shares you wrote, not the people they
-  resolved to.
+- **Cerea can't check the name you type.** It can't look up who exists or who is in a group, so a typo in an address and a colleague who hasn't signed in yet look the same. The share list shows what you typed, not who it reached. Check the spelling.
 - **A shared project is a shared workspace.** Everyone who can see it sees every
   conversation in it. The project page says so.
 - **Sharing a project shares no documents.** Retrieval runs with the _reader's_
@@ -83,10 +72,7 @@ group (by name).
 
 ## When a base cannot be searched
 
-**Retrieval never fails a turn.** If a base is unavailable (the embedding
-service is down, say), the answer still comes, without those passages. The
-failure is logged, never shown as an error: a base being unavailable is a
-reason for a worse answer, not for none.
+**A base that can't be searched never stops an answer.** If the search service is down, you still get an answer, without those passages and without a warning. If an answer ignores a document you expected it to use, ask again later or tell your administrator.
 
 ## For operators
 

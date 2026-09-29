@@ -4,83 +4,90 @@
 
     What the in-browser Python sandbox does and its limits; the last section is for operators.
 
-Cerea runs model-written Python **in your browser**, not on the server, using
+Cerea runs Python **in your browser**, not on the server, using
 [Pyodide](https://github.com/pyodide/pyodide) (CPython compiled to
-WebAssembly) inside a Web Worker. Python code blocks and code artifacts run by
-themselves when the answer finishes streaming, and their output appears under
-the code. Nothing is executed on the deployment, and nothing you load leaves
-your browser.
+WebAssembly) inside a Web Worker. You ask; the assistant writes the code; the
+code runs on your device and its output appears under it. A Python block in an
+answer runs by itself when the answer finishes, and on deployments that allow
+it the assistant can also run code while it answers and use the result. Nothing
+runs on the deployment, and the files the code opens never leave your browser.
 
 ## What you can do
 
-- **Compute and analyse.** The interpreter ships with its standard scientific
-  packages (`numpy`, `pandas` and the rest of Pyodide's set), plus the office
-  libraries: `python-docx`, `openpyxl`, `pypdf`, `python-pptx`, `XlsxWriter`.
-- **Work on your files.** Message attachments and knowledge-base documents can
-  be loaded into the run; they appear under `/mnt/data/<filename>`.
-  Knowledge-base documents arrive as their indexed text, not the original
-  file.
-- **Get files back.** Files a run writes to its working directory
-  (`/home/pyodide`) are listed under the output, with a download and a
-  preview where the type allows one (text, images, PDF, Word). When you ask
-  for a file, the file is the answer and the code folds behind a disclosure.
-  Only files the run **created or changed** are listed: files left by earlier
-  runs stay in the working directory for code that wants them, but do not
-  reappear as output. Every listed file is kept with the conversation for 30
-  days and shows up as an [artifact](artifacts.md).
-- **Draw charts.** See [Matplotlib figures](#matplotlib-figures) below.
+- **Ask for calculations and analysis.** The assistant's code can use `numpy`,
+  `pandas` and the rest of Pyodide's scientific set, plus the office libraries
+  (`python-docx`, `openpyxl`, `pypdf`, `python-pptx`, `XlsxWriter`).
+- **Ask about your files.** Attach a file, or use a knowledge base, and the
+  code can read it (it sees it under `/mnt/data/<filename>`). A knowledge-base
+  document arrives as its indexed text, not the original file.
+- **Ask for a file back.** "Give me this as an Excel sheet", "make a Word
+  report": the file appears under the answer with **Download** and, where the
+  type allows, a preview (text, images, PDF, Word). When a file is what you
+  asked for, the file is the answer and the code folds away behind a
+  disclosure. A run lists only the files it **created or changed**. Every
+  listed file is kept with the conversation for 30 days and shows up as an
+  [artifact](artifacts.md).
+- **Ask for charts.** See [Charts](#charts) below.
 
-## Matplotlib figures
+## Charts
 
-Figures are captured for you, so a chart needs no `savefig`. `plt.show()` is
-replaced by "save every open figure as `figure-<n>.png` in the working
-directory, then close it", and whatever figure is still open when the run
-ends (even one that failed part-way) is saved the same way. `<n>` counts from 1
-within each run, so a later run's `figure-1.png` is a new version of the same
-file artifact. Each figure appears inline under the output as an image.
+Ask for a chart ("plot monthly sales as bars", "fammi un grafico delle vendite
+per mese") and it appears under the answer as an image, with a card to download
+it or open it in the panel. Charts are named `figure-1.png`, `figure-2.png`, …
+in the order that run drew them. The count restarts every run, so when you ask
+for a change and the assistant redraws, the new `figure-1.png` becomes the next
+version of the same artifact, not a new one.
 
-- **To keep a figure under your own name, `savefig` it yourself.** A figure the
-  code saved is left out of the automatic sweep: its own file is its card,
-  so the same image is never shown twice.
-- **A run keeps at most 20 figures.** A loop drawing one per row would
-  otherwise fill the store; later ones are discarded, with a note on stderr.
-- The capture is best effort: if it cannot start, the run goes ahead without it.
-- To reuse an earlier figure, read `figure-<n>.png` back from the working
-  directory; only files changed by the current run are listed as output.
+- **Want a real name?** Ask for it: "save the chart as `vendite-2026.png`". The
+  chart then appears once, under that name, and not also as `figure-1.png`.
+- **At most 20 charts per run.** Ask for one chart per row of a big table and
+  the first 20 appear; the run's output says the rest were dropped. Ask for a
+  combined chart, or for them in batches.
+- **No chart appeared?** The automatic capture could not start in that run,
+  though the code still ran. Ask the assistant to save the chart to a file,
+  which does not depend on the capture.
+- **Building on an earlier chart** ("add last year's line to that chart"): the
+  assistant can reopen an earlier run's image, because earlier files stay in
+  the sandbox's working folder. A run only shows the files it creates or
+  changes, so the old chart is not shown again.
 
-Code that mentions `matplotlib`, `pylab` or `seaborn` gets matplotlib
-imported before it runs, on the non-interactive Agg backend.
+!!! note "If you write the cell yourself, or ask the model how it saves figures"
+
+    - No `savefig` needed: `plt.show()` is replaced by "save every open figure
+      as `figure-<n>.png` in the working directory (`/home/pyodide`), then
+      close it". Any figure still open when the run ends, even one that failed
+      part-way, is saved the same way.
+    - A figure the code saves itself with `savefig` is left out of that sweep.
+      Its own file is its card, so the image is never shown twice.
+    - Past 20 figures, later ones are discarded with a note on stderr.
+    - Code that mentions `matplotlib`, `pylab` or `seaborn` gets matplotlib
+      imported before it runs, on the non-interactive Agg backend.
+    - An earlier run's `figure-<n>.png` can be read back from the working
+      directory.
 
 ## Limits
 
-|           |                                                                                                                   |
-| --------- | ----------------------------------------------------------------------------------------------------------------- |
-| Time      | 20 seconds per run, then the run is stopped and a fresh interpreter is started                                    |
-| Output    | 8,000 characters per stream (stdout, stderr)                                                                      |
-| Files     | 50 MB per file loaded into a run                                                                                  |
-| Memory    | the WebAssembly heap; running out raises `MemoryError`                                                            |
-| Network   | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge |
-| First run | loads the runtime (about 12 MB) once; later runs start immediately                                                |
-| Listing   | at most 200 files listed per run                                                                                  |
-| Figures   | at most 20 per run                                                                                                |
-| Retention | files a run produced are kept 30 days                                                                             |
+|           |                                                                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Time      | 20 seconds per run. A longer run is stopped and the sandbox restarts; ask for the work in smaller steps, or on a sample of the data |
+| Output    | 8,000 characters per stream (stdout, stderr)                                                                                        |
+| Files     | 50 MB per file loaded into a run                                                                                                    |
+| Memory    | the WebAssembly heap; running out raises `MemoryError`                                                                              |
+| Network   | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge                   |
+| First run | loads the runtime (about 12 MB) once; later runs start immediately                                                                  |
+| Listing   | at most 200 files listed per run                                                                                                    |
+| Figures   | at most 20 per run                                                                                                                  |
+| Retention | files a run produced are kept 30 days                                                                                               |
 
 ## Installing more packages
 
-**Imports install themselves.** Before a run, Cerea scans its imports: the
-packages in Pyodide's own set load automatically, and the office libraries the
-deployment ships (`python-docx`, `python-pptx`, `openpyxl`, `pypdf`) are
-installed on the spot, so `from docx import Document` works with no
-`micropip.install`. It is best effort: an import it cannot resolve is left to
-raise its ordinary `ModuleNotFoundError`, and a package is installed once per
-interpreter.
-
-`micropip.install(...)` works for everything shipped with the deployment.
-Each person can also turn on, in their settings, access to the public PyPI
-index for other **pure-Python** packages. It is off by default, and it carries
-no credentials. Operators can force it off for everyone with
-`CHAT_PYODIDE_PYPI_DISABLED=true`. Compiled packages that Pyodide does not
-ship cannot be installed.
+**You never need to ask for an install.** The assistant's imports are resolved
+before the code runs: Pyodide's own packages and the office libraries the
+deployment ships load by themselves. If the answer shows `ModuleNotFoundError`,
+the package isn't available here. For a **pure-Python** package from the public
+PyPI index, you can turn on **install packages from PyPI** in your settings (off
+by default; it sends no credentials), then ask again. Packages with compiled
+code that Pyodide does not ship cannot be installed.
 
 ## What rendered artifacts can do
 
@@ -90,10 +97,6 @@ requests, form submission, and remote images or media (`connect-src 'none'`,
 `form-action 'none'`, `img-src data: blob:`). Only the libraries the preview
 itself loads (Tailwind, React, Mermaid) come from their CDNs. A document in a
 knowledge base therefore cannot turn an artifact into a way to send data out.
-
-One residual path, for the record: code in the worker can start a dynamic
-`import()` of a remote URL. That is a one-way signal: no cookies travel, and
-nothing can be read back.
 
 ## For operators and maintainers
 
@@ -108,3 +111,15 @@ nothing can be read back.
   The vendored wheels are MIT, BSD or PSF; each is listed in
   `static/pyodide/wheels/NOTICE.txt`, and `static/pyodide/NOTICE.txt` carries
   Pyodide's attribution.
+- **Imports.** Before a run, Cerea scans its imports: packages in Pyodide's own
+  set load automatically, and the office libraries the deployment ships
+  (`python-docx`, `python-pptx`, `openpyxl`, `pypdf`) are installed on the spot,
+  so `from docx import Document` works with no `micropip.install`. It is best
+  effort: an import it cannot resolve raises its ordinary `ModuleNotFoundError`,
+  and a package is installed once per interpreter. `micropip.install(...)` works
+  for everything shipped with the deployment.
+- **PyPI access.** Operators can force the per-person PyPI setting off for
+  everyone with `CHAT_PYODIDE_PYPI_DISABLED=true`.
+- One residual path, for the record: code in the worker can start a dynamic
+  `import()` of a remote URL. That is a one-way signal: no cookies travel, and
+  nothing can be read back.
