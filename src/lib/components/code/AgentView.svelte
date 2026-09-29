@@ -740,7 +740,8 @@
 			failure = "This machine's enrollment expired or was revoked — re-enroll to send.";
 			return;
 		}
-		pending = true;
+		// A steer joins a turn that already shows its own indicator.
+		pending = !loading;
 		failure = null;
 		// The send is the request to see the exchange — same contract as chat.
 		column?.notifySend();
@@ -770,12 +771,14 @@
 	 * the daemon resolves it denied, which settles the card through the
 	 * fold's existing resolution path. Stopping is exactly the move for a
 	 * prompt nobody wants to answer. */
-	async function stopAgent() {
+	async function stopAgent(): Promise<boolean> {
 		failure = null;
 		try {
 			await cancelAgent(deviceId, agentId);
+			return true;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not stop the agent.";
+			return false;
 		}
 	}
 
