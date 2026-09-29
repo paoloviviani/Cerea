@@ -1,5 +1,9 @@
 # The `/code` panel: operating it
 
+!!! info "For operators"
+
+    Deploying and running the Agents panel; people using it want [Agent machines](agent-machines.md).
+
 The Agents panel drives **coding agents running on people's own machines**
 from the chat's sidebar. The agent (opencode, or any ACP agent) runs on the
 person's machine under **galopin**, a single binary built from this

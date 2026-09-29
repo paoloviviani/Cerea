@@ -1,5 +1,9 @@
 # Python in the browser
 
+!!! info "For everyone"
+
+    What the in-browser Python sandbox does; operators find its limits here too.
+
 Cerea runs model-written Python **in your browser**, not on the server, using
 [Pyodide](https://github.com/pyodide/pyodide) (CPython compiled to
 WebAssembly) inside a Web Worker. Python code blocks and code artifacts run by
