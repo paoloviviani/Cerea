@@ -11,26 +11,26 @@
 	mean anything on `renderDiffHtml` output.
 -->
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import IconDocument from "~icons/carbon/document";
 	import IconRenew from "~icons/carbon/renew";
 	import IconWarning from "~icons/carbon/warning-filled";
-	import CarbonCloseLarge from "~icons/carbon/close-large";
 	import { getAgentDiff } from "$lib/codeApi";
 	import type { CodeFileChange } from "$lib/types/CodeAgent";
-	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { diffLines, diffStats, renderDiffHtml } from "$lib/utils/artifactDiff";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
 		deviceId: string;
 		agentId: string;
+		/** Bumped by the frame's Refresh button, which lives in the pane header. */
+		refreshKey?: number;
+		loading?: boolean;
 	}
 
-	let { deviceId, agentId }: Props = $props();
+	let { deviceId, agentId, refreshKey = 0, loading = $bindable(true) }: Props = $props();
 
 	let files = $state<CodeFileChange[]>([]);
-	let loading = $state(true);
 	let failure = $state<string | null>(null);
 
 	async function load() {
@@ -48,6 +48,12 @@
 	onMount(() => {
 		void load();
 	});
+	let loadedKey = untrack(() => refreshKey);
+	$effect(() => {
+		if (refreshKey === loadedKey) return;
+		loadedKey = refreshKey;
+		untrack(() => void load());
+	});
 
 	function html(file: CodeFileChange): string {
 		return renderDiffHtml(diffLines(file.oldText, file.newText));
@@ -55,31 +61,6 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<div
-		class="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-4 dark:border-gray-800"
-	>
-		<IconDocument class="size-4 shrink-0 text-ink-muted" />
-		<h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Changes</h2>
-		<button
-			type="button"
-			class="btn rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-			onclick={() => void load()}
-			disabled={loading}
-			aria-label="Refresh changes"
-			title="Refresh from the daemon"
-		>
-			<IconRenew class="size-4 {loading ? 'animate-spin' : ''}" />
-		</button>
-		<button
-			type="button"
-			class="btn rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-			onclick={() => sidePane.close()}
-			aria-label="Close changes panel"
-		>
-			<CarbonCloseLarge class="size-4" />
-		</button>
-	</div>
-
 	<div class="scrollbar-custom flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
 		{#if loading}
 			<div class={s.EMPTY}>
