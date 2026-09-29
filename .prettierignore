@@ -18,3 +18,7 @@ yarn.lock
 # this copy would break it. Never format here — change the console's file.
 src/styles/tokens.css
 src/styles/fonts/
+
+# The documentation site is mkdocs.yml, which Prettier would reflow (the
+# YAML is hand-laid-out, with comments that carry the licence posture).
+mkdocs.yml

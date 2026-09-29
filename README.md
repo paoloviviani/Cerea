@@ -22,7 +22,7 @@ greeting that means both _buongiorno_ and _arrivederci_.
 - **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no
   network access.
 - **Knowledge bases and projects**, shareable with people or groups, with an
-  optional project memory ([docs/rag.md](docs/rag.md)).
+  optional project memory ([docs/knowledge.md](docs/knowledge.md)).
 - **Python in your browser**, in a WebAssembly sandbox with the scientific and
   office libraries ([docs/pyodide.md](docs/pyodide.md)).
 - **The `/code` agents panel**: coding agents on your own machines through
@@ -113,11 +113,19 @@ git fetch upstream && git merge upstream/main
 
 ## Documentation
 
-[code-panel](docs/code-panel.md) ·
-[agent-machines](docs/agent-machines.md) · [rag](docs/rag.md) ·
-[pyodide](docs/pyodide.md) · [browser](docs/browser.md) ·
-[PRIVACY](PRIVACY.md). [docs/source](docs/source) is **upstream chat-ui's**
-documentation, kept as upstream wrote it; parts of it do not apply to Cerea.
+The documentation is a [mkdocs](https://www.mkdocs.org) site built from `docs/`:
+[chat](docs/chat.md) · [artifacts](docs/artifacts.md) ·
+[pyodide](docs/pyodide.md) · [knowledge](docs/knowledge.md) ·
+[connectors](docs/connectors.md) · [agent-machines](docs/agent-machines.md) ·
+[browser](docs/browser.md) · [deploy](docs/deploy.md) ·
+[configuration](docs/configuration.md) · [chat-admin](docs/chat-admin.md) ·
+[code-panel](docs/code-panel.md) · [reference](docs/reference.md) ·
+[PRIVACY](PRIVACY.md). Build it with
+`uv run --with-requirements docs/requirements.txt mkdocs build --strict`
+(there is no Python project in this repository; the pins are in
+`docs/requirements.txt`). [docs/source](docs/source) is **upstream chat-ui's**
+documentation, kept as upstream wrote it, excluded from the site; parts of it
+do not apply to Cerea.
 
 ## Contributing, security, licence
 

@@ -1,5 +1,9 @@
 # The `/code` panel: operating it
 
+!!! info "For operators"
+
+    Deploying and running the Agents panel; people using it want [Agent machines](agent-machines.md).
+
 The Agents panel drives **coding agents running on people's own machines**
 from the chat's sidebar. The agent (opencode, or any ACP agent) runs on the
 person's machine under **galopin**, a single binary built from this
@@ -52,23 +56,13 @@ until its owner confirms it.
 
 ## Two vetoes: the machine's and the deployment's
 
-The machine's owner decides at enroll time what the machine allows. These
-flags are stored on the machine, and the chat can never loosen them over the
-link:
-
-| Flag                                         | Default              | Allows                                                |
-| -------------------------------------------- | -------------------- | ----------------------------------------------------- |
-| `--allow-terminal`                           | denied               | a real shell from the browser                         |
-| `--max-terminals N`                          | 8                    | concurrent terminals                                  |
-| `--allow-auto-accept`                        | denied               | running the model's commands without asking each time |
-| `--workspace-root PATH`                      | unrestricted         | workspaces only under this path (repeatable)          |
-| `--allow-free-models`                        | denied               | models from providers other than the gateway's        |
-| `--allow-opencode-provider`                  | denied               | opencode's built-in providers next to the gateway's   |
-| `--no-files`                                 | read-only browsing   | no file explorer at all                               |
-| `--file-deny GLOB`, `--no-default-file-deny` | built-in secret list | what the explorer redacts                             |
-
-The owner can tighten them later without re-enrolling (`galopin policy set
---no-terminal`, for example); loosening needs a new enrollment.
+The machine's owner decides at enroll time what the machine allows (files,
+terminals, auto-accept, slash-command shell, models from elsewhere, workspace
+roots). Those settings are stored on the machine, and the chat can never
+loosen them over the link. The table of every flag, its default and what it
+decides lives in one place, [The machine policy](agent-machines.md#the-machine-policy);
+the owner can tighten a machine later without re-enrolling, but loosening
+needs a new enrollment.
 
 **The terminal needs both vetoes lifted.** The machine must be enrolled with
 `--allow-terminal`, and the deployment must set `CODE_TERMINAL_ENABLED=true`.

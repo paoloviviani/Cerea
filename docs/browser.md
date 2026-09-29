@@ -1,5 +1,9 @@
 # The headless browser (web fetch)
 
+!!! info "For operators"
+
+    Turning on the headless browser for web fetch is a deployment change.
+
 When someone asks Cerea to read a page at a URL, the chat fetches it. By
 default it fetches directly over HTTPS (`FETCH_BACKEND=direct`). That returns
 nothing useful for the growing share of pages that are empty until

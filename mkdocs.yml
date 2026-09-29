@@ -1,0 +1,102 @@
+# Documentation site. Built with
+#   uv run --with-requirements docs/requirements.txt mkdocs build --strict
+# and served locally with the same command's `mkdocs serve`. Strict because a
+# link that silently 404s is a document that lies. The Python dependencies are
+# pinned in docs/requirements.txt, not in a project file: Cerea is a Node repo.
+#
+# docs/source/ is upstream huggingface/chat-ui's documentation, kept as
+# upstream wrote it (a doc-builder tree that is not valid mkdocs and that a
+# later upstream merge should carry untouched), so it is excluded, not moved.
+# This site's pages are the flat files beside it.
+#
+# mkdocs-material is MIT, mkdocs BSD-2-Clause, pymdown-extensions MIT and
+# pygments BSD-2-Clause — all OSI-approved, checked in the installed package
+# metadata on 2026-09-29 (Pystino's ADR 0001 inbound-licence policy).
+#
+# Prettier must not touch this file (see .prettierignore).
+
+site_name: Cerea
+site_description: >
+  A self-hosted chat for the models your gateway exposes, with knowledge bases,
+  artifacts, Python in the browser, and coding agents on your own machines.
+repo_url: https://github.com/paoloviviani/Cerea
+repo_name: paoloviviani/Cerea
+copyright: Copyright &copy; Paolo Viviani — <a href="https://github.com/paoloviviani/Cerea/blob/main/LICENSE">Apache-2.0</a>
+
+docs_dir: docs
+exclude_docs: |
+  source/**
+  requirements.txt
+
+strict: true
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+# Warnings fail the build (strict). "not_found" catches every internal link
+# whose target does not exist; anchor checking catches a link to a heading
+# that was renamed. Cross-site links are full GitHub URLs, which strict cannot
+# check: each is verified by hand (see reference.md).
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+
+# The nav lists only pages that exist.
+nav:
+  - Home: index.md
+  - Using Cerea:
+      - Chat: chat.md
+      - Artifacts: artifacts.md
+      - "Python in the browser": pyodide.md
+      - "Knowledge and projects": knowledge.md
+      - Connectors: connectors.md
+      - "Agent machines": agent-machines.md
+      - "The headless browser": browser.md
+  - Operating Cerea:
+      - Deploying: deploy.md
+      - Configuration: configuration.md
+      - "Administering the chat": chat-admin.md
+      - "The /code panel": code-panel.md
+  - Reference:
+      - reference.md

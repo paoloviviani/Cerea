@@ -40,3 +40,6 @@ static/pyodide/
 
 # Vitest browser failure screenshots
 src/**/__screenshots__/
+
+# mkdocs build output
+/site

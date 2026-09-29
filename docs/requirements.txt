@@ -1,0 +1,16 @@
+# The documentation site's build dependencies. Cerea is a Node project and
+# carries no Python project file on purpose (no pyproject.toml, no lockfile):
+# these are pinned here and installed on the fly, so nothing Python-shaped
+# enters the repository or the chat image:
+#
+#   uv run --with-requirements docs/requirements.txt mkdocs build --strict
+#   uv run --with-requirements docs/requirements.txt mkdocs serve
+#
+# mkdocs-material is MIT, mkdocs BSD-2-Clause, pymdown-extensions MIT and
+# pygments BSD-2-Clause — all OSI-approved, checked in the installed package
+# metadata on 2026-09-29 (the same inbound-licence policy Pystino's ADR 0001
+# sets, and the same pins as its docs build).
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+pymdown-extensions==11.0.2
+pygments==2.20.0
