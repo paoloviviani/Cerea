@@ -22,6 +22,8 @@ Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
 embedding a passage, searching.
 
+**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that your quota is used up. Where the deployment shows it, **Settings → Usage & billing** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
+
 ## Models and effort
 
 The model pill in the composer opens a short list: the current model and the
@@ -41,8 +43,7 @@ advertises for it; they are a default you can override, not a gate.
 
 ## Attachments
 
-Attach a file with the composer's **+**, by dragging it onto the window, or by
-pasting: a long paste becomes a chip rather than flooding the box. Files are
+Attach a file with the composer's **+** (on a phone, it opens the file and photo picker), by dragging it onto the window, or by pasting: a long paste becomes a chip rather than flooding the box. Files are
 limited to **10 MB** each.
 
 - **Images** go to a model that can see them.
@@ -51,10 +52,7 @@ limited to **10 MB** each.
   the file**, and the text is stored beside it. That is a billing decision:
   the reader is priced per page, so reading again on every turn would charge
   for the same twelve-page PDF on every question about it.
-- **A document with no readable text** (a scan the reader could not make
-  sense of) is not silently dropped. Cerea puts a sentence saying so in its
-  place, so the assistant does not answer as though nothing was attached
-  while your file sits in the transcript.
+- **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, so it says so rather than answering as if nothing were attached.
 
 Which model reads documents is decided by the **Knowledge** settings (an
 administrator's choice, see [Administering the chat](chat-admin.md)); a
@@ -66,14 +64,9 @@ deployment can also point extraction at a reader directly
 The **Web search** pill in the composer switches search on **for this
 conversation**. It is your consent to spend: the search runs through the
 deployment's search backends, chosen by the gateway from your billing group's
-policy, and is metered to you. The tool only exists when the gateway has
-granted you a search tier, so the pill costs and changes nothing without one.
+policy, and is metered to you. If your group has no search allowance, turning the pill on does nothing and costs nothing; ask your administrator if you need search.
 
-This is the deployment's own search, not the model's: the gateway runs it on
-a backend your group's policy names, so the same question searches the same
-sources whoever asks it. (The gateway can also meter search that a model
-provider executes itself, when a model offers one — a separate path this
-chat does not send today.)
+This is the deployment's own search, not the model's: the gateway runs it on a backend your group's policy names, so the same question searches the same sources whoever asks it.
 
 Whether a new conversation starts with search on follows a chain: the
 conversation's own state, then the project's default (inside a project), then
@@ -81,25 +74,15 @@ your app setting, then off. Nothing done inside a chat writes back to the
 settings.
 
 When you paste a link, or search finds one, the assistant can also **fetch the
-page** and read it. By default the chat fetches directly over HTTPS; with the
-[headless browser](browser.md) on, it renders the page first, which works for
-pages that are empty until JavaScript has run.
+page** and read it. Some sites stay empty until JavaScript has run. If the assistant reports a page as empty, your deployment may not have the headless browser that reads pages the way a browser does; that is an operator's choice.
 
 ## Tool approvals
 
-Some tools act beyond the conversation, so they ask first. **By default
-(`manual`), a call to `web_fetch` on a page neither you nor the search
-supplied, and every call to an MCP tool from a [connector](connectors.md),
-stops on an approval card** showing the tool and its arguments, with three
-choices: allow this one call, allow this tool for the rest of the
-conversation, or deny. Several calls in one round are approved one at a time.
-An approval left unanswered **fails closed**: it is denied when its time
-runs out.
+Some tools act outside the conversation, so by default (**Tools ask first**) they wait for you. When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the conversation, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
 
 The composer's **Tools ask first / Tools auto-approved** pill overrides the
 policy for **this chat only**; the app-wide default lives in your settings.
-Code you run in the [in-browser sandbox](pyodide.md) is not gated this way, since
-it runs in your own browser.
+Python the assistant runs in the [in-browser sandbox](pyodide.md) never asks first: it runs in your own browser, with no network access, so it cannot act outside the conversation.
 
 ## Memory
 
@@ -113,13 +96,10 @@ into a store that outlives the conversation.
 - A fact is at most 400 characters and you can keep 200. The prompt block has
   a character budget (1,500), and past it the **oldest** facts stop being
   sent, which the tab says.
-- The model can write and remove facts itself (`remember`, `forget`) when
-  memory is on; you can add, edit and delete them on the tab. Each fact shows
-  whether the model wrote it or you did, and which conversation it came from.
+- With memory on, you can just say it: "remember that I reply in Italian", "forget where I work". The assistant saves and removes facts itself, and you can add, edit and delete them on the tab, which shows who wrote each fact and in which conversation.
 - Turning memory off stops it being used and written, but does not delete the
   facts. Deleting happens on the tab.
-- A deployment can remove the feature entirely (`CHAT_MEMORY_ENABLED=false`);
-  then the tab is hidden too.
+- If your deployment has switched memory off, the tab is not there.
 
 For memory that scales beyond a list, use a knowledge base
 ([Knowledge and projects](knowledge.md)); a project can also keep its own
