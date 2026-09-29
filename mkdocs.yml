@@ -93,4 +93,6 @@ nav:
       - "Agent machines": agent-machines.md
       - "The headless browser": browser.md
   - Operating Cerea:
+      - Deploying: deploy.md
+      - Configuration: configuration.md
       - "The /code panel": code-panel.md
