@@ -1072,8 +1072,8 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 			{ text: "took a screenshot" },
 			{
 				content: [
-					{ type: "image", mimeType: "image/png", url: url(shaA) },
-					{ type: "image", mimeType: "image/jpeg", url: url(shaB) },
+					{ type: "image", mimeType: "image/png", url: url(shaA), size: 100 },
+					{ type: "image", mimeType: "image/jpeg", url: url(shaB), size: 200 },
 				],
 			},
 		]);
@@ -1106,7 +1106,10 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		);
 		expect(outputs).toEqual([
 			{ text: "took a screenshot" },
-			{ text: "3 images not shown (too many, too large or not a supported type)." },
+			{
+				text: "3 images not shown (too many, too large or not a supported type).",
+				imagesNotShown: 3,
+			},
 		]);
 	});
 
@@ -1118,6 +1121,7 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		const outputs = resultOutputs(snapshotToUpdates(transcriptWith(part as Part), url));
 		expect(outputs?.[2]).toEqual({
 			text: "1 image not shown (too many, too large or not a supported type).",
+			imagesNotShown: 1,
 		});
 		// No url builder, no images, no note.
 		expect(resultOutputs(snapshotToUpdates(transcriptWith(part as Part)))).toEqual([
@@ -1136,6 +1140,7 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		expect(content).toHaveLength(8);
 		expect(outputs?.[2]).toEqual({
 			text: "12 images not shown (too many, too large or not a supported type).",
+			imagesNotShown: 12,
 		});
 	});
 
@@ -1152,5 +1157,129 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		const snap = snapshotToUpdates(transcriptWith(part), url);
 		expect(resultOutputs(live)).toEqual(resultOutputs(snap));
 		expect(resultOutputs(live)).toHaveLength(2);
+	});
+});
+
+describe("todos → the plan update", () => {
+	const todoEvent = (
+		todos: Extract<NormalizedEvent, { kind: "todo" }>["todos"]
+	): NormalizedEvent => ({
+		kind: "todo",
+		todos,
+	});
+	const planOf = (updates: ReturnType<typeof eventToUpdates>) => {
+		const plan = updates.find((u) => u.type === MessageUpdateType.Plan);
+		if (!plan || plan.type !== MessageUpdateType.Plan) throw new Error("no plan update");
+		return plan;
+	};
+
+	it("maps every todo status, a cancelled item to skipped (not still-to-do)", () => {
+		const plan = planOf(
+			eventToUpdates(
+				todoEvent([
+					{ id: "1", content: "a", status: "completed" },
+					{ id: "2", content: "b", status: "in_progress" },
+					{ id: "3", content: "c", status: "pending" },
+					{ id: "4", content: "d", status: "cancelled" },
+				]),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"ses_a"
+			)
+		);
+		expect(plan.steps.map((s) => s.status)).toEqual([
+			"completed",
+			"in_progress",
+			"pending",
+			"skipped",
+		]);
+	});
+
+	it("carries the todo's priority onto its step, and only when it has one", () => {
+		const plan = planOf(
+			eventToUpdates(
+				todoEvent([
+					{ id: "1", content: "a", status: "pending", priority: "high" },
+					{ id: "2", content: "b", status: "pending" },
+				])
+			)
+		);
+		expect(plan.steps).toEqual([
+			{ step: "a", status: "pending", priority: "high" },
+			{ step: "b", status: "pending" },
+		]);
+	});
+
+	it("maps a snapshot's cancelled todo the same way the live event does", () => {
+		const transcript: Transcript = {
+			messages: [],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [{ id: "1", content: "dropped", status: "cancelled" }],
+		};
+		const plan = planOf(snapshotToUpdates(transcript, undefined, "ses_a"));
+		expect(plan.steps).toEqual([{ step: "dropped", status: "skipped" }]);
+	});
+
+	it("keys the plan and its revision per session, never across sessions", () => {
+		const todos = [{ id: "1", content: "x", status: "pending" as const }];
+		const update = (sessionId: string) =>
+			planOf(
+				eventToUpdates(
+					todoEvent(todos),
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					sessionId
+				)
+			);
+		const a1 = update("ses_key_a");
+		const a2 = update("ses_key_a");
+		const b1 = update("ses_key_b");
+		expect(a1.uuid).toBe("agent-plan-ses_key_a");
+		expect(b1.uuid).toBe("agent-plan-ses_key_b");
+		expect(a2.version).toBe(a1.version + 1);
+		// Another session's revision is untouched by A's traffic.
+		expect(b1.version).toBe(1);
+	});
+});
+
+describe("tool-image size passthrough", () => {
+	it("carries each attachment's size onto its image block, for the strip's load gate", () => {
+		const sha = "a".repeat(64);
+		const updates = eventToUpdates(
+			{
+				kind: "part",
+				part: {
+					id: "p1",
+					messageId: "m1",
+					role: "assistant",
+					type: "tool",
+					callId: "c1",
+					tool: "playwright_screenshot",
+					status: "completed",
+					input: {},
+					output: "ok",
+					attachments: [{ sha256: sha, mime: "image/png", size: 5_000_000 }],
+				},
+			},
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			(s) => `/img/${s}`
+		);
+		const result = updates.find(
+			(u) => u.type === MessageUpdateType.Tool && u.subtype === "result"
+		) as { result: { outputs: Record<string, unknown>[] } } | undefined;
+		expect(result?.result.outputs[1]).toEqual({
+			content: [{ type: "image", mimeType: "image/png", url: `/img/${sha}`, size: 5_000_000 }],
+		});
 	});
 });

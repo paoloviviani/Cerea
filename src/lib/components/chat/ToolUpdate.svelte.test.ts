@@ -1,6 +1,7 @@
 import ToolUpdate from "./ToolUpdate.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it } from "vitest";
+import { page as browserPage } from "@vitest/browser/context";
 import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { MessageToolUpdate } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
@@ -12,7 +13,7 @@ const call = {
 	call: { name: "playwright_screenshot", parameters: {} },
 } as MessageToolUpdate;
 
-const result = (blocks: unknown[]): MessageToolUpdate =>
+const resultOf = (outputs: unknown[]): MessageToolUpdate =>
 	({
 		type: MessageUpdateType.Tool,
 		subtype: MessageToolUpdateType.Result,
@@ -20,10 +21,13 @@ const result = (blocks: unknown[]): MessageToolUpdate =>
 		result: {
 			status: ToolResultStatus.Success,
 			call: { name: "playwright_screenshot", parameters: {} },
-			outputs: [{ text: "took a screenshot" }, { content: blocks }],
+			outputs,
 			display: true,
 		},
 	}) as MessageToolUpdate;
+
+const result = (blocks: unknown[]): MessageToolUpdate =>
+	resultOf([{ text: "took a screenshot" }, { content: blocks }]);
 
 /** The card is collapsed until its header is opened. */
 async function open(tool: MessageToolUpdate[]) {
@@ -90,5 +94,142 @@ describe("a tool result's images", () => {
 			]),
 		]);
 		expect(images).toHaveLength(0);
+	});
+});
+
+describe("the collapsed card's thumbnail strip", () => {
+	const device = "b".repeat(24);
+	const urlOf = (n: number) =>
+		`/api/v2/code/v1/agents/s1/attachments/${n.toString(16).padStart(64, "0")}?device=${device}`;
+	const urlImage = (n: number, size = 1000) => ({
+		type: "image",
+		mimeType: "image/png",
+		url: urlOf(n),
+		size,
+	});
+	const withNotShown = (blocks: unknown[], imagesNotShown: number): MessageToolUpdate =>
+		resultOf([
+			{ text: "took a screenshot" },
+			{ content: blocks },
+			{ text: `${imagesNotShown} not shown`, imagesNotShown },
+		]);
+
+	const strip = (view: ReturnType<typeof renderWithApp>) =>
+		view.container.querySelector<HTMLElement>("[data-testid='tool-image-strip']");
+	const thumbs = (view: ReturnType<typeof renderWithApp>) =>
+		view.container.querySelectorAll<HTMLImageElement>("[data-testid='tool-image-strip'] img");
+	const more = (view: ReturnType<typeof renderWithApp>) =>
+		view.container.querySelector<HTMLElement>("[data-testid='tool-image-more']");
+
+	it("shows nothing for a result without images", () => {
+		const view = renderWithApp(ToolUpdate, { tool: [call, resultOf([{ text: "hi" }])] });
+		expect(strip(view)).toBeNull();
+	});
+
+	it("shows one image as one 48px thumbnail with its alt text, and no chip", () => {
+		const view = renderWithApp(ToolUpdate, { tool: [call, result([urlImage(1)])] });
+		expect(thumbs(view)).toHaveLength(1);
+		expect(thumbs(view)[0].alt).toBe("Tool result image 1 of 1");
+		expect(thumbs(view)[0].getAttribute("loading")).toBe("lazy");
+		expect(thumbs(view)[0].getAttribute("decoding")).toBe("async");
+		expect(more(view)).toBeNull();
+		const box = thumbs(view)[0].parentElement?.getBoundingClientRect();
+		expect([box?.width, box?.height]).toEqual([48, 48]);
+	});
+
+	it("shows three of five, and counts the rest in a +N chip", () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [call, result([1, 2, 3, 4, 5].map((n) => urlImage(n)))],
+		});
+		expect(thumbs(view)).toHaveLength(3);
+		expect(thumbs(view)[2].alt).toBe("Tool result image 3 of 5");
+		expect(more(view)?.textContent?.trim()).toBe("+2");
+	});
+
+	it("dedupes a repeated screenshot by its hash", () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [call, result([urlImage(1), urlImage(1), urlImage(2), urlImage(1)])],
+		});
+		expect(thumbs(view)).toHaveLength(2);
+		expect(more(view)).toBeNull();
+	});
+
+	it("adds images the machine or Cerea left out to the chip", () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [
+				call,
+				withNotShown(
+					[1, 2, 3, 4].map((n) => urlImage(n)),
+					3
+				),
+			],
+		});
+		expect(more(view)?.textContent?.trim()).toBe("+4");
+		const onlyOmitted = renderWithApp(ToolUpdate, { tool: [call, withNotShown([], 2)] });
+		expect(thumbs(onlyOmitted)).toHaveLength(0);
+		expect(more(onlyOmitted)?.textContent?.trim()).toBe("+2");
+	});
+
+	it("holds a large image back until it is tapped", async () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [call, result([urlImage(1, 5.2 * 1024 * 1024), urlImage(2, 1000)])],
+		});
+		const gated = view.container.querySelector<HTMLButtonElement>(
+			"[data-testid='tool-image-gated']"
+		);
+		expect(gated?.textContent?.replace(/\s+/g, " ").trim()).toBe("image · 5.2 MB — tap to load");
+		// Only the small one has a request behind it.
+		expect(thumbs(view)).toHaveLength(1);
+		expect(gated?.getBoundingClientRect().height).toBe(48);
+		gated?.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(thumbs(view)).toHaveLength(2);
+		expect(view.container.querySelector("[data-testid='tool-image-gated']")).toBeNull();
+	});
+
+	it("reserves each box before its image arrives: nothing moves when it loads", async () => {
+		const view = renderWithApp(ToolUpdate, { tool: [call, result([urlImage(1), urlImage(2)])] });
+		const rect = () => strip(view)?.getBoundingClientRect().toJSON();
+		const before = rect();
+		const img = thumbs(view)[0];
+		await new Promise<void>((resolve) => {
+			if (img.complete) resolve();
+			img.addEventListener("load", () => resolve());
+			img.addEventListener("error", () => resolve());
+		});
+		expect(rect()).toEqual(before);
+		expect(before?.height).toBe(48);
+	});
+
+	it("keeps the header on one line at a narrow width, the strip on its own line under it", async () => {
+		await browserPage.viewport(320, 700);
+		const view = renderWithApp(ToolUpdate, {
+			tool: [call, result([1, 2, 3, 4].map((n) => urlImage(n)))],
+		});
+		const header = view.container.querySelector<HTMLElement>("button[aria-label='Expand']");
+		expect(header?.getBoundingClientRect().height).toBeLessThan(28);
+		const stripBox = strip(view)?.getBoundingClientRect();
+		expect(stripBox?.top).toBeGreaterThanOrEqual(header?.getBoundingClientRect().bottom ?? 0);
+		expect(stripBox?.right).toBeLessThanOrEqual(320);
+		expect(thumbs(view)).toHaveLength(3);
+		await browserPage.viewport(1200, 800);
+		const wide = renderWithApp(ToolUpdate, { tool: [call, result([urlImage(1)])] });
+		expect(thumbs(wide)).toHaveLength(1);
+	});
+
+	it("opens the image on tap and the whole card from the chip; expanding hides the strip", async () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [call, result([1, 2, 3, 4].map((n) => urlImage(n)))],
+		});
+		thumbs(view)[0].parentElement?.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(document.querySelector("[aria-label='Close']")).not.toBeNull();
+		document.querySelector<HTMLElement>("[aria-label='Close']")?.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		more(view)?.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(strip(view)).toBeNull();
+		expect(view.container.querySelectorAll("img[alt^='Tool result image']")).toHaveLength(4);
 	});
 });

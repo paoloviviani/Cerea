@@ -51,7 +51,25 @@ import type {
 import { usableAttachments, type ToolImageUrl } from "./toolImages";
 import type { ElicitationField, ElicitationValue } from "$lib/types/McpElicitation";
 
-let planVersion = 0;
+/**
+ * The plan revision counter, per session. A module-wide counter was shared
+ * by every session of every person on the process — one person's plan
+ * updates moved another's `version`, and the uuid leaked the traffic. Kept
+ * for the last few hundred sessions only: it is a re-key hint for a card,
+ * not a record.
+ */
+const PLAN_VERSIONS_KEPT = 500;
+const planVersions = new Map<string, number>();
+function nextPlanVersion(sessionId: string): number {
+	const version = (planVersions.get(sessionId) ?? 0) + 1;
+	planVersions.delete(sessionId);
+	planVersions.set(sessionId, version);
+	if (planVersions.size > PLAN_VERSIONS_KEPT) {
+		const oldest = planVersions.keys().next().value;
+		if (oldest !== undefined) planVersions.delete(oldest);
+	}
+	return version;
+}
 
 /**
  * A subagent's envelope, as the parent's bridge sees it: which child asked,
@@ -97,7 +115,13 @@ function toolResultUpdate(
 	const images = imageUrl ? usableAttachments(attachments) : [];
 	if (imageUrl && images.length) {
 		outputs.push({
-			content: images.map((a) => ({ type: "image", mimeType: a.mime, url: imageUrl(a.sha256) })),
+			// `size` lets the strip hold a large image back until it is asked for.
+			content: images.map((a) => ({
+				type: "image",
+				mimeType: a.mime,
+				url: imageUrl(a.sha256),
+				size: a.size,
+			})),
 		});
 	}
 	// Say so when images were left out, whether the machine dropped them
@@ -108,6 +132,8 @@ function toolResultUpdate(
 	if (notShown > 0) {
 		outputs.push({
 			text: `${notShown} ${notShown === 1 ? "image" : "images"} not shown (too many, too large or not a supported type).`,
+			// The same count, structured, for the collapsed card's "+N" chip.
+			imagesNotShown: notShown,
 		});
 	}
 	const result: ToolResult = {
@@ -306,21 +332,26 @@ export function questionResolvedToUpdate(event: {
 	};
 }
 
-function todoToUpdate(todos: Todo[]): MessagePlanUpdate {
-	planVersion += 1;
+function todoToUpdate(todos: Todo[], sessionId = ""): MessagePlanUpdate {
+	const version = nextPlanVersion(sessionId);
 	return {
 		type: MessageUpdateType.Plan,
-		uuid: `agent-plan-${planVersion}`,
+		uuid: `agent-plan-${sessionId}`,
 		goal: todos[0]?.content ?? "",
-		version: planVersion,
+		version,
 		steps: todos.map((todo) => ({
 			step: todo.content,
+			// `cancelled` is the agent dropping the item, not one still to do:
+			// `skipped` is the vocabulary the card renders struck through.
 			status:
 				todo.status === "completed"
 					? "completed"
 					: todo.status === "in_progress"
 						? "in_progress"
-						: "pending",
+						: todo.status === "cancelled"
+							? "skipped"
+							: "pending",
+			...(todo.priority ? { priority: todo.priority } : {}),
 		})),
 	};
 }
@@ -377,7 +408,8 @@ export function eventToUpdates(
 	resolveClientMessageId?: (messageId: string) => string | undefined,
 	child?: ChildContext,
 	resolveCommand?: (messageId: string) => { name: string; arguments: string } | undefined,
-	imageUrl?: ToolImageUrl
+	imageUrl?: ToolImageUrl,
+	sessionId?: string
 ): AgentStreamUpdate[] {
 	if (child) {
 		switch (event.kind) {
@@ -443,7 +475,7 @@ export function eventToUpdates(
 		case "error":
 			return [turnStateUpdate("failed", event.message)];
 		case "todo":
-			return [todoToUpdate(event.todos)];
+			return [todoToUpdate(event.todos, sessionId)];
 		case "question.asked":
 			return [
 				questionRequestedToUpdate({
@@ -538,7 +570,8 @@ function answeredQuestionFromPart(part: Part): AgentStreamUpdate[] {
  * the panel frames a fresh mount replays. */
 export function snapshotToUpdates(
 	transcript: Transcript,
-	imageUrl?: ToolImageUrl
+	imageUrl?: ToolImageUrl,
+	sessionId?: string
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	let lastAssistantError: string | undefined;
@@ -567,7 +600,7 @@ export function snapshotToUpdates(
 		);
 	}
 	const todos = transcript.todos ?? [];
-	if (todos.length) updates.push(todoToUpdate(todos));
+	if (todos.length) updates.push(todoToUpdate(todos, sessionId));
 	updates.push(statusToTurnState(transcript.status, lastAssistantError));
 	// After history, never before it: a fresh mount's first paint should show
 	// the transcript before the meter, same order a live turn would deliver
@@ -666,7 +699,8 @@ export function foldEnvelopeEvents(
 				(messageId) => userMessageIds.get(messageId),
 				child,
 				(messageId) => commandMarkers.get(messageId),
-				imageUrl
+				imageUrl,
+				sessionId
 			)
 		);
 	}

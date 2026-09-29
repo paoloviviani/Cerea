@@ -637,7 +637,11 @@ export const GET: RequestHandler = async (event) => {
 		const sync = await callOp(() => link.sessionSync({ sessionId: childId }));
 		const updates =
 			"snapshot" in sync
-				? snapshotToUpdates(sync.snapshot, (sha256) => toolImageUrl(deviceId, childId, sha256))
+				? snapshotToUpdates(
+						sync.snapshot,
+						(sha256) => toolImageUrl(deviceId, childId, sha256),
+						childId
+					)
 				: [];
 		return superjsonResponse({ updates });
 	}

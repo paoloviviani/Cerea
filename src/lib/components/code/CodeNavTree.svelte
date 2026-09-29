@@ -20,7 +20,7 @@
 	lands where the action put them.
 -->
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
@@ -186,16 +186,44 @@
 		}
 	});
 
-	/** The active session's own device is always expanded, whatever is
-	 * stored — collapsing the row someone is actually looking at would
-	 * hide the thing the address names. */
+	/** Every row honours its stored state, the selected one included — the
+	 * chevron on the row someone is looking at has to do something. Navigation
+	 * reveals a collapsed row once (below); after that it is theirs to fold. */
 	function isDeviceExpanded(deviceId: string): boolean {
-		return deviceId === selectedDeviceId || !collapsedDevices.has(deviceId);
+		return !collapsedDevices.has(deviceId);
 	}
 	function isWorkspaceExpanded(deviceId: string, workspaceId: string): boolean {
-		if (deviceId === selectedDeviceId && workspaceId === selectedWorkspaceId) return true;
 		return !collapsedWorkspaces.has(workspaceKey(deviceId, workspaceId));
 	}
+	// A new address reveals the device and workspace it names, once: going
+	// somewhere must never land on a folded row, but the first render is not a
+	// navigation — a reload keeps what the person had folded, selection or not.
+	let lastAddress: string | undefined;
+	$effect(() => {
+		const address = `${selectedDeviceId}|${selectedWorkspaceId}|${selectedAgentId}`;
+		const previous = lastAddress;
+		lastAddress = address;
+		if (previous === undefined || previous === address) return;
+		untrack(() => {
+			let changed = false;
+			if (selectedDeviceId && collapsedDevices.has(selectedDeviceId)) {
+				const next = new Set(collapsedDevices);
+				next.delete(selectedDeviceId);
+				collapsedDevices = next;
+				changed = true;
+			}
+			if (selectedDeviceId && selectedWorkspaceId) {
+				const key = workspaceKey(selectedDeviceId, selectedWorkspaceId);
+				if (collapsedWorkspaces.has(key)) {
+					const next = new Set(collapsedWorkspaces);
+					next.delete(key);
+					collapsedWorkspaces = next;
+					changed = true;
+				}
+			}
+			if (changed) persistTreeState();
+		});
+	});
 	function toggleDeviceCollapsed(deviceId: string) {
 		const next = new Set(collapsedDevices);
 		if (next.has(deviceId)) next.delete(deviceId);
@@ -481,7 +509,7 @@
 					{:else}
 						<a
 							href="{base}/code?device={device.id}"
-							class="min-w-0 {row(deviceActive && !selectedAgentId)}"
+							class="min-w-0 {row(deviceActive && (!selectedAgentId || !deviceExpanded))}"
 							title={device.name}
 						>
 							<IconLaptop class="size-3.5 shrink-0" />
@@ -570,8 +598,8 @@
 						</button>
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-						title="Remove this pairing"
-						onclick={() => (confirmRequest = { kind: "device", device })}
+							title="Remove this pairing"
+							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconTrash class="size-3.5" />
 						</button>
@@ -598,291 +626,310 @@
 						</div>
 					</div>
 				{/if}
-				{#if device.status === "paired" && deviceExpanded}
-					{#if device.online === false || tree?.off}
-						<!-- Offline renders as a plain label, never a spinner (X4):
+				{#if device.status === "paired" && !isDead && deviceExpanded}
+					<!-- The guide runs down the centre of the size-6 chevron slot (ml-3),
+					     the ProjectsBranch idiom: nesting is drawn, not padded. -->
+					<div
+						class="ml-3 border-l border-gray-200 pl-1.5 dark:border-gray-700"
+						data-testid="device-rail"
+					>
+						{#if device.online === false || tree?.off}
+							<!-- Offline renders as a plain label, never a spinner (X4):
 						     an unreachable machine is never even asked for its
 						     tree (see `loadableDevices` above), so there is
 						     nothing here to wait on. -->
-						<p class="py-0.5 pl-6 text-xs text-gray-400 dark:text-gray-500">Offline.</p>
-					{:else if tree && tree.workspaces.length === 0}
-						<button
-							class="flex items-center gap-1.5 py-0.5 pl-6 text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-							onclick={() => (workspaceDialogFor = device.id)}
-						>
-							<IconAdd class="size-3" />
-							Add workspace
-						</button>
-					{:else}
-						{#each tree?.workspaces ?? [] as ws (ws.id)}
-							{@const wsActive = ws.id === selectedWorkspaceId && deviceActive}
-							{@const wsExpanded = isWorkspaceExpanded(device.id, ws.id)}
-							{@const wsSessionCount = agentsOf(tree, ws.id).length}
-							<div>
-								<div class="group flex items-center gap-1 pr-1">
-									<button
-										type="button"
-										class="ml-4 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-										aria-expanded={wsExpanded}
-										aria-label="{wsExpanded ? 'Collapse' : 'Expand'} {ws.name}"
-										onclick={() => toggleWorkspaceCollapsed(device.id, ws.id)}
-									>
-										<IconChevronRight
-											class="size-3 shrink-0 transition-transform {wsExpanded ? 'rotate-90' : ''}"
-										/>
-									</button>
-									<span class="min-w-0 {row(wsActive && !selectedAgentId)}">
-										<IconFolder class="size-3 shrink-0" />
-										<span class="min-w-0 flex-1 truncate">{ws.name}</span>
-										{#if ws.branch}
-											<!-- Worktree workspaces sit beside their source repo in
+							<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">Offline.</p>
+						{:else if tree && tree.workspaces.length === 0}
+							<button
+								class="flex items-center gap-1.5 py-0.5 pl-2 text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+								onclick={() => (workspaceDialogFor = device.id)}
+							>
+								<IconAdd class="size-3" />
+								Add workspace
+							</button>
+						{:else}
+							{#each tree?.workspaces ?? [] as ws (ws.id)}
+								{@const wsActive = ws.id === selectedWorkspaceId && deviceActive}
+								{@const wsExpanded = isWorkspaceExpanded(device.id, ws.id)}
+								{@const wsSessionCount = agentsOf(tree, ws.id).length}
+								<div>
+									<div class="group flex items-center gap-1 pr-1">
+										<button
+											type="button"
+											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+											aria-expanded={wsExpanded}
+											aria-label="{wsExpanded ? 'Collapse' : 'Expand'} {ws.name}"
+											onclick={() => toggleWorkspaceCollapsed(device.id, ws.id)}
+										>
+											<IconChevronRight
+												class="size-3 shrink-0 transition-transform {wsExpanded ? 'rotate-90' : ''}"
+											/>
+										</button>
+										<span class="min-w-0 {row(wsActive && (!selectedAgentId || !wsExpanded))}">
+											<IconFolder class="size-3 shrink-0" />
+											<span class="min-w-0 flex-1 truncate">{ws.name}</span>
+											{#if ws.branch}
+												<!-- Worktree workspaces sit beside their source repo in
 											     this same flat list (not nested under it) — the
 											     branch badge is what marks the relationship, kept
 											     simple rather than building a second tree level. -->
-											<span
-												class="flex shrink-0 items-center gap-0.5 text-[10px] text-gray-400"
-												title="git worktree on {ws.branch}"
-											>
-												<IconBranch class="size-2.5" />
-												{ws.branch}
-											</span>
-										{/if}
-										{#if !wsExpanded}
-											<span
-												class="shrink-0 rounded-full bg-gray-100 px-1.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-300"
-												data-testid="workspace-collapsed-count"
-											>
-												{wsSessionCount}
-												{wsSessionCount === 1 ? "session" : "sessions"}
-											</span>
-										{/if}
-									</span>
-									<button
-										class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
-										title="Start a coding session in this workspace"
-										onclick={() => (agentDialogFor = ws)}
-									>
-										<IconAdd class="size-3.5" />
-									</button>
-									<!-- The workspace's actions live in one kebab, not a
+												<span
+													class="flex shrink-0 items-center gap-0.5 text-[10px] text-gray-400"
+													title="git worktree on {ws.branch}"
+												>
+													<IconBranch class="size-2.5" />
+													{ws.branch}
+												</span>
+											{/if}
+											{#if !wsExpanded}
+												<span
+													class="shrink-0 rounded-full bg-gray-100 px-1.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+													data-testid="workspace-collapsed-count"
+												>
+													{wsSessionCount}
+													{wsSessionCount === 1 ? "session" : "sessions"}
+												</span>
+											{/if}
+										</span>
+										<button
+											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
+											title="Start a coding session in this workspace"
+											onclick={() => (agentDialogFor = ws)}
+										>
+											<IconAdd class="size-3.5" />
+										</button>
+										<!-- The workspace's actions live in one kebab, not a
 								     row of icons: rename and archive are occasional,
 								     and a bare trash can was the only visible offer
 								     for both. -->
-									<!-- The kebab sits at the row's right edge with air
+										<!-- The kebab sits at the row's right edge with air
 								     between it and the add button: the two are
 								     both 24px targets, and a tap meant to start
 								     a session must never open a menu instead. -->
-									<DropdownMenu.Root>
-										<!-- The trigger stays in flow at all times (never
+										<DropdownMenu.Root>
+											<!-- The trigger stays in flow at all times (never
 								     display:none) so its 24px slot is always reserved
 								     — only opacity toggles on hover/focus/open. A
 								     display toggle here would shrink the flex-1 name
 								     span next to it and shove the dot/add button
 								     sideways on hover, which is the bug this avoids.
 								     Same idiom as NavConversationItem's chat kebab. -->
-										<DropdownMenu.Trigger
-											class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-											title="Workspace actions"
-											aria-label="Workspace actions"
-										>
-											<IconKebab class="size-3.5" />
-										</DropdownMenu.Trigger>
-										<DropdownMenu.Portal>
-											<DropdownMenu.Content
-												class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-												side="bottom"
-												align="end"
-												sideOffset={6}
-												trapFocus={false}
-												onCloseAutoFocus={(e) => e.preventDefault()}
-												interactOutsideBehavior="defer-otherwise-close"
+											<DropdownMenu.Trigger
+												class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+												title="Workspace actions"
+												aria-label="Workspace actions"
 											>
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-													onSelect={() => (renameFor = { device, workspace: ws })}
+												<IconKebab class="size-3.5" />
+											</DropdownMenu.Trigger>
+											<DropdownMenu.Portal>
+												<DropdownMenu.Content
+													class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+													side="bottom"
+													align="end"
+													sideOffset={6}
+													trapFocus={false}
+													onCloseAutoFocus={(e) => e.preventDefault()}
+													interactOutsideBehavior="defer-otherwise-close"
 												>
-													<IconEdit class="size-4 opacity-90 dark:opacity-80" />
-													Rename
-												</DropdownMenu.Item>
-												{#if ws.isGitRepo}
-													<!-- Only a git repo can be branched into a worktree;
-													     a plain directory workspace has no repo to run
-													     `git worktree add` against. -->
 													<DropdownMenu.Item
 														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-														onSelect={() => (worktreeFor = { device, workspace: ws })}
+														onSelect={() => (renameFor = { device, workspace: ws })}
 													>
-														<IconBranch class="size-4 opacity-90 dark:opacity-80" />
-														New worktree…
+														<IconEdit class="size-4 opacity-90 dark:opacity-80" />
+														Rename
 													</DropdownMenu.Item>
-												{/if}
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-													onSelect={() =>
-														(confirmRequest = { kind: "workspace", device, workspace: ws })}
-												>
-													<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-													Archive
-												</DropdownMenu.Item>
-											</DropdownMenu.Content>
-										</DropdownMenu.Portal>
-									</DropdownMenu.Root>
-								</div>
-								{#if wsExpanded}
-									{#each agentsOf(tree, ws.id) as agent (agent.id)}
-										{@const agentActive = agent.id === selectedAgentId}
-										{@const sub = subagentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
-										{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
-										<div class="group flex items-center gap-1 pr-1">
-											<a
-												href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
-												class="min-w-0 pl-8 {row(agentActive)}"
-												title={agent.title}
-											>
-												<IconCode class="size-3 shrink-0" />
-												<span class="min-w-0 flex-1 truncate">{agent.title}</span>
-												{#if sub}
-													<span
-														class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
-														data-testid="subagent-badge">sub</span
-													>
-												{/if}
-												{#if agent.state === "waiting-permission" || kids?.waiting}
-													<span
-														class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-														title={agent.state === "waiting-permission"
-															? "Waiting for your approval"
-															: "A subagent is waiting for your approval"}
-														data-testid="waiting-approval"
-														>{agent.state === "waiting-permission"
-															? "waiting for approval"
-															: "subagent waiting"}</span
-													>
-												{:else}
-													<span
-														class="size-1.5 shrink-0 rounded-full {agent.state === 'running'
-															? 'bg-blue-600'
-															: agent.state === 'error'
-																? 'bg-red-600'
-																: agent.state === 'done'
-																	? 'bg-green-700'
-																	: 'bg-gray-400'}"
-														title={agent.state}
-													></span>
-												{/if}
-											</a>
-											{#if kids}
-												<DropdownMenu.Root>
-													<DropdownMenu.Trigger
-														class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-														title="Subagents of this session"
-														data-testid="subagent-count"
-													>
-														{kids.count}
-														{kids.count === 1 ? "subagent" : "subagents"}
-													</DropdownMenu.Trigger>
-													<DropdownMenu.Portal>
-														<DropdownMenu.Content
-															class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-															side="bottom"
-															align="end"
-															sideOffset={6}
+													{#if ws.isGitRepo}
+														<!-- Only a git repo can be branched into a worktree;
+													     a plain directory workspace has no repo to run
+													     `git worktree add` against. -->
+														<DropdownMenu.Item
+															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+															onSelect={() => (worktreeFor = { device, workspace: ws })}
 														>
-															{#each kids.children as child (child.id)}
-																<DropdownMenu.Item
-																	class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-																	onSelect={() =>
-																		goto(
-																			`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
-																		)}
+															<IconBranch class="size-4 opacity-90 dark:opacity-80" />
+															New worktree…
+														</DropdownMenu.Item>
+													{/if}
+													<DropdownMenu.Item
+														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+														onSelect={() =>
+															(confirmRequest = { kind: "workspace", device, workspace: ws })}
+													>
+														<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+														Archive
+													</DropdownMenu.Item>
+												</DropdownMenu.Content>
+											</DropdownMenu.Portal>
+										</DropdownMenu.Root>
+									</div>
+									{#if wsExpanded}
+										<div
+											class="ml-3 border-l border-gray-200 pl-1.5 dark:border-gray-700"
+											data-testid="workspace-rail"
+										>
+											{#each agentsOf(tree, ws.id) as agent (agent.id)}
+												{@const agentActive = agent.id === selectedAgentId}
+												{@const sub = subagentRow(
+													agent,
+													tree?.agents ?? [],
+													tree?.workspaces ?? []
+												)}
+												{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
+												<div class="group flex items-center gap-1 pr-1">
+													<a
+														href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
+														class="min-w-0 {row(agentActive)}"
+														title={agent.title}
+													>
+														<IconCode class="size-3 shrink-0" />
+														<span class="min-w-0 flex-1 truncate">{agent.title}</span>
+														{#if sub}
+															<span
+																class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
+																data-testid="subagent-badge">sub</span
+															>
+														{/if}
+														{#if agent.state === "waiting-permission" || kids?.waiting}
+															<span
+																class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+																title={agent.state === "waiting-permission"
+																	? "Waiting for your approval"
+																	: "A subagent is waiting for your approval"}
+																data-testid="waiting-approval"
+																>{agent.state === "waiting-permission"
+																	? "waiting for approval"
+																	: "subagent waiting"}</span
+															>
+														{:else}
+															<span
+																class="size-1.5 shrink-0 rounded-full {agent.state === 'running'
+																	? 'bg-blue-600'
+																	: agent.state === 'error'
+																		? 'bg-red-600'
+																		: agent.state === 'done'
+																			? 'bg-green-700'
+																			: 'bg-gray-400'}"
+																title={agent.state}
+															></span>
+														{/if}
+													</a>
+													{#if kids}
+														<DropdownMenu.Root>
+															<DropdownMenu.Trigger
+																class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+																title="Subagents of this session"
+																data-testid="subagent-count"
+															>
+																{kids.count}
+																{kids.count === 1 ? "subagent" : "subagents"}
+															</DropdownMenu.Trigger>
+															<DropdownMenu.Portal>
+																<DropdownMenu.Content
+																	class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+																	side="bottom"
+																	align="end"
+																	sideOffset={6}
 																>
-																	<span class="min-w-0 flex-1 truncate">{child.title}</span>
-																	{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
-																		<span class="shrink-0 text-xs text-gray-400"
-																			>· {child.workspaceName}</span
+																	{#each kids.children as child (child.id)}
+																		<DropdownMenu.Item
+																			class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+																			onSelect={() =>
+																				goto(
+																					`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
+																				)}
 																		>
-																	{/if}
-																</DropdownMenu.Item>
-															{:else}
-																<p class="px-2 py-1 text-xs text-gray-500">
-																	In another workspace not listed here.
-																</p>
-															{/each}
-														</DropdownMenu.Content>
-													</DropdownMenu.Portal>
-												</DropdownMenu.Root>
-											{/if}
-											<!-- The session's actions live in the same kebab
+																			<span class="min-w-0 flex-1 truncate">{child.title}</span>
+																			{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
+																				<span class="shrink-0 text-xs text-gray-400"
+																					>· {child.workspaceName}</span
+																				>
+																			{/if}
+																		</DropdownMenu.Item>
+																	{:else}
+																		<p class="px-2 py-1 text-xs text-gray-500">
+																			In another workspace not listed here.
+																		</p>
+																	{/each}
+																</DropdownMenu.Content>
+															</DropdownMenu.Portal>
+														</DropdownMenu.Root>
+													{/if}
+													<!-- The session's actions live in the same kebab
 									     as the workspace's, at the row's right edge:
 									     rename and archive are occasional, and a bare
 									     trash can was the only visible offer for both. -->
-											<DropdownMenu.Root>
-												<!-- Reserved-space trigger, same as the workspace
+													<DropdownMenu.Root>
+														<!-- Reserved-space trigger, same as the workspace
 										     kebab above: opacity toggles, display never
 										     does, so the presence dot never jumps on
 										     hover. -->
-												<DropdownMenu.Trigger
-													class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-													title="Session actions"
-													aria-label="Session actions"
-												>
-													<IconKebab class="size-3.5" />
-												</DropdownMenu.Trigger>
-												<DropdownMenu.Portal>
-													<DropdownMenu.Content
-														class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-														side="bottom"
-														align="end"
-														sideOffset={6}
-														trapFocus={false}
-														onCloseAutoFocus={(e) => e.preventDefault()}
-														interactOutsideBehavior="defer-otherwise-close"
-													>
-														<DropdownMenu.Item
-															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-															onSelect={() => (renameAgentFor = { device, agent })}
+														<DropdownMenu.Trigger
+															class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+															title="Session actions"
+															aria-label="Session actions"
 														>
-															<IconEdit class="size-4 opacity-90 dark:opacity-80" />
-															Rename
-														</DropdownMenu.Item>
-														<DropdownMenu.Item
-															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-															onSelect={() => (confirmRequest = { kind: "agent", device, agent })}
+															<IconKebab class="size-3.5" />
+														</DropdownMenu.Trigger>
+														<DropdownMenu.Portal>
+															<DropdownMenu.Content
+																class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+																side="bottom"
+																align="end"
+																sideOffset={6}
+																trapFocus={false}
+																onCloseAutoFocus={(e) => e.preventDefault()}
+																interactOutsideBehavior="defer-otherwise-close"
+															>
+																<DropdownMenu.Item
+																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+																	onSelect={() => (renameAgentFor = { device, agent })}
+																>
+																	<IconEdit class="size-4 opacity-90 dark:opacity-80" />
+																	Rename
+																</DropdownMenu.Item>
+																<DropdownMenu.Item
+																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+																	onSelect={() =>
+																		(confirmRequest = { kind: "agent", device, agent })}
+																>
+																	<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+																	Archive
+																</DropdownMenu.Item>
+															</DropdownMenu.Content>
+														</DropdownMenu.Portal>
+													</DropdownMenu.Root>
+												</div>
+												{#if sub}
+													{#if sub.parentWorkspaceId}
+														<a
+															href="{base}/code?device={device.id}&ws={sub.parentWorkspaceId}&agent={sub.parentId}"
+															class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+															data-testid="subagent-from"
+															>↳ from {sub.parentTitle}{sub.elsewhere
+																? ` · ${sub.elsewhere}`
+																: ""}</a
 														>
-															<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-															Archive
-														</DropdownMenu.Item>
-													</DropdownMenu.Content>
-												</DropdownMenu.Portal>
-											</DropdownMenu.Root>
-										</div>
-										{#if sub}
-											{#if sub.parentWorkspaceId}
-												<a
-													href="{base}/code?device={device.id}&ws={sub.parentWorkspaceId}&agent={sub.parentId}"
-													class="block truncate pl-12 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-													data-testid="subagent-from"
-													>↳ from {sub.parentTitle}{sub.elsewhere ? ` · ${sub.elsewhere}` : ""}</a
-												>
-											{:else}
-												<p
-													class="truncate pl-12 text-[11px] text-gray-400 dark:text-gray-500"
-													data-testid="subagent-from"
-												>
-													↳ from a session not listed here
+													{:else}
+														<p
+															class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
+															data-testid="subagent-from"
+														>
+															↳ from a session not listed here
+														</p>
+													{/if}
+												{/if}
+											{/each}
+											{#if wsActive && agentsOf(tree, ws.id).length === 0}
+												<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">
+													No agents yet.
 												</p>
 											{/if}
-										{/if}
-									{/each}
-									{#if wsActive && agentsOf(tree, ws.id).length === 0}
-										<p class="py-0.5 pl-10 text-xs text-gray-400 dark:text-gray-500">
-											No agents yet.
-										</p>
+										</div>
 									{/if}
-								{/if}
-							</div>
-						{/each}
-					{/if}
+								</div>
+							{/each}
+						{/if}
+					</div>
 				{/if}
 			</div>
 		{/each}
