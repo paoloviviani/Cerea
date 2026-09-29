@@ -103,6 +103,7 @@
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import IconCode from "~icons/carbon/code";
+	import IconRenew from "~icons/carbon/renew";
 	import IconDiff from "~icons/lucide/diff";
 	import IconFork from "~icons/carbon/fork";
 	import * as s from "$lib/components/overlay/styles";
@@ -644,6 +645,8 @@
 	// The viewed session's own list only (a subagent's shows when that child
 	// is opened): the last Plan update in its timeline, which the snapshot
 	// and the live stream both produce.
+	let diffRefreshKey = $state(0);
+	let diffLoading = $state(true);
 	let latestTasks = $derived(latestPlan(messages));
 	let tasksProgress = $derived(planProgress(latestTasks));
 	let sessionBusy = $derived(shownState === "running" || shownState === "waiting-permission");
@@ -1126,15 +1129,27 @@
 		</ChatMessageColumn>
 
 		{#if sidePane.open && sidePane.view === "tasks"}
-			<SidePane label="Tasks">
+			<SidePane label="Tasks" title="Tasks">
 				<CodeTasks plan={latestTasks} />
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "diff"}
-			<SidePane label="Agent changes">
-				<AgentDiff {deviceId} {agentId} />
+			<SidePane label="Agent changes" title="Changes">
+				{#snippet actions()}
+					<button
+						type="button"
+						class="btn rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+						onclick={() => (diffRefreshKey += 1)}
+						disabled={diffLoading}
+						aria-label="Refresh changes"
+						title="Refresh from the daemon"
+					>
+						<IconRenew class="size-4 {diffLoading ? 'animate-spin' : ''}" />
+					</button>
+				{/snippet}
+				<AgentDiff {deviceId} {agentId} refreshKey={diffRefreshKey} bind:loading={diffLoading} />
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "files" && filesOffered && (workspace?.id ?? workspaceId)}
-			<SidePane label="Workspace files">
+			<SidePane label="Workspace files" title="Files">
 				<CodeFiles
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
@@ -1142,7 +1157,7 @@
 				/>
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}
-			<SidePane label="Terminal">
+			<SidePane label="Terminal" title="Terminal">
 				<CodeTerminals {deviceId} workspaceId={(workspace?.id ?? workspaceId) as string} />
 			</SidePane>
 		{/if}

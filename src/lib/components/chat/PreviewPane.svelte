@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { browser } from "$app/environment";
 	import { onMount, onDestroy } from "svelte";
-	import CarbonClose from "~icons/carbon/close";
 	import CarbonDocument from "~icons/carbon/document";
 	import SidePane from "./SidePane.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
@@ -126,27 +125,9 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "preview" && payload}
-	<SidePane label="Preview">
+	<SidePane label="Preview" title={payload.title}>
 		{#snippet children(resizing)}
 			<div class="flex h-full flex-col">
-				<div
-					class="flex shrink-0 items-center gap-2 border-b border-gray-200/70 px-4 py-2 dark:border-gray-700/70"
-				>
-					<span
-						class="min-w-0 flex-1 truncate font-mono text-xs text-gray-600 dark:text-gray-300"
-						title={payload.title}
-					>
-						{payload.title}
-					</span>
-					<button
-						class="btn flex size-7 shrink-0 items-center justify-center rounded-lg border text-sm shadow-xs transition-none hover:border-gray-500 active:shadow-inner dark:border-gray-600 dark:bg-gray-600/50 dark:hover:border-gray-500"
-						title="Close preview"
-						aria-label="Close preview pane"
-						onclick={() => sidePane.close()}
-					>
-						<CarbonClose class="size-3.5" />
-					</button>
-				</div>
 				<div class="relative min-h-0 flex-1">
 					{#if payload.kind === "pdf" && browserRendersPdfInFrame()}
 						<!-- A pdf IS its own document type: the browser's native

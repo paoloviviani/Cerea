@@ -129,8 +129,10 @@ describe("PreviewPane", () => {
 		sidePane.openPreview({ kind: "html", title: "index.html", content: "<h1>Hi</h1>" });
 		const screen = render(PreviewPane, {});
 		await tick();
-		await expect.element(screen.getByRole("button", { name: "Close preview pane" })).toBeVisible();
-		await screen.getByRole("button", { name: "Close preview pane" }).click();
+		// Below desktop the backdrop carries the same name; the header's is last.
+		const close = screen.getByRole("button", { name: "Close Preview" }).last();
+		await expect.element(close).toBeVisible();
+		await close.click();
 		await tick();
 		expect(sidePane.open).toBe(false);
 		expect(screen.baseElement.querySelector("iframe")).toBeNull();

@@ -35,14 +35,11 @@
 
 <div class="flex h-full min-h-0 flex-col" data-testid="code-tasks">
 	<div class="border-b border-line px-4 py-3">
-		<div class="flex items-baseline justify-between gap-2">
-			<h2 class="text-sm font-semibold text-ink">Tasks</h2>
-			{#if progress.total > 0}
-				<span class="font-mono text-xs text-ink-muted" data-testid="tasks-count"
-					>{progress.done}/{progress.total}</span
-				>
-			{/if}
-		</div>
+		{#if progress.total > 0}
+			<span class="font-mono text-xs text-ink-muted" data-testid="tasks-count"
+				>{progress.done}/{progress.total}</span
+			>
+		{/if}
 		{#if progress.total > 0}
 			<div
 				class="mt-2 h-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700"
