@@ -66,6 +66,10 @@ type PolicyInfo struct {
 	// whose shell is unknown, so the menu can grey those rows with the
 	// reason instead of letting a 403 be the explanation.
 	CommandShell string `json:"commandShell"`
+	// AgentTools is the agent-coordination tools' opt-out (PROTOCOL.md §4/§6
+	// "Agent tools"): "allowed" (default) or "denied". Older machines omit
+	// it: decide from the backend's agentTools capability alone.
+	AgentTools string `json:"agentTools,omitempty"`
 }
 
 // MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can

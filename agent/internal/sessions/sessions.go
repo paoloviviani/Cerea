@@ -545,7 +545,7 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) ([]ba
 		// the machine policy allows it — otherwise a subagent blocks a
 		// turn its parent already cleared. Handoff approvals are never
 		// auto-accepted, whatever the flags say.
-		if !isHandoffApproval(ev.Request) && m.autoAcceptEffectiveLocked(st) && m.policy.AutoAcceptAllowed() {
+		if !neverAutoAccept(ev.Request) && m.autoAcceptEffectiveLocked(st) && m.policy.AutoAcceptAllowed() {
 			if st.autoRepliedIDs == nil {
 				st.autoRepliedIDs = map[string]bool{}
 			}
@@ -737,6 +737,41 @@ func ensureMessageLocked(st *sessionState, msgID, role string) {
 // needs a person's explicit say-so, whatever auto-accept flags say.
 func isHandoffApproval(req *backend.PermissionRequest) bool {
 	return strings.Contains(strings.ToLower(req.Tool), "handoff")
+}
+
+// neverAutoAccept reports whether a permission request must always wait for
+// a person: a handoff, or one of galopin's own approvals (session_spawn /
+// session_send — PROTOCOL.md §6 "Agent tools"). Galopin's are recognised by
+// the request itself (its metadata flag and its minted id prefix), never by
+// the tool's name: a name test is exactly what a differently-named tool
+// slips past.
+func neverAutoAccept(req *backend.PermissionRequest) bool {
+	if isHandoffApproval(req) || strings.HasPrefix(req.ID, "gp_") {
+		return true
+	}
+	flag, _ := req.Metadata["galopin"].(bool)
+	return flag
+}
+
+// ActiveToolCall reports whether sessionID has a tool part for callID and
+// tool that has not finished: how galopin proves a relayed tool call really
+// is that session's, so a forged session id cannot borrow another's standing.
+func (m *Materializer) ActiveToolCall(sessionID, tool, callID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	for _, parts := range st.parts {
+		for _, p := range parts {
+			if p.Type == backend.PartTool && p.Tool == tool && p.CallID == callID &&
+				(p.ToolStatus == backend.ToolPending || p.ToolStatus == backend.ToolRunning) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func removeString(list []string, s string) []string {
@@ -1020,4 +1055,22 @@ func (m *Materializer) SetAutoAccept(sessionID string, enabled bool) error {
 	}
 	st.autoAccept = enabled
 	return nil
+}
+
+// LatestUserMessage is the newest user message the materializer holds for
+// sessionID: the one that started (or last steered) its current turn. False
+// when the session has none.
+func (m *Materializer) LatestUserMessage(sessionID string) (backend.Message, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		return backend.Message{}, false
+	}
+	for i := len(st.messageOrder) - 1; i >= 0; i-- {
+		if msg := st.messages[st.messageOrder[i]]; msg != nil && msg.Role == "user" {
+			return *msg, true
+		}
+	}
+	return backend.Message{}, false
 }

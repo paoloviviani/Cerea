@@ -25,6 +25,9 @@ type overlayFile struct {
 	// the transcript shows (PROTOCOL.md §6 session.command) — never the
 	// expanded template, only the name and the arguments as sent.
 	CommandMarkers map[string]backend.MessageCommand `json:"commandMarkers,omitempty"`
+	// SentMarkers maps the message id a session_send produced to its sender
+	// (PROTOCOL.md §7 Message.sentBy).
+	SentMarkers map[string]backend.MessageSender `json:"sentMarkers,omitempty"`
 }
 
 func (b *Backend) getOverlay(sessionID string) sessionOverlay {
@@ -97,6 +100,7 @@ func (b *Backend) attachCommandMarker(msg *backend.Message) {
 		return
 	}
 	msg.Command = b.commandMarkerFor(msg.ID)
+	msg.SentBy = b.sentMarkerFor(msg.ID)
 }
 
 // spendPendingClaim clears sessionID's pending fallback claim when the id
@@ -172,6 +176,9 @@ func (b *Backend) loadOverlay() error {
 	if f.CommandMarkers != nil {
 		b.commandMarkers = f.CommandMarkers
 	}
+	if f.SentMarkers != nil {
+		b.sentMarkers = f.SentMarkers
+	}
 	b.markerMu.Unlock()
 	return nil
 }
@@ -199,12 +206,17 @@ func (b *Backend) saveOverlay() error {
 	for k, v := range b.commandMarkers {
 		commandMarkers[k] = v
 	}
+	sentMarkers := make(map[string]backend.MessageSender, len(b.sentMarkers))
+	for k, v := range b.sentMarkers {
+		sentMarkers[k] = v
+	}
 	b.markerMu.Unlock()
 
 	body, err := json.MarshalIndent(overlayFile{
 		Sessions:         sessions,
 		ClientMessageIDs: clientMessageIDs,
 		CommandMarkers:   commandMarkers,
+		SentMarkers:      sentMarkers,
 	}, "", "  ")
 	if err != nil {
 		return err
