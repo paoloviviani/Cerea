@@ -10,6 +10,21 @@ export interface MergeFinalAnswerParams {
 }
 
 /**
+ * Comparison form for streamed-vs-final text. Line endings and Unicode
+ * normalization routinely differ between a provider's streamed tokens and
+ * its final text (CRLF vs LF, NFD vs NFC — the latter bites any language
+ * with accented characters) while rendering identically. Comparing raw
+ * bytes would read those as different answers and duplicate the message;
+ * comparing normalized forms treats canonically identical text as identical.
+ * Only the comparisons use this — stored content is never rewritten. The
+ * server's applyUpdate.ts carries an identical copy; the two must stay in
+ * sync or views diverge.
+ */
+export function normForCompare(text: string): string {
+	return text.replace(/\r\n/g, "\n").normalize("NFC");
+}
+
+/**
  * Content for an assistant message when a FinalAnswer arrives, mirroring the server so
  * every view agrees. Isolated (and unit-tested) because this reconciliation of streamed
  * content with the provider's final text is where subtle content bugs live; both the
@@ -33,12 +48,24 @@ export function mergeFinalAnswerContent({
 	if (hadTools) {
 		// Providers often stream content, run tools, then return a different follow-up
 		// message; preserve the pre-tool stream instead of letting the final text clobber it.
-		const trimmedExistingSuffix = existing.replace(/\s+$/, "");
-		const trimmedFinalPrefix = finalText.replace(/^\s+/, "");
+		// All comparisons run on normalized forms (see normForCompare): streamed
+		// tokens and the final text routinely differ in line endings or Unicode
+		// normalization while rendering identically, and byte comparison would
+		// duplicate the answer.
+		const normExisting = normForCompare(existing);
+		const normFinal = normForCompare(finalText);
+		const trimmedExistingSuffix = normExisting.replace(/\s+$/, "");
+		const trimmedFinalPrefix = normFinal.replace(/^\s+/, "");
+		// Right-trimmed final for the trailing-junk case: a provider final
+		// that is the streamed text plus a trailing newline (or CRLF) must
+		// still count as streamed, or it falls through to the join below
+		// and the answer is stored twice.
+		const trimmedFinalSuffix = normFinal.replace(/\s+$/, "");
 		const alreadyStreamed =
 			!!finalText &&
-			(existing.endsWith(finalText) ||
-				(trimmedFinalPrefix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalPrefix)));
+			(normExisting.endsWith(normFinal) ||
+				(trimmedFinalPrefix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalPrefix)) ||
+				(trimmedFinalSuffix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalSuffix)));
 
 		if (existing.length > 0) {
 			// A. We already streamed the same final text; keep it.
@@ -46,7 +73,7 @@ export function mergeFinalAnswerContent({
 			// B. The final text already includes the streamed prefix; use it verbatim.
 			if (
 				finalText &&
-				(finalText.startsWith(existing) ||
+				(normFinal.startsWith(normExisting) ||
 					(trimmedExistingSuffix.length > 0 &&
 						trimmedFinalPrefix.startsWith(trimmedExistingSuffix)))
 			) {
