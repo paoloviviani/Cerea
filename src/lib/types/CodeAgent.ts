@@ -142,6 +142,9 @@ export interface AgentMessageBoundaryUpdate {
 	type: "messageBoundary";
 	role: "user" | "assistant";
 	messageId: string;
+	/** On a user message another session wrote (`session_send`): stamped
+	 * onto the user `Message` the fold pushes next. */
+	sentBy?: { sessionId: string; title: string; hop: number };
 }
 
 /**
@@ -389,6 +392,9 @@ export interface CodeAgentSession {
 	/** A parent's subagents: direct children, those running, and descendants
 	 * waiting on a permission reply. Absent when it spawned none. */
 	childSummary?: { children: number; running: number; waiting: number };
+	/** The session that created this one with `session_spawn`, when it did:
+	 * a top-level row that says where it came from, not a subagent. */
+	spawnedBy?: { sessionId: string; title: string };
 }
 
 /** One audited /code action (ADR 0090): who did what, where, never content. */

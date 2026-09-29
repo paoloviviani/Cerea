@@ -286,4 +286,131 @@ describe("consumeAgentUpdates", () => {
 			).resolves.toBeUndefined();
 		});
 	});
+
+	describe("a message another session wrote", () => {
+		it("stamps sentBy on the user message, and only on that one", async () => {
+			const sentBy = { sessionId: "ses_a", title: "Docs agent", hop: 1 };
+			const messages = await run([
+				{ type: "messageBoundary", role: "user", messageId: "u1", sentBy },
+				user("please review"),
+				running(),
+				token("On it."),
+				done(),
+				{ type: "messageBoundary", role: "user", messageId: "u2" },
+				user("thanks"),
+			]);
+			expect(messages[0]).toMatchObject({ from: "user", sentBy, machineMessageId: "u1" });
+			expect(messages[2]).toMatchObject({ from: "user", content: "thanks" });
+			expect(messages[2].sentBy).toBeUndefined();
+		});
+
+		it("survives opencode re-announcing an earlier message before the text arrives", async () => {
+			const sentBy = { sessionId: "ses_a", title: "Docs agent", hop: 2 };
+			const messages = await run([
+				{ type: "messageBoundary", role: "user", messageId: "u1" },
+				user("first"),
+				running(),
+				{ type: "messageBoundary", role: "user", messageId: "u2", sentBy },
+				{ type: "messageBoundary", role: "user", messageId: "u1" },
+				user("from the other agent"),
+				done(),
+			]);
+			const sent = messages.find((m) => m.content === "from the other agent");
+			expect(sent).toMatchObject({ sentBy, machineMessageId: "u2" });
+		});
+	});
+
+	describe("the mid-turn fold (a steer)", () => {
+		const boundary = (role: "user" | "assistant", messageId: string): AgentStreamUpdate => ({
+			type: "messageBoundary",
+			role,
+			messageId,
+		});
+		const lastState = (message: Message) =>
+			[...(message.updates ?? [])].reverse().find((u) => u.type === "turnState");
+
+		// The order opencode 1.18.32 really emitted (captured from a live
+		// `opencode serve`, big-pickle): user1, busy, assistant A, then a second
+		// prompt sent mid-turn — user2 lands BEFORE A finishes its step, A's
+		// parts keep arriving, and the answer is a NEW assistant message B
+		// (parentID = user2) behind a repeated `busy`, with NO idle in between.
+		// Repeated `message.updated` events re-emit boundaries for ids already
+		// seen (user1 twice, A three times).
+		const captured: AgentStreamUpdate[] = [
+			boundary("user", "u1"),
+			user("count to forty"),
+			running(),
+			boundary("assistant", "A"),
+			boundary("user", "u1"),
+			boundary("user", "u2"),
+			user("also say STEERED"),
+			running(),
+			token("1 2 3 "),
+			boundary("assistant", "A"),
+			boundary("assistant", "A"),
+			running(),
+			boundary("assistant", "B"),
+			token("STEERED"),
+			boundary("assistant", "B"),
+			running(),
+			done(),
+		];
+
+		it("renders the steer inside one continuous turn", async () => {
+			const messages = await run(captured);
+
+			expect(messages.map((m) => [m.from, m.content])).toEqual([
+				["user", "count to forty"],
+				["assistant", "1 2 3 "],
+				["user", "also say STEERED"],
+				["assistant", "STEERED"],
+			]);
+			// The step in flight stayed with its own bubble, not a stray third one.
+			expect(messages[1].machineMessageId).toBe("A");
+			expect(messages[3].machineMessageId).toBe("B");
+			// Settled where the answer took over; the answer carries the turn's end.
+			expect(lastState(messages[1])).toMatchObject({ state: "done" });
+			expect(lastState(messages[3])).toMatchObject({ state: "done" });
+			expect(isConversationGenerationActive(messages)).toBe(false);
+		});
+
+		it("never reads idle across the seam", async () => {
+			// Every prefix of the capture short of its end is a live turn, the
+			// cut between A's settling and B's first token included.
+			for (let cut = 1; cut < captured.length; cut += 1) {
+				const messages = await run(captured.slice(0, cut));
+				if (messages.some((m) => m.from === "assistant")) {
+					expect(isConversationGenerationActive(messages), `cut ${cut}`).toBe(true);
+				}
+			}
+		});
+
+		it("a follow-up whose running frame beats its echo is a new turn, not a steer", async () => {
+			const messages = await run([
+				user("first"),
+				running(),
+				token("one"),
+				done(),
+				// the daemon's live order: turn_started, then the timeline echo
+				running(),
+				user("second"),
+				token("two"),
+				done(),
+			]);
+
+			expect(messages.map((m) => [m.from, m.content])).toEqual([
+				["user", "first"],
+				["assistant", "one"],
+				["user", "second"],
+				["assistant", "two"],
+			]);
+		});
+
+		it("a steer that arrives when the turn is already over stays an ordinary next turn", async () => {
+			const messages = await run([user("a"), running(), token("x"), done(), user("b"), token("y")]);
+
+			expect(messages.map((m) => m.from)).toEqual(["user", "assistant", "user", "assistant"]);
+			expect(lastState(messages[1])).toMatchObject({ state: "done" });
+		});
+	});
 });

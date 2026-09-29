@@ -39,6 +39,13 @@ export interface Backend {
 		/** Tool calls list their images on the part (`attachments`) and
 		 * `session.attachment` serves the bytes (§6/§7). */
 		toolImages?: boolean;
+		/** galopin installed its agent-coordination tools into the backend
+		 * (§6 "Agent tools"): `session_list`/`session_spawn`/`session_send`. */
+		agentTools?: boolean;
+		/** A `session.prompt` sent mid-turn is accepted and folded into the
+		 * running turn (steering) rather than refused. Older machines omit
+		 * it: read as false. */
+		steer?: boolean;
 	};
 }
 
@@ -123,6 +130,10 @@ export interface Session {
 	childSummary?: { children: number; running: number; waiting: number };
 	/** The thinking effort chosen for this session (session.setEffort). */
 	effort?: string;
+	/** A top-level session another session created with `session_spawn`
+	 * (PROTOCOL.md §6/§7): the spawner and its title at that moment. Not a
+	 * tree edge — `parentId` stays null. */
+	spawnedBy?: { sessionId: string; title: string };
 	createdAt: string;
 	updatedAt: string;
 	usage: Usage | null;
@@ -189,6 +200,11 @@ export interface Message {
 	 * produced (PROTOCOL.md §7): the panel renders "/name args" as the
 	 * bubble and folds the expanded template beneath it. Never the expanded
 	 * text itself — that travels as the message's own content. */
+	/** Another session wrote this user message with `session_send`
+	 * (PROTOCOL.md §7): the sender, its title at that moment, and the
+	 * message's hop count (1..3). The bubble is the sender's, not the
+	 * person's. */
+	sentBy?: { sessionId: string; title: string; hop: number };
 	command?: { name: string; arguments: string };
 }
 
@@ -499,6 +515,8 @@ const backendSchema = z.object({
 		autoAccept: z.boolean(),
 		questions: z.boolean(),
 		toolImages: z.boolean().optional(),
+		agentTools: z.boolean().optional(),
+		steer: z.boolean().optional(),
 	}),
 });
 

@@ -68,6 +68,7 @@
 		parentRow,
 		readShowSubagents,
 		subagentRow,
+		spawnedRow,
 		visibleAgents,
 	} from "$lib/utils/codeSubagents";
 	import {
@@ -775,6 +776,11 @@
 													tree?.workspaces ?? []
 												)}
 												{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
+												{@const spawned = spawnedRow(
+													agent,
+													tree?.agents ?? [],
+													tree?.workspaces ?? []
+												)}
 												<div class="group flex items-center gap-1 pr-1">
 													<a
 														href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
@@ -899,6 +905,25 @@
 														</DropdownMenu.Portal>
 													</DropdownMenu.Root>
 												</div>
+												{#if spawned}
+													{#if spawned.workspaceId}
+														<a
+															href="{base}/code?device={device.id}&ws={spawned.workspaceId}&agent={spawned.sessionId}"
+															class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+															data-testid="spawned-from"
+															>↳ from {spawned.title}{spawned.elsewhere
+																? ` · ${spawned.elsewhere}`
+																: ""}</a
+														>
+													{:else}
+														<p
+															class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
+															data-testid="spawned-from"
+														>
+															↳ from {spawned.title}
+														</p>
+													{/if}
+												{/if}
 												{#if sub}
 													{#if sub.parentWorkspaceId}
 														<a

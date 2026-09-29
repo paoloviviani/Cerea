@@ -5,6 +5,7 @@ import { page as browserPage } from "@vitest/browser/context";
 import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { MessageToolUpdate } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
+import { CODE_SESSION_LINKS } from "$lib/utils/codeSessionLinks";
 
 const call = {
 	type: MessageUpdateType.Tool,
@@ -231,5 +232,72 @@ describe("the collapsed card's thumbnail strip", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(strip(view)).toBeNull();
 		expect(view.container.querySelectorAll("img[alt^='Tool result image']")).toHaveLength(4);
+	});
+});
+
+describe("between-session tools in an agent transcript", () => {
+	const links = {
+		href: (id: string) => `/code?device=d1&ws=w1&agent=${id}`,
+		title: (id: string) => (id === "ses_b" ? "Docs agent" : undefined),
+	};
+	const withLinks = (tool: MessageToolUpdate[]) =>
+		renderWithApp(ToolUpdate, { tool }, { context: new Map([[CODE_SESSION_LINKS, links]]) });
+	const tool = (name: string, parameters: Record<string, unknown>, text?: string) =>
+		[
+			{
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Call,
+				uuid: name,
+				call: { name, parameters },
+			},
+			...(text === undefined
+				? []
+				: [
+						{
+							type: MessageUpdateType.Tool,
+							subtype: MessageToolUpdateType.Result,
+							uuid: name,
+							result: {
+								status: ToolResultStatus.Success,
+								call: { name, parameters },
+								outputs: [{ text }],
+								display: true,
+							},
+						},
+					]),
+		] as MessageToolUpdate[];
+
+	it("reads a send as Sent to ‹title›, linked to the target", async () => {
+		const view = withLinks(tool("session_send", { target: "ses_b", text: "hi" }, "{}"));
+		await expect.element(view.getByText("Sent to")).toBeVisible();
+		const link = view.baseElement.querySelector<HTMLAnchorElement>("[data-testid='session-link']");
+		expect(link?.textContent?.trim()).toBe("Docs agent");
+		expect(link?.getAttribute("href")).toBe("/code?device=d1&ws=w1&agent=ses_b");
+	});
+
+	it("reads a spawn as Spawned ‹title›, linked to the child it returned", async () => {
+		const view = withLinks(
+			tool("session_spawn", { title: "Migration review", prompt: "x" }, '{"sessionId":"ses_c"}')
+		);
+		await expect.element(view.getByText("Spawned")).toBeVisible();
+		const link = view.baseElement.querySelector<HTMLAnchorElement>("[data-testid='session-link']");
+		expect(link?.textContent?.trim()).toBe("Migration review");
+		expect(link?.getAttribute("href")).toContain("agent=ses_c");
+	});
+
+	it("does not say a refused spawn happened", async () => {
+		const view = withLinks(
+			tool("session_spawn", { title: "Docs", prompt: "x" }, "The person declined.")
+		);
+		await expect.element(view.getByText("Called tool")).toBeVisible();
+		expect(view.baseElement.querySelector("[data-testid='session-link']")).toBeNull();
+	});
+
+	it("renders as the plain tool card outside an agent view", async () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: tool("session_send", { target: "ses_b", text: "hi" }, "{}"),
+		});
+		await expect.element(view.getByText("Called tool")).toBeVisible();
+		expect(view.baseElement.querySelector("[data-testid='session-link']")).toBeNull();
 	});
 });
