@@ -1072,8 +1072,8 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 			{ text: "took a screenshot" },
 			{
 				content: [
-					{ type: "image", mimeType: "image/png", url: url(shaA) },
-					{ type: "image", mimeType: "image/jpeg", url: url(shaB) },
+					{ type: "image", mimeType: "image/png", url: url(shaA), size: 100 },
+					{ type: "image", mimeType: "image/jpeg", url: url(shaB), size: 200 },
 				],
 			},
 		]);
@@ -1106,7 +1106,10 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		);
 		expect(outputs).toEqual([
 			{ text: "took a screenshot" },
-			{ text: "3 images not shown (too many, too large or not a supported type)." },
+			{
+				text: "3 images not shown (too many, too large or not a supported type).",
+				imagesNotShown: 3,
+			},
 		]);
 	});
 
@@ -1118,6 +1121,7 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		const outputs = resultOutputs(snapshotToUpdates(transcriptWith(part as Part), url));
 		expect(outputs?.[2]).toEqual({
 			text: "1 image not shown (too many, too large or not a supported type).",
+			imagesNotShown: 1,
 		});
 		// No url builder, no images, no note.
 		expect(resultOutputs(snapshotToUpdates(transcriptWith(part as Part)))).toEqual([
@@ -1136,6 +1140,7 @@ describe("tool-output images (PROTOCOL.md §7 attachments)", () => {
 		expect(content).toHaveLength(8);
 		expect(outputs?.[2]).toEqual({
 			text: "12 images not shown (too many, too large or not a supported type).",
+			imagesNotShown: 12,
 		});
 	});
 
@@ -1242,5 +1247,39 @@ describe("todos → the plan update", () => {
 		expect(a2.version).toBe(a1.version + 1);
 		// Another session's revision is untouched by A's traffic.
 		expect(b1.version).toBe(1);
+	});
+});
+
+describe("tool-image size passthrough", () => {
+	it("carries each attachment's size onto its image block, for the strip's load gate", () => {
+		const sha = "a".repeat(64);
+		const updates = eventToUpdates(
+			{
+				kind: "part",
+				part: {
+					id: "p1",
+					messageId: "m1",
+					role: "assistant",
+					type: "tool",
+					callId: "c1",
+					tool: "playwright_screenshot",
+					status: "completed",
+					input: {},
+					output: "ok",
+					attachments: [{ sha256: sha, mime: "image/png", size: 5_000_000 }],
+				},
+			},
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			(s) => `/img/${s}`
+		);
+		const result = updates.find(
+			(u) => u.type === MessageUpdateType.Tool && u.subtype === "result"
+		) as { result: { outputs: Record<string, unknown>[] } } | undefined;
+		expect(result?.result.outputs[1]).toEqual({
+			content: [{ type: "image", mimeType: "image/png", url: `/img/${sha}`, size: 5_000_000 }],
+		});
 	});
 });

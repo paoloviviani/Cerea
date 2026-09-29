@@ -115,7 +115,13 @@ function toolResultUpdate(
 	const images = imageUrl ? usableAttachments(attachments) : [];
 	if (imageUrl && images.length) {
 		outputs.push({
-			content: images.map((a) => ({ type: "image", mimeType: a.mime, url: imageUrl(a.sha256) })),
+			// `size` lets the strip hold a large image back until it is asked for.
+			content: images.map((a) => ({
+				type: "image",
+				mimeType: a.mime,
+				url: imageUrl(a.sha256),
+				size: a.size,
+			})),
 		});
 	}
 	// Say so when images were left out, whether the machine dropped them
@@ -126,6 +132,8 @@ function toolResultUpdate(
 	if (notShown > 0) {
 		outputs.push({
 			text: `${notShown} ${notShown === 1 ? "image" : "images"} not shown (too many, too large or not a supported type).`,
+			// The same count, structured, for the collapsed card's "+N" chip.
+			imagesNotShown: notShown,
 		});
 	}
 	const result: ToolResult = {
