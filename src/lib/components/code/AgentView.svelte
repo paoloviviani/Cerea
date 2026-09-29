@@ -75,6 +75,7 @@
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
+	import TogglePill from "$lib/components/TogglePill.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
@@ -903,51 +904,42 @@
 				<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.provider}</span>
 				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}">{shownState}</span>
 			{/if}
-			<button
-				type="button"
-				class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {sidePane.open &&
-				sidePane.view === 'diff'
-					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-				onclick={() => sidePane.toggleDiff()}
+			<TogglePill
+				compact
+				pressed={sidePane.open && sidePane.view === "diff"}
+				label="Changes"
 				title="Files this agent changed, as diffs"
+				onclick={() => sidePane.toggleDiff()}
 			>
-				<IconDiff class="size-3.5" />
-				Changes
-			</button>
+				{#snippet icon()}<IconDiff class="size-3.5" />{/snippet}
+			</TogglePill>
 			{#if filesOffered && (workspace?.id ?? workspaceId)}
-				<button
-					type="button"
-					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
-					sidePane.view === 'files'
-						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				<TogglePill
+					compact
+					pressed={sidePane.open && sidePane.view === "files"}
+					label="Files"
 					disabled={filesVetoed}
-					onclick={() => sidePane.toggleFiles()}
 					title={filesVetoed
 						? "This machine was enrolled with --no-files: re-enroll without it to browse files here."
 						: "Browse this workspace's files (read-only)"}
+					onclick={() => sidePane.toggleFiles()}
 				>
-					<IconFolder class="size-3.5" />
-					Files
-				</button>
+					{#snippet icon()}<IconFolder class="size-3.5" />{/snippet}
+				</TogglePill>
 			{/if}
 			{#if terminalOffered && (workspace?.id ?? workspaceId)}
-				<button
-					type="button"
-					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
-					sidePane.view === 'terminal'
-						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				<TogglePill
+					compact
+					pressed={sidePane.open && sidePane.view === "terminal"}
+					label="Terminal"
 					disabled={terminalVetoed}
-					onclick={() => sidePane.toggleTerminal()}
 					title={terminalVetoed
 						? "This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here."
 						: "Open a shell on this workspace"}
+					onclick={() => sidePane.toggleTerminal()}
 				>
-					<IconTerminal class="size-3.5" />
-					Terminal
-				</button>
+					{#snippet icon()}<IconTerminal class="size-3.5" />{/snippet}
+				</TogglePill>
 			{/if}
 		</div>
 		{#if handedOffFromTitle}
