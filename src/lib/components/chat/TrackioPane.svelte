@@ -8,7 +8,6 @@
 	import PaneItemNav from "./PaneItemNav.svelte";
 
 	import CarbonChartLine from "~icons/carbon/chart-line";
-	import CarbonCloseLarge from "~icons/carbon/close-large";
 	import CarbonLaunch from "~icons/carbon/launch";
 	import CarbonRenew from "~icons/carbon/renew";
 
@@ -96,53 +95,36 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "trackio" && dashboard}
-	<SidePane label="Training dashboard">
+	<SidePane label="Training dashboard" title="Training dashboard">
+		{#snippet actions()}
+			<PaneItemNav {items} />
+			<span class="min-w-0 truncate font-mono text-xs text-gray-400 dark:text-gray-500">
+				{dashboard.label}
+			</span>
+			<div class="flex flex-none items-center gap-0.5 text-gray-500 dark:text-gray-400">
+				<button
+					type="button"
+					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+					title="Reload the dashboard"
+					onclick={() => (reloadNonce += 1)}
+				>
+					<CarbonRenew />
+				</button>
+				<!-- The URL is allowlisted to *.hf.space at extraction, so this opens
+				     directly instead of going through the external-link confirm the
+				     artifact previews need for model-supplied hrefs. -->
+				<a
+					href={dashboard.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+					title="Open dashboard in a new tab"
+				>
+					<CarbonLaunch />
+				</a>
+			</div>
+		{/snippet}
 		{#snippet children(resizing)}
-			<header
-				class="relative z-10 flex h-12 flex-none items-center gap-2 border-b border-gray-100 px-3 dark:border-gray-800"
-			>
-				<PaneItemNav {items} />
-				<div class="flex min-w-0 flex-1 items-baseline gap-2">
-					<h2 class="flex-none text-sm font-semibold text-gray-800 dark:text-gray-200">
-						Training dashboard
-					</h2>
-					<span class="truncate font-mono text-xs text-gray-400 dark:text-gray-500">
-						{dashboard.label}
-					</span>
-				</div>
-
-				<div class="flex flex-none items-center gap-0.5 text-gray-500 dark:text-gray-400">
-					<button
-						type="button"
-						class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-						title="Reload the dashboard"
-						onclick={() => (reloadNonce += 1)}
-					>
-						<CarbonRenew />
-					</button>
-					<!-- The URL is allowlisted to *.hf.space at extraction, so this opens
-					     directly instead of going through the external-link confirm the
-					     artifact previews need for model-supplied hrefs. -->
-					<a
-						href={dashboard.url}
-						target="_blank"
-						rel="noopener noreferrer"
-						class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-						title="Open dashboard in a new tab"
-					>
-						<CarbonLaunch />
-					</a>
-					<button
-						type="button"
-						class="ml-0.5 btn rounded-md p-1 text-base hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-						title="Close panel (Esc)"
-						onclick={() => sidePane.close()}
-					>
-						<CarbonCloseLarge />
-					</button>
-				</div>
-			</header>
-
 			<div class="relative min-h-0 flex-1 bg-white dark:bg-gray-900">
 				<!-- Sits BEHIND the frame rather than being toggled on a load event.
 				     Trackio serves a bare `<div id="app">` shell, so `load` fires well
