@@ -69,6 +69,12 @@ deployment's search backends, chosen by the gateway from your billing group's
 policy, and is metered to you. The tool only exists when the gateway has
 granted you a search tier, so the pill costs and changes nothing without one.
 
+This is the deployment's own search, not the model's: the gateway runs it on
+a backend your group's policy names, so the same question searches the same
+sources whoever asks it. (The gateway can also meter search that a model
+provider executes itself, when a model offers one — a separate path this
+chat does not send today.)
+
 Whether a new conversation starts with search on follows a chain: the
 conversation's own state, then the project's default (inside a project), then
 your app setting, then off. Nothing done inside a chat writes back to the
