@@ -38,6 +38,12 @@ type Capabilities struct {
 	// ToolImages is listing a tool call's images on its part and serving
 	// their bytes by sha256 (PROTOCOL.md §6 session.attachment).
 	ToolImages bool `json:"toolImages"`
+	// AgentTools says galopin has installed its own agent-coordination tools
+	// (session_list/session_spawn/session_send) into this backend
+	// (PROTOCOL.md §6 "Agent tools"). Steer says a prompt sent while the
+	// session's turn runs is folded into that turn instead of refused.
+	AgentTools bool `json:"agentTools"`
+	Steer      bool `json:"steer"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -46,6 +52,9 @@ type CreateSessionOptions struct {
 	Title   string
 	ModeID  string
 	ModelID string
+	// SpawnedBy marks the new top-level session as one another session
+	// created with session_spawn; the backend persists it.
+	SpawnedBy *SpawnedBy
 }
 
 // Prompt is one session.prompt call's payload (PROTOCOL.md §6).
@@ -58,6 +67,11 @@ type Prompt struct {
 	// sets it — the message is its own synthesis; opencode ignores it, its
 	// marker is derived from the minted messageID instead.
 	Command *MessageCommand
+	// SentBy marks the user message this prompt creates as another
+	// session's session_send; Preface is the text (a synthetic part) that
+	// tells the target's model who wrote it.
+	SentBy  *MessageSender
+	Preface string
 }
 
 // Backend is what internal/sessions drives per coding-agent backend: create
@@ -166,4 +180,42 @@ type Asker interface {
 // ErrAttachmentUnknown.
 type AttachmentSource interface {
 	Attachment(ctx context.Context, workspaceDir, sessionID, sha256 string) (mime string, data []byte, err error)
+}
+
+// ToolCall is one call of a galopin-installed tool (PROTOCOL.md §6 "Agent
+// tools"), as the backend's tool shim relays it: the tool's name, the
+// calling session and its call/message ids, and the model's raw arguments.
+type ToolCall struct {
+	Tool      string
+	SessionID string
+	CallID    string
+	MessageID string
+	Args      []byte
+}
+
+// ToolRefusal is a handler error the model should read as the tool's
+// answer (a gate said no, the person declined): reported as a tool error
+// with exactly this text. Any other handler error is an internal failure,
+// reported generically.
+type ToolRefusal struct{ Message string }
+
+func (e *ToolRefusal) Error() string { return e.Message }
+
+// ToolHandler answers a tool call; the text is the tool's result. It may
+// block (an approval), and ctx is cancelled when the call is aborted.
+type ToolHandler func(ctx context.Context, call ToolCall) (string, error)
+
+// ToolHost is the optional "agentTools" capability: a backend that installed
+// galopin's tools, relays their calls to a handler, and holds galopin's own
+// approvals (never opencode's permission system).
+type ToolHost interface {
+	// SetToolHandler installs the handler; calls before it is set are refused.
+	SetToolHandler(h ToolHandler)
+	// Ask raises galopin's own permission request for a held tool call and
+	// blocks until a person answers it through ReplyPermission (or ctx is
+	// cancelled, which withdraws it). The request is never auto-accepted.
+	Ask(ctx context.Context, workspaceDir, sessionID string, req PermissionRequest) (Decision, string, error)
+	// SpawnMarks is every session_spawn marker the backend remembers, by
+	// child session id (a copy).
+	SpawnMarks() map[string]SpawnedBy
 }

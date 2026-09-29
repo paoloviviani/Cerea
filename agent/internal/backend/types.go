@@ -37,6 +37,9 @@ type Session struct {
 	// Effort is the thinking effort chosen for this session (session.setEffort),
 	// empty for the model's default.
 	Effort string `json:"effort,omitempty"`
+	// SpawnedBy names the session that created this top-level session with
+	// session_spawn (PROTOCOL.md §7): not a tree edge, ParentID stays empty.
+	SpawnedBy *SpawnedBy `json:"spawnedBy,omitempty"`
 	// ChildSummary counts a session's subagents, for a parent row in a list:
 	// nil for a session that spawned none.
 	ChildSummary *ChildSummary `json:"childSummary,omitempty"`
@@ -76,6 +79,24 @@ type Message struct {
 	// the bubble, the expanded template folds below it. opencode derives it
 	// from the minted messageID; ACP sets it on the message it synthesizes.
 	Command *MessageCommand `json:"command,omitempty"`
+	// SentBy marks a user message another session wrote with session_send
+	// (PROTOCOL.md §7); the backend remembers it against the message id.
+	SentBy *MessageSender `json:"sentBy,omitempty"`
+}
+
+// SpawnedBy is the spawner of a session_spawn session: its id and its title
+// when it spawned.
+type SpawnedBy struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"`
+}
+
+// MessageSender is the origin of a session_send message: the sender's id and
+// title, and the message's hop count (1..3).
+type MessageSender struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"`
+	Hop       int    `json:"hop"`
 }
 
 // PartType discriminates Part's per-type fields (PROTOCOL.md §7).

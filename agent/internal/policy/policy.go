@@ -56,6 +56,14 @@ type Policy struct {
 	// until an owner explicitly opts in. A local `galopin policy set` can
 	// only turn it off.
 	CommandShell string `json:"commandShell,omitempty"`
+	// AgentTools gates galopin's own agent-coordination tools
+	// (session_list/session_spawn/session_send, PROTOCOL.md §6 "Agent
+	// tools"): "allowed" (the default) or "denied" (`enroll --no-agent-tools`,
+	// `policy set --no-agent-tools`). Allowed adds nothing without a
+	// per-call approval that auto-accept cannot reach, so it is on by
+	// default; denied installs no tool at all. A local `galopin policy set`
+	// can only turn it off.
+	AgentTools string `json:"agentTools,omitempty"`
 }
 
 // FilesRead and FilesOff are Policy.Files's two values.
@@ -97,6 +105,10 @@ func (p Policy) TerminalAllowed() bool { return p.Terminal == TerminalAllowed }
 // `enroll --allow-command-shell`.
 func (p Policy) CommandShellAllowed() bool { return p.CommandShell == TerminalAllowed }
 
+// AgentToolsAllowed reports whether galopin installs its agent-coordination
+// tools. Default allowed: an owner opts out with `enroll --no-agent-tools`.
+func (p Policy) AgentToolsAllowed() bool { return p.AgentTools != TerminalDenied }
+
 // EffectiveMaxTerminals is p.MaxTerminals, or DefaultMaxTerminals when unset.
 func (p Policy) EffectiveMaxTerminals() int {
 	if p.MaxTerminals <= 0 {
@@ -130,6 +142,7 @@ func Default() Policy {
 		Files:           FilesRead,
 		Terminal:        TerminalDenied,
 		CommandShell:    TerminalDenied,
+		AgentTools:      TerminalAllowed,
 	}
 }
 
@@ -159,6 +172,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.CommandShell == "" {
 		p.CommandShell = TerminalDenied
+	}
+	if p.AgentTools == "" {
+		p.AgentTools = TerminalAllowed
 	}
 	return p, nil
 }

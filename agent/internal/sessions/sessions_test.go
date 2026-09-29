@@ -575,3 +575,24 @@ func TestResyncReannouncesToolPartsFromTheTranscript(t *testing.T) {
 		t.Fatal("resync created an unknown session")
 	}
 }
+
+// A galopin approval is never auto-accepted, by its own marker and id, not by
+// the tool's name (the handoff substring rule does not match session_spawn).
+func TestNeverAutoAcceptGalopinApprovals(t *testing.T) {
+	cases := []struct {
+		name string
+		req  backend.PermissionRequest
+		want bool
+	}{
+		{"handoff by name", backend.PermissionRequest{ID: "per_1", Tool: "agent_handoff"}, true},
+		{"galopin marker under another name", backend.PermissionRequest{ID: "x", Tool: "anything", Metadata: map[string]any{"galopin": true}}, true},
+		{"galopin id prefix", backend.PermissionRequest{ID: "gp_abc", Tool: "session_spawn"}, true},
+		{"an ordinary ask", backend.PermissionRequest{ID: "per_2", Tool: "bash"}, false},
+		{"marker false", backend.PermissionRequest{ID: "per_3", Tool: "bash", Metadata: map[string]any{"galopin": false}}, false},
+	}
+	for _, c := range cases {
+		if got := neverAutoAccept(&c.req); got != c.want {
+			t.Errorf("%s: neverAutoAccept = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
