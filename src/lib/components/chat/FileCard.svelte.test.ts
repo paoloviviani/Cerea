@@ -93,6 +93,63 @@ describe("FileCard", () => {
 	});
 });
 
+describe("FileCard autoExpand (the chat figure capture)", () => {
+	const pngBytes = () =>
+		new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer as ArrayBuffer;
+
+	it("opens a raster image without waiting for the Preview click", async () => {
+		sessionMock.readFile.mockResolvedValueOnce(pngBytes());
+		const screen = render(FileCard, {
+			file: { path: "/home/pyodide/figure-1.png", size: 1234 },
+			autoExpand: true,
+		});
+		// The card header stays above the image.
+		await expect.element(screen.getByText("figure-1.png")).toBeVisible();
+		await expect
+			.element(screen.getByRole("img", { name: "Preview of figure-1.png" }))
+			.toBeVisible();
+		await vi.waitFor(() =>
+			expect(sessionMock.readFile).toHaveBeenCalledWith("/home/pyodide/figure-1.png")
+		);
+	});
+
+	it("leaves a raster image closed without the flag", async () => {
+		const screen = render(FileCard, { file: { path: "/home/pyodide/figure-1.png", size: 1234 } });
+		await expect.element(screen.getByText("figure-1.png")).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.baseElement.querySelector("img")).toBeNull();
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+		// The manual preview still works as before.
+		await expect
+			.element(screen.getByRole("button", { name: "Preview figure-1.png" }))
+			.toBeVisible();
+	});
+
+	it("never expands an SVG, however the flag is set", async () => {
+		const screen = render(FileCard, {
+			file: { path: "/home/pyodide/fig.svg", size: 100 },
+			autoExpand: true,
+		});
+		await expect.element(screen.getByText("fig.svg")).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.baseElement.querySelector("img")).toBeNull();
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+		// An SVG stays a file card: the manual preview is still offered.
+		await expect.element(screen.getByRole("button", { name: "Preview fig.svg" })).toBeVisible();
+	});
+
+	it("never expands text, however the flag is set", async () => {
+		const screen = render(FileCard, {
+			file: { path: "/home/pyodide/notes.txt", size: 25 },
+			autoExpand: true,
+		});
+		await expect.element(screen.getByText("notes.txt")).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.baseElement.querySelector("pre")).toBeNull();
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+	});
+});
+
 describe("FileCard direct-emission mode (inline bytes)", () => {
 	/**
 	 * The inline mode backs titled file blocks: the bytes are the message's

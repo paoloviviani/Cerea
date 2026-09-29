@@ -179,3 +179,112 @@ describe("FileArtifactCard", () => {
 		}
 	});
 });
+
+describe("FileArtifactCard autoExpand (the chat figure capture)", () => {
+	const FIG_SHA = "f".repeat(64);
+	const SVG_SHA = "e".repeat(64);
+	const pngBytes = () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer;
+
+	const figureRegistry: FileArtifactRegistry = {
+		artifacts: new Map([
+			[
+				"figure-1.png",
+				{
+					name: "figure-1.png",
+					versions: [
+						{ name: "figure-1.png", size: 8, sha256: FIG_SHA, version: 1, messageId: "m1" },
+					],
+				},
+			],
+			[
+				"fig.svg",
+				{
+					name: "fig.svg",
+					versions: [{ name: "fig.svg", size: 8, sha256: SVG_SHA, version: 1, messageId: "m1" }],
+				},
+			],
+		]),
+	};
+
+	it("forwards the flag to the fallback FileCard for an unresolved file", async () => {
+		sessionMock.readFile.mockResolvedValueOnce(pngBytes() as ArrayBuffer);
+		const screen = mountCard(
+			{ file: { path: "/home/pyodide/figure-1.png", size: 8 }, autoExpand: true },
+			figureRegistry
+		);
+		await expect
+			.element(screen.getByRole("img", { name: "Preview of figure-1.png" }))
+			.toBeVisible();
+	});
+
+	it("shows a resolved raster artifact as an image under its header", async () => {
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(pngBytes()))
+		);
+		try {
+			const screen = mountCard(
+				{
+					file: { path: "figure-1.png", size: 8 },
+					sha256: FIG_SHA,
+					downloadUrl: "/conversation/c/code-execution/output/x",
+					autoExpand: true,
+				},
+				figureRegistry
+			);
+			// The artifact header is above the image.
+			await expect.element(screen.getByText("figure-1.png")).toBeVisible();
+			await expect
+				.element(screen.getByRole("img", { name: "Preview of figure-1.png" }))
+				.toBeVisible();
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
+
+	it("leaves a resolved raster artifact image-free without the flag", async () => {
+		const fetch = vi.fn(async () => new Response(pngBytes()));
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal("fetch", fetch);
+		try {
+			const screen = mountCard(
+				{
+					file: { path: "figure-1.png", size: 8 },
+					sha256: FIG_SHA,
+					downloadUrl: "/conversation/c/code-execution/output/x",
+				},
+				figureRegistry
+			);
+			await expect.element(screen.getByText("figure-1.png")).toBeVisible();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(screen.baseElement.querySelector("img")).toBeNull();
+			expect(fetch).not.toHaveBeenCalled();
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
+
+	it("never renders an SVG artifact inline, however the flag is set", async () => {
+		const fetch = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]).buffer));
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal("fetch", fetch);
+		try {
+			const screen = mountCard(
+				{
+					file: { path: "fig.svg", size: 3 },
+					sha256: SVG_SHA,
+					downloadUrl: "/conversation/c/code-execution/output/y",
+					autoExpand: true,
+				},
+				figureRegistry
+			);
+			await expect.element(screen.getByText("fig.svg")).toBeVisible();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(screen.baseElement.querySelector("img")).toBeNull();
+			expect(fetch).not.toHaveBeenCalled();
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
+});
