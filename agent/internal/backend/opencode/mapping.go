@@ -365,5 +365,6 @@ func (b *Backend) withUsage(s backend.Session) backend.Session {
 	b.usageMu.Lock()
 	s.Usage = b.sessionUsage[s.ID]
 	b.usageMu.Unlock()
+	s.SpawnedBy = b.spawnedByFor(s.ID)
 	return s
 }
