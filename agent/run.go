@@ -345,6 +345,8 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, logf f
 			// extracts native libraries there each start and never cleans up.
 			TmpDir:   filepath.Join(stateDir, "opencode-tmp"),
 			StateDir: stateDir,
+			// galopin's own agent-coordination tools (session_list/spawn/send).
+			ToolsDir: filepath.Join(stateDir, "opencode-tools"),
 			Logf:     func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
