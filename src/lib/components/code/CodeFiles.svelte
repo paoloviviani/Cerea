@@ -3,8 +3,10 @@
 	served by galopin from inside the workspace directory. A tree with git
 	badges; picking a file opens it in place (a back link returns to the
 	tree), as text in a read-only CodeMirror view with "Load more" past
-	1 MiB, as an image, or as a note for binaries. Refreshed by hand and at
-	every turn boundary, when an agent may have written.
+	1 MiB, as a raster image (SVG stays a text view; anything over the
+	8 MB image cap gets a message, not a viewer), or as a note for
+	binaries. Refreshed by hand and at every turn boundary, when an agent
+	may have written.
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
@@ -13,9 +15,15 @@
 	import IconLocked from "~icons/carbon/locked";
 	import CodeFileTree from "./CodeFileTree.svelte";
 	import CodeFileViewer from "./CodeFileViewer.svelte";
-	import { readWorkspaceFile, workspaceFileRawUrl, workspaceFileStatus } from "$lib/codeApi";
+	import {
+		CodeApiError,
+		readWorkspaceFile,
+		workspaceFileRawUrl,
+		workspaceFileStatus,
+	} from "$lib/codeApi";
 	import type { FileEntry, FilesReadResult } from "$lib/types/machineProtocol";
 	import { gitBadges, humanSize, type GitBadge } from "$lib/utils/codeFiles";
+	import { isInlineRasterMime } from "$lib/utils/filePreview";
 
 	interface Props {
 		deviceId: string;
@@ -59,10 +67,23 @@
 			text += res.content ?? "";
 			file = res;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read this file.";
+			failure = failureMessage(err);
 		} finally {
 			loading = false;
 		}
+	}
+
+	/**
+	 * What a failed read tells the person. An image past galopin's 8 MB cap
+	 * answers `too_large` (413): the raw route serves from the same read, so
+	 * no download link could succeed either — the message says the limit
+	 * instead of showing the wire error.
+	 */
+	function failureMessage(err: unknown): string {
+		if (err instanceof CodeApiError && err.status === 413) {
+			return "This file is too large to show here. The explorer shows images up to 8 MB.";
+		}
+		return err instanceof Error ? err.message : "Could not read this file.";
 	}
 
 	function select(entry: FileEntry) {
@@ -144,7 +165,10 @@
 				<p class="p-4 text-sm text-red-600 dark:text-red-400">{failure}</p>
 			{:else if !file}
 				<p class="p-4 text-sm text-gray-400">Loading…</p>
-			{:else if file.kind === "image"}
+			{:else if file.kind === "image" && isInlineRasterMime(file.mime)}
+				<!-- Raster only: an SVG never takes this branch (it reads as
+				     text), and the raw route 415s anything non-raster — this
+				     MIME check is the Cerea-side backstop. -->
 				<div class="flex justify-center p-4">
 					<img
 						src={workspaceFileRawUrl(deviceId, workspaceId, open.path)}

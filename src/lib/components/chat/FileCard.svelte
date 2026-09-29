@@ -57,7 +57,7 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy } from "svelte";
+	import { onDestroy, untrack } from "svelte";
 	import DOMPurify from "isomorphic-dompurify";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
@@ -71,6 +71,7 @@
 		filePreviewKindFor,
 		filePreviewMimeType,
 		formatFileSize,
+		isInlineRasterImage,
 	} from "$lib/utils/filePreview";
 	import {
 		CODE_CARD_SURFACE,
@@ -117,9 +118,16 @@
 		 * preview (which runs Python in the sandbox) is not offered here.
 		 */
 		downloadUrl?: string;
+		/**
+		 * Open a raster image preview without waiting for the Preview click
+		 * (the chat figure capture: a matplotlib figure shows as an image
+		 * under the card header). Raster png/jpeg/gif/webp only — every
+		 * other type, SVG included, ignores the flag and behaves as before.
+		 */
+		autoExpand?: boolean;
 	}
 
-	let { file, inlineContent, downloadUrl }: Props = $props();
+	let { file, inlineContent, downloadUrl, autoExpand = false }: Props = $props();
 
 	const name = $derived(file.path.split("/").pop() || "download");
 	const extension = $derived(fileExtensionOf(name));
@@ -359,6 +367,23 @@
 			previewBusy = false;
 		}
 	}
+
+	/**
+	 * The auto-expand rule, evaluated once per card: a raster image opens its
+	 * preview on mount; an SVG-named file never does, however the flag is set.
+	 */
+	const expandsUnasked = $derived(
+		autoExpand && previewKind === "image" && isInlineRasterImage(name)
+	);
+	let autoExpandDone = false;
+	$effect(() => {
+		if (expandsUnasked && !autoExpandDone) {
+			autoExpandDone = true;
+			// Untracked: opening reads and writes the preview state, which
+			// must not re-run this effect.
+			untrack(() => void togglePreview());
+		}
+	});
 </script>
 
 <li class={CODE_CARD_SURFACE + " @container list-none px-2 py-1.5 text-xs"}>

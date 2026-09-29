@@ -305,4 +305,108 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 		},
 		{ timeout: 180_000 }
 	);
+	it(
+		"captures matplotlib figures as figure-<n>.png: Agg backend, show() saves and closes, end-of-run sweep, 20-figure cap",
+		async () => {
+			gateProcessFetch();
+			const scope = makeScope();
+			const runCode = async (id: number) =>
+				(await until(scope, (m) => m.type === "result" && m.id === id)) as Extract<
+					WorkerToHost,
+					{ type: "result" }
+				>;
+			const list = async (id: number) => {
+				send(scope, { type: "listFiles", id });
+				const listed = (await until(
+					scope,
+					(m) => m.type === "filesListed" && m.id === id
+				)) as Extract<WorkerToHost, { type: "filesListed" }>;
+				return listed.files.map((f) => f.path.split("/").pop()).sort();
+			};
+
+			// show() saves what is open and closes it; a figure left open is
+			// swept when the run ends; the backend is Agg.
+			send(scope, {
+				type: "run",
+				id: 1,
+				code: [
+					"import matplotlib",
+					"import matplotlib.pyplot as plt",
+					"print('backend', matplotlib.get_backend())",
+					"plt.plot([1, 2, 3]); plt.show()",
+					"print('open after show', len(plt.get_fignums()))",
+					"plt.plot([3, 2, 1]); plt.show()",
+					"plt.plot([2, 2, 2])",
+				].join("\n"),
+			});
+			const first = await runCode(1);
+			expect(first.error).toBeUndefined();
+			expect(first.ok).toBe(true);
+			expect(first.stdout).toContain("backend Agg");
+			expect(first.stdout).toContain("open after show 0");
+			expect(await list(2)).toEqual(["figure-1.png", "figure-2.png", "figure-3.png"]);
+
+			send(scope, { type: "readFile", id: 3, path: "/home/pyodide/figure-1.png" });
+			const png = (await until(scope, (m) => m.type === "fileData" && m.id === 3)) as Extract<
+				WorkerToHost,
+				{ type: "fileData" }
+			>;
+			expect([...new Uint8Array(png.data ?? new ArrayBuffer(0)).slice(0, 4)]).toEqual([
+				0x89, 0x50, 0x4e, 0x47,
+			]);
+
+			// Numbering restarts each run (stable names). A run that draws
+			// nothing lists nothing, but the last run's figure is still on
+			// disk for code that wants it again.
+			send(scope, { type: "run", id: 4, code: "import matplotlib.pyplot as plt\nplt.plot([1])" });
+			expect((await runCode(4)).ok).toBe(true);
+			expect(await list(5)).toEqual(["figure-1.png"]);
+			send(scope, {
+				type: "run",
+				id: 6,
+				code: "import os\nprint('kept', os.path.exists('figure-1.png'))",
+			});
+			const quiet = await runCode(6);
+			expect(quiet.stdout).toContain("kept True");
+			expect(await list(7)).toEqual([]);
+
+			// A figure the code saved itself is its own card, not a second one
+			// from the sweep — with or without a close() or show() after it.
+			send(scope, {
+				type: "run",
+				id: 12,
+				code: [
+					"import matplotlib.pyplot as plt",
+					"plt.plot([1]); plt.savefig('chart.png')",
+					"plt.figure(); plt.plot([2]); plt.savefig('other.png'); plt.show()",
+				].join("\n"),
+			});
+			expect((await runCode(12)).ok).toBe(true);
+			expect(await list(13)).toEqual(["chart.png", "other.png"]);
+
+			// A run that fails after drawing still keeps its figure.
+			send(scope, {
+				type: "run",
+				id: 8,
+				code: "import matplotlib.pyplot as plt\nplt.plot([1])\nraise ValueError('boom')",
+			});
+			expect((await runCode(8)).ok).toBe(false);
+			expect(await list(9)).toEqual(["figure-1.png"]);
+
+			// A loop drawing 25 figures keeps 20 and says so.
+			send(scope, {
+				type: "run",
+				id: 10,
+				code: "import matplotlib.pyplot as plt\nfor i in range(25):\n    plt.figure(); plt.plot([i])\n    plt.show()",
+			});
+			const capped = await runCode(10);
+			expect(capped.ok).toBe(true);
+			expect(capped.stderr).toContain("first 20 figures");
+			const names = await list(11);
+			expect(names).toHaveLength(20);
+			expect(names).toContain("figure-20.png");
+			expect(names).not.toContain("figure-21.png");
+		},
+		{ timeout: 240_000 }
+	);
 });

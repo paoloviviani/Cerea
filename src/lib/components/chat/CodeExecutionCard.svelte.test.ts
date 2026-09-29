@@ -103,4 +103,45 @@ describe("CodeExecutionCard file presentation (replay)", () => {
 		// The fallback is the FileCard itself, preview included.
 		await expect.element(screen.getByRole("button", { name: "Preview report.docx" })).toBeVisible();
 	});
+
+	it("opens a replayed raster figure as an image under its artifact header", async () => {
+		const FIG_SHA = "f".repeat(64);
+		const figureRegistry: FileArtifactRegistry = {
+			artifacts: new Map([
+				[
+					"figure-1.png",
+					{
+						name: "figure-1.png",
+						versions: [
+							{ name: "figure-1.png", size: 8, sha256: FIG_SHA, version: 1, messageId: "m1" },
+						],
+					},
+				],
+			]),
+		};
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer))
+		);
+		try {
+			const screen = render(CodeExecutionCard, {
+				props: {
+					conversationId: "conv-1",
+					request,
+					resolved: {
+						...resolvedWith(FIG_SHA),
+						files: [{ name: "figure-1.png", size: 8, sha256: FIG_SHA }],
+					},
+				},
+				context: context(figureRegistry),
+			} as never);
+			await expect.element(screen.getByText("figure-1.png")).toBeVisible();
+			await expect
+				.element(screen.getByRole("img", { name: "Preview of figure-1.png" }))
+				.toBeVisible();
+		} finally {
+			vi.stubGlobal("fetch", realFetch);
+		}
+	});
 });

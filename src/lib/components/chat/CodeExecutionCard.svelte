@@ -234,7 +234,7 @@
 			<ul class="space-y-1 border-t border-blue-200/70 px-3 py-2 dark:border-blue-800/60">
 				{#if outputFiles.length > 0}
 					{#each outputFiles as file (file.path)}
-						<FileArtifactCard {file} />
+						<FileArtifactCard {file} autoExpand />
 					{/each}
 				{:else}
 					{#each persistedFiles as file (file.downloadUrl)}
@@ -242,6 +242,7 @@
 							file={{ path: file.name, size: file.size }}
 							downloadUrl={file.downloadUrl}
 							sha256={file.sha256}
+							autoExpand
 						/>
 					{/each}
 				{/if}

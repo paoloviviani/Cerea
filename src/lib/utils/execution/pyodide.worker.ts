@@ -17,6 +17,7 @@ import {
 } from "./protocol";
 import { installNetworkGate, type NetworkGateController } from "./gate";
 import { autoInstallImports } from "./autoInstallImports";
+import { FIGURES_SETUP_SOURCE, mentionsMatplotlib } from "./figures";
 
 /**
  * The one Pyodide runtime. Runs inside a dedicated module worker so runaway
@@ -77,6 +78,10 @@ export function bootstrapWorker(
 	// (after a timeout kill or a crash) starts with an empty set, correctly:
 	// its interpreter has nothing installed either.
 	const installedVendoredPackages = new Set<string>();
+
+	// When the current run began (ms). The listing reports files written since
+	// then, so an earlier run's output is not offered again under this one.
+	let runStartedAt = 0;
 
 	function post(message: WorkerToHost, transfer?: Transferable[]): void {
 		scope.postMessage(message, transfer ?? []);
@@ -272,14 +277,53 @@ export function bootstrapWorker(
 		);
 	}
 
+	/**
+	 * Figure capture (see ./figures). Best effort: a failure here must never
+	 * fail a run, whose own outcome is what the person asked for.
+	 */
+	function figures(py: PyodideAPI, step: "begin" | "sweep", code = ""): void {
+		try {
+			if (step === "begin") {
+				const scratch = py.toPy({});
+				try {
+					py.runPython(FIGURES_SETUP_SOURCE, { globals: scratch });
+				} finally {
+					scratch.destroy();
+				}
+			}
+			const module = py.pyimport("_cerea_figures") as unknown as {
+				begin(importMatplotlib: boolean): void;
+				sweep(): void;
+				destroy(): void;
+			};
+			try {
+				if (step === "begin") module.begin(mentionsMatplotlib(code));
+				else module.sweep();
+			} finally {
+				module.destroy();
+			}
+		} catch {
+			// Nothing to salvage: the run goes ahead without figure capture.
+		}
+	}
+
 	async function run(id: number, code: string): Promise<void> {
+		runStartedAt = Date.now();
 		stdoutBuffer = [];
 		stderrBuffer = [];
 		let outcome: RunOutcome;
 		try {
 			const py = await getPyodide();
 			await autoInstall(py, code);
-			const result = await py.runPythonAsync(code);
+			figures(py, "begin", code);
+			let result: unknown;
+			try {
+				result = await py.runPythonAsync(code);
+			} finally {
+				// Also after a failed run: figures drawn before the error are
+				// still the person's output.
+				figures(py, "sweep");
+			}
 			outcome = { ok: true, ...drainBuffers(), result: reprResult(result) };
 		} catch (err) {
 			const message = describeError(err);
@@ -395,15 +439,17 @@ export function bootstrapWorker(
 					const full = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
 					let mode: number | undefined;
 					let size = 0;
+					let changed = true;
 					try {
 						const st = py.FS.stat(full);
 						mode = st.mode;
 						size = st.size;
+						changed = new Date(st.mtime).getTime() >= runStartedAt;
 					} catch {
 						continue;
 					}
 					if (mode !== undefined && py.FS.isDir(mode)) walk(full);
-					else found.push({ path: full, size });
+					else if (changed) found.push({ path: full, size });
 				}
 			};
 			walk(EXECUTION_CWD);
