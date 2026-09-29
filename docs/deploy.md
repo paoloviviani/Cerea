@@ -31,9 +31,9 @@ docker compose up -d
 ```
 
 TLS modes, upgrades, backups, the identity provider and break-glass
-recovery are in cerea-deploy's
-[README](https://github.com/paoloviviani/cerea-deploy#readme), which is the
-runbook and is deliberately not repeated here.
+recovery are in cerea-deploy's README — the runbook, included on this
+site as [The deploy kit](deploy-kit.md) — and are deliberately not repeated
+here.
 
 **Without the deploy kit**, Cerea is still an ordinary containerized app —
 the repository carries a `Dockerfile` and an `entrypoint.sh`, not a compose
