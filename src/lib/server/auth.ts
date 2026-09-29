@@ -385,10 +385,14 @@ export async function getOIDCAuthorizationUrl(
 		 * needs this: sending a stale session through a plain login is a
 		 * no-op at most IdPs (Authelia included) — they see an active SSO
 		 * session and never reprompt, so `auth_time` never moves and the
-		 * person is stuck unable to ever open a terminal. Both `prompt=login`
-		 * (OIDC Core: the AS "MUST attempt to actively re-authenticate") and
-		 * `max_age=0` (equivalent to `prompt=login` under Core's max_age
-		 * language) are sent together for the widest provider compatibility.
+		 * person is stuck unable to ever open a terminal. `prompt=login`
+		 * (OIDC Core: the AS "MUST attempt to actively re-authenticate")
+		 * is sent alone: `max_age=0` must NOT accompany it. Authelia's
+		 * `RequestFormRequiresLogin` returns true for `max_age=0`
+		 * unconditionally (`age == 0 ||`), so every authorization request
+		 * bounces to the password prompt again after a successful login and
+		 * the flow never reaches the callback. `prompt=login` alone is
+		 * satisfied once the login is newer than the request.
 		 */
 		reauth?: boolean;
 	}
@@ -417,7 +421,7 @@ export async function getOIDCAuthorizationUrl(
 		scope: OIDConfig.SCOPES,
 		state: csrfToken,
 		resource: OIDConfig.RESOURCE || undefined,
-		...(params.reauth ? { prompt: "login", max_age: 0 } : {}),
+		...(params.reauth ? { prompt: "login" } : {}),
 	});
 }
 
