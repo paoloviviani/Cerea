@@ -16,7 +16,7 @@ The sidebar has two trees, **Projects** and **Chats**, then a few single
 entries at the foot: **Workspace**, **Settings** and, for administrators,
 **Admin** (the chat's administrator screens). A conversation keeps
 the model it was started with. Projects group conversations that share
-standing context and knowledge; see [Knowledge and projects](rag.md).
+standing context and knowledge; see [Knowledge and projects](knowledge.md).
 
 Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
@@ -116,7 +116,7 @@ into a store that outlives the conversation.
   then the tab is hidden too.
 
 For memory that scales beyond a list, use a knowledge base
-([Knowledge and projects](rag.md)); a project can also keep its own
+([Knowledge and projects](knowledge.md)); a project can also keep its own
 memory.
 
 ## Skills
