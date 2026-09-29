@@ -140,7 +140,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// learned live, resolved per part (PROTOCOL.md §7).
 	let commandMarkers: Map<string, { name: string; arguments: string }>;
 	if ("snapshot" in sync) {
-		initial = snapshotToUpdates(sync.snapshot, imageUrl);
+		initial = snapshotToUpdates(sync.snapshot, imageUrl, sessionId);
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
 		userMessageIds = userMessageIdsOf(sync.snapshot);
 		commandMarkers = commandMarkersOf(sync.snapshot);
@@ -356,7 +356,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							(messageId) => userMessageIds.get(messageId),
 							child,
 							(messageId) => commandMarkers.get(messageId),
-							imageUrl
+							imageUrl,
+							next.sessionId
 						);
 						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;
