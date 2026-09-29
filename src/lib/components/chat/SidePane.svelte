@@ -2,6 +2,7 @@
 	import type { Snippet } from "svelte";
 	import { fade, fly } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
+	import CarbonClose from "~icons/carbon/close";
 
 	import { sidePane, SIDE_PANE_DEFAULT_FRACTION } from "$lib/stores/sidePane.svelte";
 	import { useIsDesktop } from "$lib/utils/isDesktop.svelte";
@@ -20,9 +21,16 @@
 		 * pointer and the drag dies as soon as it crosses into the content.
 		 */
 		children: Snippet<[boolean]>;
+		/**
+		 * Opt-in frame header: a title, the view's `actions`, and the pane's close
+		 * button. Views that draw their own header (the artifact panel, with its
+		 * version and tab controls) leave this unset.
+		 */
+		title?: string;
+		actions?: Snippet;
 	}
 
-	let { label, escapeDisabled = false, children }: Props = $props();
+	let { label, escapeDisabled = false, children, title, actions }: Props = $props();
 
 	/**
 	 * The shared frame every side-pane view sits in: a resizable column beside the
@@ -63,29 +71,61 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#snippet frameHeader(heading: string)}
+	<header
+		class="flex h-11 flex-none items-center gap-2 border-b border-gray-100 px-3 dark:border-gray-800"
+		data-testid="side-pane-header"
+	>
+		<h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{heading}</h2>
+		{@render actions?.()}
+		<button
+			type="button"
+			class="flex size-7 flex-none items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+			aria-label="Close {label}"
+			title="Close (Esc)"
+			onclick={() => sidePane.close()}
+		>
+			<CarbonClose class="size-4" />
+		</button>
+	</header>
+{/snippet}
+
 {#if isDesktop.current}
 	<aside
 		bind:this={asideEl}
-		class="pointer-events-auto relative z-10 flex h-full flex-none flex-col overflow-hidden border-l border-gray-100 bg-white dark:border-gray-800 dark:bg-gray-900"
+		class="pointer-events-auto relative z-10 my-1.5 flex h-[calc(100%-0.75rem)] flex-none flex-col overflow-hidden rounded-l-xl border border-r-0 border-gray-100 bg-linear-to-r from-gray-50 to-white shadow-[-1px_0_12px_-6px_rgba(0,0,0,0.08)] dark:border-transparent dark:from-gray-800/30 dark:to-gray-900 dark:shadow-none"
 		style="width: {sidePane.widthPx !== null
 			? `${sidePane.widthPx}px`
 			: SIDE_PANE_DEFAULT_FRACTION}; min-width: max(20%, 300px); max-width: 80%;"
 		aria-label={label}
 	>
-		<!-- resize handle (drag to resize, double-click to reset) -->
+		<!-- resize handle (drag to resize, double-click to reset): an invisible
+		     hit zone; the grip pill shows on hover and turns blue mid-drag -->
 		<div
 			role="separator"
 			aria-orientation="vertical"
-			class="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-400/40 {resizing
-				? 'bg-blue-400/60'
-				: ''}"
+			class="group absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize transition-colors"
 			onpointerdown={onResizeStart}
 			onpointermove={onResizeMove}
 			onpointerup={onResizeEnd}
 			onpointercancel={onResizeEnd}
 			ondblclick={() => sidePane.resetWidth()}
-		></div>
-		{@render children(resizing)}
+		>
+			<span
+				class="pointer-events-none absolute top-1/2 left-0.5 h-8 w-1 -translate-y-1/2 rounded-full {resizing
+					? 'bg-blue-500/60 opacity-100'
+					: 'bg-gray-300 opacity-0 group-hover:opacity-100 dark:bg-gray-600'}"
+				data-testid="side-pane-grip"
+			></span>
+		</div>
+		{#if title}
+			{@render frameHeader(title)}
+			<div class="flex min-h-0 flex-1 flex-col">
+				{@render children(resizing)}
+			</div>
+		{:else}
+			{@render children(resizing)}
+		{/if}
 	</aside>
 {:else}
 	<!-- Below desktop this is a drawer, and deliberately the *same* drawer the
@@ -118,6 +158,13 @@
 		role="dialog"
 		aria-label={label}
 	>
-		{@render children(false)}
+		{#if title}
+			{@render frameHeader(title)}
+			<div class="flex min-h-0 flex-1 flex-col">
+				{@render children(false)}
+			</div>
+		{:else}
+			{@render children(false)}
+		{/if}
 	</div>
 {/if}
