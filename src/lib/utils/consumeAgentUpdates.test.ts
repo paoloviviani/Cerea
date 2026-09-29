@@ -287,6 +287,39 @@ describe("consumeAgentUpdates", () => {
 		});
 	});
 
+	describe("a message another session wrote", () => {
+		it("stamps sentBy on the user message, and only on that one", async () => {
+			const sentBy = { sessionId: "ses_a", title: "Docs agent", hop: 1 };
+			const messages = await run([
+				{ type: "messageBoundary", role: "user", messageId: "u1", sentBy },
+				user("please review"),
+				running(),
+				token("On it."),
+				done(),
+				{ type: "messageBoundary", role: "user", messageId: "u2" },
+				user("thanks"),
+			]);
+			expect(messages[0]).toMatchObject({ from: "user", sentBy, machineMessageId: "u1" });
+			expect(messages[2]).toMatchObject({ from: "user", content: "thanks" });
+			expect(messages[2].sentBy).toBeUndefined();
+		});
+
+		it("survives opencode re-announcing an earlier message before the text arrives", async () => {
+			const sentBy = { sessionId: "ses_a", title: "Docs agent", hop: 2 };
+			const messages = await run([
+				{ type: "messageBoundary", role: "user", messageId: "u1" },
+				user("first"),
+				running(),
+				{ type: "messageBoundary", role: "user", messageId: "u2", sentBy },
+				{ type: "messageBoundary", role: "user", messageId: "u1" },
+				user("from the other agent"),
+				done(),
+			]);
+			const sent = messages.find((m) => m.content === "from the other agent");
+			expect(sent).toMatchObject({ sentBy, machineMessageId: "u2" });
+		});
+	});
+
 	describe("the mid-turn fold (a steer)", () => {
 		const boundary = (role: "user" | "assistant", messageId: string): AgentStreamUpdate => ({
 			type: "messageBoundary",
