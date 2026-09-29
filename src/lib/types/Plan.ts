@@ -9,6 +9,9 @@ export interface PlanStep {
 	 * before the field existed; consumers fall back to cutting `step`.
 	 */
 	label?: string;
+	/** The coding agent's own priority for the item (its todo tool's
+	 * vocabulary: "high" | "medium" | "low"). Absent on plans from `update_plan`. */
+	priority?: string;
 }
 
 /**

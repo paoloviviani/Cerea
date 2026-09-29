@@ -23,6 +23,7 @@
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
+	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
 	import { goto } from "$app/navigation";
 	import type {
@@ -75,6 +76,7 @@
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
+	import TogglePill from "$lib/components/TogglePill.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
@@ -84,6 +86,9 @@
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
 	import CodeFiles from "./CodeFiles.svelte";
 	import CodeTerminals from "./CodeTerminals.svelte";
+	import CodeTasks from "./CodeTasks.svelte";
+	import { latestPlan, planIsActive, planKey, planProgress } from "$lib/utils/codeTasks";
+	import IconTaskComplete from "~icons/carbon/task-complete";
 	import IconFolder from "~icons/carbon/folder";
 	import IconTerminal from "~icons/carbon/terminal";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
@@ -133,6 +138,8 @@
 	 * the composer asks for is resolved per working directory on the daemon. */
 	let agentCwd = $state<string | null>(null);
 	let workspace = $state<CodeWorkspace | null>(null);
+	/** Below `sm`, where the pane covers the chat and never opens itself. */
+	const narrowViewport = new MediaQuery("(max-width: 639px)");
 	let messages = $state<Message[]>([]);
 	let pending = $state(false);
 	let failure = $state<string | null>(null);
@@ -597,6 +604,22 @@
 		return agent?.state ?? ("idle" as CodeTurnState);
 	});
 
+	// ── Tasks ─────────────────────────────────────────────────────────────
+	//
+	// The viewed session's own list only (a subagent's shows when that child
+	// is opened): the last Plan update in its timeline, which the snapshot
+	// and the live stream both produce.
+	let latestTasks = $derived(latestPlan(messages));
+	let tasksProgress = $derived(planProgress(latestTasks));
+	let sessionBusy = $derived(shownState === "running" || shownState === "waiting-permission");
+	// A list that has just become active opens the pane on its own, once,
+	// on a screen with room for it, and only into an empty slot.
+	$effect(() => {
+		if (!latestTasks || !planIsActive(latestTasks, sessionBusy)) return;
+		const key = planKey(agentId, latestTasks);
+		untrack(() => sidePane.maybeAutoOpenTasks(key, !narrowViewport.current));
+	});
+
 	// ── Subagent tracking ─────────────────────────────────────────────────
 	//
 	// A turn may spawn subagents (the provider's Task tool). The daemon's
@@ -903,51 +926,53 @@
 				<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.provider}</span>
 				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}">{shownState}</span>
 			{/if}
-			<button
-				type="button"
-				class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {sidePane.open &&
-				sidePane.view === 'diff'
-					? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-					: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
-				onclick={() => sidePane.toggleDiff()}
-				title="Files this agent changed, as diffs"
+			<TogglePill
+				compact
+				pressed={sidePane.open && sidePane.view === "tasks"}
+				label={tasksProgress.total > 0
+					? `Tasks ${tasksProgress.done}/${tasksProgress.total}`
+					: "Tasks"}
+				title="The agent's task list"
+				onclick={() => sidePane.toggleTasks()}
 			>
-				<IconDiff class="size-3.5" />
-				Changes
-			</button>
+				{#snippet icon()}<IconTaskComplete class="size-3.5" />{/snippet}
+			</TogglePill>
+			<TogglePill
+				compact
+				pressed={sidePane.open && sidePane.view === "diff"}
+				label="Changes"
+				title="Files this agent changed, as diffs"
+				onclick={() => sidePane.toggleDiff()}
+			>
+				{#snippet icon()}<IconDiff class="size-3.5" />{/snippet}
+			</TogglePill>
 			{#if filesOffered && (workspace?.id ?? workspaceId)}
-				<button
-					type="button"
-					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
-					sidePane.view === 'files'
-						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				<TogglePill
+					compact
+					pressed={sidePane.open && sidePane.view === "files"}
+					label="Files"
 					disabled={filesVetoed}
-					onclick={() => sidePane.toggleFiles()}
 					title={filesVetoed
 						? "This machine was enrolled with --no-files: re-enroll without it to browse files here."
 						: "Browse this workspace's files (read-only)"}
+					onclick={() => sidePane.toggleFiles()}
 				>
-					<IconFolder class="size-3.5" />
-					Files
-				</button>
+					{#snippet icon()}<IconFolder class="size-3.5" />{/snippet}
+				</TogglePill>
 			{/if}
 			{#if terminalOffered && (workspace?.id ?? workspaceId)}
-				<button
-					type="button"
-					class="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:opacity-60 {sidePane.open &&
-					sidePane.view === 'terminal'
-						? 'border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300'
-						: 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}"
+				<TogglePill
+					compact
+					pressed={sidePane.open && sidePane.view === "terminal"}
+					label="Terminal"
 					disabled={terminalVetoed}
-					onclick={() => sidePane.toggleTerminal()}
 					title={terminalVetoed
 						? "This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here."
 						: "Open a shell on this workspace"}
+					onclick={() => sidePane.toggleTerminal()}
 				>
-					<IconTerminal class="size-3.5" />
-					Terminal
-				</button>
+					{#snippet icon()}<IconTerminal class="size-3.5" />{/snippet}
+				</TogglePill>
 			{/if}
 		</div>
 		{#if handedOffFromTitle}
@@ -1050,7 +1075,11 @@
 			{/snippet}
 		</ChatMessageColumn>
 
-		{#if sidePane.open && sidePane.view === "diff"}
+		{#if sidePane.open && sidePane.view === "tasks"}
+			<SidePane label="Tasks">
+				<CodeTasks plan={latestTasks} />
+			</SidePane>
+		{:else if sidePane.open && sidePane.view === "diff"}
 			<SidePane label="Agent changes">
 				<AgentDiff {deviceId} {agentId} />
 			</SidePane>

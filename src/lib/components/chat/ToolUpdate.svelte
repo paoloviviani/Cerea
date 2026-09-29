@@ -14,6 +14,7 @@
 	import LucideTriangleAlert from "~icons/lucide/triangle-alert";
 	import LucideWrench from "~icons/lucide/wrench";
 	import BlockWrapper from "./BlockWrapper.svelte";
+	import ImageLightbox from "./ImageLightbox.svelte";
 
 	interface Props {
 		tool: MessageToolUpdate[];
@@ -51,8 +52,8 @@
 	// machine's arrives as a `url` into the forwarder's attachment route
 	// (PROTOCOL.md §7), so the stream never carries the bytes.
 	type McpImageContent =
-		| { type: "image"; data: string; mimeType: string }
-		| { type: "image"; url: string; mimeType: string };
+		| { type: "image"; data: string; mimeType: string; size?: number }
+		| { type: "image"; url: string; mimeType: string; size?: number };
 
 	const formatValue = (value: unknown): string => {
 		if (value == null) return "";
@@ -100,9 +101,17 @@
 		return blocks.filter(isImageBlock);
 	};
 
+	/** The images this side or the machine left out of a result, as counted by
+	 * the timeline mapping (`imagesNotShown`), for the strip's "+N" chip. */
+	const getImagesNotShown = (output: ToolOutput): number => {
+		const count = output["imagesNotShown"];
+		return typeof count === "number" && count > 0 ? count : 0;
+	};
+
 	const getMetadataEntries = (output: ToolOutput): Array<[string, unknown]> => {
 		return Object.entries(output).filter(
-			([key, value]) => value != null && key !== "content" && key !== "text"
+			([key, value]) =>
+				value != null && key !== "content" && key !== "text" && key !== "imagesNotShown"
 		);
 	};
 
@@ -118,6 +127,55 @@
 			images: getImageBlocks(output),
 			metadata: getMetadataEntries(output),
 		}));
+
+	// ── The collapsed card's thumbnail strip ──────────────────────────────
+	//
+	// Images are the point of some calls (a screenshot, a plot), so a folded
+	// card shows the first few on their own line under the header. The
+	// signal is the images themselves, never the tool's name. The bytes are
+	// the ones the expanded card shows — scaled by CSS, never resized on the
+	// server — so a large image waits for a tap instead of costing mobile
+	// data, and every box is sized before its image arrives so the
+	// transcript does not jump as they load.
+	const STRIP_MAX = 3;
+	/** Past this many bytes an image is not fetched until asked for. */
+	const STRIP_LOAD_GATE_BYTES = 2 * 1024 * 1024;
+
+	const imageKey = (image: McpImageContent): string => ("url" in image ? image.url : image.data);
+	const formatMegabytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+	// One entry per distinct image across the whole card: a browser tool
+	// repeats the same screenshot, and the machine addresses it by its hash.
+	let stripImages = $derived.by(() => {
+		const seen = new Set<string>();
+		const images: McpImageContent[] = [];
+		for (const update of tool) {
+			if (!isMessageToolResultUpdate(update) || update.result.status !== ToolResultStatus.Success)
+				continue;
+			for (const parsed of parseToolOutputs(update.result.outputs)) {
+				for (const image of parsed.images) {
+					const key = imageKey(image);
+					if (seen.has(key)) continue;
+					seen.add(key);
+					images.push(image);
+				}
+			}
+		}
+		return images;
+	});
+	let stripNotShown = $derived(
+		tool.reduce(
+			(total, update) =>
+				isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Success
+					? total + update.result.outputs.reduce((sum, out) => sum + getImagesNotShown(out), 0)
+					: total,
+			0
+		)
+	);
+	let stripMore = $derived(Math.max(0, stripImages.length - STRIP_MAX) + stripNotShown);
+	let stripVisible = $derived(stripImages.slice(0, STRIP_MAX));
+	let stripLoaded = $state<Set<string>>(new Set());
+	let lightboxSrc = $state<string | null>(null);
 </script>
 
 {#if toolFnName}
@@ -178,6 +236,55 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if !isOpen && (stripImages.length > 0 || stripNotShown > 0)}
+			<!-- Its own line under the header, which stays one line on a narrow
+			     screen. Every box is size-12 whether or not its image has loaded
+			     (or is waiting for a tap), so nothing moves when one does. -->
+			<div class="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="tool-image-strip">
+				{#each stripVisible as image, index (imageKey(image))}
+					{@const key = imageKey(image)}
+					{@const label = `Tool result image ${index + 1} of ${stripImages.length}`}
+					{#if typeof image.size === "number" && image.size > STRIP_LOAD_GATE_BYTES && !stripLoaded.has(key)}
+						<button
+							type="button"
+							class="flex h-12 items-center rounded-md border border-gray-200 bg-gray-50 px-2 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+							data-testid="tool-image-gated"
+							onclick={() => (stripLoaded = new Set(stripLoaded).add(key))}
+						>
+							image · {formatMegabytes(image.size)} — tap to load
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="size-12 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800"
+							aria-label={`View ${label.toLowerCase()}`}
+							onclick={() => (lightboxSrc = imageSrc(image))}
+						>
+							<img
+								alt={label}
+								class="size-full object-cover"
+								loading="lazy"
+								decoding="async"
+								src={imageSrc(image)}
+							/>
+						</button>
+					{/if}
+				{/each}
+				{#if stripMore > 0}
+					<button
+						type="button"
+						class="flex h-12 min-w-12 items-center justify-center rounded-md bg-gray-100 px-2 text-xs font-medium text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+						title={`${stripMore} more ${stripMore === 1 ? "image" : "images"}`}
+						aria-label={`${stripMore} more ${stripMore === 1 ? "image" : "images"} — expand`}
+						data-testid="tool-image-more"
+						onclick={() => (isOpen = true)}
+					>
+						+{stripMore}
+					</button>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Expandable content -->
 		{#if isOpen}
@@ -248,4 +355,8 @@
 			</div>
 		{/if}
 	</BlockWrapper>
+{/if}
+
+{#if lightboxSrc}
+	<ImageLightbox src={lightboxSrc} onclose={() => (lightboxSrc = null)} />
 {/if}
