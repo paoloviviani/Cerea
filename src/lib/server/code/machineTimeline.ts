@@ -343,6 +343,7 @@ function todoToUpdate(todos: Todo[], sessionId = ""): MessagePlanUpdate {
 						: todo.status === "cancelled"
 							? "skipped"
 							: "pending",
+			...(todo.priority ? { priority: todo.priority } : {}),
 		})),
 	};
 }

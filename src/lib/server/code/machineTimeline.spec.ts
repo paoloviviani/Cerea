@@ -1193,6 +1193,21 @@ describe("todos → the plan update", () => {
 		]);
 	});
 
+	it("carries the todo's priority onto its step, and only when it has one", () => {
+		const plan = planOf(
+			eventToUpdates(
+				todoEvent([
+					{ id: "1", content: "a", status: "pending", priority: "high" },
+					{ id: "2", content: "b", status: "pending" },
+				])
+			)
+		);
+		expect(plan.steps).toEqual([
+			{ step: "a", status: "pending", priority: "high" },
+			{ step: "b", status: "pending" },
+		]);
+	});
+
 	it("maps a snapshot's cancelled todo the same way the live event does", () => {
 		const transcript: Transcript = {
 			messages: [],
