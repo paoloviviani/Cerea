@@ -33,6 +33,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 			"Content-Type": file.mime || "application/octet-stream",
 			"Content-Security-Policy":
 				"default-src 'none'; script-src 'none'; style-src 'none'; sandbox;",
+			"X-Content-Type-Options": "nosniff",
 			"Content-Disposition": `attachment; filename="${file.name.replace(/[\r\n"]/g, "")}"`,
 			"Content-Length": file.buffer.length.toString(),
 			"Accept-Ranges": "bytes",
