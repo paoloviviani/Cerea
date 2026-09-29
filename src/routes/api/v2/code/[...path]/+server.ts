@@ -713,7 +713,7 @@ const featureSchema = z.object({
 
 const createSchema = z.object({
 	provider: z.string().trim().min(1).max(64).default("opencode"),
-	posture: z.enum(["plan", "write"]).default("plan"),
+	posture: z.enum(["plan", "build"]).default("plan"),
 	modeId: z.string().trim().min(1).max(120).optional(),
 	modelId: z.string().trim().min(1).max(200).optional(),
 	title: z.string().trim().max(120).optional(),
@@ -871,8 +871,8 @@ export const POST: RequestHandler = async (event) => {
 				workspaceId: parsed.data.workspaceId,
 				backend: parsed.data.provider,
 				// A live mode id from the machine's list wins; the posture pair is the
-				// fallback for callers that only know plan/write (opencode's ids).
-				modeId: parsed.data.modeId ?? (parsed.data.posture === "write" ? "build" : "plan"),
+				// fallback for callers that only know plan/build (opencode's ids).
+				modeId: parsed.data.modeId ?? (parsed.data.posture === "build" ? "build" : "plan"),
 				...(parsed.data.modelId ? { modelId: parsed.data.modelId } : {}),
 				...(parsed.data.title ? { title: parsed.data.title } : {}),
 			})
