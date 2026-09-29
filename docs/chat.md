@@ -14,7 +14,7 @@ below are all per person.
 
 The sidebar has two trees, **Projects** and **Chats**, then a few single
 entries at the foot: **Workspace**, **Settings** and, for administrators,
-**Admin** (the chat's administrator screens). A conversation keeps
+**Admin** ([Administering the chat](chat-admin.md)). A conversation keeps
 the model it was started with. Projects group conversations that share
 standing context and knowledge; see [Knowledge and projects](knowledge.md).
 
@@ -57,9 +57,9 @@ limited to **10 MB** each.
   while your file sits in the transcript.
 
 Which model reads documents is decided by the **Knowledge** settings (an
-administrator's choice); a
+administrator's choice, see [Administering the chat](chat-admin.md)); a
 deployment can also point extraction at a reader directly
-(a deployment setting).
+([Configuration](configuration.md)).
 
 ## Web search and web fetch
 
@@ -83,7 +83,7 @@ pages that are empty until JavaScript has run.
 
 Some tools act beyond the conversation, so they ask first. **By default
 (`manual`), a call to `web_fetch` on a page neither you nor the search
-supplied, and every call to an MCP tool from a connector,
+supplied, and every call to an MCP tool from a [connector](connectors.md),
 stops on an approval card** showing the tool and its arguments, with three
 choices: allow this one call, allow this tool for the rest of the
 conversation, or deny. Several calls in one round are approved one at a time.

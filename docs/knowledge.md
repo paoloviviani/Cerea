@@ -36,7 +36,7 @@ A project is a way of organising **conversations**. Everything in it shares:
 - **Knowledge bases** attached to the project, searched on every turn (up to
   the project's retrieval limit, six passages by default).
 - **Defaults for new chats**: web search on or off, and which
-  connectors start selected; when the project leaves either
+  [connectors](connectors.md) start selected; when the project leaves either
   unset, the app defaults apply.
 
 The sidebar shows a project as a folder of its chats, and its `⋯` menu edits or
