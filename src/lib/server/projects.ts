@@ -238,6 +238,7 @@ export async function projectContext(options: {
 		if (!locals?.user) return parts.length > 0 ? parts.join("\n\n") : undefined;
 		const caller = await callerFrom(locals);
 		const memoryId = project?.indexPastChats ? project.memoryBaseId : undefined;
+		const memoryFor = project && memoryId ? await memoryCaller(memoryId, project) : undefined;
 		const passages = await retrieve({
 			bases: uniqueBases,
 			question,
@@ -245,7 +246,10 @@ export async function projectContext(options: {
 			token,
 			projectName: project?.name,
 			caller,
-			memory: memoryId ? { baseId: memoryId, caller: await memoryCaller(memoryId) } : undefined,
+			memory:
+				project && memoryId
+					? { baseId: memoryId, caller: await memoryCaller(memoryId, project) }
+					: undefined,
 		});
 		if (passages.length > 0) {
 			const rendered = passages
@@ -308,14 +312,22 @@ function asOwner(ownerId: ObjectId): Caller {
 	return { userId: ownerId, email: null, groups: [], isAdmin: false };
 }
 
-/** The identity a project's memory base is read and written as, if it exists. */
-async function memoryCaller(baseId: string): Promise<Caller | undefined> {
+/**
+ * The identity a project's memory base is read and written as: the project's
+ * owner, and only for a base that owner owns. A base made before the base
+ * belonged to the project is owned by whichever member spoke first; acting as
+ * *them* on everyone's behalf would keep writing the whole project's
+ * transcripts into one member's personal base, where they outlive that
+ * member's place in the project. Such a legacy base yields `undefined`: the
+ * writer replaces it, and a reader meets it only as themselves.
+ */
+async function memoryCaller(baseId: string, project: Project): Promise<Caller | undefined> {
 	if (!ObjectId.isValid(baseId)) return undefined;
 	const base = await collections.vectorStores.findOne(
 		{ _id: new ObjectId(baseId) },
 		{ projection: { ownerId: 1 } }
 	);
-	return base ? asOwner(base.ownerId) : undefined;
+	return base?.ownerId.equals(project.userId) ? asOwner(project.userId) : undefined;
 }
 
 /**
@@ -357,11 +369,14 @@ export async function indexConversation(options: {
 		// here, owned by the *project's* owner whoever is talking, and written
 		// in-process as its owner (see the header).
 		const { createStore, addText } = await import("$lib/server/knowledge/service");
-		let writer = project.memoryBaseId ? await memoryCaller(project.memoryBaseId) : undefined;
+		let writer = project.memoryBaseId
+			? await memoryCaller(project.memoryBaseId, project)
+			: undefined;
 		let baseId = project.memoryBaseId;
 		if (!writer) {
-			// Never made, or deleted from the Knowledge screen ("safe to empty; it
-			// refills as you talk"): make it. The claim is conditional, so two
+			// Never made, deleted from the Knowledge screen ("safe to empty; it
+			// refills as you talk"), or a legacy base some member owns: make one
+			// the project's owner owns, and stop writing to the legacy one. The claim is conditional, so two
 			// members finishing a first turn together end up with one base.
 			const created = await createStore(asOwner(project.userId), {
 				name: `${project.name} — past chats`,
@@ -383,7 +398,7 @@ export async function indexConversation(options: {
 				const current = await collections.projects.findOne({ _id: project._id });
 				baseId = current?.memoryBaseId;
 			}
-			writer = baseId ? await memoryCaller(baseId) : undefined;
+			writer = baseId ? await memoryCaller(baseId, project) : undefined;
 		}
 		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");
 		failedInto = new ObjectId(baseId);
@@ -405,7 +420,13 @@ export async function indexConversation(options: {
 		);
 		// An ingest failure is already on the document's row; this is for the
 		// rest (the write itself refused, the store unreachable).
-		if (failedInto) {
+		// Not for a conversation deleted mid-index: that would recreate a row
+		// carrying its title.
+		const stillThere = await collections.conversations.countDocuments(
+			{ _id: conversation._id },
+			{ limit: 1 }
+		);
+		if (failedInto && stillThere > 0) {
 			const { markIndexFailed, KnowledgeError } = await import("$lib/server/knowledge/service");
 			await markIndexFailed(
 				failedInto,
