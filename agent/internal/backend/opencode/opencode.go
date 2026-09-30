@@ -70,6 +70,14 @@ type Config struct {
 	// every start and exported as OPENCODE_CONFIG_DIR. Empty installs no
 	// tools and the agentTools capability is false.
 	ToolsDir string
+	// ProjectConfig is whether opencode may load a workspace's own config
+	// (opencode.json, .opencode/, AGENTS.md). False (the zero value) starts
+	// opencode with OPENCODE_DISABLE_PROJECT_CONFIG=1. True loads it, and
+	// then the ConfigPath file is also handed over inline as
+	// OPENCODE_CONFIG_CONTENT — the layer above the project's — with
+	// model/small_model pinned to the gateway, so the repo cannot redirect
+	// the provider or pick another default model (see pinnedConfig).
+	ProjectConfig bool
 	// StartupTimeout bounds Start's wait for the first health check
 	// (default 30s). A first run on a cold cache can be slower than that;
 	// the integration test overrides it rather than this package assuming
@@ -375,6 +383,12 @@ func (b *Backend) superviseLoop(ctx context.Context) {
 
 func (b *Backend) runOnce(ctx context.Context) error {
 	args := []string{"serve", "--hostname", b.cfg.Hostname, "--port", fmt.Sprint(b.cfg.Port)}
+	if !b.cfg.ProjectConfig {
+		// OPENCODE_DISABLE_PROJECT_CONFIG skips a repo's config, commands and
+		// MCP servers but NOT its .opencode/plugin(s) (probed live on
+		// 1.18.32: the plugin still ran); --pure is what stops those.
+		args = append(args, "--pure")
+	}
 	cmd := exec.Command(b.cfg.Bin, args...)
 	env := b.cfg.Env
 	if env == nil {
@@ -399,6 +413,24 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	}
 	if b.cfg.ConfigPath != "" {
 		env = append(env, "OPENCODE_CONFIG="+b.cfg.ConfigPath)
+	}
+	// The project-config switches are galopin's alone: an inherited value
+	// (a repo's .envrc, say) never decides them.
+	kept := env[:0]
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") {
+			kept = append(kept, kv)
+		}
+	}
+	env = kept
+	if !b.cfg.ProjectConfig {
+		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
+	} else if b.cfg.ConfigPath != "" {
+		pinned, err := pinnedConfig(b.cfg.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("pinning the gateway config: %w", err)
+		}
+		env = append(env, "OPENCODE_CONFIG_CONTENT="+pinned)
 	}
 	env = append(env, b.toolEnv()...)
 	cmd.Env = env

@@ -254,7 +254,46 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 }
 
 func (mc *machine) opWorkspaceList() (any, *link.OpError) {
-	return map[string]any{"workspaces": orEmpty(mc.workspaces.List(false))}, nil
+	list := mc.workspaces.List(false)
+	views := make([]workspaceView, len(list))
+	for i, w := range list {
+		views[i] = mc.workspaceView(w)
+	}
+	return map[string]any{"workspaces": orEmpty(views)}, nil
+}
+
+// workspaceView is a workspace as the listing shows it: on a machine that
+// ignores project config, projectConfigIgnored says the repo carries some
+// (an .opencode/ or opencode.json) so a missing command or agent reads as
+// policy, not as a bug.
+type workspaceView struct {
+	workspaces.Workspace
+	ProjectConfigIgnored bool `json:"projectConfigIgnored,omitempty"`
+}
+
+func (mc *machine) workspaceView(w workspaces.Workspace) workspaceView {
+	return workspaceViewFor(mc.pol, w.Path, w)
+}
+
+func workspaceViewFor(pol policy.Policy, path string, ws ...workspaces.Workspace) workspaceView {
+	v := workspaceView{ProjectConfigIgnored: !pol.ProjectConfigAllowed() && hasProjectConfig(path)}
+	if len(ws) > 0 {
+		v.Workspace = ws[0]
+	}
+	return v
+}
+
+// auditProjectConfig writes project_config.override_attempt when this
+// machine loads project config and the workspace's own opencode.json sets a
+// routing key. Denying machines never load the file, so there is nothing to
+// record.
+func (mc *machine) auditProjectConfig(w workspaces.Workspace, sessionID string) {
+	if mc.audit == nil || !mc.pol.ProjectConfigAllowed() {
+		return
+	}
+	if keys := projectOverrideKeys(w.Path); len(keys) > 0 {
+		mc.audit.projectConfigOverride(w.ID, sessionID, keys)
+	}
 }
 
 func (mc *machine) opWorkspaceSuggest(args json.RawMessage) (any, *link.OpError) {
@@ -441,6 +480,7 @@ func (mc *machine) opSessionCreate(ctx context.Context, args json.RawMessage) (a
 		return nil, backendErr(err)
 	}
 	mc.trackSession(w, s)
+	mc.auditProjectConfig(w, s.ID)
 	return map[string]any{"session": mc.enrich(s, w.ID)}, nil
 }
 

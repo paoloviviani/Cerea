@@ -107,6 +107,14 @@ func (a *auditLogger) command(name, origin, shell, decision string) {
 	})
 }
 
+// projectConfigOverride records that a workspace's own opencode.json sets
+// routing keys (provider, enabled_providers, model, small_model, agent
+// models) on a machine that loads project config: the pin routes to the
+// gateway regardless, and this row is how the person sees the attempt.
+func (a *auditLogger) projectConfigOverride(workspace, session string, keys []string) {
+	a.write(map[string]any{"action": "project_config.override_attempt", "workspace": workspace, "session": session, "keys": keys})
+}
+
 // agentTool records one agent-coordination tool call (PROTOCOL.md §6 "Agent
 // tools"): the tool, the calling session, the target (the spawned child, or
 // the addressed session), the decision and the reason for a refusal — never

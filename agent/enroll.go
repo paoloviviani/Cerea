@@ -42,6 +42,16 @@ Usage:
                enabled_providers, so the gateway's models are the only
                ones opencode offers; this flag omits that allowlist for
                operators who want the built-ins too.
+  --allow-project-config  Load a repo's own opencode config (default: ignored).
+               By default opencode starts with OPENCODE_DISABLE_PROJECT_CONFIG=1:
+               a workspace's opencode.json, .opencode/ (plugins, tools,
+               commands, agents, MCP servers) and AGENTS.md/CLAUDE.md are
+               not loaded, because a cloned repo can point the gateway at
+               another endpoint and its plugins run as you. Opting in pins
+               the gateway provider and default models over the repo's, and
+               audits any attempt to change them; plugins still run as you.
+               With --allow-opencode-provider the provider allowlist cannot
+               be pinned (known: no guarantee).
   --allow-auto-accept  Let 'run' permit session.setAutoAccept at all
                (default denied: the machine's own veto, PROTOCOL.md §4 —
                Cerea can never turn this on over the link if this flag was
@@ -107,6 +117,7 @@ type enrollOptions struct {
 	allowTerminal          bool
 	allowCommandShell      bool
 	noAgentTools           bool
+	allowProjectConfig     bool
 	maxTerminals           int
 	yes                    bool
 }
@@ -155,6 +166,7 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.allowTerminal, "allow-terminal", false, "")
 	fs.BoolVar(&opts.allowCommandShell, "allow-command-shell", false, "")
 	fs.BoolVar(&opts.noAgentTools, "no-agent-tools", false, "")
+	fs.BoolVar(&opts.allowProjectConfig, "allow-project-config", false, "")
 	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	if err := fs.Parse(args); err != nil {
@@ -298,6 +310,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if opts.noAgentTools {
 		pol.AgentTools = policy.TerminalDenied
 	}
+	if opts.allowProjectConfig {
+		pol.ProjectConfig = policy.TerminalAllowed
+	}
 	pol.MaxTerminals = opts.maxTerminals
 	if opts.allowTerminal && !opts.allowAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're denying unattended agent commands but allowing a remote shell.")
@@ -309,6 +324,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -500,6 +516,19 @@ func agentToolsPolicySummary(pol policy.Policy) string {
 		return "Agent tools: OFF — no session_list/session_spawn/session_send is installed into the agent."
 	}
 	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (auto-accept never does)."
+}
+
+// projectConfigPolicySummary says, in plain words, what a workspace's own
+// opencode config may do on this machine.
+func projectConfigPolicySummary(pol policy.Policy, allowOpencodeProviders bool) string {
+	if !pol.ProjectConfigAllowed() {
+		return "Project config: IGNORED — a repo's opencode.json, .opencode/ (plugins, tools, commands, agents, MCP servers) and AGENTS.md/CLAUDE.md are not loaded, so a cloned repo cannot redirect your prompts or run code as you."
+	}
+	s := "Project config: LOADED — a repo's opencode.json, .opencode/ plugins, tools, commands, agents and MCP servers run as you, and its AGENTS.md is read. The gateway provider and default models are pinned, and an attempt to change them is written to the audit log."
+	if allowOpencodeProviders {
+		s += " With --allow-opencode-provider the provider allowlist cannot be pinned: a repo can enable other providers (known: no guarantee)."
+	}
+	return s
 }
 
 // commandShellPolicySummary says, in plain words, whether a slash command's
