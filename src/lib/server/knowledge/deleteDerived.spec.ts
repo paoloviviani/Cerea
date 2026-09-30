@@ -117,6 +117,19 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 	}, 60_000);
 
 	afterAll(async () => {
+		// The Mongo is shared with every other spec file: leave nothing of ours.
+		await collections.bucket.drop().catch(() => undefined);
+		for (const name of [
+			"vectorStores",
+			"knowledgeDocuments",
+			"knowledgeConfig",
+			"projects",
+			"conversations",
+			"users",
+			"erasures",
+		] as const) {
+			await collections[name].deleteMany({});
+		}
 		const { knowledgePool } = await import("./db");
 		await knowledgePool().end();
 		await pg.end();
