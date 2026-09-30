@@ -271,8 +271,19 @@ as a nested read-only conversation.
 A session's model can start another session on the same machine (`session_spawn`)
 or send a message to one (`session_send`). Both are on by default and turned off
 with `--no-agent-tools` at enroll (or `galopin policy set --no-agent-tools`
-later). Each call asks first, with an approval card that shows the full prompt or
-message. The one exception is a session that is already **auto-accepting**:
+later), which installs no tool into the backend at all. There are three:
+
+- `session_list` reads the machine's sessions and needs no approval.
+- `session_spawn` starts a new session. Its approval card shows the new
+  session's **title**, its **mode** and the **full prompt**.
+- `session_send` sends a message to an existing session. Its card shows the
+  **target** session, the **full message** and the **hop** (how many agent
+  sends deep this chain is).
+
+Every spawn and send asks first, and nothing you answer is remembered — there
+is no "always". Prompts and messages over 8 KiB are refused before any card is
+raised, so a card never shows a truncated text. The one exception to asking is
+a session that is already **auto-accepting**:
 
 - **Spawn** goes through without a card. The new session is never more
   permissive than its parent, starts with auto-accept **off**, and asks for its
@@ -289,18 +300,45 @@ message. The one exception is a session that is already **auto-accepting**:
 - The machine's auto-accept policy still vetoes: with `autoAccept: denied`
   every call asks. Handoffs and questions are never auto-approved.
 - A chain longer than three messages, sent back and forth, asks at every step
-  after the third instead of stopping, and more than five messages a minute to
-  the same session are refused outright.
+  after the third instead of stopping; the card says why. More than five
+  messages a minute from one session to the same target are refused outright.
 
 An auto-approved call is not invisible: the "Spawned …" / "Sent to …" card in
 the sender's transcript carries an **auto-approved** badge, and the machine's
 audit log records it as `auto` with the reason.
+
+#### Limits
+
+Spawning is bounded so a session cannot fork without end: a spawn chain is at
+most two deep (a spawned session can spawn once more, its child cannot), at most
+three spawned sessions are live under one root, and a root that has started six
+in ten minutes is refused. A spawned session runs in the spawner's own
+workspace, in its mode or a stricter one, and never inherits auto-accept. It
+appears as its own top-level row with a "spawned by" link, not inside the
+spawner's tree.
+
+#### Steering
+
+A message that arrives while the target is mid-turn is folded into that turn as
+steering; to an idle target it starts a turn. The message reaches the target
+marked as coming from another agent session, and the target's transcript shows
+it as a distinct "From agent" bubble with a link back to the sender. The same
+steering applies to your own messages: with a turn running, the composer's
+**Send** sits beside **Stop** (its chevron is stop-and-send), and slash
+commands are still refused mid-turn.
 
 What this means, plainly: an auto-accepting session can message equal-or-stricter
 peers without you seeing a card. It could already run its own tools unattended,
 so this is no new capability; the cost is noise and one agent's text steering
 another's context, bounded by the hop and rate limits and visible in the badges
 and the audit log.
+
+#### What these gates do not cover
+
+An approved shell command can do anything you can on that machine (opencode's
+server password sits in its process environment, readable by same-user
+processes); the coordination gates constrain the model's tools, not an approved
+shell.
 
 ### The diff pane
 
