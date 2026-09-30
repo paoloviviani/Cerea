@@ -238,7 +238,6 @@ export async function projectContext(options: {
 		if (!locals?.user) return parts.length > 0 ? parts.join("\n\n") : undefined;
 		const caller = await callerFrom(locals);
 		const memoryId = project?.indexPastChats ? project.memoryBaseId : undefined;
-		const memoryFor = project && memoryId ? await memoryCaller(memoryId, project) : undefined;
 		const passages = await retrieve({
 			bases: uniqueBases,
 			question,
