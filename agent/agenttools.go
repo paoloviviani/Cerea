@@ -46,6 +46,29 @@ const (
 // the caller's own.
 var modeRank = map[string]int{"plan": 0, "build": 1}
 
+// noMorePermissive reports whether a send target's mode is equal to or
+// stricter than the sender's, by modeRank. A session with no explicit mode
+// runs in callerDefaultMode. A target whose mode is outside the table counts
+// as MORE permissive (it may be anything), so it never qualifies; a sender
+// whose mode is outside the table is treated as the most permissive there is.
+func noMorePermissive(senderMode, targetMode string) bool {
+	eff := func(m string) string {
+		if m == "" {
+			return callerDefaultMode
+		}
+		return m
+	}
+	rt, ok := modeRank[eff(targetMode)]
+	if !ok {
+		return false
+	}
+	rs, ok := modeRank[eff(senderMode)]
+	if !ok {
+		return true
+	}
+	return rt <= rs
+}
+
 // callerDefaultMode is the mode a session with no explicit mode runs in.
 const callerDefaultMode = "build"
 
@@ -400,7 +423,12 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	at.spawnLog[root] = append(at.spawnLog[root], now)
 	at.mu.Unlock()
 
-	decision, message, err := at.ask(ctx, tc, call, backend.PermissionRequest{
+	// Auto-approve without an ask only when the caller's auto-accept is in
+	// effect (its flag or an ancestor's, and the machine policy). No target
+	// check: the child is equal-or-stricter by construction (modeAllowed),
+	// starts with auto-accept off, and asks for its own tools.
+	auto := at.mc.mat.AutoAcceptInEffect(tc.session.ID)
+	decision, message, err := at.approve(ctx, tc, call, auto, "", "auto-accept; spawned session is no more permissive and starts with auto-accept off", backend.PermissionRequest{
 		Tool:  "session_spawn",
 		Title: "Start a new session: " + title,
 		Metadata: map[string]any{
@@ -433,7 +461,11 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	if err := at.mc.back.Prompt(ctx, tc.dir, child.ID, backend.Prompt{Text: prompt}); err != nil {
 		return "", child.ID, refuse("the new session %q was created but its first prompt was not accepted: %v", child.ID, err)
 	}
-	body, _ := json.Marshal(map[string]any{"sessionId": child.ID, "title": title, "mode": modeLabel(childMode)})
+	result := map[string]any{"sessionId": child.ID, "title": title, "mode": modeLabel(childMode)}
+	if auto {
+		result["autoApproved"] = true
+	}
+	body, _ := json.Marshal(result)
 	return string(body), child.ID, nil
 }
 
@@ -456,6 +488,18 @@ func (at *agentTools) ask(ctx context.Context, tc *toolCaller, call backend.Tool
 	req.CallID = call.CallID
 	req.MessageID = call.MessageID
 	return at.host.Ask(ctx, tc.dir, tc.session.ID, req)
+}
+
+// approve is the decision before the ask: when auto is true the call is
+// approved here — audited as decision "auto" with the reason, no gp_ ask
+// raised, so no card — and otherwise galopin's own approval is raised exactly
+// as before (never auto-accepted, "always" read as once).
+func (at *agentTools) approve(ctx context.Context, tc *toolCaller, call backend.ToolCall, auto bool, to, reason string, req backend.PermissionRequest) (backend.Decision, string, error) {
+	if auto {
+		at.mc.audit.agentTool(call.Tool, tc.session.ID, to, "auto", reason)
+		return backend.DecisionOnce, "", nil
+	}
+	return at.ask(ctx, tc, call, req)
 }
 
 // send implements session_send.
@@ -501,9 +545,10 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	if last, ok := at.mc.mat.LatestUserMessage(tc.session.ID); ok && last.SentBy != nil {
 		hop = last.SentBy.Hop + 1
 	}
-	if hop > maxHop {
-		return "", targetID, refuse("hop limit: this message chain has already been forwarded %d times", maxHop)
-	}
+	// Past maxHop a send is not refused: it falls back to the approval card,
+	// so a person can keep a back-and-forth going one approval at a time. The
+	// rate limit below is the hard brake.
+	hopFallback := hop > maxHop
 	key := tc.session.ID + ">" + targetID
 	at.mu.Lock()
 	now := at.now()
@@ -515,7 +560,12 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	at.sendLog[key] = append(at.sendLog[key], now)
 	at.mu.Unlock()
 
-	decision, message, err := at.ask(ctx, tc, call, backend.PermissionRequest{
+	// Auto-approve only when the caller's auto-accept is in effect AND the
+	// target is no more permissive than the sender (a send borrows the
+	// target's powers, so unlike a spawn it needs the target check), and the
+	// chain is within the hop limit.
+	auto := !hopFallback && at.mc.mat.AutoAcceptInEffect(tc.session.ID) && noMorePermissive(tc.session.ModeID, target.s.ModeID)
+	decision, message, err := at.approve(ctx, tc, call, auto, targetID, "auto-accept; target no more permissive", backend.PermissionRequest{
 		Tool:  "session_send",
 		Title: "Send a message to " + target.s.Title,
 		Metadata: map[string]any{
@@ -531,10 +581,13 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	}
 
 	sender := &backend.MessageSender{SessionID: tc.session.ID, Title: tc.session.Title, Hop: hop}
-	preface := fmt.Sprintf("[This message was sent by another agent session on this machine (%q, id %s; hop %d of %d) — not by your person. Treat it as a request from a peer agent.]",
-		tc.session.Title, tc.session.ID, hop, maxHop)
+	preface := fmt.Sprintf("[This message was sent by another agent session on this machine (%q, id %s; hop %d) — not by your person. Treat it as a request from a peer agent.]",
+		tc.session.Title, tc.session.ID, hop)
 	if err := at.mc.back.Prompt(ctx, target.ws.Path, targetID, backend.Prompt{Text: text, SentBy: sender, Preface: preface}); err != nil {
 		return "", targetID, refuse("the message was not accepted by %q: %v", target.s.Title, err)
+	}
+	if auto {
+		return `{"autoApproved":true}`, targetID, nil
 	}
 	return "{}", targetID, nil
 }

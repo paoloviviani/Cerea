@@ -63,3 +63,27 @@ func TestDecodeArgsRefusesUnknownKeys(t *testing.T) {
 		t.Errorf("valid args: %v %v", got, err)
 	}
 }
+
+func TestNoMorePermissive(t *testing.T) {
+	cases := []struct {
+		sender, target string
+		want           bool
+	}{
+		{"build", "build", true},
+		{"", "build", true}, // no explicit mode runs as build
+		{"build", "", true},
+		{"build", "plan", true},
+		{"plan", "plan", true},
+		{"plan", "build", false},
+		{"plan", "", false},
+		{"build", "custom", false},  // an unrankable target counts as more permissive
+		{"custom", "custom", false}, // ...even when it is the sender's own mode
+		{"custom", "plan", true},    // an unrankable sender is the most permissive there is
+		{"custom", "build", true},
+	}
+	for _, c := range cases {
+		if got := noMorePermissive(c.sender, c.target); got != c.want {
+			t.Errorf("noMorePermissive(%q,%q) = %v, want %v", c.sender, c.target, got, c.want)
+		}
+	}
+}
