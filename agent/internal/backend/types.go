@@ -92,7 +92,7 @@ type SpawnedBy struct {
 }
 
 // MessageSender is the origin of a session_send message: the sender's id and
-// title, and the message's hop count (1..3).
+// title, and the message's hop count (1 upward; past 3 each send needs a card).
 type MessageSender struct {
 	SessionID string `json:"sessionId"`
 	Title     string `json:"title"`
