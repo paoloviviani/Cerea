@@ -359,9 +359,17 @@
 			)
 		)
 			return;
+		const withMemory =
+			current.hasMemory &&
+			confirm(
+				`Also delete “${current.name}” — past chats?\n\nThat is the searchable memory of this ` +
+					"project's conversations. OK deletes it too; Cancel keeps it in your knowledge bases."
+			);
 		busy = true;
 		try {
-			await api(`/projects/${current.id}`, { method: "DELETE" });
+			await api(`/projects/${current.id}${withMemory ? "?memory=delete" : ""}`, {
+				method: "DELETE",
+			});
 			await load();
 			backToList();
 		} catch (err) {

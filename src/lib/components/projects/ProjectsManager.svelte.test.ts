@@ -51,6 +51,7 @@ function projectView(overrides: Partial<ProjectView> = {}): ProjectView {
 		instructions: "",
 		knowledgeBaseIds: [],
 		indexPastChats: false,
+		hasMemory: false,
 		retrievalLimit: 6,
 		owned: true,
 		shares: [],

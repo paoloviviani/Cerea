@@ -108,6 +108,8 @@ export interface ProjectView {
 	instructions: string;
 	knowledgeBaseIds: string[];
 	indexPastChats: boolean;
+	/** Whether a past-chats memory base exists — what the delete confirmation offers to remove. */
+	hasMemory: boolean;
 	retrievalLimit: number;
 	/** Web-search default for new chats here; `undefined` means "use the app default". */
 	defaultWebSearch?: boolean;
