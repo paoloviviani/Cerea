@@ -65,6 +65,21 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		await expect.element(facts).toHaveTextContent("1 of 3");
 	});
 
+	it("says a fourth hop is asked each time rather than 4 of 3", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("session_send", {
+				galopin: true,
+				target: { sessionId: "s2", title: "Docs agent", workspaceId: "w1" },
+				text: "Please update the changelog.",
+				hop: 4,
+			}),
+			onanswer: async () => ({ ok: true }),
+		});
+		const facts = screen.getByTestId("galopin-approval");
+		await expect.element(facts).toHaveTextContent("4 (past 3, each send is asked)");
+	});
+
 	it("answers Allow once as an accept without a scope", async () => {
 		const onanswer = vi.fn(async () => ({ ok: true }));
 		const screen = render(ToolApprovalCard, { conversationId: "a1", request: send, onanswer });

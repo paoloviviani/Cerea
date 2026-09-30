@@ -266,6 +266,38 @@ in the transcript by a card for that subagent — title, status, from the
 machine's own roster. Expanding one fetches its own transcript and renders it
 as a nested read-only conversation.
 
+### Sessions that talk to sessions
+
+A session's model can start another session on the same machine (`session_spawn`)
+or send a message to one (`session_send`). Both are on by default and turned off
+with `--no-agent-tools` at enroll (or `galopin policy set --no-agent-tools`
+later). Each call asks first, with an approval card that shows the full prompt or
+message. The one exception is a session that is already **auto-accepting**:
+
+- **Spawn** goes through without a card. The new session is never more
+  permissive than its parent, starts with auto-accept **off**, and asks for its
+  own tools.
+- **Send** goes through without a card only when the target session's mode is
+  the same as the sender's or stricter (a `build` session can message a `plan`
+  or another `build` session; a `plan` session asking a `build` session still
+  gets a card). A message borrows the target's powers, so the target has to be
+  no more permissive.
+- The machine's auto-accept policy still vetoes: with `autoAccept: denied`
+  every call asks. Handoffs and questions are never auto-approved.
+- A chain longer than three messages, sent back and forth, asks at every step
+  after the third instead of stopping, and more than five messages a minute to
+  the same session are refused outright.
+
+An auto-approved call is not invisible: the "Spawned …" / "Sent to …" card in
+the sender's transcript carries an **auto-approved** badge, and the machine's
+audit log records it as `auto` with the reason.
+
+What this means, plainly: an auto-accepting session can message equal-or-stricter
+peers without you seeing a card. It could already run its own tools unattended,
+so this is no new capability; the cost is noise and one agent's text steering
+another's context, bounded by the hop and rate limits and visible in the badges
+and the audit log.
+
 ### The diff pane
 
 The **diff** control opens the shared side pane — the same frame artifacts open

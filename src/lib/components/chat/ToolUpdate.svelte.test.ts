@@ -287,6 +287,40 @@ describe("between-session tools in an agent transcript", () => {
 		expect(link?.getAttribute("href")).toContain("agent=ses_c");
 	});
 
+	it("badges a send the machine approved without a card", async () => {
+		const view = withLinks(
+			tool("session_send", { target: "ses_b", text: "hi" }, '{"autoApproved":true}')
+		);
+		await expect.element(view.getByText("Sent to")).toBeVisible();
+		await expect.element(view.getByText("auto-approved")).toBeVisible();
+	});
+
+	it("shows no badge on a send that was asked", async () => {
+		const view = withLinks(tool("session_send", { target: "ses_b", text: "hi" }, "{}"));
+		await expect.element(view.getByText("Sent to")).toBeVisible();
+		expect(view.baseElement.querySelector("[data-testid='auto-approved-badge']")).toBeNull();
+	});
+
+	it("badges a spawn the machine approved without a card", async () => {
+		const view = withLinks(
+			tool(
+				"session_spawn",
+				{ title: "Migration review", prompt: "x" },
+				'{"sessionId":"ses_c","title":"Migration review","mode":"build","autoApproved":true}'
+			)
+		);
+		await expect.element(view.getByText("Spawned")).toBeVisible();
+		await expect.element(view.getByText("auto-approved")).toBeVisible();
+	});
+
+	it("shows no badge on a spawn that was asked", async () => {
+		const view = withLinks(
+			tool("session_spawn", { title: "Docs", prompt: "x" }, '{"sessionId":"ses_d"}')
+		);
+		await expect.element(view.getByText("Spawned")).toBeVisible();
+		expect(view.baseElement.querySelector("[data-testid='auto-approved-badge']")).toBeNull();
+	});
+
 	it("does not say a refused spawn happened", async () => {
 		const view = withLinks(
 			tool("session_spawn", { title: "Docs", prompt: "x" }, "The person declined.")

@@ -23,6 +23,30 @@ describe("coordinationCall", () => {
 		).toEqual({ kind: "spawn", state: "done", sessionId: "ses_child", title: "Docs" });
 	});
 
+	it("carries autoApproved from a result that says the machine approved it unasked", () => {
+		expect(
+			coordinationCall(
+				"session_spawn",
+				{ title: "Docs", prompt: "x" },
+				{ text: '{"sessionId":"ses_c","autoApproved":true}', failed: false }
+			)
+		).toMatchObject({ state: "done", autoApproved: true });
+		expect(
+			coordinationCall(
+				"session_send",
+				{ target: "ses_b", text: "x" },
+				{ text: '{"autoApproved":true}', failed: false }
+			)
+		).toMatchObject({ state: "done", sessionId: "ses_b", autoApproved: true });
+		expect(
+			coordinationCall(
+				"session_send",
+				{ target: "ses_b", text: "x" },
+				{ text: "{}", failed: false }
+			)
+		).not.toHaveProperty("autoApproved");
+	});
+
 	it("does not call a refused spawn spawned", () => {
 		const params = { title: "Docs", prompt: "x" };
 		const refusal = "The person declined to start a new session.";
