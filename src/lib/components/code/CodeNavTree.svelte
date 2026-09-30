@@ -30,6 +30,7 @@
 	import IconFolder from "~icons/carbon/folder";
 	import IconCode from "~icons/carbon/code";
 	import IconBranch from "~icons/carbon/branch";
+	import IconFork from "~icons/carbon/fork";
 	import IconRenew from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconKebab from "~icons/lucide/ellipsis";
@@ -67,6 +68,8 @@
 	import {
 		SHOW_SUBAGENTS_KEY,
 		parentRow,
+		spawnerRow,
+		groupSpawned,
 		readShowSubagents,
 		subagentRow,
 		spawnedRow,
@@ -244,8 +247,10 @@
 	}
 
 	function agentsOf(tree: DeviceSubtree | undefined, workspaceId: string): CodeAgentSession[] {
-		return visibleAgents(tree?.agents ?? [], showSubagents).filter(
-			(agent) => agent.workspaceId === workspaceId
+		return groupSpawned(
+			visibleAgents(tree?.agents ?? [], showSubagents).filter(
+				(agent) => agent.workspaceId === workspaceId
+			)
 		);
 	}
 
@@ -809,6 +814,11 @@
 													tree?.workspaces ?? []
 												)}
 												{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
+												{@const spawns = spawnerRow(
+													agent,
+													tree?.agents ?? [],
+													tree?.workspaces ?? []
+												)}
 												{@const spawned = spawnedRow(
 													agent,
 													tree?.agents ?? [],
@@ -861,6 +871,42 @@
 																></span>
 															{/if}
 														</a>
+														{#if spawns}
+															<DropdownMenu.Root>
+																<DropdownMenu.Trigger
+																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+																	title="Sessions spawned by this one"
+																	data-testid="spawned-count"
+																>
+																	spawned {spawns.count}
+																</DropdownMenu.Trigger>
+																<DropdownMenu.Portal>
+																	<DropdownMenu.Content
+																		class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+																		side="bottom"
+																		align="end"
+																		sideOffset={6}
+																	>
+																		{#each spawns.children as child (child.id)}
+																			<DropdownMenu.Item
+																				class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+																				onSelect={() =>
+																					goto(
+																						`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
+																					)}
+																			>
+																				<span class="min-w-0 flex-1 truncate">{child.title}</span>
+																				{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
+																					<span class="shrink-0 text-xs text-gray-400"
+																						>· {child.workspaceName}</span
+																					>
+																				{/if}
+																			</DropdownMenu.Item>
+																		{/each}
+																	</DropdownMenu.Content>
+																</DropdownMenu.Portal>
+															</DropdownMenu.Root>
+														{/if}
 														{#if kids}
 															<DropdownMenu.Root>
 																<DropdownMenu.Trigger
@@ -956,21 +1002,26 @@
 														</DropdownMenu.Root>
 													</div>
 													{#if spawned}
-														{#if spawned.workspaceId}
+														{#if !spawned.gone && spawned.workspaceId}
 															<a
 																href="{base}/code?device={device.id}&ws={spawned.workspaceId}&agent={spawned.sessionId}"
-																class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+																class="flex min-w-0 items-center gap-1 pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
 																data-testid="spawned-from"
-																>↳ from {spawned.title}{spawned.elsewhere
-																	? ` · ${spawned.elsewhere}`
-																	: ""}</a
 															>
+																<IconFork class="size-3 shrink-0" />
+																<span class="truncate"
+																	>spawned by {spawned.title}{spawned.elsewhere
+																		? ` · ${spawned.elsewhere}`
+																		: ""}</span
+																>
+															</a>
 														{:else}
 															<p
-																class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
+																class="flex min-w-0 items-center gap-1 pl-2 text-[11px] text-gray-400 italic dark:text-gray-500"
 																data-testid="spawned-from"
 															>
-																↳ from {spawned.title}
+																<IconFork class="size-3 shrink-0" />
+																<span class="truncate">spawned by {spawned.title} (gone)</span>
 															</p>
 														{/if}
 													{/if}
