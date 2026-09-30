@@ -59,6 +59,7 @@
 			label: read.kind === "send" && read.state === "pending" ? "Sending to" : label,
 			title,
 			href: read.sessionId ? sessionLinks.href(read.sessionId) : undefined,
+			autoApproved: read.autoApproved === true,
 		};
 	});
 
@@ -285,6 +286,13 @@
 						<span
 							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
 							>{coordination.title}</span
+						>
+					{/if}
+					{#if coordination.autoApproved}
+						<span
+							class="shrink-0 rounded-sm bg-gray-100 px-1 py-px text-xs text-gray-600 dark:bg-gray-700/50 dark:text-gray-300"
+							title="Auto-accept was on, so no approval was asked for this"
+							data-testid="auto-approved-badge">auto-approved</span
 						>
 					{/if}
 					<button
