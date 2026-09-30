@@ -259,7 +259,7 @@
 			project.hasMemory &&
 			confirm(
 				`Also delete “${project.name}” — past chats?\n\nThat is the searchable memory of this ` +
-					"project's conversations. OK deletes it too; Cancel keeps it in your knowledge bases."
+					"project's conversations. OK = delete the memory too. Cancel = keep the memory (the project is still deleted)."
 			);
 		busy = true;
 		try {

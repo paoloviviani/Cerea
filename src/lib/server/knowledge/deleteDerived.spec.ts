@@ -660,6 +660,35 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			}
 		});
 
+		it("replaces a legacy member-owned base with one the project's owner owns, and stops writing to it", async () => {
+			const { indexConversation } = await import("$lib/server/projects");
+			const { ownerId, memberId, project, memberLocals } = await setup();
+			// Made before the base belonged to the project: the first speaker owns it.
+			const legacy = await makeStore(memberId);
+			await collections.projects.updateOne(
+				{ _id: project._id },
+				{ $set: { memoryBaseId: legacy.toString() } }
+			);
+			const stored = need(await collections.projects.findOne({ _id: project._id }));
+			const conv = new ObjectId();
+			await indexConversation({
+				project: stored,
+				conversation: convOf(conv, memberId, project._id),
+				messages: talk,
+				token: "t",
+				locals: memberLocals,
+			});
+			const after = need(await collections.projects.findOne({ _id: project._id }));
+			expect(after.memoryBaseId).not.toBe(legacy.toString());
+			const fresh = need(
+				await collections.vectorStores.findOne({ _id: new ObjectId(after.memoryBaseId) })
+			);
+			expect(fresh.ownerId.equals(ownerId)).toBe(true);
+			expect(await docFor(fresh._id, conv)).not.toBeNull();
+			expect(await collections.knowledgeDocuments.countDocuments({ storeId: legacy })).toBe(0);
+			expect(await chunksOfStores([legacy])).toBe(0);
+		});
+
 		it("creates one base when two members finish a first turn together", async () => {
 			const { indexConversation } = await import("$lib/server/projects");
 			const { memberId, project, memberLocals, ownerLocals, ownerId } = await setup();
@@ -698,13 +727,21 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			// The deployment loses its embedding model; the next turn cannot be indexed.
 			await collections.knowledgeConfig.updateMany({}, { $set: { embeddingModel: null } });
 			const conv = new ObjectId();
-			await indexConversation({
-				project: stored,
-				conversation: convOf(conv, memberId, project._id),
-				messages: talk,
-				token: "t",
-				locals: memberLocals,
-			});
+			await collections.conversations.insertOne(
+				convOf(conv, memberId, project._id) as unknown as never
+			);
+			const gone = new ObjectId();
+			for (const id of [conv, gone]) {
+				await indexConversation({
+					project: stored,
+					conversation: convOf(id, memberId, project._id),
+					messages: talk,
+					token: "t",
+					locals: memberLocals,
+				});
+			}
+			// A conversation deleted mid-index gets no row, let alone one with its title.
+			expect(await docFor(new ObjectId(stored.memoryBaseId), gone)).toBeNull();
 			const row = await docFor(new ObjectId(stored.memoryBaseId), conv);
 			expect(row?.status).toBe("failed");
 			expect(row?.error).toMatch(/embedding model/);
