@@ -161,6 +161,7 @@ func TestCommandsIntegration(t *testing.T) {
 
 	ocBackend := backendopencode.New(backendopencode.Config{
 		ConfigPath:     configPath,
+		ProjectConfig:  true, // the IT plants project commands
 		Env:            isolatedEnv,
 		TmpDir:         filepath.Join(itTmpDir(t), "opencode-tmp"),
 		StateDir:       stateDir,
