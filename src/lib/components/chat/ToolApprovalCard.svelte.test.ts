@@ -65,7 +65,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		await expect.element(facts).toHaveTextContent("1 of 3");
 	});
 
-	it("says a fourth hop is asked each time rather than 4 of 3", async () => {
+	it("says why a fourth hop asks, rather than 4 of 3", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
 			request: request("session_send", {
@@ -77,7 +77,9 @@ describe("ToolApprovalCard, galopin approvals", () => {
 			onanswer: async () => ({ ok: true }),
 		});
 		const facts = screen.getByTestId("galopin-approval");
-		await expect.element(facts).toHaveTextContent("4 (past 3, each send is asked)");
+		await expect
+			.element(facts)
+			.toHaveTextContent("This chain has passed 3 hops, so each further message needs you");
 	});
 
 	it("answers Allow once as an accept without a scope", async () => {

@@ -152,7 +152,10 @@
 			if (typeof args.hop === "number")
 				facts.push({
 					label: "Hop",
-					value: args.hop > 3 ? `${args.hop} (past 3, each send is asked)` : `${args.hop} of 3`,
+					value:
+						args.hop > 3
+							? `${args.hop}. This chain has passed 3 hops, so each further message needs you`
+							: `${args.hop} of 3`,
 				});
 		}
 		return facts.filter((fact) => fact.value !== "");

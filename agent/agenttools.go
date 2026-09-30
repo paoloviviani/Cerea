@@ -47,30 +47,19 @@ const (
 var modeRank = map[string]int{"plan": 0, "build": 1}
 
 // noMorePermissive reports whether a send target's mode is equal to or
-// stricter than the sender's, by modeRank. A session with no explicit mode
-// runs in callerDefaultMode. A target whose mode is outside the table counts
-// as MORE permissive (it may be anything), so it never qualifies; a sender
-// whose mode is outside the table is treated as the most permissive there is.
+// stricter than the sender's, by modeRank. Anything unknown on EITHER side
+// means no: a mode outside the table (the sender's could be a very
+// restricted custom one, the target's anything), and an empty mode, whose
+// real meaning is the backend's default agent, which galopin has not
+// verified. Unknown asks; it is never read as permissive or strict.
 func noMorePermissive(senderMode, targetMode string) bool {
-	eff := func(m string) string {
-		if m == "" {
-			return callerDefaultMode
-		}
-		return m
-	}
-	rt, ok := modeRank[eff(targetMode)]
+	rs, ok := modeRank[senderMode]
 	if !ok {
 		return false
 	}
-	rs, ok := modeRank[eff(senderMode)]
-	if !ok {
-		return true
-	}
-	return rt <= rs
+	rt, ok := modeRank[targetMode]
+	return ok && rt <= rs
 }
-
-// callerDefaultMode is the mode a session with no explicit mode runs in.
-const callerDefaultMode = "build"
 
 // agentTools is the machine's coordination state: the rate windows. The
 // spawn tree itself lives in the backend's persisted markers.
@@ -278,17 +267,22 @@ func modeAllowed(callerMode, requested string) (string, error) {
 	if requested == callerMode {
 		return requested, nil
 	}
-	eff := callerMode
-	if eff == "" {
-		eff = callerDefaultMode
+	// A caller with no explicit mode runs in the backend's default agent,
+	// which galopin has not verified: it cannot be ranked, so the only mode
+	// it may request is the strictest one.
+	if callerMode == "" {
+		if requested == "plan" {
+			return requested, nil
+		}
+		return "", refuse("your mode is the backend's default, which galopin cannot rank against %q; a spawned session can be \"plan\" or inherit yours", requested)
 	}
-	rc, callerKnown := modeRank[eff]
+	rc, callerKnown := modeRank[callerMode]
 	rr, reqKnown := modeRank[requested]
 	if !callerKnown || !reqKnown {
 		return "", refuse("mode %q is not one galopin can rank against your mode %q; a spawned session can only run in your own mode", requested, modeLabel(callerMode))
 	}
 	if rr > rc {
-		return "", refuse("a spawned session cannot be more permissive than you: mode %q is less restricted than %q", requested, eff)
+		return "", refuse("a spawned session cannot be more permissive than you: mode %q is less restricted than %q", requested, callerMode)
 	}
 	return requested, nil
 }
@@ -561,10 +555,19 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	at.mu.Unlock()
 
 	// Auto-approve only when the caller's auto-accept is in effect AND the
-	// target is no more permissive than the sender (a send borrows the
-	// target's powers, so unlike a spawn it needs the target check), and the
-	// chain is within the hop limit.
-	auto := !hopFallback && at.mc.mat.AutoAcceptInEffect(tc.session.ID) && noMorePermissive(tc.session.ModeID, target.s.ModeID)
+	// target is in the sender's own workspace and no more permissive than
+	// the sender (a send borrows the target's powers, so unlike a spawn it
+	// needs the target checks), and the chain is within the hop limit.
+	// The sender's unattended power covers its own workspace only, so a send
+	// into another workspace always shows the card.
+	// The listing carries no overlay mode, so the target's own mode is read
+	// with a get; a failed read leaves it empty, which is unknown, which asks.
+	targetMode := ""
+	if full, gerr := at.mc.back.GetSession(ctx, target.ws.Path, targetID); gerr == nil {
+		targetMode = full.ModeID
+	}
+	auto := !hopFallback && target.ws.ID == tc.workspaceID &&
+		at.mc.mat.AutoAcceptInEffect(tc.session.ID) && noMorePermissive(tc.session.ModeID, targetMode)
 	decision, message, err := at.approve(ctx, tc, call, auto, targetID, "auto-accept; target no more permissive", backend.PermissionRequest{
 		Tool:  "session_send",
 		Title: "Send a message to " + target.s.Title,

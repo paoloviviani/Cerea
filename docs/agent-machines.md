@@ -277,11 +277,15 @@ message. The one exception is a session that is already **auto-accepting**:
 - **Spawn** goes through without a card. The new session is never more
   permissive than its parent, starts with auto-accept **off**, and asks for its
   own tools.
-- **Send** goes through without a card only when the target session's mode is
-  the same as the sender's or stricter (a `build` session can message a `plan`
-  or another `build` session; a `plan` session asking a `build` session still
-  gets a card). A message borrows the target's powers, so the target has to be
-  no more permissive.
+- **Send** goes through without a card only when the target session is in the
+  **same workspace** as the sender and its mode is the same as the sender's or
+  stricter (a `build` session can message a `plan` or another `build` session;
+  a `plan` session asking a `build` session still gets a card). A message
+  borrows the target's powers, so the target has to be no more permissive, and
+  the sender's unattended reach stops at its own workspace: a send into another
+  workspace always asks. Anything unknown asks too: a custom mode on either
+  side, or a session with no explicit mode. Two custom-mode sessions never
+  auto-send to each other.
 - The machine's auto-accept policy still vetoes: with `autoAccept: denied`
   every call asks. Handoffs and questions are never auto-approved.
 - A chain longer than three messages, sent back and forth, asks at every step
