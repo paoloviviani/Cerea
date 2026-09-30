@@ -264,3 +264,26 @@ func TestChildSummaryCountsChildrenAndWaitingDescendants(t *testing.T) {
 		t.Fatalf("root of grandchild = %q, want parent", got)
 	}
 }
+
+// TestAutoAcceptInEffect pins the test galopin's own coordination tools use:
+// the session's flag or an ancestor's, and never against the machine's veto —
+// even a flag that was set while the policy allowed it (forced here, since
+// SetAutoAccept itself refuses under a denying policy).
+func TestAutoAcceptInEffect(t *testing.T) {
+	m := New(newFakeBackend(), allowPolicy())
+	m.Track("/ws", backend.Session{ID: "root"})
+	m.Track("/ws", backend.Session{ID: "sub", ParentID: "root"})
+	if m.AutoAcceptInEffect("root") || m.AutoAcceptInEffect("nope") {
+		t.Fatal("auto-accept in effect with no flag set / for an unknown session")
+	}
+	if err := m.SetAutoAccept("root", true); err != nil {
+		t.Fatal(err)
+	}
+	if !m.AutoAcceptInEffect("root") || !m.AutoAcceptInEffect("sub") {
+		t.Error("the flag, and a subagent's inheritance of it, must be in effect")
+	}
+	m.policy = policy.Default() // the machine now vetoes
+	if m.AutoAcceptInEffect("root") || m.AutoAcceptInEffect("sub") {
+		t.Error("the machine's veto must outrank a session flag")
+	}
+}

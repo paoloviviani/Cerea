@@ -345,14 +345,9 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("spawn: approved, marked, unprivileged; never auto-accepted", func(t *testing.T) {
+	t.Run("spawn: approved by a card, marked, unprivileged", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		caller := newSession(ws1, "it-caller-a", "")
-		// The caller AND the machine both allow auto-accept: the ask must
-		// still be a card, and the child must still not inherit it.
-		if err := mat.SetAutoAccept(caller.ID, true); err != nil {
-			t.Fatal(err)
-		}
 		route("trigger-spawn-a", "session_spawn", spawnArgs("it-child-a", "child-a first prompt", "inherit"))
 		publish()
 		mark := hub.mark()
@@ -410,6 +405,50 @@ func TestAgentToolsIntegration(t *testing.T) {
 		// The persisted marker survives the materializer's own re-reads.
 		if got := oc.SpawnMarks()[child.ID]; got.SessionID != caller.ID {
 			t.Errorf("SpawnMarks = %+v", oc.SpawnMarks())
+		}
+	})
+
+	t.Run("spawn: under auto-accept goes through with no card; child has auto-accept off", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		caller := newSession(ws1, "it-caller-auto", "")
+		if err := mat.SetAutoAccept(caller.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		route("trigger-spawn-auto", "session_spawn", spawnArgs("it-child-auto", "child-auto first prompt", "inherit"))
+		publish()
+		mark := hub.mark()
+		prompt(caller, ws1, "trigger-spawn-auto")
+		part := hub.toolDone(t, mark, caller.ID, "session_spawn")
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("session_spawn = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if asks := hub.asks(mark, caller.ID); len(asks) != 0 {
+			t.Fatalf("an auto-accepting caller's spawn raised a card: %+v", asks)
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(part.Output), &out); err != nil || out["autoApproved"] != true {
+			t.Errorf("result %q does not carry autoApproved: %v", part.Output, err)
+		}
+		kids := allTitled("it-child-auto")
+		if len(kids) != 1 {
+			t.Fatalf("child sessions = %d, want 1", len(kids))
+		}
+		child := getSession(kids[0].ID)
+		if child.AutoAccept || mat.AutoAcceptInEffect(child.ID) {
+			t.Errorf("the child of an auto-accepting spawner has auto-accept on")
+		}
+		if child.SpawnedBy == nil || child.SpawnedBy.SessionID != caller.ID {
+			t.Errorf("spawnedBy = %+v", child.SpawnedBy)
+		}
+		hub.waitIdle(t, mark, child.ID)
+		found := false
+		for _, r := range auditRows() {
+			if r["tool"] == "session_spawn" && r["from"] == caller.ID && r["decision"] == "auto" && r["reason"] != nil {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no decision:auto audit row: %v", auditRows())
 		}
 	})
 
@@ -717,13 +756,16 @@ func TestAgentToolsIntegration(t *testing.T) {
 		hub.setApprove(approveAll)
 	})
 
-	t.Run("send: a chain is refused above hop 3", func(t *testing.T) {
+	t.Run("send: hop 4 falls back to a card instead of refusing; hop 1-3 under auto-accept need none", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		s := make([]backend.Session, 5)
 		for i := range s {
-			s[i] = newSession(ws1, fmt.Sprintf("it-hop-%d", i), "")
+			s[i] = newSession(ws1, fmt.Sprintf("it-hop-%d", i), "build")
+			if err := mat.SetAutoAccept(s[i].ID, true); err != nil {
+				t.Fatal(err)
+			}
 		}
-		// s0 (a person's prompt, hop 0) -> s1 (hop 1) -> s2 (2) -> s3 (3) -> s4 (would be 4).
+		// s0 (a person's prompt, hop 0) -> s1 (hop 1) -> s2 (2) -> s3 (3) -> s4 (hop 4: a card).
 		route("trigger-hop-0", "session_send", mustJSON2(map[string]any{"target": s[1].ID, "text": "trigger-hop-1 relay"}))
 		route("trigger-hop-1", "session_send", mustJSON2(map[string]any{"target": s[2].ID, "text": "trigger-hop-2 relay"}))
 		route("trigger-hop-2", "session_send", mustJSON2(map[string]any{"target": s[3].ID, "text": "trigger-hop-3 relay"}))
@@ -731,26 +773,105 @@ func TestAgentToolsIntegration(t *testing.T) {
 		publish()
 		mark := hub.mark()
 		prompt(s[0], ws1, "trigger-hop-0")
-		env := hub.wait(t, mark, 120*time.Second, "the 4th hop to be refused", func(e sessions.Envelope) bool {
-			p := e.Event.Part
-			return e.Event.Kind == backend.EventPart && p != nil && p.Tool == "session_send" && p.ToolStatus == backend.ToolFailed &&
-				strings.Contains(p.ToolError, "hop limit")
+		hub.wait(t, mark, 120*time.Second, "the 4th hop to reach s4", func(e sessions.Envelope) bool {
+			m := e.Event.Message
+			return e.SessionID == s[4].ID && e.Event.Kind == backend.EventMessage && m != nil && m.Role == "user" && m.SentBy != nil && m.SentBy.Hop == 4
 		})
-		if env.SessionID != s[3].ID {
-			t.Errorf("the refusal came from %s, want the third relay %s", env.SessionID, s[3].ID)
-		}
 		hub.waitIdle(t, mark, s[3].ID)
-		for _, e := range hub.since(mark) {
-			if e.SessionID == s[4].ID && e.Event.Kind == backend.EventMessage && e.Event.Message != nil && e.Event.Message.SentBy != nil {
-				t.Errorf("the refused hop reached s4: %+v", e.Event.Message.SentBy)
+		for i := 0; i < 4; i++ {
+			asks := hub.asks(mark, s[i].ID)
+			switch {
+			case i < 3 && len(asks) != 0:
+				t.Errorf("hop %d under auto-accept raised a card: %+v", i+1, asks)
+			case i == 3 && (len(asks) != 1 || asks[0].Tool != "session_send" || asks[0].Metadata["hop"] != 4):
+				t.Errorf("hop 4 did not fall back to exactly one card: %+v", asks)
 			}
+		}
+	})
+
+	t.Run("send: auto-accept build to build goes through with no card, both ways; plan to build asks; build to plan goes through", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		a := newSession(ws1, "it-auto-a", "build")
+		b := newSession(ws2, "it-auto-b", "build")
+		p := newSession(ws1, "it-auto-plan", "plan")
+		q := newSession(ws2, "it-auto-plan-q", "plan")
+		// The mock matches a trigger anywhere in a session's history, so a
+		// session that has received a message must not be used as a sender
+		// again or it would replay its first trigger: each reply goes to a
+		// fresh session.
+		a2 := newSession(ws1, "it-auto-a2", "build")
+		b3 := newSession(ws2, "it-auto-b3", "build")
+		for _, x := range []backend.Session{a, b, p} {
+			if err := mat.SetAutoAccept(x.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		send := func(tag string, target backend.Session, text string) string {
+			route(tag, "session_send", mustJSON2(map[string]any{"target": target.ID, "text": text}))
+			return tag
+		}
+		aToB := send("trigger-auto-ab", b, "auto hello b")
+		bToA := send("trigger-auto-ba", a2, "auto hello a2")
+		aToPlan := send("trigger-auto-aq", q, "auto hello plan")
+		pToB := send("trigger-auto-pb", b3, "plan asks build")
+		publish()
+
+		run := func(from backend.Session, ws workspaces.Workspace, trig string) (backend.Part, []backend.PermissionRequest) {
+			mark := hub.mark()
+			prompt(from, ws, trig)
+			part := hub.toolDone(t, mark, from.ID, "session_send")
+			hub.waitIdle(t, mark, from.ID)
+			return part, hub.asks(mark, from.ID)
+		}
+		for _, c := range []struct {
+			name     string
+			from     backend.Session
+			ws       workspaces.Workspace
+			trig     string
+			wantCard bool
+		}{
+			{"build->build", a, ws1, aToB, false},
+			{"build->build back", b, ws2, bToA, false},
+			{"build->plan", a, ws1, aToPlan, false},
+			{"plan->build", p, ws1, pToB, true},
+		} {
+			part, asks := run(c.from, c.ws, c.trig)
+			if part.ToolStatus != backend.ToolCompleted {
+				t.Fatalf("%s = %s / %q / %q", c.name, part.ToolStatus, part.Output, part.ToolError)
+			}
+			if c.wantCard && (len(asks) != 1 || asks[0].Tool != "session_send") {
+				t.Errorf("%s: want exactly one card, got %+v", c.name, asks)
+			}
+			if !c.wantCard {
+				if len(asks) != 0 {
+					t.Errorf("%s: an auto-approved send raised a card: %+v", c.name, asks)
+				}
+				if part.Output != `{"autoApproved":true}` {
+					t.Errorf("%s: result = %q, want the autoApproved marker", c.name, part.Output)
+				}
+			} else if part.Output != "{}" {
+				t.Errorf("%s: a carded send's result = %q, want {}", c.name, part.Output)
+			}
+		}
+		autos := 0
+		for _, r := range auditRows() {
+			if r["tool"] == "session_send" && r["decision"] == "auto" && (r["from"] == a.ID || r["from"] == b.ID) && r["reason"] != nil {
+				autos++
+			}
+		}
+		if autos != 3 {
+			t.Errorf("decision:auto audit rows = %d, want 3: %v", autos, auditRows())
 		}
 	})
 
 	t.Run("send: per-pair rate limit refuses the 6th message in a minute", func(t *testing.T) {
 		hub.setApprove(approveAll)
-		a := newSession(ws1, "it-rate-a", "")
-		b := newSession(ws2, "it-rate-b", "")
+		a := newSession(ws1, "it-rate-a", "build")
+		b := newSession(ws2, "it-rate-b", "build")
+		// Under auto-accept: the loop brake is a refusal, never a fallback.
+		if err := mat.SetAutoAccept(a.ID, true); err != nil {
+			t.Fatal(err)
+		}
 		for i := 1; i <= 6; i++ {
 			route(fmt.Sprintf("trigger-rate-%d", i), "session_send", mustJSON2(map[string]any{"target": b.ID, "text": fmt.Sprintf("rate message %d", i)}))
 		}

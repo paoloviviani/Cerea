@@ -1039,6 +1039,21 @@ func (m *Materializer) AutoAccept(sessionID string) bool {
 	return ok && st.autoAccept
 }
 
+// AutoAcceptInEffect reports whether sessionID's tool calls are being
+// auto-accepted right now: its own flag or an ancestor's, AND the machine
+// policy still allowing it (the machine's veto outranks every flag). It is
+// the same test EventPermissionAsked applies, exposed so galopin's own
+// coordination tools can ask "would this session's approvals be automatic?".
+func (m *Materializer) AutoAcceptInEffect(sessionID string) bool {
+	if !m.policy.AutoAcceptAllowed() {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	return ok && m.autoAcceptEffectiveLocked(st)
+}
+
 // SetAutoAccept implements session.setAutoAccept (PROTOCOL.md §6): refused
 // outright when the machine policy denies auto-accept, regardless of what
 // Cerea asks for — the machine's veto, enforced here rather than trusted to
