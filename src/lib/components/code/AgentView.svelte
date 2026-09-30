@@ -962,7 +962,7 @@
 				data-testid="spawned-by"
 			>
 				<span class="truncate"
-					>↳ from {sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title}</span
+					>spawned by {sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title}</span
 				>
 			</a>
 		{/if}
