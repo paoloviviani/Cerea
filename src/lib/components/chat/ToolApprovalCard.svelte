@@ -149,7 +149,14 @@
 			const target = args.target as { title?: unknown } | undefined;
 			facts.push({ label: "To", value: text(target?.title) });
 			facts.push({ label: "Message", value: text(args.text), long: true });
-			if (typeof args.hop === "number") facts.push({ label: "Hop", value: `${args.hop} of 3` });
+			if (typeof args.hop === "number")
+				facts.push({
+					label: "Hop",
+					value:
+						args.hop > 3
+							? `${args.hop}. This chain has passed 3 hops, so each further message needs you`
+							: `${args.hop} of 3`,
+				});
 		}
 		return facts.filter((fact) => fact.value !== "");
 	});

@@ -36,13 +36,17 @@ export type CoordinationCall = {
 	sessionId?: string;
 	/** Its title as the call names it: a spawn's own, a send's from the lookup. */
 	title?: string;
+	/** The machine approved it without raising an approval card (its result
+	 * carries `autoApproved: true`, PROTOCOL.md §6 "Agent tools"): the badge
+	 * that keeps an unseen approval from being invisible. */
+	autoApproved?: boolean;
 };
 
 /**
  * Read a `session_spawn` / `session_send` tool call. A refusal reaches the
  * model as text (a declined approval, a gate), not as an error, so "done"
  * is claimed only when the result carries what success returns: a spawn's
- * `{sessionId}`, a send's `{}`. Anything else is shown as the plain tool card,
+ * `{sessionId}`, a send's `{}` (either may carry `autoApproved`). Anything else is shown as the plain tool card,
  * where the refusal text is one tap away, rather than labelled as an action
  * that did not happen.
  */
@@ -67,15 +71,16 @@ export function coordinationCall(
 	const object =
 		typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
 	if (!object) return { kind, state: "refused", sessionId: target, title };
+	const auto = object.autoApproved === true ? { autoApproved: true } : {};
 	if (kind === "spawn") {
 		const sessionId = asText(object.sessionId);
 		return sessionId
-			? { kind, state: "done", sessionId, title }
+			? { kind, state: "done", sessionId, title, ...auto }
 			: { kind, state: "refused", title };
 	}
 	return "error" in object || "refused" in object
 		? { kind, state: "refused", sessionId: target }
-		: { kind, state: "done", sessionId: target };
+		: { kind, state: "done", sessionId: target, ...auto };
 }
 
 /** The other sessions a transcript names, for one lookup of their rows: the
