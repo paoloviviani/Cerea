@@ -124,6 +124,13 @@ and the machine's policy can still refuse it.
 | Retry and rollback           | ↻ on an answer, or editing a prompt (when the machine reports `revert`)             | `POST v1/agents/:id/revert {messageId}` rolls the session back to before that prompt (opencode `POST /session/:id/revert`), then the prompt (or the edited text) is sent again. The confirmation says whether files come back: opencode restores them from its snapshots in a git repository only. `POST v1/agents/:id/unrevert` undoes it before the next prompt.              |
 | Workspaces and worktrees     | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
 
+!!! warning "What the coordination gates do not cover"
+    An approved shell command can do anything you can on that machine
+    (opencode's server password sits in its process environment, readable by
+    same-user processes); the coordination gates constrain the model's tools,
+    not an approved shell. See
+    [Sessions that talk to sessions](agent-machines.md#sessions-that-talk-to-sessions).
+
 ### Tool images (the `toolImages` capability)
 
 When a tool call produces an image, its card shows it under "Output". The
@@ -149,7 +156,9 @@ is cached in the browser only.
 The machine lists each workspace's slash commands (`backend.commands`):
 name, description, where the definition lives (the agent's own `init`/
 `review` are `builtin`; a name only the workspace list reports is
-`project` — repository code), whether its template expands shell, the
+`project` — repository code, listed only when the machine was enrolled with
+`--allow-project-config`; by default a repo's own opencode config is
+ignored), whether its template expands shell, the
 exact snippets it would run (at most ten, each truncated), the `@path`
 files it reads, and a hash of the template. **The template itself never
 crosses the link** — the snippets and the hash are what a person confirms

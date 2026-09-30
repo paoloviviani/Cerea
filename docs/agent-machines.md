@@ -68,6 +68,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | **Terminals**                | `--allow-terminal`, `--max-terminals N`                    | denied; at most 8 open at once       | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal-off-by-default))                                                                                                                                         | `policy set --no-terminal`, a lower `--max-terminals` |
 | **Auto-accept**              | `--allow-auto-accept`                                      | denied                               | Whether a session may answer the model's tool-permission asks without a person. The machine-side gate behind the panel's Auto-accept toggle: while denied, the agent refuses the toggle and never auto-replies, whatever the panel sends. **Handoff approvals and questions are never auto-accepted**, even when it is on | re-enroll                                             |
 | **Slash-command shell**      | `--allow-command-shell`                                    | denied                               | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                            | `policy set --no-command-shell`                       |
+| **A repo's own opencode config** | `--allow-project-config`                                  | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config)) | `policy set --no-project-config`                      |
 | **Models from elsewhere**    | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                          | re-enroll                                             |
 | **opencode's own providers** | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                  | re-enroll                                             |
 | **Workspace roots**          | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                             | re-enroll                                             |
@@ -87,6 +88,43 @@ Each enrollment mints a new machine id (`machine-id`, in the machine's state
 directory). The chat therefore shows a re-enrolled machine as a new **Pending** machine, which you confirm again. A machine revoked in the panel is refused for good under
 its old id, and `run` reports that and exits with code 78 instead of
 reconnecting.
+
+### A repo's own opencode config
+
+A workspace is usually a repository you cloned, and a cloned repository is
+someone else's input. It can carry an `opencode.json`, an `.opencode/`
+directory (commands, agents, tools, plugins, MCP servers) and an `AGENTS.md`.
+Loaded blindly, an `opencode.json` can point the gateway provider at another
+endpoint, so **every prompt, and every file the prompt pulls in with `@`,
+goes to a stranger's server instead of your gateway**; and its `{env:...}` and
+`{file:...}` settings can read your environment and files into that request.
+Both were reproduced against opencode 1.18.32.
+
+So by default the machine **ignores** it: `run` starts opencode with
+`OPENCODE_DISABLE_PROJECT_CONFIG=1`. That skips the repo's `opencode.json`,
+its project commands, agents and MCP servers, and its `AGENTS.md`/`CLAUDE.md`;
+your own global config, your user-level commands and galopin's agent tools
+still load. The cost is real: a repo's own commands and agents do not show up,
+and the panel says so on such a workspace ("this repo's opencode config is
+ignored on this machine") so a missing command does not look like a bug.
+
+**Known gap:** on opencode 1.18.32 neither that switch nor `--pure` stops a
+repo's `.opencode/plugin/` scripts from being executed when opencode opens
+the directory. Do not open a repository you do not trust in an agent, whatever
+this setting says.
+
+`enroll --allow-project-config` (the pairing dialog's checkbox) opts in for
+machines whose repositories you trust: the repo's config loads, **including
+its plugins, which run as you**. galopin still pins the gateway provider,
+`enabled_providers`, `model` and `small_model` above whatever the repo sets, so
+a repo cannot redirect your prompts; an attempt to (a repo's `opencode.json`
+setting `provider`, `enabled_providers`, `model`, `small_model` or an agent's
+model) is written to the machine's `audit.log` as
+`project_config.override_attempt`, listing the keys and never the values. An
+agent-level model naming a provider outside the allowlist fails with an error
+rather than routing anywhere. With `--allow-opencode-provider` as well there is
+no allowlist to pin and this last guarantee does not hold (**known: no
+guarantee**): a repo agent can name the repo's own provider.
 
 ### What the file explorer may see
 
@@ -192,8 +230,11 @@ there is. The menu groups them under headings, in this order:
   agent's backend can do it. They drive the same routes the pills and the
   transcript use; nothing new runs on the machine.
 - **Project** (badge "from this repo") — commands defined in the open
-  workspace's repository (`.opencode/command/*.md`). Running one is running
-  repository code on your machine; the first run asks (see below).
+  workspace's repository (`.opencode/command/*.md`). Listed only on a machine
+  enrolled with `--allow-project-config`; by default a repo's config is ignored
+  (see [A repo's own opencode config](#a-repos-own-opencode-config)). Running
+  one is running repository code on your machine; the first run asks (see
+  below).
 - **Machine** — commands from your user-level or the machine's config.
 - **Skills** and **MCP** — when the agent exposes them.
 
@@ -271,8 +312,19 @@ as a nested read-only conversation.
 A session's model can start another session on the same machine (`session_spawn`)
 or send a message to one (`session_send`). Both are on by default and turned off
 with `--no-agent-tools` at enroll (or `galopin policy set --no-agent-tools`
-later). Each call asks first, with an approval card that shows the full prompt or
-message. The one exception is a session that is already **auto-accepting**:
+later), which installs no tool into the backend at all. There are three:
+
+- `session_list` reads the machine's sessions and needs no approval.
+- `session_spawn` starts a new session. Its approval card shows the new
+  session's **title**, its **mode** and the **full prompt**.
+- `session_send` sends a message to an existing session. Its card shows the
+  **target** session, the **full message** and the **hop** (how many agent
+  sends deep this chain is).
+
+Every spawn and send asks first, and nothing you answer is remembered — there
+is no "always". Prompts and messages over 8 KiB are refused before any card is
+raised, so a card never shows a truncated text. The one exception to asking is
+a session that is already **auto-accepting**:
 
 - **Spawn** goes through without a card. The new session is never more
   permissive than its parent, starts with auto-accept **off**, and asks for its
@@ -289,18 +341,45 @@ message. The one exception is a session that is already **auto-accepting**:
 - The machine's auto-accept policy still vetoes: with `autoAccept: denied`
   every call asks. Handoffs and questions are never auto-approved.
 - A chain longer than three messages, sent back and forth, asks at every step
-  after the third instead of stopping, and more than five messages a minute to
-  the same session are refused outright.
+  after the third instead of stopping; the card says why. More than five
+  messages a minute from one session to the same target are refused outright.
 
 An auto-approved call is not invisible: the "Spawned …" / "Sent to …" card in
 the sender's transcript carries an **auto-approved** badge, and the machine's
 audit log records it as `auto` with the reason.
+
+#### Limits
+
+Spawning is bounded so a session cannot fork without end: a spawn chain is at
+most two deep (a spawned session can spawn once more, its child cannot), at most
+three spawned sessions are live under one root, and a root that has started six
+in ten minutes is refused. A spawned session runs in the spawner's own
+workspace, in its mode or a stricter one, and never inherits auto-accept. It
+appears as its own top-level row with a "spawned by" link, not inside the
+spawner's tree.
+
+#### Steering
+
+A message that arrives while the target is mid-turn is folded into that turn as
+steering; to an idle target it starts a turn. The message reaches the target
+marked as coming from another agent session, and the target's transcript shows
+it as a distinct "From agent" bubble with a link back to the sender. The same
+steering applies to your own messages: with a turn running, the composer's
+**Send** sits beside **Stop** (its chevron is stop-and-send), and slash
+commands are still refused mid-turn.
 
 What this means, plainly: an auto-accepting session can message equal-or-stricter
 peers without you seeing a card. It could already run its own tools unattended,
 so this is no new capability; the cost is noise and one agent's text steering
 another's context, bounded by the hop and rate limits and visible in the badges
 and the audit log.
+
+#### What these gates do not cover
+
+An approved shell command can do anything you can on that machine (opencode's
+server password sits in its process environment, readable by same-user
+processes); the coordination gates constrain the model's tools, not an approved
+shell.
 
 ### The diff pane
 

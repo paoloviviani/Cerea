@@ -70,6 +70,10 @@ type PolicyInfo struct {
 	// "Agent tools"): "allowed" (default) or "denied". Older machines omit
 	// it: decide from the backend's agentTools capability alone.
 	AgentTools string `json:"agentTools,omitempty"`
+	// ProjectConfig is whether opencode loads a workspace's own config
+	// (PROTOCOL.md §4): "allowed" or "denied" (default). Older machines
+	// omit it, and they load it.
+	ProjectConfig string `json:"projectConfig,omitempty"`
 }
 
 // MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can

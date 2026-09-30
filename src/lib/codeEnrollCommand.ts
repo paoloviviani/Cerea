@@ -47,6 +47,12 @@ export interface EnrollCommandOptions {
 	 * (`Policy.autoAccept`; handoffs and questions are never
 	 * auto-accepted whatever this says). */
 	allowAutoAccept?: boolean;
+	/** Adds `--allow-project-config`, off by default. Lets a repo's own
+	 * opencode config load (its agents, commands, MCP, plugins, AGENTS.md)
+	 * with the gateway provider and default models pinned over it — enable
+	 * only on machines that open repos you trust, since repo plugins run
+	 * as you. */
+	allowProjectConfig?: boolean;
 	/** Adds the opencode install line before enroll — galopin runs the
 	 * opencode binary as its agent, and a fresh machine has neither it nor
 	 * a reason to know that. Off by default because a machine that already
@@ -92,6 +98,9 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	}
 	if (opts.allowAutoAccept) {
 		enroll.push("--allow-auto-accept");
+	}
+	if (opts.allowProjectConfig) {
+		enroll.push("--allow-project-config");
 	}
 	if (opts.allowTerminal) {
 		enroll.push("--allow-terminal");

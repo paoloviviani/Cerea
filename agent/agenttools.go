@@ -446,6 +446,7 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 		return "", "", err
 	}
 	at.mc.trackSession(w, child)
+	at.mc.auditProjectConfig(w, child.ID)
 	// The child is never auto-accepting, whatever the caller or an ancestor
 	// has: it is a fresh top-level session, and this says so explicitly.
 	_ = at.mc.mat.SetAutoAccept(child.ID, false)
