@@ -42,4 +42,14 @@ describe("a user message another session wrote", () => {
 		expect(view.baseElement.querySelector("[data-testid='sent-by-agent']")).toBeNull();
 		await expect.element(view.getByText("just me")).toBeVisible();
 	});
+
+	it("draws the person's own words at full text contrast, not the dimmed tone", async () => {
+		const view = mount({ from: "user", content: "just me" });
+		const bubble = view.baseElement
+			.querySelector('[data-message-type="user"]')
+			?.querySelector("p.bg-inherit");
+		expect(bubble?.className).toContain("text-gray-600");
+		expect(bubble?.className).toContain("dark:text-gray-300");
+		expect(bubble?.className).not.toContain("text-gray-500");
+	});
 });
