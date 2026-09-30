@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 import {
+	groupSpawned,
 	parentRow,
 	readShowSubagents,
 	spawnedRow,
+	spawnerRow,
 	subagentRow,
 	subagentStatus,
 	visibleAgents,
@@ -108,6 +110,7 @@ describe("a spawned session's row", () => {
 			title: "Main",
 			workspaceId: "w1",
 			elsewhere: null,
+			gone: false,
 		});
 	});
 
@@ -122,11 +125,92 @@ describe("a spawned session's row", () => {
 			title: "Main (then)",
 			workspaceId: null,
 			elsewhere: null,
+			gone: true,
 		});
 	});
 
 	it("is null for an ordinary session, and for a subagent", () => {
 		expect(spawnedRow(parent, [parent], workspaces)).toBeNull();
 		expect(spawnedRow(child, [parent, child], workspaces)).toBeNull();
+	});
+});
+
+describe("spawned sessions are peers", () => {
+	const spawned = agent({
+		id: "s",
+		title: "Docs",
+		spawnedBy: { sessionId: "p", title: "Main (then)" },
+	});
+
+	it("survive the subagent filter, which drops only parentId children", () => {
+		const all = [parent, child, spawned];
+		expect(visibleAgents(all, false).map((a) => a.id)).toEqual(["p", "s"]);
+	});
+
+	it("stay listed, marked gone, when the spawner is deleted or archived", () => {
+		expect(visibleAgents([spawned], false)).toHaveLength(1);
+		expect(spawnedRow(spawned, [spawned], workspaces)).toMatchObject({ gone: true });
+	});
+});
+
+describe("a spawner's row", () => {
+	const s1 = agent({ id: "s1", title: "Docs", spawnedBy: { sessionId: "p", title: "Main" } });
+	const s2 = agent({
+		id: "s2",
+		title: "Tests",
+		workspaceId: "w2",
+		spawnedBy: { sessionId: "p", title: "Main" },
+	});
+
+	it("counts the sessions it spawned and links each, but not its subagents", () => {
+		expect(spawnerRow(parent, [parent, child, s1, s2], workspaces)).toEqual({
+			count: 2,
+			children: [
+				{ id: "s1", title: "Docs", workspaceId: "w1", workspaceName: "repo" },
+				{ id: "s2", title: "Tests", workspaceId: "w2", workspaceName: "repo-feature" },
+			],
+		});
+	});
+
+	it("is absent for a session that spawned nothing", () => {
+		expect(spawnerRow(s1, [parent, s1], workspaces)).toBeNull();
+	});
+});
+
+describe("grouping spawned sessions by adjacency", () => {
+	const mk = (id: string, by?: string) =>
+		agent({ id, ...(by ? { spawnedBy: { sessionId: by, title: by } } : {}) });
+	const ids = (list: CodeAgentSession[]) => list.map((a) => a.id);
+
+	it("sorts a spawned session right after its spawner", () => {
+		expect(ids(groupSpawned([mk("a"), mk("b"), mk("c", "a")]))).toEqual(["a", "c", "b"]);
+	});
+
+	it("follows a two-level chain, all at one level of the list", () => {
+		expect(ids(groupSpawned([mk("a"), mk("x"), mk("c", "b"), mk("b", "a")]))).toEqual([
+			"a",
+			"b",
+			"c",
+			"x",
+		]);
+	});
+
+	it("groups no deeper than two, leaving the third link where the list has it", () => {
+		expect(ids(groupSpawned([mk("a"), mk("x"), mk("d", "c"), mk("c", "b"), mk("b", "a")]))).toEqual(
+			["a", "b", "c", "x", "d"]
+		);
+	});
+
+	it("leaves a session whose spawner is gone, or elsewhere, in list order", () => {
+		expect(ids(groupSpawned([mk("a"), mk("c", "gone"), mk("b")]))).toEqual(["a", "c", "b"]);
+	});
+
+	it("does not loop on a cycle", () => {
+		expect(ids(groupSpawned([mk("a", "b"), mk("b", "a")]))).toEqual(["a", "b"]);
+	});
+
+	it("does not move subagents", () => {
+		const sub = agent({ id: "k", parentId: "a", spawnedBy: { sessionId: "z", title: "z" } });
+		expect(ids(groupSpawned([mk("a"), mk("z"), sub]))).toEqual(["a", "z", "k"]);
 	});
 });

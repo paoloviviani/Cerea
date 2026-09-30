@@ -665,6 +665,33 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("deleting the spawner leaves the spawned session, and its spawnedBy marker survives", func(t *testing.T) {
+		spawners := allTitled("it-caller-a")
+		kids := allTitled("it-child-a")
+		if len(spawners) != 1 || len(kids) != 1 {
+			t.Fatalf("spawner/child sessions = %d/%d, want 1/1", len(spawners), len(kids))
+		}
+		spawnerID, childID := spawners[0].ID, kids[0].ID
+		if _, operr := mc.Handle(ctx, "session.delete", mustJSONArgs(t, map[string]any{"sessionId": spawnerID})); operr != nil {
+			t.Fatalf("session.delete spawner: %+v", operr)
+		}
+		if got := allTitled("it-caller-a"); len(got) != 0 {
+			t.Fatalf("the spawner is still listed after delete: %+v", got)
+		}
+		// A spawned session is a peer: no parent edge, so nothing cascades.
+		left := allTitled("it-child-a")
+		if len(left) != 1 || left[0].ID != childID {
+			t.Fatalf("the spawned session did not survive its spawner: %+v", left)
+		}
+		child := getSession(childID)
+		if child.ParentID != "" || child.RootID != child.ID {
+			t.Errorf("spawned session must stay its own root: parent=%q root=%q", child.ParentID, child.RootID)
+		}
+		if child.SpawnedBy == nil || child.SpawnedBy.SessionID != spawnerID || child.SpawnedBy.Title != "it-caller-a" {
+			t.Errorf("spawnedBy after the spawner's delete = %+v", child.SpawnedBy)
+		}
+	})
+
 	t.Run("send: approved, delivered as an agent message; refusals; hop and pair limits", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		a := newSession(ws1, "it-send-a", "")
