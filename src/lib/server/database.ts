@@ -332,6 +332,7 @@ export class Database {
 		const {
 			conversations,
 			projects,
+			knowledgeDocuments,
 			skills,
 			memories,
 			mcpConnectors,
@@ -738,6 +739,36 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for reports by createdBy and assistantId")
 			);
+
+		// One document per (base, handle): `addText` finds-then-inserts, and two
+		// turns of one conversation racing there would otherwise leave two
+		// transcripts. Partial, because file documents carry no `sourceRef`.
+		// A base that already holds duplicates refuses the build; that is
+		// logged rather than fatal, and the race stays possible there until
+		// the extras are removed.
+		knowledgeDocuments
+			.createIndex(
+				{ storeId: 1, sourceRef: 1 },
+				{ unique: true, partialFilterExpression: { sourceRef: { $type: "string" } } }
+			)
+			.catch((e) =>
+				logger.error(
+					e,
+					"Error creating unique index for knowledgeDocuments by storeId and sourceRef " +
+						"(duplicate transcripts already exist?)"
+				)
+			);
+		knowledgeDocuments
+			.createIndex({ storeId: 1, createdAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for knowledgeDocuments by storeId"));
+		// The other direction: deleting a conversation finds its transcript in
+		// whichever base holds it, by handle alone.
+		knowledgeDocuments
+			.createIndex(
+				{ sourceRef: 1 },
+				{ partialFilterExpression: { sourceRef: { $type: "string" } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for knowledgeDocuments by sourceRef"));
 
 		// Unique index for semaphore and migration results
 		semaphores.createIndex({ key: 1 }, { unique: true }).catch((e) => logger.error(e));
