@@ -7,7 +7,7 @@
  * things a person names; the Postgres chunks carry only what a ranking query
  * reads.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ObjectId } from "bson";
 import type { GridFSBucket } from "mongodb";
 
@@ -18,6 +18,7 @@ import { logger } from "$lib/server/logger";
 import { chunkMarkdown } from "./chunking";
 import { INDEXED_DIMENSIONS, toUuid, withClient } from "./db";
 import { fromUuid } from "./db";
+import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
 import {
 	resolveExtractor,
@@ -557,11 +558,7 @@ export async function deleteStore(storeId: string, caller: Caller): Promise<void
 	if (!base.ownerId.equals(caller.userId)) {
 		throw new KnowledgeError(403, "Only the owner can delete a vector store.");
 	}
-	await collections.knowledgeDocuments.deleteMany({ storeId: base._id });
-	await collections.vectorStores.deleteOne({ _id: base._id });
-	await withClient((client) =>
-		client.query("DELETE FROM knowledge_chunks WHERE store_id = $1", [toUuid(base._id.toString())])
-	);
+	await deleteDerived({ storeIds: base._id, dropStores: true });
 }
 
 // -- ingestion ---------------------------------------------------------------
@@ -593,6 +590,13 @@ async function upsertChunks(
 	await withClient(async (client) => {
 		await client.query("BEGIN");
 		try {
+			// One writer per document at a time: under READ COMMITTED a second
+			// transaction's delete cannot see the first's uncommitted inserts, so
+			// two concurrent indexings would each leave a full set of chunks. Held
+			// until commit, the second waits and then deletes the first's.
+			await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+				toUuid(documentId.toString()),
+			]);
 			await client.query("DELETE FROM knowledge_chunks WHERE document_id = $1", [
 				toUuid(documentId.toString()),
 			]);
@@ -688,6 +692,10 @@ export async function ingestDocument(
 
 		const chunks = chunkMarkdown(text, base.chunkChars, base.chunkOverlap);
 		if (chunks.length === 0) {
+			// Nothing to keep, and the old passages must not outlive the text
+			// they came from: the replace happens in the same transaction as
+			// every other one, with no rows to write.
+			await upsertChunks(base._id, document._id, [], []);
 			await collections.knowledgeDocuments.updateOne(
 				{ _id: document._id },
 				{
@@ -743,6 +751,22 @@ export async function ingestDocument(
 			);
 		}
 		await upsertChunks(base._id, document._id, chunks, vectors);
+		// The source may have been deleted while it was being embedded (a
+		// conversation deleted mid-index, a base dropped mid-reindex). The
+		// delete found no chunks to remove, and these would outlive it.
+		if (
+			!(await collections.knowledgeDocuments.findOne(
+				{ _id: document._id },
+				{ projection: { _id: 1 } }
+			))
+		) {
+			await withClient((client) =>
+				client.query("DELETE FROM knowledge_chunks WHERE document_id = $1", [
+					toUuid(document._id.toString()),
+				])
+			);
+			throw new KnowledgeError(404, "The document was deleted while it was being indexed.");
+		}
 		if (base.dimensions === null || base.dimensions !== vectors[0].length) {
 			await collections.vectorStores.updateOne(
 				{ _id: base._id },
@@ -813,7 +837,13 @@ export async function storeUpload(
 	const id = new ObjectId();
 	return new Promise((resolve, reject) => {
 		const upload = bucket().openUploadStreamWithId(id, file.name, {
-			metadata: { mime: file.mime, owner: ownerId.toString() },
+			// The digest is what attachFile compares to tell a re-upload of the
+			// same file from a new one.
+			metadata: {
+				mime: file.mime,
+				owner: ownerId.toString(),
+				sha256: createHash("sha256").update(file.bytes).digest("hex"),
+			},
 		});
 		upload.write(file.bytes);
 		upload.end();
@@ -870,6 +900,39 @@ export async function attachFile(
 	if (!stored || stored.metadata?.owner !== caller.userId.toString()) {
 		throw new KnowledgeError(404, `No such file: ${body.file_id}`);
 	}
+	// The same file again is the same document: a second upload of identical
+	// bytes into one base would index every passage twice and make every
+	// search return both copies. A twin that failed is tried again, so a
+	// retry is still a retry.
+	const sha = stored.metadata?.sha256 as string | undefined;
+	const inStore = await collections.knowledgeDocuments
+		.find({ storeId: base._id, fileId: { $exists: true } })
+		.toArray();
+	const sameBytes = sha
+		? new Set(
+				(
+					await collections.bucketFiles
+						.find({
+							_id: { $in: inStore.flatMap((d) => (d.fileId ? [d.fileId] : [])) },
+							"metadata.sha256": sha,
+						})
+						.project<{ _id: ObjectId }>({ _id: 1 })
+						.toArray()
+				).map((f) => f._id.toString())
+			)
+		: new Set<string>();
+	const twin = inStore.find(
+		(d) => d.fileId?.equals(fileId) || sameBytes.has(d.fileId?.toString() ?? "")
+	);
+	if (twin) {
+		if (!twin.fileId?.equals(fileId)) {
+			await bucket()
+				.delete(fileId)
+				.catch(() => undefined);
+		}
+		const settled = twin.status === "failed" ? await ingestDocument(twin._id, token) : twin;
+		return documentObject(settled, null);
+	}
 	const document: KnowledgeDocument = {
 		_id: new ObjectId(),
 		storeId: base._id,
@@ -912,7 +975,7 @@ export async function addText(
 		: null;
 
 	if (!document) {
-		document = {
+		const fresh = {
 			_id: new ObjectId(),
 			storeId: base._id,
 			sourceRef: body.source_ref,
@@ -926,18 +989,24 @@ export async function addText(
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		} satisfies KnowledgeDocument;
-		await collections.knowledgeDocuments.insertOne(document);
-	} else if (document) {
-		// Replacing: the old chunks go now, so a search landing mid-reindex
-		// cannot return passages from the previous version alongside the new.
-		const existing = document;
-		await withClient((client) =>
-			client.query("DELETE FROM knowledge_chunks WHERE document_id = $1", [
-				toUuid(existing._id.toString()),
-			])
-		);
-		document.title = body.title || document.title;
+		try {
+			await collections.knowledgeDocuments.insertOne(fresh);
+			document = fresh;
+		} catch (err) {
+			// Two turns of one conversation can both find nothing and both insert;
+			// the unique (storeId, sourceRef) index refuses the second, which then
+			// replaces the first's document like any later turn would.
+			if (!body.source_ref || (err as { code?: number }).code !== 11000) throw err;
+			document = await collections.knowledgeDocuments.findOne({
+				storeId: base._id,
+				sourceRef: body.source_ref,
+			});
+			if (!document) throw err;
+		}
 	}
+	// Replacing needs no delete here: the old chunks stay searchable until the
+	// new ones commit, and `upsertChunks` swaps them in one transaction. A
+	// delete up front would make an embedding failure cost the whole memory.
 	await collections.knowledgeDocuments.updateOne(
 		{ _id: document._id },
 		{
@@ -954,6 +1023,40 @@ export async function addText(
 	);
 	const ingested = await ingestDocument(document._id, token);
 	return documentObject(ingested, null);
+}
+
+/**
+ * Put a failure on the document list, where a failed file would show: the row
+ * for `sourceRef`, marked `failed` with the reason. For the failures that never
+ * reach `ingestDocument` (which records its own). Best effort — this runs in a
+ * catch, and a failure to report a failure is only logged.
+ */
+export async function markIndexFailed(
+	storeId: ObjectId,
+	sourceRef: string,
+	title: string,
+	message: string
+): Promise<void> {
+	try {
+		await collections.knowledgeDocuments.updateOne(
+			{ storeId, sourceRef },
+			{
+				$set: { status: "failed", error: message, updatedAt: new Date() },
+				$setOnInsert: {
+					_id: new ObjectId(),
+					title,
+					chars: 0,
+					chunkCount: 0,
+					embeddingModel: null,
+					indexedAt: null,
+					createdAt: new Date(),
+				},
+			},
+			{ upsert: true }
+		);
+	} catch (err) {
+		logger.warn({ err, sourceRef }, "knowledge_mark_failed_unrecorded");
+	}
 }
 
 export async function listDocuments(
@@ -1106,13 +1209,14 @@ export async function deleteDocument(
 	caller: Caller
 ): Promise<void> {
 	await reachableStore(storeId, caller, "editor");
-	await collections.knowledgeDocuments.deleteOne({
+	// Scoped to the store the caller may edit: a document id from another
+	// base is nothing of theirs to delete.
+	const document = await collections.knowledgeDocuments.findOne({
 		_id: new ObjectId(documentId),
 		storeId: new ObjectId(storeId),
 	});
-	await withClient((client) =>
-		client.query("DELETE FROM knowledge_chunks WHERE document_id = $1", [toUuid(documentId)])
-	);
+	if (!document) return;
+	await deleteDerived({ documentIds: document._id });
 }
 
 export async function search(

@@ -53,6 +53,7 @@ import type { Collection, Document, ObjectId } from "mongodb";
 
 import { collections } from "$lib/server/database";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
+import { conversationSourceRef, deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { deleteAttachmentsByPrefix } from "$lib/server/files/attachmentStore";
 
 export type MergeRuleKind =
@@ -412,34 +413,36 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		// A document belongs to its store, and the store's own reassignment
 		// (below) is the whole move — nothing here changes.
 		merge: async () => 0,
-		erase: async (userId) => {
+		// Through `deleteDerived`, which clears the Postgres passages (text and
+		// vectors — the erasure promise covers them, not just their
+		// retrievability), then the GridFS bytes, then the rows. It runs here,
+		// before the `vectorStores` entry below: the store ids it needs are
+		// that entry's rows. The erased person's own conversations are swept
+		// too, for transcripts of theirs written into a base somebody else owns.
+		erase: async (userId, ctx) => {
 			const storeIds = await collections.vectorStores
 				.find({ ownerId: userId })
 				.project<{ _id: ObjectId }>({ _id: 1 })
 				.toArray()
 				.then((rows) => rows.map((r) => r._id));
-			if (storeIds.length === 0) return 0;
-			const docs = await collections.knowledgeDocuments
-				.find({ storeId: { $in: storeIds } })
-				.toArray();
-			await Promise.all(
-				docs
-					.filter((doc) => doc.fileId)
-					.map((doc) => collections.bucket.delete(doc.fileId as ObjectId).catch(() => undefined))
-			);
-			const { deletedCount } = await collections.knowledgeDocuments.deleteMany({
-				storeId: { $in: storeIds },
+			const { documents } = await deleteDerived({
+				storeIds,
+				conversationId: ctx.conversationIds,
 			});
-			return deletedCount;
+			return documents;
 		},
-		count: async (userId) => {
+		count: async (userId, ctx) => {
 			const storeIds = await collections.vectorStores
 				.find({ ownerId: userId })
 				.project<{ _id: ObjectId }>({ _id: 1 })
 				.toArray()
 				.then((rows) => rows.map((r) => r._id));
-			if (storeIds.length === 0) return 0;
-			return collections.knowledgeDocuments.countDocuments({ storeId: { $in: storeIds } });
+			const refs = ctx.conversationIds.map(conversationSourceRef);
+			const clauses: Record<string, unknown>[] = [];
+			if (storeIds.length > 0) clauses.push({ storeId: { $in: storeIds } });
+			if (refs.length > 0) clauses.push({ sourceRef: { $in: refs } });
+			if (clauses.length === 0) return 0;
+			return collections.knowledgeDocuments.countDocuments({ $or: clauses });
 		},
 	},
 	{

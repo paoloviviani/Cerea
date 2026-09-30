@@ -11,6 +11,7 @@ import { loadMcpServersOnStartup } from "$lib/server/mcp/registry";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
+import { OrphanSweeper } from "$lib/server/knowledge/orphanSweep";
 import { ToolApprovalSweeper } from "$lib/server/generation/toolApprovalSweeper";
 import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
@@ -72,6 +73,9 @@ export async function initServer(): Promise<void> {
 	ToolApprovalSweeper.getInstance();
 	// 30-day retention for persisted execute_code deliverables (ADR 0073's amendment).
 	DeliverableReaper.getInstance();
+	// Daily backstop for the knowledge pipeline's deleteDerived: orphan
+	// chunks, unattached uploads, transcripts of deleted conversations.
+	OrphanSweeper.getInstance();
 
 	// Diagnostic only — logged once, never cached or trusted as a gate. The
 	// renderer's own container healthcheck has a 60-second start period, so
