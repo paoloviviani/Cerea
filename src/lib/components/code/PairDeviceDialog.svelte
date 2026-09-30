@@ -56,6 +56,7 @@
 	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
 	let allowTerminal = $state(false);
 	let allowAutoAccept = $state(false);
+	let allowProjectConfig = $state(false);
 	let installOpencode = $state(false);
 	const command = $derived(
 		buildEnrollCommand({
@@ -65,6 +66,7 @@
 			clientId: page.data.codeOidcClientId,
 			allowTerminal,
 			allowAutoAccept,
+			allowProjectConfig,
 			installOpencode,
 		})
 	);
@@ -184,6 +186,15 @@
 				<span class="font-medium text-ink">Allow auto-accept.</span> The agent may answer its own tool
 				permission asks on this machine without a person approving each one — handoffs and questions still
 				ask. This is the machine-side gate for the Auto-accept toggle in the panel.
+			</span>
+		</label>
+
+		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
+			<input type="checkbox" class="mt-0.5" bind:checked={allowProjectConfig} />
+			<span>
+				<span class="font-medium text-ink">Trust repo configs.</span> A repo's own opencode config loads
+				— its agents, commands, MCP servers, plugins and instructions run as you. Enable only on machines
+				that open repos you trust; the gateway provider and default models stay pinned over it.
 			</span>
 		</label>
 

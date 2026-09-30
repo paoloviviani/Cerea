@@ -75,6 +75,21 @@ describe("buildEnrollCommand", () => {
 		);
 	});
 
+	it("adds --allow-project-config only when asked, between auto-accept and terminal", () => {
+		const off = buildEnrollCommand(BASE_OPTIONS);
+		const on = buildEnrollCommand({
+			...BASE_OPTIONS,
+			allowAutoAccept: true,
+			allowProjectConfig: true,
+			allowTerminal: true,
+		});
+
+		expect(off).not.toContain("--allow-project-config");
+		expect(on).toContain("--allow-project-config");
+		expect(on.indexOf("--allow-auto-accept")).toBeLessThan(on.indexOf("--allow-project-config"));
+		expect(on.indexOf("--allow-project-config")).toBeLessThan(on.indexOf("--allow-terminal"));
+	});
+
 	it("combines a custom client id and --allow-terminal together", () => {
 		const command = buildEnrollCommand({
 			...BASE_OPTIONS,

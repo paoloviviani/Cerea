@@ -27,6 +27,8 @@ refuses and names the 'enroll' re-run that does it instead.
                       and every command whose shell is unknown.
   --no-agent-tools    Stop installing session_list/session_spawn/session_send
                       into opencode (takes effect at the next 'run').
+  --no-project-config  Stop loading a repo's own opencode config (the default
+                      on a fresh enroll; takes effect at the next 'run').
   --max-terminals N   Lower the concurrent-terminal cap (must be less than
                       the current value).
   --file-deny GLOB    Add GLOB to the deny list (repeatable).
@@ -89,6 +91,7 @@ func runPolicyShow(args []string) error {
 	fmt.Println(terminalPolicySummary(pol))
 	fmt.Println(commandShellPolicySummary(pol))
 	fmt.Println(agentToolsPolicySummary(pol))
+	fmt.Println(projectConfigPolicySummary(pol, false))
 	fmt.Printf("autoAccept: %s\n", pol.AutoAccept)
 	fmt.Printf("allowFreeModels: %v\n", pol.AllowFreeModels)
 	fmt.Printf("workspaceRoots: %v\n", pol.WorkspaceRoots)
@@ -102,6 +105,7 @@ func runPolicySet(args []string) error {
 	noTerminal := fs.Bool("no-terminal", false, "")
 	noCommandShell := fs.Bool("no-command-shell", false, "")
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
+	noProjectConfig := fs.Bool("no-project-config", false, "")
 	maxTerminals := fs.Int("max-terminals", 0, "")
 	var fileDeny []string
 	fs.Var(stringListFlag{&fileDeny}, "file-deny", "")
@@ -141,6 +145,10 @@ func runPolicySet(args []string) error {
 		pol.AgentTools = policy.TerminalDenied
 		changed = true
 	}
+	if *noProjectConfig {
+		pol.ProjectConfig = policy.TerminalDenied
+		changed = true
+	}
 	if *maxTerminals != 0 {
 		current := pol.EffectiveMaxTerminals()
 		if *maxTerminals >= current {
@@ -163,5 +171,6 @@ func runPolicySet(args []string) error {
 	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, false))
 	return nil
 }

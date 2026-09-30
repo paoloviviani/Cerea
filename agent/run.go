@@ -348,6 +348,8 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			// extracts native libraries there each start and never cleans up.
 			TmpDir:   filepath.Join(stateDir, "opencode-tmp"),
 			StateDir: stateDir,
+			// A repo's own opencode config is off unless the machine opted in.
+			ProjectConfig: pol.ProjectConfigAllowed(),
 			// galopin's own agent-coordination tools (session_list/spawn/send).
 			ToolsDir: toolsDir,
 			Logf:     func(format string, args ...any) { logf(format, args...) },
@@ -439,6 +441,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			MaxTerminals:    pol.EffectiveMaxTerminals(),
 			CommandShell:    commandShellPolicyWord(pol),
 			AgentTools:      agentToolsPolicyWord(pol),
+			ProjectConfig:   projectConfigPolicyWord(pol),
 		},
 	}
 }
@@ -565,6 +568,13 @@ func agentToolsDir(pol policy.Policy, stateDir string) string {
 
 func agentToolsPolicyWord(pol policy.Policy) string {
 	if pol.AgentToolsAllowed() {
+		return policy.TerminalAllowed
+	}
+	return policy.TerminalDenied
+}
+
+func projectConfigPolicyWord(pol policy.Policy) string {
+	if pol.ProjectConfigAllowed() {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied

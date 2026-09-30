@@ -343,6 +343,9 @@ func TestAgentToolsIntegration(t *testing.T) {
 				t.Errorf("tool file %s: %v", name, err)
 			}
 		}
+		if _, err := os.Stat(filepath.Join(dirs["state"], "opencode-tools", "skills", "delegation", "SKILL.md")); err != nil {
+			t.Errorf("delegation skill: %v", err)
+		}
 	})
 
 	t.Run("spawn: approved by a card, marked, unprivileged", func(t *testing.T) {

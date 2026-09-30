@@ -64,6 +64,15 @@ type Policy struct {
 	// default; denied installs no tool at all. A local `galopin policy set`
 	// can only turn it off.
 	AgentTools string `json:"agentTools,omitempty"`
+	// ProjectConfig gates the opencode configuration a workspace's own repo
+	// carries (opencode.json, .opencode/ plugins, tools, commands, agents
+	// and MCP servers, AGENTS.md/CLAUDE.md): "allowed" or "denied" (the
+	// default; `enroll --allow-project-config` opens it). A cloned repo is
+	// untrusted input: its config can point the gateway provider at another
+	// endpoint, and its plugins are code that runs as the user. While denied
+	// galopin starts opencode with OPENCODE_DISABLE_PROJECT_CONFIG=1. A
+	// local `galopin policy set` can only turn it off.
+	ProjectConfig string `json:"projectConfig,omitempty"`
 }
 
 // FilesRead and FilesOff are Policy.Files's two values.
@@ -109,6 +118,10 @@ func (p Policy) CommandShellAllowed() bool { return p.CommandShell == TerminalAl
 // tools. Default allowed: an owner opts out with `enroll --no-agent-tools`.
 func (p Policy) AgentToolsAllowed() bool { return p.AgentTools != TerminalDenied }
 
+// ProjectConfigAllowed reports whether opencode loads a workspace's own
+// config. Default denied: an owner opts in with `enroll --allow-project-config`.
+func (p Policy) ProjectConfigAllowed() bool { return p.ProjectConfig == TerminalAllowed }
+
 // EffectiveMaxTerminals is p.MaxTerminals, or DefaultMaxTerminals when unset.
 func (p Policy) EffectiveMaxTerminals() int {
 	if p.MaxTerminals <= 0 {
@@ -143,6 +156,7 @@ func Default() Policy {
 		Terminal:        TerminalDenied,
 		CommandShell:    TerminalDenied,
 		AgentTools:      TerminalAllowed,
+		ProjectConfig:   TerminalDenied,
 	}
 }
 
@@ -175,6 +189,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.AgentTools == "" {
 		p.AgentTools = TerminalAllowed
+	}
+	if p.ProjectConfig == "" {
+		p.ProjectConfig = TerminalDenied
 	}
 	return p, nil
 }
