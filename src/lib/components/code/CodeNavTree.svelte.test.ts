@@ -207,28 +207,106 @@ describe("CodeNavTree subagent rails", () => {
 });
 
 describe("CodeNavTree spawned sessions", () => {
-	it("lists a spawned session as its own top-level row, with a ↳ from link to its spawner", async () => {
+	const reset = () => (AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")]);
+	const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, " ").trim();
+
+	it("marks a spawned session with a provenance chip, not the subagent's ↳ from", async () => {
 		AGENTS.d1 = [
 			agent("a1", "w1"),
 			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1 (then)" } },
+			{ ...agent("a3", "w1"), parentId: "a1" },
 			// A spawner that is gone: the title it was created with still reads.
 			{ ...agent("a4", "w1"), spawnedBy: { sessionId: "gone", title: "Old planner" } },
 		];
 		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount();
+		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("Agent a2")).toBeVisible();
 
 		const froms = [...screen.baseElement.querySelectorAll('[data-testid="spawned-from"]')];
-		expect(froms.map((el) => el.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-			"↳ from Agent a1",
-			"↳ from Old planner",
-		]);
-		// Linked when the spawner is listed, plain text when it is not; never a
-		// subagent badge, since a spawned session has no parent edge.
+		expect(froms.map(text)).toEqual(["spawned by Agent a1", "spawned by Old planner (gone)"]);
+		// Linked when the spawner is listed; muted plain text when it is gone.
 		expect(froms[0]?.getAttribute("href")).toContain("agent=a1");
 		expect(froms[0]?.getAttribute("href")).toContain("ws=w1");
+		expect(froms[0]?.querySelector("svg")).not.toBeNull();
 		expect(froms[1]?.tagName).toBe("P");
-		expect(screen.baseElement.querySelectorAll('[data-testid="subagent-badge"]')).toHaveLength(0);
-		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+		expect(froms[1]?.className).toContain("text-gray-400");
+		// The subagent keeps its ↳, and only it: its parentage is real.
+		const subFrom = screen.baseElement.querySelectorAll('[data-testid="subagent-from"]');
+		expect(subFrom).toHaveLength(1);
+		expect(text(subFrom[0])).toBe("↳ from Agent a1");
+		expect(screen.baseElement.textContent).not.toContain("↳ from Old planner");
+		// Only the real subagent carries a badge, and only it sits in a rail.
+		expect(screen.baseElement.querySelectorAll('[data-testid="subagent-badge"]')).toHaveLength(1);
+		expect(screen.baseElement.querySelectorAll('[data-testid="subagent-rail"]')).toHaveLength(1);
+		reset();
+	});
+
+	it("sorts spawned sessions after their spawner along a two-level chain, at one indent", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			agent("a5", "w1"),
+			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a2", title: "Agent a2" } },
+			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
+		];
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a3")).toBeVisible();
+		const rail = screen.baseElement.querySelector('[data-testid="workspace-rail"]');
+		const order = [...(rail?.querySelectorAll("a[title]") ?? [])].map((a) =>
+			a.getAttribute("title")
+		);
+		expect(order).toEqual(["Agent a1", "Agent a2", "Agent a3", "Agent a5"]);
+		// Adjacency, not containment: no rail around the spawned rows.
+		expect(rail?.querySelectorAll('[data-testid="subagent-rail"]')).toHaveLength(0);
+		reset();
+	});
+
+	it("shows 'spawned N' on the spawner, as information: a menu of links, no disclosure", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
+			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
+		];
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a3")).toBeVisible();
+		const counts = screen.baseElement.querySelectorAll('[data-testid="spawned-count"]');
+		expect(counts).toHaveLength(1);
+		expect(text(counts[0])).toBe("spawned 2");
+		expect(counts[0]?.closest('[data-testid="workspace-rail"]')).not.toBeNull();
+		// Not collapsible: the spawned rows stay listed whatever is clicked.
+		await screen.getByTestId("spawned-count").click();
+		expect(screen.baseElement.querySelectorAll('a[title^="Agent a"]')).toHaveLength(3);
+		reset();
+	});
+
+	it("keeps spawned sessions when subagents are hidden, and when the spawner is gone", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			{ ...agent("a2", "w1"), parentId: "a1" },
+			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
+		];
+		localStorage.setItem("code.showSubagents", "false");
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a3")).toBeVisible();
+		expect(screen.baseElement.querySelector('a[title="Agent a2"]')).toBeNull();
+		expect(screen.baseElement.querySelector('a[title="Agent a3"]')).not.toBeNull();
+		reset();
+	});
+
+	it("leaves a spawned session listed, marked gone, once its spawner is archived or deleted", async () => {
+		AGENTS.d1 = [
+			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1 (then)" } },
+			agent("a2", "w1"),
+		];
+		go("?device=d1&ws=w1&agent=a2");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a3")).toBeVisible();
+		expect(text(screen.baseElement.querySelector('[data-testid="spawned-from"]'))).toBe(
+			"spawned by Agent a1 (then) (gone)"
+		);
+		expect(screen.baseElement.querySelector('[data-testid="spawned-count"]')).toBeNull();
+		reset();
 	});
 });
