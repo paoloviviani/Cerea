@@ -60,7 +60,7 @@ export const E2E_APP_URL = `${E2E_APP_ORIGIN}${E2E_APP_BASE}`;
 export const E2E_GALOPIN_DIST_DIR =
 	process.env.E2E_GALOPIN_DIST_DIR ??
 	join(homedir(), ".cache", "galopin-e2e", `dist-${E2E_APP_PORT}`);
-export const E2E_MONGO_URL = `mongodb://127.0.0.1:${E2E_MONGO_PORT}`;
+export const E2E_MONGO_URL = process.env.E2E_MONGO_URL ?? `mongodb://127.0.0.1:${E2E_MONGO_PORT}`;
 export const MOCK_OPENAI_ORIGIN = `http://127.0.0.1:${MOCK_OPENAI_PORT}`;
 export const MOCK_OPENAI_BASE_URL = `${MOCK_OPENAI_ORIGIN}/v1`;
 export const MOCK_MCP_ORIGIN = `http://127.0.0.1:${MOCK_MCP_PORT}`;
@@ -469,7 +469,15 @@ const invokedDirectly =
 	process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
-	startTestDatabase().then((handle) => {
-		console.log(`[e2e-db] listening on ${handle.uri}`);
-	});
+	// A real MongoDB when E2E_MONGO_URL is set (this box has no AVX, so the
+	// in-memory binary dies with SIGILL — see CLAUDE.md); the in-memory server
+	// otherwise, as CI runs it.
+	const external = process.env.E2E_MONGO_URL;
+	if (external) {
+		console.log(`[e2e-db] using external ${external}`);
+	} else {
+		startTestDatabase().then((handle) => {
+			console.log(`[e2e-db] listening on ${handle.uri}`);
+		});
+	}
 }
