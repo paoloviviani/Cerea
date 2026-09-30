@@ -18,7 +18,8 @@ func TestModeAllowed(t *testing.T) {
 		{"plan", "inherit", "plan", ""},
 		{"plan", "plan", "plan", ""},
 		{"build", "plan", "plan", ""},
-		{"", "plan", "plan", ""}, // no explicit mode runs as build
+		{"", "plan", "plan", ""},         // the strictest mode is safe from any caller
+		{"", "build", "", "cannot rank"}, // an empty mode is the backend's unverified default
 		{"plan", "build", "", "more permissive"},
 		{"custom", "plan", "", "can rank against"},
 		{"custom", "custom", "custom", ""},
@@ -70,16 +71,16 @@ func TestNoMorePermissive(t *testing.T) {
 		want           bool
 	}{
 		{"build", "build", true},
-		{"", "build", true}, // no explicit mode runs as build
-		{"build", "", true},
 		{"build", "plan", true},
 		{"plan", "plan", true},
 		{"plan", "build", false},
-		{"plan", "", false},
 		{"build", "custom", false},  // an unrankable target counts as more permissive
 		{"custom", "custom", false}, // ...even when it is the sender's own mode
-		{"custom", "plan", true},    // an unrankable sender is the most permissive there is
-		{"custom", "build", true},
+		{"custom", "plan", false},   // an unrankable sender is never read as permissive
+		{"custom", "build", false},
+		{"", "build", false}, // an empty mode is the backend's unverified default: unknown
+		{"build", "", false},
+		{"", "", false},
 	}
 	for _, c := range cases {
 		if got := noMorePermissive(c.sender, c.target); got != c.want {

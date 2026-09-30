@@ -792,15 +792,15 @@ func TestAgentToolsIntegration(t *testing.T) {
 	t.Run("send: auto-accept build to build goes through with no card, both ways; plan to build asks; build to plan goes through", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		a := newSession(ws1, "it-auto-a", "build")
-		b := newSession(ws2, "it-auto-b", "build")
+		b := newSession(ws1, "it-auto-b", "build")
 		p := newSession(ws1, "it-auto-plan", "plan")
-		q := newSession(ws2, "it-auto-plan-q", "plan")
+		q := newSession(ws1, "it-auto-plan-q", "plan")
 		// The mock matches a trigger anywhere in a session's history, so a
 		// session that has received a message must not be used as a sender
 		// again or it would replay its first trigger: each reply goes to a
 		// fresh session.
 		a2 := newSession(ws1, "it-auto-a2", "build")
-		b3 := newSession(ws2, "it-auto-b3", "build")
+		b3 := newSession(ws1, "it-auto-b3", "build")
 		for _, x := range []backend.Session{a, b, p} {
 			if err := mat.SetAutoAccept(x.ID, true); err != nil {
 				t.Fatal(err)
@@ -831,7 +831,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 			wantCard bool
 		}{
 			{"build->build", a, ws1, aToB, false},
-			{"build->build back", b, ws2, bToA, false},
+			{"build->build back", b, ws1, bToA, false},
 			{"build->plan", a, ws1, aToPlan, false},
 			{"plan->build", p, ws1, pToB, true},
 		} {
@@ -862,6 +862,33 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if autos != 3 {
 			t.Errorf("decision:auto audit rows = %d, want 3: %v", autos, auditRows())
 		}
+	})
+
+	t.Run("send: a cross-workspace send under auto-accept shows a card", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		// Build to build, both auto-accepting, but the target is in another
+		// workspace: the sender's unattended reach is its own workspace only.
+		// (An unrankable sender is proven by the noMorePermissive unit test:
+		// opencode cannot run a turn in an agent it does not have.)
+		a := newSession(ws1, "it-xws-a", "build")
+		b := newSession(ws2, "it-xws-b", "build")
+		for _, x := range []backend.Session{a, b} {
+			if err := mat.SetAutoAccept(x.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		route("trigger-xws-ab", "session_send", mustJSON2(map[string]any{"target": b.ID, "text": "across workspaces"}))
+		publish()
+		mark := hub.mark()
+		prompt(a, ws1, "trigger-xws-ab")
+		part := hub.toolDone(t, mark, a.ID, "session_send")
+		if part.ToolStatus != backend.ToolCompleted || part.Output != "{}" {
+			t.Errorf("cross-workspace send = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if asks := hub.asks(mark, a.ID); len(asks) != 1 || asks[0].Tool != "session_send" {
+			t.Errorf("want exactly one card, got %+v", asks)
+		}
+		hub.waitIdle(t, mark, a.ID)
 	})
 
 	t.Run("send: per-pair rate limit refuses the 6th message in a minute", func(t *testing.T) {
