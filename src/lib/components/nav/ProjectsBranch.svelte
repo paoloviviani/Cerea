@@ -252,11 +252,21 @@
 			)
 		)
 			return;
+		// The memory is the one thing that would otherwise stay behind holding
+		// what was said: a second question, so "no" still deletes the project.
+		const withMemory =
+			project.owned &&
+			project.hasMemory &&
+			confirm(
+				`Also delete “${project.name}” — past chats?\n\nThat is the searchable memory of this ` +
+					"project's conversations. OK = delete the memory too. Cancel = keep the memory (the project is still deleted)."
+			);
 		busy = true;
 		try {
-			const response = await fetch(`${base}/api/v2/projects/${project.id}`, {
-				method: "DELETE",
-			});
+			const response = await fetch(
+				`${base}/api/v2/projects/${project.id}${withMemory ? "?memory=delete" : ""}`,
+				{ method: "DELETE" }
+			);
 			if (!response.ok) throw new Error(String(response.status));
 			delete chats[project.id];
 			delete expanded[project.id];
