@@ -68,6 +68,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | **Terminals**                | `--allow-terminal`, `--max-terminals N`                    | denied; at most 8 open at once       | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal-off-by-default))                                                                                                                                         | `policy set --no-terminal`, a lower `--max-terminals` |
 | **Auto-accept**              | `--allow-auto-accept`                                      | denied                               | Whether a session may answer the model's tool-permission asks without a person. The machine-side gate behind the panel's Auto-accept toggle: while denied, the agent refuses the toggle and never auto-replies, whatever the panel sends. **Handoff approvals and questions are never auto-accepted**, even when it is on | re-enroll                                             |
 | **Slash-command shell**      | `--allow-command-shell`                                    | denied                               | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                            | `policy set --no-command-shell`                       |
+| **A repo's own opencode config** | `--allow-project-config`                                  | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config)) | `policy set --no-project-config`                      |
 | **Models from elsewhere**    | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                          | re-enroll                                             |
 | **opencode's own providers** | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                  | re-enroll                                             |
 | **Workspace roots**          | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                             | re-enroll                                             |
@@ -87,6 +88,43 @@ Each enrollment mints a new machine id (`machine-id`, in the machine's state
 directory). The chat therefore shows a re-enrolled machine as a new **Pending** machine, which you confirm again. A machine revoked in the panel is refused for good under
 its old id, and `run` reports that and exits with code 78 instead of
 reconnecting.
+
+### A repo's own opencode config
+
+A workspace is usually a repository you cloned, and a cloned repository is
+someone else's input. It can carry an `opencode.json`, an `.opencode/`
+directory (commands, agents, tools, plugins, MCP servers) and an `AGENTS.md`.
+Loaded blindly, an `opencode.json` can point the gateway provider at another
+endpoint, so **every prompt, and every file the prompt pulls in with `@`,
+goes to a stranger's server instead of your gateway**; and its `{env:...}` and
+`{file:...}` settings can read your environment and files into that request.
+Both were reproduced against opencode 1.18.32.
+
+So by default the machine **ignores** it: `run` starts opencode with
+`OPENCODE_DISABLE_PROJECT_CONFIG=1`. That skips the repo's `opencode.json`,
+its project commands, agents and MCP servers, and its `AGENTS.md`/`CLAUDE.md`;
+your own global config, your user-level commands and galopin's agent tools
+still load. The cost is real: a repo's own commands and agents do not show up,
+and the panel says so on such a workspace ("this repo's opencode config is
+ignored on this machine") so a missing command does not look like a bug.
+
+**Known gap:** on opencode 1.18.32 neither that switch nor `--pure` stops a
+repo's `.opencode/plugin/` scripts from being executed when opencode opens
+the directory. Do not open a repository you do not trust in an agent, whatever
+this setting says.
+
+`enroll --allow-project-config` (the pairing dialog's checkbox) opts in for
+machines whose repositories you trust: the repo's config loads, **including
+its plugins, which run as you**. galopin still pins the gateway provider,
+`enabled_providers`, `model` and `small_model` above whatever the repo sets, so
+a repo cannot redirect your prompts; an attempt to (a repo's `opencode.json`
+setting `provider`, `enabled_providers`, `model`, `small_model` or an agent's
+model) is written to the machine's `audit.log` as
+`project_config.override_attempt`, listing the keys and never the values. An
+agent-level model naming a provider outside the allowlist fails with an error
+rather than routing anywhere. With `--allow-opencode-provider` as well there is
+no allowlist to pin and this last guarantee does not hold (**known: no
+guarantee**): a repo agent can name the repo's own provider.
 
 ### What the file explorer may see
 
@@ -192,8 +230,11 @@ there is. The menu groups them under headings, in this order:
   agent's backend can do it. They drive the same routes the pills and the
   transcript use; nothing new runs on the machine.
 - **Project** (badge "from this repo") — commands defined in the open
-  workspace's repository (`.opencode/command/*.md`). Running one is running
-  repository code on your machine; the first run asks (see below).
+  workspace's repository (`.opencode/command/*.md`). Listed only on a machine
+  enrolled with `--allow-project-config`; by default a repo's config is ignored
+  (see [A repo's own opencode config](#a-repos-own-opencode-config)). Running
+  one is running repository code on your machine; the first run asks (see
+  below).
 - **Machine** — commands from your user-level or the machine's config.
 - **Skills** and **MCP** — when the agent exposes them.
 
