@@ -15,8 +15,10 @@
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
+import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
+import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import {
 	knowledgeBaseId,
 	projectAccess,
@@ -66,12 +68,23 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	return json(await projectView({ project: updated, owned: true }));
 };
 
-export const DELETE: RequestHandler = async ({ locals, params }) => {
+export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	const user = requireUser(locals);
 	const principals = await viewerPrincipals(user, locals.token);
 	const access = await projectAccess(params.id as string, user._id, principals);
 	if (!access) error(404, "No such project.");
 	if (!access.owned) error(403, "Only the person who created a project can delete it.");
+	// Off by default: the past-chats memory is an ordinary knowledge base that
+	// outlives its project unless the person says otherwise (`?memory=delete`).
+	// Only a base the project's owner owns is theirs to drop; one made by a
+	// member before the base belonged to the project is left alone.
+	const memoryId = access.project.memoryBaseId;
+	if (url.searchParams.get("memory") === "delete" && memoryId && ObjectId.isValid(memoryId)) {
+		const base = await collections.vectorStores.findOne({ _id: new ObjectId(memoryId) });
+		if (base?.ownerId.equals(access.project.userId)) {
+			await deleteDerived({ storeIds: base._id, dropStores: true });
+		}
+	}
 	await collections.projects.deleteOne({ _id: access.project._id });
 	return new Response(null, { status: 204 });
 };

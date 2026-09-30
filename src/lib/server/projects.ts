@@ -26,6 +26,15 @@
  * grows one turn at a time; without this a ten-turn thread would leave ten
  * overlapping transcripts in the base and every search would return all of
  * them.
+ *
+ * **The memory base belongs to the project, not to whoever spoke first.** It
+ * is created owned by the project's owner, and read and written *as its own
+ * owner* by everyone the project is shared with: a member's conversation is
+ * in a workspace they were given, and "everyone who can see a project sees
+ * every conversation in it" already holds for the transcripts. Nobody gets a
+ * share on the base itself, so unsharing the project ends a member's access
+ * to the memory with no second thing to revoke. Only the server ever sets
+ * `Project.memoryBaseId`, which is what makes acting as the base's owner safe.
  */
 
 import { ObjectId } from "mongodb";
@@ -35,6 +44,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
+import { conversationSourceRef } from "$lib/server/knowledge/deleteDerived";
 import {
 	callerFrom,
 	reachableStores,
@@ -154,6 +164,7 @@ export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 		instructions: project.instructions,
 		knowledgeBaseIds: project.knowledgeBaseIds,
 		indexPastChats: project.indexPastChats,
+		hasMemory: Boolean(project.memoryBaseId),
 		retrievalLimit: project.retrievalLimit,
 		...(typeof project.defaultWebSearch === "boolean"
 			? { defaultWebSearch: project.defaultWebSearch }
@@ -226,6 +237,7 @@ export async function projectContext(options: {
 		// means nothing to check against and nothing to bill — no retrieval.
 		if (!locals?.user) return parts.length > 0 ? parts.join("\n\n") : undefined;
 		const caller = await callerFrom(locals);
+		const memoryId = project?.indexPastChats ? project.memoryBaseId : undefined;
 		const passages = await retrieve({
 			bases: uniqueBases,
 			question,
@@ -233,6 +245,10 @@ export async function projectContext(options: {
 			token,
 			projectName: project?.name,
 			caller,
+			memory:
+				project && memoryId
+					? { baseId: memoryId, caller: await memoryCaller(memoryId, project) }
+					: undefined,
 		});
 		if (passages.length > 0) {
 			const rendered = passages
@@ -261,16 +277,20 @@ async function retrieve(options: {
 	token: string;
 	projectName: string | undefined;
 	caller: Caller;
+	/** The project's memory base, read as its owner (see the header). */
+	memory?: { baseId: string; caller: Caller | undefined };
 }): Promise<GatewaySearchHit[]> {
-	const { bases, question, limit, token, projectName, caller } = options;
+	const { bases, question, limit, token, projectName, caller, memory } = options;
 	const hits: GatewaySearchHit[] = [];
 	// The chat's own store, since ADR 0070: an in-process search.
 	for (const baseId of bases) {
 		try {
-			const answer = await searchBase(baseId, caller, token, {
-				query: question,
-				max_num_results: limit,
-			});
+			const answer = await searchBase(
+				baseId,
+				memory?.caller && baseId === memory.baseId ? memory.caller : caller,
+				token,
+				{ query: question, max_num_results: limit }
+			);
 			hits.push(...answer.data);
 		} catch (err) {
 			logger.warn(
@@ -286,13 +306,37 @@ async function retrieve(options: {
 	return hits.slice(0, limit);
 }
 
+/** A caller that is `ownerId` and nothing more: the memory base's own owner. */
+function asOwner(ownerId: ObjectId): Caller {
+	return { userId: ownerId, email: null, groups: [], isAdmin: false };
+}
+
+/**
+ * The identity a project's memory base is read and written as: the project's
+ * owner, and only for a base that owner owns. A base made before the base
+ * belonged to the project is owned by whichever member spoke first; acting as
+ * *them* on everyone's behalf would keep writing the whole project's
+ * transcripts into one member's personal base, where they outlive that
+ * member's place in the project. Such a legacy base yields `undefined`: the
+ * writer replaces it, and a reader meets it only as themselves.
+ */
+async function memoryCaller(baseId: string, project: Project): Promise<Caller | undefined> {
+	if (!ObjectId.isValid(baseId)) return undefined;
+	const base = await collections.vectorStores.findOne(
+		{ _id: new ObjectId(baseId) },
+		{ projection: { ownerId: 1 } }
+	);
+	return base?.ownerId.equals(project.userId) ? asOwner(project.userId) : undefined;
+}
+
 /**
  * Write a conversation's exchange into its project's memory base.
  *
  * Called after a turn finishes, and it is deliberately not awaited by the
  * generation: a failure here must not cost somebody their answer. The whole
- * function is therefore its own try/catch, and its only outward sign is a log
- * line.
+ * function is therefore its own try/catch; its outward sign is a log line and,
+ * where the base exists, a `failed` document row in it — the same status and
+ * the same place a failed file shows up.
  *
  * The base is created on demand and named after the project, because a base
  * called "Chat memory" in a list of a person's knowledge bases is a mystery.
@@ -314,25 +358,49 @@ export async function indexConversation(options: {
 	if (!project.indexPastChats || !token || !knowledgeEnabled()) return;
 
 	if (!locals?.user) return;
+	const sourceRef = conversationSourceRef(conversation._id);
+	const title = conversation.title || "Untitled conversation";
+	// Known once the base exists, so a failure can be put where the person
+	// looks: the base's own document list.
+	let failedInto: ObjectId | undefined;
 	try {
 		// The chat's own store, since ADR 0070: the memory base is created
-		// here, owned by the person talking, and written in-process.
-		const { createStore, addText, callerFrom } = await import("$lib/server/knowledge/service");
-		const caller = await callerFrom(locals);
+		// here, owned by the *project's* owner whoever is talking, and written
+		// in-process as its owner (see the header).
+		const { createStore, addText } = await import("$lib/server/knowledge/service");
+		let writer = project.memoryBaseId
+			? await memoryCaller(project.memoryBaseId, project)
+			: undefined;
 		let baseId = project.memoryBaseId;
-		if (!baseId) {
-			const created = await createStore(caller, {
+		if (!writer) {
+			// Never made, deleted from the Knowledge screen ("safe to empty; it
+			// refills as you talk"), or a legacy base some member owns: make one
+			// the project's owner owns, and stop writing to the legacy one. The claim is conditional, so two
+			// members finishing a first turn together end up with one base.
+			const created = await createStore(asOwner(project.userId), {
 				name: `${project.name} — past chats`,
 				description:
 					"Transcripts of this project's own conversations, written by the chat " +
 					"and searched in later turns. Safe to empty; it refills as you talk.",
 			});
-			baseId = created.id;
-			await collections.projects.updateOne(
-				{ _id: project._id },
-				{ $set: { memoryBaseId: baseId, updatedAt: new Date() } }
+			const claimed = await collections.projects.updateOne(
+				{
+					_id: project._id,
+					memoryBaseId: project.memoryBaseId ?? { $exists: false },
+				},
+				{ $set: { memoryBaseId: created.id, updatedAt: new Date() } }
 			);
+			baseId = created.id;
+			if (claimed.modifiedCount === 0) {
+				const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
+				await deleteDerived({ storeIds: new ObjectId(created.id), dropStores: true });
+				const current = await collections.projects.findOne({ _id: project._id });
+				baseId = current?.memoryBaseId;
+			}
+			writer = baseId ? await memoryCaller(baseId, project) : undefined;
 		}
+		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");
+		failedInto = new ObjectId(baseId);
 
 		// The whole thread, not the last turn: a transcript is only useful as
 		// a unit, and `source_ref` makes rewriting it cheap and idempotent.
@@ -343,16 +411,29 @@ export async function indexConversation(options: {
 			.join("\n\n");
 		if (transcript.trim().length < 40) return; // nothing worth retrieving yet
 
-		await addText(baseId, caller, token, {
-			text: transcript,
-			title: conversation.title || "Untitled conversation",
-			source_ref: `chat:conversation:${conversation._id.toString()}`,
-		});
+		await addText(baseId, writer, token, { text: transcript, title, source_ref: sourceRef });
 	} catch (err) {
 		logger.warn(
 			{ err, project: project.name, conversation: conversation._id.toString() },
 			"project_memory_index_failed: this exchange will not be retrievable"
 		);
+		// An ingest failure is already on the document's row; this is for the
+		// rest (the write itself refused, the store unreachable).
+		// Not for a conversation deleted mid-index: that would recreate a row
+		// carrying its title.
+		const stillThere = await collections.conversations.countDocuments(
+			{ _id: conversation._id },
+			{ limit: 1 }
+		);
+		if (failedInto && stillThere > 0) {
+			const { markIndexFailed, KnowledgeError } = await import("$lib/server/knowledge/service");
+			await markIndexFailed(
+				failedInto,
+				sourceRef,
+				title,
+				err instanceof KnowledgeError ? err.message : "Indexing this conversation failed."
+			);
+		}
 	}
 }
 
