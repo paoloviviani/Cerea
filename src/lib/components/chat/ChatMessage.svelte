@@ -1103,7 +1103,7 @@
 						</div>
 					{:else}
 						<p
-							class="disabled w-full appearance-none bg-inherit px-5 py-3.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-500 dark:text-gray-400"
+							class="disabled w-full appearance-none bg-inherit px-5 py-3.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-600 dark:text-gray-300"
 						>
 							{message.content.trim()}
 						</p>
@@ -1119,7 +1119,7 @@
 						}}
 					>
 						<textarea
-							class="w-full rounded-xl bg-gray-100 px-5 py-3.5 wrap-break-word whitespace-break-spaces text-gray-500 *:h-max focus:outline-hidden dark:bg-gray-800 dark:text-gray-400"
+							class="w-full rounded-xl bg-gray-100 px-5 py-3.5 wrap-break-word whitespace-break-spaces text-gray-700 *:h-max focus:outline-hidden dark:bg-gray-800 dark:text-gray-200"
 							rows="5"
 							bind:this={editContentEl}
 							value={message.content.trim()}
