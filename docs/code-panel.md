@@ -156,7 +156,9 @@ is cached in the browser only.
 The machine lists each workspace's slash commands (`backend.commands`):
 name, description, where the definition lives (the agent's own `init`/
 `review` are `builtin`; a name only the workspace list reports is
-`project` — repository code), whether its template expands shell, the
+`project` — repository code, listed only when the machine was enrolled with
+`--allow-project-config`; by default a repo's own opencode config is
+ignored), whether its template expands shell, the
 exact snippets it would run (at most ten, each truncated), the `@path`
 files it reads, and a hash of the template. **The template itself never
 crosses the link** — the snippets and the hash are what a person confirms
