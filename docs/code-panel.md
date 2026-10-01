@@ -66,7 +66,7 @@ needs a new enrollment.
 
 **The terminal needs both vetoes lifted.** The machine must be enrolled with
 `--allow-terminal`, and the deployment must set `CODE_TERMINAL_ENABLED=true`.
-Opening a terminal also requires a sign-in to Cerea within the last 12 hours.
+Opening a terminal also requires a sign-in to Cerea within the last 7 days.
 An open terminal is an ordinary shell running as the machine's owner:
 **anyone who controls that person's Cerea session can run commands on the
 machine**, with no model and no permission rule in between. Enable it only
@@ -125,11 +125,11 @@ and the machine's policy can still refuse it.
 | Workspaces and worktrees     | path autocomplete in "Add workspace"; "New worktree…" on a git workspace            | `workspace.suggest` (inside the machine's `workspaceRoots`, or `$HOME` with none) and `workspace.create {worktree}` (`git worktree add`, branch and base of the person's choosing); archiving a worktree workspace can also remove the worktree.                                                                                                                                |
 
 !!! warning "What the coordination gates do not cover"
-    An approved shell command can do anything you can on that machine
-    (opencode's server password sits in its process environment, readable by
-    same-user processes); the coordination gates constrain the model's tools,
-    not an approved shell. See
-    [Sessions that talk to sessions](agent-machines.md#sessions-that-talk-to-sessions).
+An approved shell command can do anything you can on that machine
+(opencode's server password sits in its process environment, readable by
+same-user processes); the coordination gates constrain the model's tools,
+not an approved shell. See
+[Sessions that talk to sessions](agent-machines.md#sessions-that-talk-to-sessions).
 
 ### Tool images (the `toolImages` capability)
 
@@ -208,7 +208,7 @@ compaction or subagents), and the panel hides the matching controls.
 | a machine appears `pending` forever                    | its owner hasn't clicked **Confirm** yet; only the owner can, from their own signed-in panel                                                                                                                                 |
 | every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                         |
 | a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                    |
-| a terminal will not open                               | the deployment lacks `CODE_TERMINAL_ENABLED=true`, the machine was not enrolled with `--allow-terminal`, or the person's last sign-in is older than 12 hours                                                                 |
+| a terminal will not open                               | the deployment lacks `CODE_TERMINAL_ENABLED=true`, the machine was not enrolled with `--allow-terminal`, or the person's last sign-in is older than 7 days                                                                   |
 
 ## For developers
 
