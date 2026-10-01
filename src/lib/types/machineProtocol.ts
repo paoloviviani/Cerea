@@ -63,6 +63,10 @@ export interface Policy {
 	terminal?: "allowed" | "denied";
 	/** `terminal.open` beyond this count answers `invalid` (default 8). */
 	maxTerminals?: number;
+	/** Whether opencode may run background subagents (task background:true):
+	 * "allowed" (--allow-background-subagents) or "denied" (default).
+	 * Older machines omit it: read as denied. */
+	backgroundSubagents?: "allowed" | "denied";
 }
 
 /** hello.machine (§9): what this galopin build implements on this OS. */
@@ -558,6 +562,7 @@ const policySchema = z.object({
 	fileWrite: z.enum(["allowed", "denied"]).optional(),
 	terminal: z.enum(["allowed", "denied"]).optional(),
 	maxTerminals: z.number().optional(),
+	backgroundSubagents: z.enum(["allowed", "denied"]).optional(),
 });
 
 const machineSchema = z.object({

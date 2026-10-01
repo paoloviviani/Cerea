@@ -73,3 +73,33 @@ func TestStartFallsBackToOpencodeInstallDir(t *testing.T) {
 		t.Errorf("missing binary with HOME set should still name the fix, got: %v", err)
 	}
 }
+
+// The background-subagent flag is galopin's alone: an inherited value never
+// decides it (fail-closed), and Config.BackgroundSubagents is the only thing
+// that sets it.
+func TestStripChildSwitchesDropsInheritedBackgroundFlag(t *testing.T) {
+	env := []string{
+		"PATH=/usr/bin",
+		"OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1",
+		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+		"OPENCODE_CONFIG_CONTENT={}",
+		"HOME=/root",
+	}
+	got := stripChildSwitches(append([]string{}, env...))
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=") ||
+			strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") ||
+			strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") {
+			t.Errorf("inherited switch survived stripping: %q", kv)
+		}
+	}
+	found := false
+	for _, kv := range got {
+		if kv == "PATH=/usr/bin" || kv == "HOME=/root" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("unrelated env was dropped: %v", got)
+	}
+}

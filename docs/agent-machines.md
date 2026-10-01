@@ -69,6 +69,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | **Auto-accept**                  | `--allow-auto-accept`                                      | denied                               | Whether a session may answer the model's tool-permission asks without a person. The machine-side gate behind the panel's Auto-accept toggle: while denied, the agent refuses the toggle and never auto-replies, whatever the panel sends. **Handoff approvals and questions are never auto-accepted**, even when it is on | re-enroll                                             |
 | **Slash-command shell**          | `--allow-command-shell`                                    | denied                               | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                            | `policy set --no-command-shell`                       |
 | **A repo's own opencode config** | `--allow-project-config`                                   | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                                                 | `policy set --no-project-config`                      |
+| **Background subagents**         | `--allow-background-subagents`                             | denied                               | Whether the task tool may run a subagent in the background. While denied, `background:true` fails closed inside opencode; when allowed, a background child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents))                           | `policy set --no-background-subagents`                |
 | **Models from elsewhere**        | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                          | re-enroll                                             |
 | **opencode's own providers**     | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                  | re-enroll                                             |
 | **Workspace roots**              | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                             | re-enroll                                             |
@@ -306,6 +307,17 @@ When the session spawns a subagent, the tool call that spawned it is replaced
 in the transcript by a card for that subagent — title, status, from the
 machine's own roster. Expanding one fetches its own transcript and renders it
 as a nested read-only conversation.
+
+A subagent may run in the background (the task tool's `background:true`,
+opencode 1.18.32, behind `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`). The
+machine allows that only when enrolled with `--allow-background-subagents`;
+otherwise the flag is never set and a background task fails closed. A
+background child keeps running after its parent turn ends — the parent reads
+idle while the child is still working, and the panel says so — and its result
+is injected back into the parent as a synthetic message the panel folds into
+the task's own card as completed or failed, never as model text. Passing
+`task_id` follows up the same running child; the card names it a follow-up
+rather than a new spawn.
 
 ### Sessions that talk to sessions
 

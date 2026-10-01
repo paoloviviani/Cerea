@@ -26,6 +26,7 @@ export type MessageUpdate =
 	| MessageMemoryUpdate
 	| MessageBudgetUpdate
 	| MessageTurnStateUpdate
+	| MessageBackgroundTaskUpdate
 	| MessageCodeExecutionUpdate;
 
 export enum MessageUpdateType {
@@ -43,6 +44,7 @@ export enum MessageUpdateType {
 	Memory = "memory",
 	Budget = "budget",
 	TurnState = "turnState",
+	BackgroundTask = "backgroundTask",
 	CodeExecution = "codeExecution",
 }
 
@@ -372,4 +374,39 @@ export interface MessageBudgetUpdate {
 	spentMicroUsd: number;
 	/** Sum of open reservation ceilings — held, not yet settled. */
 	reservedMicroUsd: number;
+}
+
+/**
+ * A background subagent's lifecycle marker (opencode 1.18.32 task
+ * background:true, behind OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).
+ *
+ * The task tool returns immediately with state "running" while the child
+ * keeps working after its parent turn ends; opencode later injects a
+ * synthetic `<task>` message with state "completed" or "error" carrying the
+ * result. Both fold here — never as model text — so the parent shows one
+ * visible marker per background child: running, then completed or failed.
+ *
+ * `taskId` is the child session id (the `<task id>` / tool metadata); `callId`
+ * is the parent's task tool call that spawned it, when known (a synthetic
+ * result names only the child, so it carries no call). `followUp` means the
+ * call resumed that child with `task_id` rather than spawning it; `automatic`
+ * means the frame came from opencode's own synthetic injection rather than a
+ * model-authored tool result. Plain JSON only: it travels the agent SSE
+ * bridge and is persisted verbatim in `Message.updates`.
+ */
+export interface MessageBackgroundTaskUpdate {
+	type: MessageUpdateType.BackgroundTask;
+	/** The child session id. */
+	taskId: string;
+	/** The parent's task tool call, when the frame is anchored on one. */
+	callId?: string;
+	state: "running" | "completed" | "error";
+	/** The `<summary>` line opencode composed ("Background task started…"). */
+	summary?: string;
+	/** The result text (completed/error), or the guidance text (running). */
+	text?: string;
+	/** The call carried `task_id`: a follow-up to this child, not a spawn. */
+	followUp?: boolean;
+	/** From opencode's synthetic injection, not from a tool result. */
+	automatic?: boolean;
 }

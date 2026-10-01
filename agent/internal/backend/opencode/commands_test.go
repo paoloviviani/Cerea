@@ -190,7 +190,7 @@ func TestCommandsSupportedProbesDocNotVersion(t *testing.T) {
 	if !b.commandsSupported() {
 		t.Fatal("commandsSupported = false, want true (the /doc lists session.command)")
 	}
-	if b.Version() != "1.18.31" {
+	if b.Version() != "1.18.32" {
 		t.Fatalf("Version = %q, want the pinned one (the capability must never come from it)", b.Version())
 	}
 	if b.Capabilities().Commands != true {

@@ -3,6 +3,7 @@ import type { MessageFile } from "$lib/types/Message";
 import type { Backend, CredentialState, Machine, Policy } from "$lib/types/machineProtocol";
 import {
 	MessageUpdateType,
+	type MessageBackgroundTaskUpdate,
 	type MessageElicitationRequestUpdate,
 	type MessageElicitationResolvedUpdate,
 	type MessagePlanUpdate,
@@ -171,6 +172,7 @@ export type AgentStreamUpdate =
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
 	| MessageToolErrorUpdate
+	| MessageBackgroundTaskUpdate
 	| MessagePlanUpdate
 	| MessageElicitationRequestUpdate
 	| MessageElicitationResolvedUpdate
@@ -186,6 +188,7 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"childActivity",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
+	MessageUpdateType.BackgroundTask,
 	MessageUpdateType.Plan,
 	MessageUpdateType.Elicitation,
 	MessageUpdateType.TurnState,

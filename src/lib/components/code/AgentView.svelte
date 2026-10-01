@@ -339,7 +339,7 @@
 	 * strip's pills, the composer's mode/model pills and the feature
 	 * toggles label from the daemon's own word, never from what a request
 	 * claimed. */
-	async function refreshAgent() {
+	async function refreshAgent(lists = true) {
 		try {
 			const detail = await getAgent(deviceId, agentId);
 			agent = detail.agent;
@@ -350,7 +350,7 @@
 			// grant, say so immediately rather than waiting on the device
 			// probe's next poll to catch up.
 			if (detail.enrollmentExpired) codeEnrollment[deviceId] = "expired";
-			void refreshLists();
+			if (lists) void refreshLists();
 		} catch {
 			// The transcript carries its own states; a strip that only
 			// errors when the daemon is off is worse than fallbacks.
@@ -640,6 +640,17 @@
 		return agent?.state ?? ("idle" as CodeTurnState);
 	});
 
+	// A background child still working while its parent is settled: the
+	// parent's own pill honestly reads idle/done — this banner is what says
+	// work continues. Read off the daemon's `childSummary`, never inferred
+	// from the transcript's markers, so it clears exactly when the roster
+	// does.
+	let backgroundRunningCount = $derived(agent?.childSummary?.running ?? 0);
+	let backgroundRunning = $derived(
+		backgroundRunningCount > 0 && shownState !== "running" && shownState !== "waiting-permission"
+	);
+	let backgroundWaitingCount = $derived(agent?.childSummary?.waiting ?? 0);
+
 	// ── Tasks ─────────────────────────────────────────────────────────────
 	//
 	// The viewed session's own list only (a subagent's shows when that child
@@ -739,8 +750,20 @@
 
 	/** A `childActivity` frame arrived for one subagent: count it, so that
 	 * subagent's expanded card re-syncs its timeline (the card throttles). */
+	let lastBackgroundPollAt = 0;
 	function noteChildActivity(childId: string) {
 		childActivity[childId] = (childActivity[childId] ?? 0) + 1;
+		// While the parent is settled but a background child still works, its
+		// envelopes are the only liveness signal this view gets: re-ask the
+		// roster (and the snapshot carrying `childSummary`) on them,
+		// throttled, so the background banner and the subagent cards settle
+		// when the child does instead of reading "running" forever.
+		if (rosterPhase !== "settled" || skipMachineFetches) return;
+		const now = Date.now();
+		if (now - lastBackgroundPollAt < 2000) return;
+		lastBackgroundPollAt = now;
+		void pollSubagents();
+		void refreshAgent(false);
 	}
 
 	/** The claim ChatMessage asks per tool call: does a subagent own this
@@ -1034,6 +1057,28 @@
 			<span class="flex items-center gap-1 truncate pl-6 text-xs text-ink-muted">
 				<IconFork class="size-3 shrink-0" />
 				Forked from {handedOffFromTitle}
+			</span>
+		{/if}
+		{#if backgroundRunning}
+			<!-- The parent is settled (its pill reads idle/done) while a
+			     background subagent still works: say so here, with the
+			     daemon's own counts, rather than letting the idle pill imply
+			     nothing is happening. -->
+			<span
+				class="flex items-center gap-1.5 truncate pl-6 text-xs text-ink-muted"
+				data-testid="background-running"
+			>
+				<span class="size-2 shrink-0 animate-pulse rounded-full bg-blue-500" aria-label="running"
+				></span>
+				<span class="truncate">
+					{backgroundRunningCount === 1
+						? "A subagent is"
+						: `${backgroundRunningCount} subagents are`} still running in the background.
+					{#if backgroundWaitingCount > 0}
+						{backgroundWaitingCount === 1 ? "One is" : `${backgroundWaitingCount} are`} waiting on your
+						approval below.
+					{/if}
+				</span>
 			</span>
 		{/if}
 	</div>
