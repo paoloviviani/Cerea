@@ -342,7 +342,7 @@ describe("terminal tickets", () => {
 
 		await collections.sessions.updateOne(
 			{ sessionId: user.session.sessionId },
-			{ $set: { authTime: new Date(Date.now() - 13 * 3600 * 1000) } } // 13h ago: stale
+			{ $set: { authTime: new Date(Date.now() - 8 * 24 * 3600 * 1000) } } // 8d ago: stale
 		);
 		const stale = await forwarder(
 			forwarderPOST,

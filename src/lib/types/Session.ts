@@ -16,7 +16,7 @@ export interface Session extends Timestamps {
 	 * updated by a token refresh, which re-proves the *client* to the
 	 * provider but not the person). This is when the person actually
 	 * authenticated — what the terminal's step-up rule reads (ADR 0090 D6):
-	 * minting a terminal ticket needs this within the last 12h, else the
+	 * minting a terminal ticket needs this within the last 7 days, else the
 	 * browser is sent through a fresh login. Absent when the provider omits
 	 * the claim, which counts as stale (never fresh) rather than exempt.
 	 */
