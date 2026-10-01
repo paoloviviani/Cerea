@@ -27,10 +27,12 @@ refuses and names the 'enroll' re-run that does it instead.
                       and every command whose shell is unknown.
   --no-agent-tools    Stop installing session_list/session_spawn/session_send
                       into opencode (takes effect at the next 'run').
-  --no-project-config  Stop loading a repo's own opencode config (the default
-                      on a fresh enroll; takes effect at the next 'run').
-  --max-terminals N   Lower the concurrent-terminal cap (must be less than
-                      the current value).
+   --no-project-config  Stop loading a repo's own opencode config (the default
+                       on a fresh enroll; takes effect at the next 'run').
+   --no-background-subagents  Stop allowing background subagents (the default
+                       on a fresh enroll; takes effect at the next 'run').
+   --max-terminals N   Lower the concurrent-terminal cap (must be less than
+                       the current value).
   --file-deny GLOB    Add GLOB to the deny list (repeatable).
   --creds PATH        Credential file (default <config-dir>/galopin/credentials.json).
   --state-dir PATH    Where policy.json lives (default: beside --creds).
@@ -92,6 +94,7 @@ func runPolicyShow(args []string) error {
 	fmt.Println(commandShellPolicySummary(pol))
 	fmt.Println(agentToolsPolicySummary(pol))
 	fmt.Println(projectConfigPolicySummary(pol, false))
+	fmt.Println(backgroundSubagentsPolicySummary(pol))
 	fmt.Printf("autoAccept: %s\n", pol.AutoAccept)
 	fmt.Printf("allowFreeModels: %v\n", pol.AllowFreeModels)
 	fmt.Printf("workspaceRoots: %v\n", pol.WorkspaceRoots)
@@ -106,6 +109,7 @@ func runPolicySet(args []string) error {
 	noCommandShell := fs.Bool("no-command-shell", false, "")
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
 	noProjectConfig := fs.Bool("no-project-config", false, "")
+	noBackground := fs.Bool("no-background-subagents", false, "")
 	maxTerminals := fs.Int("max-terminals", 0, "")
 	var fileDeny []string
 	fs.Var(stringListFlag{&fileDeny}, "file-deny", "")
@@ -149,6 +153,10 @@ func runPolicySet(args []string) error {
 		pol.ProjectConfig = policy.TerminalDenied
 		changed = true
 	}
+	if *noBackground {
+		pol.BackgroundSubagents = policy.TerminalDenied
+		changed = true
+	}
 	if *maxTerminals != 0 {
 		current := pol.EffectiveMaxTerminals()
 		if *maxTerminals >= current {
@@ -172,5 +180,6 @@ func runPolicySet(args []string) error {
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, false))
+	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
 	return nil
 }

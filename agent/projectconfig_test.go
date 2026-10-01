@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"galopin/internal/policy"
@@ -72,6 +73,32 @@ func TestProjectConfigPolicyIsTightenOnly(t *testing.T) {
 	}
 	if summary := projectConfigPolicySummary(pol, true); summary == "" {
 		t.Error("empty summary")
+	}
+}
+
+func TestBackgroundSubagentsPolicyIsTightenOnly(t *testing.T) {
+	if policy.Default().BackgroundSubagentsAllowed() {
+		t.Fatal("background subagents must default to denied")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	pol := policy.Default()
+	pol.BackgroundSubagents = policy.TerminalAllowed
+	if err := policy.Save(path, pol); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--no-background-subagents"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := policy.Load(path)
+	if err != nil || got.BackgroundSubagentsAllowed() {
+		t.Errorf("--no-background-subagents left it allowed: %+v %v", got, err)
+	}
+	if summary := backgroundSubagentsPolicySummary(pol); summary == "" {
+		t.Error("empty summary")
+	}
+	if summary := backgroundSubagentsPolicySummary(policy.Default()); !strings.Contains(summary, "DENIED") {
+		t.Errorf("denied summary should say DENIED: %q", summary)
 	}
 }
 
