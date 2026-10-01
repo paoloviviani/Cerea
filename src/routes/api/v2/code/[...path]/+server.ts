@@ -85,6 +85,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "DELETE", pattern: new RegExp(`^v1/terminals/${ID}$`) },
 	{ method: "GET", pattern: /^v1\/agents$/ },
 	{ method: "POST", pattern: /^v1\/agents$/ },
+	{ method: "GET", pattern: /^v1\/permissions\/pending$/ },
 	{ method: "GET", pattern: /^v1\/providers$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/modes$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/models$`) },
@@ -486,6 +487,18 @@ export const GET: RequestHandler = async (event) => {
 	if (path === "v1/agents") {
 		const { sessions } = await callOp(() => link.sessionList());
 		return superjsonResponse({ agents: sessions.map(toSession) });
+	}
+
+	// The Needs-you inbox's one round trip per machine (`permissions.pending`,
+	// PROTOCOL.md §6): every pending permission and question with the session
+	// context to render and deep-link it. Passed through as the machine
+	// answered — a read of live machine state, never a queue.
+	if (path === "v1/permissions/pending") {
+		const pending = await callOp(() => link.permissionsPending());
+		return superjsonResponse({
+			permissions: pending.permissions ?? [],
+			questions: pending.questions ?? [],
+		});
 	}
 
 	if (path === "v1/providers") {

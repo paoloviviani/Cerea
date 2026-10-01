@@ -409,6 +409,19 @@ export class MachineLink {
 	}): Promise<Record<string, never>> {
 		return this.call("question.reply", args);
 	}
+	/**
+	 * Every pending permission and question on this machine, with the
+	 * session context the Needs-you inbox renders and deep-links from —
+	 * the inbox's one round trip per machine (PROTOCOL.md `permissions.pending`).
+	 * A read of live machine state, never a queue: answering uses the
+	 * existing reply ops, whose events clear the ask everywhere.
+	 */
+	permissionsPending(): Promise<{
+		permissions: import("$lib/types/machineProtocol").PendingPermission[];
+		questions: import("$lib/types/machineProtocol").PendingQuestion[];
+	}> {
+		return this.call("permissions.pending", {});
+	}
 	sessionSync(args: { sessionId: string; epoch?: string; afterSeq?: number }): Promise<SyncResult> {
 		return this.call("session.sync", args);
 	}

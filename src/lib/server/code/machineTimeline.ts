@@ -49,7 +49,8 @@ import type {
 	Usage,
 } from "$lib/types/machineProtocol";
 import { usableAttachments, type ToolImageUrl } from "./toolImages";
-import type { ElicitationField, ElicitationValue } from "$lib/types/McpElicitation";
+import type { ElicitationValue } from "$lib/types/McpElicitation";
+import { permissionToElicitation, questionToElicitation } from "$lib/utils/codeInboxCards";
 
 /**
  * The plan revision counter, per session. A module-wide counter was shared
@@ -79,12 +80,6 @@ function nextPlanVersion(sessionId: string): number {
 export interface ChildContext {
 	childId: string;
 	childTitle?: string | null;
-}
-
-/** "Subagent ‹title›: " — or "Subagent: " while the title is unknown. */
-function subagentLabel(child: ChildContext): string {
-	const title = child.childTitle?.trim();
-	return title ? `Subagent ${title}: ` : "Subagent: ";
 }
 
 function toolCallUpdate(
@@ -238,17 +233,13 @@ export function permissionRequestToUpdate(
 	request: PermissionRequest,
 	child?: ChildContext
 ): MessageElicitationRequestUpdate {
+	// The card payload lives in `$lib/utils/codeInboxCards` (shared with the
+	// Needs-you inbox) — this stays a thin wrap so the stream and the inbox
+	// can never drift apart.
 	return {
 		type: MessageUpdateType.Elicitation,
 		subtype: MessageElicitationUpdateType.Request,
-		request: {
-			elicitationId: request.id,
-			server: request.tool,
-			mode: "form",
-			message: child ? `${subagentLabel(child)}${request.title}` : request.title,
-			toolApproval: { tool: request.tool, args: request.metadata },
-			...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
-		},
+		request: permissionToElicitation(request, child),
 	};
 }
 
@@ -272,7 +263,11 @@ export function permissionResolvedToUpdate(
  * `fields` as a multi-step flow exactly as it does for chat's own tool.
  * `value` is the option's own label, not an index: opencode's reply body
  * wants the chosen labels back verbatim, and this is what
- * `AskQuestion.svelte`'s own submit already collects into `content[name]`. */
+ * `AskQuestion.svelte`'s own submit already collects into `content[name]`.
+ *
+ * The card payload lives in `$lib/utils/codeInboxCards` (shared with the
+ * Needs-you inbox) — this stays a thin wrap so the stream and the inbox
+ * can never drift apart. */
 export function questionRequestedToUpdate(
 	event: {
 		requestId: string;
@@ -280,34 +275,10 @@ export function questionRequestedToUpdate(
 	},
 	child?: ChildContext
 ): MessageElicitationRequestUpdate {
-	const fields: ElicitationField[] = event.questions.map((q, i) => ({
-		kind: "select",
-		name: `q${i}`,
-		title: q.header,
-		description: q.question,
-		required: true,
-		multiple: q.multiple ?? false,
-		options: q.options.map((o) => ({ value: o.label, label: o.label, description: o.description })),
-		// opencode tells the model the user can type their own answer unless
-		// `custom` is off, so the card has to offer it; the typed text goes back
-		// as the answer's label, which opencode relays to the model verbatim.
-		allowOther: q.custom !== false,
-	}));
 	return {
 		type: MessageUpdateType.Elicitation,
 		subtype: MessageElicitationUpdateType.Request,
-		request: {
-			elicitationId: event.requestId,
-			// Not an MCP server: the card names what was asked, never this.
-			server: "agent",
-			mode: "form",
-			source: "assistant",
-			message: child
-				? `${subagentLabel(child)}${event.questions.map((q) => q.question).join("\n\n")}`
-				: event.questions.map((q) => q.question).join("\n\n"),
-			fields,
-			...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
-		},
+		request: questionToElicitation(event.requestId, event.questions, child),
 	};
 }
 
