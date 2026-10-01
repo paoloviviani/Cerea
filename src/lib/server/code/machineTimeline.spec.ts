@@ -15,6 +15,7 @@ import {
 	foldEnvelopeEvents,
 	frameKey,
 	lastAssistantErrorOf,
+	parseBackgroundTaskXml,
 	permissionRequestToUpdate,
 	questionRequestedToUpdate,
 	snapshotToUpdates,
@@ -1267,6 +1268,146 @@ describe("todos → the plan update", () => {
 		expect(a2.version).toBe(a1.version + 1);
 		// Another session's revision is untouched by A's traffic.
 		expect(b1.version).toBe(1);
+	});
+});
+
+describe("background task markers", () => {
+	const RUNNING_XML = `<task id="ses_child1" state="running">
+<summary>Background task started: Survey the repo</summary>
+<task_result>
+The task is working in the background. You will be notified automatically when it finishes.
+</task_result>
+</task>`;
+	const COMPLETED_XML = `<task id="ses_child1" state="completed">
+<summary>Background task completed: Survey the repo</summary>
+<task_result>
+The repo holds a SvelteKit app.
+</task_result>
+</task>`;
+
+	function taskToolPart(overrides: Partial<Part> = {}): Part {
+		return {
+			id: "p-task",
+			messageId: "m-task",
+			role: "assistant",
+			type: "tool",
+			callId: "call_task1",
+			tool: "task",
+			status: "completed",
+			input: { description: "Survey the repo", background: true },
+			output: RUNNING_XML,
+			...overrides,
+		} as Part;
+	}
+
+	function syntheticPart(text: string): Part {
+		return {
+			id: "p-syn",
+			messageId: "m-syn",
+			role: "assistant",
+			type: "text",
+			text,
+			synthetic: true,
+		};
+	}
+
+	function transcriptWith(parts: Part[]): Transcript {
+		return {
+			messages: [{ message: assistantMessage("m1"), parts }],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+	}
+
+	it("parses opencode's running/completed envelopes and rejects prose", () => {
+		expect(parseBackgroundTaskXml(RUNNING_XML)).toMatchObject({
+			id: "ses_child1",
+			state: "running",
+			summary: "Background task started: Survey the repo",
+		});
+		expect(parseBackgroundTaskXml(COMPLETED_XML)).toMatchObject({
+			id: "ses_child1",
+			state: "completed",
+			text: "The repo holds a SvelteKit app.",
+		});
+		expect(parseBackgroundTaskXml("just model prose")).toBeNull();
+		expect(
+			parseBackgroundTaskXml('<task id="x" state="bogus"><task_result>t</task_result></task>')
+		).toBeNull();
+	});
+
+	it("marks a background:true task call as running, anchored on its call", () => {
+		const updates = snapshotToUpdates(transcriptWith([taskToolPart()]));
+		expect(updates).toContainEqual({
+			type: MessageUpdateType.BackgroundTask,
+			taskId: "ses_child1",
+			callId: "call_task1",
+			state: "running",
+			summary: "Background task started: Survey the repo",
+			text: "The task is working in the background. You will be notified automatically when it finishes.",
+		});
+	});
+
+	it("leaves a foreground task's completed output on its tool card alone", () => {
+		const updates = snapshotToUpdates(
+			transcriptWith([
+				taskToolPart({
+					input: { description: "Survey the repo" },
+					output: COMPLETED_XML,
+				}),
+			])
+		);
+		expect(updates.some((u) => u.type === MessageUpdateType.BackgroundTask)).toBe(false);
+		expect(updates.some((u) => u.type === MessageUpdateType.Tool && u.subtype === "result")).toBe(
+			true
+		);
+	});
+
+	it("names a task_id resume a follow-up", () => {
+		const updates = snapshotToUpdates(
+			transcriptWith([
+				taskToolPart({ input: { description: "More", task_id: "ses_child1", background: true } }),
+			])
+		);
+		expect(updates).toContainEqual(
+			expect.objectContaining({
+				type: MessageUpdateType.BackgroundTask,
+				taskId: "ses_child1",
+				state: "running",
+				followUp: true,
+			})
+		);
+	});
+
+	it("folds a synthetic completion into an automatic marker, and drops other synthetics", () => {
+		const updates = snapshotToUpdates(
+			transcriptWith([syntheticPart(COMPLETED_XML), syntheticPart("a compaction reminder")])
+		);
+		const markers = updates.filter((u) => u.type === MessageUpdateType.BackgroundTask);
+		expect(markers).toHaveLength(1);
+		expect(markers[0]).toMatchObject({
+			taskId: "ses_child1",
+			state: "completed",
+			automatic: true,
+			text: "The repo holds a SvelteKit app.",
+		});
+		// No stream tokens leak from either synthetic part.
+		expect(updates.some((u) => u.type === MessageUpdateType.Stream)).toBe(false);
+	});
+
+	it("keys a background marker by child, call and state", () => {
+		const marker = {
+			type: MessageUpdateType.BackgroundTask,
+			taskId: "ses_child1",
+			callId: "call_task1",
+			state: "running",
+		} as const;
+		expect(frameKey(marker)).toBe("b:ses_child1:call_task1:running");
+		expect(frameKey({ ...marker, state: "completed", callId: undefined })).toBe(
+			"b:ses_child1::completed"
+		);
 	});
 });
 
