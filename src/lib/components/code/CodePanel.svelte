@@ -20,6 +20,7 @@
 	import IconCode from "~icons/carbon/code";
 	import IconLaptop from "~icons/carbon/laptop";
 	import AgentView from "./AgentView.svelte";
+	import NeedsYouInbox from "./NeedsYouInbox.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeDeviceList, useCodeDevicePoll } from "$lib/stores/codeDeviceList.svelte";
 	import { openMobileNav } from "$lib/components/MobileNav.svelte";
@@ -64,6 +65,12 @@
      composer. Every branch here re-enables pointer events itself, the
      ChatWindow contract (its own tree does the same above the column). -->
 <div class="pointer-events-none flex h-full min-h-0 flex-col overflow-hidden">
+	{#if enabled}
+		<!-- The Needs-you inbox: pending approvals/questions across machines,
+		     answerable inline with the agent card's own cards, deep-linked to
+		     each ask's session. Renders nothing when nothing is waiting. -->
+		<NeedsYouInbox />
+	{/if}
 	{#if !enabled}
 		<div class="pointer-events-auto {s.EMPTY}">
 			<IconCode class={s.EMPTY_ICON} />
