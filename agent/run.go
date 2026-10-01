@@ -350,6 +350,9 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			StateDir: stateDir,
 			// A repo's own opencode config is off unless the machine opted in.
 			ProjectConfig: pol.ProjectConfigAllowed(),
+			// Background subagents need the experimental env flag, only when
+			// the machine enrolled with --allow-background-subagents.
+			BackgroundSubagents: pol.BackgroundSubagentsAllowed(),
 			// galopin's own agent-coordination tools (session_list/spawn/send).
 			ToolsDir: toolsDir,
 			Logf:     func(format string, args ...any) { logf(format, args...) },
@@ -432,16 +435,17 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
 		}},
 		Policy: link.PolicyInfo{
-			AutoAccept:      string(pol.AutoAccept),
-			WorkspaceRoots:  roots,
-			AllowFreeModels: pol.AllowFreeModels,
-			Files:           filesPolicyWord(pol),
-			FileDeny:        orEmptyStrings(pol.EffectiveFileDeny()),
-			Terminal:        terminalPolicyWord(pol),
-			MaxTerminals:    pol.EffectiveMaxTerminals(),
-			CommandShell:    commandShellPolicyWord(pol),
-			AgentTools:      agentToolsPolicyWord(pol),
-			ProjectConfig:   projectConfigPolicyWord(pol),
+			AutoAccept:          string(pol.AutoAccept),
+			WorkspaceRoots:      roots,
+			AllowFreeModels:     pol.AllowFreeModels,
+			Files:               filesPolicyWord(pol),
+			FileDeny:            orEmptyStrings(pol.EffectiveFileDeny()),
+			Terminal:            terminalPolicyWord(pol),
+			MaxTerminals:        pol.EffectiveMaxTerminals(),
+			CommandShell:        commandShellPolicyWord(pol),
+			AgentTools:          agentToolsPolicyWord(pol),
+			ProjectConfig:       projectConfigPolicyWord(pol),
+			BackgroundSubagents: backgroundSubagentsPolicyWord(pol),
 		},
 	}
 }
@@ -575,6 +579,13 @@ func agentToolsPolicyWord(pol policy.Policy) string {
 
 func projectConfigPolicyWord(pol policy.Policy) string {
 	if pol.ProjectConfigAllowed() {
+		return policy.TerminalAllowed
+	}
+	return policy.TerminalDenied
+}
+
+func backgroundSubagentsPolicyWord(pol policy.Policy) string {
+	if pol.BackgroundSubagentsAllowed() {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied

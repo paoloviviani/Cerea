@@ -78,6 +78,12 @@ type Config struct {
 	// model/small_model pinned to the gateway, so the repo cannot redirect
 	// the provider or pick another default model (see pinnedConfig).
 	ProjectConfig bool
+	// BackgroundSubagents is whether opencode may run background subagents
+	// (task background:true, 1.18.32). True exports
+	// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1; false (the zero value)
+	// strips any inherited value, so background:true fails closed inside
+	// opencode. Set only from policy.BackgroundSubagentsAllowed.
+	BackgroundSubagents bool
 	// StartupTimeout bounds Start's wait for the first health check
 	// (default 30s). A first run on a cold cache can be slower than that;
 	// the integration test overrides it rather than this package assuming
@@ -220,9 +226,11 @@ func New(cfg Config) *Backend {
 	}
 }
 
-// ID/Version implement backend.Backend.
+// ID/Version implement backend.Backend. Version is the opencode release
+// the live integration tests are pinned to (1.18.32): hello reports it,
+// and the capability probe never consults it.
 func (b *Backend) ID() string      { return "opencode" }
-func (b *Backend) Version() string { return "1.18.31" }
+func (b *Backend) Version() string { return "1.18.32" }
 
 // lifecycleContext returns the context Start was called with, or ok=false
 // when Start has not completed (or was never called).
@@ -414,15 +422,12 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	if b.cfg.ConfigPath != "" {
 		env = append(env, "OPENCODE_CONFIG="+b.cfg.ConfigPath)
 	}
-	// The project-config switches are galopin's alone: an inherited value
-	// (a repo's .envrc, say) never decides them.
-	kept := env[:0]
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") {
-			kept = append(kept, kv)
-		}
+	// The project-config and background-subagent switches are galopin's
+	// alone: an inherited value (a repo's .envrc, say) never decides them.
+	env = stripChildSwitches(env)
+	if b.cfg.BackgroundSubagents {
+		env = append(env, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1")
 	}
-	env = kept
 	if !b.cfg.ProjectConfig {
 		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
 	} else if b.cfg.ConfigPath != "" {
@@ -458,6 +463,20 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	b.cmd = nil
 	b.mu.Unlock()
 	return err
+}
+
+// stripChildSwitches drops the opencode switches galopin owns outright, so
+// an inherited value never decides them. The background-subagent flag is
+// then set only from Config.BackgroundSubagents (fail-closed: absent means
+// opencode refuses background:true inside the task tool).
+func stripChildSwitches(env []string) []string {
+	kept := env[:0]
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") && !strings.HasPrefix(kv, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=") {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
 }
 
 func (b *Backend) waitHealthy(ctx context.Context, timeout time.Duration) error {

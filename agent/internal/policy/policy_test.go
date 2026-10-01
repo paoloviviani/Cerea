@@ -17,8 +17,23 @@ func TestDefaultIsClosed(t *testing.T) {
 	if p.TerminalAllowed() {
 		t.Error("default policy must deny the terminal (ADR 0090)")
 	}
+	if p.BackgroundSubagentsAllowed() {
+		t.Error("default policy must deny background subagents")
+	}
 	if got := p.EffectiveMaxTerminals(); got != DefaultMaxTerminals {
 		t.Errorf("EffectiveMaxTerminals() = %d, want the default %d", got, DefaultMaxTerminals)
+	}
+}
+
+func TestBackgroundSubagentsAllowed(t *testing.T) {
+	if (Policy{BackgroundSubagents: TerminalDenied}).BackgroundSubagentsAllowed() {
+		t.Error("denied must not be allowed")
+	}
+	if !(Policy{BackgroundSubagents: TerminalAllowed}).BackgroundSubagentsAllowed() {
+		t.Error("allowed must be allowed")
+	}
+	if (Policy{}).BackgroundSubagentsAllowed() {
+		t.Error("a zero-value Policy (never enrolled with the background flag) must deny")
 	}
 }
 
@@ -54,6 +69,9 @@ func TestLoadDefaultsTerminalToDenied(t *testing.T) {
 	}
 	if p.Terminal != TerminalDenied {
 		t.Errorf("Terminal = %q, want %q for a policy.json predating this field", p.Terminal, TerminalDenied)
+	}
+	if p.BackgroundSubagents != TerminalDenied {
+		t.Errorf("BackgroundSubagents = %q, want %q for a policy.json predating this field", p.BackgroundSubagents, TerminalDenied)
 	}
 }
 
