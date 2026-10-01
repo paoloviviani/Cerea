@@ -34,6 +34,7 @@
 	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import MemoryCard from "./MemoryCard.svelte";
+	import BackgroundTaskCard from "./BackgroundTaskCard.svelte";
 	import {
 		isMessageToolUpdate,
 		isMessageToolResultUpdate,
@@ -44,6 +45,7 @@
 		isMessageCodeExecutionResolvedUpdate,
 		isMessagePlanUpdate,
 		isMessageMemoryUpdate,
+		isMessageBackgroundTaskUpdate,
 	} from "$lib/utils/messageUpdates";
 	import {
 		MessageUpdateType,
@@ -56,6 +58,7 @@
 		type MessageCodeExecutionResolvedUpdate,
 		type MessagePlanUpdate,
 		type MessageMemoryUpdate,
+		type MessageBackgroundTaskUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { CodeSubagentAnchor } from "$lib/types/CodeAgent";
@@ -293,6 +296,7 @@
 		| CodeExecutionBlock
 		| { type: "plan"; update: MessagePlanUpdate }
 		| { type: "memory"; update: MessageMemoryUpdate }
+		| { type: "backgroundTask"; update: MessageBackgroundTaskUpdate }
 		| {
 				type: "subagent";
 				uuid: string;
@@ -312,6 +316,7 @@
 		| ({ kind: "codeExecution" } & Omit<CodeExecutionBlock, "type">)
 		| { kind: "plan"; update: MessagePlanUpdate }
 		| { kind: "memory"; update: MessageMemoryUpdate }
+		| { kind: "backgroundTask"; update: MessageBackgroundTaskUpdate }
 		| { kind: "subagent"; uuid: string; anchor: CodeSubagentAnchor; updates: MessageToolUpdate[] };
 
 	// Expand any text block containing <think>…</think> into dedicated think blocks
@@ -531,6 +536,12 @@
 				const memoryToolIdx = res.findIndex((b) => b.type === "tool" && b.uuid === update.uuid);
 				if (memoryToolIdx !== -1) res.splice(memoryToolIdx, 1);
 				res.push({ type: "memory", update });
+			} else if (isMessageBackgroundTaskUpdate(update)) {
+				// A background subagent's marker accumulates like memory, never
+				// folded: each child keeps its own row, and the generic tool
+				// card for the spawning call stays — the marker names the
+				// lifecycle, the tool card the call.
+				res.push({ type: "backgroundTask", update });
 			} else if (update.type === MessageUpdateType.FinalAnswer) {
 				sawFinalAnswer = true;
 				const finalText = update.text ?? "";
@@ -620,6 +631,12 @@
 				// the undo is only found by people who go looking for it.
 				flush();
 				units.push({ kind: "memory", update: block.update });
+			} else if (block.type === "backgroundTask") {
+				// Never folded either: a background child's status has to stay
+				// readable after the turn ends — that is the whole point of
+				// the marker.
+				flush();
+				units.push({ kind: "backgroundTask", update: block.update });
 			} else if (block.type === "subagent") {
 				// Never folded into the summary either: a subagent's status has
 				// to stay readable after the turn ends — that is the whole point
@@ -655,6 +672,9 @@
 		if (last.type === "subagent") {
 			return !last.anchor.subagent || last.anchor.subagent.status === "running";
 		}
+		if (last.type === "backgroundTask") {
+			return last.update.state === "running";
+		}
 		if (last.type === "text") return last.content.trim().length > 0;
 		return false;
 	});
@@ -672,6 +692,7 @@
 				block.type === "elicitation" ||
 				block.type === "plan" ||
 				block.type === "memory" ||
+				block.type === "backgroundTask" ||
 				block.type === "subagent"
 		);
 	});
@@ -745,7 +766,7 @@
 				{#if isProcessStreaming}
 					<!-- A streaming turn that used thinking / tools: every block renders flat
 					     and inline until the turn ends, then the nested summary takes over. -->
-					{#each blocks as block, blockIndex (block.type === "tool" ? `tool-${block.uuid}-${blockIndex}` : block.type === "plan" ? `plan-${block.update.version}` : block.type === "subagent" ? `subagent-${block.uuid}` : `block-${blockIndex}`)}
+					{#each blocks as block, blockIndex (block.type === "tool" ? `tool-${block.uuid}-${blockIndex}` : block.type === "plan" ? `plan-${block.update.version}` : block.type === "subagent" ? `subagent-${block.uuid}` : block.type === "backgroundTask" ? `background-${block.update.taskId}-${block.update.state}` : `block-${blockIndex}`)}
 						{#if block.type === "text"}
 							{#if block.content.trim().length > 0}
 								<div class={proseClasses}>
@@ -795,6 +816,10 @@
 							<div data-exclude-from-copy>
 								<MemoryCard update={block.update} />
 							</div>
+						{:else if block.type === "backgroundTask"}
+							<div data-exclude-from-copy>
+								<BackgroundTaskCard update={block.update} />
+							</div>
 						{:else if block.type === "subagent"}
 							<div data-exclude-from-copy>
 								{#if subagentCard}
@@ -827,7 +852,7 @@
 					{/if}
 				{:else}
 					<!-- Answer started or generation finished: nest the process blocks. -->
-					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : `${unit.kind}-${unitIndex}`)}
+					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : unit.kind === "backgroundTask" ? `background-${unit.update.taskId}-${unit.update.state}` : `${unit.kind}-${unitIndex}`)}
 						{#if unit.kind === "text"}
 							{#if isLast && loading && unit.content.length === 0}
 								<IconLoading classNames="loading inline ml-2 first:ml-0" />
@@ -878,6 +903,10 @@
 						{:else if unit.kind === "memory"}
 							<div data-exclude-from-copy>
 								<MemoryCard update={unit.update} />
+							</div>
+						{:else if unit.kind === "backgroundTask"}
+							<div data-exclude-from-copy>
+								<BackgroundTaskCard update={unit.update} />
 							</div>
 						{:else if unit.kind === "subagent"}
 							<div data-exclude-from-copy>

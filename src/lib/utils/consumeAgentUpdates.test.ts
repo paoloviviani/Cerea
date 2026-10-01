@@ -413,4 +413,85 @@ describe("consumeAgentUpdates", () => {
 			expect(lastState(messages[1])).toMatchObject({ state: "done" });
 		});
 	});
+
+	describe("background task markers", () => {
+		const backgroundRunning = (taskId: string, callId = "call_task1"): AgentStreamUpdate => ({
+			type: MessageUpdateType.BackgroundTask,
+			taskId,
+			callId,
+			state: "running",
+			summary: "Background task started: Survey the repo",
+		});
+		const backgroundDone = (taskId: string): AgentStreamUpdate => ({
+			type: MessageUpdateType.BackgroundTask,
+			taskId,
+			state: "completed",
+			summary: "Background task completed: Survey the repo",
+			text: "The repo holds a SvelteKit app.",
+			automatic: true,
+		});
+
+		it("opens a marker row on the running turn", async () => {
+			const messages = await run([
+				user("delegate this"),
+				running(),
+				call("call_task1", "task"),
+				backgroundRunning("ses_child1"),
+				token("Launched."),
+				done(),
+			]);
+			expect(messages).toHaveLength(2);
+			const updates = messages[1].updates ?? [];
+			expect(updates).toContainEqual(
+				expect.objectContaining({
+					type: "backgroundTask",
+					taskId: "ses_child1",
+					state: "running",
+				})
+			);
+		});
+
+		it("folds a later synthetic completion into the same marker, in place", async () => {
+			const messages = await run([
+				user("delegate this"),
+				running(),
+				call("call_task1", "task"),
+				backgroundRunning("ses_child1"),
+				done(),
+				// A turn later, the injected result arrives for the same child.
+				user("anything new?"),
+				running(),
+				token("Checking."),
+				backgroundDone("ses_child1"),
+				done(),
+			]);
+			const markers = messages.flatMap((m) =>
+				((m.updates ?? []) as AgentStreamUpdate[]).filter(
+					(u) => u.type === MessageUpdateType.BackgroundTask
+				)
+			);
+			// One marker per child: the running row became the completed one.
+			expect(markers).toHaveLength(1);
+			expect(markers[0]).toMatchObject({
+				taskId: "ses_child1",
+				callId: "call_task1",
+				state: "completed",
+				automatic: true,
+				text: "The repo holds a SvelteKit app.",
+			});
+			// The completion landed on the spawning turn's message, not the later one.
+			expect(messages[1].updates).toContainEqual(
+				expect.objectContaining({ type: "backgroundTask", state: "completed" })
+			);
+		});
+
+		it("opens a fresh row for a completion nobody marked running", async () => {
+			const messages = await run([user("hi"), running(), backgroundDone("ses_orphan"), done()]);
+			const markers = (messages[1].updates ?? []).filter(
+				(u) => u.type === MessageUpdateType.BackgroundTask
+			);
+			expect(markers).toHaveLength(1);
+			expect(markers[0]).toMatchObject({ taskId: "ses_orphan", state: "completed" });
+		});
+	});
 });
