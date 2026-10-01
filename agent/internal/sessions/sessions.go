@@ -902,6 +902,64 @@ func (m *Materializer) PendingPermissions(sessionID string) int {
 	return len(st.permissionOrder)
 }
 
+// PendingPermissionRequests returns copies of the permission requests
+// currently awaiting a reply for sessionID, in the order they were asked —
+// what permissions.pending serves. Empty, never nil, when none are waiting.
+func (m *Materializer) PendingPermissionRequests(sessionID string) []backend.PermissionRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		return []backend.PermissionRequest{}
+	}
+	out := make([]backend.PermissionRequest, 0, len(st.permissionOrder))
+	for _, id := range st.permissionOrder {
+		if req, ok := st.permissions[id]; ok {
+			out = append(out, *req)
+		}
+	}
+	return out
+}
+
+// PendingQuestionRequests returns copies of the unanswered question-tool
+// asks for sessionID, in the order they were asked — what
+// permissions.pending serves alongside permissions. Empty, never nil.
+func (m *Materializer) PendingQuestionRequests(sessionID string) []backend.QuestionRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		return []backend.QuestionRequest{}
+	}
+	out := make([]backend.QuestionRequest, 0, len(st.questionOrder))
+	for _, id := range st.questionOrder {
+		if req, ok := st.questions[id]; ok {
+			out = append(out, *req)
+		}
+	}
+	return out
+}
+
+// TrackedIDs returns every session id the materializer knows, top-level and
+// subagent alike — what permissions.pending scans. Sorted for a stable wire
+// order; callers must not mutate the session states through it.
+func (m *Materializer) TrackedIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.sessions))
+	for id := range m.sessions {
+		out = append(out, id)
+	}
+	// Insertion order would do, but a map's iteration order does not —
+	// sort so two identical states answer identically.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j] < out[j-1]; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
 // Reseed forgets what the materializer holds of sessionID's transcript
 // (messages, parts, the ring of past envelopes), so the next session.sync
 // from scratch answers with a snapshot re-read from the backend: after a

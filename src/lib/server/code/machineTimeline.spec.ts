@@ -1270,6 +1270,43 @@ describe("todos → the plan update", () => {
 	});
 });
 
+/**
+ * The Needs-you inbox renders the SAME cards from the SAME payloads: the
+ * shared mapping in `$lib/utils/codeInboxCards` must equal what these
+ * update wrappers carry, or the stream and the inbox have drifted apart.
+ */
+describe("inbox card parity (codeInboxCards)", () => {
+	it("builds the same permission payload the stream card carries", async () => {
+		const { permissionToElicitation } = await import("$lib/utils/codeInboxCards");
+		const request: PermissionRequest = {
+			id: "perm-1",
+			sessionId: "s1",
+			tool: "bash",
+			title: "run tests",
+			patterns: [],
+			metadata: { argv: ["ls"] },
+			always: [],
+		};
+		const update = permissionRequestToUpdate(request);
+		if (update.type !== MessageUpdateType.Elicitation || update.subtype !== "request") {
+			throw new Error("expected an elicitation request");
+		}
+		expect(permissionToElicitation(request)).toEqual(update.request);
+	});
+
+	it("builds the same question payload the stream card carries", async () => {
+		const { questionToElicitation } = await import("$lib/utils/codeInboxCards");
+		const questions = [
+			{ question: "Which approach?", header: "Approach", options: [{ label: "A" }] },
+		];
+		const update = questionRequestedToUpdate({ requestId: "q-1", questions });
+		if (update.type !== MessageUpdateType.Elicitation || update.subtype !== "request") {
+			throw new Error("expected an elicitation request");
+		}
+		expect(questionToElicitation("q-1", questions)).toEqual(update.request);
+	});
+});
+
 describe("tool-image size passthrough", () => {
 	it("carries each attachment's size onto its image block, for the strip's load gate", () => {
 		const sha = "a".repeat(64);
