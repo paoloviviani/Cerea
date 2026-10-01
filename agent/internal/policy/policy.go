@@ -73,6 +73,14 @@ type Policy struct {
 	// galopin starts opencode with OPENCODE_DISABLE_PROJECT_CONFIG=1. A
 	// local `galopin policy set` can only turn it off.
 	ProjectConfig string `json:"projectConfig,omitempty"`
+	// BackgroundSubagents gates opencode's background task tool
+	// (OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS): "allowed" or "denied"
+	// (the default; `enroll --allow-background-subagents` opens it). While
+	// denied galopin never sets the env flag, so a task with background:true
+	// fails closed inside opencode ("Background subagents require
+	// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"). A local
+	// `galopin policy set` can only turn it off.
+	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
 }
 
 // FilesRead and FilesOff are Policy.Files's two values.
@@ -122,6 +130,13 @@ func (p Policy) AgentToolsAllowed() bool { return p.AgentTools != TerminalDenied
 // config. Default denied: an owner opts in with `enroll --allow-project-config`.
 func (p Policy) ProjectConfigAllowed() bool { return p.ProjectConfig == TerminalAllowed }
 
+// BackgroundSubagentsAllowed reports whether opencode may run background
+// subagents (task background:true). Default denied: an owner opts in with
+// `enroll --allow-background-subagents`.
+func (p Policy) BackgroundSubagentsAllowed() bool {
+	return p.BackgroundSubagents == TerminalAllowed
+}
+
 // EffectiveMaxTerminals is p.MaxTerminals, or DefaultMaxTerminals when unset.
 func (p Policy) EffectiveMaxTerminals() int {
 	if p.MaxTerminals <= 0 {
@@ -150,13 +165,14 @@ const GatewayProviderID = "pystino"
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
 	return Policy{
-		AutoAccept:      AutoAcceptDenied,
-		AllowFreeModels: false,
-		Files:           FilesRead,
-		Terminal:        TerminalDenied,
-		CommandShell:    TerminalDenied,
-		AgentTools:      TerminalAllowed,
-		ProjectConfig:   TerminalDenied,
+		AutoAccept:          AutoAcceptDenied,
+		AllowFreeModels:     false,
+		Files:               FilesRead,
+		Terminal:            TerminalDenied,
+		CommandShell:        TerminalDenied,
+		AgentTools:          TerminalAllowed,
+		ProjectConfig:       TerminalDenied,
+		BackgroundSubagents: TerminalDenied,
 	}
 }
 
@@ -192,6 +208,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.ProjectConfig == "" {
 		p.ProjectConfig = TerminalDenied
+	}
+	if p.BackgroundSubagents == "" {
+		p.BackgroundSubagents = TerminalDenied
 	}
 	return p, nil
 }

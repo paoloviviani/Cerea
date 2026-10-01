@@ -3,6 +3,7 @@ import {
 	MessageElicitationUpdateType,
 	MessageToolUpdateType,
 	MessageUpdateType,
+	type MessageBackgroundTaskUpdate,
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import type { Message } from "$lib/types/Message";
@@ -421,6 +422,60 @@ export async function consumeAgentUpdates(
 				break;
 			}
 			case MessageUpdateType.Plan: {
+				openAssistant();
+				pushUpdate(update);
+				scheduleFrameFlush();
+				break;
+			}
+			case MessageUpdateType.BackgroundTask: {
+				// A completion (or failure) for a child already marked running
+				// folds into that marker in place — one marker per background
+				// child, running then completed — wherever in the transcript the
+				// running half landed, even when the synthetic result arrives a
+				// turn later. Only a marker for an unknown child opens a fresh
+				// row on this turn.
+				if (update.state !== "running") {
+					const isRunningMarker = (
+						candidate: MessageUpdate
+					): candidate is MessageBackgroundTaskUpdate =>
+						candidate.type === MessageUpdateType.BackgroundTask &&
+						(candidate as MessageBackgroundTaskUpdate).taskId === update.taskId &&
+						(candidate as MessageBackgroundTaskUpdate).state === "running";
+					const merge = (prev: MessageBackgroundTaskUpdate): MessageBackgroundTaskUpdate => ({
+						...prev,
+						state: update.state,
+						summary: update.summary ?? prev.summary,
+						text: update.text ?? prev.text,
+						automatic: true,
+					});
+					const bufferedIndex = updatesBuffer.findIndex(isRunningMarker);
+					if (current && bufferedIndex >= 0) {
+						updatesBuffer = [
+							...updatesBuffer.slice(0, bufferedIndex),
+							merge(updatesBuffer[bufferedIndex] as MessageBackgroundTaskUpdate),
+							...updatesBuffer.slice(bufferedIndex + 1),
+						];
+						updatesDirty = true;
+						scheduleFrameFlush();
+						break;
+					}
+					const target = [...messages]
+						.reverse()
+						.find(
+							(message) =>
+								message.from === "assistant" && (message.updates ?? []).some(isRunningMarker)
+						);
+					if (target) {
+						const updates = target.updates ?? [];
+						const index = updates.findIndex(isRunningMarker);
+						target.updates = [
+							...updates.slice(0, index),
+							merge(updates[index] as MessageBackgroundTaskUpdate),
+							...updates.slice(index + 1),
+						];
+						break;
+					}
+				}
 				openAssistant();
 				pushUpdate(update);
 				scheduleFrameFlush();

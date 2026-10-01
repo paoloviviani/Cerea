@@ -74,6 +74,10 @@ type PolicyInfo struct {
 	// (PROTOCOL.md §4): "allowed" or "denied" (default). Older machines
 	// omit it, and they load it.
 	ProjectConfig string `json:"projectConfig,omitempty"`
+	// BackgroundSubagents is whether opencode may run background subagents
+	// (task background:true): "allowed" or "denied" (default). Older
+	// machines omit it, read as denied: the env flag was never set there.
+	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
 }
 
 // MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can

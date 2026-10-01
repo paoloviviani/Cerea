@@ -42,16 +42,23 @@ Usage:
                enabled_providers, so the gateway's models are the only
                ones opencode offers; this flag omits that allowlist for
                operators who want the built-ins too.
-  --allow-project-config  Load a repo's own opencode config (default: ignored).
-               By default opencode starts with OPENCODE_DISABLE_PROJECT_CONFIG=1:
-               a workspace's opencode.json, .opencode/ (plugins, tools,
-               commands, agents, MCP servers) and AGENTS.md/CLAUDE.md are
-               not loaded, because a cloned repo can point the gateway at
-               another endpoint and its plugins run as you. Opting in pins
-               the gateway provider and default models over the repo's, and
-               audits any attempt to change them; plugins still run as you.
-               With --allow-opencode-provider the provider allowlist cannot
-               be pinned (known: no guarantee).
+   --allow-project-config  Load a repo's own opencode config (default: ignored).
+                By default opencode starts with OPENCODE_DISABLE_PROJECT_CONFIG=1:
+                a workspace's opencode.json, .opencode/ (plugins, tools,
+                commands, agents, MCP servers) and AGENTS.md/CLAUDE.md are
+                not loaded, because a cloned repo can point the gateway at
+                another endpoint and its plugins run as you. Opting in pins
+                the gateway provider and default models over the repo's, and
+                audits any attempt to change them; plugins still run as you.
+                With --allow-opencode-provider the provider allowlist cannot
+                be pinned (known: no guarantee).
+   --allow-background-subagents  Let the agent run subagents in the
+                background (default: denied). While denied galopin never
+                sets OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, so a task
+                with background:true fails closed inside opencode. Opting in
+                lets a task keep running after its parent turn ends, with
+                its result injected back as a synthetic message the panel
+                shows as a background marker.
   --allow-auto-accept  Let 'run' permit session.setAutoAccept at all
                (default denied: the machine's own veto, PROTOCOL.md §4 —
                Cerea can never turn this on over the link if this flag was
@@ -118,6 +125,7 @@ type enrollOptions struct {
 	allowCommandShell      bool
 	noAgentTools           bool
 	allowProjectConfig     bool
+	allowBackground        bool
 	maxTerminals           int
 	yes                    bool
 }
@@ -167,6 +175,7 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.allowCommandShell, "allow-command-shell", false, "")
 	fs.BoolVar(&opts.noAgentTools, "no-agent-tools", false, "")
 	fs.BoolVar(&opts.allowProjectConfig, "allow-project-config", false, "")
+	fs.BoolVar(&opts.allowBackground, "allow-background-subagents", false, "")
 	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	if err := fs.Parse(args); err != nil {
@@ -313,6 +322,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if opts.allowProjectConfig {
 		pol.ProjectConfig = policy.TerminalAllowed
 	}
+	if opts.allowBackground {
+		pol.BackgroundSubagents = policy.TerminalAllowed
+	}
 	pol.MaxTerminals = opts.maxTerminals
 	if opts.allowTerminal && !opts.allowAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're denying unattended agent commands but allowing a remote shell.")
@@ -325,6 +337,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
+	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -538,4 +551,13 @@ func commandShellPolicySummary(pol policy.Policy) string {
 		return "Command shell: DENIED — slash commands whose template runs shell (or whose shell is unknown) are refused."
 	}
 	return "Command shell: ALLOWED — a command's template may run its shell snippets without asking."
+}
+
+// backgroundSubagentsPolicySummary says, in plain words, whether opencode
+// may run background subagents on this machine.
+func backgroundSubagentsPolicySummary(pol policy.Policy) string {
+	if !pol.BackgroundSubagentsAllowed() {
+		return "Background subagents: DENIED — OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS is never set, so a task with background:true fails closed."
+	}
+	return "Background subagents: ALLOWED — a task may keep running after its parent turn ends; its result returns as a synthetic message the panel shows."
 }

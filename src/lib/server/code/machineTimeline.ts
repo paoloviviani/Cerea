@@ -21,6 +21,7 @@ import {
 	MessageElicitationUpdateType,
 	MessageToolUpdateType,
 	MessageUpdateType,
+	type MessageBackgroundTaskUpdate,
 	type MessageElicitationRequestUpdate,
 	type MessageElicitationResolvedUpdate,
 	type MessagePlanUpdate,
@@ -171,6 +172,79 @@ function usageToUpdate(usage: Usage): AgentUsageUpdate {
 	};
 }
 
+/**
+ * opencode's background-task envelope (1.18.32 task tool, behind
+ * OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS): `<task id state>` with a
+ * `<summary>` and a `<task_result>`/`<task_error>` body. The task tool's
+ * immediate output carries it (state "running" while the child keeps
+ * working), and the finished child's result is injected back as a synthetic
+ * text part carrying it (state "completed" or "error"). Null when the text
+ * is not that shape — model prose quoting the tags must never become a
+ * marker.
+ */
+export interface BackgroundTaskXml {
+	id: string;
+	state: "running" | "completed" | "error";
+	summary?: string;
+	text?: string;
+}
+
+export function parseBackgroundTaskXml(text: string | undefined): BackgroundTaskXml | null {
+	if (!text) return null;
+	const open = text.match(/<task\s+id="([^"]+)"\s+state="([^"]+)">/);
+	if (!open) return null;
+	const state = open[2];
+	if (state !== "running" && state !== "completed" && state !== "error") return null;
+	const body = text.slice(
+		open[0].length,
+		text.lastIndexOf("</task>") >= 0 ? text.lastIndexOf("</task>") : undefined
+	);
+	const summary = body.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim() || undefined;
+	const result =
+		body.match(/<task_result>([\s\S]*?)<\/task_result>/)?.[1] ??
+		body.match(/<task_error>([\s\S]*?)<\/task_error>/)?.[1];
+	return {
+		id: open[1],
+		state,
+		...(summary ? { summary } : {}),
+		...(result !== undefined ? { text: result.trim() || undefined } : {}),
+	};
+}
+
+/** Whether a task tool call's input resumes a running child (`task_id`)
+ * rather than spawning one — the honest "follow-up" label, not a new spawn. */
+function isTaskFollowUp(input: Record<string, unknown> | undefined): boolean {
+	if (!input) return false;
+	for (const key of ["task_id", "taskId"]) {
+		const value = input[key];
+		if (typeof value === "string" && value.trim()) return true;
+	}
+	return false;
+}
+
+function backgroundTaskUpdate(
+	taskId: string,
+	state: MessageBackgroundTaskUpdate["state"],
+	options?: {
+		callId?: string;
+		summary?: string;
+		text?: string;
+		followUp?: boolean;
+		automatic?: boolean;
+	}
+): MessageBackgroundTaskUpdate {
+	return {
+		type: MessageUpdateType.BackgroundTask,
+		taskId,
+		...(options?.callId ? { callId: options.callId } : {}),
+		state,
+		...(options?.summary ? { summary: options.summary } : {}),
+		...(options?.text ? { text: options.text } : {}),
+		...(options?.followUp ? { followUp: true } : {}),
+		...(options?.automatic ? { automatic: true } : {}),
+	};
+}
+
 /** One part → zero or more panel frames. A part upserts in place on the
  * wire (spec §7's text contract); folded here as its current, whole value —
  * a snapshot read and a live `part` event both call this the same way.
@@ -186,8 +260,22 @@ function partToUpdates(
 	imageUrl?: ToolImageUrl
 ): AgentStreamUpdate[] {
 	switch (part.type) {
-		case "text":
-			if (part.synthetic) return [];
+		case "text": {
+			// Synthetic parts are backend-injected, never model text — except
+			// the background-task result injection, which is the completion
+			// half of a visible parent marker (parsed strictly, never shown
+			// as prose). Anything else synthetic stays dropped.
+			if (part.synthetic) {
+				const parsed = parseBackgroundTaskXml(part.text);
+				if (!parsed) return [];
+				return [
+					backgroundTaskUpdate(parsed.id, parsed.state, {
+						summary: parsed.summary,
+						text: parsed.text,
+						automatic: true,
+					}),
+				];
+			}
 			if (!part.text) return [];
 			return part.role === "user"
 				? [
@@ -199,12 +287,13 @@ function partToUpdates(
 						},
 					]
 				: [{ type: MessageUpdateType.Stream, token: part.text }];
+		}
 		case "tool": {
 			const call = toolCallUpdate(part.callId, part.tool, part.input);
 			if (part.status === "pending" || part.status === "running") return [call];
 			if (part.status === "error")
 				return [call, toolErrorUpdate(part.callId, part.error ?? "The call failed.")];
-			return [
+			const frames: AgentStreamUpdate[] = [
 				call,
 				toolResultUpdate(
 					part.callId,
@@ -216,6 +305,26 @@ function partToUpdates(
 					part.attachmentsOmitted
 				),
 			];
+			// A background task's immediate output is the running half of
+			// the same marker: the child keeps working after this turn ends.
+			// Foreground tasks complete inline (state "completed" with no
+			// background ask) and keep their existing tool rendering alone —
+			// a marker there would double the subagent card.
+			if (part.tool === "task") {
+				const parsed = parseBackgroundTaskXml(part.output);
+				const askedBackground = part.input?.["background"] === true;
+				if (parsed && (parsed.state === "running" || askedBackground)) {
+					frames.push(
+						backgroundTaskUpdate(parsed.id, parsed.state, {
+							callId: part.callId,
+							summary: parsed.summary,
+							text: parsed.text,
+							followUp: isTaskFollowUp(part.input),
+						})
+					);
+				}
+			}
+			return frames;
 		}
 		case "compaction": {
 			const update: AgentCompactionUpdate = { type: "compaction", auto: part.auto };
@@ -698,6 +807,12 @@ export function frameKey(update: AgentStreamUpdate): string | null {
 			return update.subtype === MessageElicitationUpdateType.Request
 				? `q:${update.request.elicitationId}`
 				: `r:${update.elicitationId}`;
+		case MessageUpdateType.BackgroundTask:
+			// One marker per child per state: a re-delivered running frame
+			// (a snapshot replayed over a live tail) never doubles the card,
+			// and the completion lands once. Keyed by wire identity (child
+			// id, spawning call, state), never by the result text.
+			return `b:${update.taskId}:${update.callId ?? ""}:${update.state}`;
 		default:
 			// Stream tokens, user echoes, plan snapshots and turn states are
 			// never de-duplicated by content — identity for those is the
