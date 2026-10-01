@@ -241,6 +241,9 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 	case "question.reply":
 		return mc.opQuestionReply(ctx, args)
 
+	case "permissions.pending":
+		return mc.opPermissionsPending(ctx)
+
 	case "backend.modes":
 		return mc.opBackendModes(ctx, args)
 	case "backend.models":
@@ -947,6 +950,88 @@ func (mc *machine) opQuestionReply(ctx context.Context, args json.RawMessage) (a
 		return nil, opErrf("invalid", "decision must be %q or %q, got %q", "answer", "reject", a.Decision)
 	}
 	return map[string]any{}, nil
+}
+
+// pendingPermissionView is one waiting tool approval with the session
+// context the inbox needs to render and link it: the owning session (a
+// subagent's own id when it asked), its workspace, its title, and its root.
+type pendingPermissionView struct {
+	SessionID    string `json:"sessionId"`
+	WorkspaceID  string `json:"workspaceId"`
+	SessionTitle string `json:"sessionTitle"`
+	RootID       string `json:"rootId,omitempty"`
+	Request      any    `json:"request"`
+}
+
+// pendingQuestionView is the same, for a waiting question-tool ask.
+type pendingQuestionView struct {
+	SessionID    string `json:"sessionId"`
+	WorkspaceID  string `json:"workspaceId"`
+	SessionTitle string `json:"sessionTitle"`
+	RootID       string `json:"rootId,omitempty"`
+	Request      any    `json:"request"`
+}
+
+// opPermissionsPending answers `permissions.pending` (the Needs-you inbox's
+// one round trip per machine): every pending permission and question the
+// materializer holds, across all tracked sessions, each with the session
+// context the panel needs to render and deep-link it. Asks persist on the
+// machine — there is no server-side queue; this is a read of live state,
+// and answering happens through the existing permission.reply/question.reply
+// ops, whose replied/resolved events then clear the ask everywhere.
+func (mc *machine) opPermissionsPending(ctx context.Context) (any, *link.OpError) {
+	// Refresh titles from the backend first, the same pass session.list
+	// does: a session created since this process started is untracked until
+	// listed, and its title lives only on the backend.
+	type listed struct {
+		title       string
+		workspaceID string
+	}
+	known := map[string]listed{}
+	for _, w := range mc.workspaces.List(false) {
+		sessList, err := mc.back.ListSessions(ctx, w.Path)
+		if err != nil {
+			return nil, backendErr(err)
+		}
+		for _, s := range sessList {
+			mc.trackSession(w, s)
+			known[s.ID] = listed{title: s.Title, workspaceID: w.ID}
+		}
+	}
+	permissions := []pendingPermissionView{}
+	questions := []pendingQuestionView{}
+	for _, id := range mc.mat.TrackedIDs() {
+		perms := mc.mat.PendingPermissionRequests(id)
+		asks := mc.mat.PendingQuestionRequests(id)
+		if len(perms) == 0 && len(asks) == 0 {
+			continue
+		}
+		title, workspaceID := "", ""
+		if k, ok := known[id]; ok {
+			title, workspaceID = k.title, k.workspaceID
+		} else {
+			// A tracked session the backend no longer lists (archived there,
+			// or a child it never lists): fall back to the registry mapping
+			// rather than dropping a live ask.
+			mc.mu.Lock()
+			workspaceID = mc.sessionWorkspaceID[id]
+			mc.mu.Unlock()
+		}
+		root := mc.mat.RootOf(id)
+		for _, req := range perms {
+			req := req
+			permissions = append(permissions, pendingPermissionView{
+				SessionID: id, WorkspaceID: workspaceID, SessionTitle: title, RootID: root, Request: req,
+			})
+		}
+		for _, req := range asks {
+			req := req
+			questions = append(questions, pendingQuestionView{
+				SessionID: id, WorkspaceID: workspaceID, SessionTitle: title, RootID: root, Request: req,
+			})
+		}
+	}
+	return map[string]any{"permissions": orEmpty(permissions), "questions": orEmpty(questions)}, nil
 }
 
 func (mc *machine) opBackendModes(ctx context.Context, args json.RawMessage) (any, *link.OpError) {

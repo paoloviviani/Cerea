@@ -547,6 +547,8 @@ export class FakeMachine {
 				return {};
 			case "question.reply":
 				return {};
+			case "permissions.pending":
+				return { permissions: [], questions: [] };
 			case "session.sync": {
 				const { sessionId } = args as { sessionId: string; epoch?: string; afterSeq?: number };
 				const result: SyncResult = {

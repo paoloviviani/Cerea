@@ -310,6 +310,34 @@ export interface PermissionRequest {
 	always: string[];
 }
 
+/**
+ * One waiting tool approval with the session context the Needs-you inbox
+ * renders and deep-links it from (`permissions.pending`, PROTOCOL.md §6).
+ * `sessionId` owns the ask (a subagent's own id when it asked); `rootId`
+ * names its top-level ancestor for display.
+ */
+export interface PendingPermission {
+	sessionId: string;
+	workspaceId: string;
+	sessionTitle: string;
+	rootId?: string;
+	request: PermissionRequest;
+}
+
+/** The same, for a waiting question-tool ask. */
+export interface PendingQuestion {
+	sessionId: string;
+	workspaceId: string;
+	sessionTitle: string;
+	rootId?: string;
+	request: { id: string; questions: Question[]; callId?: string };
+}
+
+export interface PermissionsPendingResult {
+	permissions: PendingPermission[];
+	questions: PendingQuestion[];
+}
+
 export interface Transcript {
 	messages: Array<{ message: Message; parts: Part[] }>;
 	permissions: PermissionRequest[];
@@ -371,6 +399,7 @@ export type OpName =
 	| "session.setAutoAccept"
 	| "permission.reply"
 	| "question.reply"
+	| "permissions.pending"
 	| "session.sync"
 	| "session.diff"
 	| "session.children"

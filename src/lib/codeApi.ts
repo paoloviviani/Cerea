@@ -16,6 +16,8 @@ import type {
 	FilesListResult,
 	FilesReadResult,
 	FilesStatusResult,
+	PendingPermission,
+	PendingQuestion,
 	Terminal,
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
@@ -381,6 +383,23 @@ export async function runAgentCommand(
 		)
 	);
 }
+
+/**
+ * Every pending permission and question on one machine, with the session
+ * context to render and deep-link each — the Needs-you inbox's one round
+ * trip per machine (`permissions.pending`). A read of live machine state,
+ * never a queue: answering uses `respondPermission`/`respondQuestion`,
+ * whose stream events clear the ask everywhere.
+ */
+export async function listPendingApprovals(
+	deviceId: string
+): Promise<{ permissions: PendingPermission[]; questions: PendingQuestion[] }> {
+	return unwrap(
+		await fetch(`${root()}/v1/permissions/pending?device=${encodeURIComponent(deviceId)}`)
+	);
+}
+
+export type { PendingPermission, PendingQuestion };
 
 /** One subagent's own transcript, as agent frames for the chat's fold. */
 export async function fetchSubagentTimeline(
