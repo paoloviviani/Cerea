@@ -80,15 +80,19 @@ func TestSetRulesLiveIsClampedAndReReadShowsTheCeiling(t *testing.T) {
 	if last != "ceiling" {
 		t.Errorf("last rule's source = %q, want the ceiling", last)
 	}
-	// The order after a write is still cerea rules, then the ceiling, with
-	// opencode's own beneath both.
+	// The order after a write is still: opencode's own rules (default, file and
+	// floor interleave as opencode merged them — some built-in defaults come
+	// after config), then the cerea rules, then the ceiling, last.
 	phase := 0
-	order := map[string]int{"default": 0, "file": 1, "floor": 2, "cerea": 3, "ceiling": 4}
 	for _, rule := range v.Rules {
-		if order[rule.Source] < phase {
-			t.Errorf("rule %+v is out of order (sources must run default, file, floor, cerea, ceiling)", rule)
+		p := map[string]int{"default": 0, "file": 0, "floor": 0, "cerea": 1, "ceiling": 2}[rule.Source]
+		if p < phase {
+			t.Errorf("rule %+v is out of order (opencode's, then cerea, then the ceiling)", rule)
 		}
-		phase = order[rule.Source]
+		phase = p
+	}
+	if phase != 2 {
+		t.Errorf("the re-read does not end in the ceiling: %+v", v.Rules)
 	}
 	if v.Ceiling["edit"] != "ask" {
 		t.Errorf("ceiling in the re-read = %v", v.Ceiling)
