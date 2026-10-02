@@ -1,4 +1,6 @@
 import { base } from "$app/paths";
+import { flagCodeReauth } from "$lib/stores/codeReauth.svelte";
+import { loadCodeStatus } from "$lib/codeApi";
 import { AGENT_STREAM_UPDATE_TYPES, type AgentStreamUpdate } from "$lib/types/CodeAgent";
 
 /**
@@ -59,6 +61,23 @@ export async function* codeAgentStream(
 		notify();
 	};
 	source.addEventListener("end", finish);
+	// The sign-in behind this stream lapsed (the server schedules this frame
+	// at `authTime + 7d` and closes): flip the shared flag, then stop. The
+	// panel drops its state and shows the one card.
+	source.addEventListener("reauth_required", () => {
+		flagCodeReauth();
+		finish();
+	});
+	// A refusal at open (the /code guard answers 401 to a stale session)
+	// closes an EventSource for good and says nothing about why. Ask
+	// `/status`: it is the one call a stale session may make, and it flips
+	// the flag if that is the reason. A closed source is not retried here.
+	source.addEventListener("error", () => {
+		if (source.readyState === EventSource.CLOSED) {
+			void loadCodeStatus(true);
+			finish();
+		}
+	});
 	signal.addEventListener("abort", finish, { once: true });
 
 	try {

@@ -1,3 +1,5 @@
+import { onCodeReauth } from "$lib/stores/codeReauth.svelte";
+
 /**
  * The sidebar's list is one surface with two contents: the chats tree and
  * the coding-agents tree, switched by the control at the foot of the list.
@@ -20,4 +22,9 @@
 export const codeNav = $state({
 	view: "auto" as "auto" | "chats" | "agents",
 	agentTitle: "",
+});
+
+// The open agent's title is machine-derived: a stale sign-in forgets it.
+onCodeReauth(() => {
+	codeNav.agentTitle = "";
 });

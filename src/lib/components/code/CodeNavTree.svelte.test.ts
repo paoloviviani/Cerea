@@ -5,6 +5,7 @@ import CodeNavTree from "./CodeNavTree.svelte";
 import { livePage } from "./codeNavPage.svelte";
 import { CODE_TREE_COLLAPSE_KEY } from "$lib/utils/codeTreeCollapse";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
+import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 
 /**
  * The daemon side is a fake; what is under test is the tree's own decisions:
@@ -308,5 +309,31 @@ describe("CodeNavTree spawned sessions", () => {
 		);
 		expect(screen.baseElement.querySelector('[data-testid="spawned-count"]')).toBeNull();
 		reset();
+	});
+});
+
+describe("CodeNavTree legacy machines", () => {
+	it("marks the row of a machine found to predate ceilings, with the enroll command, and only that one", async () => {
+		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
+		codeLegacyMachines.d1 = true;
+		codeLegacyMachines.d2 = false;
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		const flags = screen.getByTestId("legacy-machine-row-flag");
+		await expect.element(flags).toBeVisible();
+		expect(flags.elements()).toHaveLength(1);
+		await expect.element(flags).toHaveTextContent("predates ceilings");
+		await expect.element(flags).toHaveTextContent("One re-enroll tightens it");
+		await expect.element(flags).toHaveTextContent("enroll");
+		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
+	});
+
+	it("shows no flag on a tree where no machine has been found legacy", async () => {
+		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		expect(screen.getByTestId("legacy-machine-row-flag").elements()).toHaveLength(0);
 	});
 });

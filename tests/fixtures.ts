@@ -383,6 +383,9 @@ function apiHelpers(request: APIRequestContext): ApiHelpers {
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
+/** `/code`'s open route: whether the sign-in is fresh enough to use it. */
+export const CODE_STATUS_GLOB = "**/api/v2/code/status";
+
 interface Fixtures {
 	db: Db;
 	session: TestSession;
@@ -432,9 +435,26 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 		await use(session);
 	},
 
-	// Overridden purely to force `session` to run first.
+	// Overridden to force `session` to run first, and to answer `/code`'s
+	// stale-sign-in probe. A hermetic /code spec stubs every machine route by
+	// hand and signs in nobody (its session is anonymous), so the real
+	// `GET /api/v2/code/status` would say "stale" and the panel would show its
+	// one reauth card instead of the screen under test. Registered first, so a
+	// spec that wants the real answer (or a stale one) overrides it:
+	// `page.unroute(CODE_STATUS_GLOB)`, or its own `page.route` on top.
 	page: async ({ page, session }, use) => {
 		void session;
+		await page.route(CODE_STATUS_GLOB, (route) =>
+			route.fulfill({
+				contentType: "application/json",
+				body: superjson.stringify({
+					enabled: true,
+					fresh: true,
+					reauthPath: `${E2E_APP_BASE}/login?reauth=1&next=${E2E_APP_BASE}/code`,
+					freshUntil: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+				}),
+			})
+		);
 		await use(page);
 	},
 

@@ -59,6 +59,16 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	listProviderModes: async () => ({ modes: [] }),
 	listProviderModels: async () => ({ models: [] }),
 	listProviderFeatures: async () => ({ features: [] }),
+	// MOCK of the contract with the agent half: a read of opencode's rules.
+	getPermissionRules: async () => ({
+		rules: [
+			{ permission: "edit", pattern: "*", action: "ask", source: "cerea" },
+			{ permission: "bash", pattern: "*", action: "deny", source: "ceiling" },
+			{ permission: "webfetch", pattern: "*", action: "allow", source: "opencode" },
+		],
+		savedApprovals: [{ id: "sa-1", permission: "edit", patterns: ["src/**"] }],
+		ceiling: {},
+	}),
 }));
 
 const plan = (steps: PlanStep[]) => ({
@@ -141,5 +151,19 @@ describe("AgentView Tasks pane", () => {
 		await arrive([plan([{ step: "done already", status: "completed" }])]);
 		await expect.element(screen.getByRole("button", { name: "Tasks 1/1" })).toBeVisible();
 		expect(sidePane.open).toBe(false);
+	});
+});
+
+describe("AgentView Permissions line", () => {
+	it("shows what opencode will do about the session's tools, beside the strip", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByTestId("permissions-line")).toBeVisible();
+		await expect.element(screen.getByTestId("permission-edit")).toHaveTextContent("edit ask");
+		await expect.element(screen.getByTestId("permission-bash")).toHaveTextContent("bash deny");
+		await expect
+			.element(screen.getByTestId("permission-webfetch"))
+			.toHaveTextContent("webfetch allow");
+		await expect.element(screen.getByTestId("permission-saved-count")).toHaveTextContent("1 saved");
 	});
 });

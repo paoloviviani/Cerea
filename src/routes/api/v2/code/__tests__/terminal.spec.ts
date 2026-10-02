@@ -540,6 +540,50 @@ describe("the terminal WebSocket", () => {
 		machine.close();
 	});
 
+	it("closes an open socket with 4403 reauth_required once its sign-in passes 7 days, at the recheck", async () => {
+		// A terminal opened just before the window lapses must not live as long
+		// as its socket: an upgrade never passes the hook's /code guard, so the
+		// socket's own 60s re-check carries freshness too.
+		_setRecheckIntervalMsForTests(200);
+		const { machine, deviceId, terminalId } = await terminalMachine();
+		const ticket = await mintTicket(deviceId, terminalId);
+		const ws = connectTerminalSocket(ticket, VALID_ORIGIN);
+		ws.binaryType = "nodebuffer";
+		await waitOpen(ws);
+		await waitForReset(ws);
+
+		await collections.sessions.updateOne(
+			{ sessionId: user.session.sessionId },
+			{ $set: { authTime: new Date(Date.now() - 8 * 24 * 3600 * 1000) } }
+		);
+
+		const closed = await new Promise<{ code: number; reason: string }>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("recheck never closed the socket")), 5000);
+			ws.once("close", (code: number, reason: Buffer) => {
+				clearTimeout(timer);
+				resolve({ code, reason: reason.toString() });
+			});
+		});
+		expect(closed).toEqual({ code: 4403, reason: "reauth_required" });
+		machine.close();
+	});
+
+	it("keeps a socket whose sign-in is still fresh at the recheck", async () => {
+		_setRecheckIntervalMsForTests(100);
+		const { machine, deviceId, terminalId } = await terminalMachine();
+		const ticket = await mintTicket(deviceId, terminalId);
+		const ws = connectTerminalSocket(ticket, VALID_ORIGIN);
+		ws.binaryType = "nodebuffer";
+		await waitOpen(ws);
+		await waitForReset(ws);
+		let closed = false;
+		ws.once("close", () => (closed = true));
+		await new Promise((resolve) => setTimeout(resolve, 450));
+		expect(closed).toBe(false);
+		ws.close();
+		machine.close();
+	});
+
 	it("relays keystrokes and output, honours credits, and closes on logout", async () => {
 		_setRecheckIntervalMsForTests(200);
 		const { machine, deviceId, terminalId } = await terminalMachine();

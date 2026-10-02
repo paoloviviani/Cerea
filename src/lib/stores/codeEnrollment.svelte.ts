@@ -1,4 +1,5 @@
 import type { EnrollmentCheck } from "$lib/codeApi";
+import { onCodeReauth } from "$lib/stores/codeReauth.svelte";
 
 /**
  * Per-device enrollment liveness, as the cheap models probe last found it.
@@ -10,3 +11,8 @@ import type { EnrollmentCheck } from "$lib/codeApi";
  * carries no claim either way.
  */
 export const codeEnrollment = $state<Record<string, EnrollmentCheck>>({});
+
+// Machine-derived, so a stale sign-in drops it with the rest.
+onCodeReauth(() => {
+	for (const id of Object.keys(codeEnrollment)) delete codeEnrollment[id];
+});

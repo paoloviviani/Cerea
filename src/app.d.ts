@@ -13,6 +13,9 @@ declare global {
 			user?: User;
 			isAdmin: boolean;
 			token?: string;
+			/** The session's OIDC `auth_time` (set once at login). Missing means
+			 * the sign-in is treated as stale by the /code guard. */
+			authTime?: Date;
 			/** Organization to bill inference requests to (from settings) */
 			billingOrganization?: string;
 		}

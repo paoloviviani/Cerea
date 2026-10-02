@@ -27,7 +27,7 @@ const AGENT = "agent_e2e";
 const superjsonBody = (data: unknown) => superjson.stringify(data);
 
 const VETO_NOTE =
-	"This machine's policy vetoes auto-accept: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
+	"This machine's permission ceiling does not let a responder answer asks: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
 
 const AUTO_ACCEPT = {
 	id: "auto_accept",

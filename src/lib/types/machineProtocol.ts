@@ -50,7 +50,20 @@ export interface Backend {
 }
 
 export interface Policy {
-	autoAccept: "allowed" | "denied";
+	/** The same word as `permission.responders`, kept for older readers.
+	 * Whether this machine lets a per-session responder answer tool asks
+	 * (`enroll --allow-auto-accept`). The panel reads `permission.responders`
+	 * first and treats anything but "allowed" — including absent — as not
+	 * allowed: a toggle is only ever live when the machine said yes. */
+	autoAccept?: "allowed" | "denied";
+	/** The machine's permission policy: `max` is the ceiling, `rules` the
+	 * machine's own rules, `responders` whether auto-accept may be on at all.
+	 * None of it is writable over the link. */
+	permission?: {
+		responders?: "allowed" | "denied";
+		max?: Record<string, string>;
+		rules?: Record<string, string>;
+	};
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	/** The explorer's read access (§9): "read" (default) or "off" (--no-files). */
@@ -342,6 +355,124 @@ export interface PermissionsPendingResult {
 	questions: PendingQuestion[];
 }
 
+// -- permission.rules / permission.saved.remove / session.setRules -----------
+//
+// opencode's own permission rules decide; Cerea shows them. The panel's reach
+// into the rule set is exactly three ops:
+//  - `permission.rules`: a READ of what is in force, and the ceiling;
+//  - `session.setRules {sessionId, rules}`: compose THIS session's rules. The
+//    machine applies them capped by its ceiling (an over-ceiling rule is
+//    refused or lowered), so what was asked and what is in force can differ:
+//    the panel never claims the former, it re-reads `permission.rules` after
+//    every write and shows the latter;
+//  - `permission.saved.remove`: forget a saved "always" approval (tighten-only).
+// There is no op that writes the ceiling, the machine's own rules or policy.
+//
+// Parsing is lenient (unknown keys dropped, a malformed entry skipped, two
+// spellings of the saved-approval fields read) because the frame is untrusted
+// input and the agent half and this file are written separately.
+
+/** One opencode rule, in evaluation order (the last matching rule wins).
+ * `source` says whose it is. Seen on the wire: "opencode" (its defaults, the
+ * config file, the agent's config), "machine" (the machine's own rules),
+ * "cerea" (composed through `session.setRules`), "floor" (the agent-level
+ * floor) and "ceiling" (the cap, last). Absent on a machine that does not say:
+ * such a rule is shown plainly and never as overridden. */
+export interface PermissionRule {
+	permission: string;
+	pattern: string;
+	action: "allow" | "deny" | "ask";
+	source?: string;
+}
+
+/** An "always" approval opencode is holding in memory — shared by every
+ * session in the workspace until opencode restarts. `patterns` are what it
+ * covers (for bash, the command text). `removable: false` means the machine
+ * will not withdraw this one through the link. */
+export interface SavedApproval {
+	id: string;
+	permission: string;
+	patterns: string[];
+	sessionId?: string;
+	removable?: boolean;
+}
+
+export interface PermissionRulesResult {
+	/** The agent whose rules these are, when the machine says. */
+	agent?: string;
+	rules: PermissionRule[];
+	savedApprovals: SavedApproval[];
+	/** The ceiling: permission key -> the most it may ever be. A key absent
+	 * is uncapped. Empty on a machine that does not report one. */
+	ceiling: Record<string, "ask" | "deny">;
+}
+
+/** One rule as the panel asks for it in `session.setRules`: exactly these
+ * three fields, nothing else ever leaves the panel (in particular never the
+ * deprecated `tools` map). */
+export interface SessionRuleInput {
+	permission: string;
+	pattern: string;
+	action: "allow" | "deny" | "ask";
+}
+
+const permissionRuleSchema = z.object({
+	permission: z.string(),
+	pattern: z.string(),
+	action: z.enum(["allow", "deny", "ask"]),
+	source: z.string().optional(),
+});
+
+const savedApprovalSchema = z.object({
+	id: z.string(),
+	// The machine names the tool `action` and the covered resource `resource`
+	// (PROTOCOL.md); `permission`/`patterns` is the panel's own spelling.
+	permission: z.string().optional(),
+	action: z.string().optional(),
+	patterns: z.array(z.string()).optional(),
+	resource: z.string().optional(),
+	sessionId: z.string().optional(),
+	removable: z.boolean().optional(),
+});
+
+/** Parse a `permission.rules` answer, keeping every well-formed entry and
+ * dropping the rest: a line that shows fewer rules than exist is better than
+ * no line, and an entry we cannot read is never guessed at. */
+export function parsePermissionRules(raw: unknown): PermissionRulesResult {
+	const object = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+	const items = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+	const ceiling: PermissionRulesResult["ceiling"] = {};
+	if (object.ceiling && typeof object.ceiling === "object" && !Array.isArray(object.ceiling)) {
+		for (const [key, value] of Object.entries(object.ceiling)) {
+			if (value === "ask" || value === "deny") ceiling[key] = value;
+		}
+	}
+	return {
+		...(typeof object.agent === "string" ? { agent: object.agent } : {}),
+		rules: items(object.rules).flatMap((item) => {
+			const parsed = permissionRuleSchema.safeParse(item);
+			return parsed.success ? [parsed.data] : [];
+		}),
+		savedApprovals: items(object.savedApprovals).flatMap((item) => {
+			const parsed = savedApprovalSchema.safeParse(item);
+			if (!parsed.success) return [];
+			const { id, permission, action, patterns, resource, sessionId, removable } = parsed.data;
+			const name = permission ?? action;
+			if (name === undefined) return [];
+			return [
+				{
+					id,
+					permission: name,
+					patterns: patterns ?? (resource !== undefined ? [resource] : []),
+					...(sessionId !== undefined ? { sessionId } : {}),
+					...(removable !== undefined ? { removable } : {}),
+				},
+			];
+		}),
+		ceiling,
+	};
+}
+
 export interface Transcript {
 	messages: Array<{ message: Message; parts: Part[] }>;
 	permissions: PermissionRequest[];
@@ -402,6 +533,9 @@ export type OpName =
 	| "session.setModel"
 	| "session.setAutoAccept"
 	| "permission.reply"
+	| "permission.rules"
+	| "permission.saved.remove"
+	| "session.setRules"
 	| "question.reply"
 	| "permissions.pending"
 	| "session.sync"
@@ -554,7 +688,14 @@ const backendSchema = z.object({
 });
 
 const policySchema = z.object({
-	autoAccept: z.enum(["allowed", "denied"]),
+	autoAccept: z.enum(["allowed", "denied"]).optional(),
+	permission: z
+		.object({
+			responders: z.enum(["allowed", "denied"]).optional(),
+			max: z.record(z.string(), z.string()).optional(),
+			rules: z.record(z.string(), z.string()).optional(),
+		})
+		.optional(),
 	workspaceRoots: z.array(z.string()),
 	allowFreeModels: z.boolean(),
 	files: z.enum(["read", "off"]).optional(),
