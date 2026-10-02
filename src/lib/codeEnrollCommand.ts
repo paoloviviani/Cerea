@@ -41,11 +41,13 @@ export interface EnrollCommandOptions {
 	clientId?: string;
 	/** Adds `--allow-terminal`, off by default. */
 	allowTerminal?: boolean;
-	/** Adds `--allow-auto-accept`, off by default. Auto-accept lets the
-	 * agent answer its own tool permission asks without a person — the
-	 * machine-side gate behind the panel's Auto-accept toggle
-	 * (`Policy.autoAccept`; handoffs and questions are never
-	 * auto-accepted whatever this says). */
+	/** Adds `--allow-auto-accept`, off by default. NOT a per-session
+	 * behaviour: it is the machine ceiling's "responders allowed" setting,
+	 * i.e. whether the panel's Auto-accept toggle (opencode's auto mode, a
+	 * responder that answers tool asks "allow once", never questions, never
+	 * denies) may be turned on for a session at all. opencode's own permission
+	 * rules decide everything else. The pairing dialog no longer offers it as
+	 * a checkbox; the option stays for callers that build the command by hand. */
 	allowAutoAccept?: boolean;
 	/** Adds `--allow-project-config`, off by default. Lets a repo's own
 	 * opencode config load (its agents, commands, MCP, plugins, AGENTS.md)
