@@ -39,5 +39,14 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		error(500, "Deleting message failed");
 	}
 
+	// The project's memory base holds the whole-thread transcript, now stale:
+	// drop it so a later search cannot return the deleted text. The next turn
+	// re-indexes the remainder (or clears it, when nothing worth retrieving
+	// is left).
+	if ("projectId" in conversation && conversation.projectId) {
+		const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
+		await deleteDerived({ conversationId: new ObjectId(conversation._id) });
+	}
+
 	return superjsonResponse({ success: true });
 };

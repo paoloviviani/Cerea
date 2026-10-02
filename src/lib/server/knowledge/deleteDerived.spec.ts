@@ -636,6 +636,20 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 		}
 		const convOf = (id: ObjectId, userId: ObjectId, projectId: ObjectId) =>
 			({ _id: id, userId, projectId, title: "Budget talk" }) as never;
+		// Indexing runs after a turn, so the conversation row always exists —
+		// and the delete-during-index guard (H1) removes the transcript when
+		// it does not. Every indexing below therefore inserts its row first.
+		const insertConv = (id: ObjectId, userId: ObjectId, projectId: ObjectId) =>
+			collections.conversations.insertOne({
+				_id: id,
+				userId,
+				projectId,
+				title: "Budget talk",
+				model: "m",
+				messages: [],
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as never);
 		const talk = [
 			{ from: "user", content: "What is the plan for the quarterly budget review?" },
 			{ from: "assistant", content: "The plan is to review the quarterly budget in March." },
@@ -645,6 +659,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			const { indexConversation, projectContext } = await import("$lib/server/projects");
 			const { ownerId, memberId, project, memberLocals, ownerLocals } = await setup();
 			const conv = new ObjectId();
+			await insertConv(conv, memberId, project._id);
 			await indexConversation({
 				project: project as never,
 				conversation: convOf(conv, memberId, project._id),
@@ -684,6 +699,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			);
 			const stored = need(await collections.projects.findOne({ _id: project._id }));
 			const conv = new ObjectId();
+			await insertConv(conv, memberId, project._id);
 			await indexConversation({
 				project: stored,
 				conversation: convOf(conv, memberId, project._id),
@@ -705,17 +721,21 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 		it("creates one base when two members finish a first turn together", async () => {
 			const { indexConversation } = await import("$lib/server/projects");
 			const { memberId, project, memberLocals, ownerLocals, ownerId } = await setup();
+			const convA = new ObjectId();
+			const convB = new ObjectId();
+			await insertConv(convA, memberId, project._id);
+			await insertConv(convB, ownerId, project._id);
 			await Promise.all([
 				indexConversation({
 					project: project as never,
-					conversation: convOf(new ObjectId(), memberId, project._id),
+					conversation: convOf(convA, memberId, project._id),
 					messages: talk,
 					token: "t",
 					locals: memberLocals,
 				}),
 				indexConversation({
 					project: project as never,
-					conversation: convOf(new ObjectId(), ownerId, project._id),
+					conversation: convOf(convB, ownerId, project._id),
 					messages: talk,
 					token: "t",
 					locals: ownerLocals,
@@ -729,9 +749,11 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 		it("puts a failed write on the base's document list (L9)", async () => {
 			const { indexConversation } = await import("$lib/server/projects");
 			const { memberId, project, memberLocals } = await setup();
+			const first = new ObjectId();
+			await insertConv(first, memberId, project._id);
 			await indexConversation({
 				project: project as never,
-				conversation: convOf(new ObjectId(), memberId, project._id),
+				conversation: convOf(first, memberId, project._id),
 				messages: talk,
 				token: "t",
 				locals: memberLocals,
@@ -785,10 +807,21 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			const locals = {
 				user: { _id: ownerId, email: "owner@example.org" },
 			} as unknown as App.Locals;
+			const conv = new ObjectId();
+			await collections.conversations.insertOne({
+				_id: conv,
+				userId: ownerId,
+				projectId: project._id,
+				title: "t",
+				model: "m",
+				messages: [],
+				createdAt: now,
+				updatedAt: now,
+			} as never);
 			await indexConversation({
 				project: project as never,
 				conversation: {
-					_id: new ObjectId(),
+					_id: conv,
 					userId: ownerId,
 					projectId: project._id,
 					title: "t",
@@ -822,6 +855,161 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 				);
 				expect((await chunksOfStores([baseId])) > 0).toBe(survives);
 			}
+		});
+	});
+
+	// -- memory lifecycle holes (H1, H2, H3) -------------------------------------
+
+	describe("memory lifecycle holes (H1, H2, H3)", () => {
+		async function projectWithOwner(name = "Holes") {
+			const ownerId = new ObjectId();
+			const now = new Date();
+			const project = {
+				_id: new ObjectId(),
+				userId: ownerId,
+				name,
+				description: "",
+				instructions: "",
+				knowledgeBaseIds: [],
+				indexPastChats: true,
+				retrievalLimit: 6,
+				shares: [],
+				createdAt: now,
+				updatedAt: now,
+			};
+			await collections.projects.insertOne(project as never);
+			const locals = {
+				user: { _id: ownerId, email: "owner@example.org" },
+				token: "t",
+			} as unknown as App.Locals;
+			return { project, ownerId, locals };
+		}
+
+		const talkAbout = (seed: string) =>
+			[
+				{ from: "user", content: `What is the plan for ${seed}?` },
+				{ from: "assistant", content: `The plan for ${seed} is to review it in March.` },
+			] as never;
+
+		it("H1: a conversation deleted mid-index leaves no chunks or row", async () => {
+			const { indexConversation } = await import("$lib/server/projects");
+			const { project, ownerId, locals } = await projectWithOwner("H1");
+			const conv = new ObjectId();
+			const now = new Date();
+			await collections.conversations.insertOne({
+				_id: conv,
+				userId: ownerId,
+				projectId: project._id,
+				title: "doomed",
+				model: "m",
+				messages: [],
+				createdAt: now,
+				updatedAt: now,
+			} as never);
+			// The route deletes the row before calling deleteDerived; land the
+			// delete after the transcript was read but before its chunks land.
+			embedMock.mockImplementationOnce(async (_t: string, _m: string, texts: string[]) => {
+				await collections.conversations.deleteOne({ _id: conv });
+				return texts.map(vectorFor);
+			});
+			await indexConversation({
+				project: project as never,
+				conversation: {
+					_id: conv,
+					userId: ownerId,
+					projectId: project._id,
+					title: "doomed",
+				} as never,
+				messages: talkAbout("the mid-index deletion race"),
+				token: "t",
+				locals,
+			});
+			const stored = need(await collections.projects.findOne({ _id: project._id }));
+			const baseId = new ObjectId(stored.memoryBaseId);
+			expect(await docFor(baseId, conv)).toBeNull();
+			expect(await chunksOfStores([baseId])).toBe(0);
+		});
+
+		it("H2: search excludes passages whose document row is gone", async () => {
+			const owner = new ObjectId();
+			const store = await makeStore(owner);
+			const query = "quarterly budget review";
+			await svc.addText(store.toString(), caller(owner), "tok", {
+				text: `${query}: ` + "A sentence about the quarterly plan and its risks. ".repeat(12),
+				title: "chat",
+				source_ref: derived.conversationSourceRef(new ObjectId()),
+			});
+			// An orphan carrying the query's own vector: it outranks everything live.
+			await pg.query(
+				`INSERT INTO knowledge_chunks (store_id, document_id, ordinal, text, embedding, dimensions)
+				 VALUES ($1, $2, 0, 'orphan passage', $3::vector, 384)`,
+				[svcToUuid(store), svcToUuid(new ObjectId()), `[${vectorFor(query).join(",")}]`]
+			);
+			const found = await svc.search(store.toString(), caller(owner), "tok", {
+				query,
+				max_num_results: 1,
+			});
+			expect(found.data).toHaveLength(1);
+			expect(found.data[0].text).not.toContain("orphan passage");
+			expect(found.data[0].text).toContain("quarterly budget");
+		});
+
+		it("H3: deleting a message clears the transcript from memory", async () => {
+			const { indexConversation } = await import("$lib/server/projects");
+			const { DELETE } =
+				await import("../../../routes/api/v2/conversations/[id]/message/[messageId]/+server");
+			const { project, ownerId, locals } = await projectWithOwner("H3");
+			const conv = new ObjectId();
+			const seed = "the redactable zebra budget";
+			const messages = [
+				{
+					id: "m1",
+					from: "user",
+					content: `What is the plan for ${seed}?`,
+					ancestors: [],
+					children: ["m2"],
+				},
+				{
+					id: "m2",
+					from: "assistant",
+					content: `The plan for ${seed} is to review it in March.`,
+					ancestors: ["m1"],
+					children: [],
+				},
+			] as never;
+			const now = new Date();
+			await collections.conversations.insertOne({
+				_id: conv,
+				userId: ownerId,
+				projectId: project._id,
+				title: "redactable",
+				model: "m",
+				messages,
+				createdAt: now,
+				updatedAt: now,
+			} as never);
+			await indexConversation({
+				project: project as never,
+				conversation: {
+					_id: conv,
+					userId: ownerId,
+					projectId: project._id,
+					title: "redactable",
+				} as never,
+				messages,
+				token: "t",
+				locals,
+			});
+			const stored = need(await collections.projects.findOne({ _id: project._id }));
+			const baseId = new ObjectId(stored.memoryBaseId);
+			const before = await svc.search(baseId.toString(), caller(ownerId), "tok", { query: seed });
+			expect(before.data.some((hit) => hit.text.includes(seed))).toBe(true);
+
+			await DELETE({ locals, params: { id: conv.toString(), messageId: "m2" } } as never);
+
+			const after = await svc.search(baseId.toString(), caller(ownerId), "tok", { query: seed });
+			expect(after.data.some((hit) => hit.text.includes(seed))).toBe(false);
+			expect(await docFor(baseId, conv)).toBeNull();
 		});
 	});
 });
