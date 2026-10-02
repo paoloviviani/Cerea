@@ -83,6 +83,7 @@
 	import type { CodeCommand } from "$lib/types/CodeAgent";
 	import ContextMeter from "./ContextMeter.svelte";
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
+	import { codeDraftKey } from "$lib/utils/composerDraft";
 
 	interface Props {
 		deviceId: string;
@@ -207,6 +208,12 @@
 	let files = $state<File[]>([]);
 	let focused = $state(false);
 	let busy = $state(false);
+
+	// Unsent-text persistence: one draft per device+agent, kept on this
+	// device only. The view remounts per address, so returning to an agent
+	// restores whatever was typed there; a landed send clears it, a refused
+	// one keeps it (only the success paths empty the draft below).
+	let draftKey = $derived(codeDraftKey(deviceId, agentId));
 
 	async function submit() {
 		if (enrollmentExpired || offline) return;
@@ -778,6 +785,7 @@
 			<ChatInput
 				placeholder="Follow up with the agent…"
 				bind:value={draft}
+				{draftKey}
 				{mimeTypes}
 				chatTools={false}
 				bind:files

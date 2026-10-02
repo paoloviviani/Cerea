@@ -55,6 +55,7 @@
 	import ComposerFileChips from "./ComposerFileChips.svelte";
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
 	import { pastedAttachments } from "$lib/utils/composerFiles";
+	import { chatDraftKey } from "$lib/utils/composerDraft";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
@@ -174,6 +175,11 @@
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
+
+	// Unsent-text persistence for the composer below: one draft per
+	// conversation (`home` before one exists), kept on this device only.
+	// Switching conversations swaps the draft rather than carrying it over.
+	let draftKey = $derived(chatDraftKey(page.params.id));
 
 	/** The per-conversation model picker. Not the workspace's Models tab,
 	    which is the management surface and sets the default. */
@@ -1167,6 +1173,7 @@
 												: "Ask anything"}
 										{loading}
 										bind:value={draft}
+										{draftKey}
 										bind:files
 										bind:knowledgeBases
 										bind:webSearch

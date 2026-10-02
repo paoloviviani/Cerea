@@ -56,6 +56,12 @@
 	import { gwGet, GatewayError, type VectorStore } from "$lib/gateway";
 	import { error as errorToast } from "$lib/stores/errors";
 	import SlashCommandAutocomplete from "./SlashCommandAutocomplete.svelte";
+	import {
+		COMPOSER_DRAFT_DEBOUNCE_MS,
+		clearComposerDraft,
+		readComposerDraft,
+		writeComposerDraft,
+	} from "$lib/utils/composerDraft";
 
 	interface Props {
 		files?: File[];
@@ -107,6 +113,12 @@
 		/** Called instead of `onsubmit` when the submitted draft is a known
 		 * slash command — the caller runs it; the composer owns the routes. */
 		onslashcommand?: (command: SlashCommand, args: string) => void;
+		/** localStorage key this composer's unsent text persists under (see
+		 * `composerDraft.ts`). Null disables persistence — e.g. the read-only
+		 * error-state composer. Restored on mount when the bound value starts
+		 * empty, saved debounced while typing, dropped the moment the value
+		 * empties (a landed send clears it; a refused one never does). */
+		draftKey?: string | null;
 	}
 
 	let {
@@ -131,6 +143,7 @@
 		onsubmit,
 		slashCommands = null,
 		onslashcommand,
+		draftKey = null,
 	}: Props = $props();
 
 	async function toggleWebSearch() {
@@ -435,6 +448,77 @@
 
 	onMount(() => {
 		void focusTextarea();
+		if (typeof document !== "undefined") {
+			document.addEventListener("pagehide", flushDraftPersist);
+			return () => document.removeEventListener("pagehide", flushDraftPersist);
+		}
+	});
+
+	// Unsent-text persistence (see `draftKey`): the value is the source of
+	// truth and storage only follows it. The key effect below owns the swap:
+	// restore on mount when the bound value starts empty, save-then-load on
+	// every key change (switching conversations/agents swaps the draft rather
+	// than carrying it over). A pending debounced write is always settled
+	// first, so a fast switch loses nothing and a stale write never lands
+	// under the wrong key.
+	let draftTimer: ReturnType<typeof setTimeout> | null = null;
+	let pendingPersist: { key: string; text: string } | null = null;
+	let lastDraftKey: string | null | undefined = undefined;
+
+	function flushDraftPersist() {
+		if (draftTimer) {
+			clearTimeout(draftTimer);
+			draftTimer = null;
+		}
+		const pending = pendingPersist;
+		pendingPersist = null;
+		if (pending) writeComposerDraft(pending.key, pending.text);
+	}
+
+	$effect(() => {
+		const key = draftKey;
+		if (key === lastDraftKey) return;
+		const prev = lastDraftKey;
+		lastDraftKey = key;
+		flushDraftPersist();
+		if (prev === undefined) {
+			// Mount: an explicit initial value (e.g. a shared `?prompt=`)
+			// wins over a stored draft; otherwise the draft comes back.
+			if (key && !value) {
+				const stored = readComposerDraft(key);
+				if (stored) value = stored;
+			}
+			return;
+		}
+		// Key change: land the outgoing text under its own key (a no-op
+		// rewrite when the debounced write already landed), then show the
+		// incoming key's draft — or an empty box when it has none.
+		if (prev && value) writeComposerDraft(prev, value);
+		if (key) value = readComposerDraft(key) ?? "";
+	});
+
+	$effect(() => {
+		const key = draftKey;
+		const text = value;
+		if (!key) return;
+		if (draftTimer) {
+			clearTimeout(draftTimer);
+			draftTimer = null;
+			pendingPersist = null;
+		}
+		if (!text) {
+			// Empty the moment the value does — a landed send clears it, and
+			// a draft the user deleted needs no restoring either. A refused
+			// send never empties the value, so its draft survives.
+			clearComposerDraft(key);
+			return;
+		}
+		pendingPersist = { key, text };
+		draftTimer = setTimeout(() => {
+			draftTimer = null;
+			pendingPersist = null;
+			writeComposerDraft(key, text);
+		}, COMPOSER_DRAFT_DEBOUNCE_MS);
 	});
 
 	onDestroy(() => {
@@ -442,6 +526,8 @@
 		if (slashBlurTimeout) clearTimeout(slashBlurTimeout);
 		hub.destroy();
 		slash.destroy();
+		// A reload or navigation unmounts mid-debounce: land the draft now.
+		flushDraftPersist();
 	});
 
 	afterNavigate(() => {
