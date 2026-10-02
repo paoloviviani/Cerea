@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { PermissionRule } from "$lib/types/machineProtocol";
-import { annotateRules, summarizeTool } from "./permissionRules";
+import {
+	allowedActions,
+	annotateRules,
+	ceilingFor,
+	ceilingOf,
+	notApplied,
+	overriddenLabel,
+	savedCount,
+	sessionRulesOf,
+	sourceLabel,
+	summarizeTool,
+	validateDraft,
+} from "./permissionRules";
 
 const rule = (
 	permission: string,
@@ -90,5 +102,140 @@ describe("annotateRules", () => {
 			rule("edit", "*", "ask", "cerea"),
 		]);
 		expect(out.map((r) => r.overriddenBy)).toEqual([undefined, undefined, undefined]);
+	});
+});
+
+describe("annotateRules: the machine's vocabulary", () => {
+	it("reads opencode's source as the person's config, and machine/floor as overriders", () => {
+		const out = annotateRules([
+			rule("edit", "*", "allow", "opencode"),
+			rule("edit", "*", "ask", "machine"),
+			rule("bash", "*", "allow", "opencode"),
+			rule("bash", "*", "ask", "floor"),
+		]);
+		expect(out.map((r) => r.overriddenBy)).toEqual(["machine", undefined, "floor", undefined]);
+		expect(overriddenLabel("machine")).toBe("overridden by this machine's rules");
+		expect(overriddenLabel("floor")).toBe("overridden by this machine's floor");
+		expect(overriddenLabel("cerea")).toBe("overridden by Cerea");
+		expect(overriddenLabel("ceiling")).toBe("overridden by this machine's limits");
+	});
+
+	it("names the last overrider, the one that wins", () => {
+		const out = annotateRules([
+			rule("bash", "*", "allow", "opencode"),
+			rule("bash", "*", "allow", "cerea"),
+			rule("bash", "*", "ask", "ceiling"),
+		]);
+		expect(out[0].overriddenBy).toBe("ceiling");
+	});
+
+	it("never marks a rule that carries no source", () => {
+		const out = annotateRules([rule("edit", "*", "deny"), rule("edit", "*", "allow", "cerea")]);
+		expect(out.map((r) => r.overriddenBy)).toEqual([undefined, undefined]);
+	});
+
+	// Documented limit: the match is literal. A later broader glob that opencode
+	// WOULD match is not recognised, so the earlier rule is shown as in force.
+	// The error is one-sided: it never hides a rule that is really in force.
+	it("does not treat a later glob as covering an earlier literal (documented)", () => {
+		const out = annotateRules([
+			rule("bash", "git status", "allow", "opencode"),
+			rule("bash", "git *", "ask", "cerea"),
+		]);
+		expect(out[0].overriddenBy).toBeUndefined();
+	});
+});
+
+describe("sourceLabel", () => {
+	it("labels every source the machine uses, the floor included, and says nothing for none", () => {
+		expect(sourceLabel("floor")).toBe("this machine's floor");
+		expect(sourceLabel("machine")).toBe("this machine's rules");
+		expect(sourceLabel("ceiling")).toBe("this machine's limits");
+		expect(sourceLabel("cerea")).toBe("Cerea");
+		expect(sourceLabel("opencode")).toBe("opencode's rules");
+		expect(sourceLabel(undefined)).toBe("");
+	});
+});
+
+describe("the ceiling", () => {
+	it("is the machine's own map, else read from its ceiling-sourced catch-alls", () => {
+		expect(ceilingOf({ rules: [], ceiling: { bash: "ask" } })).toEqual({ bash: "ask" });
+		expect(
+			ceilingOf({
+				rules: [
+					rule("edit", "*", "deny", "ceiling"),
+					rule("bash", "git *", "ask", "ceiling"),
+					rule("webfetch", "*", "allow", "ceiling"),
+					rule("bash", "*", "ask", "cerea"),
+				],
+				ceiling: {},
+			})
+		).toEqual({ edit: "deny" });
+	});
+
+	it("offers nothing above it, and everything where nothing is capped", () => {
+		const ceiling = { bash: "ask", edit: "deny" } as const;
+		expect(allowedActions(ceiling, "bash")).toEqual(["ask", "deny"]);
+		expect(allowedActions(ceiling, "edit")).toEqual(["deny"]);
+		expect(allowedActions(ceiling, "webfetch")).toEqual(["allow", "ask", "deny"]);
+		expect(allowedActions({ "*": "ask" }, "anything")).toEqual(["ask", "deny"]);
+		expect(ceilingFor({ bash: "ask", "*": "deny" }, "bash")).toBe("ask");
+	});
+});
+
+describe("the session's rules draft", () => {
+	it("starts from the rules Cerea has in force, as plain triples", () => {
+		expect(
+			sessionRulesOf([
+				rule("edit", "*", "allow", "opencode"),
+				rule("bash", "git *", "ask", "cerea"),
+			])
+		).toEqual([{ permission: "bash", pattern: "git *", action: "ask" }]);
+	});
+
+	it("flags a rule above the ceiling, an empty name or pattern, and a bad name", () => {
+		const ceiling = { bash: "ask" } as const;
+		expect(validateDraft([{ permission: "bash", pattern: "*", action: "ask" }], ceiling)).toEqual(
+			[]
+		);
+		const over = validateDraft([{ permission: "bash", pattern: "*", action: "allow" }], ceiling);
+		expect(over).toHaveLength(1);
+		expect(over[0].message).toContain('at most "ask"');
+		expect(validateDraft([{ permission: " ", pattern: "*", action: "ask" }], {})).toHaveLength(1);
+		expect(validateDraft([{ permission: "edit", pattern: " ", action: "ask" }], {})).toHaveLength(
+			1
+		);
+		expect(
+			validateDraft([{ permission: "no spaces", pattern: "*", action: "ask" }], {})
+		).toHaveLength(1);
+	});
+
+	it("reports what the machine did not apply as asked", () => {
+		const asked = [
+			{ permission: "bash", pattern: "*", action: "allow" as const },
+			{ permission: "edit", pattern: "*", action: "allow" as const },
+			{ permission: "webfetch", pattern: "*", action: "ask" as const },
+		];
+		const inForce = [
+			{ permission: "bash", pattern: "*", action: "ask" as const },
+			{ permission: "edit", pattern: "*", action: "allow" as const },
+		];
+		expect(notApplied(asked, inForce)).toEqual([
+			{ asked: asked[0], inForce: "ask" },
+			{ asked: asked[2], inForce: null },
+		]);
+		expect(notApplied(asked.slice(1, 2), inForce)).toEqual([]);
+	});
+});
+
+describe("savedCount", () => {
+	it("counts a tool's saved approvals", () => {
+		const savedApprovals = [
+			{ id: "a", permission: "bash", patterns: [] },
+			{ id: "b", permission: "bash", patterns: [] },
+			{ id: "c", permission: "edit", patterns: [] },
+		];
+		expect(savedCount({ savedApprovals }, "bash")).toBe(2);
+		expect(savedCount({ savedApprovals }, "webfetch")).toBe(0);
 	});
 });

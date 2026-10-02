@@ -64,9 +64,10 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 		rules: [
 			{ permission: "edit", pattern: "*", action: "ask", source: "cerea" },
 			{ permission: "bash", pattern: "*", action: "deny", source: "ceiling" },
-			{ permission: "webfetch", pattern: "*", action: "allow", source: "file" },
+			{ permission: "webfetch", pattern: "*", action: "allow", source: "opencode" },
 		],
 		savedApprovals: [{ id: "sa-1", permission: "edit", patterns: ["src/**"] }],
+		ceiling: {},
 	}),
 }));
 
