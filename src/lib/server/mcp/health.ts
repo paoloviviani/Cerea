@@ -19,11 +19,8 @@
  * metadata instead of guessing.
  */
 
-import { StreamableHTTPClientTransport, SSEClientTransport } from "@modelcontextprotocol/client";
-import type { Client } from "@modelcontextprotocol/client";
-import { createMcpClient } from "$lib/server/mcp/client";
+import { getClient, releaseClient, retainClient } from "$lib/server/mcp/clientPool";
 import { logger } from "$lib/server/logger";
-import { mcpFetch } from "$lib/server/urlSafety";
 
 export interface McpToolSummary {
 	name: string;
@@ -47,77 +44,57 @@ function looksLikeAuthFailure(message: string): boolean {
 	);
 }
 
-async function connectAndList(
-	transport: StreamableHTTPClientTransport | SSEClientTransport
-): Promise<McpToolSummary[]> {
-	const client: Client = createMcpClient("health");
-	try {
-		await client.connect(transport);
-		const response = await client.listTools();
-		return (response?.tools ?? []).map((tool) => ({
-			name: tool.name,
-			description: tool.description,
-			inputSchema: tool.inputSchema,
-		}));
-	} finally {
-		// Always, including on the failure path: a client left open holds a
-		// connection to somebody else's server for as long as the process runs.
-		try {
-			await client.close();
-		} catch {
-			// Nothing useful to do about a failed close.
-		}
-	}
-}
-
 /**
  * Ask a server what it can do.
  *
  * `headers` is whatever the caller has decided to send — for a connector that
  * is the sealed credential, unsealed here and never anywhere near a browser.
+ *
+ * The listing rides the client pool, so a re-check reuses a warm connection
+ * instead of paying a cold handshake every time (a ping covers an idle one,
+ * and the sweeper still owns disposal). The pool key carries the full
+ * headers, so a credentialed check never borrows another caller's
+ * connection. `kind: "health"` keeps these clients apart from chat-time
+ * ones, which initialize as a different identity.
  */
 export async function listTools(
 	url: string,
 	headers: Record<string, string> = {}
 ): Promise<ToolListing> {
-	const baseUrl = new URL(url);
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-	const requestInit: RequestInit = {
-		headers: { Accept: "application/json, text/event-stream", ...headers },
-		signal: controller.signal,
-	};
 
 	try {
-		let httpError: Error | undefined;
+		const client = await getClient(
+			{
+				name: "health",
+				url,
+				headers: { Accept: "application/json, text/event-stream", ...headers },
+			},
+			controller.signal,
+			undefined,
+			"health"
+		);
+		retainClient(client);
 		try {
-			const tools = await connectAndList(
-				new StreamableHTTPClientTransport(baseUrl, { requestInit, fetch: mcpFetch })
-			);
+			const response = await client.listTools({}, { signal: controller.signal });
+			const tools = (response?.tools ?? []).map((tool) => ({
+				name: tool.name,
+				description: tool.description,
+				inputSchema: tool.inputSchema,
+			}));
 			return { ok: true, tools };
-		} catch (error) {
-			httpError = error instanceof Error ? error : new Error(String(error));
-			logger.warn({ err: httpError }, "[mcp] streamable HTTP failed, trying SSE");
+		} finally {
+			releaseClient(client);
 		}
-
-		try {
-			const tools = await connectAndList(
-				new SSEClientTransport(baseUrl, { requestInit, fetch: mcpFetch })
-			);
-			return { ok: true, tools };
-		} catch (error) {
-			const sseError = error instanceof Error ? error : new Error(String(error));
-			// The HTTP error is reported in preference to the SSE one: a server
-			// answering 500 over HTTP produces a useless "SSE failed" message,
-			// and the primary failure is the one worth showing.
-			const message = `HTTP transport failed: ${httpError?.message ?? "unknown"}; SSE fallback failed: ${sseError.message}`;
-			logger.error({ err: sseError }, "[mcp] both transports failed");
-			return {
-				ok: false,
-				error: message,
-				authRequired: looksLikeAuthFailure(httpError?.message ?? message),
-			};
-		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		logger.error({ err: error }, "[mcp] pooled health listing failed");
+		return {
+			ok: false,
+			error: message,
+			authRequired: looksLikeAuthFailure(message),
+		};
 	} finally {
 		clearTimeout(timeout);
 	}

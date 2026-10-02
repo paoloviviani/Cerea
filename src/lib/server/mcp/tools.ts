@@ -1,8 +1,6 @@
-import { createMcpClient } from "./client";
-import { StreamableHTTPClientTransport, SSEClientTransport } from "@modelcontextprotocol/client";
+import { getClient, releaseClient, retainClient } from "./clientPool";
 import type { McpServerConfig } from "./httpClient";
 import { logger } from "$lib/server/logger";
-import { mcpFetch } from "$lib/server/urlSafety";
 // use console.* for lightweight diagnostics in production logs
 
 export type OpenAiTool = {
@@ -207,24 +205,18 @@ async function listServerTools(
 	server: McpServerConfig,
 	opts: { signal?: AbortSignal } = {}
 ): Promise<ListedTool[]> {
-	const url = new URL(server.url);
-	const client = createMcpClient();
+	// Pooled, so a listing reuses a warm connection (chat-time calls share
+	// the same key: url, full headers, default isolation and kind). The pool
+	// deliberately never binds the per-request signal to the transport —
+	// pooled clients outlive the request that created them — so cancellation
+	// travels on the call itself instead.
+	const client = await getClient(
+		{ name: server.name, url: server.url, headers: server.headers },
+		opts.signal
+	);
+	retainClient(client);
 	try {
-		try {
-			const transport = new StreamableHTTPClientTransport(url, {
-				requestInit: { headers: server.headers, signal: opts.signal },
-				fetch: mcpFetch,
-			});
-			await client.connect(transport);
-		} catch {
-			const transport = new SSEClientTransport(url, {
-				requestInit: { headers: server.headers, signal: opts.signal },
-				fetch: mcpFetch,
-			});
-			await client.connect(transport);
-		}
-
-		const response = await client.listTools({});
+		const response = await client.listTools({}, opts.signal ? { signal: opts.signal } : undefined);
 		const tools = Array.isArray(response?.tools) ? (response.tools as ListedTool[]) : [];
 		try {
 			logger.debug(
@@ -239,11 +231,9 @@ async function listServerTools(
 		} catch {}
 		return tools;
 	} finally {
-		try {
-			await client.close?.();
-		} catch {
-			// ignore close errors
-		}
+		// Back to the pool, never closed: the sweeper owns disposal, and a
+		// retained call is what keeps it from closing one mid-listing.
+		releaseClient(client);
 	}
 }
 

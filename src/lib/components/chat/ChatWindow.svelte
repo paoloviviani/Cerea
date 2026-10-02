@@ -130,6 +130,13 @@
 		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		draft?: string;
+		/**
+		 * A fresh send's text, set by the page when the send fails: the
+		 * optimistic message sits in the thread with a retry, and the text
+		 * comes back here so it can be edited rather than retyped. Bound,
+		 * consumed once, then cleared — never left set.
+		 */
+		sendFailedText?: string | null;
 		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
 		knowledgeBases?: { id: string; name: string }[];
 		/**
@@ -163,6 +170,7 @@
 		preprompt = undefined,
 		files = $bindable([]),
 		draft = $bindable(""),
+		sendFailedText = $bindable<string | null>(null),
 		onmessage,
 		onstop,
 		onretry,
@@ -331,6 +339,17 @@
 		onmessage?.(draft);
 		draft = "";
 	};
+
+	// A failed fresh send puts its text back in the box (the page sets
+	// sendFailedText in the failure path; retries never set it — their
+	// content already lives in the thread). Consumed once: if the person
+	// typed something new in the meantime, that newer text wins and the
+	// failed one stays retrievable from the thread's retry.
+	$effect(() => {
+		if (!sendFailedText) return;
+		if (!draft) draft = sendFailedText;
+		sendFailedText = null;
+	});
 
 	const drag = new FileDrag();
 

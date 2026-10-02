@@ -454,6 +454,22 @@
 		}
 	});
 
+	// A second tab signing out removes draft keys under this one: drop the
+	// in-memory draft too, but only when it matches what was removed — text
+	// typed in this tab after the sign-out must survive. (Storage events
+	// fire only in other tabs, so this never answers this tab's own writes.)
+	function handleExternalDraftRemoval(event: StorageEvent) {
+		const key = draftKey;
+		if (!key || event.key !== key || event.newValue !== null) return;
+		if (value === event.oldValue) value = "";
+	}
+
+	$effect(() => {
+		if (typeof window === "undefined") return;
+		window.addEventListener("storage", handleExternalDraftRemoval);
+		return () => window.removeEventListener("storage", handleExternalDraftRemoval);
+	});
+
 	// Unsent-text persistence (see `draftKey`): the value is the source of
 	// truth and storage only follows it. The key effect below owns the swap:
 	// restore on mount when the bound value starts empty, save-then-load on
