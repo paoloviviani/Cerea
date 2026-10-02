@@ -116,6 +116,9 @@
 				console.error("Error while creating conversation: ", errorMessage);
 				// The composer latched the mode for a conversation that never happened.
 				mlAssistant.abortTask();
+				// A failed send keeps its draft: the composer already cleared,
+				// so put the text back (persistence re-saves it from there).
+				draft = message;
 				return;
 			}
 
@@ -162,6 +165,8 @@
 			console.error(err);
 			// The composer latched the mode for a conversation that never happened.
 			mlAssistant.abortTask();
+			// A failed send keeps its draft — see above.
+			draft = message;
 		} finally {
 			$loading = false;
 		}
@@ -212,7 +217,8 @@
 			}
 
 			const promptQuery = sanitizeUrlParam(page.url.searchParams.get("prompt"));
-			if (promptQuery && !draft) {
+			if (promptQuery) {
+				// An explicit shared prompt wins over a restored home draft.
 				draft = promptQuery;
 				const url = new URL(page.url);
 				url.searchParams.delete("prompt");
