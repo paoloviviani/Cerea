@@ -58,6 +58,8 @@
 	let pending = $state(false);
 	/** A resumed call streams into the message that parked, so it needs no placeholder. */
 	let resuming = $state(false);
+	/** A fresh send's text, bound down to ChatWindow when its send fails. */
+	let sendFailedText: string | null = $state(null);
 	let initialRun = true;
 	let showSubscribeModal = $state(false);
 	// Conversation-scoped stop tombstone. A boolean reset on page.params.id
@@ -447,6 +449,13 @@
 			} else {
 				$error = ERROR_MESSAGES.default;
 			}
+			// A fresh send that never reached the model puts its text back
+			// in the composer (ChatWindow restores it, newer typing wins):
+			// the optimistic message stays in the thread with its retry,
+			// and the person gets an editable copy without retyping.
+			// Retries, elicitation resumes and aborts never restore — their
+			// content already lives in the thread.
+			if (!isRetry && !resumeElicitationId && prompt) sendFailedText = prompt;
 			console.error(err);
 		} finally {
 			writeMessageInFlight = false;
@@ -822,6 +831,7 @@
 	loading={$loading}
 	{pending}
 	{resuming}
+	bind:sendFailedText
 	messages={messagesPath as Message[]}
 	{messagesAlternatives}
 	shared={data.shared}

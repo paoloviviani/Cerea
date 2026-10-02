@@ -184,5 +184,37 @@ for (const [label, width] of [
 			await fill(second, "works again");
 			expect(boxValue(second)).toBe("works again");
 		});
+
+		it("a sign-out in another tab clears this tab's matching draft", async () => {
+			await browserPage.viewport(width, 800);
+			const screen = track(mount(KEY_A));
+			await fill(screen, "tab A draft");
+			drop(screen);
+			expect(localStorage.getItem(KEY_A)).toBe("tab A draft");
+
+			const reopened = track(mount(KEY_A));
+			await vi.waitFor(() => expect(boxValue(reopened)).toBe("tab A draft"));
+			// The other tab signed out: the key is removed there, and this
+			// tab hears about it through the storage event.
+			localStorage.removeItem(KEY_A);
+			window.dispatchEvent(
+				new StorageEvent("storage", { key: KEY_A, oldValue: "tab A draft", newValue: null })
+			);
+			await vi.waitFor(() => expect(boxValue(reopened)).toBe(""));
+		});
+
+		it("keeps this tab's newer typing when another tab signs out", async () => {
+			await browserPage.viewport(width, 800);
+			localStorage.setItem(KEY_A, "stale draft");
+			const screen = track(mount(KEY_A));
+			await vi.waitFor(() => expect(boxValue(screen)).toBe("stale draft"));
+			// Typing after the other tab's sign-out must survive the event.
+			await fill(screen, "fresh typing here");
+			window.dispatchEvent(
+				new StorageEvent("storage", { key: KEY_A, oldValue: "stale draft", newValue: null })
+			);
+			await tick();
+			expect(boxValue(screen)).toBe("fresh typing here");
+		});
 	});
 }

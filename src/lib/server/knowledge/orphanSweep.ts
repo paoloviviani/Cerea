@@ -39,6 +39,7 @@ export interface SweepCounts {
 	orphanChunkStores: number;
 	orphanFiles: number;
 	orphanTranscripts: number;
+	orphanDocuments: number;
 }
 
 function batches<T>(items: T[], size = BATCH): T[][] {
@@ -159,6 +160,41 @@ async function sweepTranscripts(counts: SweepCounts): Promise<void> {
 	}
 }
 
+/**
+ * Document rows whose base is gone. A document arriving during its base's
+ * delete can leave a row (and its file) with no store; nothing serves it —
+ * search reads through the base — but no pass looked for it, so it stayed
+ * forever. Through `deleteDerived` like everything else, so the row, its
+ * chunks and its unshared file all go together. A base is never created
+ * after its documents (the row is inserted with the store id already set),
+ * so a live document cannot match.
+ */
+async function sweepDocuments(counts: SweepCounts): Promise<void> {
+	const rows = await collections.knowledgeDocuments
+		.find({})
+		.project<{ _id: ObjectId; storeId: ObjectId }>({ _id: 1, storeId: 1 })
+		.toArray();
+	const byStore = new Map<string, ObjectId[]>();
+	for (const row of rows) {
+		const key = row.storeId.toString();
+		byStore.set(key, [...(byStore.get(key) ?? []), row._id]);
+	}
+	const gone = await missingFrom(
+		[...byStore.keys()].map((id) => new ObjectId(id)),
+		(batch) =>
+			collections.vectorStores
+				.find({ _id: { $in: batch } })
+				.project<{ _id: ObjectId }>({ _id: 1 })
+				.toArray()
+				.then((found) => found.map((r) => r._id))
+	);
+	const documentIds = gone.flatMap((id) => byStore.get(id.toString()) ?? []);
+	for (const batch of batches(documentIds)) {
+		const { documents } = await deleteDerived({ documentIds: batch });
+		counts.orphanDocuments += documents;
+	}
+}
+
 /** One pass. Resolves with what it removed; never rejects. */
 export async function sweepKnowledgeOrphans(now = new Date()): Promise<SweepCounts> {
 	const counts: SweepCounts = {
@@ -166,12 +202,14 @@ export async function sweepKnowledgeOrphans(now = new Date()): Promise<SweepCoun
 		orphanChunkStores: 0,
 		orphanFiles: 0,
 		orphanTranscripts: 0,
+		orphanDocuments: 0,
 	};
 	if (!knowledgeEnabled()) return counts;
 	// Transcripts first: deleting one removes its chunks and file along the
 	// proper path, so the chunk pass below has less to find.
 	const parts: [string, () => Promise<void>][] = [
 		["transcripts", () => sweepTranscripts(counts)],
+		["documents", () => sweepDocuments(counts)],
 		["chunks", () => sweepChunks(counts)],
 		["files", () => sweepFiles(counts, now)],
 	];

@@ -622,7 +622,37 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 				orphanChunkStores: 0,
 				orphanFiles: 0,
 				orphanTranscripts: 0,
+				orphanDocuments: 0,
 			});
+		});
+
+		it("removes document rows whose base is gone, and never a live one", async () => {
+			const owner = new ObjectId();
+			const store = await makeStore(owner);
+			const live = await svc.attachFile(store.toString(), caller(owner), "tok", {
+				file_id: (
+					await svc.storeUpload(
+						{ name: "r.txt", bytes: Buffer.from("row without a base"), mime: "text/plain" },
+						owner
+					)
+				).id,
+			});
+			// A row pointing at no store: a document that arrived during its
+			// base's delete. Nothing serves it, but nothing looked for it either.
+			const orphanedId = new ObjectId(live.id);
+			const updated = await collections.knowledgeDocuments.findOneAndUpdate(
+				{ _id: orphanedId },
+				{ $set: { storeId: new ObjectId() } },
+				{ returnDocument: "after" }
+			);
+			expect(updated).not.toBeNull();
+			const counts = await sweep.sweepKnowledgeOrphans();
+			expect(counts.orphanDocuments).toBe(1);
+			expect(await collections.knowledgeDocuments.countDocuments({ _id: orphanedId })).toBe(0);
+			expect(await chunksOfDocs([orphanedId])).toBe(0);
+			expect(await collections.knowledgeDocuments.countDocuments({ storeId: store })).toBe(0);
+			// The live base itself is untouched.
+			expect(await collections.vectorStores.countDocuments({ _id: store })).toBe(1);
 		});
 	});
 
