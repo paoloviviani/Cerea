@@ -32,11 +32,13 @@
 		removeSavedApproval,
 		setSessionRules,
 	} from "$lib/codeApi";
-	import type { PermissionRulesResult, SessionRuleInput } from "$lib/types/machineProtocol";
+	import type { PermissionRulesResult, Policy, SessionRuleInput } from "$lib/types/machineProtocol";
+	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import {
 		SUMMARY_TOOLS,
 		allowedActions,
 		annotateRules,
+		isLegacyMachine,
 		ceilingOf,
 		notApplied,
 		overriddenLabel,
@@ -50,6 +52,7 @@
 	import { error as errorToast } from "$lib/stores/errors";
 	import IconShield from "~icons/lucide/shield";
 	import IconChevron from "~icons/carbon/chevron-down";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -58,9 +61,14 @@
 		/** Bumped by the parent when something may have changed the rules or
 		 * the saved approvals (a turn settled, an ask was answered). */
 		refreshKey?: number;
+		/** The machine's `hello` policy, to tell a machine that predates
+		 * ceilings from one that has none to report yet. */
+		policy?: Policy;
+		/** Opens the enroll flow, for a machine flagged as legacy. */
+		onreenroll?: () => void;
 	}
 
-	let { deviceId, agentId, refreshKey = 0 }: Props = $props();
+	let { deviceId, agentId, refreshKey = 0, policy, onreenroll }: Props = $props();
 
 	let result = $state<PermissionRulesResult | null>(null);
 	let open = $state(false);
@@ -108,6 +116,15 @@
 	let ceiling = $derived(result ? ceilingOf(result) : {});
 	let capped = $derived(Object.entries(ceiling));
 	let problems = $derived(validateDraft(draft, ceiling));
+
+	/** A machine enrolled before ceilings: allows everything until it is
+	 * re-enrolled. Said up front, never inside the collapsed detail. */
+	let legacy = $derived(isLegacyMachine(policy, result));
+	$effect(() => {
+		// Remembered per machine, so its row in the tree carries the flag after
+		// this screen is closed. Cleared again if a re-enroll makes it go away.
+		if (result) codeLegacyMachines[deviceId] = legacy;
+	});
 
 	const TONES: Record<RuleAction, keyof typeof s.PILL_TONES> = {
 		allow: "good",
@@ -193,7 +210,9 @@
 	}
 </script>
 
-{#if result}
+<!-- While the sign-in is stale the whole line goes, with its Apply: the
+     server refuses every call anyway, and what it held was machine-derived. -->
+{#if result && !codeReauth.required}
 	<div class="pointer-events-auto flex flex-col gap-1 pl-6 text-xs" data-testid="permissions-line">
 		<button
 			type="button"
@@ -226,6 +245,26 @@
 			{/if}
 			<IconChevron class="size-3.5 shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
 		</button>
+
+		{#if legacy}
+			<div
+				class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+				data-testid="legacy-machine-flag"
+			>
+				<span class="min-w-0 flex-1">
+					<span class="font-medium">Re-enroll this machine.</span> Its policy predates ceilings, so it
+					still allows everything: edits, commands and fetches run without asking, subagents too. One
+					re-enroll tightens it.
+				</span>
+				{#if onreenroll}
+					<button
+						type="button"
+						class="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-transparent dark:text-amber-200"
+						onclick={onreenroll}>Re-enroll this machine</button
+					>
+				{/if}
+			</div>
+		{/if}
 
 		{#if open}
 			<div
