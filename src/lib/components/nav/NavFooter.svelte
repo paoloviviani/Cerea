@@ -26,6 +26,7 @@
 	import { browser } from "$app/environment";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { switchTheme, subscribeToTheme } from "$lib/switchTheme";
+	import { clearAllComposerDrafts } from "$lib/utils/composerDraft";
 	import IconSun from "$lib/components/icons/IconSun.svelte";
 	import IconMoon from "$lib/components/icons/IconMoon.svelte";
 	import CarbonLogout from "~icons/carbon/logout";
@@ -96,8 +97,10 @@
 	</button>
 
 	<!-- A form post, not a link: signing somebody out must not be something a
-	     prefetch can do to them. -->
-	<form method="POST" action="{base}/logout" class="flex">
+	     prefetch can do to them. The submit clears this device's composer
+	     drafts first — unsent text must not survive into the next person's
+	     session on a shared browser — then the post proceeds as normal. -->
+	<form method="POST" action="{base}/logout" class="flex" onsubmit={clearAllComposerDrafts}>
 		<button
 			type="submit"
 			aria-label="Sign out"
