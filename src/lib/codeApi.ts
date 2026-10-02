@@ -18,6 +18,7 @@ import type {
 	FilesStatusResult,
 	PendingPermission,
 	PendingQuestion,
+	PermissionRulesResult,
 	Terminal,
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
@@ -211,7 +212,7 @@ export async function listProviderModels(
 }
 
 /** The provider's features — the toggles a person can flip on an agent
- * (opencode's auto-accept) — as the daemon drafts them for a config like
+ * (opencode's auto mode, shown as Auto-accept) — as the daemon drafts them for a config like
  * the agent's. The query needs the agent's working directory; the agent's
  * mode and model ride along when known. This list says what EXISTS and
  * what it is called; the live value is the agent snapshot's word
@@ -490,7 +491,9 @@ export async function setAgentModel(
 }
 
 /** Flip one of the agent's provider features — the auto-accept toggle and
- * its kind. The answer is only the POST's receipt: the toggle's label
+ * its kind. Auto-accept is opencode's auto mode for THIS session: a
+ * responder on the machine answers its tool asks "allow once". It never
+ * writes a permission rule; nothing here can. The answer is only the POST's receipt: the toggle's label
  * claims the new value when the refreshed agent snapshot agrees, never
  * from this call. */
 export async function setAgentFeature(
@@ -616,6 +619,37 @@ export async function respondPermission(
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ decision, ...(childSessionId ? { childSessionId } : {}) }),
 			}
+		)
+	);
+}
+
+/** The opencode rules in force for this agent's session, plus the "always"
+ * approvals opencode is holding. READ-ONLY: opencode's rules decide and the
+ * panel shows them. 404s (`CodeApiError.status === 404`) on a machine whose
+ * galopin predates the op — the Permissions line hides in that case. */
+export async function getPermissionRules(
+	deviceId: string,
+	agentId: string
+): Promise<PermissionRulesResult> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-rules?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** Forget one saved "always" approval, so that kind of call asks again.
+ * The only write the panel makes to permissions, and only a tightening:
+ * there is no function in this module that adds or edits a rule. */
+export async function removeSavedApproval(
+	deviceId: string,
+	agentId: string,
+	approvalId: string
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-approvals/${encodeURIComponent(approvalId)}?device=${encodeURIComponent(deviceId)}`,
+			{ method: "DELETE" }
 		)
 	);
 }

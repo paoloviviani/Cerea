@@ -908,8 +908,12 @@
 								disabled={!feature.reported || Boolean(feature.blockedReason)}
 								title={feature.blockedReason ??
 									(feature.reported
-										? (feature.description ??
-											(feature.value ? "On. Click to turn off." : "Off. Click to turn on."))
+										? [
+												feature.description,
+												feature.value ? "On. Click to turn off." : "Off. Click to turn on.",
+											]
+												.filter(Boolean)
+												.join(" ")
 										: "Waiting for the daemon's word on this agent")}
 								onclick={() => void applyFeature(feature)}
 							>

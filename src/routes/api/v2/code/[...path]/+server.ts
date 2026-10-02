@@ -46,6 +46,7 @@ import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import {
 	OpError,
+	parsePermissionRules,
 	type Command,
 	type Directory,
 	type Session,
@@ -113,6 +114,10 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
+	// Read-only, on purpose: opencode's rules decide and this panel shows them.
+	// The only way back into them is the DELETE below, which forgets a saved
+	// "always" approval (tighten-only). There is no route that adds a rule.
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/permission-rules$`) },
 ];
 
 /** `workspace.suggest`'s `?prefix=` — a path someone is mid-typing, so it
@@ -231,11 +236,20 @@ function toSession(session: Session): CodeAgentSession {
 	};
 }
 
-/** The exact fix for a machine enrolled without the flag — carried on the
- * disabled toggle rather than left for someone to discover only after
- * wondering where auto-accept went. */
+/** The exact fix for a machine whose ceiling does not allow responders —
+ * carried on the disabled toggle rather than left for someone to discover
+ * only after wondering where auto-accept went. The flag's name is the CLI's
+ * and did not change; what it means did (see AUTO_ACCEPT_DESCRIPTION). */
 const AUTO_ACCEPT_VETO_NOTE =
-	"This machine's policy vetoes auto-accept: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
+	"This machine's permission ceiling does not let a responder answer asks: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
+
+/** What the toggle IS, said on the toggle: opencode's own auto mode, a
+ * per-session responder on the machine. It answers a session's tool asks
+ * with "allow once" and nothing else — no question, no deny, no saved
+ * approval — and it never writes a permission rule. Kept to what is true
+ * so the pill cannot promise "full autonomy". */
+const AUTO_ACCEPT_DESCRIPTION =
+	"Answers this session's tool asks with “allow once”. Never answers questions, never overrides a deny rule, never saves an approval. Subagents follow it unless they set their own.";
 
 /** The exact fix text for a machine that vetoes terminals — carried on the
  * disabled Terminal tab (ADR 0090 §2.3), the same idiom as the auto-accept
@@ -281,6 +295,7 @@ function autoAcceptCatalog(device: CodeDevice, backendId: string): CodeProviderF
 		{
 			id: "auto_accept",
 			label: "Auto-accept",
+			description: AUTO_ACCEPT_DESCRIPTION,
 			value: false,
 			...(vetoed ? { blockedReason: AUTO_ACCEPT_VETO_NOTE } : {}),
 		},
@@ -295,6 +310,7 @@ function autoAcceptLive(device: CodeDevice, session: Session): CodeProviderFeatu
 		{
 			id: "auto_accept",
 			label: "Auto-accept",
+			description: AUTO_ACCEPT_DESCRIPTION,
 			value: session.autoAccept,
 			...(vetoed ? { blockedReason: AUTO_ACCEPT_VETO_NOTE } : {}),
 		},
@@ -499,6 +515,17 @@ export const GET: RequestHandler = async (event) => {
 			permissions: pending.permissions ?? [],
 			questions: pending.questions ?? [],
 		});
+	}
+
+	// The Permissions line: opencode's effective rules for this session's
+	// agent plus the "always" approvals it is holding. A read, passed through
+	// as the machine answered (parsed leniently, never trusted as shaped).
+	const rulesMatch = new RegExp(`^v1/agents/(${ID})/permission-rules$`).exec(path);
+	if (rulesMatch) {
+		const raw = await callOp(() =>
+			link.permissionRules({ sessionId: decodeURIComponent(rulesMatch[1]) })
+		);
+		return superjsonResponse(parsePermissionRules(raw));
 	}
 
 	if (path === "v1/providers") {
@@ -1285,12 +1312,42 @@ export const DELETE: RequestHandler = async (event) => {
 	const path = event.params.path ?? "";
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	const terminalMatch = new RegExp(`^v1/terminals/(${ID})$`).exec(path);
-	if (!agentMatch && !terminalMatch) {
+	const approvalMatch = new RegExp(`^v1/agents/(${ID})/permission-approvals/(${ID})$`).exec(path);
+	if (!agentMatch && !terminalMatch && !approvalMatch) {
 		error(404, "Not available through this endpoint.");
 	}
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
+
+	// Forget one saved "always" approval — the panel's only write to
+	// permissions, and a tightening: that kind of call asks again. The
+	// approval's patterns (for bash, the command text) are never read here
+	// and never audited; the row says who removed which approval, where.
+	if (approvalMatch) {
+		const sessionId = decodeURIComponent(approvalMatch[1]);
+		const approvalId = decodeURIComponent(approvalMatch[2]);
+		try {
+			await callOp(() => link.permissionSavedRemove({ id: approvalId }));
+		} catch (err) {
+			await recordCodeAudit(event, {
+				action: "permission.saved.remove",
+				deviceId,
+				sessionId,
+				approvalId,
+				outcome: "refused",
+			});
+			throw err;
+		}
+		await recordCodeAudit(event, {
+			action: "permission.saved.remove",
+			deviceId,
+			sessionId,
+			approvalId,
+			outcome: "removed",
+		});
+		return superjsonResponse({ ok: true });
+	}
 
 	if (terminalMatch) {
 		const terminalId = decodeURIComponent(terminalMatch[1]);
