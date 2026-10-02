@@ -27,7 +27,11 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 	if !strings.HasPrefix(s, "---\nname: delegation\ndescription: ") {
 		t.Errorf("frontmatter wrong:\n%.200s", s)
 	}
-	for _, want := range []string{"task", "session_spawn", "session_send", "session_list", "approval", "not its result"} {
+	for _, want := range []string{"task", "session_spawn", "session_send", "session_list", "approval", "not its result",
+		"background: true",              // the async path, so the model stops calling plain task "the only sync option"
+		"fails closed",                  // and knows it is policy-gated, not a bug to route around
+		"you a message when it is done", // spawn CAN ping back via send (approvals still apply)
+	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("skill does not mention %q", want)
 		}
