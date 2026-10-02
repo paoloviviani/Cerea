@@ -617,13 +617,16 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) ([]ba
 		if ev.Request == nil {
 			return nil, nil
 		}
-		// The responder (PROTOCOL.md §6 "Auto-accept"): a tool ask in a session
+		// The responder (PROTOCOL.md §7 "Auto-accept"): a tool ask in a session
 		// whose effective auto-accept is on is answered "once" here, without a
 		// card. It answers nothing that is not a tool ask — galopin's own
-		// approvals (gp_) and questions are never reached by it — and it
-		// cannot touch a deny, which never asks. It follows the machine: with
-		// Responders denied it never answers, whatever a session says.
-		if !heldByGalopin(ev.Request) && m.live.RespondersAllowed() && m.autoAcceptEffectiveLocked(st) {
+		// approvals (gp_) and questions never reach it — and it cannot touch a
+		// deny, which never asks. It is limited by the machine twice: with
+		// Responders denied it never answers, and for a key the CEILING caps
+		// below allow it does not answer either — a ceiling of ask means a
+		// person answers each one, and an auto "once" would turn it into allow.
+		if !heldByGalopin(ev.Request) && m.live.RespondersAllowed() && !m.live.Layers().Ceiling.Limits(ev.Request.Tool) &&
+			m.autoAcceptEffectiveLocked(st) {
 			if st.autoRepliedIDs == nil {
 				st.autoRepliedIDs = map[string]bool{}
 			}

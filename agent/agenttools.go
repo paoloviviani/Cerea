@@ -236,21 +236,23 @@ func spawnChain(marks map[string]backend.SpawnedBy, id string) (depth int, root 
 	return depth, root
 }
 
-// modeAllowed applies the no-escalation rule: a spawned session is never less
-// restricted than its spawner. The requested mode may be the caller's own
-// ("inherit", or the same name) or "plan", the read-only built-in; any other
-// name could be a mode more permissive than the caller's, which galopin has no
-// way to compare. It returns the mode the child gets ("" = the backend's
-// default, which is the caller's own when it has none).
-func modeAllowed(callerMode, requested string) (string, error) {
+// spawnMode resolves the mode a spawned session gets and whether that is an
+// ESCALATION: a mode that may be less restricted than the caller's. It returns
+// the caller's own mode for "" / "inherit" ("" = the backend's default, which is
+// the caller's own when it has none). Equal to the caller's, or "plan" (the
+// read-only built-in), is no escalation; any other name could be less
+// restricted than the caller and galopin has no order to compare modes by. An
+// escalation is not refused: it always shows the card, whatever the machine's
+// rule for session_spawn says, and the card names the mode and the caller's.
+func spawnMode(callerMode, requested string) (mode string, escalates bool) {
 	requested = strings.TrimSpace(requested)
 	if requested == "" || requested == "inherit" {
-		return callerMode, nil
+		return callerMode, false
 	}
 	if requested == callerMode || requested == "plan" {
-		return requested, nil
+		return requested, false
 	}
-	return "", refuse("a spawned session cannot be more permissive than you: it can be \"plan\" or run in your own mode (%s), and %q could be less restricted", modeLabel(callerMode), requested)
+	return requested, true
 }
 
 func (at *agentTools) liveSpawnedUnder(root string, marks map[string]backend.SpawnedBy, byID map[string]backend.Session) int {
@@ -340,10 +342,7 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	if err != nil {
 		return "", "", err
 	}
-	childMode, err := modeAllowed(tc.session.ModeID, args["mode"])
-	if err != nil {
-		return "", "", err
-	}
+	childMode, escalates := spawnMode(tc.session.ModeID, args["mode"])
 	if childMode != "" {
 		modes, merr := at.mc.back.Modes(ctx, tc.dir)
 		if merr != nil {
@@ -390,14 +389,21 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	at.spawnLog[root] = append(at.spawnLog[root], now)
 	at.mu.Unlock()
 
-	auto := grant == permrules.Allow
+	// An allow skips the card unless the child could be less restricted than
+	// its caller: then a person decides, seeing both modes.
+	auto := grant == permrules.Allow && !escalates
+	meta := map[string]any{
+		"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(tc.session.ModelID),
+		"workspaceId": tc.workspaceID, "prompt": prompt,
+	}
+	if escalates {
+		meta["escalates"] = true
+		meta["callerModeId"] = modeLabel(tc.session.ModeID)
+	}
 	decision, message, err := at.approve(ctx, tc, call, auto, "", reasonAllowedByRules, backend.PermissionRequest{
-		Tool:  "session_spawn",
-		Title: "Start a new session: " + title,
-		Metadata: map[string]any{
-			"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(tc.session.ModelID),
-			"workspaceId": tc.workspaceID, "prompt": prompt,
-		},
+		Tool:     "session_spawn",
+		Title:    "Start a new session: " + title,
+		Metadata: meta,
 	})
 	if err != nil {
 		return "", "", err
@@ -456,8 +462,8 @@ func (at *agentTools) ask(ctx context.Context, tc *toolCaller, call backend.Tool
 }
 
 // reasonAllowedByRules is the audit reason of a call this machine's rules let
-// through without a card.
-const reasonAllowedByRules = "allowed by this machine's rules"
+// through without a card (decision "allow").
+const reasonAllowedByRules = "rule"
 
 // grant is the machine's rule for one of galopin's two coordination tools,
 // read from the asking session's opencode rules (the agent's, then the ones
@@ -480,13 +486,14 @@ func (at *agentTools) grant(ctx context.Context, tc *toolCaller, tool string) (p
 	return permrules.Grant(rules, tool), nil
 }
 
-// approve is the decision before the ask: when auto is true the machine's rules
-// said allow, the call is approved here — audited as decision "auto" with the
-// reason, no gp_ ask raised, so no card — and otherwise galopin's own approval
-// is raised (never answered by the responder, "always" read as once).
-func (at *agentTools) approve(ctx context.Context, tc *toolCaller, call backend.ToolCall, auto bool, to, reason string, req backend.PermissionRequest) (backend.Decision, string, error) {
-	if auto {
-		at.mc.audit.agentTool(call.Tool, tc.session.ID, to, "auto", reason)
+// approve is the decision before the ask: when allowed is true the machine's
+// rules said allow, the call is approved here — audited as decision "allow"
+// with reason "rule", no gp_ ask raised, so no card — and otherwise galopin's
+// own approval is raised (never answered by the responder, "always" read as
+// once). Only this path sets autoApproved in a tool's result.
+func (at *agentTools) approve(ctx context.Context, tc *toolCaller, call backend.ToolCall, allowed bool, to, reason string, req backend.PermissionRequest) (backend.Decision, string, error) {
+	if allowed {
+		at.mc.audit.agentTool(call.Tool, tc.session.ID, to, "allow", reason)
 		return backend.DecisionOnce, "", nil
 	}
 	return at.ask(ctx, tc, call, req)

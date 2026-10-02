@@ -324,8 +324,8 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if err != nil {
 		return err
 	}
-	if opts.allowTerminal && !opts.allowAutoAccept {
-		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're keeping sessions from answering their own asks but allowing a remote shell.")
+	if opts.allowTerminal {
+		fmt.Fprintln(os.Stderr, "warning: --allow-terminal opens a remote shell outside every permission rule.")
 	}
 	if err := policy.Save(policyPathFor(opts.creds), pol); err != nil {
 		return err

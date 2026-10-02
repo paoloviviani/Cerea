@@ -21,7 +21,7 @@ import (
 // A machine whose policy lets no session auto-accept (permission.responders
 // denied) refuses to switch one on, and — with no rule for the two
 // coordination tools — every send and every spawn raises a card and nothing is
-// audited "auto". Gated behind GALOPIN_OPENCODE_IT=1.
+// audited "allow". Gated behind GALOPIN_OPENCODE_IT=1.
 func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
 		t.Skip("set GALOPIN_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
@@ -148,7 +148,7 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 	if len(raw) == 0 {
 		t.Fatal("audit log is empty")
 	}
-	if strings.Contains(string(raw), `"decision":"auto"`) {
+	if strings.Contains(string(raw), `"decision":"allow"`) {
 		t.Errorf("an auto decision was audited on a machine that denies auto-accept:\n%s", raw)
 	}
 }

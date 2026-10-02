@@ -80,8 +80,8 @@ func TestPolicySetPermissionFlagsOnlyTighten(t *testing.T) {
 }
 
 func TestEnrollDefaultsAndStaticFile(t *testing.T) {
-	if got := defaultEnrollMax(); got["bash"] != "ask" || len(got) != 1 {
-		t.Errorf("default ceiling = %v, want only bash=ask", got)
+	if got := defaultEnrollMax(); got["bash"] != "ask" || got["session_spawn"] != "ask" || len(got) != 2 {
+		t.Errorf("default ceiling = %v, want bash=ask and session_spawn=ask", got)
 	}
 	cfg := buildOpencodeConfig("127.0.0.1:1", "s", nil, false)
 	cfg.Permission = staticPermission()
@@ -111,8 +111,8 @@ func TestEnrollPolicyDefaultsAndFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pol.Permission.Max["bash"] != "ask" || len(pol.Permission.Max) != 1 || pol.Permission.RespondersAllowed() || len(pol.Permission.Rules) != 0 {
-		t.Errorf("default enroll permission = %+v, want only bash=ask and no responders", pol.Permission)
+	if pol.Permission.Max["bash"] != "ask" || pol.Permission.Max["session_spawn"] != "ask" || len(pol.Permission.Max) != 2 || pol.Permission.RespondersAllowed() || len(pol.Permission.Rules) != 0 {
+		t.Errorf("default enroll permission = %+v, want bash=ask, session_spawn=ask and no responders", pol.Permission)
 	}
 
 	pol, err = enrollPolicy(&enrollOptions{allowAutoAccept: true, permissionMax: []string{"edit=ask"}, permissionRules: []string{"session_send=allow"}, maxTerminals: 8})

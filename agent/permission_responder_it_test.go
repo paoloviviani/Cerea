@@ -155,12 +155,11 @@ func TestResponderChildExplicitlyOffOverridesParentOn(t *testing.T) {
 
 // The Amendment: a subagent with no setting of its own follows its parent's
 // "on". The responder answers its tool asks under the same caps as the
-// parent's — once, no card, nothing saved — even under a ceiling that makes
-// the ask exist in the first place.
+// parent's — once, no card, nothing saved.
 func TestResponderChildWithNoSettingFollowsParentOn(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "ask"},
-		perm: responders(nil, map[string]string{"edit": "ask"}),
+		perm: responders(nil, nil),
 	})
 	parent := r.session("auto-parent2", "")
 	if err := r.mat.SetAutoAccept(parent.ID, true); err != nil {
@@ -211,4 +210,33 @@ func TestResponderStopsWhenTheMachineTurnsItOff(t *testing.T) {
 		t.Fatal("the write was not asked after the machine turned auto-accept off")
 	}
 	r.reply(s, ask.ID, "reject")
+}
+
+// The responder is limited by the ceiling: a key capped at ask is asked of a
+// person even in an auto session — for the session itself and for a subagent
+// following its parent — while an uncapped key beside it is answered.
+func TestResponderLeavesCeilingCappedKeysToAPerson(t *testing.T) {
+	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "ask", "bash": "ask"}, perm: responders(nil, map[string]string{"edit": "ask"})})
+	s := r.session("auto-capped", "")
+	if err := r.mat.SetAutoAccept(s.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	ask, _, mark := r.try(s, "capped.txt")
+	if ask == nil {
+		t.Fatal("the responder answered an edit ask under an ask ceiling")
+	}
+	if rows := r.responderRows(); len(rows) != 0 {
+		t.Errorf("responder rows = %v, want none", rows)
+	}
+	r.reply(s, ask.ID, "once")
+	r.idle(s, mark)
+
+	// And a subagent under the same parent is asked too.
+	child, mark2 := r.delegate(s, "capped-child-marker", "capped-child.txt")
+	cask, _ := r.childOutcome(child, mark2)
+	if cask == nil {
+		t.Fatal("the child's edit ask under an ask ceiling was answered by its parent's flag")
+	}
+	r.reply(backend.Session{ID: child}, cask.ID, "once")
+	r.hub.toolDone(t, mark2, child, "write")
 }

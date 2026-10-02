@@ -1,41 +1,35 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"galopin/internal/backend"
 )
 
-func TestModeAllowed(t *testing.T) {
+func TestSpawnMode(t *testing.T) {
 	cases := []struct {
 		caller, requested string
 		want              string
-		refuse            string
+		escalates         bool
 	}{
-		{"", "", "", ""},
-		{"", "inherit", "", ""},
-		{"plan", "inherit", "plan", ""},
-		{"plan", "plan", "plan", ""},
-		{"build", "plan", "plan", ""},
-		{"", "plan", "plan", ""},       // the read-only built-in is safe from any caller
-		{"custom", "plan", "plan", ""}, // ...including a custom one
-		{"custom", "custom", "custom", ""},
-		{"", "build", "", "less restricted"}, // an empty mode is the backend's unverified default
-		{"plan", "build", "", "less restricted"},
-		{"plan", "custom", "", "less restricted"},
-		{"build", "custom", "", "less restricted"}, // a name galopin cannot compare is never read as stricter
+		{"", "", "", false},
+		{"", "inherit", "", false},
+		{"plan", "inherit", "plan", false},
+		{"plan", "plan", "plan", false},
+		{"build", "plan", "plan", false},
+		{"", "plan", "plan", false},       // the read-only built-in is never an escalation
+		{"custom", "plan", "plan", false}, // ...from any caller
+		{"custom", "custom", "custom", false},
+		{"build", "build", "build", false},
+		{"", "build", "build", true}, // an empty mode is the backend's unverified default
+		{"plan", "build", "build", true},
+		{"plan", "custom", "custom", true},
+		{"build", "custom", "custom", true}, // a name galopin cannot compare is never read as stricter
 	}
 	for _, c := range cases {
-		got, err := modeAllowed(c.caller, c.requested)
-		if c.refuse != "" {
-			if err == nil || !strings.Contains(err.Error(), c.refuse) {
-				t.Errorf("modeAllowed(%q,%q) = %q, %v; want refusal %q", c.caller, c.requested, got, err, c.refuse)
-			}
-			continue
-		}
-		if err != nil || got != c.want {
-			t.Errorf("modeAllowed(%q,%q) = %q, %v; want %q", c.caller, c.requested, got, err, c.want)
+		got, esc := spawnMode(c.caller, c.requested)
+		if got != c.want || esc != c.escalates {
+			t.Errorf("spawnMode(%q,%q) = %q, %v; want %q, %v", c.caller, c.requested, got, esc, c.want, c.escalates)
 		}
 	}
 }
