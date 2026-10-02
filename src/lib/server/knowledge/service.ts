@@ -1256,6 +1256,11 @@ export async function search(
 		const hits = await withClient(async (client) => {
 			const { ensureSchema } = await import("./db");
 			await ensureSchema();
+			// Over-fetch past the caller's limit: hits whose document row is
+			// gone are dropped below ("no row, no passage"), so asking for
+			// exactly `limit` would return short pages — or nothing — while
+			// orphans outrank live passages.
+			const fetchLimit = Math.min(limit * 3 + 10, 200);
 			const result = await client.query(
 				`SELECT c.id AS chunk_id, c.document_id AS document_id, c.ordinal, c.text,
 					1 - (c.embedding::halfvec(${dims}) <=> ($3::vector)::halfvec(${dims})) AS score
@@ -1263,7 +1268,7 @@ export async function search(
 				 WHERE c.store_id = $1 AND c.dimensions = $2
 				 ORDER BY c.embedding::halfvec(${dims}) <=> ($3::vector)::halfvec(${dims})
 				 LIMIT $4`,
-				[toUuid(base._id.toString()), dims, literal, limit]
+				[toUuid(base._id.toString()), dims, literal, fetchLimit]
 			);
 			return result.rows as {
 				chunk_id: string;
@@ -1283,6 +1288,8 @@ export async function search(
 			search_query: body.query,
 			data: hits
 				.filter((hit) => hit.score >= floor)
+				.filter((hit) => byId.has(fromUuid(hit.document_id)))
+				.slice(0, limit)
 				.map((hit) => {
 					const documentId = fromUuid(hit.document_id);
 					const document = byId.get(documentId);
