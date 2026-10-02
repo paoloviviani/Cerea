@@ -21,6 +21,9 @@
 	import IconLaptop from "~icons/carbon/laptop";
 	import AgentView from "./AgentView.svelte";
 	import NeedsYouInbox from "./NeedsYouInbox.svelte";
+	import CodeReauthCard from "./CodeReauthCard.svelte";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
+	import { loadCodeStatus } from "$lib/codeApi";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeDeviceList, useCodeDevicePoll } from "$lib/stores/codeDeviceList.svelte";
 	import { openMobileNav } from "$lib/components/MobileNav.svelte";
@@ -48,7 +51,14 @@
 	// and `credential` frame the machine sends — see `machines.ts`), so
 	// there is no separate enrollment probe to run here either: the row IS
 	// the answer, refreshed on the same cadence.
-	onMount(() => useCodeDevicePoll());
+	// Ask first: while the sign-in is stale the server refuses everything but
+	// `/status`, so nothing below may fire until it has answered.
+	onMount(() => void loadCodeStatus());
+	// The shared device poll runs only while the sign-in is known to be fresh;
+	// the moment it is found stale the effect's cleanup stops it.
+	$effect(() => {
+		if (codeReauth.checked && !codeReauth.required) return useCodeDevicePoll();
+	});
 
 	/** The empty panes point at the Agents panel, which is where pairing
 	 * and every other action now live. On a phone that means opening the
@@ -65,7 +75,7 @@
      composer. Every branch here re-enables pointer events itself, the
      ChatWindow contract (its own tree does the same above the column). -->
 <div class="pointer-events-none flex h-full min-h-0 flex-col overflow-hidden">
-	{#if enabled}
+	{#if enabled && codeReauth.checked && !codeReauth.required}
 		<!-- The Needs-you inbox: pending approvals/questions across machines,
 		     answerable inline with the agent card's own cards, deep-linked to
 		     each ask's session. Renders nothing when nothing is waiting. -->
@@ -77,6 +87,13 @@
 			<p class={s.EMPTY_TITLE}>Coding agents are not enabled</p>
 			<p class={s.EMPTY_DETAIL}>This deployment has no machine link configured.</p>
 		</div>
+	{:else if !codeReauth.checked}
+		<div class="pointer-events-auto {s.EMPTY}">
+			<IconLaptop class={s.EMPTY_ICON} />
+			<p class={s.EMPTY_TITLE}>Loading…</p>
+		</div>
+	{:else if codeReauth.required}
+		<CodeReauthCard />
 	{:else}
 		{#key `${selectedDeviceId ?? ""}:${selectedAgentId ?? ""}`}
 			{#if selectedAgentId && selectedDeviceId}

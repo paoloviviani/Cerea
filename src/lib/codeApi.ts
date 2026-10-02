@@ -24,6 +24,12 @@ import type {
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
 import { base } from "$app/paths";
+import {
+	applyCodeStatus,
+	codeReauth,
+	flagCodeReauth,
+	type CodeStatus,
+} from "$lib/stores/codeReauth.svelte";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
@@ -56,6 +62,37 @@ export interface CodeProviderFeature {
 	blockedReason?: string;
 }
 
+/** `/status`: whether this page may use /code right now, and where to sign in
+ * again if not. The one /code call a stale session may make. Folds the answer
+ * into the shared `codeReauth` store; a failure to ask leaves the page
+ * proceeding (the first real call will say if it is stale). */
+let statusInflight: Promise<void> | null = null;
+export function loadCodeStatus(force = false): Promise<void> {
+	// Asked once per page: later callers (the sidebar and the panel both ask)
+	// share the answer, which `codeReauth.checked` records.
+	if (!force && codeReauth.checked) return Promise.resolve();
+	if (!force && statusInflight) return statusInflight;
+	statusInflight = (async () => {
+		try {
+			const response = await fetch(`${root()}/status`);
+			if (response.ok) {
+				applyCodeStatus(superjson.parse<CodeStatus>(await response.text()));
+				return;
+			}
+		} catch {
+			/* offline or a transient failure: proceed, a real call will say */
+		}
+		applyCodeStatus({ enabled: true, fresh: true, reauthPath: codeReauthPathFallback() });
+	})().finally(() => {
+		statusInflight = null;
+	});
+	return statusInflight;
+}
+
+function codeReauthPathFallback(): string {
+	return `${base}/login?reauth=1&next=${base}/code`;
+}
+
 export class CodeApiError extends Error {
 	constructor(
 		message: string,
@@ -66,8 +103,24 @@ export class CodeApiError extends Error {
 	}
 }
 
+/** Whether a 401's body is the /code guard's `reauth_required` (a superjson
+ * body, like every other answer from these routes). */
+function isReauthBody(text: string): boolean {
+	try {
+		return (superjson.parse(text) as { code?: string } | null)?.code === "reauth_required";
+	} catch {
+		return false;
+	}
+}
+
 async function unwrap<T>(response: Response): Promise<T> {
 	const text = await response.text();
+	// The sign-in is too old for /code: flip the shared flag so the whole panel
+	// drops what it holds and shows the one card, whichever call noticed first.
+	if (response.status === 401 && isReauthBody(text)) {
+		flagCodeReauth();
+		throw new CodeApiError("Your sign-in is older than 7 days. Sign in again.", 401);
+	}
 	if (!response.ok) {
 		let message = text || `The request failed with status ${response.status}.`;
 		try {
@@ -927,7 +980,12 @@ export async function mintTerminalTicket(deviceId: string, terminalId: string): 
 		} catch {
 			/* not the reauth shape — falls through to the generic failure below */
 		}
-		if (code === "reauth_required") throw new TerminalReauthRequired();
+		if (code === "reauth_required") {
+			// Older than the terminal's own window is older than /code's: the
+			// whole panel is stale, not just this ticket.
+			flagCodeReauth();
+			throw new TerminalReauthRequired();
+		}
 	}
 	if (!response.ok) {
 		// Every other non-2xx here is a SvelteKit `error()` throw (plain
