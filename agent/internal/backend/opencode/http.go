@@ -169,7 +169,7 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	var rules []permrules.Rule
 	if b.cfg.Permissions != nil {
 		var err error
-		if rules, err = b.composeFor(ctx, workspaceDir, agent); err != nil {
+		if rules, err = b.composeFor(ctx, workspaceDir, agent, ""); err != nil {
 			return backend.Session{}, err
 		}
 		if len(rules) > 0 {

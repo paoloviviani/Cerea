@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -160,16 +161,20 @@ func (b *Backend) noteSession(s backend.Session) {
 // composeFor is the rules a session running agent gets now. When the ceiling
 // needs the agent's rules and they cannot be read, it fails: a ceiling applied
 // blind could soften a deny, and an unapplied one is no ceiling.
-func (b *Backend) composeFor(ctx context.Context, dir, agent string) ([]permrules.Rule, error) {
+func (b *Backend) composeFor(ctx context.Context, dir, agent, sessionID string) ([]permrules.Rule, error) {
 	l := b.layers()
-	if len(l.Own) == 0 && len(l.Ceiling.Keys()) == 0 {
+	panel := b.getOverlay(sessionID).Panel
+	if len(l.Own) == 0 && len(l.Ceiling.Keys()) == 0 && len(panel.Touched) == 0 {
 		return nil, nil
 	}
 	agentRules, err := b.agentRuleset(ctx, dir, agent)
-	if err != nil && hasAskCeiling(l.Ceiling) {
+	if err != nil && (hasAskCeiling(l.Ceiling) || len(panel.Touched) > 0) {
 		return nil, fmt.Errorf("galopin could not read opencode's rules for agent %q, so it cannot apply this machine's ceiling: %w", agent, err)
 	}
-	return permrules.Compose(l, agentRules), nil
+	if b.isChild(sessionID) {
+		return permrules.ChildRulesFor(l, panel, agentRules), nil
+	}
+	return permrules.ComposeFor(l, panel, agentRules), nil
 }
 
 // patchRules appends rules to a session's own (opencode merges them in order).
@@ -188,7 +193,12 @@ func (b *Backend) ensureRules(ctx context.Context, dir, sessionID, agent string)
 	}
 	b.perm.mu.Lock()
 	defer b.perm.mu.Unlock()
-	rules, err := b.composeFor(ctx, dir, agent)
+	return b.ensureRulesLocked(ctx, dir, sessionID, agent)
+}
+
+// ensureRulesLocked is ensureRules with perm.mu held.
+func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent string) error {
+	rules, err := b.composeFor(ctx, dir, agent, sessionID)
 	if err != nil {
 		return err
 	}
@@ -214,19 +224,18 @@ func (b *Backend) EnsureRules(ctx context.Context, workspaceDir, sessionID strin
 
 // ApplyChildRules puts the ceiling on a subagent session opencode created. The
 // child already has its parent's denies; what it lacks is the ceiling's caps,
-// and none of the machine's own rules reach it (an allow must not). agent is
-// the subagent type read from the parent's task call, "" when it is not known
-// yet: then only denies are applied, since an ask cap restated blind could
-// soften a read-only agent. Best effort by nature — a first tool call can win
-// the race — which is what the agent-level floor is for.
+// and none of the machine's own rules reach it (an allow must not) — only what a
+// person set on the child itself. agent is the subagent type read from the
+// parent's task call, "" when it is not known yet: then only denies are
+// applied, since an ask cap restated blind could soften a read-only agent.
+// Best effort by nature — a first tool call can win the race — which is what
+// the agent-level floor is for.
 func (b *Backend) ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error {
 	if b.cfg.Permissions == nil {
 		return nil
 	}
 	b.perm.mu.Lock()
 	defer b.perm.mu.Unlock()
-	l := b.layers()
-	var rules []permrules.Rule
 	b.perm.childMu.Lock()
 	if b.perm.childAgent == nil {
 		b.perm.childAgent = map[string]string{}
@@ -235,15 +244,25 @@ func (b *Backend) ApplyChildRules(ctx context.Context, workspaceDir, sessionID, 
 		b.perm.childAgent[sessionID] = agent
 	}
 	b.perm.childMu.Unlock()
-	if agent != "" {
-		agentRules, err := b.agentRuleset(ctx, workspaceDir, agent)
+	return b.applyChildLocked(ctx, workspaceDir, sessionID, agent)
+}
+
+// applyChildLocked composes and sends a child's rules. Caller holds perm.mu.
+func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent string) error {
+	l := b.layers()
+	panel := b.getOverlay(sessionID).Panel
+	var rules []permrules.Rule
+	known := agent != ""
+	if known {
+		agentRules, err := b.agentRuleset(ctx, dir, agent)
 		if err != nil {
-			rules = denyOnly(l.Ceiling)
+			known = false
 		} else {
-			rules = permrules.ChildRules(l, agentRules)
+			rules = permrules.ChildRulesFor(l, panel, agentRules)
 		}
-	} else {
-		rules = denyOnly(l.Ceiling)
+	}
+	if !known {
+		rules = append(denyOnly(l.Ceiling), panelDenies(panel)...)
 	}
 	ov := b.getOverlay(sessionID)
 	fp := permrules.Fingerprint(rules)
@@ -257,6 +276,41 @@ func (b *Backend) ApplyChildRules(ctx context.Context, workspaceDir, sessionID, 
 	}
 	ov.RulesFP = fp
 	return b.setOverlay(sessionID, ov)
+}
+
+// panelDenies is the part of a person's rules that is safe to apply without
+// knowing the agent: its denies.
+func panelDenies(p permrules.Panel) []permrules.Rule {
+	var out []permrules.Rule
+	for _, r := range p.Rules {
+		if r.Action == permrules.Deny {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// SetSessionRules implements backend.RuleHost: the rules a person set on one
+// session, replacing their earlier ones. The caller has clamped them to the
+// ceiling; composeFor lowers them again under the ceiling's tail regardless, so
+// what is applied can never exceed it. opencode only ever appends a session's
+// rules, so a rule an earlier write set and this one drops is restored to what
+// the base says rather than left standing (permrules.ComposeFor).
+func (b *Backend) SetSessionRules(ctx context.Context, workspaceDir, sessionID string, rules []permrules.Rule) error {
+	b.perm.mu.Lock()
+	defer b.perm.mu.Unlock()
+	ov := b.getOverlay(sessionID)
+	ov.Panel = ov.Panel.With(rules)
+	if err := b.setOverlay(sessionID, ov); err != nil {
+		return err
+	}
+	if b.isChild(sessionID) {
+		b.perm.childMu.Lock()
+		agent := b.perm.childAgent[sessionID]
+		b.perm.childMu.Unlock()
+		return b.applyChildLocked(ctx, workspaceDir, sessionID, agent)
+	}
+	return b.ensureRulesLocked(ctx, workspaceDir, sessionID, b.agentFor(sessionID))
 }
 
 // denyOnly is the part of a ceiling that can be applied without knowing the
@@ -278,12 +332,14 @@ func (b *Backend) EffectiveRules(ctx context.Context, workspaceDir, sessionID st
 	if err != nil {
 		return nil, err
 	}
-	out := append([]permrules.Rule(nil), l.OpencodeSide...)
-	out = append(out, l.Own...)
-	return append(out, l.Ceiling...), nil
+	return l.Plain(), nil
 }
 
-// RuleLayers implements backend.RuleHost.
+// RuleLayers implements backend.RuleHost. opencode hands back an agent's
+// ruleset merged, with no record of which layer a rule came from, so the
+// sources are attributed here: walking the list from its end, a rule that is
+// one galopin's floor wrote for this agent is "floor", one the static
+// opencode.json holds is "file", and the rest are opencode's own ("default").
 func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string) (backend.RuleLayers, error) {
 	agent := b.agentFor(sessionID)
 	agentRules, err := b.agentRuleset(ctx, workspaceDir, agent)
@@ -291,13 +347,37 @@ func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string
 		return backend.RuleLayers{}, err
 	}
 	l := b.layers()
-	out := backend.RuleLayers{Agent: agent, OpencodeSide: agentRules}
-	if b.isChild(sessionID) {
-		out.Ceiling = permrules.ChildRules(l, agentRules)
-		return out, nil
+	out := backend.RuleLayers{Agent: agent}
+
+	floor := l.Ceiling.FloorRules(agent)
+	file := b.fileRules()
+	sources := make([]string, len(agentRules))
+	for i := len(agentRules) - 1; i >= 0; i-- {
+		sources[i] = backend.SourceDefault
+		if k := indexRule(floor, agentRules[i]); k >= 0 {
+			floor = append(floor[:k:k], floor[k+1:]...)
+			sources[i] = backend.SourceFloor
+		} else if k := indexRule(file, agentRules[i]); k >= 0 {
+			file = append(file[:k:k], file[k+1:]...)
+			sources[i] = backend.SourceFile
+		}
 	}
-	out.Own = l.Own
-	out.Ceiling = l.Ceiling.Tail(append(append([]permrules.Rule(nil), agentRules...), l.Own...))
+	for i, r := range agentRules {
+		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: sources[i]})
+	}
+
+	panel := b.getOverlay(sessionID).Panel
+	ownLayers := l
+	if b.isChild(sessionID) {
+		ownLayers = permrules.Layers{Ceiling: l.Ceiling}
+	}
+	cerea, tail := permrules.ComposeParts(ownLayers, panel, agentRules)
+	for _, r := range cerea {
+		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCerea})
+	}
+	for _, r := range tail {
+		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCeiling})
+	}
 	return out, nil
 }
 
@@ -326,7 +406,7 @@ func (b *Backend) SavedApprovals(ctx context.Context) ([]backend.SavedApproval, 
 	}
 	out := make([]backend.SavedApproval, 0, len(list.Data))
 	for _, d := range list.Data {
-		out = append(out, backend.SavedApproval{ID: d.ID, Action: d.Action, Resource: d.Resource})
+		out = append(out, backend.SavedApproval{ID: d.ID, Action: d.Action, Resource: d.Resource, Resources: []string{d.Resource}, Removable: true})
 	}
 	return out, nil
 }
@@ -434,4 +514,33 @@ func mergeConfig(base, over map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// indexRule finds r in rs (-1 when absent).
+func indexRule(rs []permrules.Rule, r permrules.Rule) int {
+	for i, x := range rs {
+		if x == r {
+			return i
+		}
+	}
+	return -1
+}
+
+// fileRules reads the `permission` block of the static opencode.json galopin
+// owns, as rules. An unreadable file or one with no block is no rules.
+func (b *Backend) fileRules() []permrules.Rule {
+	if b.cfg.ConfigPath == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(b.cfg.ConfigPath)
+	if err != nil {
+		return nil
+	}
+	var cfg struct {
+		Permission map[string]any `json:"permission"`
+	}
+	if json.Unmarshal(raw, &cfg) != nil {
+		return nil
+	}
+	return permrules.FromConfig(cfg.Permission)
 }

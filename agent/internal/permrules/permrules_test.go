@@ -233,3 +233,103 @@ func TestFloorWithNoCeilingStillProtectsReadOnlyAgents(t *testing.T) {
 		t.Error("explore's and plan's edit deny is re-asserted whatever the ceiling (a static edit: ask would soften it)")
 	}
 }
+
+func TestClampLowersEveryRuleToTheCeiling(t *testing.T) {
+	c := Ceiling{Max: map[string]Action{"bash": Ask, "edit": Deny, "session_spawn": Ask}}
+	got, clamped := c.Clamp([]Rule{
+		{"bash", "*", Allow},         // over the ceiling: lowered to ask
+		{"edit", "src/*", Allow},     // capped at deny
+		{"read", "*", Allow},         // not capped: as asked
+		{"bash", "ls *", Deny},       // under the ceiling: as asked
+		{"session_spawn", "", Allow}, // empty pattern means *, and is lowered
+		{"", "*", Allow},             // no permission: dropped
+		{"read", "*", "yes"},         // not an action: dropped
+	})
+	want := []Rule{{"bash", "*", Ask}, {"edit", "src/*", Deny}, {"read", "*", Allow}, {"bash", "ls *", Deny}, {"session_spawn", "*", Ask}}
+	if !reflect.DeepEqual(got, want) || !clamped {
+		t.Errorf("Clamp = %+v clamped=%v, want %+v clamped", got, clamped, want)
+	}
+	if _, clamped := c.Clamp([]Rule{{"read", "*", Allow}, {"bash", "*", Ask}}); clamped {
+		t.Error("rules within the ceiling were reported as clamped")
+	}
+}
+
+// A wildcard permission is kept as asked, then followed by a clamped copy for
+// each capped key it covers, so a re-read says what is true for them.
+func TestClampExpandsAWildcardOverCappedKeys(t *testing.T) {
+	c := Ceiling{Max: map[string]Action{"bash": Ask, "edit": Deny}}
+	got, clamped := c.Clamp([]Rule{{"*", "*", Allow}})
+	want := []Rule{{"*", "*", Allow}, {"bash", "*", Ask}, {"edit", "*", Deny}}
+	if !reflect.DeepEqual(got, want) || !clamped {
+		t.Errorf("Clamp = %+v, want %+v", got, want)
+	}
+	session := ComposeFor(Layers{Ceiling: c}, Panel{}.With(got), []Rule{{"*", "*", Allow}})
+	all := append([]Rule{{"*", "*", Allow}}, session...)
+	if Evaluate(all, "bash", "x") != Ask || Evaluate(all, "edit", "x") != Deny || Evaluate(all, "read", "x") != Allow {
+		t.Error("a wildcard allow written through the panel got past the ceiling")
+	}
+}
+
+// After a panel write the order is still the machine's rules, the panel's, then
+// the ceiling — and a rule dropped by a later write is restored to what the
+// base says, for the agent the session runs now.
+func TestComposeForOrderAndRestoration(t *testing.T) {
+	c := Ceiling{Max: map[string]Action{"bash": Ask}}
+	l := Layers{Own: []Rule{{"webfetch", "*", Ask}}, Ceiling: c}
+	build := []Rule{{"*", "*", Allow}}
+	plan := []Rule{{"*", "*", Allow}, {"edit", "*", Deny}}
+
+	p := Panel{}.With([]Rule{{"edit", "*", Allow}, {"read", "*.env", Deny}})
+	got := ComposeFor(l, p, build)
+	want := []Rule{{"webfetch", "*", Ask}, {"edit", "*", Allow}, {"read", "*.env", Deny}, {"bash", "*", Ask}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("composed = %+v, want the machine's rule, the panel's two, the ceiling last: %+v", got, want)
+	}
+
+	// A second write drops edit. In build the restoration says allow (the
+	// base), in plan it says deny — it follows the agent, not the old write.
+	p = p.With([]Rule{{"read", "*.env", Deny}})
+	inBuild := ComposeFor(l, p, build)
+	inPlan := ComposeFor(l, p, plan)
+	if got := Evaluate(append(append([]Rule(nil), build...), inBuild...), "edit", "*"); got != Allow {
+		t.Errorf("build after dropping the edit rule = %s, want the base's allow", got)
+	}
+	if got := Evaluate(append(append([]Rule(nil), plan...), inPlan...), "edit", "*"); got != Deny {
+		t.Errorf("plan after dropping the edit rule = %s, want the base's deny, not the dropped allow", got)
+	}
+	// Even stacked behind the dropped rule, as opencode keeps it (appended, never removed).
+	stacked := append(append(append([]Rule(nil), plan...), Rule{"edit", "*", Allow}), inPlan...)
+	if got := Evaluate(stacked, "edit", "*"); got != Deny {
+		t.Errorf("plan with the old allow still in the session = %s, want deny", got)
+	}
+	// The ceiling is last, whatever the panel did.
+	if last := inBuild[len(inBuild)-1]; last != (Rule{"bash", "*", Ask}) {
+		t.Errorf("last composed rule = %+v, want the ceiling's", last)
+	}
+}
+
+func TestFromConfigAndFloorRules(t *testing.T) {
+	got := FromConfig(map[string]any{"edit": "ask", "plan": map[string]any{"b": "allow", "a": "deny"}, "junk": 3})
+	want := []Rule{{"edit", "*", Ask}, {"plan", "a", Deny}, {"plan", "b", Allow}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FromConfig = %+v, want %+v", got, want)
+	}
+	c := Ceiling{Max: map[string]Action{"edit": Ask, "webfetch": Deny}}
+	build := c.FloorRules("build")
+	if !containsRule(build, Rule{"webfetch", "*", Deny}) || !containsRule(build, Rule{"edit", "*", Ask}) {
+		t.Errorf("build floor = %+v", build)
+	}
+	plan := c.FloorRules("plan")
+	if containsRule(plan, Rule{"edit", "*", Ask}) || !containsRule(plan, Rule{"edit", "*", Deny}) {
+		t.Errorf("plan floor = %+v, want edit deny re-asserted and no ask", plan)
+	}
+}
+
+func containsRule(rs []Rule, r Rule) bool {
+	for _, x := range rs {
+		if x == r {
+			return true
+		}
+	}
+	return false
+}

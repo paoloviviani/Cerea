@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"galopin/internal/backend"
@@ -90,14 +95,65 @@ func (mc *machine) capDecision(tool string, d backend.Decision) (backend.Decisio
 	return d, false
 }
 
-// askedTool is the permission key of a pending ask the machine holds.
-func (mc *machine) askedTool(sessionID, requestID string) string {
+// askedRequest is a pending ask the machine holds, nil when it holds none by
+// that id.
+func (mc *machine) askedRequest(sessionID, requestID string) *backend.PermissionRequest {
 	for _, req := range mc.mat.PendingPermissionRequests(sessionID) {
 		if req.ID == requestID {
-			return req.Tool
+			r := req
+			return &r
 		}
 	}
-	return ""
+	return nil
+}
+
+// savedLedger is the "always" approvals this machine relayed. opencode keeps
+// its own in memory with no ids and no way to list or withdraw them (1.18.32),
+// so galopin records each one it passed on, mints an id for it, and groups it
+// by the reply that created it: one entry per reply, however many patterns
+// opencode stored for it. It is cleared when opencode restarts, which is also
+// when opencode forgets them.
+type savedLedger struct {
+	mu      sync.Mutex
+	entries []backend.SavedApproval
+}
+
+func (l *savedLedger) add(sessionID, tool string, resources []string) {
+	raw := make([]byte, 6)
+	_, _ = rand.Read(raw)
+	if len(resources) == 0 {
+		resources = []string{"*"}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.entries = append(l.entries, backend.SavedApproval{
+		ID: "sa_" + hex.EncodeToString(raw), SessionID: sessionID, Action: tool,
+		Resource: strings.Join(resources, ", "), Resources: resources, Removable: false,
+		GrantedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (l *savedLedger) list() []backend.SavedApproval {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]backend.SavedApproval(nil), l.entries...)
+}
+
+func (l *savedLedger) find(id string) (backend.SavedApproval, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, e := range l.entries {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return backend.SavedApproval{}, false
+}
+
+func (l *savedLedger) clear() {
+	l.mu.Lock()
+	l.entries = nil
+	l.mu.Unlock()
 }
 
 type ruleView struct {
@@ -111,8 +167,9 @@ type ruleView struct {
 }
 
 // opPermissionRules answers permission.rules: the rules in force for a
-// session, taken apart by source, and the approvals opencode has saved. A read
-// of live state; nothing here writes anything.
+// session, each tagged with its source, and the approvals saved. A read of live
+// state; nothing here writes anything. Re-read it after session.setRules: it is
+// how a person finds out what a write came to.
 func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
 		SessionID string `json:"sessionId"`
@@ -132,47 +189,120 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	saved, err := rh.SavedApprovals(ctx)
+	exposed, err := rh.SavedApprovals(ctx)
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	rules := []ruleView{}
-	add := func(src string, rs []permrules.Rule) {
-		for _, r := range rs {
-			rules = append(rules, ruleView{r.Permission, r.Pattern, string(r.Action), src})
-		}
+	rules := make([]ruleView, 0, len(layers.Rules))
+	for _, r := range layers.Rules {
+		rules = append(rules, ruleView{r.Permission, r.Pattern, string(r.Action), r.Source})
 	}
-	add("opencode", layers.OpencodeSide)
-	add("machine", layers.Own)
-	add("ceiling", layers.Ceiling)
+	ceiling := mc.live.Layers().Ceiling
 	max := map[string]string{}
-	for _, k := range mc.live.Layers().Ceiling.Keys() {
-		max[k] = string(mc.live.Layers().Ceiling.Of(k))
+	for _, k := range ceiling.Keys() {
+		max[k] = string(ceiling.Of(k))
 	}
+	saved := append(mc.saved.list(), exposed...)
 	if saved == nil {
 		saved = []backend.SavedApproval{}
 	}
 	return map[string]any{"agent": layers.Agent, "rules": rules, "savedApprovals": saved, "ceiling": max}, nil
 }
 
-// opPermissionSavedRemove answers permission.saved.remove: withdraw one saved
-// "always". The only write the link can make to permissions, and it can only
-// tighten: a removed approval means the next matching call asks again.
+// maxSetRules and maxPatternLen bound a session.setRules write.
+const (
+	maxSetRules   = 200
+	maxPatternLen = 512
+)
+
+// opSessionSetRules answers session.setRules {sessionId, rules}: a person's
+// rules for one session. EVERY rule is capped to the machine's ceiling first —
+// one above its max is applied at the max, never as requested — and the capped
+// set becomes the session's "cerea" rules, composed after the machine's own and
+// before the ceiling (permrules.ComposeFor), replacing the person's earlier
+// set. Only a malformed rule or an unknown session is refused; the answer is
+// `{}`, and what was actually applied is read back with permission.rules, so a
+// clamp is never hidden behind a success. Audited without patterns.
+func (mc *machine) opSessionSetRules(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string           `json:"sessionId"`
+		Rules     []permrules.Rule `json:"rules"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return nil, opErrf("unsupported", "this backend has no permission rules to set")
+	}
+	if len(a.Rules) > maxSetRules {
+		return nil, opErrf("invalid", "at most %d rules per write", maxSetRules)
+	}
+	for i, r := range a.Rules {
+		switch {
+		case r.Permission == "":
+			return nil, opErrf("invalid", "rule %d has no permission", i)
+		case !r.Action.Valid():
+			return nil, opErrf("invalid", "rule %d: %q is not allow, ask or deny", i, r.Action)
+		case len(r.Pattern) > maxPatternLen:
+			return nil, opErrf("invalid", "rule %d: pattern longer than %d bytes", i, maxPatternLen)
+		}
+	}
+	capped, clamped := mc.live.Layers().Ceiling.Clamp(a.Rules)
+	if err := rh.SetSessionRules(ctx, dir, a.SessionID, capped); err != nil {
+		return nil, backendErr(err)
+	}
+	mc.audit.permissionSetRules(a.SessionID, len(a.Rules), len(capped), clamped, ruleTools(capped))
+	return map[string]any{}, nil
+}
+
+// ruleTools is the distinct permission keys of a set of rules, sorted — what
+// the audit may say about a write; the patterns are not it.
+func ruleTools(rs []permrules.Rule) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range rs {
+		if !seen[r.Permission] {
+			seen[r.Permission] = true
+			out = append(out, r.Permission)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// opPermissionSavedRemove answers permission.saved.remove {sessionId, id}:
+// withdraw one saved "always". It can only tighten. opencode 1.18.32 cannot
+// withdraw the approvals it keeps in memory (no id, no call), so an id galopin
+// minted for one of those answers `unsupported` — the way to clear them is the
+// restart a tightened ceiling causes — and only an approval opencode itself
+// lists with an id can be removed here.
 func (mc *machine) opPermissionSavedRemove(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
-		ID string `json:"id"`
+		SessionID string `json:"sessionId"`
+		ID        string `json:"id"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil || a.ID == "" {
-		return nil, opErrf("invalid", "permission.saved.remove needs an id")
+		return nil, opErrf("invalid", "permission.saved.remove needs a sessionId and an id")
 	}
 	rh, ok := mc.ruleHost()
 	if !ok {
 		return nil, opErrf("unsupported", "this backend has no saved approvals")
 	}
-	if err := rh.RemoveSavedApproval(ctx, a.ID); err != nil {
-		return nil, backendErr(err)
+	if e, ok := mc.saved.find(a.ID); ok {
+		if a.SessionID != "" && a.SessionID != e.SessionID {
+			return nil, notFound("saved approval")
+		}
+		return nil, opErrf("unsupported", "opencode cannot withdraw one saved approval: it keeps them in memory with no way to remove one; they are all cleared when it restarts (a tightened ceiling does that)")
 	}
-	mc.audit.permissionSavedRemove(a.ID)
+	if err := rh.RemoveSavedApproval(ctx, a.ID); err != nil {
+		return nil, notFound("saved approval")
+	}
+	mc.audit.permissionSavedRemove(a.SessionID, a.ID)
 	return map[string]any{}, nil
 }
 
@@ -196,6 +326,7 @@ func (mc *machine) policyTightened(ctx context.Context, ch policy.Change) {
 	}
 	mc.audit.permissionTightened(true)
 	mc.mat.WithdrawPending()
+	mc.saved.clear()
 	for _, id := range mc.mat.TrackedIDs() {
 		dir, ok := mc.mat.WorkspaceDir(id)
 		if !ok || dir == "" {
