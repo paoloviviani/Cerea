@@ -46,6 +46,13 @@ beforeEach(() => {
 		calls.push("stop");
 		return true;
 	});
+	// Composer drafts persist in localStorage across mounts by design; clear
+	// them so every test starts from an empty box (all mounts here share the
+	// same device+agent key).
+	for (let i = localStorage.length - 1; i >= 0; i--) {
+		const key = localStorage.key(i);
+		if (key?.startsWith("cerea:composer-draft:")) localStorage.removeItem(key);
+	}
 });
 
 for (const [label, width] of [
