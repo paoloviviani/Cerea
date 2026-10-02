@@ -228,6 +228,15 @@ type ToolHost interface {
 	SpawnMarks() map[string]SpawnedBy
 }
 
+// RuleLayers is one session's effective rules by where each came from, in
+// evaluation order: Agent first, then Own, then Ceiling.
+type RuleLayers struct {
+	Agent        string
+	OpencodeSide []permrules.Rule
+	Own          []permrules.Rule
+	Ceiling      []permrules.Rule
+}
+
 // SavedApproval is one "always" the backend remembers: an action and the
 // resource it covers, as the backend names them.
 type SavedApproval struct {
@@ -244,8 +253,21 @@ type RuleHost interface {
 	// EffectiveRules is the rules in force for a session, in evaluation order:
 	// its agent's, then the ones galopin applied to the session.
 	EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error)
+	// RuleLayers is EffectiveRules taken apart: the agent it runs, opencode's
+	// own rules for it (defaults, opencode.json, agent config), the machine's
+	// own rules galopin applied, and the ceiling's tail. Display only.
+	RuleLayers(ctx context.Context, workspaceDir, sessionID string) (RuleLayers, error)
 	// SavedApprovals lists the "always" approvals the backend holds.
 	SavedApprovals(ctx context.Context) ([]SavedApproval, error)
 	// RemoveSavedApproval withdraws one.
 	RemoveSavedApproval(ctx context.Context, id string) error
+	// EnsureRules re-applies the machine's rules to a session if they differ
+	// from what it carries (after the ceiling changed).
+	EnsureRules(ctx context.Context, workspaceDir, sessionID string) error
+	// ApplyChildRules gives a subagent session opencode created the ceiling
+	// (never the machine's own allows); agent is its type, "" when unknown.
+	ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error
+	// RestartForPolicy restarts the backend process, clearing every "always"
+	// it holds; it returns once the new process is healthy.
+	RestartForPolicy(ctx context.Context) error
 }

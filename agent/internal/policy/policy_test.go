@@ -237,3 +237,51 @@ func TestPermissionCeilingAndRules(t *testing.T) {
 		t.Errorf("OwnRules = %+v, want edit then read (sorted)", rules)
 	}
 }
+
+func TestLiveOnlyTightens(t *testing.T) {
+	live := NewLive(Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
+
+	// Looser input: ignored.
+	ch := live.Tighten(Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "allow", "edit": "allow"}, Rules: map[string]string{"edit": "allow", "read": "allow"}})
+	if ch.Any() {
+		t.Errorf("a looser file changed something: %+v", ch)
+	}
+	if got := live.Permission(); got.Max["bash"] != "ask" || got.Rules["read"] != "" {
+		t.Errorf("after a loosening read: %+v", got)
+	}
+
+	// Tighter input: taken, and reported.
+	ch = live.Tighten(Permission{Responders: TerminalDenied, Max: map[string]string{"bash": "deny", "webfetch": "ask"}, Rules: map[string]string{"edit": "ask"}})
+	if !ch.Tightened || !ch.RespondersOff {
+		t.Errorf("change = %+v, want tightened and responders off", ch)
+	}
+	got := live.Permission()
+	if got.Max["bash"] != "deny" || got.Max["webfetch"] != "ask" || got.Rules["edit"] != "ask" || got.RespondersAllowed() {
+		t.Errorf("after tightening: %+v", got)
+	}
+	if live.RespondersAllowed() {
+		t.Error("responders still allowed")
+	}
+
+	// Raising what was lowered: ignored, so a file edited back up cannot undo it.
+	ch = live.Tighten(Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
+	if ch.Any() || live.RespondersAllowed() || live.Permission().Max["bash"] != "deny" || live.Permission().Rules["edit"] != "ask" {
+		t.Errorf("a raised file undid a tightening: %+v %+v", ch, live.Permission())
+	}
+
+	// A new ask/deny rule where there was none tightens; a new allow does not.
+	ch = live.Tighten(Permission{Rules: map[string]string{"read": "ask"}})
+	if !ch.Tightened {
+		t.Error("a new ask rule is a tightening")
+	}
+	if ch = live.Tighten(Permission{Rules: map[string]string{"write": "allow"}}); ch.Any() {
+		t.Errorf("a new allow rule changed something: %+v", ch)
+	}
+}
+
+func TestLiveLayers(t *testing.T) {
+	l := NewLive(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}).Layers()
+	if l.Ceiling.Of("bash") != "ask" || len(l.Own) != 1 || l.Own[0].Permission != "edit" {
+		t.Errorf("layers = %+v", l)
+	}
+}

@@ -29,8 +29,11 @@ type machine struct {
 	back       backend.Backend
 	mat        *sessions.Materializer
 	pol        policy.Policy
-	files      *files.Service
-	terminals  *terminal.Manager
+	// live is the permission part of the policy as it stands now (it can only
+	// tighten while the agent runs); the materializer reads the same one.
+	live      *policy.Live
+	files     *files.Service
+	terminals *terminal.Manager
 
 	mu                 sync.Mutex
 	sessionWorkspaceID map[string]string // sessionID -> workspace registry id
@@ -56,12 +59,14 @@ func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Ma
 		back:               back,
 		mat:                mat,
 		pol:                pol,
+		live:               mat.Live(),
 		files:              files.New(pol.EffectiveFileDeny()),
 		terminals:          terminal.NewManager(nil),
 		sessionWorkspaceID: map[string]string{},
 		channelTerminal:    map[string]string{},
 	}
 	mc.installAgentTools()
+	mc.installPermissions()
 	return mc
 }
 
@@ -237,6 +242,10 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 
 	case "permission.reply":
 		return mc.opPermissionReply(ctx, args)
+	case "permission.rules":
+		return mc.opPermissionRules(ctx, args)
+	case "permission.saved.remove":
+		return mc.opPermissionSavedRemove(ctx, args)
 
 	case "question.reply":
 		return mc.opQuestionReply(ctx, args)
@@ -908,9 +917,14 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if operr != nil {
 		return nil, operr
 	}
-	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, backend.Decision(a.Decision), a.Message); err != nil {
+	// One answer path for opencode's asks and galopin's own (gp_). An "always"
+	// the ceiling does not let stand goes out as "once".
+	tool := mc.askedTool(a.SessionID, a.RequestID)
+	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
+	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, decision, a.Message); err != nil {
 		return nil, backendErr(err)
 	}
+	mc.audit.permission(a.SessionID, a.RequestID, tool, string(decision), "user", capped)
 	return map[string]any{}, nil
 }
 

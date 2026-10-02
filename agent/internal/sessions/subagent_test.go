@@ -204,7 +204,7 @@ func TestResponderChecksTheMachineAtAnswerTime(t *testing.T) {
 	if err := m.SetAutoAccept("s", true); err != nil {
 		t.Fatal(err)
 	}
-	m.policy = policy.Default()
+	m.live = policy.NewLive(policy.Default().Permission)
 	m.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s", Event: askEvent("perm1", "s")})
 	if len(fb.replies) != 0 {
 		t.Fatalf("replies = %+v, want none", fb.replies)
@@ -345,5 +345,51 @@ func TestChildSummaryCountsChildrenAndWaitingDescendants(t *testing.T) {
 	}
 	if got := m.RootOf("grandchild"); got != "parent" {
 		t.Fatalf("root of grandchild = %q, want parent", got)
+	}
+}
+
+// OnChild is told of a subagent a live event reveals — from the child's own
+// session event or from the parent's task call — once, and not of one a startup
+// listing names.
+func TestOnChildFiresForLiveChildrenOnly(t *testing.T) {
+	m := New(newFakeBackend(), allowPolicy())
+	var got []string
+	m.OnChild(func(dir, id string) { got = append(got, dir+":"+id) })
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "old", ParentID: "parent"})
+	m.Track("/ws", backend.Session{ID: "old"}) // a second listing naming no parent is no news either
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "old", Event: backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle}})
+	if len(got) != 0 {
+		t.Fatalf("a startup child fired the hook: %v", got)
+	}
+
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "parent"},
+	}})
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "parent"},
+	}})
+	if len(got) != 1 || got[0] != "/ws:kid" {
+		t.Fatalf("hook calls = %v, want exactly /ws:kid once", got)
+	}
+}
+
+func TestChildAgentIsReadFromTheParentsTaskCall(t *testing.T) {
+	m := New(newFakeBackend(), allowPolicy())
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	if got := m.ChildAgent("kid"); got != "" {
+		t.Fatalf("an unknown child's agent = %q", got)
+	}
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "parent", Event: backend.Event{
+		Kind: backend.EventPart,
+		Part: &backend.Part{
+			ID: "p1", MessageID: "m1", Role: "assistant", Type: backend.PartTool, CallID: "c", Tool: "task",
+			ToolStatus: backend.ToolRunning, SubtaskSessionID: "kid", Input: map[string]any{"subagent_type": "explore"},
+		},
+	}})
+	if got := m.ChildAgent("kid"); got != "explore" {
+		t.Errorf("ChildAgent = %q, want explore", got)
 	}
 }

@@ -620,3 +620,25 @@ func TestHeldByGalopin(t *testing.T) {
 		}
 	}
 }
+
+func TestWithdrawPendingClosesEveryAsk(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	ctx := context.Background()
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1",
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "perm1", SessionID: "s1", Tool: "edit"}}})
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1",
+		Event: backend.Event{Kind: backend.EventQuestionAsked, QuestionRequestID: "q1"}})
+	m.WithdrawPending()
+	if m.PendingPermissions("s1") != 0 || len(m.PendingQuestionRequests("s1")) != 0 {
+		t.Fatal("asks survived the withdrawal")
+	}
+	res, err := m.Sync(ctx, "s1", m.Epoch(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 2 || res.Events[0].Event.Kind != backend.EventPermissionReplied || res.Events[0].Event.Decision != backend.DecisionReject ||
+		res.Events[1].Event.Kind != backend.EventQuestionResolved {
+		t.Errorf("events = %+v, want a rejected replied then a resolved", res.Events)
+	}
+}
