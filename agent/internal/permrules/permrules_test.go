@@ -370,3 +370,42 @@ func TestChildGetsTheMachinesRestrictingRulesAsCaps(t *testing.T) {
 		t.Errorf("child ceiling for edit = %s, want deny (the ceiling is stricter)", got)
 	}
 }
+
+// The floor also holds the subagents to the machine's own restricting rules —
+// a subagent's first tool call can beat the rules galopin applies to its
+// session — and only the subagents: the primaries get them as session rules.
+func TestLayersFloorHoldsSubagentsToTheMachinesRestrictingRules(t *testing.T) {
+	l := Layers{Own: []Rule{{"edit", "*", Ask}, {"bash", "*", Deny}, {"read", "*", Allow}}}
+	f := l.Floor()
+	agents := f["agent"].(map[string]any)
+	perm := func(name string) map[string]any {
+		a, ok := agents[name].(map[string]any)
+		if !ok {
+			return map[string]any{}
+		}
+		return a["permission"].(map[string]any)
+	}
+	if perm("general")["edit"] != "ask" || perm("general")["bash"] != "deny" {
+		t.Errorf("general floor = %v, want the machine's ask and deny", perm("general"))
+	}
+	if perm("explore")["edit"] != "deny" {
+		t.Errorf("explore edit = %v: the machine's ask softened a read-only agent", perm("explore")["edit"])
+	}
+	if perm("explore")["bash"] != "deny" {
+		t.Errorf("explore bash = %v, want the machine's deny", perm("explore")["bash"])
+	}
+	if perm("build")["edit"] == "ask" || perm("build")["bash"] == "deny" {
+		t.Errorf("build floor = %v: the machine's own rules reach a primary agent as session rules, not as floor", perm("build"))
+	}
+	if _, ok := f["permission"]; ok {
+		t.Errorf("top-level permission = %v, want none (no ceiling deny)", f["permission"])
+	}
+	if !containsRule(l.FloorRules("general"), Rule{"edit", "*", Ask}) {
+		t.Error("FloorRules does not agree with Floor")
+	}
+	// A layers floor with no machine rules is the ceiling's floor.
+	c := Ceiling{Max: map[string]Action{"edit": Ask}}
+	if !reflect.DeepEqual(Layers{Ceiling: c}.Floor(), c.Floor()) {
+		t.Error("Layers.Floor without machine rules differs from Ceiling.Floor")
+	}
+}

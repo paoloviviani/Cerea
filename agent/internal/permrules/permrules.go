@@ -434,8 +434,9 @@ func FromConfig(block map[string]any) []Rule {
 
 // FloorRules is the floor for agent as rules: what the OPENCODE_CONFIG_CONTENT
 // built from this ceiling adds to that agent's ruleset, top-level block first.
-func (c Ceiling) FloorRules(agent string) []Rule {
-	f := c.Floor()
+func (c Ceiling) FloorRules(agent string) []Rule { return floorRules(c.Floor(), agent) }
+
+func floorRules(f map[string]any, agent string) []Rule {
 	var out []Rule
 	if top, ok := f["permission"].(map[string]any); ok {
 		out = append(out, FromConfig(top)...)

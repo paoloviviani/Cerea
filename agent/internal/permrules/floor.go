@@ -53,29 +53,51 @@ var (
 	exploreEdit = "deny"
 )
 
+// subagents are the built-in agents the task tool starts. Their sessions are
+// created by opencode, before galopin can give them rules, so they are the ones
+// the floor also holds to the machine's own restricting rules (ChildCeiling).
+var subagents = map[string]bool{"general": true, "explore": true}
+
 // Floor is the permission part of OPENCODE_CONFIG_CONTENT for ceiling c:
 // {"permission": {...}, "agent": {name: {"permission": {...}}}}.
-func (c Ceiling) Floor() map[string]any {
-	top := map[string]any{}
+func (c Ceiling) Floor() map[string]any { return floorFor(c, c) }
+
+// Floor is the floor for these layers: the ceiling for every built-in agent,
+// and for the subagents also the machine's own ask/deny rules, restated as caps
+// the way ChildCeiling does — a subagent's first tool call can beat the rules
+// galopin applies to its session, and this is what holds that window.
+func (l Layers) Floor() map[string]any { return floorFor(l.Ceiling, l.ChildCeiling()) }
+
+// FloorRules is the floor for agent as rules.
+func (l Layers) FloorRules(agent string) []Rule { return floorRules(l.Floor(), agent) }
+
+func floorFor(top, sub Ceiling) map[string]any {
+	topCfg := map[string]any{}
 	agents := map[string]map[string]any{}
 	for _, name := range builtinAgents {
 		agents[name] = map[string]any{}
 	}
 	agents["plan"]["edit"] = planEdit
 	agents["explore"]["edit"] = exploreEdit
-	for _, k := range c.Keys() {
-		switch c.Of(k) {
-		case Deny:
-			top[k] = string(Deny)
-			for _, name := range builtinAgents {
+	for _, name := range builtinAgents {
+		c := top
+		if subagents[name] {
+			c = sub
+		}
+		for _, k := range c.Keys() {
+			switch c.Of(k) {
+			case Deny:
 				agents[name][k] = string(Deny)
-			}
-		case Ask:
-			for _, name := range builtinAgents {
+			case Ask:
 				if agentGrants(name, k) {
 					agents[name][k] = string(Ask)
 				}
 			}
+		}
+	}
+	for _, k := range top.Keys() {
+		if top.Of(k) == Deny {
+			topCfg[k] = string(Deny)
 		}
 	}
 	names := make([]string, 0, len(agents))
@@ -90,8 +112,8 @@ func (c Ceiling) Floor() map[string]any {
 		}
 	}
 	out := map[string]any{"agent": agentCfg}
-	if len(top) > 0 {
-		out["permission"] = top
+	if len(topCfg) > 0 {
+		out["permission"] = topCfg
 	}
 	return out
 }
