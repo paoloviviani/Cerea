@@ -124,6 +124,11 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}/permission-approvals/${ID}$`) },
 ];
 
+/** The allowlist, exposed (underscore: SvelteKit allows only these in a
+ * `+server.ts`) for the stale-session guard spec, which must walk every entry
+ * and fail when a new one has no coverage. Nothing else reads it. */
+export const _RULES = RULES;
+
 /** `workspace.suggest`'s `?prefix=` — a path someone is mid-typing, so it
  * needs no shape beyond a sane length cap. */
 const suggestPrefixSchema = z.string().max(1024);

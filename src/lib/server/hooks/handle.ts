@@ -14,6 +14,8 @@ import { logger } from "$lib/server/logger";
 import { isHostLocalhost } from "$lib/server/isURLLocal";
 import { runWithRequestContext, updateRequestContext } from "$lib/server/requestContext";
 import { config, ready } from "$lib/server/config";
+import { authTimeFresh } from "$lib/server/code/stepUp";
+import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 
 type HandleInput = Parameters<Handle>[0];
 
@@ -53,6 +55,41 @@ const PUBLIC_ROUTES = new Set(["/galopin/[file]"]);
  * else under `/internal/*` inherits this by accident.
  */
 const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure/preview"]);
+
+/**
+ * The /code stale-session guard. Everything under `/api/v2/code/` needs a
+ * sign-in within the last 7 days (`stepUp.ts`), EXCEPT `/status`, which tells
+ * the page whether it has one. Deny-by-default by path prefix, so a route added
+ * under the prefix later is protected without anyone remembering to: the
+ * answer is `401 {code:"reauth_required"}`, the shape the terminal ticket
+ * already uses and `codeApi` already reads.
+ *
+ * It is a property of the *session*: the check reads the `authTime` that
+ * `authenticateRequest` already loaded with it, and a missing `authTime` is
+ * stale. A request with no signed-in user is not this guard's to answer — it
+ * has no sign-in to be old — and every route under the prefix refuses it
+ * itself (`requireCodeAgents`).
+ *
+ * What it does not see: the machine link (`/api/v2/code/machine`) is a raw
+ * WebSocket upgrade that never reaches this hook, and is unaffected by design;
+ * the terminal socket is an upgrade too, so it re-checks freshness itself
+ * (`terminalServer.ts`). An open event stream ends itself at `authTime + 7d`
+ * (`agents/[id]/stream`), because a stream opened while fresh outlives the
+ * request this guard looked at.
+ */
+const CODE_API_PREFIX = `${base}/api/v2/code`;
+const CODE_API_OPEN_PATHS = new Set([`${CODE_API_PREFIX}/status`]);
+
+export function isCodeApiPath(pathname: string): boolean {
+	return pathname === CODE_API_PREFIX || pathname.startsWith(`${CODE_API_PREFIX}/`);
+}
+
+export function codeReauthResponse(): Response {
+	return superjsonResponse(
+		{ code: "reauth_required", message: "Your sign-in is older than 7 days. Sign in again." },
+		{ status: 401, headers: { "Cache-Control": "no-store" } }
+	);
+}
 
 export async function handleRequest({ event, resolve }: HandleInput): Promise<Response> {
 	// Generate a unique request ID for this request
@@ -173,6 +210,16 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 
 			event.locals.user = auth.user || undefined;
 			event.locals.token = auth.token;
+			event.locals.authTime = auth.authTime;
+
+			if (
+				auth.user &&
+				isCodeApiPath(event.url.pathname) &&
+				!CODE_API_OPEN_PATHS.has(event.url.pathname) &&
+				!authTimeFresh(auth.authTime)
+			) {
+				return codeReauthResponse();
+			}
 
 			// Update request context with user after authentication
 			if (auth.user?.username) {
