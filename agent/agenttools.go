@@ -250,7 +250,7 @@ func modeAllowed(callerMode, requested string) (string, error) {
 	if requested == callerMode || requested == "plan" {
 		return requested, nil
 	}
-	return "", refuse("a spawned session can only be \"plan\" or run in your own mode (%s); %q could be less restricted than you", modeLabel(callerMode), requested)
+	return "", refuse("a spawned session cannot be more permissive than you: it can be \"plan\" or run in your own mode (%s), and %q could be less restricted", modeLabel(callerMode), requested)
 }
 
 func (at *agentTools) liveSpawnedUnder(root string, marks map[string]backend.SpawnedBy, byID map[string]backend.Session) int {
