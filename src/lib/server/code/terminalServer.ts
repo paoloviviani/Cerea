@@ -31,6 +31,7 @@ import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { recordCodeAuditRow } from "$lib/server/code/audit";
+import { authTimeFresh } from "$lib/server/code/stepUp";
 import { redeemTerminalTicket, type TerminalTicketBinding } from "$lib/server/code/terminalTickets";
 import {
 	MachineLink,
@@ -103,8 +104,15 @@ interface AuthorizationFailure {
 }
 
 /** The re-check both the initial upgrade and the 60s loop run: the Cerea
- * session still exists, unexpired, (not logged out) and the device is
- * still this user's own paired row (not revoked, not unpaired).
+ * session still exists, unexpired, (not logged out), its sign-in is still
+ * within the 7-day window (`stepUp.ts`), and the device is still this user's
+ * own paired row (not revoked, not unpaired).
+ *
+ * Freshness is checked HERE because a WebSocket upgrade never passes
+ * through `hooks/handle.ts`'s /code guard, and a ticket is minted once: a
+ * terminal opened just before the window closes would otherwise live as long
+ * as its socket. With it in the loop, that terminal closes at the next
+ * re-check (within a minute of the lapse).
  *
  * `expiresAt` is filtered here rather than trusted to the collection's own
  * TTL index (`database.ts`, `expireAfterSeconds: 0`): Mongo's TTL sweep
@@ -123,6 +131,7 @@ async function checkAuthorized(
 		expiresAt: { $gt: new Date() },
 	});
 	if (!session) return { ok: false, message: "signed out" };
+	if (!authTimeFresh(session.authTime)) return { ok: false, message: "sign-in too old" };
 	let userId: ObjectId;
 	let deviceId: ObjectId;
 	try {
@@ -351,7 +360,12 @@ function acceptTerminalConnection(
 				if (closed) return;
 				if (!result.ok) {
 					audit("terminal.refused");
-					ws.close(4403, "logged out, revoked or unpaired");
+					ws.close(
+						4403,
+						result.message === "sign-in too old"
+							? "reauth_required"
+							: "logged out, revoked or unpaired"
+					);
 				}
 			})
 			.catch((err: unknown) => {

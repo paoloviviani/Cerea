@@ -146,6 +146,9 @@ export async function findUser(
 	user: User | null;
 	invalidateSession: boolean;
 	oauth?: Session["oauth"];
+	/** The session's OIDC `auth_time`, from the document already loaded
+	 * here — the /code freshness guard reads it without another query. */
+	authTime?: Date;
 }> {
 	const session = await collections.sessions.findOne({ sessionId });
 
@@ -233,6 +236,7 @@ export async function findUser(
 		user: await collections.users.findOne({ _id: session.userId }),
 		invalidateSession: false,
 		oauth: session.oauth,
+		authTime: session.authTime,
 	};
 }
 export const authCondition = (locals: App.Locals) => {
@@ -615,6 +619,7 @@ export async function authenticateRequest(
 			sessionId,
 			secretSessionId,
 			gatewayUnavailable: gateway?.kind === "unavailable",
+			authTime: result.user ? result.authTime : undefined,
 			// `gateway === null` means there is no gateway to defer to at all (a
 			// non-gateway deployment, or a shared key) — admin then still comes
 			// from the persisted user, exactly as it did before the gateway had
