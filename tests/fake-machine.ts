@@ -26,8 +26,10 @@ import type {
 	Model,
 	NormalizedEvent,
 	Notice,
+	PermissionRule,
 	Policy,
 	ReqFrame,
+	SavedApproval,
 	Session,
 	SyncResult,
 	Terminal,
@@ -78,6 +80,13 @@ export interface FakeMachineModel {
 	 * tests set this directly; empty by default. */
 	commands: Command[];
 	terminals: Map<string, FakeTerminalState>;
+	/** MOCK — the agent half (feat/permission-agent) has not landed, so this
+	 * is the panel's own reading of the contract, not galopin's behaviour.
+	 * What `permission.rules` answers with. */
+	permissionRules: PermissionRule[];
+	/** MOCK — the "always" approvals `permission.rules` lists, and the ones
+	 * `permission.saved.remove` deletes by id. */
+	savedApprovals: SavedApproval[];
 }
 
 export function emptyModel(): FakeMachineModel {
@@ -95,6 +104,8 @@ export function emptyModel(): FakeMachineModel {
 		models: [{ id: "opencode/coder", label: "Coder", providerId: "opencode", isDefault: true }],
 		commands: [],
 		terminals: new Map(),
+		permissionRules: [],
+		savedApprovals: [],
 	};
 }
 
@@ -137,6 +148,9 @@ export class FakeMachine {
 	readonly model: FakeMachineModel;
 	readonly ws: WebSocket;
 	private overrides = new Map<string, (args: unknown) => unknown>();
+	/** Every op Cerea sent, in order — lets a spec assert which ops a panel
+	 * action did NOT cause (e.g. that no op ever writes a permission rule). */
+	readonly opLog: Array<{ op: string; args: unknown }> = [];
 	/** Deliver an attach's backlog before its reply, as a real machine's
 	 * reply and first output frame can land in the same read: Cerea must
 	 * still send the browser `reset` before that backlog. */
@@ -388,6 +402,7 @@ export class FakeMachine {
 	}
 
 	private async handleReq(req: ReqFrame): Promise<void> {
+		this.opLog.push({ op: req.op, args: req.args });
 		try {
 			const override = this.overrides.get(req.op);
 			const result = override ? await override(req.args) : this.defaultAnswer(req.op, req.args);
@@ -545,6 +560,19 @@ export class FakeMachine {
 			}
 			case "permission.reply":
 				return {};
+			// MOCK of the contract with the agent half: a read, and a
+			// tighten-only delete by id. Unverified against real galopin.
+			case "permission.rules":
+				return { rules: model.permissionRules, savedApprovals: model.savedApprovals };
+			case "permission.saved.remove": {
+				const { id } = args as { id: string };
+				const before = model.savedApprovals.length;
+				model.savedApprovals = model.savedApprovals.filter((approval) => approval.id !== id);
+				if (model.savedApprovals.length === before) {
+					throw new OpError("not_found", "No such saved approval.");
+				}
+				return {};
+			}
 			case "question.reply":
 				return {};
 			case "permissions.pending":

@@ -292,7 +292,7 @@ describe("between-session tools in an agent transcript", () => {
 			tool("session_send", { target: "ses_b", text: "hi" }, '{"autoApproved":true}')
 		);
 		await expect.element(view.getByText("Sent to")).toBeVisible();
-		await expect.element(view.getByText("auto-approved")).toBeVisible();
+		await expect.element(view.getByText("allowed by this machine's rules")).toBeVisible();
 	});
 
 	it("shows no badge on a send that was asked", async () => {
@@ -310,7 +310,7 @@ describe("between-session tools in an agent transcript", () => {
 			)
 		);
 		await expect.element(view.getByText("Spawned")).toBeVisible();
-		await expect.element(view.getByText("auto-approved")).toBeVisible();
+		await expect.element(view.getByText("allowed by this machine's rules")).toBeVisible();
 	});
 
 	it("shows no badge on a spawn that was asked", async () => {

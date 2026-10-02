@@ -401,6 +401,22 @@ export class MachineLink {
 	}): Promise<Record<string, never>> {
 		return this.call("permission.reply", args);
 	}
+	/**
+	 * The effective opencode rules for one session's agent, plus the
+	 * "always" approvals opencode is holding — a READ. The panel has no op
+	 * that writes a rule: opencode's own rules decide, Cerea shows them.
+	 */
+	permissionRules(args: { sessionId: string }): Promise<unknown> {
+		return this.call("permission.rules", args);
+	}
+	/**
+	 * Forget one saved "always" approval so that kind of call asks again.
+	 * Tighten-only by construction: it can only remove an allowance, and
+	 * galopin audits it. The one write the panel makes to permissions.
+	 */
+	permissionSavedRemove(args: { id: string }): Promise<Record<string, never>> {
+		return this.call("permission.saved.remove", args);
+	}
 	questionReply(args: {
 		sessionId: string;
 		requestId: string;

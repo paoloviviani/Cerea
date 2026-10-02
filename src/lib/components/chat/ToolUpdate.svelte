@@ -291,8 +291,8 @@
 					{#if coordination.autoApproved}
 						<span
 							class="shrink-0 rounded-sm bg-gray-100 px-1 py-px text-xs text-gray-600 dark:bg-gray-700/50 dark:text-gray-300"
-							title="Auto-accept was on, so no approval was asked for this"
-							data-testid="auto-approved-badge">auto-approved</span
+							title="This machine's own permission rules allow this, so no approval was asked"
+							data-testid="auto-approved-badge">allowed by this machine's rules</span
 						>
 					{/if}
 					<button

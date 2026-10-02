@@ -50,7 +50,11 @@ export interface Backend {
 }
 
 export interface Policy {
-	autoAccept: "allowed" | "denied";
+	/** Whether this machine's ceiling lets a per-session responder answer
+	 * tool asks (`enroll --allow-auto-accept`). Absent on a galopin that no
+	 * longer reports it: the panel then offers the toggle and lets the
+	 * machine refuse (`forbidden`), rather than guess a veto. */
+	autoAccept?: "allowed" | "denied";
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	/** The explorer's read access (§9): "read" (default) or "off" (--no-files). */
@@ -342,6 +346,78 @@ export interface PermissionsPendingResult {
 	questions: PendingQuestion[];
 }
 
+// -- permission.rules / permission.saved.remove (pass-through contract) ------
+//
+// opencode's own permission rules decide; Cerea only SHOWS them. These two
+// ops are the whole of the panel's reach into the rule set: `permission.rules`
+// is a read, `permission.saved.remove` can only tighten (it forgets an
+// "always" approval, so that kind of call asks again). There is deliberately
+// no op here that adds or edits a rule: that would make a machine's
+// permissions writable over the link.
+//
+// Shapes are the panel's reading of the contract with the agent half; the
+// parser below is lenient (unknown keys dropped, a malformed entry skipped)
+// because the frame is untrusted input.
+
+/** One opencode rule, lowest-to-highest precedence order in the list
+ * (last matching rule wins). `source` says whose it is:
+ * "cerea" (composed by this deployment), "ceiling" (the machine's own
+ * enrollment limits), "file" (written by the person in opencode's config) or
+ * "default" (opencode's built-in). Absent on a machine that does not say. */
+export interface PermissionRule {
+	permission: string;
+	pattern: string;
+	action: "allow" | "deny" | "ask";
+	source?: string;
+}
+
+/** An "always" approval opencode is holding in memory — shared by every
+ * session in the workspace until opencode restarts. `patterns` are what it
+ * covers (for bash, the command text). */
+export interface SavedApproval {
+	id: string;
+	permission: string;
+	patterns: string[];
+	sessionId?: string;
+}
+
+export interface PermissionRulesResult {
+	rules: PermissionRule[];
+	savedApprovals: SavedApproval[];
+}
+
+const permissionRuleSchema = z.object({
+	permission: z.string(),
+	pattern: z.string(),
+	action: z.enum(["allow", "deny", "ask"]),
+	source: z.string().optional(),
+});
+
+const savedApprovalSchema = z.object({
+	id: z.string(),
+	permission: z.string(),
+	patterns: z.array(z.string()).optional(),
+	sessionId: z.string().optional(),
+});
+
+/** Parse a `permission.rules` answer, keeping every well-formed entry and
+ * dropping the rest: a line that shows fewer rules than exist is better than
+ * no line, and an entry we cannot read is never guessed at. */
+export function parsePermissionRules(raw: unknown): PermissionRulesResult {
+	const object = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+	const items = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+	return {
+		rules: items(object.rules).flatMap((item) => {
+			const parsed = permissionRuleSchema.safeParse(item);
+			return parsed.success ? [parsed.data] : [];
+		}),
+		savedApprovals: items(object.savedApprovals).flatMap((item) => {
+			const parsed = savedApprovalSchema.safeParse(item);
+			return parsed.success ? [{ ...parsed.data, patterns: parsed.data.patterns ?? [] }] : [];
+		}),
+	};
+}
+
 export interface Transcript {
 	messages: Array<{ message: Message; parts: Part[] }>;
 	permissions: PermissionRequest[];
@@ -402,6 +478,8 @@ export type OpName =
 	| "session.setModel"
 	| "session.setAutoAccept"
 	| "permission.reply"
+	| "permission.rules"
+	| "permission.saved.remove"
 	| "question.reply"
 	| "permissions.pending"
 	| "session.sync"
@@ -554,7 +632,7 @@ const backendSchema = z.object({
 });
 
 const policySchema = z.object({
-	autoAccept: z.enum(["allowed", "denied"]),
+	autoAccept: z.enum(["allowed", "denied"]).optional(),
 	workspaceRoots: z.array(z.string()),
 	allowFreeModels: z.boolean(),
 	files: z.enum(["read", "off"]).optional(),
