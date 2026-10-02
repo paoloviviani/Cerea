@@ -410,8 +410,8 @@ func TestRuleLayersAttributesSources(t *testing.T) {
 	}
 	want := []string{
 		"*:default", "doom_loop:default", "edit:file", "bash:file", "edit:floor", // opencode's list, walked from the end
-		"webfetch:cerea", // the machine's own rule
-		"edit:ceiling",   // the cap, last
+		"webfetch:machine", // the machine's own rule
+		"edit:ceiling",     // the cap, last
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("sources = %v\nwant      %v", got, want)
@@ -508,5 +508,50 @@ func TestSetSessionRulesOrderReplaceAndRestore(t *testing.T) {
 	// The overlay remembers across a restart of galopin.
 	if got := b.getOverlay(s.ID).Panel; len(got.Rules) != 1 || len(got.Touched) != 2 {
 		t.Errorf("stored panel = %+v", got)
+	}
+}
+
+// F2: the machine's own ask reaches a subagent, as a cap over the child's agent.
+func TestChildGetsTheMachinesAskAndNeverSoftensADeny(t *testing.T) {
+	layers := func() permrules.Layers {
+		return permrules.Layers{Own: []permrules.Rule{{Permission: "edit", Pattern: "*", Action: permrules.Ask}, {Permission: "read", Pattern: "*", Action: permrules.Allow}}}
+	}
+	b, f := newPermFake(t, layers)
+	f.agents = `[
+	 {"name":"general","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"allow"}]},
+	 {"name":"explore","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"deny"},{"permission":"read","pattern":"*","action":"allow"}]}]`
+	b.noteSession(backend.Session{ID: "ses_g", ParentID: "ses_1"})
+	b.noteSession(backend.Session{ID: "ses_e", ParentID: "ses_1"})
+	if err := b.ApplyChildRules(context.Background(), "/ws", "ses_g", "general"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ApplyChildRules(context.Background(), "/ws", "ses_e", "explore"); err != nil {
+		t.Fatal(err)
+	}
+	_, patches, _ := f.snapshot()
+	if len(patches) != 2 {
+		t.Fatalf("patches = %d", len(patches))
+	}
+	general := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
+	explore := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Deny}, {Permission: "read", Pattern: "*", Action: permrules.Allow}}
+	if got := permrules.Evaluate(append(general, rulesOf(t, patches[0])...), "edit", "a"); got != permrules.Ask {
+		t.Errorf("general child edit = %s, want ask", got)
+	}
+	if got := permrules.Evaluate(append(explore, rulesOf(t, patches[1])...), "edit", "a"); got != permrules.Deny {
+		t.Errorf("explore child edit = %s, want its deny kept", got)
+	}
+	// An unknown-type child gets denies only.
+	b.noteSession(backend.Session{ID: "ses_u", ParentID: "ses_1"})
+	b.cfg.Permissions = func() permrules.Layers {
+		return permrules.Layers{Own: []permrules.Rule{{Permission: "bash", Pattern: "*", Action: permrules.Deny}, {Permission: "edit", Pattern: "*", Action: permrules.Ask}}}
+	}
+	if err := b.ApplyChildRules(context.Background(), "/ws", "ses_u", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, patches, _ = f.snapshot()
+	for _, r := range rulesOf(t, patches[len(patches)-1]) {
+		if r.Action != permrules.Deny || r.Permission != "bash" {
+			t.Errorf("an unknown-type child got %+v, want only the machine's deny", r)
+		}
 	}
 }

@@ -85,7 +85,7 @@ func TestSetRulesLiveIsClampedAndReReadShowsTheCeiling(t *testing.T) {
 	// after config), then the cerea rules, then the ceiling, last.
 	phase := 0
 	for _, rule := range v.Rules {
-		p := map[string]int{"default": 0, "file": 0, "floor": 0, "cerea": 1, "ceiling": 2}[rule.Source]
+		p := map[string]int{"default": 0, "file": 0, "floor": 0, "machine": 1, "cerea": 1, "ceiling": 2}[rule.Source]
 		if p < phase {
 			t.Errorf("rule %+v is out of order (opencode's, then cerea, then the ceiling)", rule)
 		}

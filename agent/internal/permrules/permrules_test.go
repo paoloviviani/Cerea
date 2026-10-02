@@ -333,3 +333,40 @@ func containsRule(rs []Rule, r Rule) bool {
 	}
 	return false
 }
+
+// A subagent gets the machine's restricting rules as caps, applied the way the
+// ceiling is: lowered over the child agent's own rules, so an ask tightens a
+// general child and never softens a read-only one; an allow is not carried.
+func TestChildGetsTheMachinesRestrictingRulesAsCaps(t *testing.T) {
+	l := Layers{Own: []Rule{
+		{"edit", "*", Ask}, {"bash", "*", Deny}, {"read", "*", Allow}, {"webfetch", "*", Allow},
+	}}
+	general := []Rule{{"*", "*", Allow}}
+	explore := []Rule{{"*", "*", Deny}, {"read", "*", Allow}, {"bash", "*", Allow}}
+
+	inGeneral := append(append([]Rule(nil), general...), ChildRules(l, general)...)
+	if got := Evaluate(inGeneral, "edit", "a.go"); got != Ask {
+		t.Errorf("general child edit = %s, want the machine's ask", got)
+	}
+	if got := Evaluate(inGeneral, "bash", "ls"); got != Deny {
+		t.Errorf("general child bash = %s, want the machine's deny", got)
+	}
+	inExplore := append(append([]Rule(nil), explore...), ChildRules(l, explore)...)
+	if got := Evaluate(inExplore, "edit", "a.go"); got != Deny {
+		t.Errorf("explore child edit = %s: the machine's ask softened a deny", got)
+	}
+	// Allows are not carried: nothing the child had is widened.
+	for _, r := range ChildRules(l, general) {
+		if r.Action == Allow {
+			t.Errorf("an allow reached a child: %+v", r)
+		}
+	}
+	if got := Evaluate(append(append([]Rule(nil), explore...), ChildRules(l, explore)...), "webfetch", "x"); got != Deny {
+		t.Errorf("explore webfetch = %s, want its own deny untouched by the machine's allow", got)
+	}
+	// The cap is the stricter of the machine's ceiling and its own rule.
+	l.Ceiling = Ceiling{Max: map[string]Action{"edit": Deny}}
+	if got := l.ChildCeiling().Of("edit"); got != Deny {
+		t.Errorf("child ceiling for edit = %s, want deny (the ceiling is stricter)", got)
+	}
+}

@@ -322,18 +322,35 @@ func ComposeParts(l Layers, p Panel, agent []Rule) (cerea, tail []Rule) {
 	return cerea, l.Ceiling.Tail(in)
 }
 
-// ChildRules is what a subagent session gets: the ceiling's tail over the
-// child agent's own rules, and nothing of the machine's own rules — opencode
-// hands a child only its parent's denies, and an allow must not reach a child
-// by any other road either. (Denies need no help: opencode carries them.)
-func ChildRules(l Layers, agent []Rule) []Rule {
-	return l.Ceiling.Tail(agent)
+// ChildCeiling is the cap a subagent is held to: the machine's ceiling, lowered
+// by the machine's own rules that RESTRICT (ask or deny). opencode hands a child
+// only its parent's denies, so without this a machine rule of `edit: ask` would
+// stop at the parent and a subagent would write freely. The rules travel as
+// caps, never as rules of their own: applied through Ceiling.Tail they are
+// restated over the child agent's rules, lowered, so they can tighten a child
+// and can never soften a deny the child's agent already has. An allow is not
+// carried at all: it never reaches a child.
+func (l Layers) ChildCeiling() Ceiling {
+	own := Ceiling{Max: map[string]Action{}}
+	for _, r := range l.Own {
+		if r.Action != Allow && r.Pattern == "*" && !IsWildcard(r.Permission) {
+			own.Max[r.Permission] = Min(own.Of(r.Permission), r.Action)
+		}
+	}
+	return l.Ceiling.Meet(own)
 }
 
-// ChildRulesFor is ChildRules for a subagent a person has written rules to:
-// the panel block (never the machine's own rules) and the ceiling's tail.
+// ChildRules is what a subagent session gets: the child ceiling's tail over the
+// child agent's own rules. Denies need no help (opencode carries a parent's
+// denies itself); the point is the caps and the machine's asks.
+func ChildRules(l Layers, agent []Rule) []Rule {
+	return l.ChildCeiling().Tail(agent)
+}
+
+// ChildRulesFor is ChildRules for a subagent a person has written rules to: the
+// panel block (never the machine's own allows) and the child ceiling's tail.
 func ChildRulesFor(l Layers, p Panel, agent []Rule) []Rule {
-	return ComposeFor(Layers{Ceiling: l.Ceiling}, p, agent)
+	return ComposeFor(Layers{Ceiling: l.ChildCeiling()}, p, agent)
 }
 
 // Grant is how the two galopin coordination tools are decided from rules.
