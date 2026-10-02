@@ -106,7 +106,7 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 	if err := mat.SetAutoAccept(a.ID, true); !errors.Is(err, sessions.ErrAutoAcceptForbidden) {
 		t.Fatalf("SetAutoAccept on a denying machine = %v, want ErrAutoAcceptForbidden", err)
 	}
-	if mat.AutoAcceptInEffect(a.ID) {
+	if mat.AutoAccept(a.ID) {
 		t.Fatal("auto-accept is in effect on a machine that denies it")
 	}
 	setMockScenario(t, mockOrigin, map[string]any{"content": []string{"ok"}, "chunkDelayMs": 5, "finishReason": "stop", "routes": []map[string]any{

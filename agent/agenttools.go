@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/permrules"
 	"galopin/internal/workspaces"
 )
 
@@ -39,27 +40,6 @@ const (
 	// show up on the event stream before it is refused as unverifiable.
 	callVerifyWait = 5 * time.Second
 )
-
-// modeRank orders galopin's known modes by permissiveness (lower is more
-// restrictive). The live 1.18.32 listing orders [build, plan], so list order
-// is deliberately not the scale. A mode outside this table can only ever be
-// the caller's own.
-var modeRank = map[string]int{"plan": 0, "build": 1}
-
-// noMorePermissive reports whether a send target's mode is equal to or
-// stricter than the sender's, by modeRank. Anything unknown on EITHER side
-// means no: a mode outside the table (the sender's could be a very
-// restricted custom one, the target's anything), and an empty mode, whose
-// real meaning is the backend's default agent, which galopin has not
-// verified. Unknown asks; it is never read as permissive or strict.
-func noMorePermissive(senderMode, targetMode string) bool {
-	rs, ok := modeRank[senderMode]
-	if !ok {
-		return false
-	}
-	rt, ok := modeRank[targetMode]
-	return ok && rt <= rs
-}
 
 // agentTools is the machine's coordination state: the rate windows. The
 // spawn tree itself lives in the backend's persisted markers.
@@ -256,35 +236,21 @@ func spawnChain(marks map[string]backend.SpawnedBy, id string) (depth int, root 
 	return depth, root
 }
 
-// modeAllowed applies the no-escalation rule: the requested mode is equal to
-// or more restrictive than the caller's. It returns the mode the child gets
-// ("" = the backend's default, which is the caller's own when it has none).
+// modeAllowed applies the no-escalation rule: a spawned session is never less
+// restricted than its spawner. The requested mode may be the caller's own
+// ("inherit", or the same name) or "plan", the read-only built-in; any other
+// name could be a mode more permissive than the caller's, which galopin has no
+// way to compare. It returns the mode the child gets ("" = the backend's
+// default, which is the caller's own when it has none).
 func modeAllowed(callerMode, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if requested == "" || requested == "inherit" {
 		return callerMode, nil
 	}
-	if requested == callerMode {
+	if requested == callerMode || requested == "plan" {
 		return requested, nil
 	}
-	// A caller with no explicit mode runs in the backend's default agent,
-	// which galopin has not verified: it cannot be ranked, so the only mode
-	// it may request is the strictest one.
-	if callerMode == "" {
-		if requested == "plan" {
-			return requested, nil
-		}
-		return "", refuse("your mode is the backend's default, which galopin cannot rank against %q; a spawned session can be \"plan\" or inherit yours", requested)
-	}
-	rc, callerKnown := modeRank[callerMode]
-	rr, reqKnown := modeRank[requested]
-	if !callerKnown || !reqKnown {
-		return "", refuse("mode %q is not one galopin can rank against your mode %q; a spawned session can only run in your own mode", requested, modeLabel(callerMode))
-	}
-	if rr > rc {
-		return "", refuse("a spawned session cannot be more permissive than you: mode %q is less restricted than %q", requested, callerMode)
-	}
-	return requested, nil
+	return "", refuse("a spawned session can only be \"plan\" or run in your own mode (%s); %q could be less restricted than you", modeLabel(callerMode), requested)
 }
 
 func (at *agentTools) liveSpawnedUnder(root string, marks map[string]backend.SpawnedBy, byID map[string]backend.Session) int {
@@ -367,6 +333,13 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	if _, ok := at.mc.workspaces.Get(tc.workspaceID); !ok {
 		return "", "", refuse("this session's workspace is no longer registered")
 	}
+	// The machine's rules decide whether this needs a card at all: allow runs
+	// it unasked, deny refuses it (before it spends any of the rate budget),
+	// anything else is a gp_ card.
+	grant, err := at.grant(ctx, tc, "session_spawn")
+	if err != nil {
+		return "", "", err
+	}
 	childMode, err := modeAllowed(tc.session.ModeID, args["mode"])
 	if err != nil {
 		return "", "", err
@@ -417,12 +390,8 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	at.spawnLog[root] = append(at.spawnLog[root], now)
 	at.mu.Unlock()
 
-	// Auto-approve without an ask only when the caller's auto-accept is in
-	// effect (its flag or an ancestor's, and the machine policy). No target
-	// check: the child is equal-or-stricter by construction (modeAllowed),
-	// starts with auto-accept off, and asks for its own tools.
-	auto := at.mc.mat.AutoAcceptInEffect(tc.session.ID)
-	decision, message, err := at.approve(ctx, tc, call, auto, "", "auto-accept; spawned session is no more permissive and starts with auto-accept off", backend.PermissionRequest{
+	auto := grant == permrules.Allow
+	decision, message, err := at.approve(ctx, tc, call, auto, "", reasonAllowedByRules, backend.PermissionRequest{
 		Tool:  "session_spawn",
 		Title: "Start a new session: " + title,
 		Metadata: map[string]any{
@@ -447,8 +416,9 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	}
 	at.mc.trackSession(w, child)
 	at.mc.auditProjectConfig(w, child.ID)
-	// The child is never auto-accepting, whatever the caller or an ancestor
-	// has: it is a fresh top-level session, and this says so explicitly.
+	// The child starts with auto-accept off, whatever the caller or an
+	// ancestor has: it is a fresh top-level session, and this says so
+	// explicitly (an explicit off, so nothing it later inherits can turn it on).
 	_ = at.mc.mat.SetAutoAccept(child.ID, false)
 	at.mu.Lock()
 	at.born[child.ID] = at.now()
@@ -485,10 +455,35 @@ func (at *agentTools) ask(ctx context.Context, tc *toolCaller, call backend.Tool
 	return at.host.Ask(ctx, tc.dir, tc.session.ID, req)
 }
 
-// approve is the decision before the ask: when auto is true the call is
-// approved here — audited as decision "auto" with the reason, no gp_ ask
-// raised, so no card — and otherwise galopin's own approval is raised exactly
-// as before (never auto-accepted, "always" read as once).
+// reasonAllowedByRules is the audit reason of a call this machine's rules let
+// through without a card.
+const reasonAllowedByRules = "allowed by this machine's rules"
+
+// grant is the machine's rule for one of galopin's two coordination tools,
+// read from the asking session's opencode rules (the agent's, then the ones
+// galopin applied) by the tool's name. deny returns a refusal the model reads;
+// the caller turns allow into no card and ask into one. A backend that cannot
+// show its rules answers ask: a card is the safe reading of "unknown".
+func (at *agentTools) grant(ctx context.Context, tc *toolCaller, tool string) (permrules.Action, error) {
+	rh, ok := at.mc.back.(backend.RuleHost)
+	if !ok {
+		return permrules.Ask, nil
+	}
+	rules, err := rh.EffectiveRules(ctx, tc.dir, tc.session.ID)
+	if err != nil {
+		// Unreadable rules are not consent.
+		return permrules.Ask, nil
+	}
+	if permrules.Grant(rules, tool) == permrules.Deny {
+		return permrules.Deny, refuse("this machine's rules do not allow %s", tool)
+	}
+	return permrules.Grant(rules, tool), nil
+}
+
+// approve is the decision before the ask: when auto is true the machine's rules
+// said allow, the call is approved here — audited as decision "auto" with the
+// reason, no gp_ ask raised, so no card — and otherwise galopin's own approval
+// is raised (never answered by the responder, "always" read as once).
 func (at *agentTools) approve(ctx context.Context, tc *toolCaller, call backend.ToolCall, auto bool, to, reason string, req backend.PermissionRequest) (backend.Decision, string, error) {
 	if auto {
 		at.mc.audit.agentTool(call.Tool, tc.session.ID, to, "auto", reason)
@@ -544,6 +539,11 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// so a person can keep a back-and-forth going one approval at a time. The
 	// rate limit below is the hard brake.
 	hopFallback := hop > maxHop
+	// A deny refuses before the send spends any of the pair's rate budget.
+	grant, err := at.grant(ctx, tc, "session_send")
+	if err != nil {
+		return "", targetID, err
+	}
 	key := tc.session.ID + ">" + targetID
 	at.mu.Lock()
 	now := at.now()
@@ -555,21 +555,12 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	at.sendLog[key] = append(at.sendLog[key], now)
 	at.mu.Unlock()
 
-	// Auto-approve only when the caller's auto-accept is in effect AND the
-	// target is in the sender's own workspace and no more permissive than
-	// the sender (a send borrows the target's powers, so unlike a spawn it
-	// needs the target checks), and the chain is within the hop limit.
-	// The sender's unattended power covers its own workspace only, so a send
-	// into another workspace always shows the card.
-	// The listing carries no overlay mode, so the target's own mode is read
-	// with a get; a failed read leaves it empty, which is unknown, which asks.
-	targetMode := ""
-	if full, gerr := at.mc.back.GetSession(ctx, target.ws.Path, targetID); gerr == nil {
-		targetMode = full.ModeID
-	}
-	auto := !hopFallback && target.ws.ID == tc.workspaceID &&
-		at.mc.mat.AutoAcceptInEffect(tc.session.ID) && noMorePermissive(tc.session.ModeID, targetMode)
-	decision, message, err := at.approve(ctx, tc, call, auto, targetID, "auto-accept; target no more permissive", backend.PermissionRequest{
+	// An allow from the machine's rules skips the card, but a send borrows the
+	// target's powers, so the hard limits stand over it: a target in another
+	// workspace, or a chain past the hop limit, always shows the card. (The
+	// rate limit above is the one hard refusal.)
+	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID
+	decision, message, err := at.approve(ctx, tc, call, auto, targetID, reasonAllowedByRules, backend.PermissionRequest{
 		Tool:  "session_send",
 		Title: "Send a message to " + target.s.Title,
 		Metadata: map[string]any{

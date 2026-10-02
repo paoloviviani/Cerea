@@ -179,7 +179,7 @@ func TestSubagentPermissionIntegration(t *testing.T) {
 		}
 	})
 
-	mat := sessions.New(ocBackend, policy.Policy{AutoAccept: policy.AutoAcceptAllowed})
+	mat := sessions.New(ocBackend, policy.Policy{Permission: policy.Permission{Responders: policy.TerminalAllowed}})
 	if err := mat.Start(ctx); err != nil {
 		t.Fatalf("subscribing to opencode: %v", err)
 	}

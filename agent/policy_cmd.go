@@ -15,7 +15,7 @@ Usage:
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
 'set' may only TIGHTEN the policy: turn files, the terminal, command
-shell or agent tools off, lower maxTerminals, or add to the file deny list. This file is
+shell, auto-accept or agent tools off, lower a permission ceiling or rule, lower maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
 command shell back on, a higher maxTerminals, dropping a deny entry —
@@ -31,6 +31,13 @@ refuses and names the 'enroll' re-run that does it instead.
                        on a fresh enroll; takes effect at the next 'run').
    --no-background-subagents  Stop allowing background subagents (the default
                        on a fresh enroll; takes effect at the next 'run').
+   --no-auto-accept    Stop letting any session be switched to auto-accept.
+   --permission-max KEY=ACTION  Lower the ceiling for KEY (edit, bash, webfetch,
+                       session_spawn, …) to ask or deny (repeatable). Takes
+                       effect on a running machine within seconds: opencode is
+                       restarted, which also drops every "always" it holds.
+   --permission-rule KEY=ACTION  Lower this machine's own rule for KEY, or add
+                       an ask/deny one (repeatable).
    --max-terminals N   Lower the concurrent-terminal cap (must be less than
                        the current value).
   --file-deny GLOB    Add GLOB to the deny list (repeatable).
@@ -95,7 +102,7 @@ func runPolicyShow(args []string) error {
 	fmt.Println(agentToolsPolicySummary(pol))
 	fmt.Println(projectConfigPolicySummary(pol, false))
 	fmt.Println(backgroundSubagentsPolicySummary(pol))
-	fmt.Printf("autoAccept: %s\n", pol.AutoAccept)
+	fmt.Println(permissionPolicySummary(pol))
 	fmt.Printf("allowFreeModels: %v\n", pol.AllowFreeModels)
 	fmt.Printf("workspaceRoots: %v\n", pol.WorkspaceRoots)
 	return nil
@@ -110,6 +117,10 @@ func runPolicySet(args []string) error {
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
 	noProjectConfig := fs.Bool("no-project-config", false, "")
 	noBackground := fs.Bool("no-background-subagents", false, "")
+	noAutoAccept := fs.Bool("no-auto-accept", false, "")
+	var permMax, permRules []string
+	fs.Var(stringListFlag{&permMax}, "permission-max", "")
+	fs.Var(stringListFlag{&permRules}, "permission-rule", "")
 	maxTerminals := fs.Int("max-terminals", 0, "")
 	var fileDeny []string
 	fs.Var(stringListFlag{&fileDeny}, "file-deny", "")
@@ -157,6 +168,30 @@ func runPolicySet(args []string) error {
 		pol.BackgroundSubagents = policy.TerminalDenied
 		changed = true
 	}
+	if *noAutoAccept {
+		pol.Permission.Responders = policy.TerminalDenied
+		changed = true
+	}
+	if len(permMax) > 0 {
+		want, err := parseKeyActions("permission-max", permMax)
+		if err != nil {
+			return err
+		}
+		if pol.Permission.Max, err = tighten("permission-max", pol.Permission.Max, want); err != nil {
+			return err
+		}
+		changed = true
+	}
+	if len(permRules) > 0 {
+		want, err := parseKeyActions("permission-rule", permRules)
+		if err != nil {
+			return err
+		}
+		if pol.Permission.Rules, err = tighten("permission-rule", pol.Permission.Rules, want); err != nil {
+			return err
+		}
+		changed = true
+	}
 	if *maxTerminals != 0 {
 		current := pol.EffectiveMaxTerminals()
 		if *maxTerminals >= current {
@@ -181,5 +216,6 @@ func runPolicySet(args []string) error {
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, false))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	return nil
 }

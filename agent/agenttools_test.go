@@ -18,12 +18,13 @@ func TestModeAllowed(t *testing.T) {
 		{"plan", "inherit", "plan", ""},
 		{"plan", "plan", "plan", ""},
 		{"build", "plan", "plan", ""},
-		{"", "plan", "plan", ""},         // the strictest mode is safe from any caller
-		{"", "build", "", "cannot rank"}, // an empty mode is the backend's unverified default
-		{"plan", "build", "", "more permissive"},
-		{"custom", "plan", "", "can rank against"},
+		{"", "plan", "plan", ""},       // the read-only built-in is safe from any caller
+		{"custom", "plan", "plan", ""}, // ...including a custom one
 		{"custom", "custom", "custom", ""},
-		{"plan", "custom", "", "can rank against"},
+		{"", "build", "", "less restricted"}, // an empty mode is the backend's unverified default
+		{"plan", "build", "", "less restricted"},
+		{"plan", "custom", "", "less restricted"},
+		{"build", "custom", "", "less restricted"}, // a name galopin cannot compare is never read as stricter
 	}
 	for _, c := range cases {
 		got, err := modeAllowed(c.caller, c.requested)
@@ -62,29 +63,5 @@ func TestDecodeArgsRefusesUnknownKeys(t *testing.T) {
 	}
 	if got, err := decodeArgs([]byte(`{"title":"t"}`), "title"); err != nil || got["title"] != "t" {
 		t.Errorf("valid args: %v %v", got, err)
-	}
-}
-
-func TestNoMorePermissive(t *testing.T) {
-	cases := []struct {
-		sender, target string
-		want           bool
-	}{
-		{"build", "build", true},
-		{"build", "plan", true},
-		{"plan", "plan", true},
-		{"plan", "build", false},
-		{"build", "custom", false},  // an unrankable target counts as more permissive
-		{"custom", "custom", false}, // ...even when it is the sender's own mode
-		{"custom", "plan", false},   // an unrankable sender is never read as permissive
-		{"custom", "build", false},
-		{"", "build", false}, // an empty mode is the backend's unverified default: unknown
-		{"build", "", false},
-		{"", "", false},
-	}
-	for _, c := range cases {
-		if got := noMorePermissive(c.sender, c.target); got != c.want {
-			t.Errorf("noMorePermissive(%q,%q) = %v, want %v", c.sender, c.target, got, c.want)
-		}
 	}
 }
