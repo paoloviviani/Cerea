@@ -18,10 +18,10 @@ import (
 	"galopin/internal/workspaces"
 )
 
-// A machine that denies auto-accept (Policy.autoAccept:"denied") has the
-// veto over the coordination tools too: no session can be made auto-accepting,
-// so between two build sessions every send and every spawn still raises a
-// card, and nothing is audited "auto". Gated behind GALOPIN_OPENCODE_IT=1.
+// A machine whose policy lets no session auto-accept (permission.responders
+// denied) refuses to switch one on, and — with no rule for the two
+// coordination tools — every send and every spawn raises a card and nothing is
+// audited "auto". Gated behind GALOPIN_OPENCODE_IT=1.
 func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
 		t.Skip("set GALOPIN_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
@@ -56,7 +56,7 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 		"HOME=" + dirs["home"], "XDG_CONFIG_HOME=" + dirs["config"], "XDG_DATA_HOME=" + dirs["data"],
 		"XDG_CACHE_HOME=" + dirs["cache"], "TMPDIR=" + itTmpDir(t), "PATH=" + os.Getenv("PATH"),
 	}
-	pol := policy.Default() // AutoAccept: denied
+	pol := policy.Default() // responders: denied
 	oc := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: dirs["state"],
 		OverlayPath:    filepath.Join(dirs["state"], "opencode-overlay.json"),
