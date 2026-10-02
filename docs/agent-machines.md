@@ -521,7 +521,9 @@ in `agent/`.
 
 **Prerequisite:** `opencode` on the PATH, either `npm i -g opencode-ai` or
 `curl -fsSL https://opencode.ai/install | bash`. `galopin run` supervises
-`opencode serve`, and it is the only runtime dependency.
+`opencode serve`, and it is the only runtime dependency. opencode is a
+separate open-source project (MIT licence) installed from its own
+installer; Cerea does not redistribute it and is not affiliated with it.
 
 With the installer above, skip to `enroll`. From a build of your own:
 

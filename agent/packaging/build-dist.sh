@@ -18,6 +18,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
         -o "$out/galopin-$os-$arch" .
 done
 cp packaging/galopin.service packaging/org.cerea.galopin.plist "$out/"
+cp THIRD_PARTY_LICENSES "$out/"
 echo "built from Cerea $rev" > "$out/REVISION"
 (cd "$out" && sha256sum galopin-* > SHA256SUMS)
 echo "wrote $out ($rev)"
