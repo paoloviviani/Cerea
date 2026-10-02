@@ -10,7 +10,18 @@ Everything is in this repository, and you can read all of it before running anyt
 the IdP's `authelia/configuration.yml`, and `./configure`, a single
 standard-library Python script that writes `.env` for you.
 
-Licence: EUPL-1.2.
+Licence: EUPL-1.2, Copyright 2026 Paolo Viviani ([LICENCE](LICENCE),
+[NOTICE](NOTICE)). This kit contains no third-party code; see
+[AI-DISCLOSURE.md](AI-DISCLOSURE.md) for how it was written.
+
+## Third-party software
+
+This kit contains no third-party code. It references stock images you
+pull from their publishers under their own licences: Authelia
+(Apache-2.0), Caddy (Apache-2.0), PostgreSQL with pgvector (PostgreSQL
+Licence), Valkey (BSD-3-Clause) and MongoDB 4.4 (Server Side Public
+License v1, run here as Cerea's internal database, not offered as a
+service). The Cerea and Pystino images carry their own NOTICE files.
 
 ## First run
 
