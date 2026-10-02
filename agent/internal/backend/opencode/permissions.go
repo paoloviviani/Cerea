@@ -406,7 +406,7 @@ func (b *Backend) SavedApprovals(ctx context.Context) ([]backend.SavedApproval, 
 	}
 	out := make([]backend.SavedApproval, 0, len(list.Data))
 	for _, d := range list.Data {
-		out = append(out, backend.SavedApproval{ID: d.ID, Action: d.Action, Resource: d.Resource, Resources: []string{d.Resource}, Removable: true})
+		out = append(out, backend.SavedApproval{ID: d.ID, Permission: d.Action, Patterns: []string{d.Resource}, Removable: true})
 	}
 	return out, nil
 }

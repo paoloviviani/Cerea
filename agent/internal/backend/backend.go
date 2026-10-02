@@ -274,13 +274,15 @@ func (l RuleLayers) Plain() []permrules.Rule {
 // them, so galopin mints ids for the ones it relayed (Removable false) and
 // lists the ones opencode does expose (Removable true).
 type SavedApproval struct {
-	ID        string   `json:"id"`
-	SessionID string   `json:"sessionId"`
-	Action    string   `json:"action"`
-	Resource  string   `json:"resource"`
-	Resources []string `json:"resources,omitempty"`
-	Removable bool     `json:"removable"`
-	GrantedAt string   `json:"grantedAt,omitempty"`
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	// Permission is the tool class the approval covers; Patterns what of it
+	// (for bash, the command text — shown to the person who gave it, never
+	// written to the audit log).
+	Permission string   `json:"permission"`
+	Patterns   []string `json:"patterns"`
+	Removable  bool     `json:"removable"`
+	GrantedAt  string   `json:"grantedAt,omitempty"`
 }
 
 // RuleHost is the optional "permissions" capability: the backend's permission

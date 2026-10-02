@@ -330,7 +330,7 @@ func TestRemovingASavedApprovalOnlyAcceptsListedIDs(t *testing.T) {
 	b, f := newPermFake(t, nil)
 	f.saved = []map[string]any{{"id": "sav_1", "projectID": "p", "action": "bash", "resource": "ls *"}}
 	list, err := b.SavedApprovals(context.Background())
-	if err != nil || len(list) != 1 || list[0].ID != "sav_1" || list[0].Action != "bash" || list[0].Resource != "ls *" {
+	if err != nil || len(list) != 1 || list[0].ID != "sav_1" || list[0].Permission != "bash" || len(list[0].Patterns) != 1 || list[0].Patterns[0] != "ls *" {
 		t.Fatalf("list = %+v, %v", list, err)
 	}
 	if err := b.RemoveSavedApproval(context.Background(), "../session/ses_1"); err == nil {

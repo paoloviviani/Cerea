@@ -220,7 +220,7 @@ func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}, Source: backend.SourceCerea},
 		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Ask}, Source: backend.SourceCeiling},
 	}}
-	rb.saved = []backend.SavedApproval{{ID: "sav_1", Action: "bash", Resource: "ls *", Removable: true}}
+	rb.saved = []backend.SavedApproval{{ID: "sav_1", Permission: "bash", Patterns: []string{"ls *"}, Removable: true}}
 	mc.saved.add("s1", "bash", []string{"rm *"})
 	got, operr := mc.opPermissionRules(context.Background(), json.RawMessage(`{"sessionId":"s1"}`))
 	if operr != nil {
@@ -245,7 +245,7 @@ func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 		t.Fatalf("saved/ceiling = %+v", out)
 	}
 	minted, exposed := out.SavedApprovals[0], out.SavedApprovals[1]
-	if !strings.HasPrefix(minted.ID, "sa_") || minted.SessionID != "s1" || minted.Action != "bash" || minted.Removable {
+	if !strings.HasPrefix(minted.ID, "sa_") || minted.SessionID != "s1" || minted.Permission != "bash" || minted.Removable {
 		t.Errorf("a minted approval = %+v: it should carry the granting session and not be removable", minted)
 	}
 	if exposed.ID != "sav_1" || !exposed.Removable {
@@ -276,7 +276,7 @@ func TestPermissionRulesUnsupportedWithoutAPermissionBackend(t *testing.T) {
 
 func TestSavedRemoveWithdrawsWhatOpencodeLists(t *testing.T) {
 	mc, rb, dir := newRuleMachine(t, policy.Default())
-	rb.saved = []backend.SavedApproval{{ID: "sav_1", Action: "bash", Resource: "ls *", Removable: true}}
+	rb.saved = []backend.SavedApproval{{ID: "sav_1", Permission: "bash", Patterns: []string{"ls *"}, Removable: true}}
 	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"sav_1"}`)); operr != nil {
 		t.Fatal(operr)
 	}
@@ -310,11 +310,11 @@ func TestSavedRemoveOfAMintedApprovalIsUnsupported(t *testing.T) {
 		t.Fatal(operr)
 	}
 	list := mc.saved.list()
-	if len(list) != 1 || list[0].SessionID != "s1" || list[0].Action != "edit" || list[0].Removable {
+	if len(list) != 1 || list[0].SessionID != "s1" || list[0].Permission != "edit" || list[0].Removable {
 		t.Fatalf("ledger = %+v, want one non-removable entry for the granting session", list)
 	}
-	if len(list[0].Resources) != 1 || list[0].Resources[0] != "rm -rf /" {
-		t.Errorf("resources = %v", list[0].Resources)
+	if len(list[0].Patterns) != 1 || list[0].Patterns[0] != "rm -rf /" {
+		t.Errorf("patterns = %v", list[0].Patterns)
 	}
 	rm, _ := json.Marshal(map[string]any{"sessionId": "s1", "id": list[0].ID})
 	if _, operr := mc.opPermissionSavedRemove(context.Background(), rm); operr == nil || operr.Code != "unsupported" {
