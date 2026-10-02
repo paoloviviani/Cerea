@@ -19,7 +19,14 @@ import (
 // agent could read opencode's server password out of its own environment and
 // widen its own session's rules past the ceiling; an ask in front of bash is
 // what keeps that off by default (the honest gap, PROTOCOL.md §6).
-func defaultEnrollMax() map[string]string { return map[string]string{"bash": string(permrules.Ask)} }
+//
+// session_spawn asks as well, so that no spawn goes through unseen unless the
+// owner says so: with no mode ordering to compare by, a spawn that could be an
+// escalation (a plan session starting a build one) must be a card naming the
+// mode, and a ceiling of ask is what keeps even an allow rule from skipping it.
+func defaultEnrollMax() map[string]string {
+	return map[string]string{"bash": string(permrules.Ask), "session_spawn": string(permrules.Ask)}
+}
 
 // staticPermission is what a fresh enroll writes into the opencode.json it
 // owns: the tool classes that change files or reach out ask. Existing machines

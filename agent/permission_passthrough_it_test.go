@@ -90,6 +90,13 @@ func TestPassthroughP3CeilingWinsAndAlwaysBecomesOnce(t *testing.T) {
 		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}, Max: map[string]string{"edit": "ask"}},
 	})
 	s := r.session("p3", "")
+	// The rules were in the create itself: they are on the session before any
+	// prompt exists, with the ceiling last.
+	rules := r.sessionRules(s.ID)
+	if len(rules) == 0 || rules[0] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) ||
+		rules[len(rules)-1].Action != permrules.Ask {
+		t.Fatalf("session rules before the first prompt = %+v, want the machine's allow first and the ceiling's ask last", rules)
+	}
 	ask, _, mark := r.try(s, "p3a.txt")
 	if ask == nil {
 		t.Fatal("the write ran; the ceiling (ask) should have beaten the machine's allow")

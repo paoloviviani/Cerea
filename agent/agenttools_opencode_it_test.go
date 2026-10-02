@@ -467,12 +467,12 @@ func TestAgentToolsIntegration(t *testing.T) {
 		hub.waitIdle(t, mark, child.ID)
 		found := false
 		for _, r := range auditRows() {
-			if r["tool"] == "session_spawn" && r["from"] == caller.ID && r["decision"] == "auto" && r["reason"] != nil {
+			if r["tool"] == "session_spawn" && r["from"] == caller.ID && r["decision"] == "allow" && r["reason"] != nil {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("no decision:auto audit row: %v", auditRows())
+			t.Errorf("no decision:allow audit row: %v", auditRows())
 		}
 	})
 
@@ -497,23 +497,26 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("spawn: a plan-mode caller cannot spawn a more permissive session", func(t *testing.T) {
-		hub.setApprove(approveAll)
+	t.Run("spawn: a plan-mode caller's escalation to build is a card naming both modes, even under an allow rule", func(t *testing.T) {
+		hub.setApprove(rejectAll)
+		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Allow})
+		defer setMachineRules(nil)
 		caller := newSession(ws1, "it-caller-plan", "plan")
-		route("trigger-plan-up", "session_spawn", spawnArgs("it-child-up", "should be refused", "build"))
+		route("trigger-plan-up", "session_spawn", spawnArgs("it-child-up", "should be declined", "build"))
 		route("trigger-plan-inherit", "session_spawn", spawnArgs("it-child-inh", "plan child prompt", "inherit"))
 		publish()
 		mark := hub.mark()
 		prompt(caller, ws1, "trigger-plan-up")
 		part := hub.toolDone(t, mark, caller.ID, "session_spawn")
-		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "more permissive") {
-			t.Fatalf("escalating spawn = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "declined") {
+			t.Fatalf("declined escalation = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
 		}
-		if a := hub.asks(mark, caller.ID); len(a) != 0 {
-			t.Errorf("a refused spawn raised an ask: %+v", a)
+		asks := hub.asks(mark, caller.ID)
+		if len(asks) != 1 || asks[0].Metadata["modeId"] != "build" || asks[0].Metadata["escalates"] != true || asks[0].Metadata["callerModeId"] != "plan" {
+			t.Errorf("the escalation did not card with both modes named: %+v", asks)
 		}
 		if n := len(allTitled("it-child-up")); n != 0 {
-			t.Errorf("the escalating spawn created %d sessions", n)
+			t.Errorf("a declined escalation created %d sessions", n)
 		}
 		hub.waitIdle(t, mark, caller.ID)
 		mark = hub.mark()
@@ -904,12 +907,12 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 		autos := 0
 		for _, r := range auditRows() {
-			if r["tool"] == "session_send" && r["decision"] == "auto" && (r["from"] == a.ID || r["from"] == b.ID || r["from"] == p.ID) && r["reason"] != nil {
+			if r["tool"] == "session_send" && r["decision"] == "allow" && (r["from"] == a.ID || r["from"] == b.ID || r["from"] == p.ID) && r["reason"] != nil {
 				autos++
 			}
 		}
 		if autos != 4 {
-			t.Errorf("decision:auto audit rows = %d, want 4: %v", autos, auditRows())
+			t.Errorf("decision:allow audit rows = %d, want 4: %v", autos, auditRows())
 		}
 	})
 

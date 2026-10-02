@@ -393,3 +393,35 @@ func TestChildAgentIsReadFromTheParentsTaskCall(t *testing.T) {
 		t.Errorf("ChildAgent = %q, want explore", got)
 	}
 }
+
+// The responder is limited by the ceiling: a key capped below allow is asked of
+// a person whatever the flag says, for a child under a parent that is on as for
+// the session itself; an uncapped key is still answered.
+func TestResponderLeavesCeilingCappedKeysToAPerson(t *testing.T) {
+	pol := policy.Policy{Permission: policy.Permission{Responders: policy.TerminalAllowed, Max: map[string]string{"bash": "ask"}}}
+	fb := newFakeBackend()
+	m := New(fb, pol)
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "child", ParentID: "parent"})
+	if err := m.SetAutoAccept("parent", true); err != nil {
+		t.Fatal(err)
+	}
+	ask := func(session, id, tool string) {
+		m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: session, Event: backend.Event{
+			Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: id, SessionID: session, Tool: tool},
+		}})
+	}
+	ask("parent", "p-bash", "bash")
+	ask("child", "c-bash", "bash")
+	if len(fb.replies) != 0 {
+		t.Fatalf("replies = %+v: the responder answered a bash ask under an ask ceiling", fb.replies)
+	}
+	if m.PendingPermissions("parent") != 1 || m.PendingPermissions("child") != 1 {
+		t.Errorf("pending parent=%d child=%d, want both shown as cards", m.PendingPermissions("parent"), m.PendingPermissions("child"))
+	}
+	ask("child", "c-edit", "edit")
+	if len(fb.replies) != 1 || fb.replies[0].requestID != "c-edit" || fb.replies[0].decision != backend.DecisionOnce {
+		t.Errorf("replies = %+v, want the uncapped edit ask answered once", fb.replies)
+	}
+}
