@@ -17,6 +17,7 @@ import (
 
 	"galopin/internal/backend"
 	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/permrules"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
 	"galopin/internal/workspaces"
@@ -177,11 +178,27 @@ func TestAgentToolsIntegration(t *testing.T) {
 		"HOME=" + dirs["home"], "XDG_CONFIG_HOME=" + dirs["config"], "XDG_DATA_HOME=" + dirs["data"],
 		"XDG_CACHE_HOME=" + dirs["cache"], "TMPDIR=" + itTmpDir(t), "PATH=" + os.Getenv("PATH"),
 	}
+	// The machine's own rules for the two coordination tools, changed between
+	// subtests: the rules are what decides whether a spawn or a send needs a
+	// card (PROTOCOL.md §6 "Permissions"), and each session gets them when it is
+	// created or next prompted.
+	var rulesMu sync.Mutex
+	var machineRules map[string]permrules.Action
+	setMachineRules := func(m map[string]permrules.Action) {
+		rulesMu.Lock()
+		machineRules = m
+		rulesMu.Unlock()
+	}
 	oc := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: dirs["state"],
 		OverlayPath:    filepath.Join(dirs["state"], "opencode-overlay.json"),
 		ToolsDir:       filepath.Join(dirs["state"], "opencode-tools"),
 		StartupTimeout: 90 * time.Second, Logf: t.Logf,
+		Permissions: func() permrules.Layers {
+			rulesMu.Lock()
+			defer rulesMu.Unlock()
+			return permrules.Layers{Own: permrules.OwnRules(machineRules)}
+		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
@@ -191,7 +208,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = oc.Stop() })
 
 	pol := policy.Default()
-	pol.AutoAccept = policy.AutoAcceptAllowed
+	pol.Permission.Responders = policy.TerminalAllowed
 	mat := sessions.New(oc, pol)
 	if err := mat.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -411,9 +428,13 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("spawn: under auto-accept goes through with no card; child has auto-accept off", func(t *testing.T) {
+	t.Run("spawn: allowed by the machine's rules goes through with no card; child has auto-accept off", func(t *testing.T) {
 		hub.setApprove(approveAll)
+		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Allow})
+		defer setMachineRules(nil)
 		caller := newSession(ws1, "it-caller-auto", "")
+		// Auto-accept on the caller is beside the point now — and the child
+		// must not inherit it either way.
 		if err := mat.SetAutoAccept(caller.ID, true); err != nil {
 			t.Fatal(err)
 		}
@@ -426,7 +447,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 			t.Fatalf("session_spawn = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
 		}
 		if asks := hub.asks(mark, caller.ID); len(asks) != 0 {
-			t.Fatalf("an auto-accepting caller's spawn raised a card: %+v", asks)
+			t.Fatalf("a spawn the machine's rules allow raised a card: %+v", asks)
 		}
 		var out map[string]any
 		if err := json.Unmarshal([]byte(part.Output), &out); err != nil || out["autoApproved"] != true {
@@ -437,7 +458,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 			t.Fatalf("child sessions = %d, want 1", len(kids))
 		}
 		child := getSession(kids[0].ID)
-		if child.AutoAccept || mat.AutoAcceptInEffect(child.ID) {
+		if child.AutoAccept || mat.AutoAccept(child.ID) {
 			t.Errorf("the child of an auto-accepting spawner has auto-accept on")
 		}
 		if child.SpawnedBy == nil || child.SpawnedBy.SessionID != caller.ID {
@@ -446,12 +467,12 @@ func TestAgentToolsIntegration(t *testing.T) {
 		hub.waitIdle(t, mark, child.ID)
 		found := false
 		for _, r := range auditRows() {
-			if r["tool"] == "session_spawn" && r["from"] == caller.ID && r["decision"] == "auto" && r["reason"] != nil {
+			if r["tool"] == "session_spawn" && r["from"] == caller.ID && r["decision"] == "allow" && r["reason"] != nil {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("no decision:auto audit row: %v", auditRows())
+			t.Errorf("no decision:allow audit row: %v", auditRows())
 		}
 	})
 
@@ -476,23 +497,26 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("spawn: a plan-mode caller cannot spawn a more permissive session", func(t *testing.T) {
-		hub.setApprove(approveAll)
+	t.Run("spawn: a plan-mode caller's escalation to build is a card naming both modes, even under an allow rule", func(t *testing.T) {
+		hub.setApprove(rejectAll)
+		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Allow})
+		defer setMachineRules(nil)
 		caller := newSession(ws1, "it-caller-plan", "plan")
-		route("trigger-plan-up", "session_spawn", spawnArgs("it-child-up", "should be refused", "build"))
+		route("trigger-plan-up", "session_spawn", spawnArgs("it-child-up", "should be declined", "build"))
 		route("trigger-plan-inherit", "session_spawn", spawnArgs("it-child-inh", "plan child prompt", "inherit"))
 		publish()
 		mark := hub.mark()
 		prompt(caller, ws1, "trigger-plan-up")
 		part := hub.toolDone(t, mark, caller.ID, "session_spawn")
-		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "more permissive") {
-			t.Fatalf("escalating spawn = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "declined") {
+			t.Fatalf("declined escalation = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
 		}
-		if a := hub.asks(mark, caller.ID); len(a) != 0 {
-			t.Errorf("a refused spawn raised an ask: %+v", a)
+		asks := hub.asks(mark, caller.ID)
+		if len(asks) != 1 || asks[0].Metadata["modeId"] != "build" || asks[0].Metadata["escalates"] != true || asks[0].Metadata["callerModeId"] != "plan" {
+			t.Errorf("the escalation did not card with both modes named: %+v", asks)
 		}
 		if n := len(allTitled("it-child-up")); n != 0 {
-			t.Errorf("the escalating spawn created %d sessions", n)
+			t.Errorf("a declined escalation created %d sessions", n)
 		}
 		hub.waitIdle(t, mark, caller.ID)
 		mark = hub.mark()
@@ -786,14 +810,13 @@ func TestAgentToolsIntegration(t *testing.T) {
 		hub.setApprove(approveAll)
 	})
 
-	t.Run("send: hop 4 falls back to a card instead of refusing; hop 1-3 under auto-accept need none", func(t *testing.T) {
+	t.Run("send: hop 4 falls back to a card instead of refusing; hop 1-3 under an allow rule need none", func(t *testing.T) {
 		hub.setApprove(approveAll)
+		setMachineRules(map[string]permrules.Action{"session_send": permrules.Allow})
+		defer setMachineRules(nil)
 		s := make([]backend.Session, 5)
 		for i := range s {
 			s[i] = newSession(ws1, fmt.Sprintf("it-hop-%d", i), "build")
-			if err := mat.SetAutoAccept(s[i].ID, true); err != nil {
-				t.Fatal(err)
-			}
 		}
 		// s0 (a person's prompt, hop 0) -> s1 (hop 1) -> s2 (2) -> s3 (3) -> s4 (hop 4: a card).
 		route("trigger-hop-0", "session_send", mustJSON2(map[string]any{"target": s[1].ID, "text": "trigger-hop-1 relay"}))
@@ -812,15 +835,17 @@ func TestAgentToolsIntegration(t *testing.T) {
 			asks := hub.asks(mark, s[i].ID)
 			switch {
 			case i < 3 && len(asks) != 0:
-				t.Errorf("hop %d under auto-accept raised a card: %+v", i+1, asks)
+				t.Errorf("hop %d under an allow rule raised a card: %+v", i+1, asks)
 			case i == 3 && (len(asks) != 1 || asks[0].Tool != "session_send" || asks[0].Metadata["hop"] != 4):
 				t.Errorf("hop 4 did not fall back to exactly one card: %+v", asks)
 			}
 		}
 	})
 
-	t.Run("send: auto-accept build to build goes through with no card, both ways; plan to build asks; build to plan goes through", func(t *testing.T) {
+	t.Run("send: an allow rule skips the card whatever the modes; without one every send asks", func(t *testing.T) {
 		hub.setApprove(approveAll)
+		setMachineRules(map[string]permrules.Action{"session_send": permrules.Allow})
+		defer setMachineRules(nil)
 		a := newSession(ws1, "it-auto-a", "build")
 		b := newSession(ws1, "it-auto-b", "build")
 		p := newSession(ws1, "it-auto-plan", "plan")
@@ -831,11 +856,6 @@ func TestAgentToolsIntegration(t *testing.T) {
 		// fresh session.
 		a2 := newSession(ws1, "it-auto-a2", "build")
 		b3 := newSession(ws1, "it-auto-b3", "build")
-		for _, x := range []backend.Session{a, b, p} {
-			if err := mat.SetAutoAccept(x.ID, true); err != nil {
-				t.Fatal(err)
-			}
-		}
 		send := func(tag string, target backend.Session, text string) string {
 			route(tag, "session_send", mustJSON2(map[string]any{"target": target.ID, "text": text}))
 			return tag
@@ -863,7 +883,9 @@ func TestAgentToolsIntegration(t *testing.T) {
 			{"build->build", a, ws1, aToB, false},
 			{"build->build back", b, ws1, bToA, false},
 			{"build->plan", a, ws1, aToPlan, false},
-			{"plan->build", p, ws1, pToB, true},
+			// There is no mode comparison any more: the machine's rule is the
+			// whole answer, so a plan session's send to build is allowed too.
+			{"plan->build", p, ws1, pToB, false},
 		} {
 			part, asks := run(c.from, c.ws, c.trig)
 			if part.ToolStatus != backend.ToolCompleted {
@@ -885,28 +907,23 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 		autos := 0
 		for _, r := range auditRows() {
-			if r["tool"] == "session_send" && r["decision"] == "auto" && (r["from"] == a.ID || r["from"] == b.ID) && r["reason"] != nil {
+			if r["tool"] == "session_send" && r["decision"] == "allow" && (r["from"] == a.ID || r["from"] == b.ID || r["from"] == p.ID) && r["reason"] != nil {
 				autos++
 			}
 		}
-		if autos != 3 {
-			t.Errorf("decision:auto audit rows = %d, want 3: %v", autos, auditRows())
+		if autos != 4 {
+			t.Errorf("decision:allow audit rows = %d, want 4: %v", autos, auditRows())
 		}
 	})
 
-	t.Run("send: a cross-workspace send under auto-accept shows a card", func(t *testing.T) {
+	t.Run("send: a cross-workspace send under an allow rule shows a card", func(t *testing.T) {
 		hub.setApprove(approveAll)
-		// Build to build, both auto-accepting, but the target is in another
-		// workspace: the sender's unattended reach is its own workspace only.
-		// (An unrankable sender is proven by the noMorePermissive unit test:
-		// opencode cannot run a turn in an agent it does not have.)
+		setMachineRules(map[string]permrules.Action{"session_send": permrules.Allow})
+		defer setMachineRules(nil)
+		// The rule allows sends, but the target is in another workspace: the
+		// unattended reach of a send is its own workspace only.
 		a := newSession(ws1, "it-xws-a", "build")
 		b := newSession(ws2, "it-xws-b", "build")
-		for _, x := range []backend.Session{a, b} {
-			if err := mat.SetAutoAccept(x.ID, true); err != nil {
-				t.Fatal(err)
-			}
-		}
 		route("trigger-xws-ab", "session_send", mustJSON2(map[string]any{"target": b.ID, "text": "across workspaces"}))
 		publish()
 		mark := hub.mark()
@@ -925,10 +942,6 @@ func TestAgentToolsIntegration(t *testing.T) {
 		hub.setApprove(approveAll)
 		a := newSession(ws1, "it-rate-a", "build")
 		b := newSession(ws2, "it-rate-b", "build")
-		// Under auto-accept: the loop brake is a refusal, never a fallback.
-		if err := mat.SetAutoAccept(a.ID, true); err != nil {
-			t.Fatal(err)
-		}
 		for i := 1; i <= 6; i++ {
 			route(fmt.Sprintf("trigger-rate-%d", i), "session_send", mustJSON2(map[string]any{"target": b.ID, "text": fmt.Sprintf("rate message %d", i)}))
 		}
@@ -1003,6 +1016,108 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if idles != 1 {
 			t.Errorf("b went idle %d times; a folded message is one continuous turn (want 1)", idles)
 		}
+	})
+
+	t.Run("spawn and send follow the machine's rule for the tool: absent and ask card, allow does not, deny refuses", func(t *testing.T) {
+		type rules = map[string]permrules.Action
+		for i, c := range []struct {
+			name     string
+			rules    rules
+			wantCard bool
+			refused  bool
+		}{
+			// opencode's own default is "*": allow. It says nothing about these
+			// two tools: reading it as consent would enable session traffic on
+			// every machine that never wrote a rule.
+			{"absent, under opencode's default * allow", nil, true, false},
+			{"explicit ask", rules{"session_spawn": permrules.Ask, "session_send": permrules.Ask}, true, false},
+			{"explicit allow", rules{"session_spawn": permrules.Allow, "session_send": permrules.Allow}, false, false},
+			{"explicit deny", rules{"session_spawn": permrules.Deny, "session_send": permrules.Deny}, false, true},
+		} {
+			hub.setApprove(approveAll)
+			setMachineRules(c.rules)
+			caller := newSession(ws1, fmt.Sprintf("it-rule-caller-%d", i), "build")
+			target := newSession(ws1, fmt.Sprintf("it-rule-target-%d", i), "build")
+			spawnTag, sendTag := fmt.Sprintf("trigger-rule-spawn-%d", i), fmt.Sprintf("trigger-rule-send-%d", i)
+			childTitle := fmt.Sprintf("it-rule-child-%d", i)
+			route(spawnTag, "session_spawn", spawnArgs(childTitle, "rule child prompt", "inherit"))
+			route(sendTag, "session_send", mustJSON2(map[string]any{"target": target.ID, "text": "rule hello"}))
+			publish()
+
+			for _, tool := range []string{"session_spawn", "session_send"} {
+				tag := spawnTag
+				if tool == "session_send" {
+					tag = sendTag
+				}
+				mark := hub.mark()
+				prompt(caller, ws1, tag)
+				env := hub.wait(t, mark, 90*time.Second, tool+" to finish", func(e sessions.Envelope) bool {
+					p := e.Event.Part
+					return e.SessionID == caller.ID && e.Event.Kind == backend.EventPart && p != nil &&
+						(p.Tool == tool || p.Tool == "invalid") && (p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
+				})
+				part := *env.Event.Part
+				hub.waitIdle(t, mark, caller.ID)
+				asks := hub.asks(mark, caller.ID)
+				switch {
+				case c.refused:
+					// Either galopin refused it (the rule's text) or opencode
+					// withdrew the tool for a denied key before galopin was
+					// reached; both are a refusal with no card.
+					galopinRefused := part.ToolStatus == backend.ToolFailed && strings.Contains(part.ToolError, "rules do not allow")
+					if !(galopinRefused || part.Tool == "invalid") || len(asks) != 0 {
+						t.Errorf("%s / %s: want a refusal and no card, got tool=%s status=%s err=%q asks=%+v", c.name, tool, part.Tool, part.ToolStatus, part.ToolError, asks)
+					}
+				case c.wantCard:
+					if part.ToolStatus != backend.ToolCompleted || len(asks) != 1 || !strings.HasPrefix(asks[0].ID, "gp_") || asks[0].Tool != tool {
+						t.Errorf("%s / %s: want exactly one gp_ card and a completed call, got %s %q asks=%+v", c.name, tool, part.ToolStatus, part.ToolError, asks)
+					}
+				default:
+					if part.ToolStatus != backend.ToolCompleted || len(asks) != 0 {
+						t.Errorf("%s / %s: want no card and a completed call, got %s %q asks=%+v", c.name, tool, part.ToolStatus, part.ToolError, asks)
+					}
+				}
+			}
+			spawned := len(allTitled(childTitle))
+			if want := map[bool]int{true: 0, false: 1}[c.refused]; spawned != want {
+				t.Errorf("%s: spawned sessions = %d, want %d", c.name, spawned, want)
+			}
+		}
+		setMachineRules(nil)
+	})
+
+	t.Run("a refused spawn spends none of the rate budget", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Deny})
+		caller := newSession(ws1, "it-deny-budget", "build")
+		for i := 0; i < 8; i++ {
+			tag := fmt.Sprintf("trigger-deny-budget-%d", i)
+			route(tag, "session_spawn", spawnArgs(fmt.Sprintf("it-deny-budget-child-%d", i), "never", "inherit"))
+		}
+		publish()
+		for i := 0; i < 8; i++ {
+			mark := hub.mark()
+			prompt(caller, ws1, fmt.Sprintf("trigger-deny-budget-%d", i))
+			hub.wait(t, mark, 60*time.Second, "the refused spawn", func(e sessions.Envelope) bool {
+				p := e.Event.Part
+				return e.SessionID == caller.ID && e.Event.Kind == backend.EventPart && p != nil && (p.Tool == "session_spawn" || p.Tool == "invalid") &&
+					(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
+			})
+			hub.waitIdle(t, mark, caller.ID)
+		}
+		// Eight refusals would have exceeded the spawn rate limit (six per
+		// ten minutes) had they counted; an allow right after still works.
+		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Allow})
+		route("trigger-after-deny", "session_spawn", spawnArgs("it-after-deny-child", "after", "inherit"))
+		publish()
+		mark := hub.mark()
+		prompt(caller, ws1, "trigger-after-deny")
+		part := hub.toolDone(t, mark, caller.ID, "session_spawn")
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Errorf("a spawn after eight refusals = %s / %q: the refusals spent the rate budget", part.ToolStatus, part.ToolError)
+		}
+		hub.waitIdle(t, mark, caller.ID)
+		setMachineRules(nil)
 	})
 }
 

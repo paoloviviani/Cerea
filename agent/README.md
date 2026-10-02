@@ -68,13 +68,13 @@ veto that only `enroll` can loosen:
   machine._ There is no model and no permission rule in the way once a
   terminal is open, so treat it like handing out shell access, because
   that's what it is. `--max-terminals N` caps how many can be open at once
-  (default 8). Enrolling with `--allow-terminal` but not
-  `--allow-auto-accept` prints a warning (not a refusal) — you'd be denying
-  the _model_ unattended commands while allowing a person a shell anyway.
+  (default 8). Enrolling with `--allow-terminal` always prints a warning:
+  the shell is outside every permission rule.
 
 `galopin policy show` prints the current policy in plain words.
 `galopin policy set` can locally **tighten** it without a full re-enroll —
-turn files or the terminal off, lower `--max-terminals`, or add a
+turn files, the terminal or auto-accept off, lower `--max-terminals`, a
+`--permission-max` ceiling or a `--permission-rule`, or add a
 `--file-deny` entry — but never loosen it back; loosening always requires
 `enroll` again, since the policy is never writable over the link (§4).
 

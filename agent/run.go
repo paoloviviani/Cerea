@@ -199,13 +199,17 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		logf("shim listening on http://%s", addr)
 	}
 
-	back, err := startBackend(ctx, opts, stateDir, pol, logf)
+	// The permission policy as the running agent holds it: loaded from
+	// policy.json now, and only ever tightened afterwards (permissions.go).
+	live := policy.NewLive(pol.Permission)
+	back, err := startBackend(ctx, opts, stateDir, pol, live, logf)
 	if err != nil {
 		return err
 	}
 	logf("%s started (backend %s %s)", opts.backendKind, back.ID(), back.Version())
 
 	mat := sessions.New(back, pol)
+	mat.UseLive(live)
 	if err := mat.Start(ctx); err != nil {
 		return fmt.Errorf("subscribing to %s: %w", back.ID(), err)
 	}
@@ -222,6 +226,10 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
+	go watchPolicy(ctx, filepath.Join(stateDir, policyFileName), live, policyPollEvery, func(ch policy.Change) {
+		logf("permissions: policy tightened (ceiling or rules: %v, auto-accept off: %v)", ch.Tightened, ch.RespondersOff)
+		mc.policyTightened(ctx, ch)
+	})
 	for _, w := range reg.List(true) {
 		sessList, err := back.ListSessions(ctx, w.Path)
 		if err != nil {
@@ -334,7 +342,7 @@ type runningBackend interface {
 // startBackend builds and starts whichever concrete backend --backend
 // selects (PROTOCOL.md §2: opencode is the default, richer implementation;
 // acp is the generic adapter any ACP agent can be plugged in behind).
-func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, logf func(string, ...any)) (runningBackend, error) {
+func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, live *policy.Live, logf func(string, ...any)) (runningBackend, error) {
 	switch opts.backendKind {
 	case "", "opencode":
 		// galopin's own agent-coordination tools are installed unless the
@@ -355,7 +363,10 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			BackgroundSubagents: pol.BackgroundSubagentsAllowed(),
 			// galopin's own agent-coordination tools (session_list/spawn/send).
 			ToolsDir: toolsDir,
-			Logf:     func(format string, args ...any) { logf(format, args...) },
+			// The machine's own rules and ceiling, read live: every session's
+			// rules and the agent-level floor are built from them.
+			Permissions: live.Layers,
+			Logf:        func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
 			return nil, fmt.Errorf("starting opencode: %w", err)
@@ -429,13 +440,15 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 				"worktrees": caps.Worktrees, "autoAccept": caps.AutoAccept,
 				"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
 				"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
+				"permissions": caps.Permissions,
 			},
 		}},
 		Machine: link.MachineInfo{Capabilities: map[string]bool{
 			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
 		}},
 		Policy: link.PolicyInfo{
-			AutoAccept:          string(pol.AutoAccept),
+			AutoAccept:          pol.Permission.Responders,
+			Permission:          permissionInfo(pol),
 			WorkspaceRoots:      roots,
 			AllowFreeModels:     pol.AllowFreeModels,
 			Files:               filesPolicyWord(pol),
@@ -589,6 +602,17 @@ func backgroundSubagentsPolicyWord(pol policy.Policy) string {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied
+}
+
+// permissionInfo is the permission part of the hello policy: the ceiling and
+// whether a session may be switched to auto-accept, so the panel can explain a
+// capped "always" or a missing toggle instead of leaving a refusal to do it.
+func permissionInfo(pol policy.Policy) link.PermissionInfo {
+	max := map[string]string{}
+	for k, v := range pol.Permission.Max {
+		max[k] = v
+	}
+	return link.PermissionInfo{Responders: pol.Permission.Responders, Max: max}
 }
 
 func orEmptyStrings(s []string) []string {

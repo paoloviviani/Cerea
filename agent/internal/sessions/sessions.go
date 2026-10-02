@@ -1,8 +1,8 @@
 // Package sessions is the backend-agnostic materializer (PROTOCOL.md §7):
 // it subscribes to a backend.Backend's event stream from process start,
 // keeps a per-session transcript and ring buffer, enforces the text
-// contract, gates auto-accept against machine policy, and answers
-// session.sync.
+// contract, runs the auto-accept responder under the machine's say, and
+// answers session.sync.
 package sessions
 
 import (
@@ -27,8 +27,8 @@ const ringCapacity = 2000
 var ErrUnknownSession = errors.New("sessions: unknown session")
 
 // ErrAutoAcceptForbidden is returned by SetAutoAccept when the machine
-// policy denies auto-accept outright — the machine's veto (PROTOCOL.md
-// §4), never overridable from the link.
+// does not let any session auto-accept (Permission.Responders) — the
+// machine's veto (PROTOCOL.md §4), never overridable from the link.
 var ErrAutoAcceptForbidden = errors.New("sessions: auto-accept is denied by machine policy")
 
 // Envelope is one pushed event, addressed by (epoch, seq) per session
@@ -63,7 +63,12 @@ type sessionState struct {
 	sessionID    string
 	workspaceDir string
 	seeded       bool
-	autoAccept   bool
+	// autoAccept is this session's OWN auto-accept setting: nil until
+	// someone sets it (session.setAutoAccept), then an explicit on or off.
+	// What is in force is the nearest explicit setting up the parent chain
+	// (autoAcceptEffectiveLocked), so an unset child follows its parent and
+	// an explicit off overrides a parent that is on.
+	autoAccept *bool
 	// parentID is the session this one was spawned from (opencode's
 	// subagent/"subtask" tree, Session.ParentID), empty for a top-level
 	// session. Learned from Track, from session events carrying it, and
@@ -183,10 +188,22 @@ func (s *sessionState) snapshot() backend.Transcript {
 type Materializer struct {
 	back   backend.Backend
 	policy policy.Policy
-	epoch  string
+	// live is the permission part of the policy as it stands now: it can only
+	// tighten while the process runs (policy.Live), and the responder reads it
+	// at answer time.
+	live  *policy.Live
+	epoch string
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
+
+	onResponder func(sessionID string, req backend.PermissionRequest, err error)
+
+	// onChild is told, outside the lock, of each subagent session a LIVE event
+	// first revealed (not one a startup listing found). newChildren is what
+	// setParentLocked saw since the last drain.
+	onChild     func(workspaceDir, childID string)
+	newChildren []string
 
 	outCh chan Envelope
 }
@@ -205,6 +222,7 @@ func New(b backend.Backend, pol policy.Policy) *Materializer {
 	return &Materializer{
 		back:     b,
 		policy:   pol,
+		live:     policy.NewLive(pol.Permission),
 		epoch:    epoch,
 		sessions: map[string]*sessionState{},
 		outCh:    make(chan Envelope, 4096),
@@ -241,7 +259,11 @@ func (m *Materializer) Track(workspaceDir string, sess backend.Session) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, exists := m.sessions[sess.ID]; exists {
+		// A startup listing naming an old child's parent is not news: the
+		// OnChild hook is for children a live event reveals.
+		seen := len(m.newChildren)
 		m.setParentLocked(sess.ID, sess.ParentID)
+		m.newChildren = m.newChildren[:seen]
 		return
 	}
 	st := newSessionState(workspaceDir, sess.ID)
@@ -267,7 +289,55 @@ func (m *Materializer) setParentLocked(childID, parentID string) {
 	}
 	if st.parentID == "" {
 		st.parentID = parentID
+		m.newChildren = append(m.newChildren, childID)
 	}
+}
+
+// drainChildrenLocked takes the children setParentLocked has seen since the
+// last call, with the workspace each lives in. Caller holds m.mu.
+func (m *Materializer) drainChildrenLocked() []childRef {
+	if len(m.newChildren) == 0 {
+		return nil
+	}
+	out := make([]childRef, 0, len(m.newChildren))
+	for _, id := range m.newChildren {
+		if st, ok := m.sessions[id]; ok {
+			out = append(out, childRef{id: id, dir: st.workspaceDir})
+		}
+	}
+	m.newChildren = nil
+	return out
+}
+
+type childRef struct{ id, dir string }
+
+// OnChild installs the callback told of every subagent session a live event
+// reveals, so the machine can give it the ceiling at once. Set before Start.
+func (m *Materializer) OnChild(fn func(workspaceDir, childID string)) { m.onChild = fn }
+
+// ChildAgent is the subagent type a child session was started as, read from
+// its parent's task call ("" until that call's input is known).
+func (m *Materializer) ChildAgent(childID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	child, ok := m.sessions[childID]
+	if !ok || child.parentID == "" {
+		return ""
+	}
+	parent, ok := m.sessions[child.parentID]
+	if !ok {
+		return ""
+	}
+	for _, parts := range parent.parts {
+		for _, p := range parts {
+			if p.Type == backend.PartTool && p.Tool == "task" && p.SubtaskSessionID == childID {
+				if t, _ := p.Input["subagent_type"].(string); t != "" {
+					return t
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // rootLocked walks the parent chain to the top-level ancestor, returning
@@ -290,16 +360,17 @@ func (m *Materializer) rootLocked(sessionID string) string {
 	}
 }
 
-// autoAcceptEffectiveLocked reports whether auto-accept is on for st
-// itself or for any ancestor up to the root: a subagent inherits its
-// root's auto-accept, so a child never blocks a turn its parent already
-// cleared for automatic tool calls. Caller holds m.mu.
+// autoAcceptEffectiveLocked is whether auto-accept is in force for st: its own
+// setting if it has one, else the NEAREST ancestor's that does (on or off),
+// else off. A subagent no one touched follows its parent, so a child never
+// stops a turn its parent set to run unattended; one explicitly turned off
+// overrides a parent that is on. Caller holds m.mu.
 func (m *Materializer) autoAcceptEffectiveLocked(st *sessionState) bool {
 	seen := map[string]bool{st.sessionID: true}
 	current := st
 	for {
-		if current.autoAccept {
-			return true
+		if current.autoAccept != nil {
+			return *current.autoAccept
 		}
 		if current.parentID == "" || seen[current.parentID] {
 			return false
@@ -403,7 +474,13 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 	for _, ev := range events {
 		envs = append(envs, m.appendRingLocked(st, ev))
 	}
+	children := m.drainChildrenLocked()
 	m.mu.Unlock()
+	if m.onChild != nil {
+		for _, c := range children {
+			m.onChild(c.dir, c.id)
+		}
+	}
 
 	for _, env := range envs {
 		m.publish(env)
@@ -411,24 +488,24 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 
 	if autoReply != nil {
 		err := m.back.ReplyPermission(ctx, st.workspaceDir, st.sessionID, autoReply.ID, backend.DecisionOnce, "")
-		if err != nil {
-			// The ask stays pending; a future permission.replied from the
-			// backend (a human resolving it some other way) or a retried
-			// auto-reply on the next asked event still resolves it. There is
-			// no good way to surface this failure from inside an event
-			// callback, and the alternative — leaving the tool blocked
-			// forever with no attempt made — is worse.
-			return
+		if m.onResponder != nil {
+			m.onResponder(st.sessionID, *autoReply, err)
 		}
-		m.mu.Lock()
-		env := m.appendRingLocked(st, backend.Event{
-			Kind:      backend.EventPermissionReplied,
-			RequestID: autoReply.ID,
-			Decision:  backend.DecisionOnce,
-			By:        "auto",
-		})
-		m.mu.Unlock()
-		m.publish(env)
+		if err != nil {
+			// The ask is still pending in the backend and the client never
+			// saw it. Show it, so a person can answer: a tool blocked forever
+			// with no card is worse than a card the responder missed.
+			m.mu.Lock()
+			delete(st.autoRepliedIDs, autoReply.ID)
+			if _, exists := st.permissions[autoReply.ID]; !exists {
+				st.permissionOrder = append(st.permissionOrder, autoReply.ID)
+			}
+			req := *autoReply
+			st.permissions[autoReply.ID] = &req
+			env := m.appendRingLocked(st, backend.Event{Kind: backend.EventPermissionAsked, Request: &req})
+			m.mu.Unlock()
+			m.publish(env)
+		}
 	}
 }
 
@@ -540,12 +617,16 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) ([]ba
 		if ev.Request == nil {
 			return nil, nil
 		}
-		// Auto-accept is inherited up the subagent tree: a child without
-		// its own flag still auto-replies when any ancestor has it on and
-		// the machine policy allows it — otherwise a subagent blocks a
-		// turn its parent already cleared. Handoff approvals are never
-		// auto-accepted, whatever the flags say.
-		if !neverAutoAccept(ev.Request) && m.autoAcceptEffectiveLocked(st) && m.policy.AutoAcceptAllowed() {
+		// The responder (PROTOCOL.md §7 "Auto-accept"): a tool ask in a session
+		// whose effective auto-accept is on is answered "once" here, without a
+		// card. It answers nothing that is not a tool ask — galopin's own
+		// approvals (gp_) and questions never reach it — and it cannot touch a
+		// deny, which never asks. It is limited by the machine twice: with
+		// Responders denied it never answers, and for a key the CEILING caps
+		// below allow it does not answer either — a ceiling of ask means a
+		// person answers each one, and an auto "once" would turn it into allow.
+		if !heldByGalopin(ev.Request) && m.live.RespondersAllowed() && !m.live.Layers().Ceiling.Limits(ev.Request.Tool) &&
+			m.autoAcceptEffectiveLocked(st) {
 			if st.autoRepliedIDs == nil {
 				st.autoRepliedIDs = map[string]bool{}
 			}
@@ -562,10 +643,9 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) ([]ba
 
 	case backend.EventPermissionReplied:
 		if st.autoRepliedIDs[ev.RequestID] {
-			// This is the backend's own echo of a reply we already made and
-			// already told the client about (by:"auto"); the client never
-			// saw an ask for it, so a second permission.replied would be
-			// for an id it has no record of.
+			// The backend's own echo of a reply the responder made: the
+			// client never saw an ask for it, so a permission.replied would
+			// name an id it has no record of.
 			delete(st.autoRepliedIDs, ev.RequestID)
 			return nil, nil
 		}
@@ -731,22 +811,13 @@ func ensureMessageLocked(st *sessionState, msgID, role string) {
 	st.messages[msgID] = &backend.Message{ID: msgID, Role: role}
 }
 
-// isHandoffApproval reports whether a permission request is a handoff
-// approval — handing a session's work to another agent or device. Those
-// are never auto-accepted: moving work across a trust boundary always
-// needs a person's explicit say-so, whatever auto-accept flags say.
-func isHandoffApproval(req *backend.PermissionRequest) bool {
-	return strings.Contains(strings.ToLower(req.Tool), "handoff")
-}
-
-// neverAutoAccept reports whether a permission request must always wait for
-// a person: a handoff, or one of galopin's own approvals (session_spawn /
-// session_send — PROTOCOL.md §6 "Agent tools"). Galopin's are recognised by
-// the request itself (its metadata flag and its minted id prefix), never by
-// the tool's name: a name test is exactly what a differently-named tool
-// slips past.
-func neverAutoAccept(req *backend.PermissionRequest) bool {
-	if isHandoffApproval(req) || strings.HasPrefix(req.ID, "gp_") {
+// heldByGalopin reports whether a permission request is one of galopin's own
+// approvals (session_spawn / session_send — PROTOCOL.md §6 "Agent tools"),
+// which only a person answers. They are recognised by the request itself, its
+// metadata flag and its minted id prefix, never by the tool's name: a name
+// test is exactly what a differently-named tool slips past.
+func heldByGalopin(req *backend.PermissionRequest) bool {
+	if strings.HasPrefix(req.ID, "gp_") {
 		return true
 	}
 	flag, _ := req.Metadata["galopin"].(bool)
@@ -1089,21 +1160,11 @@ func (m *Materializer) descendsFromLocked(sessionID, ancestor string) bool {
 	}
 }
 
-// AutoAccept reports whether auto-accept is currently on for sessionID.
+// AutoAccept reports whether auto-accept is in force for sessionID: its own
+// setting, else its nearest ancestor's — and only while the machine still lets
+// any session auto-accept.
 func (m *Materializer) AutoAccept(sessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	st, ok := m.sessions[sessionID]
-	return ok && st.autoAccept
-}
-
-// AutoAcceptInEffect reports whether sessionID's tool calls are being
-// auto-accepted right now: its own flag or an ancestor's, AND the machine
-// policy still allowing it (the machine's veto outranks every flag). It is
-// the same test EventPermissionAsked applies, exposed so galopin's own
-// coordination tools can ask "would this session's approvals be automatic?".
-func (m *Materializer) AutoAcceptInEffect(sessionID string) bool {
-	if !m.policy.AutoAcceptAllowed() {
+	if !m.live.RespondersAllowed() {
 		return false
 	}
 	m.mu.Lock()
@@ -1112,12 +1173,16 @@ func (m *Materializer) AutoAcceptInEffect(sessionID string) bool {
 	return ok && m.autoAcceptEffectiveLocked(st)
 }
 
-// SetAutoAccept implements session.setAutoAccept (PROTOCOL.md §6): refused
-// outright when the machine policy denies auto-accept, regardless of what
-// Cerea asks for — the machine's veto, enforced here rather than trusted to
-// whatever asked.
+// Live is the permission policy holder the materializer reads (see UseLive).
+func (m *Materializer) Live() *policy.Live { return m.live }
+
+// SetAutoAccept implements session.setAutoAccept (PROTOCOL.md §6): this
+// session's own setting, which overrides whatever an ancestor has. Turning it
+// ON is refused when the machine lets no session auto-accept
+// (Permission.Responders) — the machine's veto, enforced here rather than
+// trusted to whatever asked. Turning it off is always allowed.
 func (m *Materializer) SetAutoAccept(sessionID string, enabled bool) error {
-	if enabled && !m.policy.AutoAcceptAllowed() {
+	if enabled && !m.live.RespondersAllowed() {
 		return ErrAutoAcceptForbidden
 	}
 	m.mu.Lock()
@@ -1126,8 +1191,20 @@ func (m *Materializer) SetAutoAccept(sessionID string, enabled bool) error {
 	if !ok {
 		return ErrUnknownSession
 	}
-	st.autoAccept = enabled
+	st.autoAccept = &enabled
 	return nil
+}
+
+// UseLive makes the materializer read the permission policy from live, the
+// holder the rest of the agent shares, so a responders switch turned off while
+// the process runs is seen by the next ask. Call before Start.
+func (m *Materializer) UseLive(live *policy.Live) { m.live = live }
+
+// OnResponder installs a callback told of every ask the responder answered
+// (err nil) or failed to answer, for the machine's audit log. Set before
+// Start; never called concurrently with itself for one session.
+func (m *Materializer) OnResponder(fn func(sessionID string, req backend.PermissionRequest, err error)) {
+	m.onResponder = fn
 }
 
 // LatestUserMessage is the newest user message the materializer holds for
@@ -1146,4 +1223,34 @@ func (m *Materializer) LatestUserMessage(sessionID string) (backend.Message, boo
 		}
 	}
 	return backend.Message{}, false
+}
+
+// WithdrawPending closes every permission and question ask the materializer
+// still holds, announcing each as rejected/resolved so no client keeps a card
+// for it. It is for the moment the backend process was restarted on purpose
+// (a tightened ceiling): its asks lived in its memory and are gone, and a card
+// for one would answer into nothing.
+func (m *Materializer) WithdrawPending() {
+	m.mu.Lock()
+	var envs []Envelope
+	for _, st := range m.sessions {
+		for _, id := range append([]string(nil), st.permissionOrder...) {
+			delete(st.permissions, id)
+			envs = append(envs, m.appendRingLocked(st, backend.Event{
+				Kind: backend.EventPermissionReplied, RequestID: id, Decision: backend.DecisionReject, By: "user",
+			}))
+		}
+		st.permissionOrder = nil
+		for _, id := range append([]string(nil), st.questionOrder...) {
+			delete(st.questions, id)
+			envs = append(envs, m.appendRingLocked(st, backend.Event{
+				Kind: backend.EventQuestionResolved, QuestionRequestID: id, QuestionDecision: "rejected",
+			}))
+		}
+		st.questionOrder = nil
+	}
+	m.mu.Unlock()
+	for _, env := range envs {
+		m.publish(env)
+	}
 }

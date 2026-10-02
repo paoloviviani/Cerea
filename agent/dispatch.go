@@ -29,8 +29,13 @@ type machine struct {
 	back       backend.Backend
 	mat        *sessions.Materializer
 	pol        policy.Policy
-	files      *files.Service
-	terminals  *terminal.Manager
+	// live is the permission part of the policy as it stands now (it can only
+	// tighten while the agent runs); the materializer reads the same one.
+	live *policy.Live
+	// saved is the "always" approvals this machine relayed (permissions.go).
+	saved     savedLedger
+	files     *files.Service
+	terminals *terminal.Manager
 
 	mu                 sync.Mutex
 	sessionWorkspaceID map[string]string // sessionID -> workspace registry id
@@ -56,12 +61,14 @@ func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Ma
 		back:               back,
 		mat:                mat,
 		pol:                pol,
+		live:               mat.Live(),
 		files:              files.New(pol.EffectiveFileDeny()),
 		terminals:          terminal.NewManager(nil),
 		sessionWorkspaceID: map[string]string{},
 		channelTerminal:    map[string]string{},
 	}
 	mc.installAgentTools()
+	mc.installPermissions()
 	return mc
 }
 
@@ -237,6 +244,12 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 
 	case "permission.reply":
 		return mc.opPermissionReply(ctx, args)
+	case "permission.rules":
+		return mc.opPermissionRules(ctx, args)
+	case "session.setRules":
+		return mc.opSessionSetRules(ctx, args)
+	case "permission.saved.remove":
+		return mc.opPermissionSavedRemove(ctx, args)
 
 	case "question.reply":
 		return mc.opQuestionReply(ctx, args)
@@ -649,10 +662,12 @@ func (mc *machine) opSessionSetAutoAccept(args json.RawMessage) (any, *link.OpEr
 	}
 	if err := mc.mat.SetAutoAccept(a.SessionID, a.Enabled); err != nil {
 		if err == sessions.ErrAutoAcceptForbidden {
+			mc.audit.refusal("session.setAutoAccept", "this machine lets no session auto-accept")
 			return nil, opErrf("forbidden", "%v", err)
 		}
 		return nil, notFound("session")
 	}
+	mc.audit.autoAccept(a.SessionID, a.Enabled)
 	_, workspaceID, operr := mc.resolveSession(a.SessionID)
 	if operr != nil {
 		return nil, operr
@@ -908,8 +923,27 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if operr != nil {
 		return nil, operr
 	}
-	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, backend.Decision(a.Decision), a.Message); err != nil {
+	// One answer path for opencode's asks and galopin's own (gp_). An "always"
+	// the ceiling does not let stand goes out as "once".
+	asked := mc.askedRequest(a.SessionID, a.RequestID)
+	tool := ""
+	if asked != nil {
+		tool = asked.Tool
+	}
+	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
+	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, decision, a.Message); err != nil {
 		return nil, backendErr(err)
+	}
+	mc.audit.permission(a.SessionID, a.RequestID, tool, string(decision), "user", capped)
+	// An "always" opencode accepted is remembered by opencode, in memory and
+	// without an id; the machine keeps its own record of it so the panel can
+	// show what is standing (galopin's own gp_ asks never are: always is once).
+	if decision == backend.DecisionAlways && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") {
+		patterns := asked.Always
+		if len(patterns) == 0 {
+			patterns = asked.Patterns
+		}
+		mc.saved.add(a.SessionID, dir, tool, patterns)
 	}
 	return map[string]any{}, nil
 }

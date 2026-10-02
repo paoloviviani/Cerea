@@ -10,10 +10,12 @@ import (
 
 // The subagent contract (PROTOCOL.md §5 "event" frame, §7): every envelope
 // carries its root, a child's permission.asked reaches the root's watcher
-// with that root tagged, and auto-accept is inherited up the tree — unless
-// the machine policy vetoes it, or the ask is a handoff approval.
+// with that root tagged, and auto-accept follows the NEAREST ancestor with an
+// explicit setting (on or off) — unless the machine does not allow responders.
 
-func allowPolicy() policy.Policy { return policy.Policy{AutoAccept: policy.AutoAcceptAllowed} }
+func allowPolicy() policy.Policy {
+	return policy.Policy{Permission: policy.Permission{Responders: policy.TerminalAllowed}}
+}
 
 func askEvent(reqID, sessionID string) backend.Event {
 	return backend.Event{
@@ -61,10 +63,11 @@ func TestChildPermissionCarriesRoot(t *testing.T) {
 	}
 }
 
-// TestChildAutoAcceptInheritedFromParent pins that a child without its own
-// flag auto-replies when its parent has auto-accept on and the policy
-// allows it.
-func TestChildAutoAcceptInheritedFromParent(t *testing.T) {
+// TestChildWithNoSettingFollowsParentOn is the Amendment: a subagent nobody
+// touched is answered by the responder under its parent's setting — otherwise
+// every child would re-prompt a person who put the parent on auto-accept so
+// as not to be asked.
+func TestChildWithNoSettingFollowsParentOn(t *testing.T) {
 	fb := newFakeBackend()
 	m := New(fb, allowPolicy())
 	ctx := context.Background()
@@ -76,65 +79,115 @@ func TestChildAutoAcceptInheritedFromParent(t *testing.T) {
 
 	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "child", Event: askEvent("perm1", "child")})
 
-	if len(fb.replies) != 1 || fb.replies[0].sessionID != "child" || fb.replies[0].requestID != "perm1" {
+	if len(fb.replies) != 1 || fb.replies[0].sessionID != "child" || fb.replies[0].requestID != "perm1" || fb.replies[0].decision != backend.DecisionOnce {
 		t.Fatalf("backend replies = %+v, want one 'once' reply to the child's perm1", fb.replies)
 	}
-	events := syncEvents(t, m, "child")
-	if len(events) != 1 || events[0].Event.Kind != backend.EventPermissionReplied || events[0].Event.By != "auto" {
-		t.Fatalf("events = %+v, want exactly one permission.replied by=auto", events)
-	}
-	if events[0].RootSessionID != "parent" {
-		t.Errorf("rootSessionId = %q, want parent", events[0].RootSessionID)
+	if events := syncEvents(t, m, "child"); len(events) != 0 {
+		t.Fatalf("events = %+v, want none (no card, no replied)", events)
 	}
 	if m.PendingPermissions("child") != 0 {
-		t.Errorf("pending permissions = %d, want 0 after inherited auto-accept", m.PendingPermissions("child"))
+		t.Errorf("pending permissions = %d, want 0", m.PendingPermissions("child"))
+	}
+	if !m.AutoAccept("child") {
+		t.Error("the child's effective auto-accept must read on")
 	}
 }
 
-// TestChildAutoAcceptInheritedFromGrandparent pins the walk goes all the
-// way to the root, not just one level up.
-func TestChildAutoAcceptInheritedFromGrandparent(t *testing.T) {
+// A child explicitly off overrides a parent that is on.
+func TestChildExplicitlyOffOverridesParentOn(t *testing.T) {
 	fb := newFakeBackend()
 	m := New(fb, allowPolicy())
 	ctx := context.Background()
-	m.Track("/ws", backend.Session{ID: "root"})
-	m.Track("/ws", backend.Session{ID: "mid", ParentID: "root"})
-	m.Track("/ws", backend.Session{ID: "leaf", ParentID: "mid"})
-	if err := m.SetAutoAccept("root", true); err != nil {
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "child", ParentID: "parent"})
+	if err := m.SetAutoAccept("parent", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetAutoAccept("child", false); err != nil {
 		t.Fatal(err)
 	}
 
-	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "leaf", Event: askEvent("perm1", "leaf")})
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "child", Event: askEvent("perm1", "child")})
 
-	if len(fb.replies) != 1 || fb.replies[0].sessionID != "leaf" {
-		t.Fatalf("backend replies = %+v, want one reply to the leaf's ask", fb.replies)
+	if len(fb.replies) != 0 {
+		t.Fatalf("backend replies = %+v, want none: the child is explicitly off", fb.replies)
 	}
-	events := syncEvents(t, m, "leaf")
-	if len(events) != 1 || events[0].Event.Kind != backend.EventPermissionReplied {
-		t.Fatalf("events = %+v, want the auto reply", events)
+	events := syncEvents(t, m, "child")
+	if len(events) != 1 || events[0].Event.Kind != backend.EventPermissionAsked || events[0].RootSessionID != "parent" {
+		t.Fatalf("events = %+v, want the ask forwarded, rooted at parent", events)
 	}
-	if events[0].RootSessionID != "root" {
-		t.Errorf("rootSessionId = %q, want root", events[0].RootSessionID)
+	if m.AutoAccept("child") {
+		t.Error("the child's effective auto-accept must read off")
+	}
+	if !m.AutoAccept("parent") {
+		t.Error("the parent stays on")
 	}
 }
 
-// TestChildAutoAcceptVetoedByPolicy pins the machine's veto wins over an
-// inherited flag: under a denied policy nothing can turn auto-accept on,
-// so the child's ask is forwarded untouched.
-func TestChildAutoAcceptVetoedByPolicy(t *testing.T) {
+// The nearest explicit ancestor decides, not the root: a grandchild under a
+// mid-level session set off is NOT answered even though the root is on, and
+// one under a mid-level set on is, even though the root is off.
+func TestNearestExplicitAncestorDecides(t *testing.T) {
+	ctx := context.Background()
+	build := func(root, mid *bool) (*Materializer, *fakeBackend) {
+		fb := newFakeBackend()
+		m := New(fb, allowPolicy())
+		m.Track("/ws", backend.Session{ID: "root"})
+		m.Track("/ws", backend.Session{ID: "mid", ParentID: "root"})
+		m.Track("/ws", backend.Session{ID: "leaf", ParentID: "mid"})
+		if root != nil {
+			if err := m.SetAutoAccept("root", *root); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if mid != nil {
+			if err := m.SetAutoAccept("mid", *mid); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return m, fb
+	}
+	on, off := true, false
+	for _, c := range []struct {
+		name      string
+		root, mid *bool
+		answered  bool
+	}{
+		{"root on, mid unset", &on, nil, true},
+		{"root on, mid off", &on, &off, false},
+		{"root off, mid on", &off, &on, true},
+		{"root on explicitly off below, then nothing", &on, &off, false},
+		{"nothing set", nil, nil, false},
+		{"root off, mid unset", &off, nil, false},
+	} {
+		m, fb := build(c.root, c.mid)
+		m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "leaf", Event: askEvent("perm1", "leaf")})
+		if got := len(fb.replies) == 1; got != c.answered {
+			t.Errorf("%s: answered = %v, want %v (replies %+v)", c.name, got, c.answered, fb.replies)
+		}
+	}
+}
+
+// The machine's veto: with no responders allowed nothing can turn auto-accept
+// on, so the child's ask is forwarded untouched.
+func TestChildAutoAcceptVetoedByMachine(t *testing.T) {
 	fb := newFakeBackend()
-	m := New(fb, policy.Default()) // autoAccept: denied
+	m := New(fb, policy.Default()) // responders: denied
 	ctx := context.Background()
 	m.Track("/ws", backend.Session{ID: "parent"})
 	m.Track("/ws", backend.Session{ID: "child", ParentID: "parent"})
 	if err := m.SetAutoAccept("parent", true); err != ErrAutoAcceptForbidden {
 		t.Fatalf("err = %v, want ErrAutoAcceptForbidden", err)
 	}
+	// Turning it off is always allowed.
+	if err := m.SetAutoAccept("parent", false); err != nil {
+		t.Fatalf("turning off: %v", err)
+	}
 
 	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "child", Event: askEvent("perm1", "child")})
 
 	if len(fb.replies) != 0 {
-		t.Fatalf("backend replies = %+v, want none under a denied policy", fb.replies)
+		t.Fatalf("backend replies = %+v, want none when responders are denied", fb.replies)
 	}
 	events := syncEvents(t, m, "child")
 	if len(events) != 1 || events[0].Event.Kind != backend.EventPermissionAsked {
@@ -142,10 +195,25 @@ func TestChildAutoAcceptVetoedByPolicy(t *testing.T) {
 	}
 }
 
-// TestHandoffApprovalNeverAutoAccepted pins that a handoff approval is
-// forwarded even when the parent has auto-accept on and the policy allows
-// it — moving work across a trust boundary always needs a person.
-func TestHandoffApprovalNeverAutoAccepted(t *testing.T) {
+// A policy edited down after a session was set on is still the machine's say:
+// the responder checks the machine at answer time, not only at set time.
+func TestResponderChecksTheMachineAtAnswerTime(t *testing.T) {
+	fb := newFakeBackend()
+	m := New(fb, allowPolicy())
+	m.Track("/ws", backend.Session{ID: "s"})
+	if err := m.SetAutoAccept("s", true); err != nil {
+		t.Fatal(err)
+	}
+	m.live = policy.NewLive(policy.Default().Permission)
+	m.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s", Event: askEvent("perm1", "s")})
+	if len(fb.replies) != 0 {
+		t.Fatalf("replies = %+v, want none", fb.replies)
+	}
+}
+
+// Galopin's own approvals are never answered by the responder, and neither is a
+// question: auto-accept's scope is tool asks.
+func TestResponderLeavesGalopinApprovalsAlone(t *testing.T) {
 	fb := newFakeBackend()
 	m := New(fb, allowPolicy())
 	ctx := context.Background()
@@ -154,24 +222,37 @@ func TestHandoffApprovalNeverAutoAccepted(t *testing.T) {
 	if err := m.SetAutoAccept("parent", true); err != nil {
 		t.Fatal(err)
 	}
-
 	m.ApplyBackendEvent(ctx, backend.BackendEvent{
 		WorkspaceDir: "/ws", SessionID: "child",
-		Event: backend.Event{
-			Kind:    backend.EventPermissionAsked,
-			Request: &backend.PermissionRequest{ID: "perm-h", SessionID: "child", Tool: "handoff", Title: "hand off"},
-		},
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{
+			ID: "gp_1", SessionID: "child", Tool: "session_spawn", Metadata: map[string]any{"galopin": true},
+		}},
 	})
-
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{
+		WorkspaceDir: "/ws", SessionID: "child",
+		Event: backend.Event{Kind: backend.EventQuestionAsked, QuestionRequestID: "q1", Questions: []backend.QuestionItem{{Question: "which?"}}},
+	})
 	if len(fb.replies) != 0 {
-		t.Fatalf("backend replies = %+v, want none for a handoff approval", fb.replies)
+		t.Fatalf("backend replies = %+v, want none for a gp_ approval or a question", fb.replies)
 	}
 	events := syncEvents(t, m, "child")
-	if len(events) != 1 || events[0].Event.Kind != backend.EventPermissionAsked {
-		t.Fatalf("events = %+v, want the handoff ask forwarded", events)
+	if len(events) != 2 || events[0].Event.Kind != backend.EventPermissionAsked || events[1].Event.Kind != backend.EventQuestionAsked {
+		t.Fatalf("events = %+v, want both forwarded", events)
 	}
-	if m.PendingPermissions("child") != 1 {
-		t.Errorf("pending permissions = %d, want 1", m.PendingPermissions("child"))
+}
+
+// The responder's reply is always "once": it never creates an "always".
+func TestResponderNeverAnswersAlways(t *testing.T) {
+	fb := newFakeBackend()
+	m := New(fb, allowPolicy())
+	m.Track("/ws", backend.Session{ID: "s"})
+	if err := m.SetAutoAccept("s", true); err != nil {
+		t.Fatal(err)
+	}
+	req := backend.PermissionRequest{ID: "perm1", SessionID: "s", Tool: "edit", Always: []string{"*"}}
+	m.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s", Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &req}})
+	if len(fb.replies) != 1 || fb.replies[0].decision != backend.DecisionOnce {
+		t.Fatalf("replies = %+v, want exactly one 'once'", fb.replies)
 	}
 }
 
@@ -208,6 +289,8 @@ func TestParentLearnedFromTaskPart(t *testing.T) {
 	if got := m.RootOf("child"); got != "parent" {
 		t.Errorf("RootOf(child) = %q, want parent", got)
 	}
+	// A later event of the child's own is rooted at the parent too.
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "child", Event: backend.Event{Kind: backend.EventStatus, Status: backend.StatusBusy}})
 	events := syncEvents(t, m, "child")
 	if len(events) != 1 || events[0].RootSessionID != "parent" {
 		t.Fatalf("events = %+v, want one envelope rooted at parent", events)
@@ -265,25 +348,80 @@ func TestChildSummaryCountsChildrenAndWaitingDescendants(t *testing.T) {
 	}
 }
 
-// TestAutoAcceptInEffect pins the test galopin's own coordination tools use:
-// the session's flag or an ancestor's, and never against the machine's veto —
-// even a flag that was set while the policy allowed it (forced here, since
-// SetAutoAccept itself refuses under a denying policy).
-func TestAutoAcceptInEffect(t *testing.T) {
+// OnChild is told of a subagent a live event reveals — from the child's own
+// session event or from the parent's task call — once, and not of one a startup
+// listing names.
+func TestOnChildFiresForLiveChildrenOnly(t *testing.T) {
 	m := New(newFakeBackend(), allowPolicy())
-	m.Track("/ws", backend.Session{ID: "root"})
-	m.Track("/ws", backend.Session{ID: "sub", ParentID: "root"})
-	if m.AutoAcceptInEffect("root") || m.AutoAcceptInEffect("nope") {
-		t.Fatal("auto-accept in effect with no flag set / for an unknown session")
+	var got []string
+	m.OnChild(func(dir, id string) { got = append(got, dir+":"+id) })
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "old", ParentID: "parent"})
+	m.Track("/ws", backend.Session{ID: "old"}) // a second listing naming no parent is no news either
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "old", Event: backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle}})
+	if len(got) != 0 {
+		t.Fatalf("a startup child fired the hook: %v", got)
 	}
-	if err := m.SetAutoAccept("root", true); err != nil {
+
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "parent"},
+	}})
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "parent"},
+	}})
+	if len(got) != 1 || got[0] != "/ws:kid" {
+		t.Fatalf("hook calls = %v, want exactly /ws:kid once", got)
+	}
+}
+
+func TestChildAgentIsReadFromTheParentsTaskCall(t *testing.T) {
+	m := New(newFakeBackend(), allowPolicy())
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	if got := m.ChildAgent("kid"); got != "" {
+		t.Fatalf("an unknown child's agent = %q", got)
+	}
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "parent", Event: backend.Event{
+		Kind: backend.EventPart,
+		Part: &backend.Part{
+			ID: "p1", MessageID: "m1", Role: "assistant", Type: backend.PartTool, CallID: "c", Tool: "task",
+			ToolStatus: backend.ToolRunning, SubtaskSessionID: "kid", Input: map[string]any{"subagent_type": "explore"},
+		},
+	}})
+	if got := m.ChildAgent("kid"); got != "explore" {
+		t.Errorf("ChildAgent = %q, want explore", got)
+	}
+}
+
+// The responder is limited by the ceiling: a key capped below allow is asked of
+// a person whatever the flag says, for a child under a parent that is on as for
+// the session itself; an uncapped key is still answered.
+func TestResponderLeavesCeilingCappedKeysToAPerson(t *testing.T) {
+	pol := policy.Policy{Permission: policy.Permission{Responders: policy.TerminalAllowed, Max: map[string]string{"bash": "ask"}}}
+	fb := newFakeBackend()
+	m := New(fb, pol)
+	ctx := context.Background()
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "child", ParentID: "parent"})
+	if err := m.SetAutoAccept("parent", true); err != nil {
 		t.Fatal(err)
 	}
-	if !m.AutoAcceptInEffect("root") || !m.AutoAcceptInEffect("sub") {
-		t.Error("the flag, and a subagent's inheritance of it, must be in effect")
+	ask := func(session, id, tool string) {
+		m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: session, Event: backend.Event{
+			Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: id, SessionID: session, Tool: tool},
+		}})
 	}
-	m.policy = policy.Default() // the machine now vetoes
-	if m.AutoAcceptInEffect("root") || m.AutoAcceptInEffect("sub") {
-		t.Error("the machine's veto must outrank a session flag")
+	ask("parent", "p-bash", "bash")
+	ask("child", "c-bash", "bash")
+	if len(fb.replies) != 0 {
+		t.Fatalf("replies = %+v: the responder answered a bash ask under an ask ceiling", fb.replies)
+	}
+	if m.PendingPermissions("parent") != 1 || m.PendingPermissions("child") != 1 {
+		t.Errorf("pending parent=%d child=%d, want both shown as cards", m.PendingPermissions("parent"), m.PendingPermissions("child"))
+	}
+	ask("child", "c-edit", "edit")
+	if len(fb.replies) != 1 || fb.replies[0].requestID != "c-edit" || fb.replies[0].decision != backend.DecisionOnce {
+		t.Errorf("replies = %+v, want the uncapped edit ask answered once", fb.replies)
 	}
 }

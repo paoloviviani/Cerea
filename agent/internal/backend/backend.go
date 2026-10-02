@@ -1,6 +1,10 @@
 package backend
 
-import "context"
+import (
+	"context"
+
+	"galopin/internal/permrules"
+)
 
 // Capabilities is what a backend can do beyond the floor every backend
 // implements, advertised in the link's hello frame (PROTOCOL.md §5) so
@@ -44,6 +48,10 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
+	// Permissions says the backend's own permission rules can be read and its
+	// saved approvals listed and withdrawn (permission.rules,
+	// permission.saved.remove — PROTOCOL.md §6 "Permissions"). opencode only.
+	Permissions bool `json:"permissions"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -218,4 +226,101 @@ type ToolHost interface {
 	// SpawnMarks is every session_spawn marker the backend remembers, by
 	// child session id (a copy).
 	SpawnMarks() map[string]SpawnedBy
+}
+
+// Rule sources, as permission.rules labels them.
+const (
+	// SourceDefault is opencode's own: its built-in defaults and each built-in
+	// agent's rules.
+	SourceDefault = "default"
+	// SourceFile is the static opencode.json galopin's enroll wrote.
+	SourceFile = "file"
+	// SourceFloor is galopin's own ask defaults at agent level: the ceiling
+	// restated as config (OPENCODE_CONFIG_CONTENT).
+	SourceFloor = "floor"
+	// SourceMachine is the machine's own rules (policy.json permission.rules),
+	// applied to every session; they beat the file.
+	SourceMachine = "machine"
+	// SourceCerea is the session's own block: what a person set through
+	// session.setRules (and the restorations of what an earlier write set and a
+	// later one dropped).
+	SourceCerea = "cerea"
+	// SourceCeiling is the cap, always last.
+	SourceCeiling = "ceiling"
+)
+
+// SourcedRule is a rule with where it came from.
+type SourcedRule struct {
+	permrules.Rule
+	Source string
+}
+
+// RuleLayers is one session's effective rules, in evaluation order. opencode
+// merges an agent's ruleset without recording which layer a rule came from, so
+// Source is attributed by galopin: the floor and the file are read from what
+// galopin itself wrote, everything else in the agent's list is opencode's.
+type RuleLayers struct {
+	Agent string
+	Rules []SourcedRule
+}
+
+// Plain is the rules without their sources.
+func (l RuleLayers) Plain() []permrules.Rule {
+	out := make([]permrules.Rule, 0, len(l.Rules))
+	for _, r := range l.Rules {
+		out = append(out, r.Rule)
+	}
+	return out
+}
+
+// SavedApproval is one "always" as permission.rules lists it. opencode keeps
+// its own in memory with no ids, and 1.18.32 offers no way to read or withdraw
+// them (its /api/permission/saved belongs to a separate v2 system that no ask
+// reaches), so galopin mints ids for the ones it relayed and reports them
+// Removable false.
+type SavedApproval struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	// Permission is the tool class the approval covers; Patterns what of it
+	// (for bash, the command text — shown to the person who gave it, never
+	// written to the audit log).
+	Permission string   `json:"permission"`
+	Patterns   []string `json:"patterns"`
+	Removable  bool     `json:"removable"`
+	GrantedAt  string   `json:"grantedAt,omitempty"`
+	// WorkspaceDir is where it was granted. opencode shares an "always" with
+	// every session of the workspace, so the list is scoped to the asking
+	// session's; it is not part of the wire.
+	WorkspaceDir string `json:"-"`
+}
+
+// RuleHost is the optional "permissions" capability: the backend's permission
+// rules, seen from galopin. Reading them is for display and for galopin's own
+// two tools' decisions; the only thing that ever writes through this
+// interface is withdrawing a saved approval, which can only tighten.
+type RuleHost interface {
+	// EffectiveRules is the rules in force for a session, in evaluation order:
+	// its agent's, then the ones galopin applied to the session.
+	EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error)
+	// RuleLayers is EffectiveRules with each rule's source. Display only.
+	RuleLayers(ctx context.Context, workspaceDir, sessionID string) (RuleLayers, error)
+	// SetSessionRules replaces the rules a person set on a session (already
+	// clamped to the ceiling by the caller) and applies them. The session's
+	// composed rules come out as the machine's own, these, then the ceiling.
+	SetSessionRules(ctx context.Context, workspaceDir, sessionID string, rules []permrules.Rule) error
+	// EnsureRules re-applies the machine's rules to a session if they differ
+	// from what it carries (after the ceiling changed).
+	EnsureRules(ctx context.Context, workspaceDir, sessionID string) error
+	// ApplyChildRules gives a subagent session opencode created the ceiling
+	// (never the machine's own allows); agent is its type, "" when unknown.
+	ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error
+	// OnProcessStart registers a callback run every time the backend's process
+	// starts (the first start included, a crash restart and a deliberate one
+	// alike). What the process held in memory — its saved "always" approvals and
+	// its pending asks — is gone with the old one, and the machine forgets
+	// them here.
+	OnProcessStart(fn func())
+	// RestartForPolicy restarts the backend process, clearing every "always"
+	// it holds; it returns once the new process is healthy.
+	RestartForPolicy(ctx context.Context) error
 }
