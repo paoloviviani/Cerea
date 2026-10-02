@@ -144,8 +144,15 @@ func (a *auditLogger) permission(session, requestID, tool, decision, by string, 
 }
 
 // permissionSavedRemove records a saved approval being withdrawn.
-func (a *auditLogger) permissionSavedRemove(id string) {
-	a.write(map[string]any{"action": "permission.saved.remove", "id": id})
+func (a *auditLogger) permissionSavedRemove(session, id string) {
+	a.write(map[string]any{"action": "permission.saved.remove", "session": session, "id": id})
+}
+
+// permissionSetRules records a person's rules being written to a session:
+// how many were sent, how many were applied after the ceiling, whether any was
+// lowered, and which tool classes they named — never the patterns.
+func (a *auditLogger) permissionSetRules(session string, sent, applied int, clamped bool, tools []string) {
+	a.write(map[string]any{"action": "permission.setRules", "session": session, "sent": sent, "applied": applied, "clamped": clamped, "tools": tools})
 }
 
 // permissionTightened records a tightened permission policy being taken in

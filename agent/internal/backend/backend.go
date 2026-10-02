@@ -228,21 +228,59 @@ type ToolHost interface {
 	SpawnMarks() map[string]SpawnedBy
 }
 
-// RuleLayers is one session's effective rules by where each came from, in
-// evaluation order: Agent first, then Own, then Ceiling.
-type RuleLayers struct {
-	Agent        string
-	OpencodeSide []permrules.Rule
-	Own          []permrules.Rule
-	Ceiling      []permrules.Rule
+// Rule sources, as permission.rules labels them.
+const (
+	// SourceDefault is opencode's own: its built-in defaults and each built-in
+	// agent's rules.
+	SourceDefault = "default"
+	// SourceFile is the static opencode.json galopin's enroll wrote.
+	SourceFile = "file"
+	// SourceFloor is galopin's own ask defaults at agent level: the ceiling
+	// restated as config (OPENCODE_CONFIG_CONTENT).
+	SourceFloor = "floor"
+	// SourceCerea is rules the machine applies to the session: its own
+	// (policy.json) and what a person set through session.setRules.
+	SourceCerea = "cerea"
+	// SourceCeiling is the cap, always last.
+	SourceCeiling = "ceiling"
+)
+
+// SourcedRule is a rule with where it came from.
+type SourcedRule struct {
+	permrules.Rule
+	Source string
 }
 
-// SavedApproval is one "always" the backend remembers: an action and the
-// resource it covers, as the backend names them.
+// RuleLayers is one session's effective rules, in evaluation order. opencode
+// merges an agent's ruleset without recording which layer a rule came from, so
+// Source is attributed by galopin: the floor and the file are read from what
+// galopin itself wrote, everything else in the agent's list is opencode's.
+type RuleLayers struct {
+	Agent string
+	Rules []SourcedRule
+}
+
+// Plain is the rules without their sources.
+func (l RuleLayers) Plain() []permrules.Rule {
+	out := make([]permrules.Rule, 0, len(l.Rules))
+	for _, r := range l.Rules {
+		out = append(out, r.Rule)
+	}
+	return out
+}
+
+// SavedApproval is one "always" as permission.rules lists it. opencode keeps
+// its own in memory with no ids, and 1.18.32 offers no way to read or withdraw
+// them, so galopin mints ids for the ones it relayed (Removable false) and
+// lists the ones opencode does expose (Removable true).
 type SavedApproval struct {
-	ID       string `json:"id"`
-	Action   string `json:"action"`
-	Resource string `json:"resource"`
+	ID        string   `json:"id"`
+	SessionID string   `json:"sessionId"`
+	Action    string   `json:"action"`
+	Resource  string   `json:"resource"`
+	Resources []string `json:"resources,omitempty"`
+	Removable bool     `json:"removable"`
+	GrantedAt string   `json:"grantedAt,omitempty"`
 }
 
 // RuleHost is the optional "permissions" capability: the backend's permission
@@ -253,13 +291,16 @@ type RuleHost interface {
 	// EffectiveRules is the rules in force for a session, in evaluation order:
 	// its agent's, then the ones galopin applied to the session.
 	EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error)
-	// RuleLayers is EffectiveRules taken apart: the agent it runs, opencode's
-	// own rules for it (defaults, opencode.json, agent config), the machine's
-	// own rules galopin applied, and the ceiling's tail. Display only.
+	// RuleLayers is EffectiveRules with each rule's source. Display only.
 	RuleLayers(ctx context.Context, workspaceDir, sessionID string) (RuleLayers, error)
-	// SavedApprovals lists the "always" approvals the backend holds.
+	// SetSessionRules replaces the rules a person set on a session (already
+	// clamped to the ceiling by the caller) and applies them. The session's
+	// composed rules come out as the machine's own, these, then the ceiling.
+	SetSessionRules(ctx context.Context, workspaceDir, sessionID string, rules []permrules.Rule) error
+	// SavedApprovals lists the approvals the backend itself exposes with ids
+	// (the machine adds the ones it relayed).
 	SavedApprovals(ctx context.Context) ([]SavedApproval, error)
-	// RemoveSavedApproval withdraws one.
+	// RemoveSavedApproval withdraws one of those.
 	RemoveSavedApproval(ctx context.Context, id string) error
 	// EnsureRules re-applies the machine's rules to a session if they differ
 	// from what it carries (after the ceiling changed).

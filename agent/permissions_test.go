@@ -32,6 +32,8 @@ type ruleBackend struct {
 	children map[string]string
 	layers   backend.RuleLayers
 	restart  error
+	setRules map[string][]permrules.Rule
+	setErr   error
 }
 
 func (r *ruleBackend) Capabilities() backend.Capabilities {
@@ -44,7 +46,16 @@ func (r *ruleBackend) ReplyPermission(_ context.Context, _, _, _ string, d backe
 	return nil
 }
 func (r *ruleBackend) EffectiveRules(context.Context, string, string) ([]permrules.Rule, error) {
-	return append(append(append([]permrules.Rule(nil), r.layers.OpencodeSide...), r.layers.Own...), r.layers.Ceiling...), nil
+	return r.layers.Plain(), nil
+}
+func (r *ruleBackend) SetSessionRules(_ context.Context, _, sessionID string, rules []permrules.Rule) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.setRules == nil {
+		r.setRules = map[string][]permrules.Rule{}
+	}
+	r.setRules[sessionID] = rules
+	return r.setErr
 }
 func (r *ruleBackend) RuleLayers(context.Context, string, string) (backend.RuleLayers, error) {
 	return r.layers, nil
@@ -203,13 +214,14 @@ func TestAlwaysStandsWithNoCeiling(t *testing.T) {
 
 func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 	mc, rb, _ := newRuleMachine(t, policyWithCeiling(map[string]string{"edit": "ask"}))
-	rb.layers = backend.RuleLayers{
-		Agent:        "build",
-		OpencodeSide: []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}},
-		Own:          []permrules.Rule{{Permission: "edit", Pattern: "*", Action: permrules.Allow}},
-		Ceiling:      []permrules.Rule{{Permission: "edit", Pattern: "*", Action: permrules.Ask}},
-	}
-	rb.saved = []backend.SavedApproval{{ID: "sav_1", Action: "bash", Resource: "ls *"}}
+	rb.layers = backend.RuleLayers{Agent: "build", Rules: []backend.SourcedRule{
+		{Rule: permrules.Rule{Permission: "*", Pattern: "*", Action: permrules.Allow}, Source: backend.SourceDefault},
+		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Ask}, Source: backend.SourceFile},
+		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}, Source: backend.SourceCerea},
+		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Ask}, Source: backend.SourceCeiling},
+	}}
+	rb.saved = []backend.SavedApproval{{ID: "sav_1", Action: "bash", Resource: "ls *", Removable: true}}
+	mc.saved.add("s1", "bash", []string{"rm *"})
 	got, operr := mc.opPermissionRules(context.Background(), json.RawMessage(`{"sessionId":"s1"}`))
 	if operr != nil {
 		t.Fatal(operr)
@@ -226,11 +238,18 @@ func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Agent != "build" || len(out.Rules) != 3 || out.Rules[0].Source != "opencode" || out.Rules[1].Source != "machine" || out.Rules[2].Source != "ceiling" {
+	if out.Agent != "build" || len(out.Rules) != 4 || out.Rules[0].Source != "default" || out.Rules[1].Source != "file" || out.Rules[2].Source != "cerea" || out.Rules[3].Source != "ceiling" {
 		t.Errorf("rules = %+v", out)
 	}
-	if len(out.SavedApprovals) != 1 || out.SavedApprovals[0].ID != "sav_1" || out.Ceiling["edit"] != "ask" {
-		t.Errorf("saved/ceiling = %+v", out)
+	if len(out.SavedApprovals) != 2 || out.Ceiling["edit"] != "ask" {
+		t.Fatalf("saved/ceiling = %+v", out)
+	}
+	minted, exposed := out.SavedApprovals[0], out.SavedApprovals[1]
+	if !strings.HasPrefix(minted.ID, "sa_") || minted.SessionID != "s1" || minted.Action != "bash" || minted.Removable {
+		t.Errorf("a minted approval = %+v: it should carry the granting session and not be removable", minted)
+	}
+	if exposed.ID != "sav_1" || !exposed.Removable {
+		t.Errorf("an opencode-listed approval = %+v, want removable", exposed)
 	}
 	if _, operr := mc.opPermissionRules(context.Background(), json.RawMessage(`{}`)); operr == nil || operr.Code != "invalid" {
 		t.Errorf("no sessionId: %v", operr)
@@ -250,22 +269,22 @@ func TestPermissionRulesUnsupportedWithoutAPermissionBackend(t *testing.T) {
 	if _, operr := mc.opPermissionRules(context.Background(), json.RawMessage(`{"sessionId":"s1"}`)); operr == nil || operr.Code != "unsupported" {
 		t.Errorf("rules on a backend without them: %v", operr)
 	}
-	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"id":"x"}`)); operr == nil || operr.Code != "unsupported" {
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"x"}`)); operr == nil || operr.Code != "unsupported" {
 		t.Errorf("saved.remove on a backend without them: %v", operr)
 	}
 }
 
-func TestSavedRemoveWithdrawsAndAudits(t *testing.T) {
+func TestSavedRemoveWithdrawsWhatOpencodeLists(t *testing.T) {
 	mc, rb, dir := newRuleMachine(t, policy.Default())
-	rb.saved = []backend.SavedApproval{{ID: "sav_1", Action: "bash", Resource: "ls *"}}
-	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"id":"sav_1"}`)); operr != nil {
+	rb.saved = []backend.SavedApproval{{ID: "sav_1", Action: "bash", Resource: "ls *", Removable: true}}
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"sav_1"}`)); operr != nil {
 		t.Fatal(operr)
 	}
 	if len(rb.removed) != 1 || rb.removed[0] != "sav_1" {
 		t.Errorf("removed = %v", rb.removed)
 	}
-	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"id":"nope"}`)); operr == nil {
-		t.Error("an unknown id must fail")
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"nope"}`)); operr == nil || operr.Code != "not_found" {
+		t.Errorf("an unknown id: %v", operr)
 	}
 	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{}`)); operr == nil || operr.Code != "invalid" {
 		t.Errorf("no id: %v", operr)
@@ -281,11 +300,50 @@ func TestSavedRemoveWithdrawsAndAudits(t *testing.T) {
 	}
 }
 
-// The contract: the link has exactly one write to permissions, and it only
-// tightens. No op sets rules, a ceiling or a policy.
+// An approval galopin minted an id for cannot be withdrawn on 1.18.32: the op
+// says so, rather than pretending, and nothing is removed.
+func TestSavedRemoveOfAMintedApprovalIsUnsupported(t *testing.T) {
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	askFor(mc, "per_1", "edit")
+	args, _ := json.Marshal(map[string]any{"sessionId": "s1", "requestId": "per_1", "decision": "always"})
+	if _, operr := mc.opPermissionReply(context.Background(), args); operr != nil {
+		t.Fatal(operr)
+	}
+	list := mc.saved.list()
+	if len(list) != 1 || list[0].SessionID != "s1" || list[0].Action != "edit" || list[0].Removable {
+		t.Fatalf("ledger = %+v, want one non-removable entry for the granting session", list)
+	}
+	if len(list[0].Resources) != 1 || list[0].Resources[0] != "rm -rf /" {
+		t.Errorf("resources = %v", list[0].Resources)
+	}
+	rm, _ := json.Marshal(map[string]any{"sessionId": "s1", "id": list[0].ID})
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), rm); operr == nil || operr.Code != "unsupported" {
+		t.Errorf("removing a minted approval: %v, want unsupported", operr)
+	}
+	if len(rb.removed) != 0 {
+		t.Error("something was removed")
+	}
+	// A capped always creates nothing to remember; neither does a once.
+	mc2, _, _ := newRuleMachine(t, policyWithCeiling(map[string]string{"edit": "ask"}))
+	askFor(mc2, "per_1", "edit")
+	if _, operr := mc2.opPermissionReply(context.Background(), args); operr != nil {
+		t.Fatal(operr)
+	}
+	if n := len(mc2.saved.list()); n != 0 {
+		t.Errorf("ledger = %d entries after a capped always, want none", n)
+	}
+	// And a tightened policy, which restarts opencode, forgets them.
+	mc.policyTightened(context.Background(), policy.Change{Tightened: true})
+	if n := len(mc.saved.list()); n != 0 {
+		t.Errorf("ledger = %d entries after the restart, want none", n)
+	}
+}
+
+// The link writes a session's rules (capped) and withdraws a saved approval;
+// no op sets a ceiling or a policy.
 func TestNoOpWritesRules(t *testing.T) {
 	mc, _, _ := newRuleMachine(t, policy.Default())
-	for _, op := range []string{"permission.rules.set", "permission.setRules", "permission.ceiling", "policy.set", "session.setRules", "permission.saved.add"} {
+	for _, op := range []string{"permission.rules.set", "permission.setRules", "permission.ceiling", "policy.set", "permission.saved.add", "session.setRule"} {
 		if _, operr := mc.Handle(context.Background(), op, json.RawMessage(`{}`)); operr == nil || operr.Code != "unsupported" {
 			t.Errorf("%s: %v, want unsupported", op, operr)
 		}
@@ -495,7 +553,10 @@ func TestGrantReadsTheAskingSessionsRules(t *testing.T) {
 		{"the other tool's allow is not this one's", []permrules.Rule{{Permission: "session_send", Pattern: "*", Action: permrules.Allow}}, permrules.Ask, false},
 	}
 	for _, c := range cases {
-		rb.layers = backend.RuleLayers{OpencodeSide: c.rules}
+		rb.layers = backend.RuleLayers{}
+		for _, r := range c.rules {
+			rb.layers.Rules = append(rb.layers.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceDefault})
+		}
 		got, err := at.grant(context.Background(), tc, "session_spawn")
 		if got != c.want || (err != nil) != c.refused {
 			t.Errorf("%s: grant = %s, %v; want %s refused=%v", c.name, got, err, c.want, c.refused)
@@ -509,5 +570,121 @@ func TestGrantReadsTheAskingSessionsRules(t *testing.T) {
 	at2 := &agentTools{mc: &machine{back: fb}}
 	if got, err := at2.grant(context.Background(), tc, "session_spawn"); got != permrules.Ask || err != nil {
 		t.Errorf("a backend without rules = %s, %v; want ask", got, err)
+	}
+}
+
+// session.setRules: every rule is capped to the ceiling before it is applied.
+func TestSetRulesClampsToTheCeiling(t *testing.T) {
+	mc, rb, dir := newRuleMachine(t, policyWithCeiling(map[string]string{"bash": "ask", "edit": "deny", "session_spawn": "ask"}))
+	args, _ := json.Marshal(map[string]any{"sessionId": "s1", "rules": []map[string]any{
+		{"permission": "bash", "pattern": "rm -rf *", "action": "allow"}, // over the ceiling
+		{"permission": "edit", "pattern": "*", "action": "allow"},        // over: capped at deny
+		{"permission": "read", "pattern": "*.md", "action": "allow"},     // under: as asked
+		{"permission": "session_spawn", "pattern": "*", "action": "allow"},
+	}})
+	res, operr := mc.Handle(context.Background(), "session.setRules", args)
+	if operr != nil {
+		t.Fatal(operr)
+	}
+	if m, ok := res.(map[string]any); !ok || len(m) != 0 {
+		t.Errorf("answer = %v, want the bare {} (the panel re-reads the truth)", res)
+	}
+	got := rb.setRules["s1"]
+	want := []permrules.Rule{
+		{Permission: "bash", Pattern: "rm -rf *", Action: permrules.Ask},
+		{Permission: "edit", Pattern: "*", Action: permrules.Deny},
+		{Permission: "read", Pattern: "*.md", Action: permrules.Allow},
+		{Permission: "session_spawn", Pattern: "*", Action: permrules.Ask},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("applied = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("applied[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	// The audit says it was clamped and which tools, never the patterns.
+	var row map[string]any
+	for _, r := range auditRows(t, dir) {
+		if r["action"] == "permission.setRules" {
+			row = r
+		}
+	}
+	if row == nil || row["clamped"] != true || row["session"] != "s1" || row["sent"] != float64(4) {
+		t.Fatalf("audit row = %v", row)
+	}
+	raw, _ := json.Marshal(row)
+	if strings.Contains(string(raw), "rm -rf") || strings.Contains(string(raw), "*.md") {
+		t.Errorf("a pattern reached the audit log: %s", raw)
+	}
+}
+
+func TestSetRulesWithinTheCeilingIsNotClamped(t *testing.T) {
+	mc, rb, dir := newRuleMachine(t, policyWithCeiling(map[string]string{"bash": "ask"}))
+	args, _ := json.Marshal(map[string]any{"sessionId": "s1", "rules": []map[string]any{{"permission": "bash", "pattern": "*", "action": "deny"}, {"permission": "edit", "pattern": "*", "action": "allow"}}})
+	if _, operr := mc.Handle(context.Background(), "session.setRules", args); operr != nil {
+		t.Fatal(operr)
+	}
+	if got := rb.setRules["s1"]; len(got) != 2 || got[0].Action != permrules.Deny || got[1].Action != permrules.Allow {
+		t.Errorf("applied = %+v", got)
+	}
+	for _, r := range auditRows(t, dir) {
+		if r["action"] == "permission.setRules" && r["clamped"] != false {
+			t.Errorf("a within-ceiling write was audited as clamped: %v", r)
+		}
+	}
+	// An empty write clears the person's rules; it is still a write.
+	empty, _ := json.Marshal(map[string]any{"sessionId": "s1", "rules": []any{}})
+	if _, operr := mc.Handle(context.Background(), "session.setRules", empty); operr != nil {
+		t.Fatal(operr)
+	}
+	if got, ok := rb.setRules["s1"]; !ok || len(got) != 0 {
+		t.Errorf("applied after an empty write = %+v ok=%v", got, ok)
+	}
+}
+
+// Refused only for an unknown session (and a malformed rule or a backend with
+// no rules); never for being over the ceiling.
+func TestSetRulesRefusals(t *testing.T) {
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	ghost, _ := json.Marshal(map[string]any{"sessionId": "ghost", "rules": []any{}})
+	if _, operr := mc.Handle(context.Background(), "session.setRules", ghost); operr == nil || operr.Code != "not_found" {
+		t.Errorf("an unknown session: %v, want not_found", operr)
+	}
+	if len(rb.setRules) != 0 {
+		t.Error("something was applied to a session that does not exist")
+	}
+	for name, body := range map[string]string{
+		"bad action":    `{"sessionId":"s1","rules":[{"permission":"edit","pattern":"*","action":"yes"}]}`,
+		"no permission": `{"sessionId":"s1","rules":[{"pattern":"*","action":"allow"}]}`,
+		"not json":      `{"sessionId":"s1","rules":"allow everything"}`,
+	} {
+		if _, operr := mc.Handle(context.Background(), "session.setRules", json.RawMessage(body)); operr == nil || operr.Code != "invalid" {
+			t.Errorf("%s: %v, want invalid (a malformed rule is not silently dropped)", name, operr)
+		}
+	}
+	tooMany := make([]map[string]string, maxSetRules+1)
+	for i := range tooMany {
+		tooMany[i] = map[string]string{"permission": "edit", "pattern": "*", "action": "ask"}
+	}
+	big, _ := json.Marshal(map[string]any{"sessionId": "s1", "rules": tooMany})
+	if _, operr := mc.Handle(context.Background(), "session.setRules", big); operr == nil || operr.Code != "invalid" {
+		t.Errorf("too many rules: %v", operr)
+	}
+	rb.setErr = errors.New("opencode went away")
+	ok, _ := json.Marshal(map[string]any{"sessionId": "s1", "rules": []any{}})
+	if _, operr := mc.Handle(context.Background(), "session.setRules", ok); operr == nil || operr.Code != "backend" {
+		t.Errorf("a write that could not be applied must say so, got %v", operr)
+	}
+
+	stateDir := t.TempDir()
+	reg, _ := workspaces.Load(filepath.Join(stateDir, "workspaces.json"))
+	ws, _ := reg.Create("ws", t.TempDir(), nil)
+	fb := &fakeBackend{}
+	plain := newMachine(reg, fb, sessions.New(fb, policy.Default()), policy.Default())
+	plain.trackSession(ws, backend.Session{ID: "s1"})
+	if _, operr := plain.Handle(context.Background(), "session.setRules", json.RawMessage(`{"sessionId":"s1","rules":[]}`)); operr == nil || operr.Code != "unsupported" {
+		t.Errorf("a backend without rules: %v", operr)
 	}
 }

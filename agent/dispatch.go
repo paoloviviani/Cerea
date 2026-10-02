@@ -31,7 +31,9 @@ type machine struct {
 	pol        policy.Policy
 	// live is the permission part of the policy as it stands now (it can only
 	// tighten while the agent runs); the materializer reads the same one.
-	live      *policy.Live
+	live *policy.Live
+	// saved is the "always" approvals this machine relayed (permissions.go).
+	saved     savedLedger
 	files     *files.Service
 	terminals *terminal.Manager
 
@@ -244,6 +246,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opPermissionReply(ctx, args)
 	case "permission.rules":
 		return mc.opPermissionRules(ctx, args)
+	case "session.setRules":
+		return mc.opSessionSetRules(ctx, args)
 	case "permission.saved.remove":
 		return mc.opPermissionSavedRemove(ctx, args)
 
@@ -919,12 +923,26 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	}
 	// One answer path for opencode's asks and galopin's own (gp_). An "always"
 	// the ceiling does not let stand goes out as "once".
-	tool := mc.askedTool(a.SessionID, a.RequestID)
+	asked := mc.askedRequest(a.SessionID, a.RequestID)
+	tool := ""
+	if asked != nil {
+		tool = asked.Tool
+	}
 	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
 	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, decision, a.Message); err != nil {
 		return nil, backendErr(err)
 	}
 	mc.audit.permission(a.SessionID, a.RequestID, tool, string(decision), "user", capped)
+	// An "always" opencode accepted is remembered by opencode, in memory and
+	// without an id; the machine keeps its own record of it so the panel can
+	// show what is standing (galopin's own gp_ asks never are: always is once).
+	if decision == backend.DecisionAlways && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") {
+		patterns := asked.Always
+		if len(patterns) == 0 {
+			patterns = asked.Patterns
+		}
+		mc.saved.add(a.SessionID, tool, patterns)
+	}
 	return map[string]any{}, nil
 }
 

@@ -220,14 +220,106 @@ func (c Ceiling) Tail(in []Rule) []Rule {
 	return out
 }
 
+// Panel is what a person set on one session through session.setRules. It is
+// the machine-side record of a write that can only be appended to opencode's
+// session rules, never removed from them: Rules is the set in force now,
+// Touched every (permission, pattern) any write ever named, so a rule dropped
+// from a later write can be actively restored rather than left standing.
+type Panel struct {
+	Rules   []Rule `json:"rules,omitempty"`
+	Touched []Rule `json:"touched,omitempty"` // Action unused
+}
+
+// With is the Panel after a write that sets exactly rules.
+func (p Panel) With(rules []Rule) Panel {
+	out := Panel{Rules: append([]Rule(nil), rules...), Touched: append([]Rule(nil), p.Touched...)}
+	seen := map[[2]string]bool{}
+	for _, t := range out.Touched {
+		seen[[2]string{t.Permission, t.Pattern}] = true
+	}
+	for _, r := range rules {
+		k := [2]string{r.Permission, r.Pattern}
+		if !seen[k] {
+			seen[k] = true
+			out.Touched = append(out.Touched, Rule{Permission: r.Permission, Pattern: r.Pattern})
+		}
+	}
+	return out
+}
+
+// Clamp lowers every rule to the ceiling, so a write can never apply more than
+// the machine allows: a rule for a capped key comes out at the cap, never as
+// requested. A rule whose permission is a pattern (`*`) is kept as asked and
+// followed by a clamped copy for each capped key it covers, so what is read
+// back says what is true for those keys. It reports whether anything was
+// lowered. Empty patterns mean `*`; rules with an invalid action or no
+// permission are dropped.
+//
+// It is the same cap an "always" gets (Ceiling.Cap), applied to a rule instead
+// of a reply.
+func (c Ceiling) Clamp(rules []Rule) (out []Rule, clamped bool) {
+	for _, r := range rules {
+		if r.Permission == "" || !r.Action.Valid() {
+			continue
+		}
+		if r.Pattern == "" {
+			r.Pattern = "*"
+		}
+		if !IsWildcard(r.Permission) {
+			capped := c.Cap(r.Permission, r.Action)
+			clamped = clamped || capped != r.Action
+			out = append(out, Rule{r.Permission, r.Pattern, capped})
+			continue
+		}
+		out = append(out, r)
+		for _, k := range c.Keys() {
+			if !Match(k, r.Permission) {
+				continue
+			}
+			if capped := c.Cap(k, r.Action); capped != r.Action {
+				clamped = true
+				out = append(out, Rule{k, r.Pattern, capped})
+			}
+		}
+	}
+	return out, clamped
+}
+
 // Compose is the rules a session is created with (and re-sent with when
 // anything they derive from changes): the machine's own rules, then the
 // ceiling's tail over everything beneath them. agent is the session's agent's
 // effective rules (opencode's GET /agent). The ceiling is last, every time.
-func Compose(l Layers, agent []Rule) []Rule {
-	out := append([]Rule(nil), l.Own...)
-	in := append(append([]Rule(nil), agent...), l.Own...)
-	return append(out, l.Ceiling.Tail(in)...)
+func Compose(l Layers, agent []Rule) []Rule { return ComposeFor(l, Panel{}, agent) }
+
+// ComposeFor is Compose for a session a person has written rules to: the
+// machine's own rules, then the panel block — restorations of what earlier
+// writes named and later ones dropped, then the rules in force now — and the
+// ceiling's tail over all of it, last. A restoration restates what the base
+// (the agent's rules and the machine's own) says for that rule's pattern, for
+// the agent the session runs NOW, so it is right after a mode change too.
+func ComposeFor(l Layers, p Panel, agent []Rule) []Rule {
+	cerea, tail := ComposeParts(l, p, agent)
+	return append(cerea, tail...)
+}
+
+// ComposeParts is ComposeFor taken apart: the machine's and the person's rules,
+// and the ceiling's tail after them.
+func ComposeParts(l Layers, p Panel, agent []Rule) (cerea, tail []Rule) {
+	base := append(append([]Rule(nil), agent...), l.Own...)
+	active := map[[2]string]bool{}
+	for _, r := range p.Rules {
+		active[[2]string{r.Permission, r.Pattern}] = true
+	}
+	var block []Rule
+	for _, t := range p.Touched {
+		if !active[[2]string{t.Permission, t.Pattern}] {
+			block = append(block, Rule{t.Permission, t.Pattern, Evaluate(base, t.Permission, t.Pattern)})
+		}
+	}
+	block = append(block, p.Rules...)
+	cerea = append(append([]Rule(nil), l.Own...), block...)
+	in := append(append([]Rule(nil), agent...), cerea...)
+	return cerea, l.Ceiling.Tail(in)
 }
 
 // ChildRules is what a subagent session gets: the ceiling's tail over the
@@ -236,6 +328,12 @@ func Compose(l Layers, agent []Rule) []Rule {
 // by any other road either. (Denies need no help: opencode carries them.)
 func ChildRules(l Layers, agent []Rule) []Rule {
 	return l.Ceiling.Tail(agent)
+}
+
+// ChildRulesFor is ChildRules for a subagent a person has written rules to:
+// the panel block (never the machine's own rules) and the ceiling's tail.
+func ChildRulesFor(l Layers, p Panel, agent []Rule) []Rule {
+	return ComposeFor(Layers{Ceiling: l.Ceiling}, p, agent)
 }
 
 // Grant is how the two galopin coordination tools are decided from rules.
@@ -283,6 +381,54 @@ func OwnRules(m map[string]Action) []Rule {
 	out := make([]Rule, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, Rule{k, "*", m[k]})
+	}
+	return out
+}
+
+// FromConfig reads an opencode `permission` config block into rules: a string
+// value is a rule for the key with pattern `*`, an object is one rule per
+// pattern. Keys and patterns are sorted so equal blocks read equal.
+func FromConfig(block map[string]any) []Rule {
+	keys := make([]string, 0, len(block))
+	for k := range block {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []Rule
+	for _, k := range keys {
+		switch v := block[k].(type) {
+		case string:
+			out = append(out, Rule{k, "*", Action(v)})
+		case map[string]any:
+			pats := make([]string, 0, len(v))
+			for pat := range v {
+				pats = append(pats, pat)
+			}
+			sort.Strings(pats)
+			for _, pat := range pats {
+				if a, ok := v[pat].(string); ok {
+					out = append(out, Rule{k, pat, Action(a)})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// FloorRules is the floor for agent as rules: what the OPENCODE_CONFIG_CONTENT
+// built from this ceiling adds to that agent's ruleset, top-level block first.
+func (c Ceiling) FloorRules(agent string) []Rule {
+	f := c.Floor()
+	var out []Rule
+	if top, ok := f["permission"].(map[string]any); ok {
+		out = append(out, FromConfig(top)...)
+	}
+	if agents, ok := f["agent"].(map[string]any); ok {
+		if a, ok := agents[agent].(map[string]any); ok {
+			if perm, ok := a["permission"].(map[string]any); ok {
+				out = append(out, FromConfig(perm)...)
+			}
+		}
 	}
 	return out
 }
