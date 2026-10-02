@@ -46,6 +46,8 @@
 	const publicConfig = usePublicConfig();
 	let failure = $state<string | null>(null);
 	let busy = $state(false);
+	/** Which connector an in-flight row action belongs to, so only its icon spins. */
+	let busyConnector = $state<string | null>(null);
 	let adding = $state(false);
 
 	// Two sections, because the two kinds of connector are not the same thing
@@ -275,6 +277,7 @@
 
 	async function act(connector: McpConnectorView, action: "reprobe" | "disconnect") {
 		busy = true;
+		busyConnector = connector.id;
 		failure = null;
 		try {
 			await api(`/connectors/${connector.id}`, json({ action }));
@@ -283,6 +286,7 @@
 			failure = err instanceof Error ? err.message : "That did not work.";
 		} finally {
 			busy = false;
+			busyConnector = null;
 		}
 	}
 
@@ -571,8 +575,8 @@
 								: "Ask the server again how it authenticates"}
 							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 						>
-							<IconRefresh class="size-3" />
-							Re-check
+							<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
+							{busyConnector === connector.id ? "Checking…" : "Re-check"}
 						</button>
 					{/if}
 					{#if connector.scope === "user"}
