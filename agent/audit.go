@@ -129,3 +129,27 @@ func (a *auditLogger) agentTool(tool, from, to, decision, reason string) {
 	}
 	a.write(entry)
 }
+
+// permission records one answer to a permission ask (PROTOCOL.md §6
+// "Permissions"): the session, the request, the tool class, the decision that
+// took effect and who gave it — "user" for a person's permission.reply,
+// "responder" for auto-accept. Never a pattern: for bash the pattern IS the
+// command text. capped marks a reply the ceiling lowered from "always".
+func (a *auditLogger) permission(session, requestID, tool, decision, by string, capped bool) {
+	entry := map[string]any{"action": "permission", "session": session, "requestId": requestID, "tool": tool, "decision": decision, "by": by}
+	if capped {
+		entry["capped"] = true
+	}
+	a.write(entry)
+}
+
+// permissionSavedRemove records a saved approval being withdrawn.
+func (a *auditLogger) permissionSavedRemove(id string) {
+	a.write(map[string]any{"action": "permission.saved.remove", "id": id})
+}
+
+// permissionTightened records a tightened permission policy being taken in
+// while the agent ran, and that opencode was restarted to apply it.
+func (a *auditLogger) permissionTightened(restarted bool) {
+	a.write(map[string]any{"action": "permission.tightened", "restarted": restarted})
+}

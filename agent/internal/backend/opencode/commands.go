@@ -666,6 +666,13 @@ func docListsSessionCommand(doc map[string]any) bool {
 // it off. This method returns once the run is accepted; a late failure
 // becomes an error event on the session.
 func (b *Backend) RunCommand(ctx context.Context, workspaceDir, sessionID string, run backend.CommandRun) error {
+	agent := run.Agent
+	if agent == "" {
+		agent = b.agentFor(sessionID)
+	}
+	if err := b.ensureRules(ctx, workspaceDir, sessionID, agent); err != nil {
+		return err
+	}
 	messageID := mintMessageID()
 	if run.ClientMessageID != "" {
 		b.recordExactClientMessageID(messageID, run.ClientMessageID)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"galopin/internal/fsutil"
 	"galopin/internal/permrules"
@@ -355,6 +356,137 @@ func (p Policy) FilterModelIDs(ids []string) []string {
 	for _, id := range ids {
 		if strings.HasPrefix(id, prefix) {
 			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// Live is the permission part of the policy as a running agent holds it. The
+// rest of policy.json is read once at start; the permission part is the one
+// piece that may change under a running process, and only downward: a ceiling
+// or a rule tightened with `galopin policy set`, or responders turned off,
+// takes effect without a restart of galopin. A looser file is not picked up
+// until the next `run` (loosening needs `enroll`, as everywhere else).
+type Live struct {
+	mu sync.RWMutex
+	p  Permission
+}
+
+// NewLive starts from the permission policy `run` loaded.
+func NewLive(p Permission) *Live { return &Live{p: clonePermission(p)} }
+
+// Permission is a copy of the current permission policy.
+func (l *Live) Permission() Permission {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return clonePermission(l.p)
+}
+
+// RespondersAllowed reports whether a session may be on auto-accept right now.
+func (l *Live) RespondersAllowed() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.p.RespondersAllowed()
+}
+
+// Layers is the machine's two permission inputs for composing a session's rules.
+func (l *Live) Layers() permrules.Layers {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return permrules.Layers{Own: l.p.OwnRules(), Ceiling: l.p.Ceiling()}
+}
+
+// Change says what a Tighten took in.
+type Change struct {
+	// Tightened: a ceiling key or a rule of the machine's own now permits less
+	// than it did. This is what makes a restart of opencode necessary, because
+	// an "always" it holds outranks every rule.
+	Tightened bool
+	// RespondersOff: auto-accept was allowed and no longer is.
+	RespondersOff bool
+}
+
+// Any reports whether anything changed.
+func (c Change) Any() bool { return c.Tightened || c.RespondersOff }
+
+// Tighten takes in a newly read permission policy, keeping the stricter of each
+// key and never raising anything: a ceiling the file now loosens stays as it
+// was, a rule it raises stays lowered, responders turned off stay off.
+func (l *Live) Tighten(next Permission) Change {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var ch Change
+	l.p.Max, ch.Tightened = meetActions(l.p.Max, next.Max, ch.Tightened)
+	var rulesTight bool
+	l.p.Rules, rulesTight = lowerActions(l.p.Rules, next.Rules)
+	ch.Tightened = ch.Tightened || rulesTight
+	if l.p.RespondersAllowed() && !next.RespondersAllowed() {
+		l.p.Responders = TerminalDenied
+		ch.RespondersOff = true
+	}
+	return ch
+}
+
+// meetActions merges next into have key by key, keeping the lower; the bool
+// reports whether anything got lower (or a key got capped).
+func meetActions(have, next map[string]string, already bool) (map[string]string, bool) {
+	out := map[string]string{}
+	for k, v := range have {
+		out[k] = v
+	}
+	changed := already
+	for k, v := range next {
+		cur, ok := out[k]
+		curAction := permrules.Allow
+		if ok {
+			curAction = permrules.Action(cur)
+		}
+		if permrules.Min(curAction, permrules.Action(v)) != curAction {
+			out[k] = v
+			changed = true
+		}
+	}
+	return out, changed
+}
+
+// lowerActions is meetActions for the machine's own rules, where a key absent
+// from have is no rule rather than a cap: an ask or deny added where there was
+// nothing is a tightening, an allow added where there was nothing is ignored.
+func lowerActions(have, next map[string]string) (map[string]string, bool) {
+	out := map[string]string{}
+	for k, v := range have {
+		out[k] = v
+	}
+	changed := false
+	for k, v := range next {
+		cur, ok := out[k]
+		if !ok {
+			if permrules.Action(v) != permrules.Allow {
+				out[k] = v
+				changed = true
+			}
+			continue
+		}
+		if permrules.Min(permrules.Action(cur), permrules.Action(v)) != permrules.Action(cur) {
+			out[k] = v
+			changed = true
+		}
+	}
+	return out, changed
+}
+
+func clonePermission(p Permission) Permission {
+	out := Permission{Responders: p.Responders}
+	if p.Max != nil {
+		out.Max = make(map[string]string, len(p.Max))
+		for k, v := range p.Max {
+			out.Max[k] = v
+		}
+	}
+	if p.Rules != nil {
+		out.Rules = make(map[string]string, len(p.Rules))
+		for k, v := range p.Rules {
+			out.Rules[k] = v
 		}
 	}
 	return out
