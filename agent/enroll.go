@@ -59,10 +59,23 @@ Usage:
                 lets a task keep running after its parent turn ends, with
                 its result injected back as a synthetic message the panel
                 shows as a background marker.
-  --allow-auto-accept  Let 'run' permit session.setAutoAccept at all
+  --allow-auto-accept  Let a session be switched to auto-accept at all
                (default denied: the machine's own veto, PROTOCOL.md §4 —
                Cerea can never turn this on over the link if this flag was
-               never passed at enroll time).
+               never passed at enroll time). Auto-accept answers a session's
+               tool asks "once" without a card; it never answers a question,
+               never says "always", and cannot touch what a rule denies.
+  --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
+               session_spawn, …) may ever be — allow, ask or deny — whatever any
+               rule or "always" says (repeatable; default bash=ask; a list you give
+               replaces that default, so --permission-max edit=ask alone leaves
+               bash uncapped). Because
+               bash can read opencode's server password out of its own
+               environment, a ceiling that lets bash run lets a hijacked
+               session widen its own rules, which is why bash asks by default.
+  --permission-rule KEY=ACTION  This machine's own rule for KEY (repeatable;
+               default none). Applied as a session rule, so it beats the
+               opencode.json written here; the ceiling still caps it.
   --workspace-root PATH  Confine workspace.create to this path or below
                (repeatable; default unrestricted). Every occurrence is
                recorded; 'run' refuses a workspace outside all of them.
@@ -92,8 +105,9 @@ Usage:
    --no-agent-tools  Install none of galopin's agent-coordination tools
                 (session_list/session_spawn/session_send) into opencode, and
                 leave OPENCODE_CONFIG_DIR alone (default: installed; every
-                spawn and send needs a person's approval each time, which
-                auto-accept never answers).
+                spawn and send needs a person's approval each time unless a
+                rule for session_spawn / session_send says allow; auto-accept
+                never answers one).
    --yes        Overwrite existing files without asking.
 `
 
@@ -116,6 +130,8 @@ type enrollOptions struct {
 	discover               bool
 	allowOpencodeProviders bool
 	allowAutoAccept        bool
+	permissionMax          []string
+	permissionRules        []string
 	noFiles                bool
 	fileDeny               []string
 	noDefaultFileDeny      bool
@@ -166,6 +182,8 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.discover, "discover", true, "")
 	fs.BoolVar(&opts.allowOpencodeProviders, "allow-opencode-provider", false, "")
 	fs.BoolVar(&opts.allowAutoAccept, "allow-auto-accept", false, "")
+	fs.Var(stringListFlag{&opts.permissionMax}, "permission-max", "")
+	fs.Var(stringListFlag{&opts.permissionRules}, "permission-rule", "")
 	fs.Var(stringListFlag{&opts.workspaceRoots}, "workspace-root", "")
 	fs.BoolVar(&opts.allowFreeModels, "allow-free-models", false, "")
 	fs.BoolVar(&opts.noFiles, "no-files", false, "")
@@ -189,6 +207,10 @@ func runEnroll(args []string) error {
 	}
 	if opts.device && opts.loopback {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
+	}
+	// A bad permission flag fails now, not after the person has signed in.
+	if _, err := enrollPolicy(&opts); err != nil {
+		return err
 	}
 	if opts.creds == "" {
 		path, err := resolveDefaultCredsPath()
@@ -289,45 +311,21 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
 	}
-	if err := writeOpencodeConfig(
-		opts.output,
-		buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders),
-	); err != nil {
+	ocConfig := buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders)
+	ocConfig.Permission = staticPermission()
+	if err := writeOpencodeConfig(opts.output, ocConfig); err != nil {
 		return err
 	}
 
 	// The machine's own veto (PROTOCOL.md §4): written once here, never
 	// writable over the link. `run` loads it from the same directory as
 	// the credential file.
-	pol := policy.Default()
-	if opts.allowAutoAccept {
-		pol.AutoAccept = policy.AutoAcceptAllowed
+	pol, err := enrollPolicy(opts)
+	if err != nil {
+		return err
 	}
-	pol.WorkspaceRoots = opts.workspaceRoots
-	pol.AllowFreeModels = opts.allowFreeModels
-	if opts.noFiles {
-		pol.Files = policy.FilesOff
-	}
-	pol.FileDeny = opts.fileDeny
-	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
 	if opts.allowTerminal {
-		pol.Terminal = policy.TerminalAllowed
-	}
-	if opts.allowCommandShell {
-		pol.CommandShell = policy.TerminalAllowed
-	}
-	if opts.noAgentTools {
-		pol.AgentTools = policy.TerminalDenied
-	}
-	if opts.allowProjectConfig {
-		pol.ProjectConfig = policy.TerminalAllowed
-	}
-	if opts.allowBackground {
-		pol.BackgroundSubagents = policy.TerminalAllowed
-	}
-	pol.MaxTerminals = opts.maxTerminals
-	if opts.allowTerminal && !opts.allowAutoAccept {
-		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're denying unattended agent commands but allowing a remote shell.")
+		fmt.Fprintln(os.Stderr, "warning: --allow-terminal opens a remote shell outside every permission rule.")
 	}
 	if err := policy.Save(policyPathFor(opts.creds), pol); err != nil {
 		return err
@@ -338,6 +336,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -528,7 +527,7 @@ func agentToolsPolicySummary(pol policy.Policy) string {
 	if !pol.AgentToolsAllowed() {
 		return "Agent tools: OFF — no session_list/session_spawn/session_send is installed into the agent."
 	}
-	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (auto-accept never does)."
+	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (auto-accept never does), unless a rule for session_spawn / session_send says allow."
 }
 
 // projectConfigPolicySummary says, in plain words, what a workspace's own
@@ -560,4 +559,55 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 		return "Background subagents: DENIED — OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS is never set, so a task with background:true fails closed."
 	}
 	return "Background subagents: ALLOWED — a task may keep running after its parent turn ends; its result returns as a synthetic message the panel shows."
+}
+
+// enrollPolicy is the policy.json a fresh enroll writes from its flags: the
+// machine's own veto (PROTOCOL.md §4). Everything defaults closed except what
+// the flags open; the permission ceiling defaults to bash=ask.
+func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
+	pol := policy.Default()
+	if opts.allowAutoAccept {
+		pol.Permission.Responders = policy.TerminalAllowed
+	}
+	pol.Permission.Max = defaultEnrollMax()
+	if len(opts.permissionMax) > 0 {
+		// Given, the flag states the whole ceiling: --permission-max bash=allow
+		// is how an owner opts out of the bash default, deliberately.
+		max, err := parseKeyActions("permission-max", opts.permissionMax)
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		pol.Permission.Max = max
+	}
+	if len(opts.permissionRules) > 0 {
+		rules, err := parseKeyActions("permission-rule", opts.permissionRules)
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		pol.Permission.Rules = rules
+	}
+	pol.WorkspaceRoots = opts.workspaceRoots
+	pol.AllowFreeModels = opts.allowFreeModels
+	if opts.noFiles {
+		pol.Files = policy.FilesOff
+	}
+	pol.FileDeny = opts.fileDeny
+	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
+	if opts.allowTerminal {
+		pol.Terminal = policy.TerminalAllowed
+	}
+	if opts.allowCommandShell {
+		pol.CommandShell = policy.TerminalAllowed
+	}
+	if opts.noAgentTools {
+		pol.AgentTools = policy.TerminalDenied
+	}
+	if opts.allowProjectConfig {
+		pol.ProjectConfig = policy.TerminalAllowed
+	}
+	if opts.allowBackground {
+		pol.BackgroundSubagents = policy.TerminalAllowed
+	}
+	pol.MaxTerminals = opts.maxTerminals
+	return pol, nil
 }

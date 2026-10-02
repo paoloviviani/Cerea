@@ -254,6 +254,11 @@ type opencodeConfig struct {
 	// behaviour is claimed either way.
 	EnabledProviders []string                    `json:"enabled_providers,omitempty"`
 	Provider         map[string]opencodeProvider `json:"provider"`
+	// Permission is opencode's static permission block, written once by
+	// enroll (staticPermission). It is the LOWEST layer a session's rules
+	// meet: galopin's own rules and the machine's ceiling sit above it, so a
+	// stale file never decides policy (PROTOCOL.md §6).
+	Permission map[string]string `json:"permission,omitempty"`
 }
 
 // buildOpencodeConfig renders the config around the shim address. Models

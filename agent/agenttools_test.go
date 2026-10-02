@@ -1,40 +1,35 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"galopin/internal/backend"
 )
 
-func TestModeAllowed(t *testing.T) {
+func TestSpawnMode(t *testing.T) {
 	cases := []struct {
 		caller, requested string
 		want              string
-		refuse            string
+		escalates         bool
 	}{
-		{"", "", "", ""},
-		{"", "inherit", "", ""},
-		{"plan", "inherit", "plan", ""},
-		{"plan", "plan", "plan", ""},
-		{"build", "plan", "plan", ""},
-		{"", "plan", "plan", ""},         // the strictest mode is safe from any caller
-		{"", "build", "", "cannot rank"}, // an empty mode is the backend's unverified default
-		{"plan", "build", "", "more permissive"},
-		{"custom", "plan", "", "can rank against"},
-		{"custom", "custom", "custom", ""},
-		{"plan", "custom", "", "can rank against"},
+		{"", "", "", false},
+		{"", "inherit", "", false},
+		{"plan", "inherit", "plan", false},
+		{"plan", "plan", "plan", false},
+		{"", "plan", "plan", false},      // plan is stricter than the backend's default
+		{"build", "plan", "plan", false}, // ...and than build
+		{"custom", "plan", "plan", true}, // but a custom caller may be stricter than plan: a card
+		{"custom", "custom", "custom", false},
+		{"build", "build", "build", false},
+		{"", "build", "build", true}, // an empty mode is the backend's unverified default
+		{"plan", "build", "build", true},
+		{"plan", "custom", "custom", true},
+		{"build", "custom", "custom", true}, // a name galopin cannot compare is never read as stricter
 	}
 	for _, c := range cases {
-		got, err := modeAllowed(c.caller, c.requested)
-		if c.refuse != "" {
-			if err == nil || !strings.Contains(err.Error(), c.refuse) {
-				t.Errorf("modeAllowed(%q,%q) = %q, %v; want refusal %q", c.caller, c.requested, got, err, c.refuse)
-			}
-			continue
-		}
-		if err != nil || got != c.want {
-			t.Errorf("modeAllowed(%q,%q) = %q, %v; want %q", c.caller, c.requested, got, err, c.want)
+		got, esc := spawnMode(c.caller, c.requested)
+		if got != c.want || esc != c.escalates {
+			t.Errorf("spawnMode(%q,%q) = %q, %v; want %q, %v", c.caller, c.requested, got, esc, c.want, c.escalates)
 		}
 	}
 }
@@ -62,29 +57,5 @@ func TestDecodeArgsRefusesUnknownKeys(t *testing.T) {
 	}
 	if got, err := decodeArgs([]byte(`{"title":"t"}`), "title"); err != nil || got["title"] != "t" {
 		t.Errorf("valid args: %v %v", got, err)
-	}
-}
-
-func TestNoMorePermissive(t *testing.T) {
-	cases := []struct {
-		sender, target string
-		want           bool
-	}{
-		{"build", "build", true},
-		{"build", "plan", true},
-		{"plan", "plan", true},
-		{"plan", "build", false},
-		{"build", "custom", false},  // an unrankable target counts as more permissive
-		{"custom", "custom", false}, // ...even when it is the sender's own mode
-		{"custom", "plan", false},   // an unrankable sender is never read as permissive
-		{"custom", "build", false},
-		{"", "build", false}, // an empty mode is the backend's unverified default: unknown
-		{"build", "", false},
-		{"", "", false},
-	}
-	for _, c := range cases {
-		if got := noMorePermissive(c.sender, c.target); got != c.want {
-			t.Errorf("noMorePermissive(%q,%q) = %v, want %v", c.sender, c.target, got, c.want)
-		}
 	}
 }

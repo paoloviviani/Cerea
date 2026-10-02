@@ -111,7 +111,7 @@ func runProviderOverride(t *testing.T, allowProject, allowProviders bool) {
 		"OPENCODE_DISABLE_PROJECT_CONFIG=0", "OPENCODE_CONFIG_CONTENT={}",
 	}
 	pol := policy.Default()
-	pol.AutoAccept = policy.AutoAcceptAllowed
+	pol.Permission.Responders = policy.TerminalAllowed
 	if allowProject {
 		pol.ProjectConfig = policy.TerminalAllowed
 	}

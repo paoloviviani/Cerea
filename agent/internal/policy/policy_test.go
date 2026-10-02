@@ -3,13 +3,14 @@ package policy
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestDefaultIsClosed(t *testing.T) {
 	p := Default()
-	if p.AutoAcceptAllowed() {
-		t.Error("default policy must deny auto-accept")
+	if p.Permission.RespondersAllowed() {
+		t.Error("default policy must not let a session auto-accept")
 	}
 	if p.AllowFreeModels {
 		t.Error("default policy must not allow free models")
@@ -80,14 +81,17 @@ func TestLoadMissingFileIsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load of a missing file must not error: %v", err)
 	}
-	if p.AutoAccept != AutoAcceptDenied {
-		t.Errorf("AutoAccept = %q, want denied", p.AutoAccept)
+	if p.Permission.Responders != TerminalDenied {
+		t.Errorf("Responders = %q, want denied", p.Permission.Responders)
 	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.json")
-	want := Policy{AutoAccept: AutoAcceptAllowed, WorkspaceRoots: []string{"/srv/code"}, AllowFreeModels: true}
+	want := Policy{
+		Permission:     Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}},
+		WorkspaceRoots: []string{"/srv/code"}, AllowFreeModels: true,
+	}
 	if err := Save(path, want); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +99,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AutoAccept != want.AutoAccept || got.AllowFreeModels != want.AllowFreeModels ||
+	if got.Permission.Responders != want.Permission.Responders || got.Permission.Max["bash"] != "ask" ||
+		got.Permission.Rules["edit"] != "allow" || got.AllowFreeModels != want.AllowFreeModels ||
 		!equalStrings(got.WorkspaceRoots, want.WorkspaceRoots) {
 		t.Errorf("round trip mismatch: got %+v, want %+v", got, want)
 	}
@@ -172,4 +177,132 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// A policy.json from before the pass-through carries autoAccept. It meant
+// "responders allowed", so it is carried over when permission.responders is
+// absent, and gone after a save; nothing else is translated from it.
+func TestLegacyAutoAcceptIsCarriedOverAndDropped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(path, []byte(`{"autoAccept":"allowed","terminal":"allowed"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Permission.RespondersAllowed() {
+		t.Error("a legacy autoAccept:allowed was dropped: an owner who enrolled with --allow-auto-accept lost it")
+	}
+	if len(p.Permission.Max) != 0 || len(p.Permission.Rules) != 0 {
+		t.Errorf("the legacy word became rules or a ceiling: %+v", p.Permission)
+	}
+	if !p.TerminalAllowed() {
+		t.Error("the rest of the file still loads")
+	}
+	if err := Save(path, p); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	if strings.Contains(string(body), "autoAccept") {
+		t.Errorf("Save kept the legacy field:\n%s", body)
+	}
+	again, err := Load(path)
+	if err != nil || !again.Permission.RespondersAllowed() {
+		t.Errorf("reloading the saved file: %+v, %v; responders should have survived the rewrite", again.Permission, err)
+	}
+
+	for name, body := range map[string]string{
+		"legacy denied":                 `{"autoAccept":"denied"}`,
+		"legacy absent":                 `{}`,
+		"new field wins over legacy on": `{"autoAccept":"allowed","permission":{"responders":"denied"}}`,
+	} {
+		path := filepath.Join(t.TempDir(), "policy.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		p, err := Load(path)
+		if err != nil || p.Permission.RespondersAllowed() {
+			t.Errorf("%s: responders allowed = %v (err %v), want denied", name, p.Permission.RespondersAllowed(), err)
+		}
+	}
+}
+
+func TestLoadRefusesAPermissionTypoInsteadOfUncapping(t *testing.T) {
+	for name, body := range map[string]string{
+		"ceiling typo":        `{"permission":{"max":{"bash":"asc"}}}`,
+		"wildcard key":        `{"permission":{"max":{"*":"deny"}}}`,
+		"rule typo":           `{"permission":{"rules":{"edit":"yes"}}}`,
+		"responders nonsense": `{"permission":{"responders":"maybe"}}`,
+	} {
+		path := filepath.Join(t.TempDir(), "policy.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Errorf("%s: Load accepted %s", name, body)
+		}
+	}
+}
+
+func TestPermissionCeilingAndRules(t *testing.T) {
+	p := Permission{Max: map[string]string{"bash": "ask", "edit": "deny"}, Rules: map[string]string{"edit": "allow", "read": "allow"}}
+	if got := p.Ceiling().Of("bash"); got != "ask" {
+		t.Errorf("bash ceiling = %s", got)
+	}
+	if got := p.Ceiling().Of("webfetch"); got != "allow" {
+		t.Errorf("an uncapped key = %s, want allow", got)
+	}
+	rules := p.OwnRules()
+	if len(rules) != 2 || rules[0].Permission != "edit" || rules[1].Permission != "read" {
+		t.Errorf("OwnRules = %+v, want edit then read (sorted)", rules)
+	}
+}
+
+func TestLiveOnlyTightens(t *testing.T) {
+	live := NewLive(Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
+
+	// Looser input: ignored.
+	ch := live.Tighten(Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "allow", "edit": "allow"}, Rules: map[string]string{"edit": "allow", "read": "allow"}})
+	if ch.Any() {
+		t.Errorf("a looser file changed something: %+v", ch)
+	}
+	if got := live.Permission(); got.Max["bash"] != "ask" || got.Rules["read"] != "" {
+		t.Errorf("after a loosening read: %+v", got)
+	}
+
+	// Tighter input: taken, and reported.
+	ch = live.Tighten(Permission{Responders: TerminalDenied, Max: map[string]string{"bash": "deny", "webfetch": "ask"}, Rules: map[string]string{"edit": "ask"}})
+	if !ch.Tightened || !ch.RespondersOff {
+		t.Errorf("change = %+v, want tightened and responders off", ch)
+	}
+	got := live.Permission()
+	if got.Max["bash"] != "deny" || got.Max["webfetch"] != "ask" || got.Rules["edit"] != "ask" || got.RespondersAllowed() {
+		t.Errorf("after tightening: %+v", got)
+	}
+	if live.RespondersAllowed() {
+		t.Error("responders still allowed")
+	}
+
+	// Raising what was lowered: ignored, so a file edited back up cannot undo it.
+	ch = live.Tighten(Permission{Responders: TerminalAllowed, Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
+	if ch.Any() || live.RespondersAllowed() || live.Permission().Max["bash"] != "deny" || live.Permission().Rules["edit"] != "ask" {
+		t.Errorf("a raised file undid a tightening: %+v %+v", ch, live.Permission())
+	}
+
+	// A new ask/deny rule where there was none tightens; a new allow does not.
+	ch = live.Tighten(Permission{Rules: map[string]string{"read": "ask"}})
+	if !ch.Tightened {
+		t.Error("a new ask rule is a tightening")
+	}
+	if ch = live.Tighten(Permission{Rules: map[string]string{"write": "allow"}}); ch.Any() {
+		t.Errorf("a new allow rule changed something: %+v", ch)
+	}
+}
+
+func TestLiveLayers(t *testing.T) {
+	l := NewLive(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}).Layers()
+	if l.Ceiling.Of("bash") != "ask" || len(l.Own) != 1 || l.Own[0].Permission != "edit" {
+		t.Errorf("layers = %+v", l)
+	}
 }

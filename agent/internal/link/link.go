@@ -46,6 +46,16 @@ type AgentInfo struct {
 	Hostname string `json:"hostname"`
 }
 
+// PermissionInfo is policy.json's permission block as the hello reports it.
+type PermissionInfo struct {
+	// Responders is "allowed" or "denied": whether a session may be switched
+	// to auto-accept.
+	Responders string `json:"responders"`
+	// Max is the ceiling, permission key → "ask" | "deny"; a key absent from
+	// it is not capped.
+	Max map[string]string `json:"max"`
+}
+
 type BackendInfo struct {
 	ID           string          `json:"id"`
 	Version      string          `json:"version"`
@@ -53,13 +63,18 @@ type BackendInfo struct {
 }
 
 type PolicyInfo struct {
-	AutoAccept      string   `json:"autoAccept"`
-	WorkspaceRoots  []string `json:"workspaceRoots"`
-	AllowFreeModels bool     `json:"allowFreeModels"`
-	Files           string   `json:"files"`
-	FileDeny        []string `json:"fileDeny"`
-	Terminal        string   `json:"terminal"`
-	MaxTerminals    int      `json:"maxTerminals"`
+	// AutoAccept mirrors Permission.Responders under its old name. Cerea's
+	// hello schema still requires it; it carries no meaning of its own and is
+	// dropped once the panel stops reading it (PROTOCOL.md §5).
+	AutoAccept string `json:"autoAccept"`
+	// Permission is the machine's say over opencode's permissions.
+	Permission      PermissionInfo `json:"permission"`
+	WorkspaceRoots  []string       `json:"workspaceRoots"`
+	AllowFreeModels bool           `json:"allowFreeModels"`
+	Files           string         `json:"files"`
+	FileDeny        []string       `json:"fileDeny"`
+	Terminal        string         `json:"terminal"`
+	MaxTerminals    int            `json:"maxTerminals"`
 	// CommandShell is the slash-command shell-expansion veto (PROTOCOL.md
 	// §6 session.command): "allowed" or "denied". While denied the machine
 	// refuses every command whose template expands shell, and every command

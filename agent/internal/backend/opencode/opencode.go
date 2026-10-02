@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 
 	"galopin/internal/attach"
 	"galopin/internal/backend"
+	"galopin/internal/permrules"
 )
 
 // Config is everything needed to spawn and reach one opencode instance.
@@ -84,6 +86,11 @@ type Config struct {
 	// strips any inherited value, so background:true fails closed inside
 	// opencode. Set only from policy.BackgroundSubagentsAllowed.
 	BackgroundSubagents bool
+	// Permissions supplies the machine's two permission inputs — its own
+	// rules and its ceiling — live, so a ceiling tightened while the process
+	// runs is seen by the next session, prompt and restart. Nil applies none
+	// (opencode's own rules alone, as before the permission pass-through).
+	Permissions func() permrules.Layers
 	// StartupTimeout bounds Start's wait for the first health check
 	// (default 30s). A first run on a cold cache can be slower than that;
 	// the integration test overrides it rather than this package assuming
@@ -120,6 +127,15 @@ type Backend struct {
 	cmd     *exec.Cmd
 	exited  chan struct{}
 	stopped bool
+	// deliberate is set by RestartForPolicy before it ends the process, so the
+	// supervise loop starts the next one at once instead of after the backoff
+	// a crash earns.
+	deliberate bool
+	// onStart is run at every start of the process (backend.RuleHost).
+	onStart func()
+
+	// perm is the permission pass-through's bookkeeping (permissions.go).
+	perm permState
 
 	stopCh chan struct{}
 	doneCh chan struct{}
@@ -199,6 +215,13 @@ type sessionOverlay struct {
 	// Effort is the model variant id sent with every prompt (opencode's
 	// thinking-effort knob), "" for the model's default.
 	Effort string `json:"effort,omitempty"`
+	// RulesFP fingerprints the rules galopin last gave this session, so they
+	// are re-sent only on change and survive an agent restart without growing
+	// the session's rule list.
+	RulesFP string `json:"rulesFp,omitempty"`
+	// Panel is what a person set on this session (session.setRules), kept so
+	// every re-send of the session's rules carries it, in the same place.
+	Panel permrules.Panel `json:"panel,omitempty"`
 }
 
 // New builds a Backend. Start must be called before any other method.
@@ -369,6 +392,18 @@ func (b *Backend) superviseLoop(ctx context.Context) {
 			return
 		default:
 		}
+		b.mu.Lock()
+		deliberate := b.deliberate
+		b.deliberate = false
+		b.mu.Unlock()
+		if deliberate {
+			// RestartForPolicy ended it: start the next one now, and forget
+			// the backoff a string of crashes had built.
+			b.cfg.Logf("opencode: restarting to apply a tightened policy")
+			delay = restartMinDelay
+			first = false
+			continue
+		}
 		if !first {
 			b.cfg.Logf("opencode: exited (%v), restarting in %s", err, delay)
 		} else {
@@ -428,6 +463,13 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	if b.cfg.BackgroundSubagents {
 		env = append(env, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1")
 	}
+	// OPENCODE_CONFIG_CONTENT is the layer above every file, a project's
+	// included. It carries the pinned gateway config when the machine loads
+	// project config, and always the permission floor: the ceiling restated as
+	// agent-level rules, rebuilt from the current policy at every start (see
+	// permrules.Floor for why it is agent-level and why only some agents get
+	// an entry).
+	var content map[string]any
 	if !b.cfg.ProjectConfig {
 		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
 	} else if b.cfg.ConfigPath != "" {
@@ -435,7 +477,16 @@ func (b *Backend) runOnce(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("pinning the gateway config: %w", err)
 		}
-		env = append(env, "OPENCODE_CONFIG_CONTENT="+pinned)
+		if err := json.Unmarshal([]byte(pinned), &content); err != nil {
+			return fmt.Errorf("pinning the gateway config: %w", err)
+		}
+	}
+	if b.cfg.Permissions != nil || content != nil {
+		body, err := floorConfig(content, b.layers())
+		if err != nil {
+			return fmt.Errorf("building the permission floor: %w", err)
+		}
+		env = append(env, "OPENCODE_CONFIG_CONTENT="+body)
 	}
 	env = append(env, b.toolEnv()...)
 	cmd.Env = env
@@ -451,6 +502,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	b.commandsMu.Lock()
 	b.backendGen++
 	b.commandsMu.Unlock()
+	b.processStarted()
 	exited := make(chan struct{})
 	b.mu.Lock()
 	b.cmd = cmd
