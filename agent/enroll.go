@@ -67,7 +67,9 @@ Usage:
                never says "always", and cannot touch what a rule denies.
   --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
                session_spawn, …) may ever be — allow, ask or deny — whatever any
-               rule or "always" says (repeatable; default bash=ask). Because
+               rule or "always" says (repeatable; default bash=ask; a list you give
+               replaces that default, so --permission-max edit=ask alone leaves
+               bash uncapped). Because
                bash can read opencode's server password out of its own
                environment, a ceiling that lets bash run lets a hijacked
                session widen its own rules, which is why bash asks by default.
@@ -206,6 +208,10 @@ func runEnroll(args []string) error {
 	if opts.device && opts.loopback {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
 	}
+	// A bad permission flag fails now, not after the person has signed in.
+	if _, err := enrollPolicy(&opts); err != nil {
+		return err
+	}
 	if opts.creds == "" {
 		path, err := resolveDefaultCredsPath()
 		if err != nil {
@@ -314,50 +320,10 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	// The machine's own veto (PROTOCOL.md §4): written once here, never
 	// writable over the link. `run` loads it from the same directory as
 	// the credential file.
-	pol := policy.Default()
-	if opts.allowAutoAccept {
-		pol.Permission.Responders = policy.TerminalAllowed
+	pol, err := enrollPolicy(opts)
+	if err != nil {
+		return err
 	}
-	pol.Permission.Max = defaultEnrollMax()
-	if len(opts.permissionMax) > 0 {
-		// Given, the flag states the whole ceiling: --permission-max bash=allow
-		// is how an owner opts out of the bash default, deliberately.
-		max, err := parseKeyActions("permission-max", opts.permissionMax)
-		if err != nil {
-			return err
-		}
-		pol.Permission.Max = max
-	}
-	if len(opts.permissionRules) > 0 {
-		rules, err := parseKeyActions("permission-rule", opts.permissionRules)
-		if err != nil {
-			return err
-		}
-		pol.Permission.Rules = rules
-	}
-	pol.WorkspaceRoots = opts.workspaceRoots
-	pol.AllowFreeModels = opts.allowFreeModels
-	if opts.noFiles {
-		pol.Files = policy.FilesOff
-	}
-	pol.FileDeny = opts.fileDeny
-	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
-	if opts.allowTerminal {
-		pol.Terminal = policy.TerminalAllowed
-	}
-	if opts.allowCommandShell {
-		pol.CommandShell = policy.TerminalAllowed
-	}
-	if opts.noAgentTools {
-		pol.AgentTools = policy.TerminalDenied
-	}
-	if opts.allowProjectConfig {
-		pol.ProjectConfig = policy.TerminalAllowed
-	}
-	if opts.allowBackground {
-		pol.BackgroundSubagents = policy.TerminalAllowed
-	}
-	pol.MaxTerminals = opts.maxTerminals
 	if opts.allowTerminal && !opts.allowAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --allow-terminal without --allow-auto-accept — you're keeping sessions from answering their own asks but allowing a remote shell.")
 	}
@@ -593,4 +559,55 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 		return "Background subagents: DENIED — OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS is never set, so a task with background:true fails closed."
 	}
 	return "Background subagents: ALLOWED — a task may keep running after its parent turn ends; its result returns as a synthetic message the panel shows."
+}
+
+// enrollPolicy is the policy.json a fresh enroll writes from its flags: the
+// machine's own veto (PROTOCOL.md §4). Everything defaults closed except what
+// the flags open; the permission ceiling defaults to bash=ask.
+func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
+	pol := policy.Default()
+	if opts.allowAutoAccept {
+		pol.Permission.Responders = policy.TerminalAllowed
+	}
+	pol.Permission.Max = defaultEnrollMax()
+	if len(opts.permissionMax) > 0 {
+		// Given, the flag states the whole ceiling: --permission-max bash=allow
+		// is how an owner opts out of the bash default, deliberately.
+		max, err := parseKeyActions("permission-max", opts.permissionMax)
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		pol.Permission.Max = max
+	}
+	if len(opts.permissionRules) > 0 {
+		rules, err := parseKeyActions("permission-rule", opts.permissionRules)
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		pol.Permission.Rules = rules
+	}
+	pol.WorkspaceRoots = opts.workspaceRoots
+	pol.AllowFreeModels = opts.allowFreeModels
+	if opts.noFiles {
+		pol.Files = policy.FilesOff
+	}
+	pol.FileDeny = opts.fileDeny
+	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
+	if opts.allowTerminal {
+		pol.Terminal = policy.TerminalAllowed
+	}
+	if opts.allowCommandShell {
+		pol.CommandShell = policy.TerminalAllowed
+	}
+	if opts.noAgentTools {
+		pol.AgentTools = policy.TerminalDenied
+	}
+	if opts.allowProjectConfig {
+		pol.ProjectConfig = policy.TerminalAllowed
+	}
+	if opts.allowBackground {
+		pol.BackgroundSubagents = policy.TerminalAllowed
+	}
+	pol.MaxTerminals = opts.maxTerminals
+	return pol, nil
 }

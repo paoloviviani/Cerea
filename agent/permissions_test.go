@@ -437,3 +437,77 @@ func TestChildGetsTheCeilingWithItsAgent(t *testing.T) {
 	}
 	t.Fatal("the subagent was never given the ceiling")
 }
+
+// P7: a session.prompt that carries `tools` never hands it on: the field is
+// not part of what a prompt is, and opencode would treat it as replacing the
+// session's rules.
+type capturingBackend struct {
+	*fakeBackend
+	prompts []backend.Prompt
+}
+
+func (c *capturingBackend) Prompt(_ context.Context, _, _ string, p backend.Prompt) error {
+	c.prompts = append(c.prompts, p)
+	return nil
+}
+
+func TestPromptOpCarriesNoToolsField(t *testing.T) {
+	stateDir := t.TempDir()
+	reg, _ := workspaces.Load(filepath.Join(stateDir, "workspaces.json"))
+	ws, _ := reg.Create("ws", t.TempDir(), nil)
+	cb := &capturingBackend{fakeBackend: &fakeBackend{}}
+	mc := newMachine(reg, cb, sessions.New(cb, policy.Default()), policy.Default())
+	mc.trackSession(ws, backend.Session{ID: "s1"})
+	args := json.RawMessage(`{"sessionId":"s1","text":"hi","tools":{"bash":true,"edit":true},"permission":[{"permission":"*","pattern":"*","action":"allow"}]}`)
+	if _, operr := mc.Handle(context.Background(), "session.prompt", args); operr != nil {
+		t.Fatal(operr)
+	}
+	if len(cb.prompts) != 1 {
+		t.Fatalf("prompts = %d", len(cb.prompts))
+	}
+	raw, _ := json.Marshal(cb.prompts[0])
+	for _, forbidden := range []string{`"tools"`, `"permission"`, "allow"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Errorf("the prompt handed to the backend carries %s: %s", forbidden, raw)
+		}
+	}
+}
+
+// The rule lookup behind session_spawn / session_send, as a table: allow,
+// deny, ask, absent, and the two wildcards.
+func TestGrantReadsTheAskingSessionsRules(t *testing.T) {
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	at := &agentTools{mc: mc}
+	tc := &toolCaller{dir: "/x", workspaceID: "w", session: backend.Session{ID: "s1"}}
+	allowAll := permrules.Rule{Permission: "*", Pattern: "*", Action: permrules.Allow}
+	cases := []struct {
+		name    string
+		rules   []permrules.Rule
+		want    permrules.Action
+		refused bool
+	}{
+		{"absent", nil, permrules.Ask, false},
+		{"opencode's default * allow", []permrules.Rule{allowAll}, permrules.Ask, false},
+		{"explicit allow over the default", []permrules.Rule{allowAll, {Permission: "session_spawn", Pattern: "*", Action: permrules.Allow}}, permrules.Allow, false},
+		{"explicit ask", []permrules.Rule{allowAll, {Permission: "session_spawn", Pattern: "*", Action: permrules.Ask}}, permrules.Ask, false},
+		{"explicit deny", []permrules.Rule{allowAll, {Permission: "session_spawn", Pattern: "*", Action: permrules.Deny}}, permrules.Deny, true},
+		{"* deny", []permrules.Rule{{Permission: "session_spawn", Pattern: "*", Action: permrules.Allow}, {Permission: "*", Pattern: "*", Action: permrules.Deny}}, permrules.Deny, true},
+		{"the other tool's allow is not this one's", []permrules.Rule{{Permission: "session_send", Pattern: "*", Action: permrules.Allow}}, permrules.Ask, false},
+	}
+	for _, c := range cases {
+		rb.layers = backend.RuleLayers{OpencodeSide: c.rules}
+		got, err := at.grant(context.Background(), tc, "session_spawn")
+		if got != c.want || (err != nil) != c.refused {
+			t.Errorf("%s: grant = %s, %v; want %s refused=%v", c.name, got, err, c.want, c.refused)
+		}
+	}
+
+	// A backend that cannot show its rules, or an error reading them, is not
+	// consent.
+	rb.layers = backend.RuleLayers{}
+	fb := &fakeBackend{}
+	at2 := &agentTools{mc: &machine{back: fb}}
+	if got, err := at2.grant(context.Background(), tc, "session_spawn"); got != permrules.Ask || err != nil {
+		t.Errorf("a backend without rules = %s, %v; want ask", got, err)
+	}
+}

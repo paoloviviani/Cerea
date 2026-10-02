@@ -366,12 +366,18 @@ func (b *Backend) RestartForPolicy(ctx context.Context) error {
 	b.mu.Lock()
 	cmd, exited := b.cmd, b.exited
 	stopped := b.stopped
-	b.deliberate = true
+	running := cmd != nil && cmd.Process != nil
+	if running && !stopped {
+		// Only a process this call is about to end earns the supervisor's
+		// immediate restart; set otherwise it would wave through the next
+		// unrelated crash.
+		b.deliberate = true
+	}
 	b.mu.Unlock()
 	if stopped {
 		return fmt.Errorf("opencode is stopping")
 	}
-	if cmd == nil || cmd.Process == nil {
+	if !running {
 		// Not running right now (it is mid-restart already): the next start
 		// reads the current policy by itself.
 		return b.waitHealthy(ctx, b.startTimeout())
@@ -386,9 +392,8 @@ func (b *Backend) RestartForPolicy(ctx context.Context) error {
 		return ctx.Err()
 	}
 	b.forgetAgentRules()
-	// The new process is not healthy until the old one's port is free and the
-	// new one answers, so poll until a start that happened AFTER the signal is
-	// up. A start is a bump of backendGen.
+	// The old process's port is closed once it has exited, so a health check
+	// that passes is the new one's.
 	return b.waitHealthy(ctx, b.startTimeout())
 }
 
