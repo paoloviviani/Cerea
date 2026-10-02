@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -127,8 +126,8 @@ func (l *savedLedger) add(sessionID, tool string, resources []string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.entries = append(l.entries, backend.SavedApproval{
-		ID: "sa_" + hex.EncodeToString(raw), SessionID: sessionID, Action: tool,
-		Resource: strings.Join(resources, ", "), Resources: resources, Removable: false,
+		ID: "sa_" + hex.EncodeToString(raw), SessionID: sessionID, Permission: tool,
+		Patterns: resources, Removable: false,
 		GrantedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 }
