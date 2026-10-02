@@ -11,6 +11,7 @@
 	CodeTerminals.svelte, only mounts this once all of that has cleared).
 -->
 <script lang="ts">
+	import { flagCodeReauth } from "$lib/stores/codeReauth.svelte";
 	import { MediaQuery } from "svelte/reactivity";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconRenew from "~icons/carbon/renew";
@@ -138,10 +139,16 @@
 		socket.addEventListener("open", () => {
 			connectionState = "open";
 		});
-		socket.addEventListener("close", () => {
+		socket.addEventListener("close", (event) => {
 			if (ws !== socket) return; // a superseded socket closing, not this one
 			ws = null;
 			if (destroyed) return;
+			// The machine's re-check found the sign-in older than 7 days: not a
+			// blip to reconnect through. The whole panel is stale now.
+			if (event.code === 4403 && event.reason === "reauth_required") {
+				flagCodeReauth();
+				return;
+			}
 			scheduleReconnect();
 		});
 		socket.addEventListener("error", () => {

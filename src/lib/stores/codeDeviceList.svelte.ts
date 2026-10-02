@@ -1,4 +1,5 @@
 import { listDevices, type CodeDeviceView } from "$lib/codeApi";
+import { codeReauth, onCodeReauth } from "$lib/stores/codeReauth.svelte";
 
 /**
  * The one shared poll of paired machines. `CodeNavTree` (the tree, every
@@ -17,7 +18,15 @@ const POLL_MS = 8000;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let refCount = 0;
 
+// A stale sign-in drops what the machines told us: the list, and with it every
+// name and count the tree and the inbox would draw. The poll also stops asking.
+onCodeReauth(() => {
+	codeDeviceList.devices = [];
+	codeDeviceList.loading = false;
+});
+
 export async function refreshCodeDevices(): Promise<void> {
+	if (codeReauth.required) return;
 	try {
 		codeDeviceList.devices = (await listDevices()).devices;
 	} catch {
