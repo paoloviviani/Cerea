@@ -121,9 +121,36 @@ export interface Machine {
 	stop(): Promise<void>;
 }
 
+/**
+ * The machine's permission policy (`policy.json` `permission`, what `enroll`'s
+ * `--allow-auto-accept` / `--permission-max` / `--permission-rule` write).
+ */
+export interface MachinePermission {
+	/** May a session be put on auto-accept at all (default "denied"). */
+	responders?: "allowed" | "denied";
+	/**
+	 * The ceiling: the most a key may ever be. The default is what a fresh
+	 * `enroll` writes — `bash` and `session_spawn` at "ask" — so a harness
+	 * machine behaves like an enrolled one: Always on bash is answered "once",
+	 * and the responder leaves bash to a person. A key left out is uncapped:
+	 * pass `{ session_spawn: "ask" }` to open bash, or `{}` to cap nothing.
+	 */
+	max?: Record<string, "ask" | "deny">;
+	/** The machine's own rules (applied to every session, capped by `max`). */
+	rules?: Record<string, "allow" | "ask" | "deny">;
+}
+
+/** What a fresh `enroll` writes as the ceiling. */
+export const ENROLL_DEFAULT_MAX: Record<string, "ask" | "deny"> = {
+	bash: "ask",
+	session_spawn: "ask",
+};
+
 /** The machine's own policy (`policy.json`, what `enroll` flags would write). */
 export interface MachinePolicy {
+	/** Shorthand for `permission.responders` (the field's old name). */
 	autoAccept?: "allowed" | "denied";
+	permission?: MachinePermission;
 	allowFreeModels?: boolean;
 	workspaceRoots?: string[];
 	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
@@ -217,18 +244,23 @@ export async function startMachine(input: {
 	mkdirSync(home);
 	const stateDir = join(root, "state");
 	mkdirSync(stateDir);
-	if (input.policy) {
-		writeFileSync(
-			join(stateDir, "policy.json"),
-			JSON.stringify({
-				autoAccept: input.policy.autoAccept ?? "denied",
-				allowFreeModels: input.policy.allowFreeModels ?? false,
-				workspaceRoots: input.policy.workspaceRoots ?? [],
-				...(input.policy.terminal ? { terminal: input.policy.terminal } : {}),
-				...(input.policy.maxTerminals ? { maxTerminals: input.policy.maxTerminals } : {}),
-			})
-		);
-	}
+	// Always written: a machine enrolled by the real command has a policy.json
+	// with the default ceiling, and the permission specs depend on it.
+	const policy = input.policy ?? {};
+	writeFileSync(
+		join(stateDir, "policy.json"),
+		JSON.stringify({
+			permission: {
+				responders: policy.permission?.responders ?? policy.autoAccept ?? "denied",
+				max: policy.permission?.max ?? ENROLL_DEFAULT_MAX,
+				...(policy.permission?.rules ? { rules: policy.permission.rules } : {}),
+			},
+			allowFreeModels: policy.allowFreeModels ?? false,
+			workspaceRoots: policy.workspaceRoots ?? [],
+			...(policy.terminal ? { terminal: policy.terminal } : {}),
+			...(policy.maxTerminals ? { maxTerminals: policy.maxTerminals } : {}),
+		})
+	);
 	let output = "";
 	const child: ChildProcess = spawn(
 		agentBinary(),

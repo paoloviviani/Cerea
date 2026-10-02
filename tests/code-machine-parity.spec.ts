@@ -78,12 +78,18 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 	}
 
+	/**
+	 * A file write through opencode's own write tool (permission key `edit`). It
+	 * is the unattended case: the responder answers an `edit` ask, which it will
+	 * not do for `bash` under the enroll-default ceiling (bash is capped at ask,
+	 * so a person answers each one).
+	 */
 	const writeFileScenario = {
 		toolCalls: [
 			{
 				id: "call_w",
-				name: "bash",
-				arguments: JSON.stringify({ command: "echo parity > out.txt", description: "write" }),
+				name: "write",
+				arguments: JSON.stringify({ filePath: "out.txt", content: "parity\n" }),
 			},
 		],
 		content: ["Wrote", " it", "."],
@@ -116,13 +122,53 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByText(/--allow-auto-accept/)).toBeVisible();
 	});
 
-	test("approvals: Always allow grants the rest of the session, so a later call needs no second prompt", async ({
+	const bashWriteScenario = (id: string, file: string, words: string[]) => ({
+		toolCalls: [
+			{
+				id,
+				name: "bash",
+				arguments: JSON.stringify({
+					command: `echo ${file} > ${file}.txt`,
+					description: `write ${file}`,
+				}),
+			},
+		],
+		toolCallsOnce: true,
+		content: words,
+		chunkDelayMs: 10,
+		finishReason: "stop" as const,
+	});
+
+	test("approvals: under the default ceiling (bash asks) Always allow is answered once, so the next call asks again", async ({
 		page,
 		db,
 		session,
 		mockOpenAI,
 	}) => {
 		await openSession(page, db, session.sessionId);
+		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_a", "a", ["First", " done", "."]));
+		await send(page, "write a");
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: "Always allow" }).click();
+		await expect(page.getByText("First done.")).toBeVisible({ timeout: 60_000 });
+
+		// The ceiling turned that always into a once: nothing was remembered.
+		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_b", "b", ["Second", " done", "."]));
+		await send(page, "write b");
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: "Allow once" }).click();
+		await expect(page.getByText("Second done.")).toBeVisible({ timeout: 60_000 });
+	});
+
+	test("approvals: with bash left uncapped, Always allow grants the rest of the session, so a later call needs no second prompt", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId, {
+			permission: { max: { session_spawn: "ask" } },
+		});
 
 		await mockOpenAI.setDefaultScenario({
 			toolCalls: [
@@ -158,6 +204,23 @@ test.describe("owned machine agent: parity", () => {
 		await send(page, "write b");
 		await expect(page.getByText("Second done.")).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByText("wants to call")).toHaveCount(0);
+	});
+
+	test("auto-accept: bash under the default ceiling is still a card (the responder leaves a capped key to a person)", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		const m = await openSession(page, db, session.sessionId, { autoAccept: "allowed" });
+		await page.getByRole("button", { name: /auto.?accept/i }).click();
+		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_c", "c", ["Wrote", " c", "."]));
+		await send(page, "write c");
+		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		expect(existsSync(join(m.workspace, "c.txt"))).toBe(false);
+		await page.getByRole("button", { name: "Allow once" }).click();
+		await expect(page.getByText("Wrote c.")).toBeVisible({ timeout: 60_000 });
+		expect(existsSync(join(m.workspace, "c.txt"))).toBe(true);
 	});
 
 	test("auto-accept: a machine that allows it runs tools without asking, and the diff shows the change", async ({
@@ -490,13 +553,20 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("waiting-approval")).toHaveCount(0, { timeout: 60_000 });
 	});
 
-	test("subagent approvals: with auto-accept on, a child's tools run without asking", async ({
+	test("subagent approvals: with auto-accept on, a child's tools run without asking (bash left uncapped)", async ({
 		page,
 		db,
 		session,
 		mockOpenAI,
 	}) => {
-		const m = await openSession(page, db, session.sessionId, { autoAccept: "allowed" });
+		// The child's tool is bash, which the default ceiling caps at ask; the
+		// responder follows the parent's auto-accept only for keys the ceiling
+		// leaves open, so this machine opens bash. (Under the default ceiling the
+		// child's bash is a card: see the subagent approvals spec above.)
+		const m = await openSession(page, db, session.sessionId, {
+			autoAccept: "allowed",
+			permission: { max: { session_spawn: "ask" } },
+		});
 		await page.getByRole("button", { name: /auto.?accept/i }).click();
 		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
