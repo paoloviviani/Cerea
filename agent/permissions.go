@@ -39,9 +39,18 @@ func (mc *machine) installPermissions() {
 		}
 		mc.audit.permission(sessionID, req.ID, req.Tool, decision, "responder", false)
 	})
-	if _, ok := mc.ruleHost(); !ok {
+	rh, ok := mc.ruleHost()
+	if !ok {
 		return
 	}
+	// Whatever the process held in memory dies with it, however it ended (a
+	// crash restart as much as a tightened policy): its saved "always"
+	// approvals are gone, and so are the asks it was waiting on. Keeping either
+	// would show a person a stale list and cards that answer into nothing.
+	rh.OnProcessStart(func() {
+		mc.saved.clear()
+		mc.mat.WithdrawPending()
+	})
 	mc.mat.OnChild(func(dir, childID string) { go mc.giveChildTheCeiling(dir, childID) })
 }
 
@@ -117,7 +126,7 @@ type savedLedger struct {
 	entries []backend.SavedApproval
 }
 
-func (l *savedLedger) add(sessionID, tool string, resources []string) {
+func (l *savedLedger) add(sessionID, workspaceDir, tool string, resources []string) {
 	raw := make([]byte, 6)
 	_, _ = rand.Read(raw)
 	if len(resources) == 0 {
@@ -127,15 +136,29 @@ func (l *savedLedger) add(sessionID, tool string, resources []string) {
 	defer l.mu.Unlock()
 	l.entries = append(l.entries, backend.SavedApproval{
 		ID: "sa_" + hex.EncodeToString(raw), SessionID: sessionID, Permission: tool,
-		Patterns: resources, Removable: false,
+		Patterns: resources, Removable: false, WorkspaceDir: workspaceDir,
 		GrantedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
+// list is every entry; inDir only the ones granted in one workspace — the
+// scope of an opencode "always", which every session of the workspace shares.
 func (l *savedLedger) list() []backend.SavedApproval {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]backend.SavedApproval(nil), l.entries...)
+}
+
+func (l *savedLedger) inDir(dir string) []backend.SavedApproval {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []backend.SavedApproval
+	for _, e := range l.entries {
+		if e.WorkspaceDir == dir {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func (l *savedLedger) find(id string) (backend.SavedApproval, bool) {
@@ -190,10 +213,6 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	exposed, err := rh.SavedApprovals(ctx)
-	if err != nil {
-		return nil, backendErr(err)
-	}
 	rules := make([]ruleView, 0, len(layers.Rules))
 	for _, r := range layers.Rules {
 		rules = append(rules, ruleView{r.Permission, r.Pattern, string(r.Action), r.Source})
@@ -203,7 +222,9 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 	for _, k := range ceiling.Keys() {
 		max[k] = string(ceiling.Of(k))
 	}
-	saved := append(mc.saved.list(), exposed...)
+	// Scoped to this session's workspace, like the approvals themselves. The
+	// list is galopin's own record: opencode has none to read (SavedApproval).
+	saved := mc.saved.inDir(dir)
 	if saved == nil {
 		saved = []backend.SavedApproval{}
 	}
@@ -277,34 +298,32 @@ func ruleTools(rs []permrules.Rule) []string {
 }
 
 // opPermissionSavedRemove answers permission.saved.remove {sessionId, id}:
-// withdraw one saved "always". It can only tighten. opencode 1.18.32 cannot
-// withdraw the approvals it keeps in memory (no id, no call), so an id galopin
-// minted for one of those answers `unsupported` — the way to clear them is the
-// restart a tightened ceiling causes — and only an approval opencode itself
-// lists with an id can be removed here.
+// withdraw one saved "always". It can only tighten, and on opencode 1.18.32 it
+// cannot do even that: the approvals opencode keeps in memory have no id and no
+// call removes one, so an id galopin minted for one answers `unsupported`.
+// What clears them is a restart of opencode, which a tightened ceiling causes.
+// An id the machine does not hold (or one granted in another workspace than the
+// session's) is `not_found`.
 func (mc *machine) opPermissionSavedRemove(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
 		SessionID string `json:"sessionId"`
 		ID        string `json:"id"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil || a.ID == "" {
+	if err := json.Unmarshal(args, &a); err != nil || a.ID == "" || a.SessionID == "" {
 		return nil, opErrf("invalid", "permission.saved.remove needs a sessionId and an id")
 	}
-	rh, ok := mc.ruleHost()
-	if !ok {
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	if _, ok := mc.ruleHost(); !ok {
 		return nil, opErrf("unsupported", "this backend has no saved approvals")
 	}
-	if e, ok := mc.saved.find(a.ID); ok {
-		if a.SessionID != "" && a.SessionID != e.SessionID {
-			return nil, notFound("saved approval")
-		}
-		return nil, opErrf("unsupported", "opencode cannot withdraw one saved approval: it keeps them in memory with no way to remove one; they are all cleared when it restarts (a tightened ceiling does that)")
-	}
-	if err := rh.RemoveSavedApproval(ctx, a.ID); err != nil {
+	e, ok := mc.saved.find(a.ID)
+	if !ok || e.WorkspaceDir != dir {
 		return nil, notFound("saved approval")
 	}
-	mc.audit.permissionSavedRemove(a.SessionID, a.ID)
-	return map[string]any{}, nil
+	return nil, opErrf("unsupported", "opencode cannot withdraw one saved approval: it keeps them in memory with no way to remove one; they are all cleared when it restarts (a tightened ceiling does that)")
 }
 
 // policyTightened applies a permission policy that just got stricter: opencode
@@ -326,8 +345,6 @@ func (mc *machine) policyTightened(ctx context.Context, ch policy.Change) {
 		return
 	}
 	mc.audit.permissionTightened(true)
-	mc.mat.WithdrawPending()
-	mc.saved.clear()
 	for _, id := range mc.mat.TrackedIDs() {
 		dir, ok := mc.mat.WorkspaceDir(id)
 		if !ok || dir == "" {

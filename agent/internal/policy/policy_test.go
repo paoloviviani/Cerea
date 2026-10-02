@@ -179,11 +179,10 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// A policy.json from before the pass-through carries autoAccept. It is
-// ignored on load and gone after a save: nothing about the old word is
-// translated into the new ones (translating "allowed" into a responder, or
-// worse into rules, would loosen a machine nobody touched).
-func TestLegacyAutoAcceptIsIgnoredAndDropped(t *testing.T) {
+// A policy.json from before the pass-through carries autoAccept. It meant
+// "responders allowed", so it is carried over when permission.responders is
+// absent, and gone after a save; nothing else is translated from it.
+func TestLegacyAutoAcceptIsCarriedOverAndDropped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.json")
 	if err := os.WriteFile(path, []byte(`{"autoAccept":"allowed","terminal":"allowed"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -192,8 +191,11 @@ func TestLegacyAutoAcceptIsIgnoredAndDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Permission.RespondersAllowed() {
-		t.Error("a legacy autoAccept:allowed must not become a responder")
+	if !p.Permission.RespondersAllowed() {
+		t.Error("a legacy autoAccept:allowed was dropped: an owner who enrolled with --allow-auto-accept lost it")
+	}
+	if len(p.Permission.Max) != 0 || len(p.Permission.Rules) != 0 {
+		t.Errorf("the legacy word became rules or a ceiling: %+v", p.Permission)
 	}
 	if !p.TerminalAllowed() {
 		t.Error("the rest of the file still loads")
@@ -204,6 +206,25 @@ func TestLegacyAutoAcceptIsIgnoredAndDropped(t *testing.T) {
 	body, _ := os.ReadFile(path)
 	if strings.Contains(string(body), "autoAccept") {
 		t.Errorf("Save kept the legacy field:\n%s", body)
+	}
+	again, err := Load(path)
+	if err != nil || !again.Permission.RespondersAllowed() {
+		t.Errorf("reloading the saved file: %+v, %v; responders should have survived the rewrite", again.Permission, err)
+	}
+
+	for name, body := range map[string]string{
+		"legacy denied":                 `{"autoAccept":"denied"}`,
+		"legacy absent":                 `{}`,
+		"new field wins over legacy on": `{"autoAccept":"allowed","permission":{"responders":"denied"}}`,
+	} {
+		path := filepath.Join(t.TempDir(), "policy.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		p, err := Load(path)
+		if err != nil || p.Permission.RespondersAllowed() {
+			t.Errorf("%s: responders allowed = %v (err %v), want denied", name, p.Permission.RespondersAllowed(), err)
+		}
 	}
 }
 

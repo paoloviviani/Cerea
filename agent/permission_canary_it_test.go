@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"galopin/internal/backend"
@@ -166,6 +168,60 @@ func TestUpgradeCanaryTheFloorNeverLoosensAndCaps(t *testing.T) {
 	for _, a := range []string{"plan", "explore"} {
 		if got := permrules.Evaluate(r.agentRules(a), "edit", "src/a.go"); got != permrules.Deny {
 			t.Errorf("agent %s edit = %s under the static edit: ask, want deny", a, got)
+		}
+	}
+}
+
+// Canary 5: opencode has two permission stores and only one of them governs a
+// tool call. A v1 "always" never appears in the v2 saved list (so listing that
+// list would not show what an always allowed), and nothing put through the v2
+// API reaches a v1 ask (so removing from it would withdraw nothing a tool call
+// depends on). galopin therefore keeps its own record of the always replies it
+// relays and ignores /api/permission/saved. If a release wires the two
+// together, this fails: revisit permission.rules' savedApprovals and
+// permission.saved.remove, which may become able to do the real thing.
+func TestUpgradeCanarySavedStoreIsNotTheAlwaysStore(t *testing.T) {
+	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "ask"}})
+
+	// A v2 request with a save does not become a v1 approval: a v1 write still
+	// asks afterwards.
+	b := r.rawSession(nil)
+	out := r.raw(http.MethodPost, "/api/session/"+b.ID+"/permission?directory="+r.work,
+		map[string]any{"action": "edit", "resources": []string{"c5-c.txt"}, "save": []string{"c5-c.txt"}})
+	var created struct {
+		Data struct {
+			Effect string `json:"effect"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(out, &created)
+	if created.Data.Effect == "allow" {
+		t.Errorf("a v2 permission request was allowed (%s): the v2 system now evaluates against real rules; revisit", out)
+	}
+	if body := string(r.raw(http.MethodGet, "/api/permission/saved?directory="+r.work, nil)); body != `{"data":[]}` {
+		t.Errorf("the v2 saved list after a v2 request = %s, want it empty", body)
+	}
+	a := r.rawSession(nil)
+	ask, _, mark := r.try(a, "c5-a.txt")
+	if ask == nil {
+		t.Fatal("a v1 write did not ask after a v2 request: a v2 request changed a v1 decision")
+	}
+
+	// A v1 always never appears in the v2 saved list.
+	if err := r.oc.ReplyPermission(r.ctx, r.work, a.ID, ask.ID, backend.DecisionAlways, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.idle(a, mark)
+	if ask2, part, _ := r.try(a, "c5-b.txt"); ask2 != nil || part.ToolStatus != backend.ToolCompleted {
+		t.Fatalf("the always did not hold (ask=%v part=%+v): the premise of this canary is gone", ask2, part)
+	}
+	var project struct {
+		ProjectID string `json:"projectID"`
+	}
+	_ = json.Unmarshal(r.raw(http.MethodGet, "/session/"+a.ID, nil), &project)
+	for _, path := range []string{"/api/permission/saved", "/api/permission/saved?projectID=" + project.ProjectID, "/api/permission/saved?directory=" + r.work} {
+		if body := string(r.raw(http.MethodGet, path, nil)); body != `{"data":[]}` {
+			t.Errorf("GET %s = %s after a v1 always: the v2 list now shows v1 approvals. "+
+				"permission.rules could list them from opencode, and saved.remove may be able to remove them: revisit.", path, body)
 		}
 	}
 }

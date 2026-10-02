@@ -140,8 +140,8 @@ func TestPassthroughP6TightenedCeilingRestartsAndDenies(t *testing.T) {
 	}
 	r.reply(s, ask.ID, "always")
 	r.idle(s, mark)
-	if len(r.saved()) == 0 {
-		t.Log("note: opencode does not list this always under /api/permission/saved; the in-memory one is what is under test")
+	if saved := r.saved(); len(saved) != 1 || saved[0].Permission != "edit" || saved[0].SessionID != s.ID || saved[0].WorkspaceDir != r.work {
+		t.Fatalf("the machine's record of the always = %+v, want one edit approval granted by this session in this workspace", saved)
 	}
 	// Remembered: the next write sails through without asking.
 	if ask, part, _ := r.try(s, "p6b.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
@@ -168,6 +168,9 @@ func TestPassthroughP6TightenedCeilingRestartsAndDenies(t *testing.T) {
 	}
 	if !restarted {
 		t.Error("the restart was not audited")
+	}
+	if saved := r.saved(); len(saved) != 0 {
+		t.Errorf("saved approvals after the restart = %+v, want them forgotten with the process that held them", saved)
 	}
 }
 

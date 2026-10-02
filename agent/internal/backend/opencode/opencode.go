@@ -131,6 +131,8 @@ type Backend struct {
 	// supervise loop starts the next one at once instead of after the backoff
 	// a crash earns.
 	deliberate bool
+	// onStart is run at every start of the process (backend.RuleHost).
+	onStart func()
 
 	// perm is the permission pass-through's bookkeeping (permissions.go).
 	perm permState
@@ -500,6 +502,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	b.commandsMu.Lock()
 	b.backendGen++
 	b.commandsMu.Unlock()
+	b.processStarted()
 	exited := make(chan struct{})
 	b.mu.Lock()
 	b.cmd = cmd

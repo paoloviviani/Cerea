@@ -662,10 +662,12 @@ func (mc *machine) opSessionSetAutoAccept(args json.RawMessage) (any, *link.OpEr
 	}
 	if err := mc.mat.SetAutoAccept(a.SessionID, a.Enabled); err != nil {
 		if err == sessions.ErrAutoAcceptForbidden {
+			mc.audit.refusal("session.setAutoAccept", "this machine lets no session auto-accept")
 			return nil, opErrf("forbidden", "%v", err)
 		}
 		return nil, notFound("session")
 	}
+	mc.audit.autoAccept(a.SessionID, a.Enabled)
 	_, workspaceID, operr := mc.resolveSession(a.SessionID)
 	if operr != nil {
 		return nil, operr
@@ -941,7 +943,7 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		if len(patterns) == 0 {
 			patterns = asked.Patterns
 		}
-		mc.saved.add(a.SessionID, tool, patterns)
+		mc.saved.add(a.SessionID, dir, tool, patterns)
 	}
 	return map[string]any{}, nil
 }
