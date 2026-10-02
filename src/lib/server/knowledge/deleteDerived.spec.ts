@@ -457,6 +457,29 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			expect(await chunksOfDocs([doc._id])).toBe(0);
 		});
 
+		it("a document deleted while its ingest is embedding leaves no chunks", async () => {
+			const owner = new ObjectId();
+			const store = await makeStore(owner);
+			const ref = derived.conversationSourceRef(new ObjectId());
+			// Land the delete after the transcript was read but before its
+			// chunks commit: the post-ingest check must clean up after it.
+			embedMock.mockImplementationOnce(async (_t: string, _m: string, texts: string[]) => {
+				await collections.knowledgeDocuments.deleteMany({ storeId: store, sourceRef: ref });
+				return texts.map(vectorFor);
+			});
+			await expect(
+				svc.addText(store.toString(), caller(owner), "tok", {
+					text: longText("doomed"),
+					title: "t",
+					source_ref: ref,
+				})
+			).rejects.toThrow();
+			expect(
+				await collections.knowledgeDocuments.countDocuments({ storeId: store, sourceRef: ref })
+			).toBe(0);
+			expect(await chunksOfStores([store])).toBe(0);
+		});
+
 		it("two concurrent indexings of one conversation leave one transcript (L7)", async () => {
 			const owner = new ObjectId();
 			const store = await makeStore(owner);
