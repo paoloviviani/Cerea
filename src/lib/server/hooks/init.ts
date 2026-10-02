@@ -12,6 +12,7 @@ import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
 import { OrphanSweeper } from "$lib/server/knowledge/orphanSweep";
+import { failInterruptedIngests } from "$lib/server/knowledge/service";
 import { ToolApprovalSweeper } from "$lib/server/generation/toolApprovalSweeper";
 import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
@@ -21,6 +22,7 @@ import { getShareThumbnailPng } from "$lib/server/shareThumbnail/shareThumbnail"
 export async function initServer(): Promise<void> {
 	// Wait for config to be fully loaded
 	await ready;
+	const bootedAt = new Date();
 
 	// A direct OCR endpoint with no model named would otherwise surface as a
 	// 503 on somebody's first attachment; this fails the boot instead.
@@ -76,6 +78,15 @@ export async function initServer(): Promise<void> {
 	// Daily backstop for the knowledge pipeline's deleteDerived: orphan
 	// chunks, unattached uploads, transcripts of deleted conversations.
 	OrphanSweeper.getInstance();
+	// A restart strands in-flight background ingests with no token to re-drive
+	// them: fail whatever was still pending before this boot began, so the
+	// list says what happened instead of spinning forever. Not awaited — the
+	// rows will read failed whenever the screens next ask.
+	failInterruptedIngests(bootedAt)
+		.then((failed) => {
+			if (failed > 0) logger.info({ failed }, "knowledge_interrupted_ingests_failed");
+		})
+		.catch((err) => logger.warn({ err }, "knowledge_interrupted_ingests_unmarked"));
 
 	// Diagnostic only — logged once, never cached or trusted as a gate. The
 	// renderer's own container healthcheck has a 60-second start period, so

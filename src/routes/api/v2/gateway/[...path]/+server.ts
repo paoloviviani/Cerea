@@ -187,10 +187,18 @@ async function handleInternal(
 			if (action === "files" && method === "GET")
 				return json(await service.listDocuments(id, caller));
 			if (action === "files" && method === "POST") {
-				return json(await service.attachFile(id, caller, bearer, await event.request.json()));
+				return json(
+					await service.attachFile(id, caller, bearer, await event.request.json(), {
+						background: true,
+					})
+				);
 			}
 			if (action === "text" && method === "POST") {
-				return json(await service.addText(id, caller, bearer, await event.request.json()));
+				return json(
+					await service.addText(id, caller, bearer, await event.request.json(), {
+						background: true,
+					})
+				);
 			}
 			if (action === "search" && method === "POST") {
 				return json(await service.search(id, caller, bearer, await event.request.json()));

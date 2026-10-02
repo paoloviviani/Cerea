@@ -409,9 +409,28 @@ export async function indexConversation(options: {
 			.map((message) => `${message.from === "user" ? "Asked" : "Answered"}: ${message.content}`)
 			.filter((line) => line.length > 8)
 			.join("\n\n");
-		if (transcript.trim().length < 40) return; // nothing worth retrieving yet
+		if (transcript.trim().length < 40) {
+			// Nothing worth retrieving — and nothing worth keeping either: a
+			// transcript shortened under the minimum (an edit, a message
+			// delete) must not leave its longer predecessor retrievable.
+			const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
+			await deleteDerived({ conversationId: conversation._id });
+			return;
+		}
 
 		await addText(baseId, writer, token, { text: transcript, title, source_ref: sourceRef });
+
+		// The conversation may have been deleted mid-index (the route deletes
+		// the row before calling deleteDerived). Without this the write above
+		// resurrects its transcript in the base.
+		const gone = await collections.conversations.countDocuments(
+			{ _id: conversation._id },
+			{ limit: 1 }
+		);
+		if (gone === 0) {
+			const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
+			await deleteDerived({ conversationId: conversation._id });
+		}
 	} catch (err) {
 		logger.warn(
 			{ err, project: project.name, conversation: conversation._id.toString() },
