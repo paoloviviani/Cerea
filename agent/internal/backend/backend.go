@@ -238,8 +238,12 @@ const (
 	// SourceFloor is galopin's own ask defaults at agent level: the ceiling
 	// restated as config (OPENCODE_CONFIG_CONTENT).
 	SourceFloor = "floor"
-	// SourceCerea is rules the machine applies to the session: its own
-	// (policy.json) and what a person set through session.setRules.
+	// SourceMachine is the machine's own rules (policy.json permission.rules),
+	// applied to every session; they beat the file.
+	SourceMachine = "machine"
+	// SourceCerea is the session's own block: what a person set through
+	// session.setRules (and the restorations of what an earlier write set and a
+	// later one dropped).
 	SourceCerea = "cerea"
 	// SourceCeiling is the cap, always last.
 	SourceCeiling = "ceiling"

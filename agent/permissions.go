@@ -159,9 +159,11 @@ type ruleView struct {
 	Permission string `json:"permission"`
 	Pattern    string `json:"pattern"`
 	Action     string `json:"action"`
-	// Source says whose the rule is: "opencode" (its defaults, the opencode.json
-	// that enroll wrote, the agent's own config), "machine" (this machine's own
-	// rules, which beat the file) or "ceiling" (the cap that comes last).
+	// Source says whose the rule is: "default" (opencode's built-ins and each
+	// built-in agent's rules), "file" (the opencode.json enroll wrote), "floor"
+	// (galopin's own agent-level ask defaults), "machine" (this machine's own
+	// rules, which beat the file), "cerea" (what a person set on this session)
+	// or "ceiling" (the cap, last).
 	Source string `json:"source"`
 }
 

@@ -239,17 +239,23 @@ func spawnChain(marks map[string]backend.SpawnedBy, id string) (depth int, root 
 // spawnMode resolves the mode a spawned session gets and whether that is an
 // ESCALATION: a mode that may be less restricted than the caller's. It returns
 // the caller's own mode for "" / "inherit" ("" = the backend's default, which is
-// the caller's own when it has none). Equal to the caller's, or "plan" (the
-// read-only built-in), is no escalation; any other name could be less
-// restricted than the caller and galopin has no order to compare modes by. An
-// escalation is not refused: it always shows the card, whatever the machine's
-// rule for session_spawn says, and the card names the mode and the caller's.
+// the caller's own when it has none). Only two cases are not escalations: the
+// caller's own mode, and `plan` asked by a caller running `build` or the
+// backend's default (plan is the read-only built-in; it is stricter than build,
+// but a custom mode could be stricter still, so a custom caller asking for plan
+// is a card). Any other name could be less restricted than the caller and
+// galopin has no order to compare modes by. An escalation is not refused: it
+// always shows the card, whatever the machine's rule for session_spawn says,
+// and the card names the mode and the caller's.
 func spawnMode(callerMode, requested string) (mode string, escalates bool) {
 	requested = strings.TrimSpace(requested)
 	if requested == "" || requested == "inherit" {
 		return callerMode, false
 	}
-	if requested == callerMode || requested == "plan" {
+	if requested == callerMode {
+		return requested, false
+	}
+	if requested == "plan" && (callerMode == "" || callerMode == "build") {
 		return requested, false
 	}
 	return requested, true

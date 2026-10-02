@@ -262,7 +262,7 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 		}
 	}
 	if !known {
-		rules = append(denyOnly(l.Ceiling), panelDenies(panel)...)
+		rules = append(denyOnly(l.ChildCeiling()), panelDenies(panel)...)
 	}
 	ov := b.getOverlay(sessionID)
 	fp := permrules.Fingerprint(rules)
@@ -367,13 +367,19 @@ func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string
 	}
 
 	panel := b.getOverlay(sessionID).Panel
-	ownLayers := l
+	ownLayers, nOwn := l, len(l.Own)
 	if b.isChild(sessionID) {
-		ownLayers = permrules.Layers{Ceiling: l.Ceiling}
+		// A child gets no rule of the machine's as such: its restricting ones
+		// travel inside the cap (permrules.Layers.ChildCeiling).
+		ownLayers, nOwn = permrules.Layers{Ceiling: l.ChildCeiling()}, 0
 	}
 	cerea, tail := permrules.ComposeParts(ownLayers, panel, agentRules)
-	for _, r := range cerea {
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCerea})
+	for i, r := range cerea {
+		src := backend.SourceCerea
+		if i < nOwn {
+			src = backend.SourceMachine
+		}
+		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: src})
 	}
 	for _, r := range tail {
 		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCeiling})

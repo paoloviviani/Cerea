@@ -16,9 +16,9 @@ func TestSpawnMode(t *testing.T) {
 		{"", "inherit", "", false},
 		{"plan", "inherit", "plan", false},
 		{"plan", "plan", "plan", false},
-		{"build", "plan", "plan", false},
-		{"", "plan", "plan", false},       // the read-only built-in is never an escalation
-		{"custom", "plan", "plan", false}, // ...from any caller
+		{"", "plan", "plan", false},      // plan is stricter than the backend's default
+		{"build", "plan", "plan", false}, // ...and than build
+		{"custom", "plan", "plan", true}, // but a custom caller may be stricter than plan: a card
 		{"custom", "custom", "custom", false},
 		{"build", "build", "build", false},
 		{"", "build", "build", true}, // an empty mode is the backend's unverified default

@@ -288,3 +288,60 @@ func TestPassthroughP6bTightenedToAskNeedsTheRestart(t *testing.T) {
 	}
 	r.reply(s, ask.ID, "reject")
 }
+
+// P1 (the panel's claim): the file says edit: deny and a person's setRules
+// says edit: allow. The session block beats the file, so the write RUNS.
+// (TestPassthroughP1MachineRulesBeatTheFile is the machine's own rule against
+// the file; this is the session's.)
+func TestPassthroughP1SetRulesBeatTheFile(t *testing.T) {
+	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "deny"}})
+	s := r.session("p1-setrules", "")
+	if ask, part, _ := r.try(s, "p1-before.txt"); ask != nil || !refused(part) || r.exists("p1-before.txt") {
+		t.Fatalf("control: ask=%v part=%+v exists=%v; the file's deny should stand until a rule is set", ask, part, r.exists("p1-before.txt"))
+	}
+	r.setRules(s, []map[string]string{{"permission": "edit", "pattern": "*", "action": "allow"}})
+	ask, part, mark := r.try(s, "p1-after.txt")
+	if ask != nil {
+		t.Fatalf("asked for %s; the person's allow should have run it", ask.Tool)
+	}
+	if part.ToolStatus != backend.ToolCompleted || !r.exists("p1-after.txt") {
+		t.Errorf("write = %s (%s), exists=%v", part.ToolStatus, part.ToolError, r.exists("p1-after.txt"))
+	}
+	r.idle(s, mark)
+	// And the re-read says so: the written rule is a cerea one, after the file's.
+	var fileDeny, cereaAllow bool
+	for _, rule := range r.reread(s).Rules {
+		fileDeny = fileDeny || (rule.Source == "file" && rule.Permission == "edit" && rule.Action == "deny")
+		cereaAllow = cereaAllow || (rule.Source == "cerea" && rule.Permission == "edit" && rule.Action == "allow")
+	}
+	if !fileDeny || !cereaAllow {
+		t.Errorf("re-read lacks the file's deny (%v) or the cerea allow (%v)", fileDeny, cereaAllow)
+	}
+}
+
+// F2: the machine's own ask reaches a subagent. A parent's rule normally stops
+// at the parent (opencode carries only denies); a restricting machine rule is
+// applied to the child as a cap, so the subagent's write asks.
+func TestPassthroughMachineAskReachesTheSubagent(t *testing.T) {
+	r := newPermRig(t, permRigOpts{perm: policy.Permission{Rules: map[string]string{"edit": "ask"}}})
+	parent := r.session("machine-ask", "")
+	child, mark := r.delegate(parent, "machine-ask-marker", "machine-ask.txt")
+	ask, part := r.childOutcome(child, mark)
+	if ask == nil {
+		t.Fatalf("the subagent wrote without asking (%+v): the machine's ask stopped at the parent", part)
+	}
+	if ask.SessionID != child || ask.Tool != "edit" {
+		t.Errorf("ask = %+v", ask)
+	}
+	if r.exists("machine-ask.txt") {
+		t.Fatal("the file exists before anyone answered")
+	}
+	// Restrict-only: the same rule applied to a read-only subagent could only
+	// tighten, never turn its deny into an ask (permrules + backend units pin
+	// that); here the general child's write lands once answered.
+	r.reply(backend.Session{ID: child}, ask.ID, "once")
+	r.hub.toolDone(t, mark, child, "write")
+	if !r.exists("machine-ask.txt") {
+		t.Error("answering the child's ask did not land its write")
+	}
+}
