@@ -31,7 +31,7 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 }));
 
 const DESCRIPTION =
-	"Answers this session's tool asks with “allow once”. Never answers questions, never overrides a deny rule, never saves an approval. Subagents follow it unless they set their own.";
+	"Answers this session's tool asks with “allow once”, and only what this machine's ceiling allows. Never answers questions, never overrides a deny rule, never saves an approval. Subagents follow it unless they set their own.";
 
 function feature(over: Partial<CodeProviderFeature> = {}): CodeProviderFeature {
 	return {
@@ -70,6 +70,7 @@ describe("Auto-accept toggle", () => {
 		await expect.element(pill).toBeVisible();
 		const title = pill.element().getAttribute("title") ?? "";
 		expect(title).toContain("allow once");
+		expect(title).toContain("only what this machine's ceiling allows");
 		expect(title).toContain("Never answers questions");
 		expect(title).toContain("never overrides a deny");
 		expect(title).toContain("never saves an approval");
