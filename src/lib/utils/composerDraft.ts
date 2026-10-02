@@ -74,3 +74,21 @@ export function clearComposerDraft(key: string): void {
 		// Unavailable storage: nothing stored, nothing to clear.
 	}
 }
+
+/**
+ * Drops every stored draft. Called on sign-out, before the `POST /logout` —
+ * drafts are per-device state, and on a shared browser the next person must
+ * not see the previous person's unsent text. Never throws; keys outside the
+ * prefix (theme, MCP selections, …) are left alone.
+ */
+export function clearAllComposerDrafts(): void {
+	try {
+		if (typeof localStorage === "undefined") return;
+		for (const key of Object.keys(localStorage)) {
+			if (key.startsWith(COMPOSER_DRAFT_PREFIX)) localStorage.removeItem(key);
+		}
+	} catch {
+		// Unavailable storage: nothing stored, nothing to clear — and sign-out
+		// itself must never fail because of this.
+	}
+}

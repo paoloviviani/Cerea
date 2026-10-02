@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
 	COMPOSER_DRAFT_MAX_CHARS,
 	chatDraftKey,
+	clearAllComposerDrafts,
 	clearComposerDraft,
 	codeDraftKey,
 	readComposerDraft,
@@ -90,5 +91,28 @@ describe("composerDraft storage", () => {
 			throw new DOMException("denied", "SecurityError");
 		});
 		expect(() => clearComposerDraft(`${PREFIX}chat:x`)).not.toThrow();
+	});
+});
+
+describe("clearAllComposerDrafts", () => {
+	it("drops every draft key and keeps everything else", () => {
+		writeComposerDraft(chatDraftKey("home"), "home draft");
+		writeComposerDraft(chatDraftKey("abc"), "chat draft");
+		writeComposerDraft(codeDraftKey("d1", "a1"), "agent draft");
+		localStorage.setItem("theme", "dark");
+
+		clearAllComposerDrafts();
+
+		expect(readComposerDraft(chatDraftKey("home"))).toBeNull();
+		expect(readComposerDraft(chatDraftKey("abc"))).toBeNull();
+		expect(readComposerDraft(codeDraftKey("d1", "a1"))).toBeNull();
+		expect(localStorage.getItem("theme")).toBe("dark");
+	});
+
+	it("never throws when storage is unavailable", () => {
+		vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+			throw new DOMException("denied", "SecurityError");
+		});
+		expect(() => clearAllComposerDrafts()).not.toThrow();
 	});
 });
