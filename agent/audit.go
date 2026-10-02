@@ -160,3 +160,11 @@ func (a *auditLogger) permissionSetRules(session string, sent, applied int, clam
 func (a *auditLogger) permissionTightened(restarted bool) {
 	a.write(map[string]any{"action": "permission.tightened", "restarted": restarted})
 }
+
+// autoAccept records the auto-accept toggle being written for a session: the
+// switch decides whether tool asks are answered without a person, so setting
+// it is a decision worth a row. (What the responder then answers is audited as
+// permission rows, by "responder".)
+func (a *auditLogger) autoAccept(session string, enabled bool) {
+	a.write(map[string]any{"action": "auto_accept", "session": session, "enabled": enabled})
+}

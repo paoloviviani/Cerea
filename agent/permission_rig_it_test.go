@@ -240,15 +240,9 @@ func (r *permRig) idle(s backend.Session, mark int) {
 	})
 }
 
-// saved is what opencode holds as "always".
-func (r *permRig) saved() []backend.SavedApproval {
-	r.t.Helper()
-	list, err := r.oc.SavedApprovals(r.ctx)
-	if err != nil {
-		r.t.Fatalf("saved approvals: %v", err)
-	}
-	return list
-}
+// saved is the "always" approvals the machine relayed (its own record: opencode
+// keeps its in memory, with no way to read it).
+func (r *permRig) saved() []backend.SavedApproval { return r.mc.saved.list() }
 
 // raw talks to opencode directly (for the canaries, which must set rules
 // galopin would never compose).

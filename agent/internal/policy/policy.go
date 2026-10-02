@@ -20,9 +20,12 @@ import (
 // any root is configured, no models beyond the gateway's own.
 //
 // A policy.json written before the permission pass-through may still carry
-// `autoAccept`: it is ignored on load and dropped on save. Auto-accept is no
-// longer a machine rule; Permission.Responders is the only machine-side word
-// about it, and nothing is translated from the old one.
+// `autoAccept`. It meant exactly what Permission.Responders means now — the
+// owner let sessions auto-accept — so when permission.responders is absent
+// Load takes it from a legacy "allowed" (an owner who enrolled with
+// --allow-auto-accept keeps what they chose); a legacy "denied" is the default
+// anyway. Save writes only the new field, so the old one is gone after the
+// first write. Nothing else is carried over: the old word never meant any rule.
 type Policy struct {
 	// Permission is the machine's say over opencode's permission system.
 	Permission      Permission `json:"permission"`
@@ -256,11 +259,18 @@ func Load(path string) (Policy, error) {
 	if err := json.Unmarshal(body, &p); err != nil {
 		return Policy{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
+	var legacy struct {
+		AutoAccept string `json:"autoAccept"`
+	}
+	_ = json.Unmarshal(body, &legacy)
 	if err := p.Permission.Validate(); err != nil {
 		return Policy{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if p.Permission.Responders == "" {
 		p.Permission.Responders = TerminalDenied
+		if legacy.AutoAccept == "allowed" {
+			p.Permission.Responders = TerminalAllowed
+		}
 	}
 	if p.Files == "" {
 		p.Files = FilesRead

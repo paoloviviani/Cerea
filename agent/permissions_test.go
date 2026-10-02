@@ -25,8 +25,7 @@ type ruleBackend struct {
 	*fakeBackend
 	mu       sync.Mutex
 	replies  []backend.Decision
-	saved    []backend.SavedApproval
-	removed  []string
+	onStart  func()
 	restarts int
 	ensured  []string
 	children map[string]string
@@ -60,17 +59,13 @@ func (r *ruleBackend) SetSessionRules(_ context.Context, _, sessionID string, ru
 func (r *ruleBackend) RuleLayers(context.Context, string, string) (backend.RuleLayers, error) {
 	return r.layers, nil
 }
-func (r *ruleBackend) SavedApprovals(context.Context) ([]backend.SavedApproval, error) {
-	return r.saved, nil
-}
-func (r *ruleBackend) RemoveSavedApproval(_ context.Context, id string) error {
-	for _, s := range r.saved {
-		if s.ID == id {
-			r.removed = append(r.removed, id)
-			return nil
-		}
+
+// OnProcessStart records the callback; start() plays a process start.
+func (r *ruleBackend) OnProcessStart(fn func()) { r.onStart = fn }
+func (r *ruleBackend) start() {
+	if r.onStart != nil {
+		r.onStart()
 	}
-	return errors.New("no such saved approval")
 }
 func (r *ruleBackend) EnsureRules(_ context.Context, _, sessionID string) error {
 	r.mu.Lock()
@@ -91,6 +86,9 @@ func (r *ruleBackend) RestartForPolicy(context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restarts++
+	if r.restart == nil {
+		r.start() // a restart is a start of the process
+	}
 	return r.restart
 }
 
@@ -217,11 +215,13 @@ func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 	rb.layers = backend.RuleLayers{Agent: "build", Rules: []backend.SourcedRule{
 		{Rule: permrules.Rule{Permission: "*", Pattern: "*", Action: permrules.Allow}, Source: backend.SourceDefault},
 		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Ask}, Source: backend.SourceFile},
+		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Deny}, Source: backend.SourceMachine},
 		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}, Source: backend.SourceCerea},
 		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Ask}, Source: backend.SourceCeiling},
 	}}
-	rb.saved = []backend.SavedApproval{{ID: "sav_1", Permission: "bash", Patterns: []string{"ls *"}, Removable: true}}
-	mc.saved.add("s1", "bash", []string{"rm *"})
+	dir, _ := mc.mat.WorkspaceDir("s1")
+	mc.saved.add("s1", dir, "bash", []string{"rm *"})
+	mc.saved.add("s2", "/another/workspace", "edit", []string{"*"}) // granted elsewhere
 	got, operr := mc.opPermissionRules(context.Background(), json.RawMessage(`{"sessionId":"s1"}`))
 	if operr != nil {
 		t.Fatal(operr)
@@ -238,18 +238,19 @@ func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Agent != "build" || len(out.Rules) != 4 || out.Rules[0].Source != "default" || out.Rules[1].Source != "file" || out.Rules[2].Source != "cerea" || out.Rules[3].Source != "ceiling" {
-		t.Errorf("rules = %+v", out)
+	sources := []string{}
+	for _, r := range out.Rules {
+		sources = append(sources, r.Source)
 	}
-	if len(out.SavedApprovals) != 2 || out.Ceiling["edit"] != "ask" {
-		t.Fatalf("saved/ceiling = %+v", out)
+	if out.Agent != "build" || strings.Join(sources, " ") != "default file machine cerea ceiling" {
+		t.Errorf("rules = %+v (sources %v)", out, sources)
 	}
-	minted, exposed := out.SavedApprovals[0], out.SavedApprovals[1]
+	if len(out.SavedApprovals) != 1 || out.Ceiling["edit"] != "ask" {
+		t.Fatalf("saved/ceiling = %+v: only this workspace's approval should be listed", out)
+	}
+	minted := out.SavedApprovals[0]
 	if !strings.HasPrefix(minted.ID, "sa_") || minted.SessionID != "s1" || minted.Permission != "bash" || minted.Removable {
 		t.Errorf("a minted approval = %+v: it should carry the granting session and not be removable", minted)
-	}
-	if exposed.ID != "sav_1" || !exposed.Removable {
-		t.Errorf("an opencode-listed approval = %+v, want removable", exposed)
 	}
 	if _, operr := mc.opPermissionRules(context.Background(), json.RawMessage(`{}`)); operr == nil || operr.Code != "invalid" {
 		t.Errorf("no sessionId: %v", operr)
@@ -274,29 +275,30 @@ func TestPermissionRulesUnsupportedWithoutAPermissionBackend(t *testing.T) {
 	}
 }
 
-func TestSavedRemoveWithdrawsWhatOpencodeLists(t *testing.T) {
-	mc, rb, dir := newRuleMachine(t, policy.Default())
-	rb.saved = []backend.SavedApproval{{ID: "sav_1", Permission: "bash", Patterns: []string{"ls *"}, Removable: true}}
-	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"sav_1"}`)); operr != nil {
-		t.Fatal(operr)
-	}
-	if len(rb.removed) != 1 || rb.removed[0] != "sav_1" {
-		t.Errorf("removed = %v", rb.removed)
-	}
-	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"nope"}`)); operr == nil || operr.Code != "not_found" {
-		t.Errorf("an unknown id: %v", operr)
-	}
-	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{}`)); operr == nil || operr.Code != "invalid" {
-		t.Errorf("no id: %v", operr)
-	}
-	var seen int
-	for _, r := range auditRows(t, dir) {
-		if r["action"] == "permission.saved.remove" && r["id"] == "sav_1" {
-			seen++
+func TestSavedRemoveNeedsBothIDsAndKnowsOnlyThisWorkspacesApprovals(t *testing.T) {
+	mc, _, _ := newRuleMachine(t, policy.Default())
+	dir, _ := mc.mat.WorkspaceDir("s1")
+	mc.saved.add("s1", dir, "bash", []string{"ls *"})
+	mc.saved.add("s9", "/elsewhere", "bash", []string{"ls *"})
+	elsewhere := mc.saved.list()[1].ID
+	for name, body := range map[string]string{
+		"no id":        `{"sessionId":"s1"}`,
+		"no sessionId": `{"id":"sa_x"}`,
+		"neither":      `{}`,
+	} {
+		if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(body)); operr == nil || operr.Code != "invalid" {
+			t.Errorf("%s: %v, want invalid", name, operr)
 		}
 	}
-	if seen != 1 {
-		t.Errorf("audit rows for the removal = %d, want 1 (a failed removal is not one)", seen)
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"s1","id":"nope"}`)); operr == nil || operr.Code != "not_found" {
+		t.Errorf("an unknown id: %v, want not_found", operr)
+	}
+	body, _ := json.Marshal(map[string]any{"sessionId": "s1", "id": elsewhere})
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), body); operr == nil || operr.Code != "not_found" {
+		t.Errorf("another workspace's approval: %v, want not_found", operr)
+	}
+	if _, operr := mc.opPermissionSavedRemove(context.Background(), json.RawMessage(`{"sessionId":"ghost","id":"x"}`)); operr == nil || operr.Code != "not_found" {
+		t.Errorf("an unknown session: %v", operr)
 	}
 }
 
@@ -320,8 +322,11 @@ func TestSavedRemoveOfAMintedApprovalIsUnsupported(t *testing.T) {
 	if _, operr := mc.opPermissionSavedRemove(context.Background(), rm); operr == nil || operr.Code != "unsupported" {
 		t.Errorf("removing a minted approval: %v, want unsupported", operr)
 	}
-	if len(rb.removed) != 0 {
-		t.Error("something was removed")
+	if n := len(mc.saved.list()); n != 1 {
+		t.Errorf("ledger = %d entries after an unsupported removal, want it untouched", n)
+	}
+	if dir, _ := mc.mat.WorkspaceDir("s1"); list[0].WorkspaceDir != dir {
+		t.Errorf("entry workspace = %q, want %q", list[0].WorkspaceDir, dir)
 	}
 	// A capped always creates nothing to remember; neither does a once.
 	mc2, _, _ := newRuleMachine(t, policyWithCeiling(map[string]string{"edit": "ask"}))
@@ -332,10 +337,15 @@ func TestSavedRemoveOfAMintedApprovalIsUnsupported(t *testing.T) {
 	if n := len(mc2.saved.list()); n != 0 {
 		t.Errorf("ledger = %d entries after a capped always, want none", n)
 	}
-	// And a tightened policy, which restarts opencode, forgets them.
-	mc.policyTightened(context.Background(), policy.Change{Tightened: true})
+	// A start of the opencode process — a crash restart as much as a tightened
+	// policy — forgets them, and the asks that died with the old process.
+	askFor(mc, "per_2", "edit")
+	rb.start()
 	if n := len(mc.saved.list()); n != 0 {
-		t.Errorf("ledger = %d entries after the restart, want none", n)
+		t.Errorf("ledger = %d entries after a process start, want none", n)
+	}
+	if mc.mat.PendingPermissions("s1") != 0 {
+		t.Error("an ask that died with the old process is still shown")
 	}
 }
 
@@ -686,5 +696,42 @@ func TestSetRulesRefusals(t *testing.T) {
 	plain.trackSession(ws, backend.Session{ID: "s1"})
 	if _, operr := plain.Handle(context.Background(), "session.setRules", json.RawMessage(`{"sessionId":"s1","rules":[]}`)); operr == nil || operr.Code != "unsupported" {
 		t.Errorf("a backend without rules: %v", operr)
+	}
+}
+
+// F7: the auto-accept toggle is a decision, so writing it is audited, and so is
+// the attempt a machine refuses.
+func TestAutoAcceptToggleIsAudited(t *testing.T) {
+	pol := policy.Default()
+	pol.Permission.Responders = policy.TerminalAllowed
+	mc, _, dir := newRuleMachine(t, pol)
+	for _, enabled := range []bool{true, false} {
+		args, _ := json.Marshal(map[string]any{"sessionId": "s1", "enabled": enabled})
+		if _, operr := mc.Handle(context.Background(), "session.setAutoAccept", args); operr != nil {
+			t.Fatal(operr)
+		}
+	}
+	var rows []map[string]any
+	for _, r := range auditRows(t, dir) {
+		if r["action"] == "auto_accept" {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) != 2 || rows[0]["enabled"] != true || rows[1]["enabled"] != false || rows[0]["session"] != "s1" {
+		t.Errorf("auto_accept audit rows = %v, want an on then an off for s1", rows)
+	}
+
+	denied, _, ddir := newRuleMachine(t, policy.Default())
+	args, _ := json.Marshal(map[string]any{"sessionId": "s1", "enabled": true})
+	if _, operr := denied.Handle(context.Background(), "session.setAutoAccept", args); operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("a denying machine: %v", operr)
+	}
+	var refusal, toggled bool
+	for _, r := range auditRows(t, ddir) {
+		refusal = refusal || (r["action"] == "refusal" && r["op"] == "session.setAutoAccept")
+		toggled = toggled || r["action"] == "auto_accept"
+	}
+	if !refusal || toggled {
+		t.Errorf("refusal audited=%v, toggle audited=%v; want the refusal and no toggle row", refusal, toggled)
 	}
 }

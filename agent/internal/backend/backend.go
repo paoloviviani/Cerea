@@ -275,8 +275,9 @@ func (l RuleLayers) Plain() []permrules.Rule {
 
 // SavedApproval is one "always" as permission.rules lists it. opencode keeps
 // its own in memory with no ids, and 1.18.32 offers no way to read or withdraw
-// them, so galopin mints ids for the ones it relayed (Removable false) and
-// lists the ones opencode does expose (Removable true).
+// them (its /api/permission/saved belongs to a separate v2 system that no ask
+// reaches), so galopin mints ids for the ones it relayed and reports them
+// Removable false.
 type SavedApproval struct {
 	ID        string `json:"id"`
 	SessionID string `json:"sessionId"`
@@ -287,6 +288,10 @@ type SavedApproval struct {
 	Patterns   []string `json:"patterns"`
 	Removable  bool     `json:"removable"`
 	GrantedAt  string   `json:"grantedAt,omitempty"`
+	// WorkspaceDir is where it was granted. opencode shares an "always" with
+	// every session of the workspace, so the list is scoped to the asking
+	// session's; it is not part of the wire.
+	WorkspaceDir string `json:"-"`
 }
 
 // RuleHost is the optional "permissions" capability: the backend's permission
@@ -303,17 +308,18 @@ type RuleHost interface {
 	// clamped to the ceiling by the caller) and applies them. The session's
 	// composed rules come out as the machine's own, these, then the ceiling.
 	SetSessionRules(ctx context.Context, workspaceDir, sessionID string, rules []permrules.Rule) error
-	// SavedApprovals lists the approvals the backend itself exposes with ids
-	// (the machine adds the ones it relayed).
-	SavedApprovals(ctx context.Context) ([]SavedApproval, error)
-	// RemoveSavedApproval withdraws one of those.
-	RemoveSavedApproval(ctx context.Context, id string) error
 	// EnsureRules re-applies the machine's rules to a session if they differ
 	// from what it carries (after the ceiling changed).
 	EnsureRules(ctx context.Context, workspaceDir, sessionID string) error
 	// ApplyChildRules gives a subagent session opencode created the ceiling
 	// (never the machine's own allows); agent is its type, "" when unknown.
 	ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error
+	// OnProcessStart registers a callback run every time the backend's process
+	// starts (the first start included, a crash restart and a deliberate one
+	// alike). What the process held in memory — its saved "always" approvals and
+	// its pending asks — is gone with the old one, and the machine forgets
+	// them here.
+	OnProcessStart(fn func())
 	// RestartForPolicy restarts the backend process, clearing every "always"
 	// it holds; it returns once the new process is healthy.
 	RestartForPolicy(ctx context.Context) error

@@ -394,43 +394,24 @@ func (b *Backend) isChild(sessionID string) bool {
 	return ok
 }
 
-// savedList is GET /api/permission/saved's envelope.
-type savedList struct {
-	Data []struct {
-		ID       string `json:"id"`
-		Action   string `json:"action"`
-		Resource string `json:"resource"`
-	} `json:"data"`
+// OnProcessStart implements backend.RuleHost.
+func (b *Backend) OnProcessStart(fn func()) {
+	b.mu.Lock()
+	b.onStart = fn
+	b.mu.Unlock()
 }
 
-// SavedApprovals implements backend.RuleHost: the "always" approvals opencode
-// holds, which it checks after every rule.
-func (b *Backend) SavedApprovals(ctx context.Context) ([]backend.SavedApproval, error) {
-	var list savedList
-	if err := b.doJSON(ctx, http.MethodGet, "/api/permission/saved", nil, &list); err != nil {
-		return nil, err
+// processStarted is what runOnce calls once a new opencode process exists: the
+// agent rules it cached belong to the old one, and the machine is told to forget
+// what the old one held in memory.
+func (b *Backend) processStarted() {
+	b.forgetAgentRules()
+	b.mu.Lock()
+	fn := b.onStart
+	b.mu.Unlock()
+	if fn != nil {
+		fn()
 	}
-	out := make([]backend.SavedApproval, 0, len(list.Data))
-	for _, d := range list.Data {
-		out = append(out, backend.SavedApproval{ID: d.ID, Permission: d.Action, Patterns: []string{d.Resource}, Removable: true})
-	}
-	return out, nil
-}
-
-// RemoveSavedApproval implements backend.RuleHost. The id must be one the
-// listing names: it ends up in a URL path, and a caller's string is not
-// trusted to be an id.
-func (b *Backend) RemoveSavedApproval(ctx context.Context, id string) error {
-	saved, err := b.SavedApprovals(ctx)
-	if err != nil {
-		return err
-	}
-	for _, s := range saved {
-		if s.ID == id {
-			return b.doJSON(ctx, http.MethodDelete, "/api/permission/saved/"+url.PathEscape(id), nil, nil)
-		}
-	}
-	return fmt.Errorf("no saved approval %q", id)
 }
 
 // stripForbidden removes what must never reach opencode from a request body: the
@@ -477,7 +458,6 @@ func (b *Backend) RestartForPolicy(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	b.forgetAgentRules()
 	// The old process's port is closed once it has exited, so a health check
 	// that passes is the new one's.
 	return b.waitHealthy(ctx, b.startTimeout())
