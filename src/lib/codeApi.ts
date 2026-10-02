@@ -19,6 +19,7 @@ import type {
 	PendingPermission,
 	PendingQuestion,
 	PermissionRulesResult,
+	SessionRuleInput,
 	Terminal,
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
@@ -623,9 +624,9 @@ export async function respondPermission(
 	);
 }
 
-/** The opencode rules in force for this agent's session, plus the "always"
- * approvals opencode is holding. READ-ONLY: opencode's rules decide and the
- * panel shows them. 404s (`CodeApiError.status === 404`) on a machine whose
+/** The opencode rules in force for this agent's session, the machine's
+ * ceiling, and the "always" approvals opencode is holding. A read: what this
+ * returns is the truth, whatever any write asked for. 404s (`CodeApiError.status === 404`) on a machine whose
  * galopin predates the op — the Permissions line hides in that case. */
 export async function getPermissionRules(
 	deviceId: string,
@@ -638,9 +639,32 @@ export async function getPermissionRules(
 	);
 }
 
-/** Forget one saved "always" approval, so that kind of call asks again.
- * The only write the panel makes to permissions, and only a tightening:
- * there is no function in this module that adds or edits a rule. */
+/** Compose THIS session's own rules (`session.setRules`). The machine applies
+ * them capped by its ceiling — an over-ceiling rule is refused or lowered — so
+ * the receipt says only that the call landed. Never show what was asked for:
+ * re-read `getPermissionRules` and show what is in force. Sends exactly
+ * `{permission, pattern, action}` per rule and nothing else. */
+export async function setSessionRules(
+	deviceId: string,
+	agentId: string,
+	rules: SessionRuleInput[]
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-rules?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					rules: rules.map(({ permission, pattern, action }) => ({ permission, pattern, action })),
+				}),
+			}
+		)
+	);
+}
+
+/** Forget one saved "always" approval, so that kind of call asks again. A
+ * tightening, like nothing else here that touches permissions. */
 export async function removeSavedApproval(
 	deviceId: string,
 	agentId: string,
