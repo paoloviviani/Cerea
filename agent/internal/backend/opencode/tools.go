@@ -60,8 +60,8 @@ var galopinTools = []toolDef{
 	{
 		name: "session_spawn",
 		description: "Start a NEW top-level session in this same workspace and give it a first prompt; it runs on its own, and its transcript is the person's to read. " +
-			"The person is asked to approve every spawn (they see the title, mode and prompt). The new session can never be less restricted than you: " +
-			"mode may be equal or more restrictive (plan is stricter than build), it has no auto-accept, and it uses your model. You get its id, not its result; " +
+			"The person is asked to approve every spawn (they see the title, mode and prompt) unless this machine's rules allow spawning, and a rule can refuse it outright. The new session can never be less restricted than you: " +
+			"mode may be your own or \"plan\" (read-only), it has no auto-accept, and it uses your model. You get its id, not its result; " +
 			"it has the same tools, so it can session_send you a message when its work is done (each send asks the person). Limits apply (chain depth, live sessions, rate).",
 		args: `{ title: { type: "string", description: "Short title for the new session." },` +
 			` prompt: { type: "string", description: "The first prompt: everything the new session needs, it cannot see this conversation." },` +
@@ -70,7 +70,7 @@ var galopinTools = []toolDef{
 	{
 		name: "session_send",
 		description: "Send a message to ANOTHER session on this machine (by id from session_list); it arrives as a prompt marked as coming from you, folded into its running turn if it is busy. " +
-			"The person is asked to approve every send. The target has the same tools and can send a message back the same way — but do not assume it will. " +
+			"The person is asked to approve every send unless this machine's rules allow it (a rule can also refuse it). The target has the same tools and can send a message back the same way — but do not assume it will. " +
 			"Not for your own subagents (use task) or yourself. Limits apply (hops, rate).",
 		args: `{ target: { type: "string", description: "The target session id, from session_list." },` +
 			` text: { type: "string", description: "The message." } }`,
