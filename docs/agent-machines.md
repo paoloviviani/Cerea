@@ -153,8 +153,11 @@ off or extend the list are in [The machine policy](#the-machine-policy).
 `/code` can also open a real, interactive shell on the machine, but only
 when both sides say so. The machine must be enrolled with `--allow-terminal`
 (without it, every terminal request is refused), and the deployment must set
-`CODE_TERMINAL_ENABLED=true` (off by default). Opening a terminal also needs a
-sign-in to Cerea within the last 7 days. Turning it on means exactly this: **anyone who
+`CODE_TERMINAL_ENABLED=true` (off by default). Everything in /code needs a
+sign-in within the last 7 days; the machine's own link is unaffected
+([The 7-day sign-in](#the-7-day-sign-in)). A terminal re-checks that every
+minute, so one opened just before the window closes ends at the next check
+rather than living as long as its socket. Turning it on means exactly this: **anyone who
 controls your Cerea session can run commands as you on this machine.**
 There is no model and no permission rule standing in the way once a
 terminal is open — it is strictly more power than any permission rule or
@@ -219,6 +222,19 @@ hands them only their parent's _denies_ — otherwise `general` would run with
 existing file; `--yes` does not ask), so point it at a dedicated path, or re-add
 your own rules afterwards.
 
+**Machines enrolled before ceilings.** A machine whose `policy.json` predates
+ceilings and whose `opencode.json` has no ask block stays allow-everything until
+it is re-enrolled: an edit, a command or a fetch runs without asking, in
+subagents too, and nothing is migrated. The panel does not show that machine a
+clean bill. When the machine's `hello` reports an empty ceiling and its rules
+(read through a session's Permissions line) carry no rules from the file, the
+Permissions line says up front _"Re-enroll this machine. Its policy predates
+ceilings…"_ with a button into the enroll flow, and the machine's row in the
+sidebar carries the same notice with the one-line enroll command. One re-enroll
+tightens it, and the notice goes away when the machine reports a ceiling. A
+machine that reports a ceiling, or whose file carries the ask block, is never
+flagged.
+
 **The one gap, stated plainly.** If the ceiling lets `bash` run, a command can
 read opencode's server password from its own environment and rewrite its
 session's rules directly — past the ceiling. Everything else is capped: the
@@ -238,6 +254,36 @@ workspace, starting or archiving a session, renaming. The main pane shows whatev
 A machine that is not currently connected renders as **offline** — the tree
 never tries to load its workspaces, so one offline machine never freezes the
 rest of the list.
+
+### The 7-day sign-in
+
+Everything in /code needs a sign-in within the last 7 days; the machine's own
+link is unaffected. Older than that, the panel draws one card — _"Your sign-in
+is older than 7 days. Sign in again to see your machines."_ — with a **Sign in**
+button, and nothing else: no device tree, no Needs-you inbox, no terminal tab,
+no counts. The server is what enforces it: every request under
+`/api/v2/code/` except `/status` answers `401 {code: "reauth_required"}` while
+the sign-in is stale (or has no recorded time at all), so no part of the panel
+can be asked for a machine's data, whichever way it asks. A tab that is open
+when the window closes finds out by itself: its event stream ends with a
+`reauth_required` frame at the 7-day mark, and the page also flips on its own
+timer, with no request. Composer drafts stay in the browser but are not shown
+until you are back.
+
+Your machines keep working while you are signed out of the panel. The machine's
+link to Cerea is its own credential and is not part of this; what stops is
+you seeing and driving them from the browser.
+
+### The Needs-you inbox
+
+The inbox lists, across all your machines, the approvals and questions that are
+waiting for you, each answerable in place and linked to its session. It is part
+of /code, so it **goes dark with the rest** when the sign-in is older than 7
+days. That is a trade: nothing in the browser will tell you that a session is
+waiting, and a session waiting for an approval waits (it does not proceed) until
+you sign in again. For work you leave running for days, either keep the
+sign-in current, or use auto-accept for the tool asks you are content to
+have answered "once" within the machine's ceiling (questions still wait for you).
 
 ### Workspaces
 
