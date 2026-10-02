@@ -633,6 +633,63 @@ async function upsertChunks(
 }
 
 /**
+ * Background ingestion: the upload overlay returns once the document row
+ * exists, and the OCR+embedding work finishes behind it.
+ *
+ * An in-process queue, two at a time: each ingest can hold a ~20 MB PDF plus
+ * its ~27 MB base64 while extracting, so N files must not mean N parallel
+ * ingests on a small box. Fire-and-forget by contract — `startIngest`
+ * returns void — so the `.catch` on the `ingestDocument` promise is load
+ * bearing: a delete mid-ingest rejects (the post-ingest checks throw), and a
+ * bare void promise would take the process down as an unhandled rejection.
+ */
+export const BACKGROUND_INGEST_CONCURRENCY = 2;
+
+const backgroundQueue: { id: ObjectId; token: string }[] = [];
+let backgroundRunning = 0;
+
+async function pumpBackgroundIngest(): Promise<void> {
+	const next = backgroundQueue.shift();
+	if (!next) {
+		backgroundRunning--;
+		return;
+	}
+	await ingestDocument(next.id, next.token).catch((err: unknown) =>
+		logger.warn({ err, document: next.id.toString() }, "knowledge_background_ingest_failed")
+	);
+	void pumpBackgroundIngest();
+}
+
+export function startIngest(documentId: ObjectId, token: string): void {
+	backgroundQueue.push({ id: documentId, token });
+	if (backgroundRunning < BACKGROUND_INGEST_CONCURRENCY) {
+		backgroundRunning++;
+		void pumpBackgroundIngest();
+	}
+}
+
+/**
+ * Fail whatever a restart stranded: a `pending` row last touched before boot
+ * whose ingest died with the old process. Nothing else can re-drive it — its
+ * token is gone — so pending-forever would be a lie; failed names the fix
+ * (upload again, or reindex). Rows touched after boot began are this
+ * process's own and are left alone. Single chat process assumed.
+ */
+export async function failInterruptedIngests(bootedAt: Date): Promise<number> {
+	const res = await collections.knowledgeDocuments.updateMany(
+		{ status: "pending", updatedAt: { $lt: bootedAt } },
+		{
+			$set: {
+				status: "failed",
+				error: "Indexing was interrupted by a restart; upload it again or reindex.",
+				updatedAt: new Date(),
+			},
+		}
+	);
+	return res.modifiedCount;
+}
+
+/**
  * Index one document's text: chunk, embed, store.
  *
  * Synchronous by decision: this deployment's documents are small, and a
@@ -873,7 +930,8 @@ export async function attachFile(
 	storeId: string,
 	caller: Caller,
 	token: string,
-	body: { file_id: string; title?: string }
+	body: { file_id: string; title?: string },
+	opts?: { background?: boolean }
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	const config = await readConfig();
@@ -930,6 +988,20 @@ export async function attachFile(
 				.delete(fileId)
 				.catch(() => undefined);
 		}
+		if (opts?.background) {
+			if (twin.status === "failed") {
+				// Claim first: two quick retries both see `failed`, and only
+				// the winner re-pays the extraction — the loser returns the
+				// twin as its sibling's ingest drives it.
+				const claimed = await collections.knowledgeDocuments.updateOne(
+					{ _id: twin._id, status: "failed" },
+					{ $set: { status: "pending", error: "", updatedAt: new Date() } }
+				);
+				if (claimed.modifiedCount === 1) startIngest(twin._id, token);
+			}
+			const current = await collections.knowledgeDocuments.findOne({ _id: twin._id });
+			return documentObject(current ?? twin, null);
+		}
 		const settled = twin.status === "failed" ? await ingestDocument(twin._id, token) : twin;
 		return documentObject(settled, null);
 	}
@@ -949,6 +1021,12 @@ export async function attachFile(
 		updatedAt: new Date(),
 	};
 	await collections.knowledgeDocuments.insertOne(document);
+	if (opts?.background) {
+		// The row is the response: the file-sweep grace and twin dedup both
+		// read it, and the overlay is already unblocked. Ingest follows.
+		startIngest(document._id, token);
+		return documentObject(document, stored.filename ?? null);
+	}
 	const ingested = await ingestDocument(document._id, token);
 	return documentObject(ingested, stored.filename ?? null);
 }
@@ -957,7 +1035,8 @@ export async function addText(
 	storeId: string,
 	caller: Caller,
 	token: string,
-	body: { text: string; title?: string; source_ref?: string }
+	body: { text: string; title?: string; source_ref?: string },
+	opts?: { background?: boolean }
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	const config = await readConfig();
@@ -1021,6 +1100,11 @@ export async function addText(
 			},
 		}
 	);
+	if (opts?.background) {
+		startIngest(document._id, token);
+		const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
+		return documentObject(current ?? document, null);
+	}
 	const ingested = await ingestDocument(document._id, token);
 	return documentObject(ingested, null);
 }
