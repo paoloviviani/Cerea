@@ -12,7 +12,7 @@ standard-library Python script that writes `.env` for you.
 
 Licence: EUPL-1.2, Copyright 2026 Paolo Viviani ([LICENCE](LICENCE),
 [NOTICE](NOTICE)). This kit contains no third-party code; see
-[AI-DISCLOSURE.md](AI-DISCLOSURE.md) for how it was written.
+[AI-DISCLOSURE.md](https://github.com/paoloviviani/cerea-deploy/blob/main/AI-DISCLOSURE.md) for how it was written.
 
 ## Third-party software
 
