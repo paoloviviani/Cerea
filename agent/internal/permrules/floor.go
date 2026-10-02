@@ -1,0 +1,97 @@
+package permrules
+
+// The agent-level floor: the ceiling restated as opencode CONFIG, handed over
+// as OPENCODE_CONFIG_CONTENT at every start. A session's rules (Compose) are
+// what normally enforce the ceiling, but a subagent's session is created by
+// opencode itself — it inherits its parent's denies and nothing else — so
+// between its creation and the moment galopin PATCHes it, and for any agent
+// galopin could not read, only the agent's own rules stand. The floor puts the
+// ceiling there.
+//
+// The same last-match-wins trap as Tail applies, and here there is no agent
+// ruleset to read before the process starts: a config `edit: ask` after the
+// plan agent's `edit: deny` would turn the deny into an ask. So a floor entry
+// is written only for an agent that GRANTS the key by default, from a table
+// of opencode 1.18.32's built-in agents; floor_it_test.go compares the table
+// against the live binary's GET /agent for every capped key, so a release that
+// changes a built-in agent fails there instead of loosening a machine.
+
+import "sort"
+
+// builtinAgents are the agents the floor covers: the two primaries a person
+// picks and the two subagents the task tool starts. compaction, summary and
+// title deny every tool, so a floor has nothing to say to them.
+var builtinAgents = []string{"build", "plan", "general", "explore"}
+
+// exploreKeys is what explore's own rules allow (everything else is denied by
+// its `"*": deny`); a floor `ask` is written only for these.
+var exploreKeys = map[string]bool{
+	"bash": true, "webfetch": true, "websearch": true, "grep": true, "glob": true, "list": true, "read": true,
+}
+
+// agentGrants reports whether a built-in agent allows key by default, which is
+// the only case in which an `ask` floor tightens rather than loosens.
+func agentGrants(agent, key string) bool {
+	switch agent {
+	case "build", "general":
+		return true
+	case "plan":
+		// plan denies edit outright and carries a per-pattern deny on task.
+		return key != "edit" && key != "task"
+	case "explore":
+		return exploreKeys[key]
+	}
+	return false
+}
+
+// planEdit and exploreEdit re-state the two built-in read-only agents' edit
+// rules. A static `edit: ask` in opencode.json (what `enroll` now writes) sits
+// after them in the merge and would soften both; the floor puts them back on
+// top. plan keeps its project plan file, as the built-in does.
+var (
+	planEdit    = map[string]any{"*": "deny", ".opencode/plans/*.md": "allow"}
+	exploreEdit = "deny"
+)
+
+// Floor is the permission part of OPENCODE_CONFIG_CONTENT for ceiling c:
+// {"permission": {...}, "agent": {name: {"permission": {...}}}}.
+func (c Ceiling) Floor() map[string]any {
+	top := map[string]any{}
+	agents := map[string]map[string]any{}
+	for _, name := range builtinAgents {
+		agents[name] = map[string]any{}
+	}
+	agents["plan"]["edit"] = planEdit
+	agents["explore"]["edit"] = exploreEdit
+	for _, k := range c.Keys() {
+		switch c.Of(k) {
+		case Deny:
+			top[k] = string(Deny)
+			for _, name := range builtinAgents {
+				agents[name][k] = string(Deny)
+			}
+		case Ask:
+			for _, name := range builtinAgents {
+				if agentGrants(name, k) {
+					agents[name][k] = string(Ask)
+				}
+			}
+		}
+	}
+	names := make([]string, 0, len(agents))
+	for n := range agents {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	agentCfg := map[string]any{}
+	for _, n := range names {
+		if len(agents[n]) > 0 {
+			agentCfg[n] = map[string]any{"permission": agents[n]}
+		}
+	}
+	out := map[string]any{"agent": agentCfg}
+	if len(top) > 0 {
+		out["permission"] = top
+	}
+	return out
+}
