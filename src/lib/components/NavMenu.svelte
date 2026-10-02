@@ -65,6 +65,8 @@
 	import CarbonEdit from "~icons/carbon/edit";
 	import CodeNavTree from "./code/CodeNavTree.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
+	import { loadCodeStatus } from "$lib/codeApi";
 
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
@@ -171,6 +173,12 @@
 	// of request-scoped `page` state, computed the same way during SSR and
 	// after hydration. A click on either pill below sets an explicit value
 	// and this stops following the route.
+	// Ask `/status` once the sidebar is live: the agents tree must not fire its
+	// requests (the server refuses them to a stale sign-in) before it knows.
+	$effect(() => {
+		if (codeAgentsEnabled) void loadCodeStatus();
+	});
+
 	const effectiveView = $derived(
 		codeNav.view === "auto" ? (page.route.id === "/code" ? "agents" : "chats") : codeNav.view
 	);
@@ -207,7 +215,11 @@
 	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
 >
 	{#if codeAgentsEnabled && effectiveView === "agents"}
-		<CodeNavTree />
+		<!-- While the sign-in is stale (or not yet known) the tree draws nothing:
+		     no machines, no counts. The Chats | Agents switch below stays. -->
+		{#if codeReauth.checked && !codeReauth.required}
+			<CodeNavTree />
+		{/if}
 	{:else}
 		{#if signedIn}
 			<ProjectsBranch

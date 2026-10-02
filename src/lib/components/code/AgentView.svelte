@@ -90,6 +90,7 @@
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
+	import PermissionsLine from "./PermissionsLine.svelte";
 	import CodeFiles from "./CodeFiles.svelte";
 	import CodeTerminals from "./CodeTerminals.svelte";
 	import CodeTasks from "./CodeTasks.svelte";
@@ -214,9 +215,14 @@
 	/** Bumped when a turn settles, so the explorer re-reads what an agent wrote. */
 	let filesTurnKey = $state(0);
 	let lastTurnState: string | undefined;
+	/** Bumped when the Permissions line may be stale: a turn settled or an ask
+	 * was answered ("always" adds a saved approval; a reject can end the
+	 * session's other pending asks), so it re-reads the machine's word. */
+	let permissionsKey = $state(0);
 	$effect(() => {
 		const state = shownState;
 		if (lastTurnState === "running" && state !== "running") filesTurnKey += 1;
+		if (lastTurnState !== undefined && lastTurnState !== state) permissionsKey += 1;
 		lastTurnState = state;
 	});
 	/** The terminal (ADR 0090 §6.1): the double veto's two halves — the
@@ -863,6 +869,7 @@
 				action === "accept" ? (scope === "always" ? "always" : "once") : "reject",
 				request.childSessionId
 			);
+			permissionsKey += 1;
 			return { ok: true };
 		} catch (err) {
 			return {
@@ -1080,6 +1087,15 @@
 					{/if}
 				</span>
 			</span>
+		{/if}
+		{#if agent && !skipMachineFetches}
+			<PermissionsLine
+				{deviceId}
+				{agentId}
+				refreshKey={permissionsKey}
+				policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
+				onreenroll={() => (showReenroll = true)}
+			/>
 		{/if}
 	</div>
 

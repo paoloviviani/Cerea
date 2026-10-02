@@ -55,7 +55,6 @@
 	// is at least the address the person is looking at right now.
 	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
 	let allowTerminal = $state(false);
-	let allowAutoAccept = $state(false);
 	let allowProjectConfig = $state(false);
 	let installOpencode = $state(false);
 	const command = $derived(
@@ -65,7 +64,6 @@
 			gatewayOrigin,
 			clientId: page.data.codeOidcClientId,
 			allowTerminal,
-			allowAutoAccept,
 			allowProjectConfig,
 			installOpencode,
 		})
@@ -181,15 +179,6 @@
 		</label>
 
 		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
-			<input type="checkbox" class="mt-0.5" bind:checked={allowAutoAccept} />
-			<span>
-				<span class="font-medium text-ink">Allow auto-accept.</span> The agent may answer its own tool
-				permission asks on this machine without a person approving each one — handoffs and questions still
-				ask. This is the machine-side gate for the Auto-accept toggle in the panel.
-			</span>
-		</label>
-
-		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
 			<input type="checkbox" class="mt-0.5" bind:checked={allowProjectConfig} />
 			<span>
 				<span class="font-medium text-ink">Trust repo configs.</span> A repo's own opencode config loads
@@ -206,6 +195,15 @@
 				permission rule in the way once a terminal is open.
 			</span>
 		</label>
+
+		<p class="mb-4 text-xs text-ink-muted" data-testid="pair-permissions-note">
+			What the agent may do is decided by opencode's own permission rules on the machine; Cerea
+			shows its asks. The panel's Auto-accept switch stays disabled unless you add <code
+				class="font-mono">--allow-auto-accept</code
+			>
+			to <code class="font-mono">enroll</code>: that only lets a responder on the machine answer
+			tool asks "allow once", per session, and never questions or denies.
+		</p>
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
 		{#if pending.length === 0}

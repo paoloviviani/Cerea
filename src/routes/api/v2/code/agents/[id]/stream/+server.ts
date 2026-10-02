@@ -47,10 +47,16 @@ import { logger } from "$lib/server/logger";
 import { toolImageUrl } from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { findAttachments } from "$lib/server/files/attachmentStore";
+import { freshUntil } from "$lib/server/code/stepUp";
 import type { MessageFile } from "$lib/types/Message";
 
 const HEARTBEAT_AFTER_MS = 15_000;
 const MAX_LIFETIME_MS = 30 * 60_000;
+
+/** What the stream sends, then closes, when the sign-in behind it lapses:
+ * a distinct SSE event, so the client can tell "sign in again" from an
+ * ordinary end. */
+const REAUTH_FRAME = `event: reauth_required\ndata: ${JSON.stringify({ code: "reauth_required" })}\n\n`;
 
 export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	requireCodeAgents(locals);
@@ -269,11 +275,18 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			// client has to know how to parse.
 			const emitReset = (id: string) => emit(id, { type: "reset" });
 
+			// The hook's /code guard looked at this request once, when it
+			// opened. A stream opened while the sign-in was fresh outlives that
+			// look, so it ends itself at `authTime + 7d` with a `reauth_required`
+			// frame (the guard then refuses its reconnect). Scheduled once, here.
+			let reauthTimer: ReturnType<typeof setTimeout> | undefined;
+
 			const finish = () => {
 				if (closed) return;
 				closed = true;
 				clearInterval(heartbeat);
 				clearTimeout(lifetime);
+				clearTimeout(reauthTimer);
 				signal.removeEventListener("abort", onAbort);
 				unsubscribe();
 				notify();
@@ -286,6 +299,20 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			const onAbort = () => finish();
 			signal.addEventListener("abort", onAbort, { once: true });
 			const lifetime = setTimeout(finish, MAX_LIFETIME_MS);
+			if (locals.authTime) {
+				reauthTimer = setTimeout(
+					() => {
+						if (closed) return;
+						try {
+							enc(REAUTH_FRAME);
+						} catch {
+							/* already going away */
+						}
+						finish();
+					},
+					Math.min(2 ** 31 - 1, Math.max(0, freshUntil(locals.authTime).getTime() - Date.now()))
+				);
+			}
 			const heartbeat = setInterval(() => {
 				if (closed) return;
 				if (Date.now() - lastEmit >= HEARTBEAT_AFTER_MS) {

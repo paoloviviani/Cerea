@@ -18,10 +18,18 @@ import type {
 	FilesStatusResult,
 	PendingPermission,
 	PendingQuestion,
+	PermissionRulesResult,
+	SessionRuleInput,
 	Terminal,
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
 import { base } from "$app/paths";
+import {
+	applyCodeStatus,
+	codeReauth,
+	flagCodeReauth,
+	type CodeStatus,
+} from "$lib/stores/codeReauth.svelte";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
@@ -54,6 +62,37 @@ export interface CodeProviderFeature {
 	blockedReason?: string;
 }
 
+/** `/status`: whether this page may use /code right now, and where to sign in
+ * again if not. The one /code call a stale session may make. Folds the answer
+ * into the shared `codeReauth` store; a failure to ask leaves the page
+ * proceeding (the first real call will say if it is stale). */
+let statusInflight: Promise<void> | null = null;
+export function loadCodeStatus(force = false): Promise<void> {
+	// Asked once per page: later callers (the sidebar and the panel both ask)
+	// share the answer, which `codeReauth.checked` records.
+	if (!force && codeReauth.checked) return Promise.resolve();
+	if (!force && statusInflight) return statusInflight;
+	statusInflight = (async () => {
+		try {
+			const response = await fetch(`${root()}/status`);
+			if (response.ok) {
+				applyCodeStatus(superjson.parse<CodeStatus>(await response.text()));
+				return;
+			}
+		} catch {
+			/* offline or a transient failure: proceed, a real call will say */
+		}
+		applyCodeStatus({ enabled: true, fresh: true, reauthPath: codeReauthPathFallback() });
+	})().finally(() => {
+		statusInflight = null;
+	});
+	return statusInflight;
+}
+
+function codeReauthPathFallback(): string {
+	return `${base}/login?reauth=1&next=${base}/code`;
+}
+
 export class CodeApiError extends Error {
 	constructor(
 		message: string,
@@ -64,8 +103,24 @@ export class CodeApiError extends Error {
 	}
 }
 
+/** Whether a 401's body is the /code guard's `reauth_required` (a superjson
+ * body, like every other answer from these routes). */
+function isReauthBody(text: string): boolean {
+	try {
+		return (superjson.parse(text) as { code?: string } | null)?.code === "reauth_required";
+	} catch {
+		return false;
+	}
+}
+
 async function unwrap<T>(response: Response): Promise<T> {
 	const text = await response.text();
+	// The sign-in is too old for /code: flip the shared flag so the whole panel
+	// drops what it holds and shows the one card, whichever call noticed first.
+	if (response.status === 401 && isReauthBody(text)) {
+		flagCodeReauth();
+		throw new CodeApiError("Your sign-in is older than 7 days. Sign in again.", 401);
+	}
 	if (!response.ok) {
 		let message = text || `The request failed with status ${response.status}.`;
 		try {
@@ -211,7 +266,7 @@ export async function listProviderModels(
 }
 
 /** The provider's features — the toggles a person can flip on an agent
- * (opencode's auto-accept) — as the daemon drafts them for a config like
+ * (opencode's auto mode, shown as Auto-accept) — as the daemon drafts them for a config like
  * the agent's. The query needs the agent's working directory; the agent's
  * mode and model ride along when known. This list says what EXISTS and
  * what it is called; the live value is the agent snapshot's word
@@ -490,7 +545,9 @@ export async function setAgentModel(
 }
 
 /** Flip one of the agent's provider features — the auto-accept toggle and
- * its kind. The answer is only the POST's receipt: the toggle's label
+ * its kind. Auto-accept is opencode's auto mode for THIS session: a
+ * responder on the machine answers its tool asks "allow once". It never
+ * writes a permission rule; nothing here can. The answer is only the POST's receipt: the toggle's label
  * claims the new value when the refreshed agent snapshot agrees, never
  * from this call. */
 export async function setAgentFeature(
@@ -616,6 +673,60 @@ export async function respondPermission(
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ decision, ...(childSessionId ? { childSessionId } : {}) }),
 			}
+		)
+	);
+}
+
+/** The opencode rules in force for this agent's session, the machine's
+ * ceiling, and the "always" approvals opencode is holding. A read: what this
+ * returns is the truth, whatever any write asked for. 404s (`CodeApiError.status === 404`) on a machine whose
+ * galopin predates the op — the Permissions line hides in that case. */
+export async function getPermissionRules(
+	deviceId: string,
+	agentId: string
+): Promise<PermissionRulesResult> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-rules?device=${encodeURIComponent(deviceId)}`
+		)
+	);
+}
+
+/** Compose THIS session's own rules (`session.setRules`). The machine applies
+ * them capped by its ceiling — an over-ceiling rule is refused or lowered — so
+ * the receipt says only that the call landed. Never show what was asked for:
+ * re-read `getPermissionRules` and show what is in force. Sends exactly
+ * `{permission, pattern, action}` per rule and nothing else. */
+export async function setSessionRules(
+	deviceId: string,
+	agentId: string,
+	rules: SessionRuleInput[]
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-rules?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					rules: rules.map(({ permission, pattern, action }) => ({ permission, pattern, action })),
+				}),
+			}
+		)
+	);
+}
+
+/** Forget one saved "always" approval, so that kind of call asks again. A
+ * tightening, like nothing else here that touches permissions. */
+export async function removeSavedApproval(
+	deviceId: string,
+	agentId: string,
+	approvalId: string
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-approvals/${encodeURIComponent(approvalId)}?device=${encodeURIComponent(deviceId)}`,
+			{ method: "DELETE" }
 		)
 	);
 }
@@ -869,7 +980,12 @@ export async function mintTerminalTicket(deviceId: string, terminalId: string): 
 		} catch {
 			/* not the reauth shape — falls through to the generic failure below */
 		}
-		if (code === "reauth_required") throw new TerminalReauthRequired();
+		if (code === "reauth_required") {
+			// Older than the terminal's own window is older than /code's: the
+			// whole panel is stale, not just this ticket.
+			flagCodeReauth();
+			throw new TerminalReauthRequired();
+		}
 	}
 	if (!response.ok) {
 		// Every other non-2xx here is a SvelteKit `error()` throw (plain

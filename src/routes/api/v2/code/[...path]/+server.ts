@@ -46,6 +46,7 @@ import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import {
 	OpError,
+	parsePermissionRules,
 	type Command,
 	type Directory,
 	type Session,
@@ -113,7 +114,20 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/archive$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/archive$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/diff$`) },
+	// opencode's rules decide and the panel shows them. The reach back into
+	// them is exactly three routes: the read below, the session's own rules
+	// (`session.setRules`, applied by the machine capped by its ceiling), and
+	// DELETE of a saved "always" approval (tighten-only). The ceiling, the
+	// machine's own rules and policy have no route at all.
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/permission-rules$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permission-rules$`) },
+	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}/permission-approvals/${ID}$`) },
 ];
+
+/** The allowlist, exposed (underscore: SvelteKit allows only these in a
+ * `+server.ts`) for the stale-session guard spec, which must walk every entry
+ * and fail when a new one has no coverage. Nothing else reads it. */
+export const _RULES = RULES;
 
 /** `workspace.suggest`'s `?prefix=` — a path someone is mid-typing, so it
  * needs no shape beyond a sane length cap. */
@@ -231,11 +245,20 @@ function toSession(session: Session): CodeAgentSession {
 	};
 }
 
-/** The exact fix for a machine enrolled without the flag — carried on the
- * disabled toggle rather than left for someone to discover only after
- * wondering where auto-accept went. */
+/** The exact fix for a machine whose ceiling does not allow responders —
+ * carried on the disabled toggle rather than left for someone to discover
+ * only after wondering where auto-accept went. The flag's name is the CLI's
+ * and did not change; what it means did (see AUTO_ACCEPT_DESCRIPTION). */
 const AUTO_ACCEPT_VETO_NOTE =
-	"This machine's policy vetoes auto-accept: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
+	"This machine's permission ceiling does not let a responder answer asks: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
+
+/** What the toggle IS, said on the toggle: opencode's own auto mode, a
+ * per-session responder on the machine. It answers a session's tool asks
+ * with "allow once" and nothing else — no question, no deny, no saved
+ * approval — and it never writes a permission rule. Kept to what is true
+ * so the pill cannot promise "full autonomy". */
+const AUTO_ACCEPT_DESCRIPTION =
+	"Answers this session's tool asks with “allow once”, and only what this machine's ceiling allows. Never answers questions, never overrides a deny rule, never saves an approval. Subagents follow it unless they set their own.";
 
 /** The exact fix text for a machine that vetoes terminals — carried on the
  * disabled Terminal tab (ADR 0090 §2.3), the same idiom as the auto-accept
@@ -273,14 +296,24 @@ async function requireTerminalAllowed(
  * `blockedReason` naming the fix: hiding it entirely reads as "there is no
  * such feature," not "your machine turned it off," which is what sent
  * someone looking for a setting that was never there to find. */
+/** Whether the machine said, in `hello`, that a responder may run. Anything
+ * but an explicit "allowed" — "denied", or the field simply absent — is NOT:
+ * a switch that can answer a person's asks is live only when the machine
+ * said yes. `permission.responders` first, the older `autoAccept` after. */
+function respondersAllowed(device: CodeDevice): boolean {
+	const said = device.policy?.permission?.responders ?? device.policy?.autoAccept;
+	return said === "allowed";
+}
+
 function autoAcceptCatalog(device: CodeDevice, backendId: string): CodeProviderFeature[] {
 	const backend = device.backends.find((b) => b.id === backendId);
 	if (!backend?.capabilities.autoAccept) return [];
-	const vetoed = device.policy.autoAccept === "denied";
+	const vetoed = !respondersAllowed(device);
 	return [
 		{
 			id: "auto_accept",
 			label: "Auto-accept",
+			description: AUTO_ACCEPT_DESCRIPTION,
 			value: false,
 			...(vetoed ? { blockedReason: AUTO_ACCEPT_VETO_NOTE } : {}),
 		},
@@ -290,11 +323,12 @@ function autoAcceptCatalog(device: CodeDevice, backendId: string): CodeProviderF
 function autoAcceptLive(device: CodeDevice, session: Session): CodeProviderFeature[] {
 	const backend = device.backends.find((b) => b.id === session.backend);
 	if (!backend?.capabilities.autoAccept) return [];
-	const vetoed = device.policy.autoAccept === "denied";
+	const vetoed = !respondersAllowed(device);
 	return [
 		{
 			id: "auto_accept",
 			label: "Auto-accept",
+			description: AUTO_ACCEPT_DESCRIPTION,
 			value: session.autoAccept,
 			...(vetoed ? { blockedReason: AUTO_ACCEPT_VETO_NOTE } : {}),
 		},
@@ -499,6 +533,17 @@ export const GET: RequestHandler = async (event) => {
 			permissions: pending.permissions ?? [],
 			questions: pending.questions ?? [],
 		});
+	}
+
+	// The Permissions line: opencode's effective rules for this session's
+	// agent plus the "always" approvals it is holding. A read, passed through
+	// as the machine answered (parsed leniently, never trusted as shaped).
+	const rulesMatch = new RegExp(`^v1/agents/(${ID})/permission-rules$`).exec(path);
+	if (rulesMatch) {
+		const raw = await callOp(() =>
+			link.permissionRules({ sessionId: decodeURIComponent(rulesMatch[1]) })
+		);
+		return superjsonResponse(parsePermissionRules(raw));
 	}
 
 	if (path === "v1/providers") {
@@ -725,6 +770,28 @@ const RAW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/
 const featureSchema = z.object({
 	featureId: z.string().trim().min(1).max(120),
 	value: z.boolean(),
+});
+
+/** The session's own rules, as the panel composes them. `z.object` drops every
+ * key not named here, so nothing but these three fields can reach the machine
+ * (in particular never opencode's deprecated `tools` map, which replaces a
+ * session's rules wholesale). The ceiling is the machine's to enforce; this
+ * only bounds the shape. */
+const sessionRulesSchema = z.object({
+	rules: z
+		.array(
+			z.object({
+				permission: z
+					.string()
+					.trim()
+					.min(1)
+					.max(64)
+					.regex(/^[A-Za-z0-9_.:*-]+$/),
+				pattern: z.string().min(1).max(512),
+				action: z.enum(["allow", "ask", "deny"]),
+			})
+		)
+		.max(64),
 });
 
 const createSchema = z.object({
@@ -1138,6 +1205,38 @@ export const POST: RequestHandler = async (event) => {
 		return superjsonResponse({ ok: true });
 	}
 
+	// The session's own rules. The panel composes; the machine decides what is
+	// in force: it caps them by its ceiling (an over-ceiling rule is refused
+	// or lowered), so this answer says only that the machine accepted the
+	// call, and the client re-reads `permission.rules` for the truth. Audited
+	// by session and rule count, never by pattern (for bash a pattern is
+	// command text).
+	const rulesSetMatch = new RegExp(`^v1/agents/(${ID})/permission-rules$`).exec(path);
+	if (rulesSetMatch) {
+		const parsed = sessionRulesSchema.safeParse(body);
+		if (!parsed.success) {
+			error(
+				400,
+				"Expected { rules: [{ permission, pattern, action: 'allow' | 'ask' | 'deny' }] }."
+			);
+		}
+		const sessionId = decodeURIComponent(rulesSetMatch[1]);
+		const audit = {
+			action: "permission.rules.set",
+			deviceId,
+			sessionId,
+			count: parsed.data.rules.length,
+		};
+		try {
+			await callOp(() => link.sessionSetRules({ sessionId, rules: parsed.data.rules }));
+		} catch (err) {
+			await recordCodeAudit(event, { ...audit, outcome: "refused" });
+			throw err;
+		}
+		await recordCodeAudit(event, { ...audit, outcome: "sent" });
+		return superjsonResponse({ ok: true });
+	}
+
 	// This deployment's one feature: opencode's auto-accept, gated by the
 	// backend's capability and the machine's own policy — a `forbidden`
 	// `OpError` (policy denies it) surfaces as a 403 through `callOp`.
@@ -1148,6 +1247,9 @@ export const POST: RequestHandler = async (event) => {
 		if (parsed.data.featureId !== "auto_accept") {
 			error(404, "No such feature on this backend.");
 		}
+		// Defence in depth: the machine refuses too, but a responder is never
+		// switched ON for a machine that did not say yes.
+		if (parsed.data.value && !respondersAllowed(device)) error(403, AUTO_ACCEPT_VETO_NOTE);
 		await callOp(() =>
 			link.sessionSetAutoAccept({
 				sessionId: decodeURIComponent(featureMatch[1]),
@@ -1285,12 +1387,46 @@ export const DELETE: RequestHandler = async (event) => {
 	const path = event.params.path ?? "";
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	const terminalMatch = new RegExp(`^v1/terminals/(${ID})$`).exec(path);
-	if (!agentMatch && !terminalMatch) {
+	const approvalMatch = new RegExp(`^v1/agents/(${ID})/permission-approvals/(${ID})$`).exec(path);
+	if (
+		!RULES.some((rule) => rule.method === "DELETE" && rule.pattern.test(path)) &&
+		!agentMatch &&
+		!terminalMatch
+	) {
 		error(404, "Not available through this endpoint.");
 	}
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
+
+	// Forget one saved "always" approval — the panel's only write to
+	// permissions, and a tightening: that kind of call asks again. The
+	// approval's patterns (for bash, the command text) are never read here
+	// and never audited; the row says who removed which approval, where.
+	if (approvalMatch) {
+		const sessionId = decodeURIComponent(approvalMatch[1]);
+		const approvalId = decodeURIComponent(approvalMatch[2]);
+		try {
+			await callOp(() => link.permissionSavedRemove({ id: approvalId, sessionId }));
+		} catch (err) {
+			await recordCodeAudit(event, {
+				action: "permission.saved.remove",
+				deviceId,
+				sessionId,
+				approvalId,
+				outcome: "refused",
+			});
+			throw err;
+		}
+		await recordCodeAudit(event, {
+			action: "permission.saved.remove",
+			deviceId,
+			sessionId,
+			approvalId,
+			outcome: "removed",
+		});
+		return superjsonResponse({ ok: true });
+	}
 
 	if (terminalMatch) {
 		const terminalId = decodeURIComponent(terminalMatch[1]);

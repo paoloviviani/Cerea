@@ -1,12 +1,21 @@
 import NavMenu from "./NavMenu.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import superjson from "superjson";
+import { codeReauth, resetCodeReauth, flagCodeReauth } from "$lib/stores/codeReauth.svelte";
+import { codeNav } from "$lib/stores/codeNav.svelte";
 
 // NavMenu mounts ProjectsManager, whose MCP-defaults checklist reads the
 // connector stores: those read a deployment name off the environment at
 // module scope, and the bare name is all a test needs (same mock as the
 // ConnectorsSection suite).
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
+
+const listDevices = vi.hoisted(() => vi.fn());
+vi.mock("$lib/codeApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/codeApi")>()),
+	listDevices,
+}));
 
 /**
  * The sidebar's foot, after the managers moved into the workspace and the
@@ -76,5 +85,87 @@ describe("NavMenu's foot", () => {
 		const form = host.querySelector('form[action="/logout"]');
 		expect(form).not.toBeNull();
 		expect(form?.getAttribute("method")).toBe("POST");
+	});
+});
+
+/**
+ * The agents side of the sidebar while the /code sign-in is stale: the
+ * Chats | Agents switch stays, and the machine tree does not exist — nothing
+ * is asked of a machine, so nothing it said can be drawn.
+ */
+describe("NavMenu's agents list and the /code sign-in", () => {
+	let host: HTMLElement;
+
+	function stubFetch(status: Record<string, unknown>) {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) =>
+				String(input).includes("/api/v2/code/status")
+					? new Response(superjson.stringify(status), { status: 200 })
+					: Response.json({ conversations: [] })
+			)
+		);
+	}
+
+	function mount() {
+		return renderWithApp(
+			NavMenu,
+			{
+				conversations: [],
+				user: { username: "ada" },
+				gatewayIsAdmin: false,
+				codeAgentsEnabled: true,
+			} as never,
+			{ page: { route: { id: "/code" }, data: { models: [] } }, baseElement: host }
+		);
+	}
+
+	beforeEach(() => {
+		resetCodeReauth();
+		codeNav.view = "auto";
+		listDevices.mockReset();
+		listDevices.mockResolvedValue({ devices: [] });
+		host = document.createElement("div");
+		host.id = "app";
+		document.body.appendChild(host);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		resetCodeReauth();
+		host.remove();
+	});
+
+	it("keeps only the Chats | Agents switch, and asks no machine, while stale", async () => {
+		stubFetch({ enabled: true, fresh: false, reauthPath: "/login?reauth=1&next=/code" });
+		mount();
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="sidebar-view-agents"]')).not.toBeNull()
+		);
+		// Wait for the answer itself: before it, an absent tree proves nothing.
+		await vi.waitFor(() => expect(codeReauth.required).toBe(true));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(host.querySelector('[data-testid="sidebar-view-chats"]')).not.toBeNull();
+		expect(listDevices).not.toHaveBeenCalled();
+		// No tree: the tree's own markers and its pairing control are absent.
+		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
+		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a machine");
+	});
+
+	it("draws the tree once the sign-in is known to be fresh, and drops it when a call finds it stale", async () => {
+		stubFetch({
+			enabled: true,
+			fresh: true,
+			reauthPath: "/login?reauth=1&next=/code",
+			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+		mount();
+		await vi.waitFor(() => expect(listDevices).toHaveBeenCalled());
+		await vi.waitFor(() => expect(host.textContent).toContain("Pair a device"));
+		const calls = listDevices.mock.calls.length;
+		flagCodeReauth();
+		await vi.waitFor(() => expect(host.textContent).not.toContain("Pair a device"));
+		expect(host.querySelector('[data-testid="sidebar-view-agents"]')).not.toBeNull();
+		expect(listDevices.mock.calls.length).toBe(calls);
 	});
 });
