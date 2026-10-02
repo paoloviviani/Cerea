@@ -12,11 +12,15 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 )
+
+//go:embed THIRD_PARTY_LICENSES
+var thirdPartyLicenses string
 
 const usage = `galopin — authenticate to the Pystino gateway and run opencode for Cerea.
 
@@ -30,6 +34,7 @@ Commands:
             the shim injects a fresh access token plus x-bill-to per request.
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
   policy    Show, or locally tighten, this machine's policy.json.
+  licenses  Print the third-party licence notices compiled into this binary.
 
 Run 'galopin <command> -h' for that command's options.
 `
@@ -49,6 +54,9 @@ func main() {
 		err = runRun(os.Args[2:])
 	case "policy":
 		err = runPolicy(os.Args[2:])
+	case "licenses":
+		fmt.Print(thirdPartyLicenses)
+		return
 	case "-h", "-help", "--help", "help":
 		fmt.Print(usage)
 		return

@@ -130,6 +130,8 @@ do not apply to Cerea.
 ## Contributing, security, licence
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities,
-[SECURITY.md](SECURITY.md). Cerea is licensed under the
-[Apache License 2.0](LICENSE); [NOTICE](NOTICE) records that it is based on
-huggingface/chat-ui, © Hugging Face.
+[SECURITY.md](SECURITY.md). Cerea is Copyright 2026 Paolo Viviani and
+licensed under the [Apache License 2.0](LICENSE); [NOTICE](NOTICE) records
+that it is based on huggingface/chat-ui, © Hugging Face, and carries the
+third-party notices. How this code was written is disclosed in
+[AI-DISCLOSURE.md](AI-DISCLOSURE.md).

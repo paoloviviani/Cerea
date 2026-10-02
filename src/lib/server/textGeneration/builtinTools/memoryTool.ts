@@ -92,8 +92,8 @@ export function createMemoryBuiltins(params: { enabled: boolean }): BuiltinTool[
 							maxLength: MEMORY_TEXT_MAX_CHARS,
 							description:
 								"One self-contained sentence in the third person, understandable with no " +
-								'surrounding context. For example: "Works on the Pystino gateway at LINKS ' +
-								'Foundation" or "Prefers concise answers with no preamble".',
+								'surrounding context. For example: "Works on the Pystino gateway for ' +
+								'his personal deployment" or "Prefers concise answers with no preamble".',
 						},
 					},
 					required: ["fact"],

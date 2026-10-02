@@ -4,6 +4,15 @@ Copyright 2026 Paolo Viviani
 This product is based on huggingface/chat-ui
 (https://github.com/huggingface/chat-ui),
 Copyright 2018- The Hugging Face team, licensed under the Apache License 2.0.
+Files from chat-ui have been modified in this repository; the modifications
+are the commits recorded in this repository's Git history after upstream
+commit 11dbfc8fb81bcfb1857b10fff56dddaac4530463 (the import this fork
+started from).
+
+"Hugging Face" and "HuggingChat" are trademarks of Hugging Face, Inc.
+This project is not affiliated with or endorsed by Hugging Face. Branding
+assets under static/huggingchat are used only when publicConfig.isHuggingChat
+is set, which this deployment never sets.
 
 Third-party components under other licences
 -------------------------------------------
@@ -14,3 +23,16 @@ of sharp: LGPL-3.0-or-later. They are loaded dynamically by sharp at runtime
 and are not modified.
   libvips source: https://github.com/libvips/libvips
   binary packaging: https://github.com/lovell/sharp-libvips
+
+The galopin agent binaries (agent/) include the Go standard library
+(BSD-3-Clause), github.com/coder/websocket (ISC) and github.com/creack/pty
+(MIT); the licence texts are in agent/THIRD_PARTY_LICENSES and travel with
+every binary (`galopin licenses` prints them).
+
+Served to browsers unmodified: Pyodide (MPL-2.0) and its package
+distribution; each wheel carries its own licence, including the LGPL
+components (gmpy2 with GMP and MPFR; GDAL), which are unmodified upstream
+builds — source: https://github.com/pyodide/pyodide and each project's
+upstream repository.
+
+MPL-2.0 npm packages, unmodified: pyodide, satori, @resvg/resvg-js.
