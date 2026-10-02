@@ -65,6 +65,11 @@ export async function listTools(
 	const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
 	try {
+		// Timed in two phases so a slow check can be told apart: a slow
+		// acquire is a cold (or dead) connection being (re)made, a slow
+		// list is the server itself taking its time. One info line per
+		// explicit check — these are user-initiated, not per-turn traffic.
+		const acquiredAt = Date.now();
 		const client = await getClient(
 			{
 				name: "health",
@@ -75,6 +80,7 @@ export async function listTools(
 			undefined,
 			"health"
 		);
+		const listedAt = Date.now();
 		retainClient(client);
 		try {
 			const response = await client.listTools({}, { signal: controller.signal });
@@ -83,6 +89,15 @@ export async function listTools(
 				description: tool.description,
 				inputSchema: tool.inputSchema,
 			}));
+			logger.info(
+				{
+					url,
+					acquireMs: listedAt - acquiredAt,
+					listMs: Date.now() - listedAt,
+					count: tools.length,
+				},
+				"[mcp] health listing"
+			);
 			return { ok: true, tools };
 		} finally {
 			releaseClient(client);
