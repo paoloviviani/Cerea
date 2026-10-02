@@ -754,6 +754,15 @@
 								<IconRefresh class="size-4" />
 								Reindex
 							</button>
+							<!-- Beside Reindex, where the person looking for it is:
+							     the bottom-of-page placement hid it under Share, and
+							     a base's owner deletes it once but looks for it more
+							     often than that. The confirm says what "everything
+							     in it" means, wherever the button sits. -->
+							<button onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
+								<IconTrash class="size-3" />
+								Delete
+							</button>
 						{/if}
 					</div>
 				</div>
@@ -929,12 +938,6 @@
 								Share
 							</button>
 						</form>
-						<div class="mt-3 flex justify-end">
-							<button onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
-								<IconTrash class="size-3" />
-								Delete this base
-							</button>
-						</div>
 					</div>
 				{/if}
 			</div>
