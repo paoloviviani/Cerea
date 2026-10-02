@@ -27,7 +27,7 @@ name: ${COMPOSE_PROJECT_NAME:-cerea}
 # overrides them only for local builds (dev/build.sh) or a private registry.
 x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-sha-0a03823}}
 x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-sha-0a03823}-pattern}
-x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-sha-a5c9043}}
+x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-sha-3e562ce}}
 
 x-database-url: &database-url postgresql+asyncpg://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-gateway}
 
