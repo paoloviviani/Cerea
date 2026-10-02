@@ -71,17 +71,19 @@ link**: whatever the panel sends, the machine refuses what its policy denies.
 `galopin policy show` prints what a machine currently allows. `galopin policy
 set` can only **tighten**; loosening anything needs a new `enroll`.
 
-| Policy                                  | Enroll flag                                                | Default                              | What it decides                                                                                                                                                                                                                                                                                                                                                              | Tighten later                                         |
-| --------------------------------------- | ---------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Files**                               | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                                                                                             | `policy set --no-files`, `--file-deny GLOB`           |
-| **Terminals**                           | `--allow-terminal`, `--max-terminals N`                    | denied; at most 8 open at once       | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal-off-by-default))                                                                                                                                                                                            | `policy set --no-terminal`, a lower `--max-terminals` |
-| **Responders** (the Auto-accept toggle) | `--allow-auto-accept`                                      | denied                               | Whether a per-session responder on the machine may answer that session's tool asks "allow once" (opencode's own auto mode). The machine-side gate behind the panel's Auto-accept toggle: while denied, the agent refuses the toggle, whatever the panel sends. It is a ceiling, not a rule: it never answers questions, never overrides a deny, and never saves an approval. |
-| **Slash-command shell**                 | `--allow-command-shell`                                    | denied                               | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                                                                               | `policy set --no-command-shell`                       |
-| **A repo's own opencode config**        | `--allow-project-config`                                   | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                                                                                                    | `policy set --no-project-config`                      |
-| **Background subagents**                | `--allow-background-subagents`                             | denied                               | Whether the task tool may run a subagent in the background. While denied, `background:true` fails closed inside opencode; when allowed, a background child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents))                                                                              | `policy set --no-background-subagents`                |
-| **Models from elsewhere**               | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                                                                             | re-enroll                                             |
-| **opencode's own providers**            | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                                                                     | re-enroll                                             |
-| **Workspace roots**                     | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                                                                                | re-enroll                                             |
+| Policy                                  | Enroll flag                                                | Default                              | What it decides                                                                                                                                                                                                                                                                                                                                                                                                           | Tighten later                                         |
+| --------------------------------------- | ---------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Files**                               | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                                                                                                                                          | `policy set --no-files`, `--file-deny GLOB`           |
+| **Terminals**                           | `--allow-terminal`, `--max-terminals N`                    | denied; at most 8 open at once       | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal-off-by-default))                                                                                                                                                                                                                                         | `policy set --no-terminal`, a lower `--max-terminals` |
+| **Responders** (the Auto-accept toggle) | `--allow-auto-accept`                                      | denied                               | `permission.responders`: whether a per-session responder on the machine may answer that session's tool asks "allow once" (opencode's own auto mode). While anything but `allowed` (including a machine that reports nothing), the toggle shows disabled and the agent refuses it, whatever the panel sends. It is a ceiling, not a rule: it never answers questions, never overrides a deny, and never saves an approval. |
+| **Permission ceiling**                  | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`                           | The most a permission key (`edit`, `bash`, `webfetch`, `session_spawn`, …) may ever be, whatever a rule, an "always" or a reply says. `policy set` can only lower it. Rules you set in the panel are capped by it.                                                                                                                                                                                                        |
+| **Machine rules**                       | `--permission-rule KEY=ACTION` (repeatable)                | none                                 | The machine's own rules, applied to every session so they beat the `opencode.json` that `enroll` wrote; the ceiling still caps them.                                                                                                                                                                                                                                                                                      |
+| **Slash-command shell**                 | `--allow-command-shell`                                    | denied                               | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                                                                                                                            | `policy set --no-command-shell`                       |
+| **A repo's own opencode config**        | `--allow-project-config`                                   | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                                                                                                                                                 | `policy set --no-project-config`                      |
+| **Background subagents**                | `--allow-background-subagents`                             | denied                               | Whether the task tool may run a subagent in the background. While denied, `background:true` fails closed inside opencode; when allowed, a background child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents))                                                                                                                           | `policy set --no-background-subagents`                |
+| **Models from elsewhere**               | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                                                                                                                          | re-enroll                                             |
+| **opencode's own providers**            | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                                                                                                                  | re-enroll                                             |
+| **Workspace roots**                     | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                                                                                                                             | re-enroll                                             |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
 `--group NAME` to preselect the billing group, `--output PATH` for the
@@ -155,11 +157,11 @@ when both sides say so. The machine must be enrolled with `--allow-terminal`
 sign-in to Cerea within the last 7 days. Turning it on means exactly this: **anyone who
 controls your Cerea session can run commands as you on this machine.**
 There is no model and no permission rule standing in the way once a
-terminal is open — it is strictly more power than auto-accept, which only
-ever governs the _model's_ unattended commands. `enroll` prints a warning
-(not a refusal) if you pass `--allow-terminal` without
-`--allow-auto-accept`, since that combination denies the model unattended
-commands while still handing a person a shell.
+terminal is open — it is strictly more power than any permission rule or
+auto-accept, which only ever answers the _model's_ tool asks (once, within the
+ceiling, never a question or a deny). `enroll` prints a warning (not a
+refusal) whenever you pass `--allow-terminal`: _"--allow-terminal opens a remote
+shell outside every permission rule."_
 
 A terminal's shell starts in the workspace's own directory and never sees
 galopin's own secrets (the opencode server password, the shim secret, or
@@ -193,23 +195,38 @@ limits that are not permissions at all (hop and rate limits, the same-workspace
 check on sends).
 
 Where the rules come from, lowest to highest: opencode's built-in defaults
-(allow everything except a few asks), the config file on the machine, the rules
-this deployment composes for the session, and the machine's own limits last, so
-**the machine's limits always win a tie**. A rule in the person's own opencode
-config that a later rule replaces is not deleted: the panel's
-[Permissions line](#permissions) shows it as _overridden by Cerea_.
+(allow everything except a few asks), the `opencode.json` that `enroll` wrote,
+the agent's own rules, then the **session's rules** — the machine's own rules,
+the rules you set for that session in the panel, and the machine's ceiling last
+— and, outranking even a later deny, the in-memory "always" approvals. The
+ceiling is appended last on every apply, so **it always wins a tie**, and a rule
+you set that asks for more than the ceiling allows is lowered or refused. A
+rule in the person's own opencode config that a later rule replaces is not
+deleted: the panel's [Permissions line](#permissions) shows it as _overridden by
+Cerea_ (or by the machine's rules, floor or limits).
 
-`enroll` writes `edit`, `bash` and `webfetch` as `ask` into the opencode
-config it creates on a **new** machine, so a fresh machine asks before editing,
-running a command or fetching a URL. A machine enrolled earlier keeps the file
-it has. `enroll` writes `--output` whole (it asks before replacing an existing
-file; `--yes` does not ask), so point it at a dedicated path, or re-add your own
-rules afterwards.
+**What `enroll` and `run` put where.** `enroll` writes `edit`, `bash` and
+`webfetch` as `ask` into the galopin-owned `opencode.json` of a **new** machine,
+so a fresh machine asks before editing, running a command or fetching a URL. A
+machine enrolled earlier keeps the file it has: nothing is migrated, and
+nothing in an old policy is translated into allow rules, since that would
+silently loosen it. Separately, every `run` rebuilds the
+`OPENCODE_CONFIG_CONTENT` opencode is started with, from `policy.json`: the
+ceiling's denies and an ask **floor** for the built-in agents. The floor is what
+a subagent starts from, because opencode creates subagent sessions itself and
+hands them only their parent's _denies_ — otherwise `general` would run with
+`"*": allow`. `enroll` writes `--output` whole (it asks before replacing an
+existing file; `--yes` does not ask), so point it at a dedicated path, or re-add
+your own rules afterwards.
 
-One gap to know about: if the machine's limits let `bash` run at all, a command
-can read opencode's server password from its environment and widen its own
-session's rules. That is why `bash` defaults to `ask`. The limits themselves
-cannot be loosened that way.
+**The one gap, stated plainly.** If the ceiling lets `bash` run, a command can
+read opencode's server password from its own environment and rewrite its
+session's rules directly — past the ceiling. Everything else is capped: the
+ceiling comes last on every apply, and "always" and the responder are capped by
+it. That is why `enroll` defaults `bash` to `ask` (`--permission-max bash=ask`),
+and why raising that is a decision about the machine, not the session. Note too
+that `ask` is not a human gate for a session with auto-accept on: its responder
+answers `bash` asks "once".
 
 ## The panel
 
@@ -248,7 +265,7 @@ Inside the prompt box, in the chat's own pill idiom:
 - **mode** — the backend's own modes (plan, build, …), listed live rather
   than from a hardcoded set that would drift from what it enforces.
 - **model** — the models the session's backend offers.
-- **auto-accept** — opencode's own auto mode, per session: a responder on the machine answers this session's tool asks "allow once", and nothing else. It never answers a question, never overrides a deny rule, never saves an approval, and **never writes a permission rule** (the panel has no way to). Subagents follow it unless they set their own. It is enabled only if the machine was enrolled with `--allow-auto-accept` (the ceiling's responders-allowed setting); otherwise the pill shows disabled, with the flag in its note.
+- **auto-accept** — opencode's own auto mode, per session: a responder on the machine answers this session's tool asks "allow once", and nothing else. Questions always wait for a person; the responder never answers them. It never overrides a deny rule, never saves an approval, and **never writes a permission rule** (session rules are set in the Permissions line, not here). Subagents follow it unless they set their own. It is enabled only if the machine was enrolled with `--allow-auto-accept` (the ceiling's responders-allowed setting); otherwise the pill shows disabled, with the flag in its note.
 
 Mode and model apply **to the whole session**, not only to the next message, and stay in force until you switch again.
 
@@ -333,8 +350,7 @@ When the agent wants to edit a file or run a command and opencode's rules say
 ask, the ask appears as the same approval card as in chat, with three choices:
 **Allow once** lets this one action through, **Always allow** lets the agent do
 that kind of thing without asking again, and **Deny** refuses it and the agent
-is told. The panel relays your answer unchanged; **opencode's rules decide**,
-and the panel never edits them.
+is told. The panel relays your answer unchanged: **opencode's rules decide**.
 
 "Always" is capped by the machine's limits: where they do not allow a kind of
 call outright, an "always" answer is treated as "once", so one click cannot
@@ -342,21 +358,42 @@ grant more than the machine permits to every session in the workspace. An
 "always" approval is shared by all sessions in that workspace until opencode
 restarts. Denying ends every other pending ask in that session.
 
-**The Permissions line** sits under the session header. It is read-only: for
-`edit`, `bash` and `webfetch` it shows what opencode will do (_ask_, _allow_ or
-_deny_; a count like `+2` means narrower patterns refine it), and opening it
-lists every rule and the saved "always" approvals. A rule from the person's own
-opencode config that Cerea or the machine's limits replace is struck through
-and labelled _overridden by Cerea_. The one thing you can do there is
-**Remove** a saved approval, which makes that kind of call ask again. That can
-only tighten: there is no control, and no request, that adds or edits a rule.
-The machine records each removal.
+**The Permissions line** sits under the session header. For `edit`, `bash` and
+`webfetch` it shows what opencode will do (_ask_, _allow_ or _deny_; a count
+like `+2` means narrower patterns refine it, and `· 1 saved` counts that
+tool's saved "always" approvals). Opening it lists every rule in force, **this
+session's rules** (below), and the saved approvals. A rule from the person's
+own opencode config that Cerea or the machine replace is struck through and
+labelled _overridden by Cerea_ (or _by this machine's rules / floor / limits_).
+The match behind that label is literal: a later rule counts as replacing an
+earlier one when it names the same permission and pattern, or uses `*`. A
+broader glob (`git *` over `git status`) is not worked out here, so a rule that
+a glob in fact replaced can still be listed as in force; the order shown is the
+machine's word either way.
 
-**Auto-accept** (the composer's toggle) is a different thing and writes nothing
-here: it makes a responder on the machine answer this session's tool asks "allow
-once". It never answers questions and never touches a deny. A subagent with no
-setting of its own follows the nearest ancestor that has one; a subagent turned
-off stays off under a parent that is on.
+**This session's rules** are the only rules the panel can write, and only for
+the session in front of you. Add, edit or remove rows (a permission such as
+`edit` or `bash`, a pattern, and ask / allow / deny) and **Apply to this
+session**; each Apply replaces that session's panel-set rules with the rows
+shown. The panel knows the machine's ceiling and offers nothing above it, but
+the machine enforces it regardless: a rule above the ceiling is lowered to it or
+refused. So after every Apply the line **re-reads** the machine and shows what
+is in force, never what you asked for, and says where they differ ("Not applied
+as asked, showing what is in force: …"). There is no control for the ceiling,
+the machine's own rules or its policy, and none can be added over the link: a
+hijacked Cerea session can loosen a session's rules **up to the ceiling** and no
+further (and see the `bash` gap above).
+
+**Remove** on a saved approval makes that kind of call ask again. It can only
+tighten, and the machine records each removal. An approval the machine marks
+as not removable shows "held by opencode" instead.
+
+**Auto-accept** (the composer's toggle) is a different thing and writes no rule:
+it makes a responder on the machine answer this session's tool asks "allow
+once", only within the ceiling. **Questions always wait for a person; the
+responder never answers them**, and it never overrides a deny or saves an
+approval. A subagent with no setting of its own follows the nearest ancestor
+that has one; a subagent turned off stays off under a parent that is on.
 
 ### Subagents
 
@@ -398,8 +435,10 @@ later), which installs no tool into the backend at all. There are three:
   **target** session, the **full message** and the **hop** (how many agent
   sends deep this chain is).
 
-Whether a spawn or send asks is decided by the machine's own permission rules,
-read for the asking agent under the names `session_spawn` and `session_send`:
+Whether a spawn or send asks is decided from the asking session's **effective
+rules as galopin composes them** (the agent's, then the session's: the machine's
+own rules, what you set for it, and the ceiling last), looked up under the names
+`session_spawn` and `session_send`:
 
 - **allow** — no card, and the card in the transcript carries an **allowed by
   this machine's rules** badge.
@@ -415,8 +454,8 @@ read for the asking agent under the names `session_spawn` and `session_send`:
   after the third instead of stopping; the card says why. More than five
   messages a minute from one session to the same target are refused outright.
 
-Handoffs and questions are never answered by a rule or a responder. An
-allowed call is not invisible: the badge shows in the sender's transcript and
+Questions always wait for a person; the responder never answers them, and a
+rule never answers a handoff. An allowed call is not invisible: the badge shows in the sender's transcript and
 the machine's audit log records it.
 
 #### Limits
