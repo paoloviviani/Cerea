@@ -121,7 +121,7 @@ func permissionPolicySummary(pol policy.Policy) string {
 		parts = append(parts, "this machine's own rules "+strings.Join(rs, ", "))
 	}
 	if p.RespondersAllowed() {
-		parts = append(parts, "auto-accept ALLOWED — a session switched to it has its tool asks answered \"once\" without a card")
+		parts = append(parts, "auto-accept ALLOWED — a session switched to it has its tool asks answered \"once\" without a card, except for keys the ceiling caps (those stay a person's)")
 	} else {
 		parts = append(parts, "auto-accept DENIED — no session can be switched to it")
 	}
