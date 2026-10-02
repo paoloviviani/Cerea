@@ -435,7 +435,8 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
 		}},
 		Policy: link.PolicyInfo{
-			AutoAccept:          string(pol.AutoAccept),
+			AutoAccept:          pol.Permission.Responders,
+			Permission:          permissionInfo(pol),
 			WorkspaceRoots:      roots,
 			AllowFreeModels:     pol.AllowFreeModels,
 			Files:               filesPolicyWord(pol),
@@ -589,6 +590,17 @@ func backgroundSubagentsPolicyWord(pol policy.Policy) string {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied
+}
+
+// permissionInfo is the permission part of the hello policy: the ceiling and
+// whether a session may be switched to auto-accept, so the panel can explain a
+// capped "always" or a missing toggle instead of leaving a refusal to do it.
+func permissionInfo(pol policy.Policy) link.PermissionInfo {
+	max := map[string]string{}
+	for k, v := range pol.Permission.Max {
+		max[k] = v
+	}
+	return link.PermissionInfo{Responders: pol.Permission.Responders, Max: max}
 }
 
 func orEmptyStrings(s []string) []string {

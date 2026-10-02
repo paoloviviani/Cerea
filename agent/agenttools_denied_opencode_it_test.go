@@ -58,7 +58,7 @@ func TestAgentToolsDeniedIntegration(t *testing.T) {
 		"XDG_CACHE_HOME=" + dirs["cache"], "TMPDIR=" + itTmpDir(t), "PATH=" + os.Getenv("PATH"),
 	}
 	pol := policy.Default()
-	pol.AutoAccept = policy.AutoAcceptAllowed
+	pol.Permission.Responders = policy.TerminalAllowed
 	pol.AgentTools = policy.TerminalDenied
 	oc := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: dirs["state"],

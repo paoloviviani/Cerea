@@ -191,7 +191,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = oc.Stop() })
 
 	pol := policy.Default()
-	pol.AutoAccept = policy.AutoAcceptAllowed
+	pol.Permission.Responders = policy.TerminalAllowed
 	mat := sessions.New(oc, pol)
 	if err := mat.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -437,7 +437,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 			t.Fatalf("child sessions = %d, want 1", len(kids))
 		}
 		child := getSession(kids[0].ID)
-		if child.AutoAccept || mat.AutoAcceptInEffect(child.ID) {
+		if child.AutoAccept || mat.AutoAccept(child.ID) {
 			t.Errorf("the child of an auto-accepting spawner has auto-accept on")
 		}
 		if child.SpawnedBy == nil || child.SpawnedBy.SessionID != caller.ID {

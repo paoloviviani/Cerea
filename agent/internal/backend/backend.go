@@ -1,6 +1,10 @@
 package backend
 
-import "context"
+import (
+	"context"
+
+	"galopin/internal/permrules"
+)
 
 // Capabilities is what a backend can do beyond the floor every backend
 // implements, advertised in the link's hello frame (PROTOCOL.md §5) so
@@ -44,6 +48,10 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
+	// Permissions says the backend's own permission rules can be read and its
+	// saved approvals listed and withdrawn (permission.rules,
+	// permission.saved.remove — PROTOCOL.md §6 "Permissions"). opencode only.
+	Permissions bool `json:"permissions"`
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md
@@ -218,4 +226,26 @@ type ToolHost interface {
 	// SpawnMarks is every session_spawn marker the backend remembers, by
 	// child session id (a copy).
 	SpawnMarks() map[string]SpawnedBy
+}
+
+// SavedApproval is one "always" the backend remembers: an action and the
+// resource it covers, as the backend names them.
+type SavedApproval struct {
+	ID       string `json:"id"`
+	Action   string `json:"action"`
+	Resource string `json:"resource"`
+}
+
+// RuleHost is the optional "permissions" capability: the backend's permission
+// rules, seen from galopin. Reading them is for display and for galopin's own
+// two tools' decisions; the only thing that ever writes through this
+// interface is withdrawing a saved approval, which can only tighten.
+type RuleHost interface {
+	// EffectiveRules is the rules in force for a session, in evaluation order:
+	// its agent's, then the ones galopin applied to the session.
+	EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error)
+	// SavedApprovals lists the "always" approvals the backend holds.
+	SavedApprovals(ctx context.Context) ([]SavedApproval, error)
+	// RemoveSavedApproval withdraws one.
+	RemoveSavedApproval(ctx context.Context, id string) error
 }

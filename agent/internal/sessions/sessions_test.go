@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 type fakeBackend struct {
 	transcripts map[string]backend.Transcript
 	replies     []replyCall
+	replyErr    error
 }
 
 type replyCall struct {
@@ -60,7 +62,7 @@ func (f *fakeBackend) SetModel(context.Context, string, string, string) (backend
 }
 func (f *fakeBackend) ReplyPermission(_ context.Context, _ string, sessionID, requestID string, decision backend.Decision, _ string) error {
 	f.replies = append(f.replies, replyCall{sessionID: sessionID, requestID: requestID, decision: decision})
-	return nil
+	return f.replyErr
 }
 func (f *fakeBackend) Modes(context.Context, string) ([]backend.Mode, error) {
 	panic("not used by these tests")
@@ -285,13 +287,14 @@ func TestSyncNoPriorEpochIsSnapshot(t *testing.T) {
 	}
 }
 
-// TestAutoAcceptRepliesOnceAndMarksAuto pins auto-accept (PROTOCOL.md §7):
-// when enabled and permitted by policy, a permission.asked never reaches
-// the client as an ask — the backend is told "once" and a
-// permission.replied by:"auto" is emitted instead.
-func TestAutoAcceptRepliesOnceAndMarksAuto(t *testing.T) {
+// TestResponderAnswersOnceAndShowsNothing pins the responder (PROTOCOL.md §6
+// "Auto-accept"): with the machine's consent and the session's flag on, a tool
+// ask is answered "once" and never reaches the client, and there is no
+// synthesized permission.replied — the ask was never shown, so nothing is
+// closed.
+func TestResponderAnswersOnceAndShowsNothing(t *testing.T) {
 	fb := newFakeBackend()
-	m := New(fb, policy.Policy{AutoAccept: policy.AutoAcceptAllowed})
+	m := New(fb, allowPolicy())
 	m.Track("/ws", backend.Session{ID: "s1"})
 	ctx := context.Background()
 	if err := m.SetAutoAccept("s1", true); err != nil {
@@ -310,23 +313,20 @@ func TestAutoAcceptRepliesOnceAndMarksAuto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Events) != 1 || res.Events[0].Event.Kind != backend.EventPermissionReplied || res.Events[0].Event.By != "auto" {
-		t.Fatalf("events = %+v, want exactly one permission.replied by=auto (no permission.asked)", res.Events)
+	if len(res.Events) != 0 {
+		t.Fatalf("events = %+v, want none (no ask, no replied)", res.Events)
 	}
 	if m.PendingPermissions("s1") != 0 {
-		t.Errorf("pending permissions = %d, want 0 after auto-accept", m.PendingPermissions("s1"))
+		t.Errorf("pending permissions = %d, want 0 after the responder", m.PendingPermissions("s1"))
 	}
 }
 
-// TestAutoAcceptDropsBackendEcho pins that when opencode's own event
-// stream later echoes back the permission.replied for a request this
-// materializer already auto-replied to, it is dropped rather than
-// forwarded a second time — the client never saw an ask for it in the
-// first place, so a second "replied" event would be for nothing it knows
-// about.
-func TestAutoAcceptDropsBackendEcho(t *testing.T) {
+// TestResponderDropsBackendEcho pins that when opencode's own event stream
+// echoes the permission.replied for a request the responder already answered,
+// it is dropped: the client never saw an ask for it.
+func TestResponderDropsBackendEcho(t *testing.T) {
 	fb := newFakeBackend()
-	m := New(fb, policy.Policy{AutoAccept: policy.AutoAcceptAllowed})
+	m := New(fb, allowPolicy())
 	m.Track("/ws", backend.Session{ID: "s1"})
 	ctx := context.Background()
 	if err := m.SetAutoAccept("s1", true); err != nil {
@@ -337,7 +337,6 @@ func TestAutoAcceptDropsBackendEcho(t *testing.T) {
 		WorkspaceDir: "/ws", SessionID: "s1",
 		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "perm1", SessionID: "s1"}},
 	})
-	// opencode's own event stream echoes the reply we just made.
 	m.ApplyBackendEvent(ctx, backend.BackendEvent{
 		WorkspaceDir: "/ws", SessionID: "s1",
 		Event: backend.Event{Kind: backend.EventPermissionReplied, RequestID: "perm1", Decision: backend.DecisionOnce, By: "user"},
@@ -347,11 +346,34 @@ func TestAutoAcceptDropsBackendEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Events) != 1 {
-		t.Fatalf("got %d events, want exactly 1 (the synthesized auto reply, echo dropped): %+v", len(res.Events), res.Events)
+	if len(res.Events) != 0 {
+		t.Fatalf("got %+v, want no events (the echo dropped)", res.Events)
 	}
-	if res.Events[0].Event.By != "auto" {
-		t.Errorf("events[0].By = %q, want auto", res.Events[0].Event.By)
+}
+
+// TestResponderFailureFallsBackToACard: a reply the backend refused leaves the
+// ask pending in the backend, so the client is shown it and a person can answer
+// — a tool blocked forever with no card is the worse outcome.
+func TestResponderFailureFallsBackToACard(t *testing.T) {
+	fb := newFakeBackend()
+	fb.replyErr = errors.New("boom")
+	m := New(fb, allowPolicy())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	if err := m.SetAutoAccept("s1", true); err != nil {
+		t.Fatal(err)
+	}
+	var audited []error
+	m.OnResponder(func(_ string, _ backend.PermissionRequest, err error) { audited = append(audited, err) })
+
+	m.ApplyBackendEvent(context.Background(), backend.BackendEvent{
+		WorkspaceDir: "/ws", SessionID: "s1",
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "perm1", SessionID: "s1", Tool: "edit"}},
+	})
+	if m.PendingPermissions("s1") != 1 {
+		t.Fatalf("pending = %d, want the ask shown after the responder failed", m.PendingPermissions("s1"))
+	}
+	if len(audited) != 1 || audited[0] == nil {
+		t.Errorf("responder audit = %v, want the one failure", audited)
 	}
 }
 
@@ -576,23 +598,25 @@ func TestResyncReannouncesToolPartsFromTheTranscript(t *testing.T) {
 	}
 }
 
-// A galopin approval is never auto-accepted, by its own marker and id, not by
-// the tool's name (the handoff substring rule does not match session_spawn).
-func TestNeverAutoAcceptGalopinApprovals(t *testing.T) {
+// A galopin approval is never answered by the responder, by its own marker and
+// id, not by the tool's name. (There is no handoff rule any more: a name-based
+// test is what a differently-named tool slips past, and nothing but a person
+// ever answered the approvals that mattered.)
+func TestHeldByGalopin(t *testing.T) {
 	cases := []struct {
 		name string
 		req  backend.PermissionRequest
 		want bool
 	}{
-		{"handoff by name", backend.PermissionRequest{ID: "per_1", Tool: "agent_handoff"}, true},
 		{"galopin marker under another name", backend.PermissionRequest{ID: "x", Tool: "anything", Metadata: map[string]any{"galopin": true}}, true},
 		{"galopin id prefix", backend.PermissionRequest{ID: "gp_abc", Tool: "session_spawn"}, true},
 		{"an ordinary ask", backend.PermissionRequest{ID: "per_2", Tool: "bash"}, false},
+		{"a handoff-named tool is an ordinary ask", backend.PermissionRequest{ID: "per_1", Tool: "agent_handoff"}, false},
 		{"marker false", backend.PermissionRequest{ID: "per_3", Tool: "bash", Metadata: map[string]any{"galopin": false}}, false},
 	}
 	for _, c := range cases {
-		if got := neverAutoAccept(&c.req); got != c.want {
-			t.Errorf("%s: neverAutoAccept = %v, want %v", c.name, got, c.want)
+		if got := heldByGalopin(&c.req); got != c.want {
+			t.Errorf("%s: heldByGalopin = %v, want %v", c.name, got, c.want)
 		}
 	}
 }
