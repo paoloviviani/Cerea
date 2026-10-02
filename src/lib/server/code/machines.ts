@@ -402,19 +402,31 @@ export class MachineLink {
 		return this.call("permission.reply", args);
 	}
 	/**
-	 * The effective opencode rules for one session's agent, plus the
-	 * "always" approvals opencode is holding — a READ. The panel has no op
-	 * that writes a rule: opencode's own rules decide, Cerea shows them.
+	 * The effective opencode rules for one session's agent, the ceiling, and
+	 * the "always" approvals opencode is holding — a READ.
 	 */
 	permissionRules(args: { sessionId: string }): Promise<unknown> {
 		return this.call("permission.rules", args);
 	}
 	/**
+	 * Compose THIS session's rules. The machine applies them capped by its
+	 * ceiling — an over-ceiling rule is refused or lowered — so the answer is
+	 * not a statement of what is in force: re-read `permissionRules` for that.
+	 * Only `{permission, pattern, action}` triples travel; the caller builds
+	 * them, so nothing else (never the deprecated `tools` map) can ride along.
+	 */
+	sessionSetRules(args: {
+		sessionId: string;
+		rules: Array<{ permission: string; pattern: string; action: "allow" | "deny" | "ask" }>;
+	}): Promise<unknown> {
+		return this.call("session.setRules", args);
+	}
+	/**
 	 * Forget one saved "always" approval so that kind of call asks again.
 	 * Tighten-only by construction: it can only remove an allowance, and
-	 * galopin audits it. The one write the panel makes to permissions.
+	 * galopin audits it.
 	 */
-	permissionSavedRemove(args: { id: string }): Promise<Record<string, never>> {
+	permissionSavedRemove(args: { id: string; sessionId: string }): Promise<Record<string, never>> {
 		return this.call("permission.saved.remove", args);
 	}
 	questionReply(args: {

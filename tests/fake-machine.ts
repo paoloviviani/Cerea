@@ -28,6 +28,7 @@ import type {
 	Notice,
 	PermissionRule,
 	Policy,
+	SessionRuleInput,
 	ReqFrame,
 	SavedApproval,
 	Session,
@@ -80,10 +81,21 @@ export interface FakeMachineModel {
 	 * tests set this directly; empty by default. */
 	commands: Command[];
 	terminals: Map<string, FakeTerminalState>;
-	/** MOCK — the agent half (feat/permission-agent) has not landed, so this
-	 * is the panel's own reading of the contract, not galopin's behaviour.
-	 * What `permission.rules` answers with. */
+	/** MOCK — the agent half (feat/permission-agent) is being built
+	 * concurrently, so everything here is the panel's reading of the frozen
+	 * contract (`session.setRules {sessionId, rules}`, capped application,
+	 * `permission.rules` shows the truth), not galopin's behaviour.
+	 * The rules the machine has before any session rule or the ceiling tail
+	 * (what `permission.rules` lists first, with whatever `source` a test
+	 * gives them — or none). */
 	permissionRules: PermissionRule[];
+	/** MOCK — the ceiling: permission key -> the most it may ever be. */
+	permissionCeiling: Record<string, "ask" | "deny">;
+	/** MOCK — what a rule above the ceiling does: lowered to it, or refused. */
+	overCeiling: "clamp" | "refuse";
+	/** MOCK — the rules each session was given through `session.setRules`,
+	 * after the ceiling had its say (source "cerea"). */
+	sessionRules: Map<string, SessionRuleInput[]>;
 	/** MOCK — the "always" approvals `permission.rules` lists, and the ones
 	 * `permission.saved.remove` deletes by id. */
 	savedApprovals: SavedApproval[];
@@ -105,6 +117,9 @@ export function emptyModel(): FakeMachineModel {
 		commands: [],
 		terminals: new Map(),
 		permissionRules: [],
+		permissionCeiling: {},
+		overCeiling: "clamp",
+		sessionRules: new Map(),
 		savedApprovals: [],
 	};
 }
@@ -560,17 +575,58 @@ export class FakeMachine {
 			}
 			case "permission.reply":
 				return {};
-			// MOCK of the contract with the agent half: a read, and a
-			// tighten-only delete by id. Unverified against real galopin.
-			case "permission.rules":
-				return { rules: model.permissionRules, savedApprovals: model.savedApprovals };
-			case "permission.saved.remove": {
-				const { id } = args as { id: string };
-				const before = model.savedApprovals.length;
-				model.savedApprovals = model.savedApprovals.filter((approval) => approval.id !== id);
-				if (model.savedApprovals.length === before) {
-					throw new OpError("not_found", "No such saved approval.");
+			// MOCK of the contract with the agent half, unverified against real
+			// galopin: a read that tells the truth about what is in force, a
+			// session-rule writer that applies a ceiling, and a tighten-only
+			// delete by id.
+			case "permission.rules": {
+				const { sessionId } = args as { sessionId: string };
+				const cerea = (model.sessionRules.get(sessionId) ?? []).map((rule) => ({
+					...rule,
+					source: "cerea",
+				}));
+				const tail = Object.entries(model.permissionCeiling).map(([permission, action]) => ({
+					permission,
+					pattern: "*",
+					action,
+					source: "ceiling",
+				}));
+				return {
+					rules: [...model.permissionRules, ...cerea, ...tail],
+					savedApprovals: model.savedApprovals,
+					ceiling: model.permissionCeiling,
+				};
+			}
+			case "session.setRules": {
+				const { sessionId, rules } = args as { sessionId: string; rules: SessionRuleInput[] };
+				requireSession(model, sessionId);
+				const rank = { deny: 0, ask: 1, allow: 2 } as const;
+				const applied: SessionRuleInput[] = [];
+				for (const rule of rules) {
+					const max = model.permissionCeiling[rule.permission] ?? model.permissionCeiling["*"];
+					if (max && rank[rule.action] > rank[max]) {
+						if (model.overCeiling === "refuse") {
+							throw new OpError(
+								"forbidden",
+								`${rule.permission} may not exceed ${max} on this machine.`
+							);
+						}
+						applied.push({ ...rule, action: max });
+					} else {
+						applied.push({ ...rule });
+					}
 				}
+				model.sessionRules.set(sessionId, applied);
+				return {};
+			}
+			case "permission.saved.remove": {
+				const { id } = args as { id: string; sessionId: string };
+				const found = model.savedApprovals.find((approval) => approval.id === id);
+				if (!found) throw new OpError("not_found", "No such saved approval.");
+				if (found.removable === false) {
+					throw new OpError("forbidden", "This approval cannot be withdrawn from here.");
+				}
+				model.savedApprovals = model.savedApprovals.filter((approval) => approval.id !== id);
 				return {};
 			}
 			case "question.reply":

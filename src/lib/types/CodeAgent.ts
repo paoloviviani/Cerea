@@ -412,6 +412,8 @@ export interface CodeAuditEntry {
 	/** A permission action's session and saved approval (ids only). */
 	sessionId?: string;
 	approvalId?: string;
+	/** Rules a `permission.rules.set` carried. */
+	count?: number;
 	/** "removed" or "refused" for a permission action. */
 	outcome?: string;
 	ip?: string;
