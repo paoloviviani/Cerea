@@ -482,7 +482,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 		}
 	}
 	if b.cfg.Permissions != nil || content != nil {
-		body, err := floorConfig(content, b.layers().Ceiling)
+		body, err := floorConfig(content, b.layers())
 		if err != nil {
 			return fmt.Errorf("building the permission floor: %w", err)
 		}

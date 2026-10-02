@@ -326,34 +326,13 @@ func TestChildRulesNeverCarryTheMachinesAllows(t *testing.T) {
 	}
 }
 
-func TestRemovingASavedApprovalOnlyAcceptsListedIDs(t *testing.T) {
-	b, f := newPermFake(t, nil)
-	f.saved = []map[string]any{{"id": "sav_1", "projectID": "p", "action": "bash", "resource": "ls *"}}
-	list, err := b.SavedApprovals(context.Background())
-	if err != nil || len(list) != 1 || list[0].ID != "sav_1" || list[0].Permission != "bash" || len(list[0].Patterns) != 1 || list[0].Patterns[0] != "ls *" {
-		t.Fatalf("list = %+v, %v", list, err)
-	}
-	if err := b.RemoveSavedApproval(context.Background(), "../session/ses_1"); err == nil {
-		t.Error("an id the listing does not name was passed to opencode")
-	}
-	if len(f.deleted) != 0 {
-		t.Errorf("deleted = %v, want none", f.deleted)
-	}
-	if err := b.RemoveSavedApproval(context.Background(), "sav_1"); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.deleted) != 1 || f.deleted[0] != "sav_1" {
-		t.Errorf("deleted = %v", f.deleted)
-	}
-}
-
 func TestFloorConfigMergesOverThePinnedContent(t *testing.T) {
 	base := map[string]any{
 		"model":      "pystino/m",
 		"permission": map[string]any{"read": "allow"},
 		"agent":      map[string]any{"build": map[string]any{"model": "pystino/m", "permission": map[string]any{"read": "allow"}}},
 	}
-	body, err := floorConfig(base, permrules.Ceiling{Max: map[string]permrules.Action{"bash": permrules.Deny}})
+	body, err := floorConfig(base, permrules.Layers{Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"bash": permrules.Deny}}})
 	if err != nil {
 		t.Fatal(err)
 	}

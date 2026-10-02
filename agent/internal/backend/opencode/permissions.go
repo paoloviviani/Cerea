@@ -349,7 +349,7 @@ func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string
 	l := b.layers()
 	out := backend.RuleLayers{Agent: agent}
 
-	floor := l.Ceiling.FloorRules(agent)
+	floor := l.FloorRules(agent)
 	file := b.fileRules()
 	sources := make([]string, len(agentRules))
 	for i := len(agentRules) - 1; i >= 0; i-- {
@@ -474,11 +474,11 @@ func (b *Backend) startTimeout() time.Duration {
 // OPENCODE_CONFIG_CONTENT, merged over base (the pinned project-config
 // content, or nothing). base's own keys survive except where the floor says
 // otherwise, key by key.
-func floorConfig(base map[string]any, c permrules.Ceiling) (string, error) {
+func floorConfig(base map[string]any, l permrules.Layers) (string, error) {
 	if base == nil {
 		base = map[string]any{}
 	}
-	out := mergeConfig(base, c.Floor())
+	out := mergeConfig(base, l.Floor())
 	body, err := json.Marshal(out)
 	return string(body), err
 }
