@@ -66,12 +66,41 @@ needs a new enrollment.
 
 **The terminal needs both vetoes lifted.** The machine must be enrolled with
 `--allow-terminal`, and the deployment must set `CODE_TERMINAL_ENABLED=true`.
-Opening a terminal also requires a sign-in to Cerea within the last 7 days.
+Everything in /code needs a sign-in within the last 7 days; the machine's own
+link is unaffected (see below). A terminal also re-checks that every minute.
 An open terminal is an ordinary shell running as the machine's owner:
 **anyone who controls that person's Cerea session can run commands on the
 machine**, with no model and no permission rule in between. Enable it only
 where that is acceptable. Both sides record terminal opens and closes, never
 their content.
+
+## The 7-day sign-in
+
+Everything in /code needs a sign-in within the last 7 days
+(`src/lib/server/code/stepUp.ts`); the machine's own link is unaffected. It is
+one deny-by-default guard in `hooks/handle.ts`: every request under
+`/api/v2/code/` except `GET /api/v2/code/status` answers
+`401 {code: "reauth_required"}` while the session's `authTime` is older than the
+window, or missing (the hook reads it off the session document it already
+loaded, with no extra query). A route added under that prefix later is
+protected without anyone remembering to; the guard spec fails if one appears
+that it has not been told about.
+
+`/status` is the one open route. It returns only
+`{enabled, fresh, reauthPath}` plus `freshUntil` when fresh, and nothing derived
+from a machine: no names, counts or inbox badge. `reauthPath` is a
+`/login?reauth=1&next=/code` path (with the app base) for the **Sign in**
+button.
+
+Three things the hook cannot see, each handled where it lives: the machine link
+and the terminal socket are WebSocket upgrades that bypass hooks (the terminal
+re-checks freshness in its own 60-second loop and closes with `4403
+reauth_required`), and an event stream opened while fresh ends itself with a
+`reauth_required` frame at `authTime + 7d`. The page asks `/status` on load, and
+a shared `codeReauth` store flips on any `reauth_required` answer or on a
+`freshUntil` timer: the panel then closes its streams, drops its in-memory
+machine state and shows one card. The Needs-you inbox goes dark with the rest,
+which is the price of the guard covering every route.
 
 ## How machines are trusted
 
@@ -208,7 +237,7 @@ compaction or subagents), and the panel hides the matching controls.
 | a machine appears `pending` forever                    | its owner hasn't clicked **Confirm** yet; only the owner can, from their own signed-in panel                                                                                                                                 |
 | every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                         |
 | a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                    |
-| a terminal will not open                               | the deployment lacks `CODE_TERMINAL_ENABLED=true`, the machine was not enrolled with `--allow-terminal`, or the person's last sign-in is older than 7 days                                                                   |
+| a terminal will not open                               | the deployment lacks `CODE_TERMINAL_ENABLED=true`, the machine was not enrolled with `--allow-terminal`, or the person's last sign-in is older than 7 days (which blocks all of /code, not only terminals)                   |
 
 ## For developers
 
