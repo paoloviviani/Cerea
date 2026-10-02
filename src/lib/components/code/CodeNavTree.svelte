@@ -55,6 +55,7 @@
 		refreshCodeDevices,
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
+	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
@@ -646,6 +647,31 @@
 								? "access was revoked"
 								: "the identity provider changed"}
 						</p>
+						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
+							<p class="min-w-0 flex-1 font-mono text-[.65rem] break-all text-ink">
+								{reenrollCommand}
+							</p>
+							<CopyToClipBoardBtn
+								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+								value={reenrollCommand}
+							/>
+						</div>
+					</div>
+				{/if}
+				{#if !device.reenroll && !isDead && codeLegacyMachines[device.id]}
+					<!-- Learned from a session's rules (`PermissionsLine`): this machine's
+					     policy predates ceilings and its opencode.json has no ask block, so
+					     it allows everything until re-enrolled. The same one-liner as the
+					     `reenroll` banner above, since it is the same fix. -->
+					<div
+						class="mb-1.5 ml-7 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+						data-testid="legacy-machine-row-flag"
+					>
+						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
+							<IconWarning class="size-3.5 shrink-0" />
+							Re-enroll this machine: its policy predates ceilings
+						</p>
+						<p class="mb-1.5">It still allows everything. One re-enroll tightens it.</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
 							<p class="min-w-0 flex-1 font-mono text-[.65rem] break-all text-ink">
 								{reenrollCommand}

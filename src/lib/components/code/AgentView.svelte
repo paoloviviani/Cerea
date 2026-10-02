@@ -1089,7 +1089,13 @@
 			</span>
 		{/if}
 		{#if agent && !skipMachineFetches}
-			<PermissionsLine {deviceId} {agentId} refreshKey={permissionsKey} />
+			<PermissionsLine
+				{deviceId}
+				{agentId}
+				refreshKey={permissionsKey}
+				policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
+				onreenroll={() => (showReenroll = true)}
+			/>
 		{/if}
 	</div>
 
