@@ -1,50 +1,62 @@
 {
-  "version": 1,
-  "note": "Every flag `galopin enroll` registers, classified for the /code panel's Pair-a-machine dialog. exposed:true means the dialog must offer a control for it (a default emits no flag); exposed:false is connection plumbing, a retired flag, or a negation the dialog does not need. enroll_flags_test.go fails when this file and enroll's registered flags differ, so a new flag cannot land unclassified. kind is bool | int | string | list | keyAction (a repeatable KEY=ACTION list). default is what enroll uses when the flag is absent.",
-  "flags": [
-    { "flag": "allow-background-subagents", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "allow-command-shell", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "allow-free-models", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "allow-opencode-provider", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "allow-project-config", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "allow-terminal", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "file-deny", "kind": "list", "default": [], "exposed": true },
-    { "flag": "max-terminals", "kind": "int", "default": 8, "exposed": true },
-    { "flag": "no-agent-tools", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "no-default-file-deny", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "no-files", "kind": "bool", "default": false, "exposed": true },
-    { "flag": "permission-max", "kind": "keyAction", "default": [], "exposed": true },
-    { "flag": "permission-rule", "kind": "keyAction", "default": [], "exposed": true },
-    { "flag": "workspace-root", "kind": "list", "default": [], "exposed": true },
+	"version": 1,
+	"note": "Every flag `galopin enroll` registers, classified for the /code panel's Pair-a-machine dialog. exposed:true means the dialog must offer a control for it (a default emits no flag); exposed:false is connection plumbing, a retired flag, or a negation the dialog does not need. enroll_flags_test.go fails when this file and enroll's registered flags differ, so a new flag cannot land unclassified. kind is bool | int | string | list | keyAction (a repeatable KEY=ACTION list). default is what enroll uses when the flag is absent.",
+	"flags": [
+		{ "flag": "allow-background-subagents", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "allow-command-shell", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "allow-free-models", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "allow-opencode-provider", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "allow-project-config", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "allow-terminal", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "file-deny", "kind": "list", "default": [], "exposed": true },
+		{ "flag": "max-terminals", "kind": "int", "default": 8, "exposed": true },
+		{ "flag": "no-agent-tools", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "no-default-file-deny", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "no-files", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "permission-max", "kind": "keyAction", "default": [], "exposed": true },
+		{ "flag": "permission-rule", "kind": "keyAction", "default": [], "exposed": true },
+		{ "flag": "workspace-root", "kind": "list", "default": [], "exposed": true },
 
-    { "flag": "allow-auto-accept", "kind": "bool", "default": false, "exposed": false, "retired": true },
-    { "flag": "cerea", "kind": "string", "default": "", "exposed": false },
-    { "flag": "client-id", "kind": "string", "default": "opencode-enrollment", "exposed": false },
-    { "flag": "creds", "kind": "string", "default": "", "exposed": false },
-    { "flag": "device", "kind": "bool", "default": false, "exposed": false },
-    { "flag": "discover", "kind": "bool", "default": true, "exposed": false },
-    { "flag": "gateway", "kind": "string", "default": "", "exposed": false },
-    { "flag": "group", "kind": "string", "default": "", "exposed": false },
-    { "flag": "issuer", "kind": "string", "default": "", "exposed": false },
-    { "flag": "loopback", "kind": "bool", "default": false, "exposed": false },
-    { "flag": "no-discover", "kind": "bool", "default": false, "exposed": false },
-    { "flag": "output", "kind": "string", "default": "./opencode.json", "exposed": false },
-    { "flag": "shim-port", "kind": "int", "default": 41871, "exposed": false },
-    { "flag": "yes", "kind": "bool", "default": false, "exposed": false }
-  ],
-  "ceiling": {
-    "flag": "permission-max",
-    "note": "The flag REPLACES enroll's default set when given: a dialog that changes any row must emit the full set (every row that differs from allow, including the defaults bash=ask and session_spawn=ask unless changed); with nothing changed it emits nothing. A key absent from the set is not capped (allow).",
-    "keys": [
-      { "key": "edit", "default": "allow" },
-      { "key": "bash", "default": "ask" },
-      { "key": "webfetch", "default": "allow" },
-      { "key": "task", "default": "allow" },
-      { "key": "session_spawn", "default": "ask" },
-      { "key": "session_send", "default": "allow" }
-    ]
-  },
-  "dialogOnly": [
-    { "control": "install-opencode", "kind": "bool", "default": false, "exposed": true, "note": "Adds the opencode install line before enroll in the printed command; not a flag of enroll." }
-  ]
+		{
+			"flag": "allow-auto-accept",
+			"kind": "bool",
+			"default": false,
+			"exposed": false,
+			"retired": true
+		},
+		{ "flag": "cerea", "kind": "string", "default": "", "exposed": false },
+		{ "flag": "client-id", "kind": "string", "default": "opencode-enrollment", "exposed": false },
+		{ "flag": "creds", "kind": "string", "default": "", "exposed": false },
+		{ "flag": "device", "kind": "bool", "default": false, "exposed": false },
+		{ "flag": "discover", "kind": "bool", "default": true, "exposed": false },
+		{ "flag": "gateway", "kind": "string", "default": "", "exposed": false },
+		{ "flag": "group", "kind": "string", "default": "", "exposed": false },
+		{ "flag": "issuer", "kind": "string", "default": "", "exposed": false },
+		{ "flag": "loopback", "kind": "bool", "default": false, "exposed": false },
+		{ "flag": "no-discover", "kind": "bool", "default": false, "exposed": false },
+		{ "flag": "output", "kind": "string", "default": "./opencode.json", "exposed": false },
+		{ "flag": "shim-port", "kind": "int", "default": 41871, "exposed": false },
+		{ "flag": "yes", "kind": "bool", "default": false, "exposed": false }
+	],
+	"ceiling": {
+		"flag": "permission-max",
+		"note": "The flag REPLACES enroll's default set when given: a dialog that changes any row must emit the full set (every row that differs from allow, including the defaults bash=ask and session_spawn=ask unless changed); with nothing changed it emits nothing. A key absent from the set is not capped (allow).",
+		"keys": [
+			{ "key": "edit", "default": "allow" },
+			{ "key": "bash", "default": "ask" },
+			{ "key": "webfetch", "default": "allow" },
+			{ "key": "task", "default": "allow" },
+			{ "key": "session_spawn", "default": "ask" },
+			{ "key": "session_send", "default": "allow" }
+		]
+	},
+	"dialogOnly": [
+		{
+			"control": "install-opencode",
+			"kind": "bool",
+			"default": false,
+			"exposed": true,
+			"note": "Adds the opencode install line before enroll in the printed command; not a flag of enroll."
+		}
+	]
 }
