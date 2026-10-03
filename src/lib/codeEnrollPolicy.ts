@@ -48,11 +48,6 @@ export const DEFAULT_CEILING: Readonly<Record<CeilingKey, CeilingAction>> = {
 /** `enroll`'s own default for `--max-terminals`. */
 export const DEFAULT_MAX_TERMINALS = 8;
 
-export interface RuleRow {
-	key: string;
-	action: CeilingAction;
-}
-
 /** Everything the dialog lets a person choose about the machine's policy. */
 export interface EnrollPolicyChoices {
 	allowTerminal: boolean;
@@ -69,8 +64,10 @@ export interface EnrollPolicyChoices {
 	noFiles: boolean;
 	fileDeny: string[];
 	noDefaultFileDeny: boolean;
-	/** This machine's own rules, below Cerea's selector. */
-	permissionRules: RuleRow[];
+	/** `external_directory=allow`: no asking before work outside the workspace. */
+	allowOutsideProject: boolean;
+	/** `read=allow`: no asking before reading `.env` and similar files. */
+	allowSecretReads: boolean;
 }
 
 export function defaultPolicyChoices(): EnrollPolicyChoices {
@@ -88,7 +85,8 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 		noFiles: false,
 		fileDeny: [],
 		noDefaultFileDeny: false,
-		permissionRules: [],
+		allowOutsideProject: false,
+		allowSecretReads: false,
 	};
 }
 
@@ -107,7 +105,7 @@ export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"no-files": "enroll-no-files",
 	"file-deny": "enroll-file-deny",
 	"no-default-file-deny": "enroll-no-default-file-deny",
-	"permission-rule": "enroll-permission-rules",
+	"permission-rule": "enroll-fixed-answers",
 };
 
 /** The flags the dialog has a control for, in the file's own terms. */
@@ -152,20 +150,14 @@ function listed(values: string[]): string[] {
 	return values.map((value) => value.trim()).filter((value) => value !== "");
 }
 
-/** Rows of the machine's-own-rules list that name a key. */
-function filledRules(rows: RuleRow[]): RuleRow[] {
-	return rows
-		.map((row) => ({ key: row.key.trim(), action: row.action }))
-		.filter((row) => row.key !== "");
-}
-
-/** A key `enroll` accepts: a literal permission name, not a pattern. */
-export function ruleKeyProblem(key: string): string | null {
-	const trimmed = key.trim();
-	if (trimmed === "") return null;
-	if (/[*?]/.test(trimmed)) return "Use a permission name such as bash, not a pattern.";
-	if (trimmed.includes("=")) return "Name the permission only; the action is the select.";
-	return null;
+/** The permissions the two "without asking" checkboxes answer for the machine,
+ * in the order the flags are printed. Both are allows: they restate, below the
+ * agent's own rules, a name opencode would otherwise ask about. */
+function fixedAnswers(choices: EnrollPolicyChoices): string[] {
+	const names: string[] = [];
+	if (choices.allowOutsideProject) names.push("external_directory");
+	if (choices.allowSecretReads) names.push("read");
+	return names;
 }
 
 /** `--max-terminals`'s value problem, or null. Whole numbers from 1. */
@@ -198,8 +190,8 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	if (choices.noFiles) args.push("--no-files");
 	for (const glob of listed(choices.fileDeny)) args.push("--file-deny", quoteShellArg(glob));
 	if (choices.noDefaultFileDeny) args.push("--no-default-file-deny");
-	for (const row of filledRules(choices.permissionRules)) {
-		args.push("--permission-rule", quoteShellArg(`${row.key}=${row.action}`));
+	for (const rule of fixedAnswers(choices)) {
+		args.push("--permission-rule", quoteShellArg(`${rule}=allow`));
 	}
 	return args;
 }
@@ -219,7 +211,8 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		choices.noFiles,
 		listed(choices.fileDeny).length > 0,
 		choices.noDefaultFileDeny,
-		filledRules(choices.permissionRules).length > 0,
+		choices.allowOutsideProject,
+		choices.allowSecretReads,
 	].filter(Boolean).length;
 }
 
@@ -262,7 +255,7 @@ export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
 	return {
 		permission: {
 			max,
-			rules: Object.fromEntries(filledRules(choices.permissionRules).map((r) => [r.key, r.action])),
+			rules: Object.fromEntries(fixedAnswers(choices).map((name) => [name, "allow"])),
 		},
 		workspaceRoots: listed(choices.workspaceRoots),
 		allowFreeModels: choices.allowFreeModels,

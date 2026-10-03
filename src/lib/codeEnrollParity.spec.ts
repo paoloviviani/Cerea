@@ -251,15 +251,9 @@ describe.skipIf(!HAVE_BINARY)(
 				}),
 			],
 			["files off, secret list dropped", choose({ noFiles: true, noDefaultFileDeny: true })],
-			[
-				"the machine's own rules",
-				choose({
-					permissionRules: [
-						{ key: "edit", action: "ask" },
-						{ key: "webfetch", action: "deny" },
-					],
-				}),
-			],
+			["work outside the project without asking", choose({ allowOutsideProject: true })],
+			["secret reads without asking", choose({ allowSecretReads: true })],
+			["both fixed answers", choose({ allowOutsideProject: true, allowSecretReads: true })],
 			[
 				"everything at once",
 				choose({
@@ -276,7 +270,8 @@ describe.skipIf(!HAVE_BINARY)(
 					noFiles: false,
 					fileDeny: ["*.secret"],
 					noDefaultFileDeny: true,
-					permissionRules: [{ key: "bash", action: "ask" }],
+					allowOutsideProject: true,
+					allowSecretReads: true,
 				}),
 			],
 		];
