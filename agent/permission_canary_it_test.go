@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/permrules"
@@ -231,5 +233,47 @@ func TestUpgradeCanarySavedStoreIsNotTheAlwaysStore(t *testing.T) {
 			t.Errorf("GET %s = %s after a v1 always: the v2 list now shows v1 approvals. "+
 				"permission.rules could list them from opencode, and saved.remove may be able to remove them: revisit.", path, body)
 		}
+	}
+}
+
+// Canary 6: the task tool tells the model which agent types it can start, and
+// that list does NOT follow the calling session's rules: a session that denies
+// `task: general` still hears about `general`. This is why galopin does not give
+// a root the Allow word by steering its tasks to a second, ask-free variant of
+// each subagent (deny `general`, allow `general-allow`): the model would see
+// both, pick the denied one half the time and have to retry. If a release omits
+// denied types from the list, that route (a variant per subagent in the floor
+// config, the main session's rules choosing between them) becomes viable and a
+// subagent's first turn could follow the root's word: revisit permrules.Floor.
+func TestUpgradeCanaryTaskListIgnoresTheSessionsTaskDenies(t *testing.T) {
+	r := newPermRig(t, permRigOpts{})
+	r.bypass = true
+	s := r.rawSession([]permrules.Rule{{Permission: "task", Pattern: "general", Action: permrules.Deny}})
+	r.script(map[string]any{})
+	if err := r.promptSession(s, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	var desc string
+	for deadline := time.Now().Add(30 * time.Second); desc == "" && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		resp, err := http.Get(r.mock + "/__control/tools")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Tools map[string]string `json:"tools"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		desc = body.Tools["task"]
+	}
+	if desc == "" {
+		t.Fatal("the model was never offered a task tool: with the session's rules the call may now be withdrawn from the list")
+	}
+	if !strings.Contains(desc, "- general:") {
+		t.Errorf("the task tool's list omits the agent the session denies: opencode now filters the list by the caller's rules, "+
+			"so a per-subagent variant steered by the main session's rules is viable (no refuse-and-retry); revisit the first-turn floor. List:\n%s", desc)
+	}
+	if !strings.Contains(desc, "- explore:") {
+		t.Errorf("the task tool's list lacks explore: %s", desc)
 	}
 }

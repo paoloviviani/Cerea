@@ -57,6 +57,10 @@ type Server struct {
 	// expanded text reached the mock" is exactly the fact only the mock can
 	// see. Capped so a long IT run cannot grow it without bound.
 	requests [][]string
+	// tools is the tool descriptions (name -> description) of the most recent
+	// chat-completion request: what the model was told it can call, which only
+	// the mock can see (the task tool's list of agent types is in its description).
+	tools map[string]string
 }
 
 func New() *Server { return &Server{scenario: defaultScenario} }
@@ -71,6 +75,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out = [][]string{}
 		}
 		writeJSON(w, map[string]any{"requests": out})
+	case r.URL.Path == "/__control/tools":
+		s.mu.Lock()
+		out := s.tools
+		s.mu.Unlock()
+		if out == nil {
+			out = map[string]string{}
+		}
+		writeJSON(w, map[string]any{"tools": out})
 	case r.URL.Path == "/__control/reset-requests" && r.Method == http.MethodPost:
 		s.mu.Lock()
 		s.requests = nil
@@ -118,6 +130,12 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		Model    string           `json:"model"`
 		Stream   bool             `json:"stream"`
 		Messages []map[string]any `json:"messages"`
+		Tools    []struct {
+			Function struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+			} `json:"function"`
+		} `json:"tools"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -158,6 +176,12 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	s.requests = append(s.requests, prompts)
+	if len(req.Tools) > 0 {
+		s.tools = map[string]string{}
+		for _, t := range req.Tools {
+			s.tools[t.Function.Name] = t.Function.Description
+		}
+	}
 	s.mu.Unlock()
 
 	calls := sc.ToolCalls
