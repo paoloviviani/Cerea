@@ -48,7 +48,10 @@ Usage:
                       (any ACP agent — PROTOCOL.md §2).
   --opencode-bin PATH   opencode binary (default "opencode", resolved on PATH).
   --opencode-config PATH  Exported as OPENCODE_CONFIG for the spawned
-                      opencode, overriding its normal config discovery.
+                      opencode (default: the opencode.json path enroll
+                      recorded in the credential file; a machine enrolled
+                      before that was recorded gets a warning and opencode's
+                      own config discovery).
   --acp-command CMD   Command line for the ACP agent, only used with
                       --backend acp (default "opencode acp").
   --machine-name NAME   Display name for this machine (default: hostname).
@@ -122,6 +125,17 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	creds, err := loadCredentials(credsPath)
 	if err != nil {
 		return err
+	}
+
+	// A copy: runAgent is also called by tests with a shared options value.
+	runOpts := *opts
+	opts = &runOpts
+	if opts.backendKind == "" || opts.backendKind == "opencode" {
+		var warning string
+		opts.opencodeConfig, warning = resolveOpencodeConfig(opts.opencodeConfig, creds)
+		if warning != "" {
+			logf("warning: %s", warning)
+		}
 	}
 
 	stateDir := opts.stateDir
