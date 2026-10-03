@@ -44,6 +44,12 @@ type credentials struct {
 	// --cerea) works the same way `galopin serve` already needs no
 	// flags beyond what enroll wrote.
 	CereaOrigin string `json:"cerea_origin,omitempty"`
+	// OpencodeConfig is the ABSOLUTE path of the opencode.json enroll wrote,
+	// so a plain `galopin run` finds it wherever enroll was run from (it
+	// exports it as OPENCODE_CONFIG; the supervised opencode ignores project
+	// config, so it has no other way to learn the pystino provider). Empty on
+	// a file written before this field: run then warns (resolveOpencodeConfig).
+	OpencodeConfig string `json:"opencode_config,omitempty"`
 }
 
 // refreshSkew makes serve refresh a little before expiry, so no proxied
@@ -106,6 +112,37 @@ func defaultCredsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, credentialsFileName), nil
+}
+
+// opencodeConfigFileName is the opencode.json enroll writes by default, next
+// to credentials.json.
+const opencodeConfigFileName = "opencode.json"
+
+// defaultOpencodeConfigPath is where enroll writes opencode.json when no
+// --output is given: in the same directory as the credential file it is
+// writing (the galopin state dir by default), never the caller's cwd and never
+// opencode's own global config, which is the person's.
+func defaultOpencodeConfigPath(credsPath string) string {
+	return filepath.Join(filepath.Dir(credsPath), opencodeConfigFileName)
+}
+
+// resolveOpencodeConfig decides the OPENCODE_CONFIG `run` hands opencode:
+// an explicit --opencode-config always wins; else the path enroll recorded,
+// when that file still exists; else "" (opencode's own discovery, the
+// behaviour before enroll recorded anything). A warning is returned for the
+// cases that leave the supervised opencode without the pystino provider, for
+// the caller to print once.
+func resolveOpencodeConfig(flagValue string, creds *credentials) (path, warning string) {
+	if flagValue != "" {
+		return flagValue, ""
+	}
+	if creds.OpencodeConfig == "" {
+		return "", "this machine was enrolled before enroll recorded where it wrote opencode.json, so the supervised opencode may have no pystino provider (the panel then lists no models). Re-run 'galopin enroll', or pass --opencode-config <path to the opencode.json enroll wrote>."
+	}
+	if _, err := os.Stat(creds.OpencodeConfig); err != nil {
+		return "", fmt.Sprintf("the opencode.json enroll wrote (%s) is not readable (%v), so the supervised opencode may have no pystino provider. Re-run 'galopin enroll', or pass --opencode-config <path>.", creds.OpencodeConfig, err)
+	}
+	return creds.OpencodeConfig, ""
 }
 
 // resolveDefaultCredsPath is the credential path enroll writes and run

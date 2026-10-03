@@ -40,7 +40,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "issuer", kind: "string", default: "", exposed: false },
 	{ flag: "loopback", kind: "bool", default: false, exposed: false },
 	{ flag: "no-discover", kind: "bool", default: false, exposed: false },
-	{ flag: "output", kind: "string", default: "./opencode.json", exposed: false },
+	{ flag: "output", kind: "string", default: "", exposed: false },
 	{ flag: "shim-port", kind: "int", default: 41871, exposed: false },
 	{ flag: "yes", kind: "bool", default: false, exposed: false },
 	// On by default since enroll turned them on; the dialog's control for each
