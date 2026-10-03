@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { Db, ObjectId } from "mongodb";
 import { E2E_APP_URL, MOCK_OIDC_ISSUER, MOCK_OPENAI_BASE_URL } from "./fixtures.ts";
+import { stopTree, sweepStaleRunProcesses } from "./e2eProc.ts";
 
 const AGENT_SRC = fileURLToPath(new URL("../agent", import.meta.url));
 const GO =
@@ -45,6 +46,9 @@ export function e2eScratch(): string {
 			rmSync(join(E2E_CACHE_ROOT, name), { recursive: true, force: true });
 		}
 	}
+	// ...plus their processes: a killed worker's galopin may be gone while
+	// its opencode child spins on (matched by run dir only, never by name).
+	sweepStaleRunProcesses(E2E_CACHE_ROOT);
 	const dir = join(E2E_CACHE_ROOT, `run-${process.pid}`);
 	mkdirSync(dir, { recursive: true });
 	process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
@@ -274,6 +278,9 @@ export async function startMachine(input: {
 			name,
 		],
 		{
+			// Detached: galopin leads its own process group, so stopping it
+			// takes its opencode child with it (stopTree kills the group).
+			detached: true,
 			env: {
 				...process.env,
 				HOME: home,
@@ -299,12 +306,7 @@ export async function startMachine(input: {
 		refreshToken: minted.refresh_token,
 		logs: () => output,
 		stop: async () => {
-			if (child.exitCode === null) {
-				const exited = new Promise((resolve) => child.once("exit", resolve));
-				child.kill("SIGTERM");
-				await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
-				if (child.exitCode === null) child.kill("SIGKILL");
-			}
+			await stopTree(child);
 			rmSync(root, { recursive: true, force: true });
 		},
 	};
