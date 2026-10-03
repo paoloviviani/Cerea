@@ -62,6 +62,20 @@ veto that only `enroll` can loosen:
   (`enroll --no-files` turns it off), with a secret deny list (`.env`,
   private keys, credentials files — `--file-deny GLOB` extends it,
   `--no-default-file-deny` drops the defaults).
+- **What the agent may do without asking** is a per-session selector in
+  the /code composer — **Deny, Ask or Allow** — not a machine setting.
+  Every session starts on **Ask**, including on a machine enrolled before
+  the selector existed (no re-enroll needed): the agent asks before it
+  edits, runs a command, fetches a page or starts a subagent. Reading stays
+  allowed under all three words, and under Allow two asks survive: a write
+  outside the project folder and the stuck-agent brake. "Always allow" on
+  a card is an exception for that command in that session only, removable
+  in the panel. What **is** the machine's is the **ceiling**
+  (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
+  `session_spawn=ask`): the most any key may ever be, whatever a session's
+  word or exceptions say. The old auto-accept toggle and
+  `--allow-auto-accept` are gone (the flag is accepted for one more
+  release and does nothing).
 - **A terminal**: a real, interactive shell, **off by default**.
   `enroll --allow-terminal` turns it on — and means exactly what it says:
   _anyone who controls your Cerea session can run commands as you on this
@@ -73,7 +87,7 @@ veto that only `enroll` can loosen:
 
 `galopin policy show` prints the current policy in plain words.
 `galopin policy set` can locally **tighten** it without a full re-enroll —
-turn files, the terminal or auto-accept off, lower `--max-terminals`, a
+turn files or the terminal off, lower `--max-terminals`, a
 `--permission-max` ceiling or a `--permission-rule`, or add a
 `--file-deny` entry — but never loosen it back; loosening always requires
 `enroll` again, since the policy is never writable over the link (§4).
