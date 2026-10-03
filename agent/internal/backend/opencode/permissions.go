@@ -352,6 +352,19 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 	return b.setOverlay(sessionID, ov)
 }
 
+// denyNote rides on every prompt of a session on Deny, as a synthetic part.
+// opencode does not refuse a tool whose every pattern is denied: it removes
+// the tool from the model's tool list. A model asked to curl a site then has
+// no bash, is not told why, and reaches for what is left (list, read), then
+// apologises for "the wrong tool". Told, it says what it would run and asks
+// for the setting to change instead.
+const denyNote = "The person has set this session to Deny. Running commands, " +
+	"editing or writing files, fetching from the web and starting subagents are " +
+	"switched off, so those tools are missing from your tool list on purpose. " +
+	"Reading and searching the project still work. If the request needs a " +
+	"switched-off tool, do not substitute another tool for it: say what you would " +
+	"run or change, and ask the person to switch the session to Ask or Allow."
+
 // PermissionMode implements backend.RuleHost.
 func (b *Backend) PermissionMode(sessionID string) permrules.Action {
 	return b.selectorOf(sessionID).Effective()
