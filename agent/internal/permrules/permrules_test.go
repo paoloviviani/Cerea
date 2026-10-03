@@ -595,3 +595,26 @@ func TestLayersFloorMakesSubagentsAskByDefault(t *testing.T) {
 		}
 	}
 }
+
+// The machine's own rule for one of galopin's coordination tools is the
+// machine's explicit consent (or refusal), which the blanket must not bury —
+// except under Deny, where the person has said no.
+func TestSelectorKeepsTheMachinesRulesForGalopinsTools(t *testing.T) {
+	l := Layers{Own: []Rule{{"session_spawn", "*", Allow}, {"session_send", "*", Ask}}}
+	for _, mode := range []Action{Ask, Allow} {
+		rules := Compose(l, Selector{Mode: mode}, buildAgent)
+		if got := Grant(append(append([]Rule(nil), buildAgent...), rules...), "session_spawn"); got != Allow {
+			t.Errorf("%s: session_spawn grant = %s, want the machine's allow", mode, got)
+		}
+		if got := Grant(append(append([]Rule(nil), buildAgent...), rules...), "session_send"); got != Ask {
+			t.Errorf("%s: session_send grant = %s, want the machine's ask", mode, got)
+		}
+		if got := Grant(append(append([]Rule(nil), buildAgent...), rules...), "session_list"); got != Ask {
+			t.Errorf("%s: a tool the machine has no rule for = %s, want ask", mode, got)
+		}
+	}
+	deny := Compose(l, Selector{Mode: Deny}, buildAgent)
+	if got := Grant(append(append([]Rule(nil), buildAgent...), deny...), "session_spawn"); got != Deny {
+		t.Errorf("Deny: session_spawn grant = %s, want deny (the person's Deny beats the machine's allow)", got)
+	}
+}

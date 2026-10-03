@@ -251,6 +251,22 @@ func IsUntouched(key string) bool {
 	return false
 }
 
+// GalopinTools are galopin's own coordination tools. They have no opencode
+// permission of their own: galopin reads the machine's rules for their names
+// (Grant), so the blanket must not bury a rule the machine wrote for one. Under
+// Ask or Allow the machine's own rules for them are re-appended after the mode
+// block; under Deny they are not, because the person said Deny.
+var GalopinTools = []string{"session_list", "session_spawn", "session_send"}
+
+func isGalopinTool(key string) bool {
+	for _, k := range GalopinTools {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
 // Exception is one "always allow" a person gave, kept per root session: a
 // permission and the patterns it covers, allowed on top of the blanket.
 type Exception struct {
@@ -413,6 +429,11 @@ func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 	}
 	cerea = append(cerea, blanketBlock(mode, base)...)
 	if mode != Deny {
+		for _, r := range l.Own {
+			if isGalopinTool(r.Permission) {
+				cerea = append(cerea, r)
+			}
+		}
 		cerea = append(cerea, sel.exceptionRules()...)
 	}
 	in := append(append([]Rule(nil), agent...), cerea...)
