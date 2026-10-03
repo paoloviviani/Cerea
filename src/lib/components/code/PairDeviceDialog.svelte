@@ -32,6 +32,8 @@
 	} from "$lib/stores/codeDeviceList.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
+	import { defaultPolicyChoices } from "$lib/codeEnrollPolicy";
+	import EnrollPolicyControls from "./EnrollPolicyControls.svelte";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -54,9 +56,7 @@
 	// not on the server (§12): the server has no better guess, and this one
 	// is at least the address the person is looking at right now.
 	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
-	let allowTerminal = $state(false);
-	let allowProjectConfig = $state(false);
-	let allowAutoAccept = $state(false);
+	let policyChoices = $state(defaultPolicyChoices());
 	let installOpencode = $state(false);
 	const command = $derived(
 		buildEnrollCommand({
@@ -64,9 +64,7 @@
 			issuer: page.data.codeOidcIssuerUrl ?? "",
 			gatewayOrigin,
 			clientId: page.data.codeOidcClientId,
-			allowTerminal,
-			allowAutoAccept,
-			allowProjectConfig,
+			...policyChoices,
 			installOpencode,
 		})
 	);
@@ -113,7 +111,7 @@
 	}
 </script>
 
-<Modal width="max-w-md" closeButton labelledBy="pair-device-title" {onclose}>
+<Modal width="max-w-xl" closeButton labelledBy="pair-device-title" {onclose}>
 	<div class="p-4 sm:p-6">
 		<div class="mb-6 flex items-center gap-3">
 			<div class="{s.STRIP_TILE} shrink-0">
@@ -171,49 +169,7 @@
 			</p>
 		</details>
 
-		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
-			<input type="checkbox" class="mt-0.5" bind:checked={installOpencode} />
-			<span>
-				<span class="font-medium text-ink">Install opencode.</span> The agent runs the opencode binary
-				as its coding engine — check this on a fresh machine that does not have it yet (leave it unchecked
-				if it is already installed).
-			</span>
-		</label>
-
-		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
-			<input type="checkbox" class="mt-0.5" bind:checked={allowProjectConfig} />
-			<span>
-				<span class="font-medium text-ink">Trust the repos this machine opens.</span> A repo you cloned
-				can carry its own assistant setup — extra commands, helpers and connections — which normally stays
-				switched off, because those are someone else's files. Turn this on only where you trust the repos.
-				Your AI provider stays locked to our gateway either way.
-			</span>
-		</label>
-
-		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
-			<input type="checkbox" class="mt-0.5" bind:checked={allowAutoAccept} />
-			<span>
-				<span class="font-medium text-ink">Allow auto-accept.</span> This machine's sessions may be switched
-				to answer their own tool prompts without asking you each time — one answer at a time, never questions,
-				never anything the rules forbid. You still flip the switch per session; this only permits it.
-			</span>
-		</label>
-
-		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
-			<input type="checkbox" class="mt-0.5" bind:checked={allowTerminal} />
-			<span>
-				<span class="font-medium text-ink">Allow terminal.</span> Terminals: ALLOWED means anyone who
-				controls your Cerea session can run commands as you on this machine — there is no model and no
-				permission rule in the way once a terminal is open.
-			</span>
-		</label>
-
-		<p class="mb-4 text-xs text-ink-muted" data-testid="pair-permissions-note">
-			What the agent may do is decided by opencode's own permission rules on the machine; Cerea
-			shows its asks. The panel's Auto-accept switch stays disabled unless the machine was enrolled
-			with <code class="font-mono">--allow-auto-accept</code> (tick it above): that only lets a responder
-			on the machine answer tool asks "allow once", per session, and never questions or denies.
-		</p>
+		<EnrollPolicyControls bind:choices={policyChoices} bind:installOpencode />
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
 		{#if pending.length === 0}
