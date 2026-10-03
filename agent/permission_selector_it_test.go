@@ -385,7 +385,8 @@ func TestSelectorS8Subagents(t *testing.T) {
 // written against that — a change is in force from the session's next turn, and a
 // task's first turn belongs to the floor — and this pins the half a mock without
 // multi-step scripts can: that the change IS in force on the next turn, through
-// the mode change made mid-turn.
+// the mode change made mid-turn. (The running turn is not stopped by a change;
+// TestSelectorADeniedMidTurnDoesNotStopTheRunningTurn pins that.)
 func TestSelectorAModeChangedMidTurnIsInForceOnTheNextTurn(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	s := r.session("per-turn", "")
@@ -400,6 +401,37 @@ func TestSelectorAModeChangedMidTurnIsInForceOnTheNextTurn(t *testing.T) {
 	// Next turn: the new mode is in force.
 	if ask, part, _ := r.try(s, "per-turn-2.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
 		t.Errorf("the next turn after the change: ask=%v part=%+v, want it to run under Allow", ask, part)
+	}
+}
+
+// A mid-turn change does not stop the running turn (the user's decision: no
+// abort on tighten). The session goes to Deny while a turn waits on an ask; the
+// person's answer still lands that call, the turn finishes, nothing is cancelled
+// or withdrawn — and the very next turn is refused.
+func TestSelectorADeniedMidTurnDoesNotStopTheRunningTurn(t *testing.T) {
+	r := newPermRig(t, permRigOpts{})
+	s := r.session("mid-turn-deny", "")
+	ask, _, mark := r.try(s, "mid-turn-1.txt")
+	if ask == nil {
+		t.Fatal("no first ask")
+	}
+	r.setMode(s, "deny")
+	if n := r.mat.PendingPermissions(s.ID); n != 1 {
+		t.Fatalf("pending asks after the switch to Deny = %d, want the running turn's ask left alone", n)
+	}
+	r.reply(s, ask.ID, "once")
+	r.idle(s, mark)
+	if !r.exists("mid-turn-1.txt") {
+		t.Error("the running turn was stopped: the answered write did not land")
+	}
+	for _, env := range r.hub.since(mark) {
+		if env.SessionID == s.ID && env.Event.Kind == backend.EventError {
+			t.Errorf("the turn ended in an error: %+v", env.Event)
+		}
+	}
+	ask, part, _ := r.try(s, "mid-turn-2.txt")
+	if ask != nil || !refused(part) || r.exists("mid-turn-2.txt") {
+		t.Errorf("the next turn under Deny: ask=%v part=%+v, want it refused", ask, part)
 	}
 }
 
