@@ -573,13 +573,28 @@ def refuse_tls(tls: str, host: str) -> None:
 
 
 def refuse_authelia(host: str) -> None:
-    if is_ip(host) or "." not in host:
-        # Authelia needs a Domain cookie, and browsers refuse one on an IP or
-        # a dotless name: nobody would stay signed in.
+    # Authelia validates the session cookie domain itself: it accepts a dotted
+    # name or an IPv4 address (a browser stores and returns a Domain cookie set
+    # to an identical IP, RFC 6265 section 5.1.3), and rejects a single-word name.
+    if is_ip(host):
+        if ":" in host:
+            raise ConfigError(
+                "the bundled Authelia is not set up for an IPv6 address; use an IPv4 address, "
+                "a dotted DNS name, or bring an external IdP (--idp external)"
+            )
+        return
+    if "." not in host:
         raise ConfigError(
-            "the bundled Authelia needs a dotted host name, not an IP or a dotless name; "
-            "add a DNS or hosts entry, or bring an external IdP (--idp external)"
+            f"the bundled Authelia does not accept the single-word host name {host!r}; use a dotted "
+            "DNS name (cerea.example.org), an IP address, a name that resolves to your IP "
+            "(10-0-0-5.sslip.io), or bring an external IdP (--idp external)"
         )
+
+
+def default_sni_for(tls: str, host: str) -> str:
+    """Browsers send no SNI to an IP, and Docker's port mapping hides the address
+    the client dialled, so Caddy needs to be told which certificate to serve."""
+    return f"default_sni {host}" if tls == "internal" and is_ip(host) else ""
 
 
 def site_for(tls: str, host: str) -> tuple:
@@ -749,6 +764,7 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
     values["PUBLIC_ORIGIN"] = origin
     values["TLS_MODE"] = answers.tls
     values["SITE_ADDRESS"], values["TLS_DIRECTIVE"] = site_for(answers.tls, host)
+    values["DEFAULT_SNI_DIRECTIVE"] = default_sni_for(answers.tls, host)
     if answers.https_port is not None:
         values["HTTPS_PORT"] = str(answers.https_port)
     elif origin_port and (fresh or changed("origin")):
@@ -1060,6 +1076,14 @@ def check_values(values: dict, report: Report) -> None:
             report.errors.append(
                 f"TLS_MODE={tls} needs SITE_ADDRESS='{want_site}' and TLS_DIRECTIVE='{want_directive}' "
                 f"(found {values.get('SITE_ADDRESS')!r} and {values.get('TLS_DIRECTIVE', '')!r})"
+            )
+        want_sni = default_sni_for(tls, host)
+        if values.get("DEFAULT_SNI_DIRECTIVE", "") != want_sni:
+            report.errors.append(
+                f"an IP host needs DEFAULT_SNI_DIRECTIVE='{want_sni}' (without it browsers get a TLS "
+                f"error), found {values.get('DEFAULT_SNI_DIRECTIVE', '')!r}; run ./configure again"
+                if want_sni else
+                f"DEFAULT_SNI_DIRECTIVE must be empty here, found {values.get('DEFAULT_SNI_DIRECTIVE')!r}"
             )
         if tls == "internal":
             report.notes.append("TLS_MODE=internal: browsers will warn; fine for development only")

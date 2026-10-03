@@ -152,6 +152,24 @@ The proxy trusts `X-Forwarded-For` only from `TRUSTED_PROXIES` (default
 as a VPN's `100.64.0.0/10`, set `TRUSTED_PROXIES` to that range. Otherwise the
 logs show the front's address instead of the client's.
 
+### Certificate trust with `--tls internal`
+
+Caddy signs the certificate with its own CA, so every browser shows a warning
+until you trust that CA, or accept the warning once. The CA certificate is
+created on the first start; copy it out of the proxy:
+
+```
+docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt cerea-root.crt
+```
+
+Agent machines (galopin) have no flag to skip certificate checks and no
+setting for an extra CA; they use the machine's own trust store. Install
+`cerea-root.crt` there: in the system store (macOS Keychain, Windows
+"Trusted Root Certification Authorities", or `update-ca-certificates` on
+Debian and Ubuntu), or, on Linux, point galopin at it with
+`SSL_CERT_FILE=/path/to/cerea-root.crt` (Go reads that variable). An agent
+machine on a server with a real certificate needs nothing.
+
 Servers never call the public origin: the gateway and the chat reach the IdP
 on the internal network. The TLS mode therefore never means distributing a
 CA certificate to containers.
@@ -172,9 +190,14 @@ issuer, Keycloak's, with a single set of clients. Use mappers to put what the
 stack reads into Keycloak's tokens: a groups claim, and `email` with
 `email_verified`.
 
-**The bundled Authelia** (`--idp authelia`, the default) needs a dotted host
-name, because browsers refuse its session cookie on an IP address. Its first
-account is created on the first `up`; the first sign-in with the
+**The bundled Authelia** (`--idp authelia`, the default) works with a dotted
+DNS name (`cerea.example.org`) or an IP address (`https://192.168.1.10`, with
+`:port` if you use one). It does not work with a single-word name such as
+`myserver`: Authelia rejects that as its cookie domain. If you would rather
+have a name than an IP on a private network, a wildcard DNS service gives you
+one: `192-168-1-10.sslip.io` (or `nip.io`) resolves to `192.168.1.10`. An IP
+or a private name cannot get a Let's Encrypt certificate, so use
+`--tls internal` there (see "Certificate trust" below). Its first account is created on the first `up`; the first sign-in with the
 administrator email you gave `./configure` makes that account an
 administrator.
 
