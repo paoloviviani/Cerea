@@ -4,9 +4,10 @@ import PairDeviceDialog from "./PairDeviceDialog.svelte";
 
 /**
  * The enrollment dialog prints the command a person runs on their machine.
- * Auto-accept is no longer a checkbox here: the flag survives on the CLI as
- * the machine ceiling's "responders allowed" setting, and the dialog says so
- * in plain words instead of offering per-session behaviour it cannot promise.
+ * Allow auto-accept is a checkbox again: ticking it adds --allow-auto-accept
+ * (the machine ceiling's "responders allowed" setting) to the printed
+ * command. The dialog copy promises only what the flag means — per-session
+ * answering stays on the panel switch.
  */
 vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
@@ -38,28 +39,27 @@ function command(screen: ReturnType<typeof mount>): string {
 }
 
 describe("PairDeviceDialog", () => {
-	it("offers no Allow auto-accept checkbox", async () => {
+	it("offers all four checkboxes, off by default", async () => {
 		const screen = mount();
 		await expect.element(screen.getByText("Pair a machine")).toBeVisible();
-		expect(screen.getByRole("checkbox", { name: /auto-accept/i }).elements()).toHaveLength(0);
-		expect(screen.getByText("Allow auto-accept.").elements()).toHaveLength(0);
-		// The three that remain are still there.
+		await expect.element(screen.getByRole("checkbox", { name: /Allow auto-accept/ })).toBeVisible();
 		await expect.element(screen.getByRole("checkbox", { name: /Install opencode/ })).toBeVisible();
 		await expect
-			.element(screen.getByRole("checkbox", { name: /Trust repo configs/ }))
+			.element(screen.getByRole("checkbox", { name: /Trust the repos this machine opens/ }))
 			.toBeVisible();
 		await expect.element(screen.getByRole("checkbox", { name: /Allow terminal/ })).toBeVisible();
+		expect(command(screen)).not.toContain("--allow-auto-accept");
 	});
 
-	it("prints an enroll command with no --allow-auto-accept, whatever the other boxes say", async () => {
+	it("adds --allow-auto-accept to the command only when ticked", async () => {
 		const screen = mount();
 		expect(command(screen)).toContain("enroll");
 		expect(command(screen)).not.toContain("--allow-auto-accept");
+		await screen.getByRole("checkbox", { name: /Allow auto-accept/ }).click();
+		expect(command(screen)).toContain("--allow-auto-accept");
 		await screen.getByRole("checkbox", { name: /Allow terminal/ }).click();
-		await screen.getByRole("checkbox", { name: /Trust repo configs/ }).click();
 		expect(command(screen)).toContain("--allow-terminal");
-		expect(command(screen)).toContain("--allow-project-config");
-		expect(command(screen)).not.toContain("--allow-auto-accept");
+		expect(command(screen)).toContain("--allow-auto-accept");
 	});
 
 	it("says what the flag means without promising per-session behaviour", async () => {
