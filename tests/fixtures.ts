@@ -490,7 +490,7 @@ const invokedDirectly =
 
 if (invokedDirectly) {
 	// A real MongoDB when E2E_MONGO_URL is set (this box has no AVX, so the
-	// in-memory binary dies with SIGILL — see CLAUDE.md); the in-memory server
+	// in-memory binary dies with SIGILL — see AGENTS.md); the in-memory server
 	// otherwise, as CI runs it.
 	const external = process.env.E2E_MONGO_URL;
 	if (external) {

@@ -50,7 +50,7 @@ jobs:
           --health-retries 10
     env:
       # mongodb-memory-server needs AVX, which hosted runners do not reliably
-      # have; the suite uses the service container instead (see CLAUDE.md).
+      # have; the suite uses the service container instead (see AGENTS.md).
       TEST_MONGODB_URL: mongodb://127.0.0.1:27017/
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # The Playwright image's browsers must match the *installed* Playwright
-    # exactly, or the project silently reports "no tests" (see CLAUDE.md).
+    # exactly, or the project silently reports "no tests" (see AGENTS.md).
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       options: --user root

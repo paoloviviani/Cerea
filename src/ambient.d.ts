@@ -6,7 +6,7 @@ declare module "*.ttf" {
 /**
  * A minimal shape for the `ws` package's server-side API — `@types/ws` is not
  * vendored in this environment (node_modules is a shared, read-only symlink;
- * see CLAUDE.md), so this covers exactly what the machine link
+ * see AGENTS.md), so this covers exactly what the machine link
  * (`$lib/server/code/machine*.ts`) actually calls.
  */
 declare module "ws" {
