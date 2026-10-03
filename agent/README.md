@@ -72,7 +72,9 @@ veto that only `enroll` can loosen:
   a card is an exception for that command in that session only, removable
   in the panel. A change applies **from the session's next turn**: the
   turn that is running is not stopped and finishes under the word it
-  started with. What **is** the machine's is the **ceiling**
+  started with. A **new subagent's first turn always asks** for edits, commands
+  and the like, even under Allow (opencode starts it before galopin can give it
+  the session's word); exceptions do not reach it either. What **is** the machine's is the **ceiling**
   (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
   `session_spawn=ask`): the most any key may ever be, whatever a session's
   word or exceptions say. The old auto-accept toggle and
