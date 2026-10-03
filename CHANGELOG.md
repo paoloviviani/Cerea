@@ -4,14 +4,66 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
-## Unreleased
+## v0.3.0 — 2026-10-04
+
+Pins: Cerea `sha-5069d60` (Cerea v0.3.0), Pystino `sha-5f9a870`, Authelia
+4.39.22. Shipped in place on the live deployment: backed up, pinned, built,
+sign-in checked.
+
+### Upgrade: re-run the install and enroll lines on each agent machine
+The Pair-a-machine dialog prints them. Re-enrolling gives the machine the
+new galopin and the new defaults below, and fixes "The daemon lists no
+models" (see the agent-machines section). Afterwards a stray `opencode.json`
+left in the folder you enrolled from can be deleted. A machine that is not
+re-enrolled keeps working with its old settings.
+
+### Agent machines (/code)
+- **Deny / Ask / Allow** replaces auto-accept: one setting per session in
+  the composer, starting on Ask, including on machines enrolled earlier,
+  with no re-enroll needed. "Always allow" on a card now means this session
+  only, and can be removed.
+- **Under Deny the model is told why** commands, edits, web access and
+  subagents are unavailable (as a system instruction for the turn), so it
+  says what it would run instead of reaching for other tools.
+- **The Permissions line speaks plainly**: one row per capability (edit
+  files, run commands, use the web, read files, work outside the project,
+  ask questions…) with the answer that actually applies, a note where the
+  machine's limit holds it down, and your "Always allow" grants with
+  Remove. The raw opencode rules sit behind a troubleshooting toggle.
+- **Pairing dialog**:
+  - the machine's limit is three pills for all tools at once, with
+    per-tool rows under Advanced;
+  - terminals, slash commands that run shell, and background subagents
+    are **on by default** (`--no-terminal`, `--no-command-shell` and
+    `--no-background-subagents` turn them off);
+  - two plain checkboxes replace the free-form rules: work outside the
+    project folder, and read secret files, without asking;
+  - the command prints one step and one flag per line.
+- **The model list is no longer empty**: `enroll` writes `opencode.json`
+  next to its credentials and records where, and `run` uses it. Before,
+  the file landed in whatever folder you enrolled from and `run` never
+  found it.
+- Retry no longer brings back the turn it rolled back. An expanded
+  Permissions panel scrolls instead of covering the composer.
+- All of /code needs a sign-in within the last 7 days; the machine's own
+  link is unaffected.
+
+### Look
+- The send button carries the accent colour, the composer is a raised
+  card, the active chat is marked in the sidebar, and assistant replies
+  have a visible edge.
+- Faint text in dark mode reaches 4.5:1 contrast, in the chat and the
+  console.
 
 ### Deployment
-- The bundled Authelia now works on an IP address (`--tls internal`), with or
-  without a port. Only single-word names such as `myserver` are refused,
-  because Authelia itself rejects them. For an IP, `./configure` writes
-  `DEFAULT_SNI_DIRECTIVE` so Caddy serves its certificate to browsers, which
-  send no server name to an IP.
+- **The bundled Authelia works on an IP address** (with `--tls internal`),
+  with or without a port. Only single-word names such as `myserver` are
+  refused, because Authelia itself rejects them. For an IP, `./configure`
+  writes `DEFAULT_SNI_DIRECTIVE` so Caddy serves its certificate to
+  browsers, which send no server name to an IP.
+- The README explains how agent machines trust a `--tls internal`
+  certificate, and suggests `<ip-with-dashes>.sslip.io` for anyone who
+  prefers a name.
 
 ## v0.2.0 — 2026-10-02
 
