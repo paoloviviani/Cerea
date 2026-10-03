@@ -10,7 +10,6 @@ import {
 	policyFlagArgs,
 	promisedPolicy,
 	quoteShellArg,
-	ruleKeyProblem,
 	type EnrollPolicyChoices,
 	uniformCeiling,
 } from "./codeEnrollPolicy";
@@ -94,10 +93,11 @@ describe("each control emits exactly its flag", () => {
 		["a workspace root", { workspaceRoots: ["/srv/work"] }, ["--workspace-root", "'/srv/work'"]],
 		["a file deny glob", { fileDeny: ["*.secret"] }, ["--file-deny", "'*.secret'"]],
 		[
-			"a machine rule",
-			{ permissionRules: [{ key: "edit", action: "ask" }] },
-			["--permission-rule", "'edit=ask'"],
+			"work outside the project",
+			{ allowOutsideProject: true },
+			["--permission-rule", "'external_directory=allow'"],
 		],
+		["secret reads", { allowSecretReads: true }, ["--permission-rule", "'read=allow'"]],
 	];
 	for (const [label, over, expected] of cases) {
 		it(`${label}`, () => {
@@ -131,25 +131,14 @@ describe("each control emits exactly its flag", () => {
 			"--file-deny",
 			"'y'",
 		]);
-		expect(flags({ permissionRules: [{ key: " ", action: "ask" }] })).toEqual([]);
 	});
 
-	it("machine rules emit in the order given, each with its own action", () => {
-		expect(
-			flags({
-				permissionRules: [
-					{ key: "edit", action: "ask" },
-					{ key: "webfetch", action: "deny" },
-					{ key: "bash", action: "allow" },
-				],
-			})
-		).toEqual([
+	it("both fixed answers emit together, outside-project first", () => {
+		expect(flags({ allowSecretReads: true, allowOutsideProject: true })).toEqual([
 			"--permission-rule",
-			"'edit=ask'",
+			"'external_directory=allow'",
 			"--permission-rule",
-			"'webfetch=deny'",
-			"--permission-rule",
-			"'bash=allow'",
+			"'read=allow'",
 		]);
 	});
 
@@ -166,7 +155,8 @@ describe("each control emits exactly its flag", () => {
 			noDefaultFileDeny: true,
 			workspaceRoots: ["/a"],
 			fileDeny: ["x"],
-			permissionRules: [{ key: "edit", action: "ask" }],
+			allowOutsideProject: true,
+			allowSecretReads: true,
 			ceiling: { ...DEFAULT_CEILING, edit: "ask" },
 		});
 		expect(policyFlagArgs(everything).join(" ")).not.toContain("auto-accept");
@@ -276,15 +266,6 @@ describe("quoting", () => {
 	});
 });
 
-describe("machine rules' key", () => {
-	it("flags a pattern or a pasted KEY=ACTION, and passes a plain key", () => {
-		expect(ruleKeyProblem("bash")).toBeNull();
-		expect(ruleKeyProblem("")).toBeNull();
-		expect(ruleKeyProblem("ba*")).not.toBeNull();
-		expect(ruleKeyProblem("bash=ask")).not.toBeNull();
-	});
-});
-
 describe("the Advanced summary's count", () => {
 	it("counts what differs among the Advanced controls, not the common ones", () => {
 		expect(advancedChangedCount(defaultPolicyChoices())).toBe(0);
@@ -323,6 +304,10 @@ describe("the Advanced summary's count", () => {
 			).toBe(action);
 		}
 		expect(advancedChangedCount(choose({ workspaceRoots: [" "], fileDeny: [""] }))).toBe(0);
+		expect(advancedChangedCount(choose({ allowOutsideProject: true }))).toBe(1);
+		expect(
+			advancedChangedCount(choose({ allowOutsideProject: true, allowSecretReads: true }))
+		).toBe(2);
 	});
 });
 
@@ -342,11 +327,15 @@ describe("the promised policy.json", () => {
 				noFiles: true,
 				fileDeny: ["*.x"],
 				noDefaultFileDeny: true,
-				permissionRules: [{ key: "edit", action: "ask" }],
+				allowOutsideProject: true,
+				allowSecretReads: true,
 			})
 		);
 		expect(promised).toEqual({
-			permission: { max: { bash: "ask", session_spawn: "ask" }, rules: { edit: "ask" } },
+			permission: {
+				max: { bash: "ask", session_spawn: "ask" },
+				rules: { external_directory: "allow", read: "allow" },
+			},
 			workspaceRoots: ["/a b"],
 			allowFreeModels: true,
 			files: "off",
