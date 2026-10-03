@@ -648,9 +648,8 @@
 								: "the identity provider changed"}
 						</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
-							<p class="min-w-0 flex-1 font-mono text-[.65rem] break-all text-ink">
-								{reenrollCommand}
-							</p>
+							<pre
+								class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{reenrollCommand}</pre>
 							<CopyToClipBoardBtn
 								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
 								value={reenrollCommand}
@@ -673,9 +672,8 @@
 						</p>
 						<p class="mb-1.5">It still allows everything. One re-enroll tightens it.</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
-							<p class="min-w-0 flex-1 font-mono text-[.65rem] break-all text-ink">
-								{reenrollCommand}
-							</p>
+							<pre
+								class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{reenrollCommand}</pre>
 							<CopyToClipBoardBtn
 								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
 								value={reenrollCommand}

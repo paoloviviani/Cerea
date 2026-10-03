@@ -75,12 +75,12 @@ export interface EnrollPolicyChoices {
 
 export function defaultPolicyChoices(): EnrollPolicyChoices {
 	return {
-		allowTerminal: false,
+		allowTerminal: true,
 		maxTerminals: DEFAULT_MAX_TERMINALS,
 		ceiling: { ...DEFAULT_CEILING },
 		allowProjectConfig: false,
-		allowCommandShell: false,
-		allowBackgroundSubagents: false,
+		allowCommandShell: true,
+		allowBackgroundSubagents: true,
 		noAgentTools: false,
 		allowFreeModels: false,
 		allowOpencodeProvider: false,
@@ -94,12 +94,12 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 
 /** The dialog control behind each exposed flag: its `data-testid`. */
 export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
-	"allow-terminal": "enroll-allow-terminal",
+	"no-terminal": "enroll-allow-terminal",
 	"max-terminals": "enroll-max-terminals",
 	"permission-max": "enroll-ceiling",
 	"allow-project-config": "enroll-allow-project-config",
-	"allow-command-shell": "enroll-allow-command-shell",
-	"allow-background-subagents": "enroll-allow-background-subagents",
+	"no-command-shell": "enroll-allow-command-shell",
+	"no-background-subagents": "enroll-allow-background-subagents",
 	"no-agent-tools": "enroll-no-agent-tools",
 	"allow-free-models": "enroll-allow-free-models",
 	"allow-opencode-provider": "enroll-allow-opencode-provider",
@@ -124,6 +124,14 @@ export function quoteShellArg(value: string): string {
 /** The ceiling differs from `enroll`'s own default in at least one row. */
 export function ceilingChanged(ceiling: Record<CeilingKey, CeilingAction>): boolean {
 	return CEILING_KEYS.some((key) => ceiling[key] !== DEFAULT_CEILING[key]);
+}
+
+/** The one action every row of the ceiling holds, or null when they differ
+ * (as enroll's own default does: bash and session_spawn ask, the rest allow).
+ * The dialog's "All tools" row shows it and sets every row at once. */
+export function uniformCeiling(ceiling: Record<CeilingKey, CeilingAction>): CeilingAction | null {
+	const first = ceiling[CEILING_KEYS[0]];
+	return CEILING_KEYS.every((key) => ceiling[key] === first) ? first : null;
 }
 
 /** `KEY=ACTION` pairs the ceiling flag carries. Empty while the table is as
@@ -169,19 +177,18 @@ export function maxTerminalsProblem(value: number): string | null {
  * order. Defaults contribute nothing. */
 export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	const args: string[] = [];
-	if (choices.allowTerminal) {
-		args.push("--allow-terminal");
-		if (
-			maxTerminalsProblem(choices.maxTerminals) === null &&
-			choices.maxTerminals !== DEFAULT_MAX_TERMINALS
-		) {
-			args.push("--max-terminals", String(choices.maxTerminals));
-		}
+	if (!choices.allowTerminal) {
+		args.push("--no-terminal");
+	} else if (
+		maxTerminalsProblem(choices.maxTerminals) === null &&
+		choices.maxTerminals !== DEFAULT_MAX_TERMINALS
+	) {
+		args.push("--max-terminals", String(choices.maxTerminals));
 	}
 	for (const pair of ceilingPairs(choices.ceiling)) args.push("--permission-max", pair);
 	if (choices.allowProjectConfig) args.push("--allow-project-config");
-	if (choices.allowCommandShell) args.push("--allow-command-shell");
-	if (choices.allowBackgroundSubagents) args.push("--allow-background-subagents");
+	if (!choices.allowCommandShell) args.push("--no-command-shell");
+	if (!choices.allowBackgroundSubagents) args.push("--no-background-subagents");
 	if (choices.noAgentTools) args.push("--no-agent-tools");
 	if (choices.allowFreeModels) args.push("--allow-free-models");
 	if (choices.allowOpencodeProvider) args.push("--allow-opencode-provider");
@@ -201,8 +208,10 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
  * summary's count (the preview carries the values themselves). */
 export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 	return [
-		choices.allowCommandShell,
-		choices.allowBackgroundSubagents,
+		!choices.allowTerminal || choices.maxTerminals !== DEFAULT_MAX_TERMINALS,
+		!choices.allowCommandShell,
+		!choices.allowBackgroundSubagents,
+		ceilingChanged(choices.ceiling) && uniformCeiling(choices.ceiling) === null,
 		choices.noAgentTools,
 		choices.allowFreeModels,
 		choices.allowOpencodeProvider,

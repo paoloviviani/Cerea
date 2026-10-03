@@ -1252,7 +1252,7 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 		if command.Shell == nil {
 			return refuse("forbidden", "this command's shell expansion is unknown, and this machine denies command shell")
 		}
-		return refuse("forbidden", "this command expands shell, and this machine denies command shell: re-enroll with --allow-command-shell to allow it")
+		return refuse("forbidden", "this command expands shell, and this machine denies command shell: re-enroll without --no-command-shell to allow it")
 	}
 
 	// @path references go into the prompt at expansion time, so a denied
@@ -1494,11 +1494,11 @@ func filesErr(err error) *link.OpError {
 
 // opTerminal answers terminal.* (PROTOCOL.md §9.3). Like opFiles, these are
 // machine ops handled before any backend switch, confined by policy first:
-// denied outright when the machine was enrolled without --allow-terminal.
+// denied outright when the machine was enrolled with terminals off (--no-terminal, or before they were on by default).
 func (mc *machine) opTerminal(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
 	if !mc.pol.TerminalAllowed() {
 		mc.audit.refusal(op, "terminal denied by machine policy")
-		return nil, opErrf("forbidden", "this machine was enrolled with terminal denied: re-enroll with --allow-terminal to use a terminal here")
+		return nil, opErrf("forbidden", "this machine was enrolled with terminal denied: re-enroll without --no-terminal to use a terminal here")
 	}
 	switch op {
 	case "terminal.list":

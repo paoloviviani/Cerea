@@ -53,13 +53,13 @@ Usage:
                 audits any attempt to change them; plugins still run as you.
                 With --allow-opencode-provider the provider allowlist cannot
                 be pinned (known: no guarantee).
-   --allow-background-subagents  Let the agent run subagents in the
-                background (default: denied). While denied galopin never
-                sets OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, so a task
-                with background:true fails closed inside opencode. Opting in
-                lets a task keep running after its parent turn ends, with
-                its result injected back as a synthetic message the panel
-                shows as a background marker.
+   --no-background-subagents  Stop subagents from running in the
+                background (default: allowed: a task can keep running after
+                its parent turn ends, its result injected back as a synthetic
+                message the panel shows as a background marker). While off,
+                galopin never sets OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS,
+                so a task with background:true fails closed inside opencode.
+                --allow-background-subagents restates the default.
   --allow-auto-accept  Does nothing, and is accepted for one more release so
                existing scripts keep working. Auto-accept is gone: a session
                now has a Deny / Ask / Allow selector in the /code composer
@@ -92,17 +92,18 @@ Usage:
   --no-default-file-deny  Drop the built-in secret deny list, keeping only
                --file-deny's. The list prevents accidental exposure; it is
                not a boundary against the agent, which can read any file.
-  --allow-terminal  Let the /code panel open a real shell on this machine
-               (default: denied). Terminals: ALLOWED means anyone who
-               controls your Cerea session can run commands as you on this
-               machine — there is no model and no permission rule in the
-               way once a terminal is open.
+  --no-terminal  Keep the /code panel from opening a real shell on this
+               machine (default: terminals ALLOWED, which means anyone who
+               controls your Cerea session can run commands as you here —
+               there is no model and no permission rule in the way once a
+               terminal is open). --allow-terminal restates the default.
    --max-terminals N  Cap concurrently open terminals (default 8).
-   --allow-command-shell  Let a slash command's template run its shell
-                snippets (default: denied). A command's expansion runs
-                inside opencode before any permission rule is asked, so
-                the snippets are code from the repo — off until an owner
-                explicitly opts in.
+   --no-command-shell  Refuse slash commands whose template runs shell
+                snippets, and commands whose shell cannot be checked (MCP
+                prompts). Default: allowed. A command's expansion runs inside
+                opencode before any permission rule is asked, so the snippets
+                are code from the repo. Plain slash commands work either way.
+                --allow-command-shell restates the default.
    --no-agent-tools  Install none of galopin's agent-coordination tools
                 (session_list/session_spawn/session_send) into opencode, and
                 leave OPENCODE_CONFIG_DIR alone (default: installed; every
@@ -143,6 +144,9 @@ type enrollOptions struct {
 	noAgentTools           bool
 	allowProjectConfig     bool
 	allowBackground        bool
+	noTerminal             bool
+	noCommandShell         bool
+	noBackground           bool
 	maxTerminals           int
 	yes                    bool
 }
@@ -193,11 +197,17 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.noFiles, "no-files", false, "")
 	fs.Var(stringListFlag{&opts.fileDeny}, "file-deny", "")
 	fs.BoolVar(&opts.noDefaultFileDeny, "no-default-file-deny", false, "")
-	fs.BoolVar(&opts.allowTerminal, "allow-terminal", false, "")
-	fs.BoolVar(&opts.allowCommandShell, "allow-command-shell", false, "")
+	// Terminals, the command shell and background subagents are on by default;
+	// the --allow-* spellings stay accepted (they now restate the default) so a
+	// command printed by an older panel still enrolls, and --no-* turns each off.
+	fs.BoolVar(&opts.allowTerminal, "allow-terminal", true, "")
+	fs.BoolVar(&opts.allowCommandShell, "allow-command-shell", true, "")
+	fs.BoolVar(&opts.noTerminal, "no-terminal", false, "")
+	fs.BoolVar(&opts.noCommandShell, "no-command-shell", false, "")
+	fs.BoolVar(&opts.noBackground, "no-background-subagents", false, "")
 	fs.BoolVar(&opts.noAgentTools, "no-agent-tools", false, "")
 	fs.BoolVar(&opts.allowProjectConfig, "allow-project-config", false, "")
-	fs.BoolVar(&opts.allowBackground, "allow-background-subagents", false, "")
+	fs.BoolVar(&opts.allowBackground, "allow-background-subagents", true, "")
 	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	return fs, noDiscover
@@ -334,8 +344,8 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if err != nil {
 		return err
 	}
-	if opts.allowTerminal {
-		fmt.Fprintln(os.Stderr, "warning: --allow-terminal opens a remote shell outside every permission rule.")
+	if pol.Terminal == policy.TerminalAllowed {
+		fmt.Fprintln(os.Stderr, "warning: terminals are on: the /code panel can open a remote shell here, outside every permission rule (--no-terminal turns them off).")
 	}
 	if err := policy.Save(policyPathFor(opts.creds), pol); err != nil {
 		return err
@@ -603,10 +613,10 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	}
 	pol.FileDeny = opts.fileDeny
 	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
-	if opts.allowTerminal {
+	if opts.allowTerminal && !opts.noTerminal {
 		pol.Terminal = policy.TerminalAllowed
 	}
-	if opts.allowCommandShell {
+	if opts.allowCommandShell && !opts.noCommandShell {
 		pol.CommandShell = policy.TerminalAllowed
 	}
 	if opts.noAgentTools {
@@ -615,7 +625,7 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	if opts.allowProjectConfig {
 		pol.ProjectConfig = policy.TerminalAllowed
 	}
-	if opts.allowBackground {
+	if opts.allowBackground && !opts.noBackground {
 		pol.BackgroundSubagents = policy.TerminalAllowed
 	}
 	pol.MaxTerminals = opts.maxTerminals

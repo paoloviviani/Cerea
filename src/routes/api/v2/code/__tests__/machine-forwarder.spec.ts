@@ -1367,7 +1367,7 @@ describe("the slash commands' forwarder rows", () => {
 		machine.onOp("session.command", () => {
 			throw new OpError(
 				"forbidden",
-				"this command's template runs shell, and this machine denies command shell: re-enroll with --allow-command-shell to allow it"
+				"this command's template runs shell, and this machine denies command shell: re-enroll without --no-command-shell to allow it"
 			);
 		});
 		const forbidden = await forwarder(
@@ -1381,7 +1381,7 @@ describe("the slash commands' forwarder rows", () => {
 		);
 		expect(forbidden.status).toBe(403);
 		expect(((await forbidden.json()) as { message: string }).message).toContain(
-			"--allow-command-shell"
+			"--no-command-shell"
 		);
 		machine.close();
 	});

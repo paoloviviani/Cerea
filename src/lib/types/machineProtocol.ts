@@ -66,12 +66,12 @@ export interface Policy {
 	fileDeny?: string[];
 	/** Write access (§9): "allowed" or "denied" (default; --allow-file-write). */
 	fileWrite?: "allowed" | "denied";
-	/** The terminal veto (§9): "allowed" or "denied" (default; --allow-terminal). */
+	/** The terminal veto (§9): "allowed" or "denied" (when absent; enroll writes "allowed" unless --no-terminal). */
 	terminal?: "allowed" | "denied";
 	/** `terminal.open` beyond this count answers `invalid` (default 8). */
 	maxTerminals?: number;
 	/** Whether opencode may run background subagents (task background:true):
-	 * "allowed" (--allow-background-subagents) or "denied" (default).
+	 * "allowed" (enroll's default) or "denied" (--no-background-subagents; also what an absent field means).
 	 * Older machines omit it: read as denied. */
 	backgroundSubagents?: "allowed" | "denied";
 }

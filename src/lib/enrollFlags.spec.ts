@@ -61,26 +61,30 @@ describe("enrollFlags (the TypeScript copy)", () => {
 
 	it("an exposed flag's default is what the empty dialog emits: nothing", () => {
 		expect(policyFlagArgs(defaultPolicyChoices())).toEqual([]);
-		// And every flag the dialog can print is a known, exposed one.
-		const everything = policyFlagArgs({
-			...defaultPolicyChoices(),
-			allowTerminal: true,
-			maxTerminals: 2,
-			allowProjectConfig: true,
-			allowCommandShell: true,
-			allowBackgroundSubagents: true,
-			noAgentTools: true,
-			allowFreeModels: true,
-			allowOpencodeProvider: true,
-			workspaceRoots: ["/a"],
-			noFiles: true,
-			fileDeny: ["x"],
-			noDefaultFileDeny: true,
-			permissionRules: [{ key: "edit", action: "ask" }],
-			ceiling: { ...defaultPolicyChoices().ceiling, edit: "ask" },
-		})
-			.filter((arg) => arg.startsWith("--"))
-			.map((arg) => arg.slice(2));
+		// And every flag the dialog can print is a known, exposed one. Terminals
+		// off and a terminal cap are exclusive, so it takes two dialogs to print
+		// them all.
+		const everything = [true, false].flatMap((allowTerminal) =>
+			policyFlagArgs({
+				...defaultPolicyChoices(),
+				allowTerminal,
+				maxTerminals: 2,
+				allowProjectConfig: true,
+				allowCommandShell: false,
+				allowBackgroundSubagents: false,
+				noAgentTools: true,
+				allowFreeModels: true,
+				allowOpencodeProvider: true,
+				workspaceRoots: ["/a"],
+				noFiles: true,
+				fileDeny: ["x"],
+				noDefaultFileDeny: true,
+				permissionRules: [{ key: "edit", action: "ask" }],
+				ceiling: { ...defaultPolicyChoices().ceiling, edit: "ask" },
+			})
+				.filter((arg) => arg.startsWith("--"))
+				.map((arg) => arg.slice(2))
+		);
 		expect([...new Set(everything)].sort()).toEqual(exposedFlags().sort());
 	});
 });

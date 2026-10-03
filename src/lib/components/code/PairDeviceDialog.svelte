@@ -136,12 +136,9 @@
 
 		<p class="{s.LABEL} mb-2">Install, enroll and run</p>
 		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
-			<p
-				class="min-w-0 flex-1 font-mono text-xs break-all text-ink"
-				data-testid="galopin-enroll-command"
-			>
-				{command}
-			</p>
+			<pre
+				class="min-w-0 flex-1 overflow-x-auto font-mono text-xs whitespace-pre text-ink"
+				data-testid="galopin-enroll-command">{command}</pre>
 			<CopyToClipBoardBtn
 				classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
 				value={command}

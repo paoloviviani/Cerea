@@ -359,7 +359,7 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			// A repo's own opencode config is off unless the machine opted in.
 			ProjectConfig: pol.ProjectConfigAllowed(),
 			// Background subagents need the experimental env flag, only when
-			// the machine enrolled with --allow-background-subagents.
+			// the machine allows background subagents (enroll's default; --no-background-subagents turns it off).
 			BackgroundSubagents: pol.BackgroundSubagentsAllowed(),
 			// galopin's own agent-coordination tools (session_list/spawn/send).
 			ToolsDir: toolsDir,
