@@ -1126,7 +1126,7 @@
 						handleSubmit();
 					}}
 					class={{
-						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-gray-100 dark:bg-gray-800": true,
+						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40": true,
 						"transition-[border-color] duration-[350ms] ease-[ease]": ML_ASSISTANT_MODE,
 						"border-[#e2ddd6] dark:border-[#2c2c2c]": mlModeOn && (mlStripVisible || mlPillVisible),
 						"dark:border-gray-700": !(mlModeOn && (mlStripVisible || mlPillVisible)),
@@ -1269,7 +1269,7 @@
 								: 'size-7'} btn self-end rounded-full border bg-white text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft ||
 							isReadOnly
 								? ''
-								: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+								: 'bg-accent-solid! text-white! focus:ring-offset-2 focus:ring-offset-surface enabled:hover:bg-accent-solid-hover!'}"
 							disabled={!draft || isReadOnly}
 							type="submit"
 							aria-label="Send message"
