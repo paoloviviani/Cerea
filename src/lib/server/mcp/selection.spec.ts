@@ -157,7 +157,7 @@ describe("a connector the deployment shares", () => {
 	 * shared one resolves for a stranger, the private one does not, on the same
 	 * data in the same test.
 	 *
-	 * This is the shape CLAUDE.md warns about in the gateway's `may_reach`,
+	 * This is the shape AGENTS.md warns about in the gateway's `may_reach`,
 	 * where fourteen tests passed against a real bug because every negative one
 	 * failed closed for an unrelated reason.
 	 */

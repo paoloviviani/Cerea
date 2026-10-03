@@ -4,7 +4,7 @@
 	the Application tab (ADR 0061 — a gateway/bill-to concept, so it belongs
 	here now).
 
-	A page body runs on the server (CLAUDE.md), so this fetches in `onMount`
+	A page body runs on the server (AGENTS.md), so this fetches in `onMount`
 	rather than a `+page.ts`/`+page.server.ts` load — matching every other
 	manager screen in this app (KnowledgeManager, MCPServerManager, the
 	Application tab's own billing-org fetch below).

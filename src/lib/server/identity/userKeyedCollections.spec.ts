@@ -551,7 +551,7 @@ describe("the conversationFiles bucket entry", () => {
 	});
 
 	// A GridFS write plus two deletes have room to run long under this box's
-	// contention (see CLAUDE.md's own flaky-test note on `replayRoundTrip`) —
+	// contention (see AGENTS.md's own flaky-test note on `replayRoundTrip`) —
 	// the operations themselves are not slow by design (a standalone script
 	// against the same container completes the same sequence in under 20ms);
 	// this is box contention, not the test. A longer budget rather than a
