@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ENROLL_FLAGS } from "./enrollFlags";
 import {
+	CEILING_KEYS,
+	DEFAULT_CEILING,
 	FLAG_CONTROLS,
 	defaultPolicyChoices,
 	exposedFlags,
@@ -14,9 +16,10 @@ import {
  * classified, every exposed one has a control, and the defaults emit nothing.
  *
  * `agent/packaging/enroll-flags.json` is the agent half's own classification
- * (a Go test there fails when `enroll` gains a flag it does not list). Until
- * that file lands on this branch, the TypeScript copy is checked against the
- * flags `enroll.go` registers; once it lands, against the file itself.
+ * (a Go test there fails when `enroll` gains a flag it does not list). The
+ * TypeScript copy is always checked against the flags `enroll.go` registers;
+ * where that file exists (it lands with the agent branch) it is checked against
+ * the file too, flags, ceiling rows and defaults.
  */
 const AGENT_DIR = fileURLToPath(new URL("../../agent/", import.meta.url));
 const JSON_PATH = `${AGENT_DIR}packaging/enroll-flags.json`;
@@ -95,25 +98,40 @@ describe("against the agent", () => {
 	});
 
 	it.skipIf(!existsSync(JSON_PATH))(
-		"equals agent/packaging/enroll-flags.json, flag for flag",
+		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its ceiling",
 		() => {
-			const agentFlags = JSON.parse(readFileSync(JSON_PATH, "utf8")) as Array<{
-				flag: string;
-				kind: string;
-				default: unknown;
-				exposed: boolean;
-			}>;
-			const byName = (list: Array<{ flag: string }>) =>
-				Object.fromEntries(list.map((entry) => [entry.flag.replace(/^--/, ""), entry]));
-			expect(Object.keys(byName(agentFlags)).sort()).toEqual(
+			const file = JSON.parse(readFileSync(JSON_PATH, "utf8")) as {
+				flags: Array<{
+					flag: string;
+					kind: string;
+					default: unknown;
+					exposed: boolean;
+					retired?: boolean;
+				}>;
+				ceiling: { flag: string; keys: Array<{ key: string; default: string }> };
+				dialogOnly: Array<{ control: string; exposed: boolean }>;
+			};
+			const live = file.flags.filter((flag) => !flag.retired);
+			expect(live.map((flag) => flag.flag).sort()).toEqual(
 				ENROLL_FLAGS.map((flag) => flag.flag).sort()
 			);
 			for (const flag of ENROLL_FLAGS) {
-				const theirs = byName(agentFlags)[flag.flag] as (typeof agentFlags)[number];
-				expect(theirs.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
-				expect(theirs.kind, `${flag.flag} kind`).toBe(flag.kind);
-				expect(theirs.default, `${flag.flag} default`).toEqual(flag.default);
+				const theirs = live.find((candidate) => candidate.flag === flag.flag);
+				expect(theirs?.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
+				expect(theirs?.kind, `${flag.flag} kind`).toBe(flag.kind);
+				expect(theirs?.default, `${flag.flag} default`).toEqual(flag.default);
 			}
+			// The retired flag stays unexposed in their file, and has no control here.
+			expect(file.flags.find((flag) => flag.flag === "allow-auto-accept")?.exposed ?? false).toBe(
+				false
+			);
+			// The ceiling table: the same rows, in the same order, with the same defaults.
+			expect(file.ceiling.flag).toBe("permission-max");
+			expect(file.ceiling.keys.map((row) => [row.key, row.default])).toEqual(
+				CEILING_KEYS.map((key) => [key, DEFAULT_CEILING[key]])
+			);
+			// The one control that is not an enroll flag: it must be on the dialog.
+			expect(file.dialogOnly.map((row) => row.control)).toEqual(["install-opencode"]);
 		}
 	);
 });

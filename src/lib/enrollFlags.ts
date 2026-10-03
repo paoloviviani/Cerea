@@ -12,19 +12,21 @@
  *
  * `kind` is how the flag takes its value: `bool` (present or absent), `int`,
  * `string`, `list` (repeatable, one value each) or `keyAction` (repeatable
- * `KEY=allow|ask|deny`). `default` is what enroll does when the flag is absent.
+ * `KEY=allow|ask|deny`). `default` is the flag's value when absent: for the
+ * two key/action flags that is the empty list, and what enroll then does
+ * (the default ceiling, `bash=ask` and `session_spawn=ask`) is the ceiling
+ * table's business (`codeEnrollPolicy.ts`, `DEFAULT_CEILING`). The retired
+ * `--allow-auto-accept` is registered by enroll (it warns that it does
+ * nothing) and listed by the agent's file as `retired`; it is not here.
  */
 export type EnrollFlagKind = "bool" | "int" | "string" | "list" | "keyAction";
 
 export interface EnrollFlag {
 	flag: string;
 	kind: EnrollFlagKind;
-	default: boolean | number | string | string[] | Record<string, string> | null;
+	default: boolean | number | string | string[];
 	exposed: boolean;
 }
-
-/** What a fresh enroll writes as the ceiling: bash and session_spawn ask. */
-const DEFAULT_CEILING_FLAG_VALUE = { bash: "ask", session_spawn: "ask" };
 
 export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	// Connection plumbing: set by the dialog's own origins, or not a policy.
@@ -53,7 +55,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-agent-tools", kind: "bool", default: false, exposed: true },
 	{ flag: "no-default-file-deny", kind: "bool", default: false, exposed: true },
 	{ flag: "no-files", kind: "bool", default: false, exposed: true },
-	{ flag: "permission-max", kind: "keyAction", default: DEFAULT_CEILING_FLAG_VALUE, exposed: true },
-	{ flag: "permission-rule", kind: "keyAction", default: {}, exposed: true },
+	{ flag: "permission-max", kind: "keyAction", default: [], exposed: true },
+	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: true },
 	{ flag: "workspace-root", kind: "list", default: [], exposed: true },
 ];
