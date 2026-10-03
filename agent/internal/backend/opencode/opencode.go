@@ -219,9 +219,11 @@ type sessionOverlay struct {
 	// are re-sent only on change and survive an agent restart without growing
 	// the session's rule list.
 	RulesFP string `json:"rulesFp,omitempty"`
-	// Panel is what a person set on this session (session.setRules), kept so
-	// every re-send of the session's rules carries it, in the same place.
-	Panel permrules.Panel `json:"panel,omitempty"`
+	// Selector is the Deny/Ask/Allow choice and the exceptions of a ROOT
+	// session (session.setPermissionMode, "always allow"), kept so every
+	// re-send of the session's rules carries them and they survive a restart.
+	// A subagent has none: it follows its root's.
+	Selector permrules.Selector `json:"selector,omitempty"`
 }
 
 // New builds a Backend. Start must be called before any other method.

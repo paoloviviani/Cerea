@@ -227,7 +227,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
 	go watchPolicy(ctx, filepath.Join(stateDir, policyFileName), live, policyPollEvery, func(ch policy.Change) {
-		logf("permissions: policy tightened (ceiling or rules: %v, auto-accept off: %v)", ch.Tightened, ch.RespondersOff)
+		logf("permissions: policy tightened (ceiling or rules: %v)", ch.Tightened)
 		mc.policyTightened(ctx, ch)
 	})
 	for _, w := range reg.List(true) {
@@ -437,7 +437,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			Capabilities: map[string]bool{
 				"diff": caps.Diff, "children": caps.Children, "usage": caps.Usage,
 				"compact": caps.Compact, "images": caps.Images, "files": caps.Files,
-				"worktrees": caps.Worktrees, "autoAccept": caps.AutoAccept,
+				"worktrees": caps.Worktrees,
 				"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
 				"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
 				"permissions": caps.Permissions,
@@ -447,7 +447,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
 		}},
 		Policy: link.PolicyInfo{
-			AutoAccept:          pol.Permission.Responders,
+			AutoAccept:          autoAcceptRetired,
 			Permission:          permissionInfo(pol),
 			WorkspaceRoots:      roots,
 			AllowFreeModels:     pol.AllowFreeModels,
@@ -604,15 +604,20 @@ func backgroundSubagentsPolicyWord(pol policy.Policy) string {
 	return policy.TerminalDenied
 }
 
-// permissionInfo is the permission part of the hello policy: the ceiling and
-// whether a session may be switched to auto-accept, so the panel can explain a
-// capped "always" or a missing toggle instead of leaving a refusal to do it.
+// autoAcceptRetired is what hello's policy.autoAccept says now: auto-accept no
+// longer exists, and the field stays for one release only because Cerea's hello
+// schema still requires it.
+const autoAcceptRetired = "denied"
+
+// permissionInfo is the permission part of the hello policy: the ceiling, so the
+// panel can say what a session's Allow still cannot do instead of leaving a
+// refusal to explain it.
 func permissionInfo(pol policy.Policy) link.PermissionInfo {
 	max := map[string]string{}
 	for k, v := range pol.Permission.Max {
 		max[k] = v
 	}
-	return link.PermissionInfo{Responders: pol.Permission.Responders, Max: max}
+	return link.PermissionInfo{Max: max}
 }
 
 func orEmptyStrings(s []string) []string {

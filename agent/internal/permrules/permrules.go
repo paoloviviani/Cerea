@@ -220,104 +220,201 @@ func (c Ceiling) Tail(in []Rule) []Rule {
 	return out
 }
 
-// Panel is what a person set on one session through session.setRules. It is
-// the machine-side record of a write that can only be appended to opencode's
-// session rules, never removed from them: Rules is the set in force now,
-// Touched every (permission, pattern) any write ever named, so a rule dropped
-// from a later write can be actively restored rather than left standing.
-type Panel struct {
-	Rules   []Rule `json:"rules,omitempty"`
-	Touched []Rule `json:"touched,omitempty"` // Action unused
+// The permission selector (PROTOCOL.md §6 "Permissions"): a session carries ONE
+// blanket word, deny, ask or allow, and a short list of exceptions a person made
+// with "always allow". Both are galopin's own state, composed into the session's
+// opencode rules; opencode itself never learns a blanket from a person.
+
+// Untouched is the permission names the blanket never moves: they keep the
+// agent's own rules, so reading stays allowed under all three words (its
+// `*.env` asks included), the question tool works without a card, and the two
+// asks that exist to protect a person — writing outside the project folder and
+// the stuck-agent brake — survive Allow. A name here is one of opencode
+// 1.18.32's own; the live canary lists the binary's names and fails on a new
+// one that is in neither set.
+var Untouched = []string{
+	"read", "glob", "grep", "list", "lsp", "question", "todowrite", "todoread",
+	"plan_enter", "plan_exit", "skill", "external_directory", "doom_loop",
 }
 
-// With is the Panel after a write that sets exactly rules.
-func (p Panel) With(rules []Rule) Panel {
-	out := Panel{Rules: append([]Rule(nil), rules...), Touched: append([]Rule(nil), p.Touched...)}
-	seen := map[[2]string]bool{}
-	for _, t := range out.Touched {
-		seen[[2]string{t.Permission, t.Pattern}] = true
+// Blanket is the permission names the blanket does move. Every MCP tool and
+// every custom tool follows it too, by name; these are the built-in ones.
+var Blanket = []string{"edit", "bash", "webfetch", "websearch", "codesearch", "task"}
+
+// IsUntouched reports whether a literal permission name is in the untouched set.
+func IsUntouched(key string) bool {
+	for _, k := range Untouched {
+		if k == key {
+			return true
+		}
 	}
-	for _, r := range rules {
-		k := [2]string{r.Permission, r.Pattern}
-		if !seen[k] {
-			seen[k] = true
-			out.Touched = append(out.Touched, Rule{Permission: r.Permission, Pattern: r.Pattern})
+	return false
+}
+
+// Exception is one "always allow" a person gave, kept per root session: a
+// permission and the patterns it covers, allowed on top of the blanket.
+type Exception struct {
+	ID         string   `json:"id"`
+	Permission string   `json:"permission"`
+	Patterns   []string `json:"patterns"`
+	GrantedAt  string   `json:"grantedAt,omitempty"`
+}
+
+// Selector is a root session's whole permission choice. The zero value is Ask:
+// a session nobody has set, an existing session on upgrade, a new one, a
+// spawned one and every session of a machine whose policy predates permissions
+// all start there.
+type Selector struct {
+	Mode       Action      `json:"mode,omitempty"`
+	Exceptions []Exception `json:"exceptions,omitempty"`
+}
+
+// Effective is the mode in force: what was set, else ask.
+func (s Selector) Effective() Action {
+	if s.Mode.Valid() {
+		return s.Mode
+	}
+	return Ask
+}
+
+// Find is the exception with this id.
+func (s Selector) Find(id string) (Exception, bool) {
+	for _, e := range s.Exceptions {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return Exception{}, false
+}
+
+// With adds an exception, or returns the selector unchanged when one with the
+// same permission and patterns is already there (the stored one is kept, so an
+// "always" given twice is one entry).
+func (s Selector) With(e Exception) (Selector, Exception) {
+	for _, have := range s.Exceptions {
+		if have.Permission == e.Permission && equalStrings(have.Patterns, e.Patterns) {
+			return s, have
+		}
+	}
+	out := s
+	out.Exceptions = append(append([]Exception(nil), s.Exceptions...), e)
+	return out, e
+}
+
+// Without drops the exception with this id.
+func (s Selector) Without(id string) (Selector, bool) {
+	var kept []Exception
+	found := false
+	for _, e := range s.Exceptions {
+		if e.ID == id {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	out := s
+	out.Exceptions = kept
+	return out, found
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// exceptionRules is one allow rule per pattern, in the order given.
+func (s Selector) exceptionRules() []Rule {
+	var out []Rule
+	for _, e := range s.Exceptions {
+		pats := e.Patterns
+		if len(pats) == 0 {
+			pats = []string{"*"}
+		}
+		for _, p := range pats {
+			out = append(out, Rule{e.Permission, p, Allow})
 		}
 	}
 	return out
 }
 
-// Clamp lowers every rule to the ceiling, so a write can never apply more than
-// the machine allows: a rule for a capped key comes out at the cap, never as
-// requested. A rule whose permission is a pattern (`*`) is kept as asked and
-// followed by a clamped copy for each capped key it covers, so what is read
-// back says what is true for those keys. It reports whether anything was
-// lowered. Empty patterns mean `*`; rules with an invalid action or no
-// permission are dropped.
+// blanketBlock is the mode block for a session whose agent and machine rules
+// are base, in evaluation order beneath it.
 //
-// It is the same cap an "always" gets (Ceiling.Cap), applied to a rule instead
-// of a reply.
-func (c Ceiling) Clamp(rules []Rule) (out []Rule, clamped bool) {
-	for _, r := range rules {
-		if r.Permission == "" || !r.Action.Valid() {
+// The blanket is `* : mode`, but opencode takes the LAST match, so a bare
+// `* : ask` would also turn the plan agent's `edit: deny` into an ask and a
+// read-only subagent's `*: deny` into a question — the same trap the ceiling's
+// Tail guards. A deny is the one thing the blanket does not move: every rule
+// beneath that is not about an untouched name is restated after it with an
+// allow or ask taken to the mode and a deny left as it is, so the last match
+// for any input is the agent's own, brought to the mode only where it was
+// not a refusal. An untouched name is restated verbatim, after an `ask` base
+// for the case nothing beneath matches it (opencode's own default).
+func blanketBlock(mode Action, base []Rule) []Rule {
+	out := []Rule{{"*", "*", mode}}
+	for _, r := range base {
+		if !IsWildcard(r.Permission) && IsUntouched(r.Permission) {
 			continue
 		}
-		if r.Pattern == "" {
-			r.Pattern = "*"
+		a := mode
+		if r.Action == Deny {
+			a = Deny
 		}
-		if !IsWildcard(r.Permission) {
-			capped := c.Cap(r.Permission, r.Action)
-			clamped = clamped || capped != r.Action
-			out = append(out, Rule{r.Permission, r.Pattern, capped})
+		restated := Rule{r.Permission, r.Pattern, a}
+		if n := len(out); out[n-1] == restated {
 			continue
 		}
-		out = append(out, r)
-		for _, k := range c.Keys() {
+		out = append(out, restated)
+	}
+	for _, k := range Untouched {
+		out = append(out, Rule{k, "*", Ask})
+		for _, r := range base {
 			if !Match(k, r.Permission) {
 				continue
 			}
-			if capped := c.Cap(k, r.Action); capped != r.Action {
-				clamped = true
-				out = append(out, Rule{k, r.Pattern, capped})
+			restated := Rule{k, r.Pattern, r.Action}
+			if n := len(out); out[n-1] == restated {
+				continue
 			}
+			out = append(out, restated)
 		}
 	}
-	return out, clamped
+	return out
 }
 
-// Compose is the rules a session is created with (and re-sent with when
-// anything they derive from changes): the machine's own rules, then the
-// ceiling's tail over everything beneath them. agent is the session's agent's
-// effective rules (opencode's GET /agent). The ceiling is last, every time.
-func Compose(l Layers, agent []Rule) []Rule { return ComposeFor(l, Panel{}, agent) }
-
-// ComposeFor is Compose for a session a person has written rules to: the
-// machine's own rules, then the panel block — restorations of what earlier
-// writes named and later ones dropped, then the rules in force now — and the
-// ceiling's tail over all of it, last. A restoration restates what the base
-// (the agent's rules and the machine's own) says for that rule's pattern, for
-// the agent the session runs NOW, so it is right after a mode change too.
-func ComposeFor(l Layers, p Panel, agent []Rule) []Rule {
-	cerea, tail := ComposeParts(l, p, agent)
+// Compose is the rules a top-level session carries: the machine's own, then the
+// selector's — the mode block, and the exceptions on whichever side of it makes
+// them mean what they should — and the ceiling's tail over all of it, last.
+// agent is the session's agent's effective rules (opencode's GET /agent).
+func Compose(l Layers, sel Selector, agent []Rule) []Rule {
+	cerea, tail := ComposeParts(l, sel, agent)
 	return append(cerea, tail...)
 }
 
-// ComposeParts is ComposeFor taken apart: the machine's and the person's rules,
-// and the ceiling's tail after them.
-func ComposeParts(l Layers, p Panel, agent []Rule) (cerea, tail []Rule) {
+// ComposeParts is Compose taken apart: the machine's rules and the selector's
+// (own first, so len(l.Own) of them are the machine's), then the ceiling's tail.
+//
+//   - Ask and Allow: the exceptions sit after the mode block, so they win over
+//     it (under Allow they are redundant and harmless);
+//   - Deny: the exceptions sit BEFORE it, so Deny wins. They are kept all the
+//     same, and come back into force when the mode does.
+func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 	base := append(append([]Rule(nil), agent...), l.Own...)
-	active := map[[2]string]bool{}
-	for _, r := range p.Rules {
-		active[[2]string{r.Permission, r.Pattern}] = true
+	mode := sel.Effective()
+	cerea = append([]Rule(nil), l.Own...)
+	if mode == Deny {
+		cerea = append(cerea, sel.exceptionRules()...)
 	}
-	var block []Rule
-	for _, t := range p.Touched {
-		if !active[[2]string{t.Permission, t.Pattern}] {
-			block = append(block, Rule{t.Permission, t.Pattern, Evaluate(base, t.Permission, t.Pattern)})
-		}
+	cerea = append(cerea, blanketBlock(mode, base)...)
+	if mode != Deny {
+		cerea = append(cerea, sel.exceptionRules()...)
 	}
-	block = append(block, p.Rules...)
-	cerea = append(append([]Rule(nil), l.Own...), block...)
 	in := append(append([]Rule(nil), agent...), cerea...)
 	return cerea, l.Ceiling.Tail(in)
 }
@@ -340,17 +437,12 @@ func (l Layers) ChildCeiling() Ceiling {
 	return l.Ceiling.Meet(own)
 }
 
-// ChildRules is what a subagent session gets: the child ceiling's tail over the
-// child agent's own rules. Denies need no help (opencode carries a parent's
-// denies itself); the point is the caps and the machine's asks.
-func ChildRules(l Layers, agent []Rule) []Rule {
-	return l.ChildCeiling().Tail(agent)
-}
-
-// ChildRulesFor is ChildRules for a subagent a person has written rules to: the
-// panel block (never the machine's own allows) and the child ceiling's tail.
-func ChildRulesFor(l Layers, p Panel, agent []Rule) []Rule {
-	return ComposeFor(Layers{Ceiling: l.ChildCeiling()}, p, agent)
+// ChildRules is what a subagent session gets: its ROOT's selector (the mode
+// block and the root's exceptions — a subagent has no selector of its own)
+// over the child agent's rules, and the child ceiling's tail. Never the
+// machine's own allows: only their restrictions, as caps.
+func ChildRules(l Layers, root Selector, agent []Rule) []Rule {
+	return Compose(Layers{Ceiling: l.ChildCeiling()}, root, agent)
 }
 
 // Grant is how the two galopin coordination tools are decided from rules.

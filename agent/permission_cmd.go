@@ -106,7 +106,7 @@ func permissionPolicySummary(pol policy.Policy) string {
 		for _, k := range keys {
 			caps = append(caps, k+"≤"+p.Max[k])
 		}
-		parts = append(parts, "ceiling "+strings.Join(caps, ", ")+" — no rule or \"always\" goes past it")
+		parts = append(parts, "ceiling "+strings.Join(caps, ", ")+" — no rule, selector or \"always allow\" goes past it")
 	}
 	if len(p.Rules) > 0 {
 		keys := make([]string, 0, len(p.Rules))
@@ -120,10 +120,6 @@ func permissionPolicySummary(pol policy.Policy) string {
 		}
 		parts = append(parts, "this machine's own rules "+strings.Join(rs, ", "))
 	}
-	if p.RespondersAllowed() {
-		parts = append(parts, "auto-accept ALLOWED — a session switched to it has its tool asks answered \"once\" without a card, except for keys the ceiling caps (those stay a person's)")
-	} else {
-		parts = append(parts, "auto-accept DENIED — no session can be switched to it")
-	}
+	parts = append(parts, "sessions start on Ask; a person moves a session to Deny or Allow in the /code composer, and the ceiling caps both")
 	return "Permissions: " + strings.Join(parts, "; ") + "."
 }

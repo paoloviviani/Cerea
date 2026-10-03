@@ -56,7 +56,7 @@ func TestPolicySetPermissionFlagsOnlyTighten(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, policyFileName)
 	start := policy.Default()
-	start.Permission = policy.Permission{Responders: policy.TerminalAllowed, Max: map[string]string{"bash": "ask"}}
+	start.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}}
 	if err := policy.Save(path, start); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestPolicySetPermissionFlagsOnlyTighten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Permission.Max["bash"] != "deny" || got.Permission.Max["edit"] != "ask" || got.Permission.RespondersAllowed() {
+	if got.Permission.Max["bash"] != "deny" || got.Permission.Max["edit"] != "ask" {
 		t.Errorf("after set: %+v", got.Permission)
 	}
 	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "bash=ask"}); err == nil {
@@ -94,12 +94,12 @@ func TestEnrollDefaultsAndStaticFile(t *testing.T) {
 
 func TestPermissionSummaryNamesTheTrade(t *testing.T) {
 	pol := policy.Default()
-	if s := permissionPolicySummary(pol); !strings.Contains(s, "DENIED") || !strings.Contains(s, "no ceiling") {
+	if s := permissionPolicySummary(pol); !strings.Contains(s, "start on Ask") || !strings.Contains(s, "no ceiling") {
 		t.Errorf("default summary = %q", s)
 	}
-	pol.Permission = policy.Permission{Responders: policy.TerminalAllowed, Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}
+	pol.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}
 	s := permissionPolicySummary(pol)
-	for _, want := range []string{"bash≤ask", "edit=allow", "ALLOWED"} {
+	for _, want := range []string{"bash≤ask", "edit=allow", "start on Ask"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("summary %q lacks %q", s, want)
 		}
@@ -111,16 +111,16 @@ func TestEnrollPolicyDefaultsAndFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pol.Permission.Max["bash"] != "ask" || pol.Permission.Max["session_spawn"] != "ask" || len(pol.Permission.Max) != 2 || pol.Permission.RespondersAllowed() || len(pol.Permission.Rules) != 0 {
-		t.Errorf("default enroll permission = %+v, want bash=ask, session_spawn=ask and no responders", pol.Permission)
+	if pol.Permission.Max["bash"] != "ask" || pol.Permission.Max["session_spawn"] != "ask" || len(pol.Permission.Max) != 2 || len(pol.Permission.Rules) != 0 {
+		t.Errorf("default enroll permission = %+v, want bash=ask and session_spawn=ask", pol.Permission)
 	}
 
 	pol, err = enrollPolicy(&enrollOptions{allowAutoAccept: true, permissionMax: []string{"edit=ask"}, permissionRules: []string{"session_send=allow"}, maxTerminals: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pol.Permission.RespondersAllowed() || pol.Permission.Max["edit"] != "ask" || pol.Permission.Max["bash"] != "" || pol.Permission.Rules["session_send"] != "allow" {
-		t.Errorf("flagged enroll permission = %+v: --allow-auto-accept is the responders setting, a given ceiling replaces the default", pol.Permission)
+	if pol.Permission.Max["edit"] != "ask" || pol.Permission.Max["bash"] != "" || pol.Permission.Rules["session_send"] != "allow" {
+		t.Errorf("flagged enroll permission = %+v: --allow-auto-accept is a no-op now, a given ceiling replaces the default", pol.Permission)
 	}
 
 	if _, err := enrollPolicy(&enrollOptions{permissionMax: []string{"bash=sometimes"}}); err == nil {

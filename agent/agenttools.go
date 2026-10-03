@@ -428,10 +428,8 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	}
 	at.mc.trackSession(w, child)
 	at.mc.auditProjectConfig(w, child.ID)
-	// The child starts with auto-accept off, whatever the caller or an
-	// ancestor has: it is a fresh top-level session, and this says so
-	// explicitly (an explicit off, so nothing it later inherits can turn it on).
-	_ = at.mc.mat.SetAutoAccept(child.ID, false)
+	// The child starts on Ask, whatever the caller's mode is: it is a fresh
+	// top-level session with a selector of its own, and nothing sets one here.
 	at.mu.Lock()
 	at.born[child.ID] = at.now()
 	at.mu.Unlock()
@@ -495,8 +493,7 @@ func (at *agentTools) grant(ctx context.Context, tc *toolCaller, tool string) (p
 // approve is the decision before the ask: when allowed is true the machine's
 // rules said allow, the call is approved here — audited as decision "allow"
 // with reason "rule", no gp_ ask raised, so no card — and otherwise galopin's
-// own approval is raised (never answered by the responder, "always" read as
-// once). Only this path sets autoApproved in a tool's result.
+// own approval is raised ("always" read as once). Only this path sets autoApproved in a tool's result.
 func (at *agentTools) approve(ctx context.Context, tc *toolCaller, call backend.ToolCall, allowed bool, to, reason string, req backend.PermissionRequest) (backend.Decision, string, error) {
 	if allowed {
 		at.mc.audit.agentTool(call.Tool, tc.session.ID, to, "allow", reason)
