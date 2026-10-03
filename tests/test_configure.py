@@ -155,9 +155,53 @@ class TestRefusals(unittest.TestCase):
         with self.assertRaisesRegex(cfg.ConfigError, "acme"):
             build(origin="https://chatbox", tls="acme")
 
-    def test_authelia_on_an_ip(self):
-        with self.assertRaisesRegex(cfg.ConfigError, "dotted"):
-            build(origin="https://10.0.0.5", tls="internal")
+    def test_authelia_on_a_dotless_host(self):
+        # Authelia itself rejects a single-word cookie domain; the message
+        # names what works instead.
+        with self.assertRaisesRegex(cfg.ConfigError, r"single-word.*sslip\.io.*--idp external"):
+            build(origin="https://myserver", tls="internal")
+
+    def test_authelia_on_localhost_stays_refused(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "single-word"):
+            build(origin="https://localhost", tls="internal")
+
+    def test_authelia_on_an_ipv6_address(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "IPv6"):
+            build(origin="https://[::1]", tls="internal")
+
+    def test_authelia_on_an_ip_is_accepted(self):
+        values = build(origin="https://10.0.0.5", tls="internal").values
+        self.assertEqual(values["PUBLIC_ORIGIN"], "https://10.0.0.5")
+        self.assertEqual(values["AUTHELIA_COOKIE_DOMAIN"], "10.0.0.5")
+        self.assertEqual(values["OIDC_ISSUER"], "https://10.0.0.5/authelia")
+        self.assertEqual(values["SITE_ADDRESS"], "https://10.0.0.5")
+        self.assertEqual(values["TLS_DIRECTIVE"], "tls internal")
+        # Browsers send no SNI to an IP; Caddy must be told which certificate to serve.
+        self.assertEqual(values["DEFAULT_SNI_DIRECTIVE"], "default_sni 10.0.0.5")
+        self.assertEqual(values["ACME_EMAIL"], "admin@example.org")
+        self.assertIn("authelia", values["COMPOSE_PROFILES"].split(","))
+
+    def test_a_name_needs_no_default_sni(self):
+        values = build(tls="internal").values
+        self.assertEqual(values["DEFAULT_SNI_DIRECTIVE"], "")
+
+    def test_check_wants_the_default_sni_on_an_ip(self):
+        values = dict(build(origin="https://10.0.0.5", tls="internal").values)
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertFalse(any("DEFAULT_SNI" in e for e in report.errors))
+        values["DEFAULT_SNI_DIRECTIVE"] = ""
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("DEFAULT_SNI" in e for e in report.errors))
+
+    def test_authelia_on_an_ip_with_a_port(self):
+        values = build(origin="https://10.0.0.5:8443", tls="internal").values
+        self.assertEqual(values["PUBLIC_ORIGIN"], "https://10.0.0.5:8443")
+        self.assertEqual(values["HTTPS_PORT"], "8443")
+        # A cookie domain never carries a port.
+        self.assertEqual(values["AUTHELIA_COOKIE_DOMAIN"], "10.0.0.5")
+        self.assertEqual(values["OIDC_ISSUER"], "https://10.0.0.5:8443/authelia")
 
     def test_admin_email_must_have_a_domain(self):
         with self.assertRaisesRegex(cfg.ConfigError, "email"):

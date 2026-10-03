@@ -4,6 +4,15 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## Unreleased
+
+### Deployment
+- The bundled Authelia now works on an IP address (`--tls internal`), with or
+  without a port. Only single-word names such as `myserver` are refused,
+  because Authelia itself rejects them. For an IP, `./configure` writes
+  `DEFAULT_SNI_DIRECTIVE` so Caddy serves its certificate to browsers, which
+  send no server name to an IP.
+
 ## v0.2.0 — 2026-10-02
 
 The first published release of the code. Pins: Cerea `sha-11327fc9`,

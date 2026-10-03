@@ -2,7 +2,8 @@
 # environment (./configure writes all three variables from TLS_MODE):
 #
 #   acme       SITE_ADDRESS=https://llm.example.org   TLS_DIRECTIVE=
-#   internal   SITE_ADDRESS=https://10.0.0.5          TLS_DIRECTIVE="tls internal"   (dev only)
+#   internal   SITE_ADDRESS=https://10.0.0.5          TLS_DIRECTIVE="tls internal"   (dev only;
+#              on an IP also DEFAULT_SNI_DIRECTIVE="default_sni 10.0.0.5")
 #   upstream   SITE_ADDRESS=http://:80                TLS_DIRECTIVE=                 (TLS ends in front, e.g. NetBird)
 #
 # The routes are identical in every mode. A route whose upstream is not running
@@ -14,6 +15,10 @@
 # never something a container has to trust.
 {
 	email {$ACME_EMAIL:admin@example.org}
+	# Browsers send no SNI to an IP address, and behind Docker's port mapping
+	# Caddy cannot guess the address from the connection. ./configure sets
+	# `default_sni <ip>` when the host is an IP, and leaves this empty otherwise.
+	{$DEFAULT_SNI_DIRECTIVE}
 	servers {
 		trusted_proxies static {$TRUSTED_PROXIES:private_ranges}
 	}

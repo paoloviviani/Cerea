@@ -94,13 +94,14 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.11-alpine}
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:4fa12ca9285f0d72"
+      cerea.config-rev: "sha256:19f552f754158415"
     ports:
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env (./configure writes it)}
       TLS_DIRECTIVE: ${TLS_DIRECTIVE:-}
+      DEFAULT_SNI_DIRECTIVE: ${DEFAULT_SNI_DIRECTIVE:-}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.org}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
       PROXY_DEFAULT: ${PROXY_DEFAULT:-gateway}
