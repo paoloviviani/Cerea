@@ -63,7 +63,9 @@ export default defineConfig({
 		baseURL: E2E_APP_ORIGIN,
 		trace: "on-first-retry",
 		screenshot: "only-on-failure",
-		video: "retain-on-failure",
+		// Video encodes every test and is discarded on pass: on a small box
+		// that cost is real, so only CI keeps it.
+		video: process.env.CI ? "retain-on-failure" : "off",
 	},
 
 	projects: [
