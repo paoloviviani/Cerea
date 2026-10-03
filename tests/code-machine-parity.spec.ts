@@ -392,6 +392,21 @@ test.describe("owned machine agent: parity", () => {
 		],
 	});
 
+	/**
+	 * Under Ask the parent's own `task` call is a card of its own, and it comes
+	 * first: there is no child until a person lets the parent spawn one. Answer
+	 * it, then the child's ask is the next card in the transcript.
+	 */
+	async function allowTheSpawn(page: Page): Promise<void> {
+		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(
+			transcriptCard(page)
+				.locator("code")
+				.filter({ hasText: /^task$/ })
+		).toBeVisible();
+		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
+	}
+
 	test("files: the explorer lists the real workspace, badges and redacts, and refreshes after a turn", async ({
 		page,
 		db,
@@ -563,10 +578,13 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
 
-		// The card arrives mid-turn (the turn is still held on it), labelled
-		// as the subagent's — a parent's own ask never says "Subagent".
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText(/Subagent/).first()).toBeVisible({ timeout: 30_000 });
+		await allowTheSpawn(page);
+
+		// The child's card arrives mid-turn (the turn is still held on it),
+		// labelled as the subagent's — a parent's own ask never says "Subagent".
+		await expect(transcriptCard(page).getByText(/Subagent .*Tool approval/)).toBeVisible({
+			timeout: 60_000,
+		});
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 
 		// Approving lets the child run to completion: its file lands and its
@@ -592,7 +610,10 @@ test.describe("owned machine agent: parity", () => {
 		const m = await openSession(page, db, session.sessionId);
 		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await allowTheSpawn(page);
+		await expect(transcriptCard(page).getByText(/Subagent .*Tool approval/)).toBeVisible({
+			timeout: 60_000,
+		});
 
 		// The sidebar polls: the child shows up as its own row, badged, with
 		// where it came from, and waiting (the loud state) on it and its parent.
@@ -631,22 +652,29 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("waiting-approval")).toHaveCount(0, { timeout: 60_000 });
 	});
 
-	test("subagent approvals: with the root on Allow, a child's tools run without asking (bash left uncapped)", async ({
+	test("subagent approvals: with the root on Allow, the spawn needs no card and only the child's first turn asks, once", async ({
 		page,
 		db,
 		session,
 		mockOpenAI,
 	}) => {
-		// The child's tool is bash, which the default ceiling caps at ask; a
-		// subagent follows its root's mode only for keys the ceiling leaves open,
-		// so this machine opens bash. (Under the default ceiling the child's bash
-		// is a card: see the subagent approvals spec above.)
+		// bash is left uncapped, so Allow reaches it. Even so the child's FIRST
+		// turn asks: opencode starts a subagent before Cerea can hand it the
+		// session's setting (PROTOCOL.md; the card says "New subagent · first
+		// turn asks"). The parent's own `task` call is not a card under Allow.
 		const m = await openSession(page, db, session.sessionId, {
 			permission: { max: { session_spawn: "ask" } },
 		});
 		await choose(page, "Allow");
 		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
+
+		const card = transcriptCard(page);
+		await expect(card.getByText(/Subagent .*Tool approval/)).toBeVisible({ timeout: 60_000 });
+		await expect(card.getByText("New subagent · first turn asks")).toBeVisible();
+		// The one card is the child's bash, not the parent's spawn.
+		await expect(card.locator("code").filter({ hasText: /^task$/ })).toHaveCount(0);
+		await card.getByRole("button", { name: "Allow once" }).click();
 
 		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
 		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
@@ -655,17 +683,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
 		).toBeVisible({ timeout: 60_000 });
-		const html = await page.content();
-		console.log(
-			"DEBUG wants-to-call contexts:",
-			(html.match(/.{120}wants to call.{120}/gs) ?? []).join("\n---\n")
-		);
-		for (const r of await mockOpenAI.requests()) {
-			const msgs = ((r.body as { messages?: Array<{ role?: string }> }).messages ?? []).filter(
-				(m) => m.role === "tool"
-			);
-			for (const m of msgs) console.log("DEBUG tool message:", JSON.stringify(m).slice(0, 2000));
-		}
+		// Nothing else asked: the one approval above was the whole of it.
 		await expect(page.getByText("wants to call")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
@@ -695,6 +713,7 @@ test.describe("owned machine agent: parity", () => {
 			finishReason: "stop",
 		});
 		await send(page, "delegate this");
+		await allowTheSpawn(page);
 		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByText("Subagent done.").first()).toBeVisible({ timeout: 60_000 });
 
