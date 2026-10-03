@@ -404,14 +404,21 @@ func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error)
 }
 
 func (b *Backend) Transcript(ctx context.Context, workspaceDir string, sessionID string) (backend.Transcript, error) {
+	// A reverted session still stores the messages from its revert point on
+	// (until the next prompt), but they are no longer part of it. The revert
+	// point is read BEFORE the message list, never after: the next prompt's
+	// cleanup deletes those messages and only then clears the marker, so a
+	// marker read first is either still set (the list may still hold the
+	// reverted messages, and we cut at it) or already cleared (the list is
+	// read after the deletion). Read the other way round, a cleanup landing
+	// between the two reads returns the reverted turn with no marker to hide
+	// it, and the transcript resurrects a turn that was rolled back.
+	revertedFrom := b.revertPoint(ctx, sessionID)
 	var raw []any
 	if err := b.doJSONLimit(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message", nil, &raw, maxTranscriptBytes); err != nil {
 		return backend.Transcript{}, err
 	}
 	tr := backend.Transcript{Status: backend.StatusIdle}
-	// A reverted session still stores the messages from its revert point on
-	// (until the next prompt), but they are no longer part of it.
-	revertedFrom := b.revertPoint(ctx, sessionID)
 	for _, entry := range asMaps(raw) {
 		info := getMap(entry, "info")
 		if info == nil {
