@@ -238,7 +238,7 @@
 			{/snippet}
 			{#each Object.entries(groupedConversations) as [group, convs]}
 				{#if convs.length}
-					<h4 class="mt-2 mb-1 pl-6 text-xs text-gray-400 first:mt-0.5 dark:text-gray-500">
+					<h4 class="mt-2 mb-1 pl-6 text-xs text-ink-faint first:mt-0.5">
 						{titles[group]}
 					</h4>
 					{#each convs as conv (String(conv.id))}

@@ -747,7 +747,7 @@
 		void submit();
 	}}
 	class={{
-		"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-gray-100 dark:border-gray-700 dark:bg-gray-800": true,
+		"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40 dark:border-gray-700": true,
 		"max-sm:mb-4": focused && isVirtualKeyboard(),
 	}}
 	style:--composer-actions-width={narrowViewport.current ? "44px" : "120px"}
@@ -1085,7 +1085,7 @@
 						? 'rounded-l-full rounded-r-none'
 						: 'rounded-full'} {!draft
 						? ''
-						: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+						: 'bg-accent-solid! text-white! focus:ring-offset-2 focus:ring-offset-surface enabled:hover:bg-accent-solid-hover!'}"
 					disabled={!draft.trim() || busy || enrollmentExpired || offline}
 					type="submit"
 					aria-label="Send message"
@@ -1101,7 +1101,7 @@
 								? 'h-8'
 								: 'h-7'} w-5 flex-none self-end rounded-l-none rounded-r-full border border-l-0 bg-white px-0 text-black shadow transition-none enabled:hover:bg-white enabled:hover:shadow-inner dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:enabled:bg-black {!draft
 								? ''
-								: 'bg-black! text-white! dark:bg-white! dark:text-black!'}"
+								: 'bg-accent-solid! text-white! focus:ring-offset-2 focus:ring-offset-surface enabled:hover:bg-accent-solid-hover!'}"
 							disabled={!draft.trim() || busy || enrollmentExpired || offline}
 							aria-label="More ways to send"
 						>
