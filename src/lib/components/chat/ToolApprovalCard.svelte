@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getContext } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { MessageElicitationResolvedUpdate } from "$lib/types/MessageUpdate";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
@@ -6,6 +7,7 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
+	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 
 	/**
 	 * The tool-approval gate (ADR 0075): a dedicated card, not the generic
@@ -22,11 +24,11 @@
 		/**
 		 * Pluggable answer path: when set, the card answers through it instead
 		 * of `sendElicitationAnswer`, and the second button reads "Always
-		 * allow" rather than "Allow for this conversation" — the caller owns
-		 * the semantics (the coding-agent surface answers a daemon permission
-		 * through its own forwarder; `scope: "always"` there is the daemon's
-		 * own `permission.reply` vocabulary — the rest of this session — not
-		 * a conversation-scoped grant).
+		 * allow (this session)" rather than "Allow for this conversation" — the
+		 * caller owns the semantics (the coding-agent surface answers a daemon
+		 * permission through its own forwarder; `scope: "always"` there asks the
+		 * machine for an exception for this session, which the Permissions line
+		 * lists and can remove — not a conversation-scoped grant).
 		 */
 		onanswer?: (
 			action: ElicitationAction,
@@ -134,6 +136,12 @@
 	 * tool arguments, which may say anything.
 	 */
 	const galopin = $derived(onanswer !== undefined && toolApproval?.args?.galopin === true);
+	/** The ceiling holds this tool below allow: an "always" would store
+	 * nothing, so the button is not offered (see `alwaysCappedContext`). */
+	const alwaysCapped = getContext<AlwaysCapped | undefined>(ALWAYS_CAPPED);
+	const capped = $derived(
+		onanswer !== undefined && toolApproval ? (alwaysCapped?.(toolApproval.tool) ?? false) : false
+	);
 	type Fact = { label: string; value: string; long?: boolean };
 	const galopinFacts = $derived.by((): Fact[] => {
 		const args = toolApproval?.args;
@@ -268,14 +276,14 @@
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
 					{approveLabel}
 				</button>
-				{#if !galopin}
+				{#if !galopin && !capped}
 					<button
 						type="button"
 						onclick={() => send("accept", onanswer ? "always" : "conversation")}
 						disabled={submitting !== null}
 						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
 					>
-						{onanswer ? "Always allow" : "Allow for this conversation"}
+						{onanswer ? "Always allow (this session)" : "Allow for this conversation"}
 					</button>
 				{/if}
 				<button

@@ -18,8 +18,8 @@ import type {
 	FilesStatusResult,
 	PendingPermission,
 	PendingQuestion,
+	PermissionMode,
 	PermissionRulesResult,
-	SessionRuleInput,
 	Terminal,
 } from "$lib/types/machineProtocol";
 import superjson from "superjson";
@@ -46,21 +46,6 @@ import type {
 export type { CodeCommand, CodeProviderMode, CodeProviderModel };
 
 export type { CodeDeviceView };
-
-/** One provider feature the panel can toggle on an agent — the daemon's
- * `AgentFeatureToggle`, trimmed. Select features (a value chosen from a
- * list) are dropped at the forwarder: the panel offers switches, not menus. */
-export interface CodeProviderFeature {
-	id: string;
-	label: string;
-	description?: string;
-	value: boolean;
-	/** Set when the machine's own policy vetoes this feature (C4: the panel
-	 * cannot override it) — the toggle still renders, disabled, carrying
-	 * this as the exact fix rather than disappearing as if the feature
-	 * never existed. */
-	blockedReason?: string;
-}
 
 /** `/status`: whether this page may use /code right now, and where to sign in
  * again if not. The one /code call a stale session may make. Folds the answer
@@ -265,30 +250,6 @@ export async function listProviderModels(
 	);
 }
 
-/** The provider's features — the toggles a person can flip on an agent
- * (opencode's auto mode, shown as Auto-accept) — as the daemon drafts them for a config like
- * the agent's. The query needs the agent's working directory; the agent's
- * mode and model ride along when known. This list says what EXISTS and
- * what it is called; the live value is the agent snapshot's word
- * (`getAgent`), never this list's. */
-export async function listProviderFeatures(
-	deviceId: string,
-	provider: string,
-	draft: { cwd: string; modeId?: string; model?: string }
-): Promise<{ features: CodeProviderFeature[] }> {
-	const params = new URLSearchParams({
-		device: deviceId,
-		cwd: draft.cwd,
-		...(draft.modeId ? { modeId: draft.modeId } : {}),
-		...(draft.model ? { model: draft.model } : {}),
-	});
-	return unwrap(
-		await fetch(
-			`${root()}/v1/providers/${encodeURIComponent(provider)}/features?${params.toString()}`
-		)
-	);
-}
-
 /** A new coding session on the daemon, scoped to one of its workspaces. */
 export async function createAgent(
 	deviceId: string,
@@ -308,16 +269,13 @@ export async function createAgent(
 	);
 }
 
-/** One agent's current record (title, provider, state), with the two
- * things the open screen needs beside it: the provider features the agent
- * ITSELF reports — the auto-accept toggle's live value lives here, not in
- * the provider's feature list — and the cwd the feature query requires. */
+/** One agent's current record (title, provider, state, the session's
+ * `permissionMode`), with the working directory beside it. */
 export async function getAgent(
 	deviceId: string,
 	agentId: string
 ): Promise<{
 	agent: CodeAgentSession;
-	features: CodeProviderFeature[];
 	cwd: string;
 	/** The paired device row's own `credentialState === "expired"` (spec §5),
 	 * read fresh alongside this snapshot. */
@@ -544,25 +502,23 @@ export async function setAgentModel(
 	);
 }
 
-/** Flip one of the agent's provider features — the auto-accept toggle and
- * its kind. Auto-accept is opencode's auto mode for THIS session: a
- * responder on the machine answers its tool asks "allow once". It never
- * writes a permission rule; nothing here can. The answer is only the POST's receipt: the toggle's label
- * claims the new value when the refreshed agent snapshot agrees, never
- * from this call. */
-export async function setAgentFeature(
+/** Set the session's blanket Deny / Ask / Allow, until changed. The machine
+ * decides what it means (the ceiling still caps it, the untouched set keeps its
+ * own rules) and refuses a subagent's id: it follows its root. The answer is
+ * only the POST's receipt: the selector claims the new mode when the refreshed
+ * agent snapshot agrees, never from this call. */
+export async function setPermissionMode(
 	deviceId: string,
 	agentId: string,
-	featureId: string,
-	value: boolean
+	mode: PermissionMode
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
-			`${root()}/v1/agents/${encodeURIComponent(agentId)}/feature?device=${encodeURIComponent(deviceId)}`,
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-mode?device=${encodeURIComponent(deviceId)}`,
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ featureId, value }),
+				body: JSON.stringify({ mode }),
 			}
 		)
 	);
@@ -677,9 +633,9 @@ export async function respondPermission(
 	);
 }
 
-/** The opencode rules in force for this agent's session, the machine's
- * ceiling, and the "always" approvals opencode is holding. A read: what this
- * returns is the truth, whatever any write asked for. 404s (`CodeApiError.status === 404`) on a machine whose
+/** The opencode rules in force for this agent's session, its mode, its
+ * exceptions and the machine's ceiling. A read: what this returns is the
+ * truth, whatever any write asked for. 404s (`CodeApiError.status === 404`) on a machine whose
  * galopin predates the op — the Permissions line hides in that case. */
 export async function getPermissionRules(
 	deviceId: string,
@@ -692,32 +648,8 @@ export async function getPermissionRules(
 	);
 }
 
-/** Compose THIS session's own rules (`session.setRules`). The machine applies
- * them capped by its ceiling — an over-ceiling rule is refused or lowered — so
- * the receipt says only that the call landed. Never show what was asked for:
- * re-read `getPermissionRules` and show what is in force. Sends exactly
- * `{permission, pattern, action}` per rule and nothing else. */
-export async function setSessionRules(
-	deviceId: string,
-	agentId: string,
-	rules: SessionRuleInput[]
-): Promise<{ ok: boolean }> {
-	return unwrap(
-		await fetch(
-			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permission-rules?device=${encodeURIComponent(deviceId)}`,
-			{
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					rules: rules.map(({ permission, pattern, action }) => ({ permission, pattern, action })),
-				}),
-			}
-		)
-	);
-}
-
-/** Forget one saved "always" approval, so that kind of call asks again. A
- * tightening, like nothing else here that touches permissions. */
+/** Forget one exception (an "Always allow" on a card), so that command asks
+ * again. A tightening, like nothing else here that touches permissions. */
 export async function removeSavedApproval(
 	deviceId: string,
 	agentId: string,

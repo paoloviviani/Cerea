@@ -19,8 +19,8 @@
 
 	Asks persist on the machine — there is deliberately no server-side queue
 	here, only a read of live state. An unattended run that stalls on an ask
-	is expected: auto-accept (with its machine veto) is the answer for those,
-	not this inbox.
+	is expected: the composer's Allow setting is the answer for those, not this
+	inbox.
 -->
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
@@ -29,6 +29,8 @@
 	import IconLaunch from "~icons/carbon/launch";
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
+	import AlwaysCappedScope from "./AlwaysCappedScope.svelte";
+	import { ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import {
 		listPendingApprovals,
@@ -373,11 +375,23 @@
 								</a>
 							</div>
 							{#if item.kind === "permission"}
-								<ToolApprovalCard
-									conversationId={item.sessionId}
-									request={permissionToElicitation(item.request)}
-									onanswer={(action, scope) => answerPermission(item, action, scope)}
-								/>
+								<!-- The machine's own ceiling, from its hello: the inbox has
+								     no per-session read, and the ceiling is per machine. -->
+								<AlwaysCappedScope
+									capped={(tool) =>
+										isCapped(
+											ceilingOfPolicy(
+												codeDeviceList.devices.find((d) => d.id === item.deviceId)?.policy
+											),
+											tool
+										)}
+								>
+									<ToolApprovalCard
+										conversationId={item.sessionId}
+										request={permissionToElicitation(item.request)}
+										onanswer={(action, scope) => answerPermission(item, action, scope)}
+									/>
+								</AlwaysCappedScope>
 							{:else}
 								<AskQuestion
 									conversationId={item.sessionId}

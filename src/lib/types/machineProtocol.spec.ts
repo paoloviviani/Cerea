@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMachineFrame, parsePermissionRules } from "./machineProtocol";
+import { isPermissionMode, parseMachineFrame, parsePermissionRules } from "./machineProtocol";
 
 const CAPABILITIES = {
 	diff: true,
@@ -9,7 +9,6 @@ const CAPABILITIES = {
 	images: true,
 	files: true,
 	worktrees: false,
-	autoAccept: true,
 	questions: true,
 };
 
@@ -25,24 +24,30 @@ function hello(policy: Record<string, unknown>) {
 }
 
 describe("hello policy", () => {
-	it("accepts a machine that still reports the responder flag", () => {
-		const frame = parseMachineFrame(
-			hello({ autoAccept: "allowed", workspaceRoots: [], allowFreeModels: false })
-		);
-		expect(frame?.type).toBe("hello");
-	});
-
-	// The agent half deletes `Policy.autoAccept` from the wire; a hello without
-	// it must still connect, or every upgraded machine would be refused.
-	it("accepts a machine that no longer reports it", () => {
-		const frame = parseMachineFrame(hello({ workspaceRoots: [], allowFreeModels: false }));
-		expect(frame?.type).toBe("hello");
+	// The retired flag is sent as the constant "denied" for one release, and an
+	// agent that predates the selector still sends its old capability and
+	// `permission.responders`; every one of them must still connect.
+	it("accepts a machine that sends the retired fields, and one that does not", () => {
+		for (const policy of [
+			{ autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+			{
+				permission: { responders: "allowed", max: {} },
+				workspaceRoots: [],
+				allowFreeModels: false,
+			},
+			{ workspaceRoots: [], allowFreeModels: false },
+		]) {
+			expect(parseMachineFrame(hello(policy))?.type).toBe("hello");
+		}
+		const old = hello({ workspaceRoots: [], allowFreeModels: false });
+		old.backends[0].capabilities = { ...CAPABILITIES, autoAccept: true } as typeof CAPABILITIES;
+		expect(parseMachineFrame(old)?.type).toBe("hello");
 	});
 
 	it("accepts the machine's permission policy and keeps it for the panel to read", () => {
 		const frame = parseMachineFrame(
 			hello({
-				permission: { responders: "allowed", max: { bash: "ask" }, rules: { edit: "ask" } },
+				permission: { max: { bash: "ask" }, rules: { edit: "ask" } },
 				workspaceRoots: [],
 				allowFreeModels: false,
 			})
@@ -98,6 +103,37 @@ describe("parsePermissionRules", () => {
 			{ id: "sav_1", permission: "bash", patterns: ["ls *"] },
 			{ id: "sav_2", permission: "edit", patterns: ["src/**"], sessionId: "s1", removable: false },
 		]);
+	});
+
+	it("reads the session's mode and its exceptions' grant time, and drops a mode that is not one of the three", () => {
+		const parsed = parsePermissionRules({
+			mode: "allow",
+			savedApprovals: [
+				{
+					id: "ex_1",
+					sessionId: "s1",
+					permission: "bash",
+					patterns: ["git status"],
+					removable: true,
+					grantedAt: "2026-10-03T09:00:00Z",
+				},
+			],
+		});
+		expect(parsed.mode).toBe("allow");
+		expect(parsed.savedApprovals).toEqual([
+			{
+				id: "ex_1",
+				sessionId: "s1",
+				permission: "bash",
+				patterns: ["git status"],
+				removable: true,
+				grantedAt: "2026-10-03T09:00:00Z",
+			},
+		]);
+		expect(parsePermissionRules({ mode: "sometimes" }).mode).toBeUndefined();
+		expect(parsePermissionRules({}).mode).toBeUndefined();
+		for (const mode of ["deny", "ask", "allow"]) expect(isPermissionMode(mode)).toBe(true);
+		for (const bad of ["Allow", "", null, 1, undefined]) expect(isPermissionMode(bad)).toBe(false);
 	});
 
 	it("reads the ceiling and the agent, and ignores a cap that is not ask or deny", () => {

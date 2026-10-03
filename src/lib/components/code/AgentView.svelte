@@ -58,7 +58,7 @@
 		listAgents,
 		fetchSubagentTimeline,
 		getAgent,
-		listProviderFeatures,
+		getPermissionRules,
 		listProviderModes,
 		listProviderModels,
 		listSubagents,
@@ -68,7 +68,10 @@
 		sendFollowUp,
 		revertAgent,
 	} from "$lib/codeApi";
-	import type { CodeProviderFeature, CodeProviderMode, CodeProviderModel } from "$lib/codeApi";
+	import type { CodeProviderMode, CodeProviderModel } from "$lib/codeApi";
+	import type { PermissionRulesResult } from "$lib/types/machineProtocol";
+	import { ceilingOf, ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
+	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 	import { error as errorToast } from "$lib/stores/errors";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -137,13 +140,12 @@
 	let modelsFailure = $state<string | null>(null);
 	/** Models the machine listed but its enrollment policy keeps off the panel. */
 	let modelsHidden = $state(0);
-	let featureCatalog = $state<CodeProviderFeature[] | null>(null);
-	/** The provider features the agent itself reports — the auto-accept
-	 * toggle's live value. Cleared with the snapshot on a failed read: a
-	 * toggle with no daemon word behind it does not render as on or off. */
-	let features = $state<CodeProviderFeature[]>([]);
-	/** The agent's working directory, from the same read: the feature list
-	 * the composer asks for is resolved per working directory on the daemon. */
+	/** The machine's `permission.rules` answer for this session: the rules in
+	 * force, its mode, its exceptions, the ceiling. One read, shared by the
+	 * Permissions line, the selector's note and the card's Always button. Null
+	 * until it lands and on a machine that predates the op. */
+	let permissionRules = $state<PermissionRulesResult | null>(null);
+	/** The agent's working directory, from the same read. */
 	let agentCwd = $state<string | null>(null);
 	let workspace = $state<CodeWorkspace | null>(null);
 	/** Below `sm`, where the pane covers the chat and never opens itself. */
@@ -224,6 +226,33 @@
 		if (lastTurnState === "running" && state !== "running") filesTurnKey += 1;
 		if (lastTurnState !== undefined && lastTurnState !== state) permissionsKey += 1;
 		lastTurnState = state;
+	});
+	/** Read what the machine says is in force. Keeps the last good answer on a
+	 * failed read (a line that was right a moment ago is better than none), and
+	 * drops it on a 404: an older machine has no such op, so nothing draws. */
+	async function loadPermissionRules() {
+		try {
+			permissionRules = await getPermissionRules(deviceId, agentId);
+		} catch (err) {
+			if (err instanceof CodeApiError && err.status === 404) permissionRules = null;
+		}
+	}
+	let haveAgent = $derived(agent !== null);
+	$effect(() => {
+		void permissionsKey;
+		void deviceId;
+		void agentId;
+		if (skipMachineFetches || !haveAgent) return;
+		void untrack(() => loadPermissionRules());
+	});
+	/** The ceiling the machine reports, or the one its `hello` carries when the
+	 * read says none: what the card's Always button and the selector's note
+	 * consult. */
+	let ceiling = $derived.by(() => {
+		const read = permissionRules ? ceilingOf(permissionRules) : {};
+		return Object.keys(read).length > 0
+			? read
+			: ceilingOfPolicy(codeDeviceList.devices.find((d) => d.id === deviceId)?.policy);
 	});
 	/** The terminal (ADR 0090 §6.1): the double veto's two halves — the
 	 * deployment switch (hidden entirely when off) and the machine's own
@@ -342,14 +371,13 @@
 	});
 
 	/** One snapshot read, from mount and after every composer switch: the
-	 * strip's pills, the composer's mode/model pills and the feature
-	 * toggles label from the daemon's own word, never from what a request
+	 * strip's pills, the composer's mode/model pills and the permission
+	 * selector label from the daemon's own word, never from what a request
 	 * claimed. */
 	async function refreshAgent(lists = true) {
 		try {
 			const detail = await getAgent(deviceId, agentId);
 			agent = detail.agent;
-			features = detail.features ?? [];
 			agentCwd = detail.cwd;
 			// The snapshot's own word, not a guess: if the daemon's last real
 			// attempt on this agent already failed on an expired/revoked
@@ -361,22 +389,19 @@
 			// The transcript carries its own states; a strip that only
 			// errors when the daemon is off is worse than fallbacks.
 			agent = null;
-			features = [];
 			agentCwd = null;
 		}
 	}
 
 	/** The composer's option lists, refetched after every snapshot read:
-	 * they hang off the snapshot's provider (and, for features, its
-	 * mode/model), so each fresh read re-asks the daemon. A failure lands
-	 * in the pill's own menu — sending a follow-up never needed the lists.
-	 * The feature list fails quietly, exactly as it did in the composer. */
+	 * they hang off the snapshot's provider, so each fresh read re-asks the
+	 * daemon. A failure lands in the pill's own menu — sending a follow-up
+	 * never needed the lists. */
 	async function refreshLists() {
 		const provider = agent?.provider;
 		if (!provider) {
 			modes = null;
 			models = null;
-			featureCatalog = null;
 			return;
 		}
 		try {
@@ -396,22 +421,6 @@
 			models = [];
 			modelsHidden = 0;
 			modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
-		}
-		if (!agentCwd) {
-			featureCatalog = [];
-			return;
-		}
-		try {
-			const result = await listProviderFeatures(deviceId, provider, {
-				cwd: agentCwd,
-				...(agent?.modeId ? { modeId: agent.modeId } : {}),
-				...(agent?.modelId ? { model: agent.modelId } : {}),
-			});
-			featureCatalog = result.features;
-		} catch {
-			// A toggle has no menu to carry the failure into; the pills keep
-			// working — the same reading the composer's own effect had.
-			featureCatalog = [];
 		}
 	}
 
@@ -441,6 +450,9 @@
 		title: (sessionId) => knownSessions[sessionId]?.title,
 	};
 	setContext(CODE_SESSION_LINKS, sessionLinks);
+	// The cards below hide "Always allow (this session)" for a tool the ceiling
+	// holds below allow: the machine would answer once and store nothing.
+	setContext<AlwaysCapped>(ALWAYS_CAPPED, (tool) => isCapped(ceiling, tool));
 
 	// A subagent's view names where it came from, with a link back: the
 	// parent's own row (title, workspace), read once per parent id.
@@ -1092,7 +1104,8 @@
 			<PermissionsLine
 				{deviceId}
 				{agentId}
-				refreshKey={permissionsKey}
+				result={permissionRules}
+				onchanged={() => (permissionsKey += 1)}
 				policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
 				onreenroll={() => (showReenroll = true)}
 			/>
@@ -1162,19 +1175,22 @@
 					{deviceId}
 					{agentId}
 					{agent}
-					{features}
+					{ceiling}
 					{modes}
 					{modesFailure}
 					{models}
 					{modelsFailure}
 					{modelsHidden}
-					{featureCatalog}
 					running={loading}
 					{enrollmentExpired}
 					offline={deviceOffline}
 					onsend={handleSend}
 					onstop={stopAgent}
 					onchanged={() => void refreshAgent()}
+					onpermissionchanged={() => {
+						void refreshAgent(false);
+						permissionsKey += 1;
+					}}
 					onreenroll={() => (showReenroll = true)}
 					{usage}
 					{lastCompaction}

@@ -203,3 +203,52 @@ describe("NeedsYouInbox", () => {
 		await vi.waitFor(() => expect(inbox()).toBeNull());
 	});
 });
+
+describe("NeedsYouInbox Always allow", () => {
+	const withPolicy = (max: Record<string, string>) => ({
+		id: "d1",
+		name: "Box",
+		status: "paired",
+		online: true,
+		policy: { workspaceRoots: [], allowFreeModels: false, permission: { max } },
+	});
+
+	it("is labelled as this session's exception, and is offered for a key the machine does not cap", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const screen = mount(withPolicy({ webfetch: "ask" }));
+		await expect
+			.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+			.toBeVisible();
+	});
+
+	it("hides it for a key the machine's own ceiling holds below allow (bash asks by default)", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const screen = mount(withPolicy({ bash: "ask" }));
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+		).toHaveLength(0);
+	});
+
+	it("decides each ask against its own machine's ceiling", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("a1", "perm-1")], questions: [] },
+			d2: { permissions: [permission("a2", "perm-2")], questions: [] },
+		};
+		await browserPage.viewport(1200, 800);
+		codeDeviceList.devices = [
+			withPolicy({ bash: "ask" }),
+			{ ...withPolicy({}), id: "d2", name: "Open box" },
+		] as unknown as typeof codeDeviceList.devices;
+		codeDeviceList.loading = false;
+		const screen = renderWithApp(NeedsYouInbox);
+		await expect.element(screen.getByTestId("needs-you-item").first()).toBeVisible();
+		await vi.waitFor(() => expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(2));
+		// Exactly one of the two cards (the open machine's) offers it.
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+		).toHaveLength(1);
+	});
+});
