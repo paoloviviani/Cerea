@@ -2,46 +2,186 @@
  * Reading opencode's rules for the Permissions line.
  *
  * opencode decides: the LAST matching rule wins, and with no match it asks.
- * These helpers describe a list the machine already composed (lowest to
- * highest precedence); nothing here evaluates a real tool call, and nothing
- * here writes a rule: the panel's own writes are the session's mode and the
- * removal of an exception, neither of which is a rule.
+ * These helpers read a list the machine already composed (lowest to highest
+ * precedence, the ceiling's tail included): `capabilityRows` works out the
+ * final answer per capability the way opencode would (for the pattern `*`,
+ * never for a real tool call), and `annotateRules` marks what the raw list
+ * overrides. Nothing here writes a rule: the panel's own writes are the
+ * session's mode and the removal of an exception, neither of which is a rule.
  */
 import type { PermissionRule, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 
-/** The tools the line summarises. Other permission names still appear in the
- * expanded list; these three are the ones a person asks about. */
-export const SUMMARY_TOOLS = ["edit", "bash", "webfetch"] as const;
-
 export type RuleAction = PermissionRule["action"];
 
-export interface ToolSummary {
-	tool: string;
-	/** The action for this tool's catch-all pattern: the last rule that
-	 * names the tool (or `*`) with the pattern `*`; `ask` when none does,
-	 * which is what opencode itself does with no match. */
-	action: RuleAction;
-	/** Whether any rule said so, as opposed to opencode's fallback. */
-	explicit: boolean;
-	/** Rules for this tool with a narrower pattern (`git *`): they refine the
-	 * summary, so the line says how many instead of hiding them. */
-	narrower: number;
+const RANK: Record<RuleAction, number> = { deny: 0, ask: 1, allow: 2 };
+
+/**
+ * opencode's Wildcard.match, as `agent/internal/permrules` (`Match`) has it:
+ * `*` is any run, `?` any one character, the whole string must match, and a
+ * trailing " *" also matches the bare command ("ls *" matches "ls"). Backslashes
+ * are slashes.
+ */
+export function wildcardMatch(value: string, pattern: string): boolean {
+	const s = value.replaceAll("\\", "/");
+	let p = pattern.replaceAll("\\", "/");
+	const trailing = p.endsWith(" *");
+	if (trailing) p = p.slice(0, -2);
+	let source = "^";
+	for (const ch of p) {
+		if (ch === "*") source += ".*";
+		else if (ch === "?") source += ".";
+		else source += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	}
+	if (trailing) source += "( .*)?";
+	source += "$";
+	return new RegExp(source, "s").test(s);
 }
 
-export function summarizeTool(rules: PermissionRule[], tool: string): ToolSummary {
-	let action: RuleAction = "ask";
-	let explicit = false;
-	let narrower = 0;
-	for (const rule of rules) {
-		if (rule.permission !== tool && rule.permission !== "*") continue;
-		if (rule.pattern === "*") {
-			action = rule.action;
-			explicit = true;
-		} else if (rule.permission === tool) {
-			narrower += 1;
+/** opencode's resolution (`Evaluate` in permrules): the action of the LAST
+ * rule whose permission and pattern both match, and ask when none does. */
+export function evaluate(rules: PermissionRule[], permission: string, pattern = "*"): RuleAction {
+	for (let i = rules.length - 1; i >= 0; i--) {
+		const rule = rules[i];
+		if (wildcardMatch(permission, rule.permission) && wildcardMatch(pattern, rule.pattern)) {
+			return rule.action;
 		}
 	}
-	return { tool, action, explicit, narrower };
+	return "ask";
+}
+
+// -- the capabilities, in plain words ------------------------------------------
+
+interface CapabilitySpec {
+	id: string;
+	label: string;
+	keys: string[];
+	/** When the keys' answers differ: a row per key, with these labels. */
+	split?: string[];
+	/** Left out when its answer is the same as that row's: the keys are
+	 * folded into it instead of repeating it. */
+	foldInto?: string;
+}
+
+const CAPABILITIES: CapabilitySpec[] = [
+	{ id: "edit", label: "Edit and write files", keys: ["edit"] },
+	{ id: "bash", label: "Run commands", keys: ["bash"] },
+	{ id: "web", label: "Fetch from the web", keys: ["webfetch"] },
+	{
+		id: "search",
+		label: "Search the web",
+		keys: ["websearch", "codesearch"],
+		split: ["Search the web", "Search code"],
+		foldInto: "web",
+	},
+	{ id: "task", label: "Start subagents", keys: ["task"] },
+	{ id: "read", label: "Read files", keys: ["read"] },
+	{ id: "external", label: "Work outside the project folder", keys: ["external_directory"] },
+	{
+		id: "sessions",
+		label: "Start or message other sessions",
+		keys: ["session_spawn", "session_send"],
+		split: ["Start other sessions", "Message other sessions"],
+	},
+	{ id: "question", label: "Ask you questions", keys: ["question"] },
+];
+
+export interface CapabilityRow {
+	id: string;
+	label: string;
+	/** What happens in this session right now. */
+	action: RuleAction;
+	/** The machine's limits are what hold it below what the session's own
+	 * setting would give. */
+	capped: boolean;
+	/** For `read`: narrower patterns that answer more strictly than the
+	 * rest, e.g. "secret files like .env: ask". */
+	except: string[];
+}
+
+/** What the answer would be if the machine's ceiling said nothing. */
+function withoutCeiling(rules: PermissionRule[]): PermissionRule[] {
+	return rules.filter((rule) => rule.source !== "ceiling");
+}
+
+function isCappedKey(result: PermissionRulesResult, key: string, answer: RuleAction): boolean {
+	if (result.rules.some((rule) => rule.source === "ceiling")) {
+		return RANK[evaluate(withoutCeiling(result.rules), key)] > RANK[answer];
+	}
+	// A machine whose rules carry no source: the ceiling it reports is all
+	// there is to go by, and it bites when Allow is held at it.
+	const max = ceilingOf(result)[key] ?? ceilingOf(result)["*"];
+	return result.mode === "allow" && max !== undefined && answer === max;
+}
+
+const SECRET_FILE = /\.env/;
+
+/** The narrower `read` patterns that answer stricter than the catch-all,
+ * worded for a person: ".env" files are "secret files like .env". */
+function readExceptions(rules: PermissionRule[], answer: RuleAction): string[] {
+	const patterns = new Set<string>();
+	for (const rule of rules) {
+		if (rule.pattern !== "*" && wildcardMatch("read", rule.permission)) patterns.add(rule.pattern);
+	}
+	const byAction = new Map<RuleAction, string[]>();
+	for (const pattern of patterns) {
+		const got = evaluate(rules, "read", pattern);
+		if (RANK[got] >= RANK[answer]) continue;
+		const name = SECRET_FILE.test(pattern) ? "secret files like .env" : pattern;
+		const names = byAction.get(got) ?? [];
+		if (!names.includes(name)) names.push(name);
+		byAction.set(got, names);
+	}
+	return [...byAction].map(([action, names]) => `${names.join(", ")}: ${action}`);
+}
+
+/**
+ * The final answer per capability: what this session does right now, worked
+ * out the way opencode does (last matching rule, ask by default) from the
+ * rules the machine composed, which already carry the ceiling's tail. Keys
+ * that answer alike are one row.
+ */
+export function capabilityRows(result: PermissionRulesResult): CapabilityRow[] {
+	const rows: CapabilityRow[] = [];
+	for (const spec of CAPABILITIES) {
+		const answers = spec.keys.map((key) => evaluate(result.rules, key));
+		const folded = rows.find((row) => row.id === spec.foldInto);
+		const same = answers.every((answer) => answer === answers[0]);
+		if (folded && same && answers[0] === folded.action) continue;
+		const groups = same || !spec.split ? [spec.keys] : spec.keys.map((key) => [key]);
+		groups.forEach((keys, index) => {
+			const action = evaluate(result.rules, keys[0]);
+			rows.push({
+				id: groups.length > 1 ? `${spec.id}:${keys[0]}` : spec.id,
+				label: groups.length > 1 && spec.split ? spec.split[index] : spec.label,
+				action,
+				capped: keys.some((key) => isCappedKey(result, key, evaluate(result.rules, key))),
+				except: spec.id === "read" ? readExceptions(result.rules, action) : [],
+			});
+		});
+	}
+	return rows;
+}
+
+/** "Allowed", "Asks first", "Blocked": the row's answer in a word. */
+export function actionLabel(action: RuleAction): string {
+	return action === "allow" ? "Allowed" : action === "deny" ? "Blocked" : "Asks first";
+}
+
+/** The collapsed line: "Edits blocked · commands blocked · web blocked". */
+export function permissionSummary(rows: CapabilityRow[]): string {
+	const word = (action: RuleAction) =>
+		action === "allow" ? "allowed" : action === "deny" ? "blocked" : "ask";
+	const parts: Array<[string, string]> = [
+		["edit", "Edits"],
+		["bash", "commands"],
+		["web", "web"],
+	];
+	return parts
+		.flatMap(([id, noun]) => {
+			const row = rows.find((candidate) => candidate.id === id);
+			return row ? [`${noun} ${word(row.action)}`] : [];
+		})
+		.join(" · ");
 }
 
 export interface AnnotatedRule extends PermissionRule {
@@ -120,8 +260,6 @@ export function sourceLabel(source: string | undefined): string {
 
 // -- the ceiling and the session's exceptions --------------------------------
 
-const RANK: Record<RuleAction, number> = { deny: 0, ask: 1, allow: 2 };
-
 /** The ceiling as a permission key -> most-permissive action map. The machine
  * reports it directly (`ceiling`); a machine that does not is read from its
  * `ceiling`-sourced catch-all rules instead. Empty means "no cap known". */
@@ -174,14 +312,6 @@ export function ceilingNote(ceiling: Record<string, "ask" | "deny">): string {
 			([key, max]) => `${key === "*" ? "everything" : key} ${max === "ask" ? "asks" : "is denied"}`
 		)
 		.join(", ");
-}
-
-/** The exceptions held for one tool, for the count on its pill. */
-export function exceptionCount(
-	result: Pick<PermissionRulesResult, "savedApprovals">,
-	tool: string
-) {
-	return result.savedApprovals.filter((approval) => approval.permission === tool).length;
 }
 
 // -- legacy machines ---------------------------------------------------------

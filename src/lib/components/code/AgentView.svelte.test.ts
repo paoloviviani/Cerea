@@ -192,11 +192,9 @@ describe("AgentView Permissions line", () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
 		await expect.element(screen.getByTestId("permissions-line")).toBeVisible();
-		await expect.element(screen.getByTestId("permission-edit")).toHaveTextContent("edit ask");
-		await expect.element(screen.getByTestId("permission-bash")).toHaveTextContent("bash deny");
 		await expect
-			.element(screen.getByTestId("permission-webfetch"))
-			.toHaveTextContent("webfetch allow");
+			.element(screen.getByTestId("permission-summary"))
+			.toHaveTextContent("Edits ask · commands blocked · web allowed");
 		await expect
 			.element(screen.getByTestId("permission-exceptions-count"))
 			.toHaveTextContent("1 exception");

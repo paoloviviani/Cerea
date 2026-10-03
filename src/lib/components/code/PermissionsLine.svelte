@@ -1,39 +1,43 @@
 <!--
-	The Permissions line: what opencode will do about this session's tool
-	calls, read from the machine. A summary for the three tools people ask
-	about (edit, bash, webfetch: ask / allow / deny, with how many exceptions
-	each has) and a disclosure with every rule and the session's exceptions.
+	The Permissions line: what this session will do about each kind of tool
+	call, in plain words, read from the machine. The collapsed line says it in
+	a breath ("Edits ask · commands ask · web ask"); opening it gives one row
+	per capability (edit files, run commands, fetch from the web, ...) with the
+	FINAL answer: Allowed, Asks first or Blocked. opencode's rules are
+	last-match-wins and the same permission repeats in the raw list with
+	contradictory answers, so the rows work the answer out (`capabilityRows`)
+	instead of listing them. A row the machine's limits hold below what the
+	session's setting would give says so.
 
 	It is read-only. The one setting is the composer's Deny / Ask / Allow
 	selector; the one write here is Remove on an exception, which can only
 	tighten (that command asks again). What it shows is always the machine's
 	last word: the rules and the exceptions arrive from the parent view's
-	`permission.rules` read (`result`), which is also where the selector's
-	ceiling note comes from, and are re-read after every change. The ceiling,
-	the machine's own rules and its policy have no control here at all.
+	`permission.rules` read (`result`) and are re-read after every change. The
+	ceiling, the machine's own rules and its policy have no control here at all.
 
 	An exception is what the card's "Always allow" leaves behind: one command
 	or pattern allowed for this session, on top of the selector. Switching to
 	Deny blocks it without deleting it; switching back to Ask restores it.
 
-	A rule the person wrote in opencode's own config that Cerea or the
-	machine replace is shown struck through and labelled, rather than listed
-	as if it were in force. A machine whose galopin predates the op answers
-	404, and the line simply is not drawn.
+	The raw rule list, in evaluation order, is kept behind a small disclosure
+	for troubleshooting. There a rule from the person's own opencode config that
+	Cerea or the machine replace is struck through and labelled, rather than
+	listed as if it were in force. A machine whose galopin predates the op
+	answers 404, and the line simply is not drawn.
 -->
 <script lang="ts">
 	import { removeSavedApproval } from "$lib/codeApi";
 	import type { PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import {
-		SUMMARY_TOOLS,
+		actionLabel,
 		annotateRules,
+		capabilityRows,
 		isLegacyMachine,
-		ceilingOf,
-		exceptionCount,
 		overriddenLabel,
+		permissionSummary,
 		sourceLabel,
-		summarizeTool,
 		type RuleAction,
 	} from "$lib/utils/permissionRules";
 	import { error as errorToast } from "$lib/stores/errors";
@@ -63,15 +67,9 @@
 	let removing = $state<string | null>(null);
 
 	let rules = $derived(annotateRules(result?.rules ?? []));
-	let summaries = $derived(
-		SUMMARY_TOOLS.map((tool) => ({
-			...summarizeTool(rules, tool),
-			exceptions: result ? exceptionCount(result, tool) : 0,
-		}))
-	);
+	let rows = $derived(result ? capabilityRows(result) : []);
+	let summary = $derived(permissionSummary(rows));
 	let exceptions = $derived(result?.savedApprovals ?? []);
-	let ceiling = $derived(result ? ceilingOf(result) : {});
-	let capped = $derived(Object.entries(ceiling));
 
 	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
 	 * front, never inside the collapsed detail. */
@@ -111,25 +109,12 @@
 			class="flex min-w-0 flex-wrap items-center gap-1.5 text-left text-ink-muted hover:text-ink"
 			aria-expanded={open}
 			aria-controls="permissions-detail-{agentId}"
-			title="What opencode will do about this session's tool calls, and the exceptions you have allowed."
+			title="What this session will do about its tool calls, and the exceptions you have allowed."
 			onclick={() => (open = !open)}
 		>
 			<IconShield class="size-3.5 shrink-0" />
 			<span class="font-medium">Permissions</span>
-			{#each summaries as summary (summary.tool)}
-				<span
-					class="{s.PILL} {s.PILL_TONES[TONES[summary.action]]}"
-					data-testid="permission-{summary.tool}"
-					title={summary.explicit
-						? `${summary.tool}: ${summary.action}${summary.narrower ? `, with ${summary.narrower} narrower rule${summary.narrower === 1 ? "" : "s"}` : ""}`
-						: `${summary.tool}: no rule matches, so opencode asks`}
-				>
-					{summary.tool}
-					{summary.action}{summary.narrower ? ` +${summary.narrower}` : ""}{summary.exceptions > 0
-						? ` · ${summary.exceptions} ${summary.exceptions === 1 ? "exception" : "exceptions"}`
-						: ""}
-				</span>
-			{/each}
+			<span data-testid="permission-summary">{summary}</span>
 			{#if exceptions.length > 0}
 				<span class="{s.PILL} {s.PILL_TONES.neutral}" data-testid="permission-exceptions-count">
 					{exceptions.length}
@@ -164,14 +149,90 @@
 				class="scrollbar-custom flex max-h-[40vh] flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-surface p-3"
 				data-testid="permissions-detail"
 			>
+				<ul class="flex flex-col gap-1" data-testid="permission-rows">
+					{#each rows as row (row.id)}
+						<li
+							class="flex flex-wrap items-center gap-1.5"
+							data-testid="permission-row"
+							data-row={row.id}
+							data-action={row.action}
+						>
+							<span class="text-ink">{row.label}</span>
+							<span class="{s.PILL} {s.PILL_TONES[TONES[row.action]]}"
+								>{actionLabel(row.action)}</span
+							>
+							{#if row.except.length > 0}
+								<span class="text-ink-muted">except {row.except.join("; ")}</span>
+							{/if}
+							{#if row.capped}
+								<span class="text-ink-faint" data-testid="permission-capped"
+									>limited by this machine</span
+								>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+
 				<p class="text-ink-muted">
-					opencode's rules decide; this is what they say, last match wins. The selector in the
-					composer sets the blanket for this session; this machine's ceiling caps it. Reading stays
-					allowed on every setting.
+					Set by this session's Deny / Ask / Allow switch, within the limits this machine was
+					enrolled with.
 				</p>
 
 				<div>
-					<p class="mb-1 font-medium text-ink">Rules in force</p>
+					<p class="mb-1 font-medium text-ink">Exceptions</p>
+					{#if exceptions.length === 0}
+						<p class="text-ink-muted">
+							None. "Always allow (this session)" on a card would add one here.
+						</p>
+					{:else}
+						<ul class="flex flex-col gap-1" data-testid="permission-exceptions">
+							{#each exceptions as exception (exception.id)}
+								<li
+									class="flex flex-wrap items-center gap-1.5"
+									data-testid="permission-exception-item"
+								>
+									<span class="text-ink-muted">Allowed for this session:</span>
+									<span class="min-w-0 truncate font-mono text-ink">
+										{exception.patterns.length > 0
+											? exception.patterns.join(", ")
+											: exception.permission}
+									</span>
+									{#if exception.permission !== "bash" && exception.patterns.length > 0}
+										<span class="text-ink-faint">({exception.permission})</span>
+									{/if}
+									<span class="min-w-0 flex-1"></span>
+									{#if exception.removable === false}
+										<span class="text-ink-faint">held by the machine</span>
+									{:else}
+										<button
+											type="button"
+											class="rounded-lg border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-sunken disabled:opacity-60"
+											disabled={removing !== null}
+											title="Remove this exception: the next matching call asks again."
+											aria-label="Remove exception for {exception.permission}"
+											onclick={() => void remove(exception.id)}
+										>
+											{removing === exception.id ? "Removing…" : "Remove"}
+										</button>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+						<p class="mt-1 text-ink-faint">
+							Exceptions last for this session only. Deny blocks them without deleting them;
+							switching back to Ask restores them.
+						</p>
+					{/if}
+				</div>
+
+				<details data-testid="permission-raw">
+					<summary class="cursor-pointer text-ink-faint hover:text-ink-muted">
+						Show the raw rules (for troubleshooting)
+					</summary>
+					<p class="my-1 text-ink-muted">
+						opencode's rules in evaluation order: the last one that matches wins, so an earlier rule
+						for the same permission can be replaced by a later one.
+					</p>
 					{#if rules.length === 0}
 						<p class="text-ink-muted">No rules: opencode asks for everything it checks.</p>
 					{:else}
@@ -202,56 +263,7 @@
 							{/each}
 						</ul>
 					{/if}
-					{#if capped.length > 0}
-						<p class="mt-1 text-ink-muted" data-testid="permission-ceiling">
-							This machine caps: {capped.map(([key, max]) => `${key} at most ${max}`).join(", ")}.
-						</p>
-					{/if}
-				</div>
-
-				<div>
-					<p class="mb-1 font-medium text-ink">Exceptions</p>
-					{#if exceptions.length === 0}
-						<p class="text-ink-muted">
-							None. "Always allow (this session)" on a card would add one here.
-						</p>
-					{:else}
-						<ul class="flex flex-col gap-1" data-testid="permission-exceptions">
-							{#each exceptions as exception (exception.id)}
-								<li
-									class="flex flex-wrap items-center gap-1.5"
-									data-testid="permission-exception-item"
-								>
-									<span class="font-mono text-ink">{exception.permission}</span>
-									{#if exception.patterns.length > 0}
-										<span class="min-w-0 truncate font-mono text-ink-muted">
-											{exception.patterns.join(", ")}
-										</span>
-									{/if}
-									<span class="min-w-0 flex-1"></span>
-									{#if exception.removable === false}
-										<span class="text-ink-faint">held by the machine</span>
-									{:else}
-										<button
-											type="button"
-											class="rounded-lg border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-sunken disabled:opacity-60"
-											disabled={removing !== null}
-											title="Remove this exception: the next matching call asks again."
-											aria-label="Remove exception for {exception.permission}"
-											onclick={() => void remove(exception.id)}
-										>
-											{removing === exception.id ? "Removing…" : "Remove"}
-										</button>
-									{/if}
-								</li>
-							{/each}
-						</ul>
-						<p class="mt-1 text-ink-faint">
-							Exceptions last for this session only. Deny blocks them without deleting them;
-							switching back to Ask restores them.
-						</p>
-					{/if}
-				</div>
+				</details>
 			</div>
 		{/if}
 	</div>
