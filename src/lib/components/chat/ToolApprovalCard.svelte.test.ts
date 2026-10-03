@@ -166,6 +166,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		const asked = (first: boolean, over: Partial<ElicitationRequestPayload> = {}) => {
 			const ensured: string[][] = [];
 			const provider: FirstTurnSubagent = {
+				rootMode: "allow",
 				ensure: (child, ask) => void ensured.push([child, ask]),
 				isFirst: () => first,
 			};
@@ -219,9 +220,86 @@ describe("ToolApprovalCard, galopin approvals", () => {
 			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
 		});
 
+		it("draws no chip when the root is not on Allow", async () => {
+			const provider: FirstTurnSubagent = {
+				rootMode: "ask",
+				ensure: () => {},
+				isFirst: () => true,
+			};
+			const screen = render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: { ...request("edit", {}), childSessionId: "child-1" },
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map([[FIRST_TURN_SUBAGENT, provider]]),
+			} as never);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("draws no chip when the root mode is unknown", async () => {
+			const provider: FirstTurnSubagent = { ensure: () => {}, isFirst: () => true };
+			const screen = render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: { ...request("edit", {}), childSessionId: "child-1" },
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map([[FIRST_TURN_SUBAGENT, provider]]),
+			} as never);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("draws no chip for a key the ceiling caps, where the machine-limit wording explains it", async () => {
+			const provider: FirstTurnSubagent = {
+				rootMode: "allow",
+				ensure: () => {},
+				isFirst: () => true,
+			};
+			const screen = render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: { ...request("bash", { command: "ls" }), childSessionId: "child-1" },
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map<symbol, unknown>([
+					[FIRST_TURN_SUBAGENT, provider],
+					[ALWAYS_CAPPED, ((tool: string) => tool === "bash") as AlwaysCapped],
+				]),
+			} as never);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("draws no chip for a key that asks under every setting", async () => {
+			const provider: FirstTurnSubagent = {
+				rootMode: "allow",
+				ensure: () => {},
+				isFirst: () => true,
+			};
+			for (const tool of ["external_directory", "doom_loop"]) {
+				const screen = render(ToolApprovalCard, {
+					props: {
+						conversationId: "a1",
+						request: { ...request(tool, {}), childSessionId: "child-1" },
+						onanswer: async () => ({ ok: true }),
+					},
+					context: new Map([[FIRST_TURN_SUBAGENT, provider]]),
+				} as never);
+				await expect
+					.element(screen.getByRole("button", { name: "Allow once" }).first())
+					.toBeVisible();
+				expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+				screen.unmount();
+			}
+		});
+
 		it("uses the provider's own child id when the ask carries none (the inbox)", async () => {
 			const ensured: string[][] = [];
 			const provider: FirstTurnSubagent = {
+				rootMode: "allow",
 				childId: "child-9",
 				ensure: (child, ask) => void ensured.push([child, ask]),
 				isFirst: () => true,

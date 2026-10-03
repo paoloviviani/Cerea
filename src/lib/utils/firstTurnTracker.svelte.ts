@@ -9,6 +9,11 @@ import { isFirstTurn, type FirstTurnSubagent } from "$lib/utils/firstTurnSubagen
  */
 export class FirstTurnTracker implements FirstTurnSubagent {
 	childId?: string;
+	/** The root session's permission mode. Reactive state: whoever creates
+	 * the tracker sets an initial value, and surfaces that learn it later
+	 * (a parent snapshot arriving after mount) assign it — the card's
+	 * derived chip re-reads it. Unknown (undefined) draws no chip. */
+	rootMode = $state<string | null>();
 	#known = $state<Record<string, boolean>>({});
 	#inflight = new Set<string>();
 	#load: (childId: string) => Promise<AgentStreamUpdate[]>;

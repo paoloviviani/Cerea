@@ -457,12 +457,19 @@
 	setContext<AlwaysCapped>(ALWAYS_CAPPED, (tool) => isCapped(ceiling, tool));
 	// A new subagent's first turn asks whatever the setting is: the card says so,
 	// reading the asking subagent's own transcript once per ask.
-	setContext(
-		FIRST_TURN_SUBAGENT,
-		new FirstTurnTracker(
-			async (childId) => (await fetchSubagentTimeline(deviceId, agentId, childId)).updates
-		)
+	const firstTurnTracker = new FirstTurnTracker(
+		async (childId) => (await fetchSubagentTimeline(deviceId, agentId, childId)).updates
 	);
+	setContext(FIRST_TURN_SUBAGENT, firstTurnTracker);
+	// The chip draws only on an Allow root. Viewed agent first (a parent's own
+	// transcript), else the fetched parent (a subagent's own view): while the
+	// parent snapshot is still loading the mode is unknown and no chip draws.
+	$effect(() => {
+		firstTurnTracker.rootMode =
+			agent?.parentId == null
+				? (agent?.permissionMode ?? null)
+				: (parentAgent?.permissionMode ?? null);
+	});
 
 	// A subagent's view names where it came from, with a link back: the
 	// parent's own row (title, workspace), read once per parent id.

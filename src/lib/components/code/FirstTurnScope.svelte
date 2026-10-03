@@ -18,23 +18,30 @@
 		rootId?: string;
 		/** The session that asked. */
 		childId: string;
+		/** The root session's permission mode, when the surface showing the
+		 * card knows it. Absent means unknown, and the chip stays hidden. */
+		rootMode?: string | null;
 		children: Snippet;
 	}
 
-	let { deviceId, rootId, childId, children }: Props = $props();
+	let { deviceId, rootId, childId, rootMode, children }: Props = $props();
 
-	// Initialisation reads on purpose: an item's device, root and child never
-	// change for the life of its card.
+	// The tracker instance is created once at init (setContext only runs
+	// there), but rootMode arrives later — the inbox learns it from a
+	// snapshot read after the poll — so an effect keeps it current. Until
+	// it arrives the chip stays hidden rather than guessing.
+	let tracker: FirstTurnTracker | undefined = undefined;
 	// svelte-ignore state_referenced_locally
 	if (rootId && rootId !== childId) {
-		setContext(
-			FIRST_TURN_SUBAGENT,
-			new FirstTurnTracker(
-				async (id) => (await fetchSubagentTimeline(deviceId, rootId, id)).updates,
-				childId
-			)
+		tracker = new FirstTurnTracker(
+			async (id) => (await fetchSubagentTimeline(deviceId, rootId, id)).updates,
+			childId
 		);
+		setContext(FIRST_TURN_SUBAGENT, tracker);
 	}
+	$effect(() => {
+		if (tracker) tracker.rootMode = rootMode ?? null;
+	});
 </script>
 
 {@render children()}

@@ -37,6 +37,7 @@
 		listPendingApprovals,
 		respondPermission,
 		respondQuestion,
+		getAgent,
 		type PendingPermission,
 		type PendingQuestion,
 	} from "$lib/codeApi";
@@ -157,7 +158,38 @@
 		next.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 		items = next;
 		loading = false;
+		void refreshRootModes(next);
 		syncTails();
+	}
+
+	/**
+	 * The chip needs each asking subagent's ROOT mode, which the pending
+	 * items don't carry: one snapshot read per distinct root, redone every
+	 * poll so a mode switch shows up within a tick. Roots with pending
+	 * subagent asks are few; unknown modes simply draw no chip.
+	 */
+	let rootModes = $state(new Map<string, string>());
+	async function refreshRootModes(list: InboxItem[]) {
+		const seq = fetchSeq;
+		const roots = new Map<string, { deviceId: string; rootId: string }>();
+		for (const item of list) {
+			if (item.kind !== "permission" || !item.rootId || item.rootId === item.sessionId) continue;
+			const key = `${item.deviceId}:${item.rootId}`;
+			if (!roots.has(key)) roots.set(key, { deviceId: item.deviceId, rootId: item.rootId });
+		}
+		const settled = await Promise.allSettled(
+			[...roots].map(async ([key, { deviceId, rootId }]) => {
+				const detail = await getAgent(deviceId, rootId);
+				return { key, mode: detail.agent?.permissionMode ?? null };
+			})
+		);
+		if (seq !== fetchSeq) return;
+		const modes = new Map<string, string>();
+		for (const result of settled) {
+			if (result.status !== "fulfilled" || !result.value.mode) continue;
+			modes.set(result.value.key, result.value.mode);
+		}
+		rootModes = modes;
 	}
 
 	function dismiss(key: string) {
@@ -393,6 +425,9 @@
 										deviceId={item.deviceId}
 										rootId={item.rootId}
 										childId={item.sessionId}
+										rootMode={item.rootId
+											? (rootModes.get(`${item.deviceId}:${item.rootId}`) ?? null)
+											: null}
 									>
 										<ToolApprovalCard
 											conversationId={item.sessionId}
