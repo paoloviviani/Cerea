@@ -79,7 +79,8 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				noFiles: true,
 				fileDeny: ["x"],
 				noDefaultFileDeny: true,
-				permissionRules: [{ key: "edit", action: "ask" }],
+				allowOutsideProject: true,
+				allowSecretReads: true,
 				ceiling: { ...defaultPolicyChoices().ceiling, edit: "ask" },
 			})
 				.filter((arg) => arg.startsWith("--"))

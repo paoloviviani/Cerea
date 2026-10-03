@@ -28,7 +28,6 @@
 		ceilingChanged,
 		uniformCeiling,
 		maxTerminalsProblem,
-		ruleKeyProblem,
 		type CeilingAction,
 		type EnrollPolicyChoices,
 	} from "$lib/codeEnrollPolicy";
@@ -50,7 +49,9 @@
 		| "allowFreeModels"
 		| "allowOpencodeProvider"
 		| "noFiles"
-		| "noDefaultFileDeny";
+		| "noDefaultFileDeny"
+		| "allowOutsideProject"
+		| "allowSecretReads";
 
 	const ACTION_LABEL: Record<CeilingAction, string> = {
 		allow: "Allow",
@@ -65,9 +66,6 @@
 		for (const key of CEILING_KEYS) choices.ceiling[key] = action;
 	}
 
-	/** Permission names worth suggesting for this machine's own rules: the ones
-	 * a rule here actually decides (see the section's text). */
-	const RULE_KEYS = ["external_directory", "read", "doom_loop", "session_spawn", "session_send"];
 	let ceilingEdited = $derived(ceilingChanged(choices.ceiling));
 	let terminalProblem = $derived(maxTerminalsProblem(choices.maxTerminals));
 
@@ -349,59 +347,20 @@
 				true
 			)}
 
-			<div class="text-xs text-ink-muted" data-testid="enroll-permission-rules">
-				<p>
-					<span class="font-medium text-ink">Fixed answers for this machine.</span> A permission and
-					an answer, applied to every session here. A <strong>Deny</strong> always holds, whatever
-					the session's Deny / Ask / Allow setting says. <strong>Allow</strong> and
-					<strong>Ask</strong>
-					only count where that setting does not decide:
-					<code class="font-mono">external_directory</code> (working outside the project folder),
-					<code class="font-mono">read</code> (reading files),
-					<code class="font-mono">doom_loop</code> (the stuck-agent brake) and
-					<code class="font-mono">session_spawn</code> / <code class="font-mono">session_send</code>
-					(agents starting or messaging other sessions). For edits, commands and the web the session's
-					setting wins, so use the cap above. Example:
-					<code class="font-mono">external_directory</code> on Allow lets agents work outside the project
-					without asking.
-				</p>
-				<datalist id="enroll-rule-keys">
-					{#each RULE_KEYS as key (key)}<option value={key}></option>{/each}
-				</datalist>
-				{#each choices.permissionRules as row, index (index)}
-					<div class="mt-1 flex items-center gap-1.5">
-						<input
-							class="{FIELD} min-w-0 flex-1 font-mono"
-							placeholder="external_directory"
-							list="enroll-rule-keys"
-							aria-label="Permission for rule {index + 1}"
-							bind:value={row.key}
-						/>
-						{@render pills(
-							`enroll-rule-action-${index}`,
-							`Answer for rule ${index + 1}`,
-							row.action,
-							(action) => (row.action = action)
-						)}
-						<button
-							type="button"
-							class="flex size-6 items-center justify-center rounded-lg text-ink-muted hover:bg-sunken"
-							aria-label="Remove rule {index + 1}"
-							onclick={() => choices.permissionRules.splice(index, 1)}
-							><IconClose class="size-3.5" /></button
-						>
-					</div>
-					{#if ruleKeyProblem(row.key)}
-						<p class="mt-0.5 text-red-600 dark:text-red-400" data-testid="enroll-rule-problem">
-							Rule {index + 1}: {ruleKeyProblem(row.key)} The machine refuses this enroll as written.
-						</p>
-					{/if}
-				{/each}
-				<button
-					type="button"
-					class="{SMALL_BTN} mt-1.5"
-					onclick={() => choices.permissionRules.push({ key: "", action: "ask" })}>Add rule</button
-				>
+			<div data-testid="enroll-fixed-answers">
+				{@render flag(
+					"allowOutsideProject",
+					"enroll-allow-outside-project",
+					"Agents may work outside the project folder without asking.",
+					"By default an agent asks before reading or writing files outside the workspace folder; ticked, it doesn't."
+				)}
+				{@render flag(
+					"allowSecretReads",
+					"enroll-allow-secret-reads",
+					"Agents may read secret files without asking.",
+					"By default an agent asks before reading .env and similar files; ticked, it reads them like any other file, so their contents reach the model.",
+					true
+				)}
 			</div>
 		</div>
 	</details>

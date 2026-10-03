@@ -207,30 +207,48 @@ describe("each control emits exactly its flag", () => {
 		expect(policyPart(screen)).toBe("--file-deny '*.secret'");
 	});
 
-	it("machine rules: a repeatable key and answer list, said plainly", async () => {
+	it("fixed answers: two checkboxes, off by default, replace the old free-form list", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		const rules = screen.getByTestId("enroll-permission-rules");
-		await expect.element(rules).toHaveTextContent("A Deny always holds");
-		await expect.element(rules).toHaveTextContent("external_directory on Allow");
-		await rules.getByRole("button", { name: "Add rule" }).click();
-		await rules.getByRole("combobox", { name: "Permission for rule 1" }).fill("webfetch");
-		await rules
-			.getByRole("group", { name: "Answer for rule 1" })
-			.getByRole("button", { name: "Deny" })
-			.click();
-		expect(policyPart(screen)).toBe("--permission-rule 'webfetch=deny'");
-		await rules.getByRole("button", { name: "Remove rule 1" }).click();
+		const box = screen.getByTestId("enroll-fixed-answers");
+		await expect.element(box).toBeVisible();
+		await expect.element(screen.getByTestId("enroll-allow-outside-project")).not.toBeChecked();
+		await expect.element(screen.getByTestId("enroll-allow-secret-reads")).not.toBeChecked();
+		await expect
+			.element(screen.getByText("Fixed answers for this machine"))
+			.not.toBeInTheDocument();
+		await expect.element(screen.getByRole("button", { name: "Add rule" })).not.toBeInTheDocument();
 		expect(command(screen)).toBe(PLAIN);
 	});
 
-	it("machine rules: a pattern as the key is flagged, since enroll would refuse it", async () => {
+	it("outside the project: emits exactly its flag", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		const rules = screen.getByTestId("enroll-permission-rules");
-		await rules.getByRole("button", { name: "Add rule" }).click();
-		await rules.getByRole("combobox", { name: "Permission for rule 1" }).fill("ba*");
-		await expect.element(screen.getByTestId("enroll-rule-problem")).toBeVisible();
+		await screen.getByTestId("enroll-allow-outside-project").click();
+		expect(policyPart(screen)).toBe("--permission-rule 'external_directory=allow'");
+		await screen.getByTestId("enroll-allow-outside-project").click();
+		expect(command(screen)).toBe(PLAIN);
+	});
+
+	it("secret reads: emits exactly its flag, and reads as risky", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await screen.getByTestId("enroll-allow-secret-reads").click();
+		expect(policyPart(screen)).toBe("--permission-rule 'read=allow'");
+		const label = screen.getByTestId("enroll-allow-secret-reads").element().closest("label");
+		expect(label?.querySelector('[data-risky="true"]')).not.toBeNull();
+		const outside = screen.getByTestId("enroll-allow-outside-project").element().closest("label");
+		expect(outside?.querySelector("[data-risky]")).toBeNull();
+	});
+
+	it("both fixed answers emit both flags, outside-project first", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await screen.getByTestId("enroll-allow-secret-reads").click();
+		await screen.getByTestId("enroll-allow-outside-project").click();
+		expect(policyPart(screen)).toBe(
+			"--permission-rule 'external_directory=allow' --permission-rule 'read=allow'"
+		);
 	});
 });
 
