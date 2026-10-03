@@ -134,8 +134,8 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | **Workspace roots**              | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                   | re-enroll                                             |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
-`--group NAME` to preselect the billing group, `--output PATH` for the
-opencode config, and `--yes` to overwrite without asking.
+`--group NAME` to preselect the billing group, `--output PATH` for where the
+opencode config goes (default `<config-dir>/galopin/opencode.json`), and `--yes` to overwrite without asking.
 
 `run` drives opencode by default (it supervises `opencode serve`). `run
 --backend acp --acp-command "<agent>"` drives any ACP agent instead:
@@ -760,23 +760,32 @@ xattr -d com.apple.quarantine ~/.local/bin/galopin 2>/dev/null || true   # macOS
 ~/.local/bin/galopin enroll \
   --issuer https://cerea.example.org/authelia \
   --gateway https://cerea.example.org \
-  --cerea https://cerea.example.org/chat \
-  --output ~/.config/opencode/opencode.json
+  --cerea https://cerea.example.org/chat
 ~/.local/bin/galopin run
 ```
 
-`enroll` opens your browser to sign in (or prints a link and code to open on any device, your phone included), asks which billing group to use if you have several, and writes two files: the opencode config at `--output`, and a
+`enroll` opens your browser to sign in (or prints a link and code to open on any device, your phone included), asks which billing group to use if you have several, and writes two files: the opencode config, by default
+`<config-dir>/galopin/opencode.json` (beside the credential, whatever directory
+you ran `enroll` from; `--output` moves it), and a
 refresh credential (mode 0600, default `<config-dir>/galopin/credentials.json`,
 where `<config-dir>` is `~/.config` on Linux and `~/Library/Application
-Support` on macOS). `run` then supervises opencode and dials out to the
+Support` on macOS). `enroll` records the opencode config's absolute path in
+the credential file, and `run` finds it there and hands it to opencode, so
+neither command needs a path. `run` then supervises opencode and dials out to the
 chat. Open the sidebar's **Agents** panel: the machine is listed as **Pending** until you confirm it with the green check (**Confirm this machine**).
 
-| Flag             | When                                                                                                                                                                                                                                                                                                                        |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--cerea …/chat` | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                             |
-| `--output PATH`  | the file is **replaced whole**. `enroll` asks before replacing an existing one, and `--yes` skips the question. If you keep your own opencode config, point `--output` somewhere else and pass `run --opencode-config PATH`                                                                                                 |
-| `--device`       | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser |
-| the policy flags | `--no-terminal`, `--permission-max KEY=ACTION`, `--allow-free-models`, `--workspace-root PATH` and the rest are the machine's own vetoes, fixed at enroll time, and all of them are in the pairing dialog: see [The machine policy](#the-machine-policy)                                                                    |
+| Flag             | When                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cerea …/chat` | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                                                |
+| `--output PATH`  | where the opencode config goes (default `<config-dir>/galopin/opencode.json`). The file is **replaced whole**: `enroll` asks before replacing an existing one, and `--yes` skips the question. Its absolute path is recorded, so `run` finds it. Never point it at your own `~/.config/opencode/opencode.json` unless you mean to replace that |
+| `--device`       | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser                    |
+| the policy flags | `--no-terminal`, `--permission-max KEY=ACTION`, `--allow-free-models`, `--workspace-root PATH` and the rest are the machine's own vetoes, fixed at enroll time, and all of them are in the pairing dialog: see [The machine policy](#the-machine-policy)                                                                                       |
+
+A machine enrolled before `enroll` recorded the path has no `opencode_config` in
+its credential file, and `run` says so on stderr: the supervised opencode may
+have no pystino provider, so the panel reports that the daemon lists no models.
+Re-run `enroll`, or pass `run --opencode-config PATH` with the opencode.json
+`enroll` wrote.
 
 If `enroll` warns that model discovery failed, no model is available to you yet. Ask your administrator to grant your group one, then run the same command again.
 
@@ -910,8 +919,10 @@ model picker is one accidental keypress from a 400.
 Credentials and everything else galopin writes on its own behalf —
 `credentials.json` (carries the shim secret), `machine-id`, `policy.json`,
 `revoked`, `opencode-overlay.json`, `workspaces.json`, `status.json` and
-`audit.log` — live in `<config-dir>/galopin/`. opencode's own config keeps
-its own default, `~/.config/opencode/opencode.json`, unaffected.
+`audit.log` — live in `<config-dir>/galopin/`, and so does the `opencode.json`
+`enroll` writes by default (its path is recorded in `credentials.json` as
+`opencode_config`, which is how `run` finds it). opencode's own config,
+`~/.config/opencode/opencode.json`, is left alone.
 
 `audit.log` is the local record of terminal opens/closes and policy
 refusals — rotated JSON lines, never a byte of keystrokes, output, or file

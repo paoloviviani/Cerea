@@ -32,7 +32,10 @@ Usage:
   --device     Force the device flow (headless boxes).
   --loopback   Force the loopback browser flow (laptops).
   --group      Preselect the billing group (else prompted when several).
-  --output     Where to write opencode.json (default ./opencode.json).
+  --output     Where to write opencode.json (default: opencode.json beside
+               the credential file, <config-dir>/galopin/opencode.json). The
+               absolute path is recorded in the credential file, so 'run'
+               finds it from any directory; it is not your own opencode config.
   --creds      Where to store the refresh credential (default
                <config-dir>/galopin/credentials.json), mode 0600.
   --shim-port  Preferred local port for the serve shim (default 41871;
@@ -181,7 +184,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.device, "device", false, "")
 	fs.BoolVar(&opts.loopback, "loopback", false, "")
 	fs.StringVar(&opts.group, "group", "", "")
-	fs.StringVar(&opts.output, "output", "./opencode.json", "")
+	fs.StringVar(&opts.output, "output", "", "")
 	fs.StringVar(&opts.creds, "creds", "", "")
 	fs.IntVar(&opts.shimPort, "shim-port", defaultShimPort, "")
 	// --no-discover is separate from --discover because the stdlib flag
@@ -243,6 +246,16 @@ func runEnroll(args []string) error {
 }
 
 func enroll(ctx context.Context, opts *enrollOptions) error {
+	// The opencode.json lives beside the credentials unless --output says
+	// otherwise, and its absolute path is what gets recorded for 'run'.
+	if opts.output == "" {
+		opts.output = defaultOpencodeConfigPath(opts.creds)
+	}
+	outputAbs, err := filepath.Abs(opts.output)
+	if err != nil {
+		return fmt.Errorf("resolving --output: %w", err)
+	}
+	opts.output = outputAbs
 	issuer := opts.issuer
 	if issuer == "" {
 		answer, err := promptRequired("OIDC issuer URL (where discovery lives): ")
@@ -327,6 +340,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		ShimPort:           shimPort,
 		ShimSecret:         shimSecret,
 		CereaOrigin:        strings.TrimSuffix(opts.cerea, "/"),
+		OpencodeConfig:     opts.output,
 	}
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
@@ -368,7 +382,8 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		return fmt.Errorf("minting a new machine id: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "wrote %s (provider pystino via shim %s) and %s\n", opts.output, shimAddr, opts.creds)
+	fmt.Fprintf(os.Stderr, "wrote opencode config %s (provider pystino via shim %s) and credentials %s\n", opts.output, shimAddr, opts.creds)
+	fmt.Fprintf(os.Stderr, "'galopin run' finds the opencode config through the credentials, from any directory.\n")
 	fmt.Fprintf(os.Stderr, "billing group: %s (sent as x-bill-to by the shim)\n", group)
 	fmt.Fprintf(os.Stderr, "next: run 'galopin run', then confirm this machine in the chat's /code panel.\n")
 	fmt.Fprintf(os.Stderr, "      (for opencode on its own without the panel, 'galopin serve' runs just the gateway shim.)\n")
