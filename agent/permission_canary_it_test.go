@@ -21,6 +21,7 @@ import (
 // the tail restating rules lowered to the ceiling — is correct only under it.
 func TestUpgradeCanaryLastMatchWins(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
+	r.bypass = true
 	allowThenDeny := r.rawSession([]permrules.Rule{
 		{Permission: "edit", Pattern: "*", Action: permrules.Allow},
 		{Permission: "edit", Pattern: "*", Action: permrules.Deny},
@@ -46,17 +47,15 @@ func TestUpgradeCanaryLastMatchWins(t *testing.T) {
 // the file and the agent" is this ordering.
 func TestUpgradeCanarySessionRulesAreAfterTheAgentsRules(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
+	r.bypass = true
+	r.agents = map[string]string{}
 	plan := r.rawSession(nil)
-	if _, err := r.oc.SetMode(r.ctx, r.work, plan.ID, "plan"); err != nil {
-		t.Fatal(err)
-	}
+	r.agents[plan.ID] = "plan"
 	if ask, part, _ := r.try(plan, "c2-plain.txt"); ask != nil || !refused(part) || r.exists("c2-plain.txt") {
 		t.Fatalf("control: plan mode without a session rule: ask=%v part=%+v exists=%v; plan should deny edit", ask, part, r.exists("c2-plain.txt"))
 	}
 	allowing := r.rawSession([]permrules.Rule{{Permission: "edit", Pattern: "*", Action: permrules.Allow}})
-	if _, err := r.oc.SetMode(r.ctx, r.work, allowing.ID, "plan"); err != nil {
-		t.Fatal(err)
-	}
+	r.agents[allowing.ID] = "plan"
 	ask, part, _ := r.try(allowing, "c2-allowed.txt")
 	if ask != nil || part.ToolStatus != backend.ToolCompleted || !r.exists("c2-allowed.txt") {
 		t.Errorf("plan + session allow: ask=%v part=%+v exists=%v; the session rule should sit after the agent's. "+
@@ -68,17 +67,23 @@ func TestUpgradeCanarySessionRulesAreAfterTheAgentsRules(t *testing.T) {
 // Canary 3: a subagent inherits only its parent's DENIES. A parent's ask does
 // not reach it (it falls back to its own agent's rules, which allow), a parent's
 // deny does. permrules.ChildRules and the agent-level floor exist because of
-// the first half; the second is why a deny needs no help.
+// the first half; the second is why a deny needs no help. The ask is on `glob`,
+// a key the floor leaves alone: the floor now makes a subagent ask for the
+// blanket's own names before its session has rules, which would answer for the
+// parent's ask on edit.
 func TestUpgradeCanaryChildrenInheritOnlyDenies(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
-	asking := r.rawSession([]permrules.Rule{{Permission: "edit", Pattern: "*", Action: permrules.Ask}})
-	child, mark := r.delegate(asking, "c3-ask-marker", "c3-ask.txt")
-	ask, part := r.childOutcome(child, mark)
+	r.bypass = true
+	asking := r.rawSession([]permrules.Rule{{Permission: "glob", Pattern: "*", Action: permrules.Ask}})
+	child, mark := r.delegateCall(asking, "c3-ask-marker", map[string]any{
+		"id": "call_c3_glob", "name": "glob", "arguments": mustJSON2(map[string]any{"pattern": "*.nothing", "path": r.work}),
+	})
+	ask, part := r.childOutcomeOf("glob", child, mark)
 	if ask != nil {
 		t.Errorf("the subagent was asked (%+v): a parent's ask now reaches children. "+
 			"The ceiling's ask cap would then arrive without the floor; revisit permrules.ChildRules and Floor.", ask)
-	} else if part.ToolStatus != backend.ToolCompleted || !r.exists("c3-ask.txt") {
-		t.Errorf("the subagent's write: %+v exists=%v", part, r.exists("c3-ask.txt"))
+	} else if part.ToolStatus != backend.ToolCompleted {
+		t.Errorf("the subagent's glob: %+v", part)
 	}
 
 	denying := r.rawSession([]permrules.Rule{{Permission: "edit", Pattern: "*", Action: permrules.Deny}})
@@ -91,11 +96,13 @@ func TestUpgradeCanaryChildrenInheritOnlyDenies(t *testing.T) {
 }
 
 // Canary 4: an "always" is shared by every session in the workspace and
-// checked AFTER the rules, so it beats even a later deny. This is why a
-// tightened ceiling restarts opencode and why a capped "always" is turned into
-// "once" before it is ever given.
+// checked AFTER the rules, so it beats even a later deny. galopin no longer
+// gives opencode one (an "always allow" is its own exception, and opencode is
+// answered "once"), but a tightened ceiling still restarts opencode so that none
+// held by an older process or session outlives it; this is why.
 func TestUpgradeCanaryAlwaysIsSharedAndCheckedAfterRules(t *testing.T) {
 	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "ask"}})
+	r.bypass = true
 	a := r.rawSession(nil)
 	ask, _, mark := r.try(a, "c4-a.txt")
 	if ask == nil {
@@ -182,6 +189,7 @@ func TestUpgradeCanaryTheFloorNeverLoosensAndCaps(t *testing.T) {
 // permission.saved.remove, which may become able to do the real thing.
 func TestUpgradeCanarySavedStoreIsNotTheAlwaysStore(t *testing.T) {
 	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "ask"}})
+	r.bypass = true
 
 	// A v2 request with a save does not become a v1 approval: a v1 write still
 	// asks afterwards.

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,11 +17,10 @@ import (
 	"galopin/internal/workspaces"
 )
 
-// A machine whose policy lets no session auto-accept (permission.responders
-// denied) refuses to switch one on, and — with no rule for the two
-// coordination tools — every send and every spawn raises a card and nothing is
-// audited "allow". Gated behind GALOPIN_OPENCODE_IT=1.
-func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
+// With no rule for the two coordination tools, every send and every spawn
+// raises a card and nothing is audited "allow": there is nothing that answers
+// them for a person. Gated behind GALOPIN_OPENCODE_IT=1.
+func TestAgentToolsWithNoRuleRaiseACardIntegration(t *testing.T) {
 	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
 		t.Skip("set GALOPIN_OPENCODE_IT=1 to run (spawns real opencode + a mock LLM)")
 	}
@@ -56,7 +54,7 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 		"HOME=" + dirs["home"], "XDG_CONFIG_HOME=" + dirs["config"], "XDG_DATA_HOME=" + dirs["data"],
 		"XDG_CACHE_HOME=" + dirs["cache"], "TMPDIR=" + itTmpDir(t), "PATH=" + os.Getenv("PATH"),
 	}
-	pol := policy.Default() // responders: denied
+	pol := policy.Default()
 	oc := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: dirs["state"],
 		OverlayPath:    filepath.Join(dirs["state"], "opencode-overlay.json"),
@@ -103,12 +101,6 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 		return s
 	}
 	a, b, c := newSession("it-deny-a"), newSession("it-deny-b"), newSession("it-deny-c")
-	if err := mat.SetAutoAccept(a.ID, true); !errors.Is(err, sessions.ErrAutoAcceptForbidden) {
-		t.Fatalf("SetAutoAccept on a denying machine = %v, want ErrAutoAcceptForbidden", err)
-	}
-	if mat.AutoAccept(a.ID) {
-		t.Fatal("auto-accept is in effect on a machine that denies it")
-	}
 	setMockScenario(t, mockOrigin, map[string]any{"content": []string{"ok"}, "chunkDelayMs": 5, "finishReason": "stop", "routes": []map[string]any{
 		{"contains": "trigger-deny-send", "scenario": map[string]any{
 			"toolCalls": []map[string]any{{"id": "call_deny_send", "name": "session_send", "arguments": mustJSON2(map[string]any{"target": b.ID, "text": "deny hello"})}},
@@ -137,7 +129,7 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 			t.Fatalf("%s = %s / %q / %q", k.tool, part.ToolStatus, part.Output, part.ToolError)
 		}
 		if asks := hub.asks(mark, k.from.ID); len(asks) != 1 || asks[0].Tool != k.tool {
-			t.Errorf("%s on a denying machine: want exactly one card, got %+v", k.tool, asks)
+			t.Errorf("%s with no rule: want exactly one card, got %+v", k.tool, asks)
 		}
 		if k.want != "" && part.Output != k.want {
 			t.Errorf("%s result = %q, want %q", k.tool, part.Output, k.want)
@@ -149,6 +141,6 @@ func TestAgentToolsAutoAcceptDeniedIntegration(t *testing.T) {
 		t.Fatal("audit log is empty")
 	}
 	if strings.Contains(string(raw), `"decision":"allow"`) {
-		t.Errorf("an auto decision was audited on a machine that denies auto-accept:\n%s", raw)
+		t.Errorf("an allow decision was audited for a call no rule allowed:\n%s", raw)
 	}
 }
