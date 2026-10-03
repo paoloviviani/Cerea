@@ -212,7 +212,10 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID str
 	if err := b.ensureRules(ctx, workspaceDir, sessionID, b.agentFor(sessionID)); err != nil {
 		return err
 	}
-	parts := make([]map[string]any, 0, 2+len(prompt.Attachments))
+	parts := make([]map[string]any, 0, 3+len(prompt.Attachments))
+	if b.cfg.Permissions != nil && b.PermissionMode(sessionID) == permrules.Deny {
+		parts = append(parts, map[string]any{"type": "text", "text": denyNote, "synthetic": true})
+	}
 	if prompt.Preface != "" {
 		// A synthetic part: the model reads it, the transcript never shows it
 		// as the person's text (PROTOCOL.md §7).

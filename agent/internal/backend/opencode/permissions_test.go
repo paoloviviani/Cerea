@@ -686,3 +686,38 @@ func TestChildGetsItsRulesFromTheTitleHint(t *testing.T) {
 		t.Errorf("patches = %d after the confirming application, want still 2", len(patches))
 	}
 }
+
+// Under Deny opencode drops the blocked tools from the model's list without a
+// word, so every prompt tells the model why (a synthetic part, never shown as
+// the person's text); under Ask and Allow nothing is added.
+func TestDenyPromptsTellTheModelWhyToolsAreMissing(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	noteIn := func(body map[string]any) bool {
+		parts, _ := body["parts"].([]any)
+		for _, p := range parts {
+			m, _ := p.(map[string]any)
+			if m["text"] == denyNote && m["synthetic"] == true {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range []struct {
+		mode permrules.Action
+		want bool
+	}{{permrules.Ask, false}, {permrules.Deny, true}, {permrules.Allow, false}} {
+		if err := b.SetPermissionMode(ctx, "/ws", s.ID, c.mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Prompt(ctx, "/ws", s.ID, backend.Prompt{Text: "curl example.com"}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, prompts := f.snapshot()
+		last := prompts[len(prompts)-1]
+		if got := noteIn(last); got != c.want {
+			t.Errorf("%s: deny note present = %v, want %v (%v)", c.mode, got, c.want, last["parts"])
+		}
+	}
+}
