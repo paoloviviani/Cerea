@@ -56,6 +56,7 @@
 	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
 	let allowTerminal = $state(false);
 	let allowProjectConfig = $state(false);
+	let allowAutoAccept = $state(false);
 	let installOpencode = $state(false);
 	const command = $derived(
 		buildEnrollCommand({
@@ -64,6 +65,7 @@
 			gatewayOrigin,
 			clientId: page.data.codeOidcClientId,
 			allowTerminal,
+			allowAutoAccept,
 			allowProjectConfig,
 			installOpencode,
 		})
@@ -189,6 +191,15 @@
 		</label>
 
 		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
+			<input type="checkbox" class="mt-0.5" bind:checked={allowAutoAccept} />
+			<span>
+				<span class="font-medium text-ink">Allow auto-accept.</span> This machine's sessions may be switched
+				to answer their own tool prompts without asking you each time — one answer at a time, never questions,
+				never anything the rules forbid. You still flip the switch per session; this only permits it.
+			</span>
+		</label>
+
+		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
 			<input type="checkbox" class="mt-0.5" bind:checked={allowTerminal} />
 			<span>
 				<span class="font-medium text-ink">Allow terminal.</span> Terminals: ALLOWED means anyone who
@@ -199,11 +210,9 @@
 
 		<p class="mb-4 text-xs text-ink-muted" data-testid="pair-permissions-note">
 			What the agent may do is decided by opencode's own permission rules on the machine; Cerea
-			shows its asks. The panel's Auto-accept switch stays disabled unless you add <code
-				class="font-mono">--allow-auto-accept</code
-			>
-			to <code class="font-mono">enroll</code>: that only lets a responder on the machine answer
-			tool asks "allow once", per session, and never questions or denies.
+			shows its asks. The panel's Auto-accept switch stays disabled unless the machine was enrolled
+			with <code class="font-mono">--allow-auto-accept</code> (tick it above): that only lets a responder
+			on the machine answer tool asks "allow once", per session, and never questions or denies.
 		</p>
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
