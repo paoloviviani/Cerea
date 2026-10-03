@@ -8,6 +8,12 @@
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
+	import {
+		FIRST_TURN_HINT,
+		FIRST_TURN_LABEL,
+		FIRST_TURN_SUBAGENT,
+		type FirstTurnSubagent,
+	} from "$lib/utils/firstTurnSubagent";
 
 	/**
 	 * The tool-approval gate (ADR 0075): a dedicated card, not the generic
@@ -139,6 +145,19 @@
 	/** The ceiling holds this tool below allow: an "always" would store
 	 * nothing, so the button is not offered (see `alwaysCappedContext`). */
 	const alwaysCapped = getContext<AlwaysCapped | undefined>(ALWAYS_CAPPED);
+	/** A new subagent's first turn asks whatever the setting is (see
+	 * `firstTurnSubagent`): say so, so the ask does not read as the setting
+	 * being ignored. Only on the agent surface, where a provider is above. */
+	const firstTurn = getContext<FirstTurnSubagent | undefined>(FIRST_TURN_SUBAGENT);
+	const askingChild = $derived(
+		onanswer ? (request.childSessionId ?? firstTurn?.childId) : undefined
+	);
+	$effect(() => {
+		if (askingChild && open) firstTurn?.ensure(askingChild, request.elicitationId);
+	});
+	const firstTurnChip = $derived(
+		askingChild !== undefined && firstTurn?.isFirst(askingChild, request.elicitationId) === true
+	);
 	const capped = $derived(
 		onanswer !== undefined && toolApproval ? (alwaysCapped?.(toolApproval.tool) ?? false) : false
 	);
@@ -234,6 +253,13 @@
 						>{toolApproval.tool}</code
 					>
 				</span>
+				{#if firstTurnChip}
+					<span
+						class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+						data-testid="first-turn-chip"
+						title={FIRST_TURN_HINT}>{FIRST_TURN_LABEL}</span
+					>
+				{/if}
 				{#if expiresAt !== undefined}
 					<span class="ml-auto text-xs text-gray-400 tabular-nums dark:text-gray-500">
 						{timeLeft}

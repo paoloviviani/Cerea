@@ -460,6 +460,15 @@ thing Allow cannot pass: where the machine says `bash` asks, `bash` asks on
 Allow too, and the selector says so (_"Allow · bash asks (machine limit)"_).
 Nothing in the panel can raise the ceiling; loosening it means enrolling again.
 
+**A new subagent's first turn asks, whatever the setting says.** opencode starts
+a subagent before Cerea can hand it your setting, so on **Allow** that first
+turn still asks. The card says so with a _New subagent · first turn asks_ chip,
+and the selector's note under Allow reads _"Allow · new subagents ask on their
+first turn"_ (with a tooltip saying why), so the ask does not look like Allow
+being ignored. The chip is drawn from the subagent's own transcript: it appears
+while that subagent has had only its starting prompt, and not at all when the
+transcript cannot be read.
+
 **The approval card.** When a tool call asks, the card offers **Allow once**,
 **Always allow (this session)** and **Deny**. The panel relays your answer
 unchanged: **opencode's rules decide**.
@@ -516,8 +525,8 @@ rules are the main session's setting and exceptions, capped by the machine's
 limits, never the machine's own allows. They are applied when the subagent
 appears and re-applied to every live subagent whenever you change the main
 session's setting or remove an exception, so Deny stops a running child too.
-There is a brief moment before they land, which the machine covers by starting
-a subagent from an ask floor rather than from allow-everything. On a subagent's
+Until they land, the machine starts a subagent from an ask floor rather than
+from allow-everything, which is why a new subagent's first turn asks. On a subagent's
 own view the selector shows the main session's setting, disabled (opencode
 itself hands a subagent only its parent's _deny_ rules, which is why galopin
 sets the rest explicitly).

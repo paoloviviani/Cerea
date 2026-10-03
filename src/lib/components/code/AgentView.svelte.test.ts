@@ -23,6 +23,8 @@ const fake = vi.hoisted(() => ({
 	parentId: null as string | null,
 	ceiling: {} as Record<string, "ask" | "deny">,
 	setCalls: [] as string[],
+	/** Each subagent's own transcript, by session id (MOCK of the timeline route). */
+	timelines: {} as Record<string, unknown[]>,
 	ruleReads: 0,
 	snapshotReads: 0,
 }));
@@ -67,6 +69,9 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 			enrollmentExpired: false,
 		};
 	},
+	fetchSubagentTimeline: async (_device: string, _agent: string, child: string) => ({
+		updates: fake.timelines[child] ?? [],
+	}),
 	setPermissionMode: async (_device: string, _agent: string, mode: "deny" | "ask" | "allow") => {
 		fake.setCalls.push(mode);
 		fake.mode = mode;
@@ -125,6 +130,7 @@ beforeEach(() => {
 	fake.parentId = null;
 	fake.ceiling = {};
 	fake.setCalls = [];
+	fake.timelines = {};
 	fake.ruleReads = 0;
 	fake.snapshotReads = 0;
 	sidePane.reset();
@@ -234,7 +240,9 @@ describe("AgentView permission selector", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Allow · bash asks (machine limit)");
+			.toHaveTextContent(
+				"Allow · bash asks (machine limit) · new subagents ask on their first turn"
+			);
 	});
 
 	it("is disabled on a subagent's view, saying it follows the main session", async () => {
@@ -279,5 +287,75 @@ describe("AgentView permission selector", () => {
 			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
 		).toHaveLength(1);
 		expect(screen.getByRole("button", { name: "Allow once" }).elements()).toHaveLength(2);
+	});
+
+	describe("a new subagent's first turn", () => {
+		const childAsk = (id: string, child: string) => ({
+			type: MessageUpdateType.Elicitation,
+			subtype: MessageElicitationUpdateType.Request,
+			request: permissionToElicitation(
+				{
+					id,
+					sessionId: child,
+					tool: "edit",
+					title: "write a file",
+					patterns: ["x"],
+					metadata: {},
+					always: [],
+				},
+				{ childId: child, childTitle: "Researcher" }
+			),
+		});
+
+		it("is named on a subagent's ask while that subagent has had only its starting prompt", async () => {
+			await browserPage.viewport(1200, 800);
+			fake.mode = "allow";
+			fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+			const screen = mount();
+			await arrive([childAsk("p-1", "child-1")]);
+			await expect
+				.element(screen.getByTestId("first-turn-chip"))
+				.toHaveTextContent("New subagent · first turn asks");
+		});
+
+		it("is not named once the subagent has had another turn", async () => {
+			await browserPage.viewport(1200, 800);
+			fake.mode = "allow";
+			fake.timelines = {
+				"child-1": [
+					{ type: "user", text: "look around" },
+					{ type: "user", text: "now this" },
+				],
+			};
+			const screen = mount();
+			await arrive([childAsk("p-1", "child-1")]);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("is not named on the main session's own ask", async () => {
+			await browserPage.viewport(1200, 800);
+			fake.mode = "allow";
+			const screen = mount();
+			await arrive([
+				{
+					type: MessageUpdateType.Elicitation,
+					subtype: MessageElicitationUpdateType.Request,
+					request: permissionToElicitation({
+						id: "p-root",
+						sessionId: "a1",
+						tool: "edit",
+						title: "write a file",
+						patterns: ["x"],
+						metadata: {},
+						always: [],
+					}),
+				},
+			]);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
 	});
 });

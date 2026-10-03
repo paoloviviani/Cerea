@@ -72,6 +72,8 @@
 	import type { PermissionRulesResult } from "$lib/types/machineProtocol";
 	import { ceilingOf, ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
+	import { FIRST_TURN_SUBAGENT } from "$lib/utils/firstTurnSubagent";
+	import { FirstTurnTracker } from "$lib/utils/firstTurnTracker.svelte";
 	import { error as errorToast } from "$lib/stores/errors";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -453,6 +455,14 @@
 	// The cards below hide "Always allow (this session)" for a tool the ceiling
 	// holds below allow: the machine would answer once and store nothing.
 	setContext<AlwaysCapped>(ALWAYS_CAPPED, (tool) => isCapped(ceiling, tool));
+	// A new subagent's first turn asks whatever the setting is: the card says so,
+	// reading the asking subagent's own transcript once per ask.
+	setContext(
+		FIRST_TURN_SUBAGENT,
+		new FirstTurnTracker(
+			async (childId) => (await fetchSubagentTimeline(deviceId, agentId, childId)).updates
+		)
+	);
 
 	// A subagent's view names where it came from, with a link back: the
 	// parent's own row (title, workspace), read once per parent id.

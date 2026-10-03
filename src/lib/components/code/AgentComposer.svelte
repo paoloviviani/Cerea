@@ -58,6 +58,7 @@
 	import type { PermissionMode } from "$lib/types/machineProtocol";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import { ceilingNote } from "$lib/utils/permissionRules";
+	import { FIRST_TURN_HINT } from "$lib/utils/firstTurnSubagent";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
 	import { resolveActiveModel } from "$lib/utils/activeModel";
 	import ModelEffortPicker from "$lib/components/chat/ModelEffortPicker.svelte";
@@ -634,8 +635,7 @@
 		{
 			mode: "allow",
 			label: "Allow",
-			title:
-				"Edits, commands and fetches run without asking, up to this machine's limits. Still asks: writing outside the project folder, and an agent that is stuck repeating itself.",
+			title: `Edits, commands and fetches run without asking, up to this machine's limits. Still asks: writing outside the project folder, an agent that is stuck repeating itself, and a new subagent's first turn. ${FIRST_TURN_HINT}`,
 		},
 	];
 	let isSubagent = $derived(Boolean(agent?.parentId));
@@ -646,7 +646,11 @@
 		if (isSubagent) return "Follows the main session";
 		if (permissionMode !== "allow") return "";
 		const held = ceilingNote(ceiling);
-		return held ? `Allow · ${held} (machine limit)` : "";
+		return [
+			"Allow",
+			...(held ? [`${held} (machine limit)`] : []),
+			"new subagents ask on their first turn",
+		].join(" · ");
 	});
 
 	let modeLabel = $derived.by(() => {
@@ -878,7 +882,7 @@
 							<span
 								class="flex min-w-0 flex-none items-center gap-1 text-xs text-gray-500 max-sm:hidden dark:text-gray-400"
 								data-testid="permission-mode-note"
-								title={permissionNote}
+								title={isSubagent ? permissionNote : FIRST_TURN_HINT}
 							>
 								{permissionNote}
 							</span>
