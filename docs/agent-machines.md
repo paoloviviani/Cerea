@@ -255,7 +255,7 @@ sets, below it the agent's own rules for what the selector leaves alone), the
 session's **exceptions**, and the machine's **ceiling** last. The ceiling is
 appended last on every apply, so **it always wins a tie**: nothing the selector
 or an exception asks for can go past it. A rule in the person's own opencode
-config that a later rule replaces is not deleted: the panel's
+config that a later rule replaces is not deleted: the raw list behind the
 [Permissions line](#permissions) shows it as _overridden by Cerea_ (or by the
 machine's rules, floor or limits).
 
@@ -505,20 +505,28 @@ beats them. Switching back to **Ask** restores them, and on **Allow** they are
 redundant but harmless. They are removed one by one from the Permissions line.
 
 **The Permissions line** sits under the session header and is **read-only**: it
-shows, and the selector and **Remove** are the only controls. For `edit`, `bash`
-and `webfetch` it shows what opencode will do (_ask_, _allow_ or _deny_; a count
-like `+2` means narrower patterns refine it, and `· 1 exception` counts that
-tool's exceptions). Opening it lists every rule in force, what this machine
-caps, and the session's **Exceptions**, each with the command it covers and a
-**Remove** that makes that command ask again. Remove can only tighten, and the
-machine records each removal. An exception the machine marks as not removable
-shows "held by the machine" instead. A rule from the person's own opencode
-config that Cerea or the machine replace is struck through and labelled
-_overridden by Cerea_ (or _by this machine's rules / floor / limits_); the
-match behind that label is literal, so a rule that a broader glob in fact
-replaced can still be listed as in force. The order shown is the machine's word
-either way. While the sign-in is [stale](#the-7-day-sign-in) the line, the
-selector and Remove are hidden, and the server refuses them anyway.
+shows, and the selector and **Remove** are the only controls. Collapsed it says
+what the session does in a breath: _Edits ask · commands ask · web ask_ (or
+_allowed_, or _blocked_ under Deny). Opening it gives one row per capability
+(edit and write files, run commands, fetch from the web, start subagents, read
+files, work outside the project folder, start or message other sessions, ask you
+questions) with the **final answer**: _Allowed_, _Asks first_ or _Blocked_.
+opencode's rules are last-match-wins and the same permission can repeat with
+different answers, so the panel works the answer out the way opencode does
+instead of listing them. Reading says _except secret files like .env: ask_ when
+a narrower rule asks about those. A row the machine's ceiling holds below what
+the session's setting would give says _limited by this machine_. Under the rows
+come the session's **exceptions**, each _Allowed for this session: `git status *`_
+with a **Remove** that makes that command ask again. Remove can only tighten,
+and the machine records each removal. An exception the machine marks as not
+removable shows "held by the machine" instead. The full rule list, in evaluation
+order, stays behind _Show the raw rules (for troubleshooting)_, height-capped and
+scrolling; there a rule from the person's own opencode config that Cerea or the
+machine replace is struck through and labelled _overridden by Cerea_ (or _by this
+machine's rules / floor / limits_); the match behind that label is literal, so a
+rule that a broader glob in fact replaced can still be listed as in force. While
+the sign-in is [stale](#the-7-day-sign-in) the line, the selector and Remove are
+hidden, and the server refuses them anyway.
 
 ### Subagents
 

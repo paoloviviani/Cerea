@@ -1,19 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type { PermissionRule } from "$lib/types/machineProtocol";
+import type { PermissionRule, PermissionRulesResult } from "$lib/types/machineProtocol";
 import {
 	annotateRules,
 	ceilingEmpty,
 	ceilingFor,
 	ceilingNote,
 	ceilingOfPolicy,
-	exceptionCount,
+	actionLabel,
+	capabilityRows,
+	evaluate,
+	permissionSummary,
+	wildcardMatch,
+	type CapabilityRow,
 	isCapped,
 	hasFileRules,
 	isLegacyMachine,
 	ceilingOf,
 	overriddenLabel,
 	sourceLabel,
-	summarizeTool,
 } from "./permissionRules";
 
 const rule = (
@@ -23,34 +27,190 @@ const rule = (
 	source?: string
 ): PermissionRule => ({ permission, pattern, action, ...(source ? { source } : {}) });
 
-describe("summarizeTool", () => {
-	it("is the last matching catch-all: later rules win", () => {
-		const rules = [rule("edit", "*", "deny", "file"), rule("edit", "*", "ask", "cerea")];
-		expect(summarizeTool(rules, "edit")).toMatchObject({ action: "ask", explicit: true });
+describe("wildcardMatch", () => {
+	it("takes * as any run and ? as one character, over the whole string", () => {
+		expect(wildcardMatch("edit", "*")).toBe(true);
+		expect(wildcardMatch("session_spawn", "session_*")).toBe(true);
+		expect(wildcardMatch("bash", "bas?")).toBe(true);
+		expect(wildcardMatch("bash", "bas")).toBe(false);
+		expect(wildcardMatch("a.env", "*.env")).toBe(true);
+		expect(wildcardMatch("aXenv", "*.env")).toBe(false);
+	});
+
+	it("lets a trailing ' *' match the bare command", () => {
+		expect(wildcardMatch("git", "git *")).toBe(true);
+		expect(wildcardMatch("git status", "git *")).toBe(true);
+		expect(wildcardMatch("gitk", "git *")).toBe(false);
+	});
+});
+
+describe("evaluate", () => {
+	it("is the last matching rule: the user's question case, ask / allow / deny / allow, is allow", () => {
+		const rules = [
+			rule("question", "*", "ask", "cerea"),
+			rule("question", "*", "allow", "opencode"),
+			rule("question", "*", "deny", "file"),
+			rule("question", "*", "allow", "cerea"),
+		];
+		expect(evaluate(rules, "question")).toBe("allow");
 	});
 
 	it("lets a later wildcard permission win over an earlier specific one", () => {
-		const rules = [rule("bash", "*", "allow"), rule("*", "*", "deny")];
-		expect(summarizeTool(rules, "bash").action).toBe("deny");
+		expect(evaluate([rule("bash", "*", "allow"), rule("*", "*", "deny")], "bash")).toBe("deny");
+		expect(evaluate([rule("*", "*", "deny"), rule("bash", "*", "allow")], "bash")).toBe("allow");
 	});
 
-	it("asks, marked not explicit, when no rule matches (opencode's own fallback)", () => {
-		expect(summarizeTool([], "webfetch")).toEqual({
-			tool: "webfetch",
-			action: "ask",
-			explicit: false,
-			narrower: 0,
+	it("asks when no rule matches", () => {
+		expect(evaluate([], "webfetch")).toBe("ask");
+		expect(evaluate([rule("edit", "*", "allow")], "bash")).toBe("ask");
+	});
+
+	it("matches the pattern too: a narrower rule does not decide the catch-all", () => {
+		const rules = [rule("bash", "*", "ask"), rule("bash", "git *", "allow")];
+		expect(evaluate(rules, "bash")).toBe("ask");
+		expect(evaluate(rules, "bash", "git status")).toBe("allow");
+	});
+});
+
+const result = (
+	rules: PermissionRule[],
+	extra: Partial<PermissionRulesResult> = {}
+): PermissionRulesResult => ({ rules, savedApprovals: [], ceiling: {}, ...extra });
+
+const rowOf = (rows: CapabilityRow[], id: string) => rows.find((row) => row.id === id);
+
+describe("capabilityRows", () => {
+	it("gives one row per capability, in plain words, with the final answer", () => {
+		const rows = capabilityRows(result([rule("*", "*", "ask", "cerea")]));
+		expect(rows.map((row) => row.label)).toEqual([
+			"Edit and write files",
+			"Run commands",
+			"Fetch from the web",
+			"Start subagents",
+			"Read files",
+			"Work outside the project folder",
+			"Start or message other sessions",
+			"Ask you questions",
+		]);
+		expect(rows.every((row) => row.action === "ask")).toBe(true);
+	});
+
+	it("takes the last answer where the raw list repeats a permission", () => {
+		const rows = capabilityRows(
+			result([
+				rule("lsp", "*", "ask"),
+				rule("lsp", "*", "allow"),
+				rule("question", "*", "ask"),
+				rule("question", "*", "allow"),
+				rule("question", "*", "deny"),
+				rule("question", "*", "allow"),
+			])
+		);
+		expect(rowOf(rows, "question")?.action).toBe("allow");
+	});
+
+	it("shows a search row only where it differs from the fetch row", () => {
+		const same = capabilityRows(result([rule("*", "*", "allow")]));
+		expect(rowOf(same, "search")).toBeUndefined();
+		const differs = capabilityRows(
+			result([
+				rule("*", "*", "allow"),
+				rule("websearch", "*", "deny"),
+				rule("codesearch", "*", "deny"),
+			])
+		);
+		expect(rowOf(differs, "search")).toMatchObject({ label: "Search the web", action: "deny" });
+	});
+
+	it("splits a row whose keys disagree", () => {
+		const rows = capabilityRows(
+			result([rule("*", "*", "allow"), rule("session_send", "*", "deny")])
+		);
+		expect(rowOf(rows, "sessions")).toBeUndefined();
+		expect(rowOf(rows, "sessions:session_spawn")).toMatchObject({
+			label: "Start other sessions",
+			action: "allow",
 		});
-		expect(summarizeTool([rule("edit", "*", "allow")], "bash").explicit).toBe(false);
+		expect(rowOf(rows, "sessions:session_send")).toMatchObject({
+			label: "Message other sessions",
+			action: "deny",
+		});
 	});
 
-	it("counts narrower patterns instead of letting them change the summary", () => {
-		const rules = [
-			rule("bash", "*", "ask"),
-			rule("bash", "git *", "allow"),
-			rule("bash", "rm *", "deny"),
-		];
-		expect(summarizeTool(rules, "bash")).toMatchObject({ action: "ask", narrower: 2 });
+	it("notes the secret files a later read rule asks about", () => {
+		const rows = capabilityRows(
+			result([
+				rule("read", "*", "allow", "opencode"),
+				rule("read", "*.env", "ask", "opencode"),
+				rule("read", "*.env.*", "ask", "opencode"),
+				rule("read", "*.env.example", "allow", "opencode"),
+			])
+		);
+		expect(rowOf(rows, "read")).toMatchObject({
+			action: "allow",
+			except: ["secret files like .env: ask"],
+		});
+	});
+
+	it("drops that note when a later catch-all replaces it", () => {
+		const rows = capabilityRows(
+			result([
+				rule("read", "*", "allow"),
+				rule("read", "*.env", "ask"),
+				rule("read", "*", "deny", "ceiling"),
+			])
+		);
+		expect(rowOf(rows, "read")).toMatchObject({ action: "deny", except: [] });
+	});
+
+	it("marks a row the ceiling holds below what the session's setting would give", () => {
+		const rows = capabilityRows(
+			result(
+				[
+					rule("*", "*", "allow", "cerea"),
+					rule("bash", "*", "ask", "ceiling"),
+					rule("edit", "*", "allow", "ceiling"),
+				],
+				{ ceiling: { bash: "ask" } }
+			)
+		);
+		expect(rowOf(rows, "bash")).toMatchObject({ action: "ask", capped: true });
+		expect(rowOf(rows, "edit")).toMatchObject({ action: "allow", capped: false });
+	});
+
+	it("is not capped when the session's own setting is already as strict", () => {
+		const rows = capabilityRows(
+			result([rule("*", "*", "ask", "cerea"), rule("bash", "*", "ask", "ceiling")], {
+				ceiling: { bash: "ask" },
+			})
+		);
+		expect(rowOf(rows, "bash")?.capped).toBe(false);
+	});
+
+	it("reads the reported ceiling when the rules carry no source", () => {
+		const rows = capabilityRows(
+			result([rule("*", "*", "ask")], { mode: "allow", ceiling: { bash: "ask" } })
+		);
+		expect(rowOf(rows, "bash")?.capped).toBe(true);
+	});
+});
+
+describe("permissionSummary", () => {
+	it("says it short and plain", () => {
+		const deny = capabilityRows(result([rule("*", "*", "deny")]));
+		expect(permissionSummary(deny)).toBe("Edits blocked · commands blocked · web blocked");
+		const ask = capabilityRows(result([]));
+		expect(permissionSummary(ask)).toBe("Edits ask · commands ask · web ask");
+		const mixed = capabilityRows(result([rule("*", "*", "ask"), rule("edit", "*", "allow")]));
+		expect(permissionSummary(mixed)).toBe("Edits allowed · commands ask · web ask");
+	});
+});
+
+describe("actionLabel", () => {
+	it("uses the three plain words", () => {
+		expect(actionLabel("allow")).toBe("Allowed");
+		expect(actionLabel("ask")).toBe("Asks first");
+		expect(actionLabel("deny")).toBe("Blocked");
 	});
 });
 
@@ -206,18 +366,6 @@ describe("the ceiling", () => {
 		expect(ceilingNote({ bash: "ask", edit: "deny" })).toBe("bash asks, edit is denied");
 		expect(ceilingNote({ "*": "ask" })).toBe("everything asks");
 		expect(ceilingNote({})).toBe("");
-	});
-});
-
-describe("exceptionCount", () => {
-	it("counts a tool's exceptions", () => {
-		const savedApprovals = [
-			{ id: "a", permission: "bash", patterns: [] },
-			{ id: "b", permission: "bash", patterns: [] },
-			{ id: "c", permission: "edit", patterns: [] },
-		];
-		expect(exceptionCount({ savedApprovals }, "bash")).toBe(2);
-		expect(exceptionCount({ savedApprovals }, "webfetch")).toBe(0);
 	});
 });
 
