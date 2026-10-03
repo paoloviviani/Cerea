@@ -67,7 +67,7 @@ here lists every variable the app understands.
 
 galopin runs next to the agent on a person's machine, dials out to Cerea with
 its own OIDC credential, and is confirmed by its owner in `/code`. What a
-machine allows (auto-accept, workspace roots, files, the terminal) is fixed on
+machine allows (the permission ceiling, workspace roots, files, the terminal) is fixed on
 the machine at enroll time; the terminal also needs `CODE_TERMINAL_ENABLED=true`
 on the deployment. See [docs/code-panel.md](docs/code-panel.md) (operators),
 [docs/agent-machines.md](docs/agent-machines.md) (users) and
