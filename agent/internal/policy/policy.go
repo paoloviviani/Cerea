@@ -16,16 +16,14 @@ import (
 )
 
 // Policy is the whole file (PROTOCOL.md §5). Defaults are all the safe
-// answer: no responder, no workspace outside what's explicitly listed once
-// any root is configured, no models beyond the gateway's own.
+// answer: no workspace outside what's explicitly listed once any root is
+// configured, no models beyond the gateway's own.
 //
-// A policy.json written before the permission pass-through may still carry
-// `autoAccept`. It meant exactly what Permission.Responders means now — the
-// owner let sessions auto-accept — so when permission.responders is absent
-// Load takes it from a legacy "allowed" (an owner who enrolled with
-// --allow-auto-accept keeps what they chose); a legacy "denied" is the default
-// anyway. Save writes only the new field, so the old one is gone after the
-// first write. Nothing else is carried over: the old word never meant any rule.
+// A policy.json written before the permission selector may still carry
+// `autoAccept` or `permission.responders`. Both are ignored on read and gone
+// after the first write: the auto-accept responder they gated no longer exists,
+// and nothing about a session's blanket (deny, ask or allow) is a machine
+// setting. The machine's ceiling, Permission.Max, is what stays.
 type Policy struct {
 	// Permission is the machine's say over opencode's permission system.
 	Permission      Permission `json:"permission"`
@@ -91,19 +89,11 @@ type Permission struct {
 	// rules, which sit above opencode's static config file, so they win over
 	// whatever an installer wrote there; the Max ceiling then caps them.
 	Rules map[string]string `json:"rules,omitempty"`
-	// Max is the ceiling: the most a key may ever be, whatever any rule or
-	// any "always" says. A key absent from Max is not capped. `enroll`
+	// Max is the ceiling: the most a key may ever be, whatever any rule, any
+	// session's selector or any exception says. A key absent from Max is not capped. `enroll`
 	// defaults bash to "ask"; `galopin policy set` may only lower a value.
 	Max map[string]string `json:"max,omitempty"`
-	// Responders says whether a session may be put in auto-accept at all
-	// ("allowed" | "denied", default denied): the owner's consent to a
-	// client-side responder answering asks with "once". It was
-	// Policy.autoAccept, and `enroll --allow-auto-accept` still sets it.
-	Responders string `json:"responders,omitempty"`
 }
-
-// RespondersAllowed reports whether auto-accept may be switched on.
-func (p Permission) RespondersAllowed() bool { return p.Responders == TerminalAllowed }
 
 // Ceiling is Max as the rule package's type.
 func (p Permission) Ceiling() permrules.Ceiling {
@@ -144,11 +134,7 @@ func (p Permission) Validate() error {
 	if err := check("max", p.Max); err != nil {
 		return err
 	}
-	switch p.Responders {
-	case "", TerminalAllowed, TerminalDenied:
-		return nil
-	}
-	return fmt.Errorf("permission.responders: %q is not allowed or denied", p.Responders)
+	return nil
 }
 
 // FilesRead and FilesOff are Policy.Files's two values.
@@ -233,7 +219,6 @@ const GatewayProviderID = "pystino"
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
 	return Policy{
-		Permission:          Permission{Responders: TerminalDenied},
 		AllowFreeModels:     false,
 		Files:               FilesRead,
 		Terminal:            TerminalDenied,
@@ -259,18 +244,8 @@ func Load(path string) (Policy, error) {
 	if err := json.Unmarshal(body, &p); err != nil {
 		return Policy{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	var legacy struct {
-		AutoAccept string `json:"autoAccept"`
-	}
-	_ = json.Unmarshal(body, &legacy)
 	if err := p.Permission.Validate(); err != nil {
 		return Policy{}, fmt.Errorf("%s: %w", path, err)
-	}
-	if p.Permission.Responders == "" {
-		p.Permission.Responders = TerminalDenied
-		if legacy.AutoAccept == "allowed" {
-			p.Permission.Responders = TerminalAllowed
-		}
 	}
 	if p.Files == "" {
 		p.Files = FilesRead
@@ -374,8 +349,7 @@ func (p Policy) FilterModelIDs(ids []string) []string {
 // Live is the permission part of the policy as a running agent holds it. The
 // rest of policy.json is read once at start; the permission part is the one
 // piece that may change under a running process, and only downward: a ceiling
-// or a rule tightened with `galopin policy set`, or responders turned off,
-// takes effect without a restart of galopin. A looser file is not picked up
+// or a rule tightened with `galopin policy set`, takes effect without a restart of galopin. A looser file is not picked up
 // until the next `run` (loosening needs `enroll`, as everywhere else).
 type Live struct {
 	mu sync.RWMutex
@@ -392,13 +366,6 @@ func (l *Live) Permission() Permission {
 	return clonePermission(l.p)
 }
 
-// RespondersAllowed reports whether a session may be on auto-accept right now.
-func (l *Live) RespondersAllowed() bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.p.RespondersAllowed()
-}
-
 // Layers is the machine's two permission inputs for composing a session's rules.
 func (l *Live) Layers() permrules.Layers {
 	l.mu.RLock()
@@ -412,16 +379,14 @@ type Change struct {
 	// than it did. This is what makes a restart of opencode necessary, because
 	// an "always" it holds outranks every rule.
 	Tightened bool
-	// RespondersOff: auto-accept was allowed and no longer is.
-	RespondersOff bool
 }
 
 // Any reports whether anything changed.
-func (c Change) Any() bool { return c.Tightened || c.RespondersOff }
+func (c Change) Any() bool { return c.Tightened }
 
 // Tighten takes in a newly read permission policy, keeping the stricter of each
 // key and never raising anything: a ceiling the file now loosens stays as it
-// was, a rule it raises stays lowered, responders turned off stay off.
+// was, a rule it raises stays lowered.
 func (l *Live) Tighten(next Permission) Change {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -430,10 +395,6 @@ func (l *Live) Tighten(next Permission) Change {
 	var rulesTight bool
 	l.p.Rules, rulesTight = lowerActions(l.p.Rules, next.Rules)
 	ch.Tightened = ch.Tightened || rulesTight
-	if l.p.RespondersAllowed() && !next.RespondersAllowed() {
-		l.p.Responders = TerminalDenied
-		ch.RespondersOff = true
-	}
 	return ch
 }
 
@@ -486,7 +447,7 @@ func lowerActions(have, next map[string]string) (map[string]string, bool) {
 }
 
 func clonePermission(p Permission) Permission {
-	out := Permission{Responders: p.Responders}
+	var out Permission
 	if p.Max != nil {
 		out.Max = make(map[string]string, len(p.Max))
 		for k, v := range p.Max {

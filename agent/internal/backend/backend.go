@@ -11,14 +11,13 @@ import (
 // Cerea can hide affordances a given backend lacks instead of the backend
 // faking them.
 type Capabilities struct {
-	Diff       bool `json:"diff"`
-	Children   bool `json:"children"`
-	Usage      bool `json:"usage"`
-	Compact    bool `json:"compact"`
-	Images     bool `json:"images"`
-	Files      bool `json:"files"`
-	Worktrees  bool `json:"worktrees"`
-	AutoAccept bool `json:"autoAccept"`
+	Diff      bool `json:"diff"`
+	Children  bool `json:"children"`
+	Usage     bool `json:"usage"`
+	Compact   bool `json:"compact"`
+	Images    bool `json:"images"`
+	Files     bool `json:"files"`
+	Worktrees bool `json:"worktrees"`
 	// Questions is the user-question tool design's own capability: whether
 	// this backend has a native multiple-choice question mechanism
 	// (opencode: the built-in "question" tool, GET/POST /question). ACP
@@ -48,8 +47,9 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
-	// Permissions says the backend's own permission rules can be read and its
-	// saved approvals listed and withdrawn (permission.rules,
+	// Permissions says the backend's own permission rules can be read, that a
+	// session carries a Deny/Ask/Allow selector, and that its exceptions can be
+	// listed and removed (permission.rules, session.setPermissionMode,
 	// permission.saved.remove — PROTOCOL.md §6 "Permissions"). opencode only.
 	Permissions bool `json:"permissions"`
 }
@@ -241,9 +241,9 @@ const (
 	// SourceMachine is the machine's own rules (policy.json permission.rules),
 	// applied to every session; they beat the file.
 	SourceMachine = "machine"
-	// SourceCerea is the session's own block: what a person set through
-	// session.setRules (and the restorations of what an earlier write set and a
-	// later one dropped).
+	// SourceCerea is the session's own block: the mode block of the selector
+	// (session.setPermissionMode) and the exceptions a person made with "always
+	// allow".
 	SourceCerea = "cerea"
 	// SourceCeiling is the cap, always last.
 	SourceCeiling = "ceiling"
@@ -261,6 +261,9 @@ type SourcedRule struct {
 // galopin itself wrote, everything else in the agent's list is opencode's.
 type RuleLayers struct {
 	Agent string
+	// Mode is the selector's word for the session (a subagent reports its
+	// root's).
+	Mode  string
 	Rules []SourcedRule
 }
 
@@ -273,54 +276,64 @@ func (l RuleLayers) Plain() []permrules.Rule {
 	return out
 }
 
-// SavedApproval is one "always" as permission.rules lists it. opencode keeps
-// its own in memory with no ids, and 1.18.32 offers no way to read or withdraw
-// them (its /api/permission/saved belongs to a separate v2 system that no ask
-// reaches), so galopin mints ids for the ones it relayed and reports them
-// Removable false.
+// SavedApproval is one exception as permission.rules lists it under
+// savedApprovals: an "always allow" a person gave on a card, kept by galopin on
+// the ROOT session (permrules.Exception) and removable. galopin answers
+// opencode with "once" whatever the person chose, so opencode keeps no
+// approval of its own for it.
 type SavedApproval struct {
-	ID        string `json:"id"`
+	ID string `json:"id"`
+	// SessionID is the root session the exception belongs to.
 	SessionID string `json:"sessionId"`
-	// Permission is the tool class the approval covers; Patterns what of it
+	// Permission is the tool class the exception covers; Patterns what of it
 	// (for bash, the command text — shown to the person who gave it, never
 	// written to the audit log).
 	Permission string   `json:"permission"`
 	Patterns   []string `json:"patterns"`
 	Removable  bool     `json:"removable"`
 	GrantedAt  string   `json:"grantedAt,omitempty"`
-	// WorkspaceDir is where it was granted. opencode shares an "always" with
-	// every session of the workspace, so the list is scoped to the asking
-	// session's; it is not part of the wire.
-	WorkspaceDir string `json:"-"`
 }
 
 // RuleHost is the optional "permissions" capability: the backend's permission
-// rules, seen from galopin. Reading them is for display and for galopin's own
-// two tools' decisions; the only thing that ever writes through this
-// interface is withdrawing a saved approval, which can only tighten.
+// rules, seen from galopin, and the session's selector. A session's rules are
+// the machine's own, the selector's mode block and exceptions, and the ceiling's
+// tail (permrules.Compose); the selector lives on a ROOT session and a subagent
+// follows it.
 type RuleHost interface {
 	// EffectiveRules is the rules in force for a session, in evaluation order:
 	// its agent's, then the ones galopin applied to the session.
 	EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error)
 	// RuleLayers is EffectiveRules with each rule's source. Display only.
 	RuleLayers(ctx context.Context, workspaceDir, sessionID string) (RuleLayers, error)
-	// SetSessionRules replaces the rules a person set on a session (already
-	// clamped to the ceiling by the caller) and applies them. The session's
-	// composed rules come out as the machine's own, these, then the ceiling.
-	SetSessionRules(ctx context.Context, workspaceDir, sessionID string, rules []permrules.Rule) error
+	// PermissionMode is the selector's word for a session: its root's, ask when
+	// nobody set one.
+	PermissionMode(sessionID string) permrules.Action
+	// SetPermissionMode sets a root session's mode and re-applies the rules to
+	// it and to every subagent session under it.
+	SetPermissionMode(ctx context.Context, workspaceDir, sessionID string, mode permrules.Action) error
+	// Exceptions is the root's exceptions, in the order they were given.
+	Exceptions(sessionID string) []permrules.Exception
+	// AddException records an exception on the session's root (one already
+	// there for the same permission and patterns is returned instead) and
+	// re-applies the rules to the root and its subagents.
+	AddException(ctx context.Context, workspaceDir, sessionID string, e permrules.Exception) (permrules.Exception, error)
+	// RemoveException withdraws one by id, re-applying likewise; false when the
+	// root holds none by that id.
+	RemoveException(ctx context.Context, workspaceDir, sessionID, id string) (bool, error)
 	// EnsureRules re-applies the machine's rules to a session if they differ
 	// from what it carries (after the ceiling changed).
 	EnsureRules(ctx context.Context, workspaceDir, sessionID string) error
-	// ApplyChildRules gives a subagent session opencode created the ceiling
-	// (never the machine's own allows); agent is its type, "" when unknown.
+	// ApplyChildRules gives a subagent session opencode created the root's
+	// selector and the ceiling (never the machine's own allows); agent is its
+	// type, "" when unknown.
 	ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error
 	// OnProcessStart registers a callback run every time the backend's process
 	// starts (the first start included, a crash restart and a deliberate one
-	// alike). What the process held in memory — its saved "always" approvals and
-	// its pending asks — is gone with the old one, and the machine forgets
-	// them here.
+	// alike). What the process held in memory — its pending asks — is gone with
+	// the old one, and the machine forgets them here.
 	OnProcessStart(fn func())
-	// RestartForPolicy restarts the backend process, clearing every "always"
-	// it holds; it returns once the new process is healthy.
+	// RestartForPolicy restarts the backend process, so nothing it kept in
+	// memory outlives a tightened policy; it returns once the new process is
+	// healthy.
 	RestartForPolicy(ctx context.Context) error
 }

@@ -95,7 +95,7 @@ func directoryQuery(workspaceDir string) string {
 func (b *Backend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Diff: true, Children: true, Usage: true, Compact: true,
-		Images: true, Files: true, Worktrees: false, AutoAccept: true,
+		Images: true, Files: true, Worktrees: false,
 		Questions: true, Revert: true, RevertFiles: true, Efforts: true, ToolImages: true,
 		// galopin's own tools are installed only with a ToolsDir; opencode
 		// folds a prompt sent mid-turn into the running turn (prompt_async).

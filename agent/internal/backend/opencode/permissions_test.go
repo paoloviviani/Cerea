@@ -292,7 +292,7 @@ func TestChildRulesNeverCarryTheMachinesAllows(t *testing.T) {
 		t.Fatalf("patches = %d, want 1", len(patches))
 	}
 	for _, r := range rulesOf(t, patches[0]) {
-		if r.Permission == "session_spawn" || r.Action == permrules.Allow {
+		if r.Permission == "session_spawn" || (r.Action == permrules.Allow && !permrules.IsUntouched(r.Permission)) {
 			t.Errorf("an allow reached a child: %+v", r)
 		}
 	}
@@ -385,15 +385,26 @@ func TestRuleLayersAttributesSources(t *testing.T) {
 	}
 	var got []string
 	for _, r := range l.Rules {
-		got = append(got, r.Permission+":"+r.Source)
+		if n := len(got); n > 0 && got[n-1] == r.Source {
+			continue
+		}
+		got = append(got, r.Source)
 	}
-	want := []string{
-		"*:default", "doom_loop:default", "edit:file", "bash:file", "edit:floor", // opencode's list, walked from the end
-		"webfetch:machine", // the machine's own rule
-		"edit:ceiling",     // the cap, last
-	}
+	// opencode's list (its own, the file's, the floor's), then the machine's
+	// rule, then the selector's block, then the cap, last.
+	want := []string{"default", "file", "floor", "machine", "cerea", "ceiling"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("sources = %v\nwant      %v", got, want)
+		t.Errorf("source runs = %v\nwant        %v", got, want)
+	}
+	var first []string
+	for _, r := range l.Rules[:5] {
+		first = append(first, r.Permission+":"+r.Source)
+	}
+	if strings.Join(first, " ") != "*:default doom_loop:default edit:file bash:file edit:floor" {
+		t.Errorf("opencode's list, walked from the end = %v", first)
+	}
+	if l.Mode != "ask" {
+		t.Errorf("mode = %q, want ask for a session nobody set", l.Mode)
 	}
 	if l.Agent != "build" {
 		t.Errorf("agent = %q", l.Agent)
@@ -403,90 +414,176 @@ func TestRuleLayersAttributesSources(t *testing.T) {
 	}
 }
 
-// A person's rules land between the machine's own and the ceiling, replace
-// their earlier set, and a rule a later write drops is restored to the base
-// instead of standing (opencode only ever appends a session's rules).
-func TestSetSessionRulesOrderReplaceAndRestore(t *testing.T) {
-	layers := func() permrules.Layers {
-		return permrules.Layers{
-			Own:     []permrules.Rule{{Permission: "webfetch", Pattern: "*", Action: permrules.Ask}},
-			Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"bash": permrules.Ask}},
-		}
+// stackOf is what opencode holds for a session after the creates and PATCHes it
+// was sent, behind the agent's own rules (build's, here): it only ever appends.
+func stackOf(t *testing.T, base []permrules.Rule, f *permFake, from int) []permrules.Rule {
+	t.Helper()
+	creates, patches, _ := f.snapshot()
+	all := append([]permrules.Rule(nil), base...)
+	for _, c := range creates {
+		all = append(all, rulesOf(t, c)...)
 	}
-	b, f := newPermFake(t, layers)
-	ctx := context.Background()
-	s, err := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	for _, p := range patches[from:] {
+		all = append(all, rulesOf(t, p)...)
+	}
+	return all
+}
+
+var buildOnly = []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
+
+// A new session is on Ask even on a machine with no rules and no ceiling at
+// all (a policy.json that predates permissions): the create carries the block.
+func TestANewSessionIsOnAskEvenOnALegacyMachine(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	s, err := b.CreateSession(context.Background(), "/ws", backend.CreateSessionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}} // build's
-	stack := func(patches []map[string]any, creates []map[string]any) []permrules.Rule {
-		all := append([]permrules.Rule(nil), base...)
-		for _, c := range creates {
-			all = append(all, rulesOf(t, c)...)
-		}
-		for _, p := range patches {
-			all = append(all, rulesOf(t, p)...)
-		}
-		return all
+	creates, _, _ := f.snapshot()
+	if _, has := creates[0]["permission"]; !has {
+		t.Fatal("a legacy machine's create carried no rules: it would write without asking")
 	}
+	all := stackOf(t, buildOnly, f, 0)
+	if got := permrules.Evaluate(all, "edit", "a.go"); got != permrules.Ask {
+		t.Errorf("edit on a legacy machine = %s, want ask", got)
+	}
+	if got := permrules.Evaluate(all, "read", "a.go"); got != permrules.Allow {
+		t.Errorf("read = %s, want allow", got)
+	}
+	if b.PermissionMode(s.ID) != permrules.Ask {
+		t.Errorf("mode = %s, want ask", b.PermissionMode(s.ID))
+	}
+}
 
-	// Over the ceiling on purpose: the backend lowers it again under the tail.
-	if err := b.SetSessionRules(ctx, "/ws", s.ID, []permrules.Rule{
-		{Permission: "edit", Pattern: "*", Action: permrules.Deny},
-		{Permission: "bash", Pattern: "*", Action: permrules.Allow},
-	}); err != nil {
+// The mode is applied at once, replaces the earlier one for every input (opencode
+// only appends), is not re-sent when nothing changed, and survives in the overlay.
+func TestSetPermissionModeAppliesAndReplaces(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+
+	if err := b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Allow); err != nil {
 		t.Fatal(err)
 	}
-	creates, patches, _ := f.snapshot()
-	if len(patches) != 1 {
-		t.Fatalf("patches = %d, want the write applied at once", len(patches))
+	if _, patches, _ := f.snapshot(); len(patches) != 1 {
+		t.Fatalf("patches = %d, want the change applied at once", len(patches))
 	}
-	sent := rulesOf(t, patches[0])
-	// own, panel (edit, bash), ceiling last.
-	if sent[0].Permission != "webfetch" || sent[1] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Deny}) ||
-		sent[len(sent)-1] != (permrules.Rule{Permission: "bash", Pattern: "*", Action: permrules.Ask}) {
-		t.Fatalf("composed order = %+v, want the machine's rule, the person's, then the ceiling", sent)
+	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "ls"); got != permrules.Allow {
+		t.Errorf("bash under Allow = %s", got)
 	}
-	all := stack(patches, creates)
-	if got := permrules.Evaluate(all, "bash", "x"); got != permrules.Ask {
-		t.Errorf("bash after a write of allow = %s, want the ceiling's ask", got)
-	}
-	if got := permrules.Evaluate(all, "edit", "x"); got != permrules.Deny {
-		t.Errorf("edit = %s, want the person's deny", got)
-	}
-
-	// Same write again: nothing new to send.
-	if err := b.SetSessionRules(ctx, "/ws", s.ID, []permrules.Rule{
-		{Permission: "edit", Pattern: "*", Action: permrules.Deny},
-		{Permission: "bash", Pattern: "*", Action: permrules.Allow},
-	}); err != nil {
+	if err := b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Allow); err != nil {
 		t.Fatal(err)
 	}
-	if _, patches, _ = f.snapshot(); len(patches) != 1 {
-		t.Errorf("patches = %d after an identical write, want still 1", len(patches))
+	if _, patches, _ := f.snapshot(); len(patches) != 1 {
+		t.Errorf("patches = %d after setting the same mode, want still 1", len(patches))
 	}
-
-	// Drop the edit deny: it must come back to the base (allow), even though
-	// opencode still holds the old deny earlier in the session's rules.
-	if err := b.SetSessionRules(ctx, "/ws", s.ID, []permrules.Rule{{Permission: "bash", Pattern: "*", Action: permrules.Allow}}); err != nil {
+	if err := b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Deny); err != nil {
 		t.Fatal(err)
 	}
-	creates, patches, _ = f.snapshot()
-	if len(patches) != 2 {
-		t.Fatalf("patches = %d, want 2", len(patches))
+	all := stackOf(t, buildOnly, f, 0)
+	if got := permrules.Evaluate(all, "edit", "a"); got != permrules.Deny {
+		t.Errorf("edit after Allow then Deny = %s, want deny", got)
 	}
-	all = stack(patches, creates)
-	if got := permrules.Evaluate(all, "edit", "x"); got != permrules.Allow {
-		t.Errorf("edit after dropping the deny = %s, want the base's allow", got)
+	if got := permrules.Evaluate(all, "read", "a"); got != permrules.Allow {
+		t.Errorf("read under Deny = %s, want allow", got)
 	}
-	if last := rulesOf(t, patches[1]); last[len(last)-1].Permission != "bash" || last[len(last)-1].Action != permrules.Ask {
-		t.Errorf("the ceiling is no longer last: %+v", last)
+	if got := b.getOverlay(s.ID).Selector.Mode; got != permrules.Deny {
+		t.Errorf("stored mode = %q", got)
 	}
+}
 
-	// The overlay remembers across a restart of galopin.
-	if got := b.getOverlay(s.ID).Panel; len(got.Rules) != 1 || len(got.Touched) != 2 {
-		t.Errorf("stored panel = %+v", got)
+func TestExceptionsComeAndGoWithTheirRules(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	ex, err := b.AddException(ctx, "/ws", s.ID, permrules.Exception{ID: "ex_1", Permission: "bash", Patterns: []string{"git status *"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ex.ID != "ex_1" || len(b.Exceptions(s.ID)) != 1 {
+		t.Fatalf("exceptions = %+v", b.Exceptions(s.ID))
+	}
+	all := stackOf(t, buildOnly, f, 0)
+	if permrules.Evaluate(all, "bash", "git status") != permrules.Allow || permrules.Evaluate(all, "bash", "git log") != permrules.Ask {
+		t.Error("the exception must allow git status and nothing else")
+	}
+	// Deny blocks it, Ask restores it.
+	_ = b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Deny)
+	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Deny {
+		t.Errorf("under Deny = %s", got)
+	}
+	_ = b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Ask)
+	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Allow {
+		t.Errorf("back on Ask = %s, want the kept exception", got)
+	}
+	// Removing it makes the command ask again, even behind the older PATCHes.
+	if found, err := b.RemoveException(ctx, "/ws", s.ID, "ex_zzz"); found || err != nil {
+		t.Errorf("removing an unknown id = %v, %v", found, err)
+	}
+	if found, err := b.RemoveException(ctx, "/ws", s.ID, "ex_1"); !found || err != nil {
+		t.Fatalf("removing = %v, %v", found, err)
+	}
+	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Ask {
+		t.Errorf("after removal = %s, want ask", got)
+	}
+}
+
+// A subagent has no selector: it follows its root's, and a change to the root
+// reaches a child that is already running.
+func TestARootChangeIsReappliedToItsSubagents(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	f.agents = `[
+	 {"name":"build","mode":"primary","permission":[{"permission":"*","pattern":"*","action":"allow"}]},
+	 {"name":"general","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"allow"}]}]`
+	ctx := context.Background()
+	root, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	b.noteSession(backend.Session{ID: "ses_kid", ParentID: root.ID})
+	b.noteSession(backend.Session{ID: "ses_grandkid", ParentID: "ses_kid"})
+	if got := b.rootOf("ses_grandkid"); got != root.ID {
+		t.Fatalf("root of a grandchild = %q, want %q", got, root.ID)
+	}
+	if err := b.ApplyChildRules(ctx, "/ws", "ses_kid", "general"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ApplyChildRules(ctx, "/ws", "ses_grandkid", "general"); err != nil {
+		t.Fatal(err)
+	}
+	_, before, _ := f.snapshot()
+	if err := b.SetPermissionMode(ctx, "/ws", root.ID, permrules.Allow); err != nil {
+		t.Fatal(err)
+	}
+	_, after, _ := f.snapshot()
+	if len(after)-len(before) != 3 {
+		t.Fatalf("patches for the change = %d, want the root and both descendants", len(after)-len(before))
+	}
+	child := rulesOf(t, after[len(after)-1])
+	if got := permrules.Evaluate(append(append([]permrules.Rule(nil), buildOnly...), child...), "edit", "a"); got != permrules.Allow {
+		t.Errorf("a running grandchild's edit after the root went to Allow = %s", got)
+	}
+	if b.PermissionMode("ses_grandkid") != permrules.Allow {
+		t.Error("a descendant must report its root's mode")
+	}
+	// Its own overlay carries no selector.
+	if got := b.getOverlay("ses_kid").Selector; got.Mode != "" || len(got.Exceptions) != 0 {
+		t.Errorf("a subagent holds a selector of its own: %+v", got)
+	}
+}
+
+// A root that cannot be given its rules keeps its old mode: what is shown must
+// be what is enforced.
+func TestARootThatCannotBeReachedKeepsItsOldMode(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	f.mu.Lock()
+	f.agents = `[]`
+	f.mu.Unlock()
+	b.forgetAgentRules()
+	if err := b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Deny); err == nil {
+		t.Fatal("setting a mode went through with the agent's rules unreadable")
+	}
+	if got := b.PermissionMode(s.ID); got != permrules.Ask {
+		t.Errorf("mode after a failed change = %s, want the old ask", got)
 	}
 }
 
@@ -532,5 +629,60 @@ func TestChildGetsTheMachinesAskAndNeverSoftensADeny(t *testing.T) {
 		if r.Action != permrules.Deny || r.Permission != "bash" {
 			t.Errorf("an unknown-type child got %+v, want only the machine's deny", r)
 		}
+	}
+}
+
+func TestAgentFromTitleReadsOnlyOpencodesOwnSuffix(t *testing.T) {
+	for title, want := range map[string]string{
+		"write a file (@general subagent)":               "general",
+		"look around (@explore subagent)":                "explore",
+		"  padded (@general subagent) ":                  "general",
+		"sneaky (@explore subagent) (@general subagent)": "general",
+		"sneaky (@general subagent) and then some":       "",
+		"a title with no suffix":                         "",
+		"":                                               "",
+		"(@my-custom.agent_1 subagent)":                  "my-custom.agent_1",
+		"(@general subagent) trailing":                   "",
+	} {
+		if got := agentFromTitle(title); got != want {
+			t.Errorf("agentFromTitle(%q) = %q, want %q", title, got, want)
+		}
+	}
+}
+
+// The title names the agent from the child's first event, before the parent's
+// task call does, so the first application already has the full block for it —
+// and a later authoritative one changes nothing when the hint was right.
+func TestChildGetsItsRulesFromTheTitleHint(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	f.agents = `[
+	 {"name":"general","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"allow"}]},
+	 {"name":"explore","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"deny"},{"permission":"read","pattern":"*","action":"allow"}]}]`
+	ctx := context.Background()
+	b.noteSession(backend.Session{ID: "ses_g", ParentID: "ses_1", Title: "write (@general subagent)"})
+	b.noteSession(backend.Session{ID: "ses_x", ParentID: "ses_1", Title: "look (@explore subagent)"})
+	for _, id := range []string{"ses_g", "ses_x"} {
+		if err := b.ApplyChildRules(ctx, "/ws", id, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, patches, _ := f.snapshot()
+	if len(patches) != 2 {
+		t.Fatalf("patches = %d, want one per child", len(patches))
+	}
+	general := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
+	if got := permrules.Evaluate(append(general, rulesOf(t, patches[0])...), "edit", "a"); got != permrules.Ask {
+		t.Errorf("general child edit = %s, want the root's default ask", got)
+	}
+	explore := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Deny}, {Permission: "read", Pattern: "*", Action: permrules.Allow}}
+	if got := permrules.Evaluate(append(explore, rulesOf(t, patches[1])...), "edit", "a"); got != permrules.Deny {
+		t.Errorf("explore child edit = %s, want its deny kept", got)
+	}
+	// The authoritative application, naming the same agent, sends nothing new.
+	if err := b.ApplyChildRules(ctx, "/ws", "ses_g", "general"); err != nil {
+		t.Fatal(err)
+	}
+	if _, patches, _ = f.snapshot(); len(patches) != 2 {
+		t.Errorf("patches = %d after the confirming application, want still 2", len(patches))
 	}
 }

@@ -63,14 +63,14 @@ func TestTailCapsWithoutLoosening(t *testing.T) {
 		{"plan write stays denied", plan, "a.go", Deny},
 		{"plan's plan file is capped to ask", plan, ".opencode/plans/x.md", Ask},
 	} {
-		session := Compose(Layers{Ceiling: c}, tc.agent)
+		session := Compose(Layers{Ceiling: c}, Selector{}, tc.agent)
 		got := Evaluate(append(append([]Rule(nil), tc.agent...), session...), "edit", tc.pattern)
 		if got != tc.want {
 			t.Errorf("%s: got %s, want %s", tc.name, got, tc.want)
 		}
 	}
 	// A key the ceiling does not name is untouched.
-	session := Compose(Layers{Ceiling: c}, build)
+	session := Compose(Layers{Ceiling: c}, Selector{}, build)
 	if got := Evaluate(append(append([]Rule(nil), build...), session...), "read", "a"); got != Allow {
 		t.Errorf("read = %s, want allow", got)
 	}
@@ -80,7 +80,7 @@ func TestTailDenyBeatsEverythingBeneath(t *testing.T) {
 	agent := []Rule{{"*", "*", Allow}}
 	own := []Rule{{"bash", "*", Allow}}
 	c := Ceiling{Max: map[string]Action{"bash": Deny}}
-	session := Compose(Layers{Own: own, Ceiling: c}, agent)
+	session := Compose(Layers{Own: own, Ceiling: c}, Selector{}, agent)
 	all := append(append([]Rule(nil), agent...), session...)
 	if got := Evaluate(all, "bash", "rm -rf /"); got != Deny {
 		t.Errorf("bash = %s, want deny", got)
@@ -91,13 +91,13 @@ func TestTailDenyBeatsEverythingBeneath(t *testing.T) {
 func TestOwnAllowIsCappedByCeiling(t *testing.T) {
 	agent := []Rule{{"*", "*", Allow}}
 	l := Layers{Own: OwnRules(map[string]Action{"edit": Allow}), Ceiling: Ceiling{Max: map[string]Action{"edit": Ask}}}
-	session := Compose(l, agent)
+	session := Compose(l, Selector{}, agent)
 	all := append(append([]Rule(nil), agent...), session...)
 	if got := Evaluate(all, "edit", "a.go"); got != Ask {
 		t.Errorf("edit = %s, want ask (ceiling wins)", got)
 	}
-	// Without the ceiling the same own rule allows.
-	session = Compose(Layers{Own: l.Own}, agent)
+	// Without the ceiling (and with the person's Allow) the same own rule allows.
+	session = Compose(Layers{Own: l.Own}, Selector{Mode: Allow}, agent)
 	all = append(append([]Rule(nil), agent...), session...)
 	if got := Evaluate(all, "edit", "a.go"); got != Allow {
 		t.Errorf("edit without ceiling = %s, want allow", got)
@@ -106,23 +106,21 @@ func TestOwnAllowIsCappedByCeiling(t *testing.T) {
 
 func TestComposePutsTheCeilingLast(t *testing.T) {
 	l := Layers{Own: OwnRules(map[string]Action{"edit": Allow}), Ceiling: Ceiling{Max: map[string]Action{"edit": Ask}}}
-	rules := Compose(l, []Rule{{"*", "*", Allow}})
-	if len(rules) < 2 {
+	rules := Compose(l, Selector{}, []Rule{{"*", "*", Allow}})
+	if len(rules) < 3 {
 		t.Fatalf("rules = %+v", rules)
 	}
 	if rules[0] != (Rule{"edit", "*", Allow}) {
 		t.Errorf("first rule = %+v, want the machine's own", rules[0])
 	}
-	for _, r := range rules[1:] {
-		if r.Action == Allow {
-			t.Errorf("an allow follows the machine's own rules: %+v", rules)
-		}
+	if last := rules[len(rules)-1]; last != (Rule{"edit", "*", Ask}) {
+		t.Errorf("last rule = %+v, want the ceiling's", last)
 	}
 }
 
 func TestChildRulesCarryNoOwnAllow(t *testing.T) {
 	l := Layers{Own: OwnRules(map[string]Action{"edit": Allow}), Ceiling: Ceiling{Max: map[string]Action{"bash": Ask}}}
-	for _, r := range ChildRules(l, []Rule{{"*", "*", Allow}}) {
+	for _, r := range ChildRules(l, Selector{Mode: Allow}, []Rule{{"*", "*", Allow}}) {
 		if r.Permission == "edit" {
 			t.Errorf("the machine's own edit rule reached a child: %+v", r)
 		}
@@ -234,77 +232,229 @@ func TestFloorWithNoCeilingStillProtectsReadOnlyAgents(t *testing.T) {
 	}
 }
 
-func TestClampLowersEveryRuleToTheCeiling(t *testing.T) {
-	c := Ceiling{Max: map[string]Action{"bash": Ask, "edit": Deny, "session_spawn": Ask}}
-	got, clamped := c.Clamp([]Rule{
-		{"bash", "*", Allow},         // over the ceiling: lowered to ask
-		{"edit", "src/*", Allow},     // capped at deny
-		{"read", "*", Allow},         // not capped: as asked
-		{"bash", "ls *", Deny},       // under the ceiling: as asked
-		{"session_spawn", "", Allow}, // empty pattern means *, and is lowered
-		{"", "*", Allow},             // no permission: dropped
-		{"read", "*", "yes"},         // not an action: dropped
-	})
-	want := []Rule{{"bash", "*", Ask}, {"edit", "src/*", Deny}, {"read", "*", Allow}, {"bash", "ls *", Deny}, {"session_spawn", "*", Ask}}
-	if !reflect.DeepEqual(got, want) || !clamped {
-		t.Errorf("Clamp = %+v clamped=%v, want %+v clamped", got, clamped, want)
+// The selector's arithmetic. eval runs a composed session the way opencode does:
+// the agent's rules, then the session's, last match wins.
+func eval(agent, session []Rule, permission, pattern string) Action {
+	return Evaluate(append(append([]Rule(nil), agent...), session...), permission, pattern)
+}
+
+// opencode 1.18.32's build and plan agents, as far as the blanket cares: the
+// default allow-all, the asks it keeps, and plan's edit deny.
+var (
+	buildAgent = []Rule{
+		{"*", "*", Allow}, {"doom_loop", "*", Ask},
+		{"external_directory", "*", Ask}, {"external_directory", "/tmp/*", Allow},
+		{"question", "*", Allow}, {"read", "*", Allow}, {"read", "*.env", Ask}, {"read", "*.env.*", Ask}, {"read", "*.env.example", Allow},
 	}
-	if _, clamped := c.Clamp([]Rule{{"read", "*", Allow}, {"bash", "*", Ask}}); clamped {
-		t.Error("rules within the ceiling were reported as clamped")
+	planAgent = append(append([]Rule(nil), buildAgent...),
+		Rule{"edit", "*", Deny}, Rule{"edit", ".opencode/plans/*.md", Allow})
+	exploreAgent = []Rule{
+		{"*", "*", Deny}, {"read", "*", Allow}, {"grep", "*", Allow}, {"bash", "*", Allow},
+		{"read", "*.env", Ask}, {"external_directory", "*", Ask},
+	}
+)
+
+func TestSelectorBlanketPerMode(t *testing.T) {
+	for _, tc := range []struct {
+		mode            Action
+		edit, bash, web Action
+	}{
+		{Allow, Allow, Allow, Allow},
+		{Ask, Ask, Ask, Ask},
+		{Deny, Deny, Deny, Deny},
+	} {
+		session := Compose(Layers{}, Selector{Mode: tc.mode}, buildAgent)
+		if got := eval(buildAgent, session, "edit", "a.go"); got != tc.edit {
+			t.Errorf("%s: edit = %s, want %s", tc.mode, got, tc.edit)
+		}
+		if got := eval(buildAgent, session, "bash", "ls"); got != tc.bash {
+			t.Errorf("%s: bash = %s, want %s", tc.mode, got, tc.bash)
+		}
+		if got := eval(buildAgent, session, "mcp_server_tool", "x"); got != tc.web {
+			t.Errorf("%s: an MCP tool = %s, want %s: every custom tool follows the blanket", tc.mode, got, tc.web)
+		}
 	}
 }
 
-// A wildcard permission is kept as asked, then followed by a clamped copy for
-// each capped key it covers, so a re-read says what is true for them.
-func TestClampExpandsAWildcardOverCappedKeys(t *testing.T) {
-	c := Ceiling{Max: map[string]Action{"bash": Ask, "edit": Deny}}
-	got, clamped := c.Clamp([]Rule{{"*", "*", Allow}})
-	want := []Rule{{"*", "*", Allow}, {"bash", "*", Ask}, {"edit", "*", Deny}}
-	if !reflect.DeepEqual(got, want) || !clamped {
-		t.Errorf("Clamp = %+v, want %+v", got, want)
-	}
-	session := ComposeFor(Layers{Ceiling: c}, Panel{}.With(got), []Rule{{"*", "*", Allow}})
-	all := append([]Rule{{"*", "*", Allow}}, session...)
-	if Evaluate(all, "bash", "x") != Ask || Evaluate(all, "edit", "x") != Deny || Evaluate(all, "read", "x") != Allow {
-		t.Error("a wildcard allow written through the panel got past the ceiling")
+// Reading stays allowed under all three words, and what the agent asks for
+// still asks: .env, a write outside the project, the doom-loop brake.
+func TestSelectorLeavesTheUntouchedSetAlone(t *testing.T) {
+	for _, mode := range []Action{Deny, Ask, Allow} {
+		session := Compose(Layers{}, Selector{Mode: mode}, buildAgent)
+		for _, c := range []struct {
+			perm, pattern string
+			want          Action
+		}{
+			{"read", "src/a.go", Allow}, {"read", ".env", Ask}, {"read", ".env.example", Allow},
+			{"grep", "x", Allow}, {"glob", "x", Allow}, {"list", "x", Allow}, {"lsp", "x", Allow},
+			{"question", "*", Allow}, {"todowrite", "*", Allow}, {"skill", "x", Allow},
+			{"external_directory", "/etc/x", Ask}, {"external_directory", "/tmp/x", Allow},
+			{"doom_loop", "x", Ask},
+		} {
+			if got := eval(buildAgent, session, c.perm, c.pattern); got != c.want {
+				t.Errorf("%s: %s %q = %s, want %s", mode, c.perm, c.pattern, got, c.want)
+			}
+		}
 	}
 }
 
-// After a panel write the order is still the machine's rules, the panel's, then
-// the ceiling — and a rule dropped by a later write is restored to what the
-// base says, for the agent the session runs now.
-func TestComposeForOrderAndRestoration(t *testing.T) {
-	c := Ceiling{Max: map[string]Action{"bash": Ask}}
-	l := Layers{Own: []Rule{{"webfetch", "*", Ask}}, Ceiling: c}
-	build := []Rule{{"*", "*", Allow}}
-	plan := []Rule{{"*", "*", Allow}, {"edit", "*", Deny}}
+// A name nothing beneath mentions asks, as opencode's own default does — it
+// does not become an allow just because the mode is Allow.
+func TestSelectorUntouchedNameNobodyMentionsAsks(t *testing.T) {
+	session := Compose(Layers{}, Selector{Mode: Allow}, nil)
+	if got := eval(nil, session, "read", "x"); got != Ask {
+		t.Errorf("read with no agent rule = %s, want ask", got)
+	}
+}
 
-	p := Panel{}.With([]Rule{{"edit", "*", Allow}, {"read", "*.env", Deny}})
-	got := ComposeFor(l, p, build)
-	want := []Rule{{"webfetch", "*", Ask}, {"edit", "*", Allow}, {"read", "*.env", Deny}, {"bash", "*", Ask}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("composed = %+v, want the machine's rule, the panel's two, the ceiling last: %+v", got, want)
+// The blanket never turns a deny into an ask or an allow: plan's edit deny and
+// a read-only subagent's `*: deny` stand under every mode, and plan keeps its
+// plan file, brought to the mode like any allow.
+func TestSelectorNeverLoosensADeny(t *testing.T) {
+	for _, mode := range []Action{Ask, Allow} {
+		plan := Compose(Layers{}, Selector{Mode: mode}, planAgent)
+		if got := eval(planAgent, plan, "edit", "src/a.go"); got != Deny {
+			t.Errorf("%s: plan edit = %s, want deny", mode, got)
+		}
+		if got := eval(planAgent, plan, "edit", ".opencode/plans/x.md"); got != mode {
+			t.Errorf("%s: plan's plan file = %s, want %s", mode, got, mode)
+		}
+		explore := ChildRules(Layers{}, Selector{Mode: mode}, exploreAgent)
+		for _, perm := range []string{"edit", "task", "webfetch", "an_mcp_tool"} {
+			if got := eval(exploreAgent, explore, perm, "x"); got != Deny {
+				t.Errorf("%s: explore %s = %s, want its own deny", mode, perm, got)
+			}
+		}
+		if got := eval(exploreAgent, explore, "bash", "ls"); got != mode {
+			t.Errorf("%s: explore bash = %s, want %s", mode, got, mode)
+		}
+		if got := eval(exploreAgent, explore, "read", "a.go"); got != Allow {
+			t.Errorf("%s: explore read = %s, want allow", mode, got)
+		}
 	}
+}
 
-	// A second write drops edit. In build the restoration says allow (the
-	// base), in plan it says deny — it follows the agent, not the old write.
-	p = p.With([]Rule{{"read", "*.env", Deny}})
-	inBuild := ComposeFor(l, p, build)
-	inPlan := ComposeFor(l, p, plan)
-	if got := Evaluate(append(append([]Rule(nil), build...), inBuild...), "edit", "*"); got != Allow {
-		t.Errorf("build after dropping the edit rule = %s, want the base's allow", got)
+// The machine's own rules sit beneath the mode block, as they did beneath the
+// person's rules; its denies still hold.
+func TestSelectorOwnRulesAreBeneathTheMode(t *testing.T) {
+	l := Layers{Own: []Rule{{"edit", "*", Allow}, {"webfetch", "*", Deny}, {"read", "*.secret", Deny}}}
+	ask := Compose(l, Selector{}, buildAgent)
+	if got := eval(buildAgent, ask, "edit", "a"); got != Ask {
+		t.Errorf("own allow under Ask = %s, want ask (the mode is above it)", got)
 	}
-	if got := Evaluate(append(append([]Rule(nil), plan...), inPlan...), "edit", "*"); got != Deny {
-		t.Errorf("plan after dropping the edit rule = %s, want the base's deny, not the dropped allow", got)
+	allow := Compose(l, Selector{Mode: Allow}, buildAgent)
+	if got := eval(buildAgent, allow, "webfetch", "u"); got != Deny {
+		t.Errorf("own deny under Allow = %s, want deny", got)
 	}
-	// Even stacked behind the dropped rule, as opencode keeps it (appended, never removed).
-	stacked := append(append(append([]Rule(nil), plan...), Rule{"edit", "*", Allow}), inPlan...)
-	if got := Evaluate(stacked, "edit", "*"); got != Deny {
-		t.Errorf("plan with the old allow still in the session = %s, want deny", got)
+	if got := eval(buildAgent, allow, "read", "x.secret"); got != Deny {
+		t.Errorf("own read deny (an untouched key) under Allow = %s, want deny", got)
 	}
-	// The ceiling is last, whatever the panel did.
-	if last := inBuild[len(inBuild)-1]; last != (Rule{"bash", "*", Ask}) {
-		t.Errorf("last composed rule = %+v, want the ceiling's", last)
+	if rules, _ := ComposeParts(l, Selector{}, buildAgent); !reflect.DeepEqual(rules[:3], l.Own) {
+		t.Errorf("the machine's own rules are not first: %+v", rules[:3])
+	}
+}
+
+func TestSelectorExceptionsPlacement(t *testing.T) {
+	ex := Exception{ID: "ex_1", Permission: "bash", Patterns: []string{"git status *"}}
+	sel := func(m Action) Selector { return Selector{Mode: m, Exceptions: []Exception{ex}} }
+
+	ask := Compose(Layers{}, sel(Ask), buildAgent)
+	if got := eval(buildAgent, ask, "bash", "git status"); got != Allow {
+		t.Errorf("Ask: git status = %s, want the exception's allow", got)
+	}
+	if got := eval(buildAgent, ask, "bash", "git log"); got != Ask {
+		t.Errorf("Ask: git log = %s, want ask", got)
+	}
+	allow := Compose(Layers{}, sel(Allow), buildAgent)
+	if got := eval(buildAgent, allow, "bash", "git log"); got != Allow {
+		t.Errorf("Allow: git log = %s, want allow", got)
+	}
+	deny := Compose(Layers{}, sel(Deny), buildAgent)
+	if got := eval(buildAgent, deny, "bash", "git status"); got != Deny {
+		t.Errorf("Deny: git status = %s, want deny: Deny beats an exception", got)
+	}
+	// Kept while blocked: the same selector back on Ask allows it again.
+	back := Compose(Layers{}, sel(Ask), buildAgent)
+	if got := eval(buildAgent, back, "bash", "git status"); got != Allow {
+		t.Errorf("back on Ask: git status = %s, want allow restored", got)
+	}
+}
+
+// What a re-send sits behind: opencode only appends a session's rules, so a
+// later block has to beat an earlier one for every input, exceptions included.
+func TestSelectorALaterBlockBeatsAnEarlierOne(t *testing.T) {
+	ex := Exception{ID: "ex_1", Permission: "bash", Patterns: []string{"git status *"}}
+	first := Compose(Layers{}, Selector{Mode: Allow, Exceptions: []Exception{ex}}, buildAgent)
+	second := Compose(Layers{}, Selector{Mode: Ask}, buildAgent) // exception removed, mode back to Ask
+	stacked := append(append([]Rule(nil), first...), second...)
+	if got := eval(buildAgent, stacked, "bash", "git status"); got != Ask {
+		t.Errorf("git status after the exception was removed = %s, want ask", got)
+	}
+	if got := eval(buildAgent, stacked, "edit", "a.go"); got != Ask {
+		t.Errorf("edit after Allow then Ask = %s, want ask", got)
+	}
+}
+
+func TestSelectorCeilingCapsEverythingAboveIt(t *testing.T) {
+	ex := Exception{ID: "ex_1", Permission: "bash", Patterns: []string{"git status *"}}
+	l := Layers{Ceiling: Ceiling{Max: map[string]Action{"bash": Ask, "edit": Deny}}}
+	session := Compose(l, Selector{Mode: Allow, Exceptions: []Exception{ex}}, buildAgent)
+	if got := eval(buildAgent, session, "bash", "git status"); got != Ask {
+		t.Errorf("a capped key's exception = %s, want ask (the ceiling is last)", got)
+	}
+	if got := eval(buildAgent, session, "bash", "ls"); got != Ask {
+		t.Errorf("Allow on a capped key = %s, want the cap", got)
+	}
+	if got := eval(buildAgent, session, "edit", "a"); got != Deny {
+		t.Errorf("edit capped at deny = %s", got)
+	}
+	if got := eval(buildAgent, session, "webfetch", "u"); got != Allow {
+		t.Errorf("an uncapped key under Allow = %s, want allow", got)
+	}
+}
+
+func TestSelectorEffectiveDefaultsToAsk(t *testing.T) {
+	if (Selector{}).Effective() != Ask || (Selector{Mode: "bogus"}).Effective() != Ask {
+		t.Error("an unset or invalid mode must read as ask")
+	}
+}
+
+func TestSelectorExceptionSetOps(t *testing.T) {
+	s := Selector{}
+	s, a := s.With(Exception{ID: "ex_a", Permission: "bash", Patterns: []string{"ls *"}})
+	s, b := s.With(Exception{ID: "ex_b", Permission: "bash", Patterns: []string{"ls *"}})
+	if a.ID != "ex_a" || b.ID != "ex_a" || len(s.Exceptions) != 1 {
+		t.Errorf("the same permission and patterns twice = %+v / %+v / %d entries, want one", a, b, len(s.Exceptions))
+	}
+	if _, ok := s.Find("ex_a"); !ok {
+		t.Error("Find lost the exception")
+	}
+	if _, ok := s.Without("ex_zzz"); ok {
+		t.Error("Without reported removing an id it never held")
+	}
+	if got, ok := s.Without("ex_a"); !ok || len(got.Exceptions) != 0 || len(s.Exceptions) != 1 {
+		t.Errorf("Without = %+v ok=%v (and the original must be untouched)", got, ok)
+	}
+}
+
+// The subagent's block is the ROOT's selector over the child agent's rules,
+// capped, with no machine allow in it.
+func TestSelectorChildFollowsTheRootsMode(t *testing.T) {
+	general := []Rule{{"*", "*", Allow}}
+	l := Layers{Own: []Rule{{"edit", "*", Allow}}}
+	ex := Exception{ID: "ex_1", Permission: "bash", Patterns: []string{"git status *"}}
+	for _, tc := range []struct {
+		mode Action
+		edit Action
+		git  Action
+	}{{Allow, Allow, Allow}, {Ask, Ask, Allow}, {Deny, Deny, Deny}} {
+		rules := ChildRules(l, Selector{Mode: tc.mode, Exceptions: []Exception{ex}}, general)
+		if got := eval(general, rules, "edit", "a.go"); got != tc.edit {
+			t.Errorf("root on %s: child edit = %s, want %s", tc.mode, got, tc.edit)
+		}
+		if got := eval(general, rules, "bash", "git status"); got != tc.git {
+			t.Errorf("root on %s: child git status = %s, want %s", tc.mode, got, tc.git)
+		}
 	}
 }
 
@@ -344,24 +494,25 @@ func TestChildGetsTheMachinesRestrictingRulesAsCaps(t *testing.T) {
 	general := []Rule{{"*", "*", Allow}}
 	explore := []Rule{{"*", "*", Deny}, {"read", "*", Allow}, {"bash", "*", Allow}}
 
-	inGeneral := append(append([]Rule(nil), general...), ChildRules(l, general)...)
+	inGeneral := append(append([]Rule(nil), general...), ChildRules(l, Selector{}, general)...)
 	if got := Evaluate(inGeneral, "edit", "a.go"); got != Ask {
 		t.Errorf("general child edit = %s, want the machine's ask", got)
 	}
 	if got := Evaluate(inGeneral, "bash", "ls"); got != Deny {
 		t.Errorf("general child bash = %s, want the machine's deny", got)
 	}
-	inExplore := append(append([]Rule(nil), explore...), ChildRules(l, explore)...)
+	inExplore := append(append([]Rule(nil), explore...), ChildRules(l, Selector{}, explore)...)
 	if got := Evaluate(inExplore, "edit", "a.go"); got != Deny {
 		t.Errorf("explore child edit = %s: the machine's ask softened a deny", got)
 	}
-	// Allows are not carried: nothing the child had is widened.
-	for _, r := range ChildRules(l, general) {
-		if r.Action == Allow {
+	// The machine's allows are not carried: an edit allow of the machine's own
+	// (or any other blanket-name allow) never reaches a child under Ask.
+	for _, r := range ChildRules(l, Selector{}, general) {
+		if r.Action == Allow && !IsUntouched(r.Permission) {
 			t.Errorf("an allow reached a child: %+v", r)
 		}
 	}
-	if got := Evaluate(append(append([]Rule(nil), explore...), ChildRules(l, explore)...), "webfetch", "x"); got != Deny {
+	if got := Evaluate(append(append([]Rule(nil), explore...), ChildRules(l, Selector{}, explore)...), "webfetch", "x"); got != Deny {
 		t.Errorf("explore webfetch = %s, want its own deny untouched by the machine's allow", got)
 	}
 	// The cap is the stricter of the machine's ceiling and its own rule.
@@ -403,9 +554,44 @@ func TestLayersFloorHoldsSubagentsToTheMachinesRestrictingRules(t *testing.T) {
 	if !containsRule(l.FloorRules("general"), Rule{"edit", "*", Ask}) {
 		t.Error("FloorRules does not agree with Floor")
 	}
-	// A layers floor with no machine rules is the ceiling's floor.
+	// With no machine rules the primaries' floor is the ceiling's alone.
 	c := Ceiling{Max: map[string]Action{"edit": Ask}}
-	if !reflect.DeepEqual(Layers{Ceiling: c}.Floor(), c.Floor()) {
-		t.Error("Layers.Floor without machine rules differs from Ceiling.Floor")
+	lf := Layers{Ceiling: c}.Floor()["agent"].(map[string]any)
+	cf := c.Floor()["agent"].(map[string]any)
+	for _, name := range []string{"build", "plan"} {
+		if !reflect.DeepEqual(lf[name], cf[name]) {
+			t.Errorf("%s: Layers.Floor %v differs from Ceiling.Floor %v without machine rules", name, lf[name], cf[name])
+		}
+	}
+}
+
+// A subagent starts working before its session has the root's selector, so the
+// floor makes its default ask — on a machine with no ceiling and no rules too —
+// for exactly the names the blanket moves and its agent grants, never loosening
+// anything (a deny stays, a name the agent does not grant is not written).
+func TestLayersFloorMakesSubagentsAskByDefault(t *testing.T) {
+	f := Layers{}.Floor()["agent"].(map[string]any)
+	perm := func(name string) map[string]any {
+		a, ok := f[name].(map[string]any)
+		if !ok {
+			return map[string]any{}
+		}
+		return a["permission"].(map[string]any)
+	}
+	for _, k := range []string{"edit", "bash", "webfetch", "websearch", "codesearch", "task"} {
+		if perm("general")[k] != "ask" {
+			t.Errorf("general %s = %v, want ask", k, perm("general")[k])
+		}
+	}
+	if perm("explore")["bash"] != "ask" || perm("explore")["edit"] != "deny" {
+		t.Errorf("explore = %v, want bash ask and its edit deny kept", perm("explore"))
+	}
+	if _, ok := perm("explore")["task"]; ok {
+		t.Error("explore does not grant task: nothing to tighten, and a written ask could only loosen its deny")
+	}
+	for _, name := range []string{"build", "plan"} {
+		if perm(name)["bash"] == "ask" || perm(name)["task"] == "ask" {
+			t.Errorf("%s: the primaries get their rules in the session create, not from the floor: %v", name, perm(name))
+		}
 	}
 }

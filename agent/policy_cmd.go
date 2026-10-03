@@ -15,7 +15,7 @@ Usage:
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
 'set' may only TIGHTEN the policy: turn files, the terminal, command
-shell, auto-accept or agent tools off, lower a permission ceiling or rule, lower maxTerminals, or add to the file deny list. This file is
+shell or agent tools off, lower a permission ceiling or rule, lower maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
 command shell back on, a higher maxTerminals, dropping a deny entry —
@@ -31,11 +31,12 @@ refuses and names the 'enroll' re-run that does it instead.
                        on a fresh enroll; takes effect at the next 'run').
    --no-background-subagents  Stop allowing background subagents (the default
                        on a fresh enroll; takes effect at the next 'run').
-   --no-auto-accept    Stop letting any session be switched to auto-accept.
+   --no-auto-accept    Does nothing (accepted for one more release): auto-accept
+                       no longer exists.
    --permission-max KEY=ACTION  Lower the ceiling for KEY (edit, bash, webfetch,
                        session_spawn, …) to ask or deny (repeatable). Takes
                        effect on a running machine within seconds: opencode is
-                       restarted, which also drops every "always" it holds.
+                       restarted so nothing it kept in memory outlives it.
    --permission-rule KEY=ACTION  Lower this machine's own rule for KEY, or add
                        an ask/deny one (repeatable).
    --max-terminals N   Lower the concurrent-terminal cap (must be less than
@@ -169,8 +170,7 @@ func runPolicySet(args []string) error {
 		changed = true
 	}
 	if *noAutoAccept {
-		pol.Permission.Responders = policy.TerminalDenied
-		changed = true
+		fmt.Fprintln(os.Stderr, "warning: --no-auto-accept does nothing any more: auto-accept was replaced by the Deny / Ask / Allow selector, and there is no machine setting for it to turn off.")
 	}
 	if len(permMax) > 0 {
 		want, err := parseKeyActions("permission-max", permMax)
