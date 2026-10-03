@@ -208,7 +208,6 @@ func TestAgentToolsIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = oc.Stop() })
 
 	pol := policy.Default()
-	pol.Permission.Responders = policy.TerminalAllowed
 	mat := sessions.New(oc, pol)
 	if err := mat.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -403,9 +402,6 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if child.ParentID != "" || child.RootID != child.ID {
 			t.Errorf("spawned session must be its own root: parent=%q root=%q", child.ParentID, child.RootID)
 		}
-		if child.AutoAccept {
-			t.Errorf("the child inherited auto-accept")
-		}
 		if child.WorkspaceID != ws1.ID {
 			t.Errorf("child workspace = %q, want the caller's %q", child.WorkspaceID, ws1.ID)
 		}
@@ -428,14 +424,14 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("spawn: allowed by the machine's rules goes through with no card; child has auto-accept off", func(t *testing.T) {
+	t.Run("spawn: allowed by the machine's rules goes through with no card; child starts on Ask", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Allow})
 		defer setMachineRules(nil)
 		caller := newSession(ws1, "it-caller-auto", "")
-		// Auto-accept on the caller is beside the point now — and the child
-		// must not inherit it either way.
-		if err := mat.SetAutoAccept(caller.ID, true); err != nil {
+		// The caller on Allow is beside the point: the spawned child is a fresh
+		// top-level session and starts on Ask whatever the caller's mode is.
+		if err := oc.SetPermissionMode(ctx, ws1.Path, caller.ID, permrules.Allow); err != nil {
 			t.Fatal(err)
 		}
 		route("trigger-spawn-auto", "session_spawn", spawnArgs("it-child-auto", "child-auto first prompt", "inherit"))
@@ -458,8 +454,8 @@ func TestAgentToolsIntegration(t *testing.T) {
 			t.Fatalf("child sessions = %d, want 1", len(kids))
 		}
 		child := getSession(kids[0].ID)
-		if child.AutoAccept || mat.AutoAccept(child.ID) {
-			t.Errorf("the child of an auto-accepting spawner has auto-accept on")
+		if child.PermissionMode != "ask" {
+			t.Errorf("the child of an Allow-mode spawner is on %q, want ask", child.PermissionMode)
 		}
 		if child.SpawnedBy == nil || child.SpawnedBy.SessionID != caller.ID {
 			t.Errorf("spawnedBy = %+v", child.SpawnedBy)

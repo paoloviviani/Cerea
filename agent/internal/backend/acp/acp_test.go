@@ -175,9 +175,6 @@ func TestHandshake(t *testing.T) {
 	if caps.Diff || caps.Children || caps.Usage || caps.Compact || caps.Worktrees {
 		t.Errorf("Capabilities() = %+v, want Diff/Children/Usage/Compact/Worktrees all false", caps)
 	}
-	if !caps.AutoAccept {
-		t.Error("Capabilities().AutoAccept = false, want true")
-	}
 }
 
 // drainEvents collects events for sessionID from ch until stop returns

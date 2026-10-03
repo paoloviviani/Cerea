@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -59,15 +60,14 @@ Usage:
                 lets a task keep running after its parent turn ends, with
                 its result injected back as a synthetic message the panel
                 shows as a background marker.
-  --allow-auto-accept  Let a session be switched to auto-accept at all
-               (default denied: the machine's own veto, PROTOCOL.md §4 —
-               Cerea can never turn this on over the link if this flag was
-               never passed at enroll time). Auto-accept answers a session's
-               tool asks "once" without a card; it never answers a question,
-               never says "always", and cannot touch what a rule denies.
+  --allow-auto-accept  Does nothing, and is accepted for one more release so
+               existing scripts keep working. Auto-accept is gone: a session
+               now has a Deny / Ask / Allow selector in the /code composer
+               (new sessions start on Ask), and this machine's ceiling —
+               --permission-max — is what no session can go past.
   --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
                session_spawn, …) may ever be — allow, ask or deny — whatever any
-               rule or "always" says (repeatable; default bash=ask; a list you give
+               rule, session selector or "always allow" says (repeatable; default bash=ask; a list you give
                replaces that default, so --permission-max edit=ask alone leaves
                bash uncapped). Because
                bash can read opencode's server password out of its own
@@ -75,7 +75,8 @@ Usage:
                session widen its own rules, which is why bash asks by default.
   --permission-rule KEY=ACTION  This machine's own rule for KEY (repeatable;
                default none). Applied as a session rule, so it beats the
-               opencode.json written here; the ceiling still caps it.
+               opencode.json written here; a session's Deny / Ask / Allow
+               selector sits after it, and the ceiling still caps both.
   --workspace-root PATH  Confine workspace.create to this path or below
                (repeatable; default unrestricted). Every occurrence is
                recorded; 'run' refuses a workspace outside all of them.
@@ -106,8 +107,8 @@ Usage:
                 (session_list/session_spawn/session_send) into opencode, and
                 leave OPENCODE_CONFIG_DIR alone (default: installed; every
                 spawn and send needs a person's approval each time unless a
-                rule for session_spawn / session_send says allow; auto-accept
-                never answers one).
+                rule for session_spawn / session_send says allow; the Allow
+                selector never answers one).
    --yes        Overwrite existing files without asking.
 `
 
@@ -163,9 +164,12 @@ func (f stringListFlag) Set(v string) error {
 	return nil
 }
 
-func runEnroll(args []string) error {
-	fs := flagSetWithHelp("enroll", enrollUsage)
-	opts := enrollOptions{}
+// newEnrollFlagSet registers every enroll flag on a fresh flag set, bound to
+// opts. It is its own function so a test can read the set back:
+// packaging/enroll-flags.json classifies each flag for the /code panel's enroll
+// dialog, and enroll_flags_test.go fails when the two differ.
+func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) {
+	fs = flagSetWithHelp("enroll", enrollUsage)
 	fs.StringVar(&opts.issuer, "issuer", "", "")
 	fs.StringVar(&opts.gateway, "gateway", "", "")
 	fs.StringVar(&opts.cerea, "cerea", "", "")
@@ -178,7 +182,7 @@ func runEnroll(args []string) error {
 	fs.IntVar(&opts.shimPort, "shim-port", defaultShimPort, "")
 	// --no-discover is separate from --discover because the stdlib flag
 	// package cannot negate one bool with another name on the same variable.
-	noDiscover := fs.Bool("no-discover", false, "")
+	noDiscover = fs.Bool("no-discover", false, "")
 	fs.BoolVar(&opts.discover, "discover", true, "")
 	fs.BoolVar(&opts.allowOpencodeProviders, "allow-opencode-provider", false, "")
 	fs.BoolVar(&opts.allowAutoAccept, "allow-auto-accept", false, "")
@@ -196,6 +200,12 @@ func runEnroll(args []string) error {
 	fs.BoolVar(&opts.allowBackground, "allow-background-subagents", false, "")
 	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
+	return fs, noDiscover
+}
+
+func runEnroll(args []string) error {
+	opts := enrollOptions{}
+	fs, noDiscover := newEnrollFlagSet(&opts)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -337,6 +347,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
+	if opts.allowAutoAccept {
+		fmt.Fprintln(os.Stderr, "warning: --allow-auto-accept does nothing any more: auto-accept was replaced by the Deny / Ask / Allow selector in the /code composer. Nothing was written for it; drop the flag.")
+	}
 	// Enrolling is a new identity for Cerea too: a fresh machine id means the
 	// machine appears as a new pending device to confirm, and a machine revoked
 	// in the panel can come back at all (its old id is refused for good).
@@ -527,7 +540,7 @@ func agentToolsPolicySummary(pol policy.Policy) string {
 	if !pol.AgentToolsAllowed() {
 		return "Agent tools: OFF — no session_list/session_spawn/session_send is installed into the agent."
 	}
-	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (auto-accept never does), unless a rule for session_spawn / session_send says allow."
+	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (the Allow selector never does), unless a rule for session_spawn / session_send says allow."
 }
 
 // projectConfigPolicySummary says, in plain words, what a workspace's own
@@ -566,9 +579,6 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 // the flags open; the permission ceiling defaults to bash=ask.
 func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	pol := policy.Default()
-	if opts.allowAutoAccept {
-		pol.Permission.Responders = policy.TerminalAllowed
-	}
 	pol.Permission.Max = defaultEnrollMax()
 	if len(opts.permissionMax) > 0 {
 		// Given, the flag states the whole ceiling: --permission-max bash=allow

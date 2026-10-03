@@ -132,8 +132,9 @@ func (a *auditLogger) agentTool(tool, from, to, decision, reason string) {
 
 // permission records one answer to a permission ask (PROTOCOL.md §6
 // "Permissions"): the session, the request, the tool class, the decision that
-// took effect and who gave it — "user" for a person's permission.reply,
-// "responder" for auto-accept. Never a pattern: for bash the pattern IS the
+// took effect and who gave it — "user" for a person's permission.reply. The
+// decision is "always" when the reply stored an exception (the answer opencode
+// got was "once"). Never a pattern: for bash the pattern IS the
 // command text. capped marks a reply the ceiling lowered from "always".
 func (a *auditLogger) permission(session, requestID, tool, decision, by string, capped bool) {
 	entry := map[string]any{"action": "permission", "session": session, "requestId": requestID, "tool": tool, "decision": decision, "by": by}
@@ -143,28 +144,19 @@ func (a *auditLogger) permission(session, requestID, tool, decision, by string, 
 	a.write(entry)
 }
 
-// permissionSavedRemove records a saved approval being withdrawn.
+// permissionSavedRemove records an exception being removed (no patterns).
 func (a *auditLogger) permissionSavedRemove(session, id string) {
 	a.write(map[string]any{"action": "permission.saved.remove", "session": session, "id": id})
 }
 
-// permissionSetRules records a person's rules being written to a session:
-// how many were sent, how many were applied after the ceiling, whether any was
-// lowered, and which tool classes they named — never the patterns.
-func (a *auditLogger) permissionSetRules(session string, sent, applied int, clamped bool, tools []string) {
-	a.write(map[string]any{"action": "permission.setRules", "session": session, "sent": sent, "applied": applied, "clamped": clamped, "tools": tools})
+// permissionMode records a session's Deny / Ask / Allow selector being set: the
+// blanket decides what runs without a card, so it is a decision worth a row.
+func (a *auditLogger) permissionMode(session, mode string) {
+	a.write(map[string]any{"action": "permission.mode", "session": session, "mode": mode})
 }
 
 // permissionTightened records a tightened permission policy being taken in
 // while the agent ran, and that opencode was restarted to apply it.
 func (a *auditLogger) permissionTightened(restarted bool) {
 	a.write(map[string]any{"action": "permission.tightened", "restarted": restarted})
-}
-
-// autoAccept records the auto-accept toggle being written for a session: the
-// switch decides whether tool asks are answered without a person, so setting
-// it is a decision worth a row. (What the responder then answers is audited as
-// permission rows, by "responder".)
-func (a *auditLogger) autoAccept(session string, enabled bool) {
-	a.write(map[string]any{"action": "auto_accept", "session": session, "enabled": enabled})
 }

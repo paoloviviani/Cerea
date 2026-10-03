@@ -150,13 +150,12 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// message for any of these (PROTOCOL.md §2) — the user-question tool
 	// design's fallback for a backend without a native question mechanism
 	// is the injected MCP tool the agent-handoff work adds, not this
-	// capability. AutoAccept is true regardless of the underlying agent:
-	// the materializer (internal/sessions) implements auto-accept
-	// generically by answering session/request_permission itself, not
-	// something a backend opts into.
+	// capability. An ACP agent has no permission rules galopin can read or
+	// compose, so it has no Deny/Ask/Allow selector either: its
+	// session/request_permission asks reach a person as they come.
 	return backend.Capabilities{
 		Diff: false, Children: false, Usage: false, Compact: false,
-		Images: images, Files: false, Worktrees: false, AutoAccept: true,
+		Images: images, Files: false, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries
 		// the list per session (PROTOCOL.md §6 backend.commands), and before

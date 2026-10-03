@@ -48,9 +48,6 @@ type AgentInfo struct {
 
 // PermissionInfo is policy.json's permission block as the hello reports it.
 type PermissionInfo struct {
-	// Responders is "allowed" or "denied": whether a session may be switched
-	// to auto-accept.
-	Responders string `json:"responders"`
 	// Max is the ceiling, permission key → "ask" | "deny"; a key absent from
 	// it is not capped.
 	Max map[string]string `json:"max"`
@@ -63,9 +60,9 @@ type BackendInfo struct {
 }
 
 type PolicyInfo struct {
-	// AutoAccept mirrors Permission.Responders under its old name. Cerea's
-	// hello schema still requires it; it carries no meaning of its own and is
-	// dropped once the panel stops reading it (PROTOCOL.md §5).
+	// AutoAccept is the constant "denied": auto-accept no longer exists. Cerea's
+	// hello schema still requires the field, so it is sent for one more release
+	// and dropped after (PROTOCOL.md §5).
 	AutoAccept string `json:"autoAccept"`
 	// Permission is the machine's say over opencode's permissions.
 	Permission      PermissionInfo `json:"permission"`
