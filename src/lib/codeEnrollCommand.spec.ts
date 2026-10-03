@@ -41,13 +41,9 @@ describe("buildEnrollCommand", () => {
 		expect(on).toContain(" && curl -fsSL https://opencode.ai/install | bash && ");
 	});
 
-	it("adds --allow-auto-accept only when asked, before --allow-terminal", () => {
-		const off = buildEnrollCommand(BASE_OPTIONS);
-		const on = buildEnrollCommand({ ...BASE_OPTIONS, allowAutoAccept: true, allowTerminal: true });
-
-		expect(off).not.toContain("--allow-auto-accept");
-		expect(on).toContain("--allow-auto-accept");
-		expect(on.indexOf("--allow-auto-accept")).toBeLessThan(on.indexOf("--allow-terminal"));
+	it("never prints --allow-auto-accept: the selector replaced it", () => {
+		const command = buildEnrollCommand({ ...BASE_OPTIONS, allowTerminal: true });
+		expect(command).not.toContain("auto-accept");
 	});
 
 	it("omits --client-id when it equals the CLI's own default, explicitly", () => {
@@ -75,19 +71,17 @@ describe("buildEnrollCommand", () => {
 		);
 	});
 
-	it("adds --allow-project-config only when asked, between auto-accept and terminal", () => {
+	it("adds --allow-project-config only when asked, after the terminal flag", () => {
 		const off = buildEnrollCommand(BASE_OPTIONS);
 		const on = buildEnrollCommand({
 			...BASE_OPTIONS,
-			allowAutoAccept: true,
 			allowProjectConfig: true,
 			allowTerminal: true,
 		});
 
 		expect(off).not.toContain("--allow-project-config");
 		expect(on).toContain("--allow-project-config");
-		expect(on.indexOf("--allow-auto-accept")).toBeLessThan(on.indexOf("--allow-project-config"));
-		expect(on.indexOf("--allow-project-config")).toBeLessThan(on.indexOf("--allow-terminal"));
+		expect(on.indexOf("--allow-terminal")).toBeLessThan(on.indexOf("--allow-project-config"));
 	});
 
 	it("combines a custom client id and --allow-terminal together", () => {
