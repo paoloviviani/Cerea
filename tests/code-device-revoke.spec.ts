@@ -29,7 +29,7 @@ async function seedDevice(
 		sub: "e2e-sub",
 		iss: "https://issuer.example.org",
 		backends: [],
-		policy: { autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+		policy: { workspaceRoots: [], allowFreeModels: false },
 		credentialState: "ok",
 		createdAt: now,
 		updatedAt: now,

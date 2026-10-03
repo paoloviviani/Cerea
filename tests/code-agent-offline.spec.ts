@@ -30,7 +30,7 @@ function deviceRow(overrides: Record<string, unknown> = {}) {
 		online: false,
 		credentialState: "ok",
 		backends: [],
-		policy: { autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+		policy: { workspaceRoots: [], allowFreeModels: false },
 		createdAt: new Date(),
 		...overrides,
 	};

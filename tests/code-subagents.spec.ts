@@ -113,7 +113,7 @@ test.beforeEach(async ({ page }) => {
 		})
 	);
 
-	// Server-side cursor (see code-stop-auto.spec.ts): Playwright-fulfilled
+	// Server-side cursor (see code-stop-permission.spec.ts): Playwright-fulfilled
 	// SSE responses do not persist lastEventId across synthetic reconnects,
 	// so each response carries only frames not yet sent.
 	let served = 0;

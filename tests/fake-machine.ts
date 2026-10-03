@@ -28,7 +28,7 @@ import type {
 	Notice,
 	PermissionRule,
 	Policy,
-	SessionRuleInput,
+	PermissionMode,
 	ReqFrame,
 	SavedApproval,
 	Session,
@@ -81,23 +81,21 @@ export interface FakeMachineModel {
 	 * tests set this directly; empty by default. */
 	commands: Command[];
 	terminals: Map<string, FakeTerminalState>;
-	/** MOCK — the agent half (feat/permission-agent) is being built
-	 * concurrently, so everything here is the panel's reading of the frozen
-	 * contract (`session.setRules {sessionId, rules}`, capped application,
-	 * `permission.rules` shows the truth), not galopin's behaviour.
-	 * The rules the machine has before any session rule or the ceiling tail
-	 * (what `permission.rules` lists first, with whatever `source` a test
-	 * gives them — or none). */
+	/** MOCK — the agent half (feat/permission-selector-agent) is being built
+	 * concurrently, so everything below is the panel's reading of the FROZEN
+	 * contract in the permission-selector brief (`session.setPermissionMode`,
+	 * `permissionMode` on sessions, `permission.rules` with `mode` and
+	 * exceptions, `permission.saved.remove`), NOT galopin's behaviour. It is
+	 * reconciled end to end by OC against the real agent.
+	 * The rules the machine has before the session's mode block and the
+	 * ceiling tail (what `permission.rules` lists first, with whatever
+	 * `source` a test gives them — or none). */
 	permissionRules: PermissionRule[];
 	/** MOCK — the ceiling: permission key -> the most it may ever be. */
 	permissionCeiling: Record<string, "ask" | "deny">;
-	/** MOCK — what a rule above the ceiling does: lowered to it, or refused. */
-	overCeiling: "clamp" | "refuse";
-	/** MOCK — the rules each session was given through `session.setRules`,
-	 * after the ceiling had its say (source "cerea"). */
-	sessionRules: Map<string, SessionRuleInput[]>;
-	/** MOCK — the "always" approvals `permission.rules` lists, and the ones
-	 * `permission.saved.remove` deletes by id. */
+	/** MOCK — the session's exceptions (what an "Always allow" leaves
+	 * behind), listed by `permission.rules` as `savedApprovals` and deleted
+	 * by id through `permission.saved.remove`. */
 	savedApprovals: SavedApproval[];
 }
 
@@ -118,8 +116,6 @@ export function emptyModel(): FakeMachineModel {
 		terminals: new Map(),
 		permissionRules: [],
 		permissionCeiling: {},
-		overCeiling: "clamp",
-		sessionRules: new Map(),
 		savedApprovals: [],
 	};
 }
@@ -145,13 +141,11 @@ const DEFAULT_BACKEND: Backend = {
 		images: true,
 		files: true,
 		worktrees: false,
-		autoAccept: true,
 		questions: true,
 	},
 };
 
 const DEFAULT_POLICY: Policy = {
-	autoAccept: "denied",
 	workspaceRoots: [],
 	allowFreeModels: false,
 };
@@ -499,11 +493,14 @@ export class FakeMachine {
 				const sessions = workspaceId
 					? model.sessions.filter((s) => s.workspaceId === workspaceId)
 					: model.sessions;
-				return { sessions };
+				return {
+					sessions: sessions.map((s) => ({ ...s, permissionMode: rootModeOf(model, s) })),
+				};
 			}
 			case "session.get": {
 				const { sessionId } = args as { sessionId: string };
-				return { session: requireSession(model, sessionId) };
+				const session = requireSession(model, sessionId);
+				return { session: { ...session, permissionMode: rootModeOf(model, session) } };
 			}
 			case "session.create": {
 				const { workspaceId, backend, title, modeId, modelId } = args as {
@@ -523,7 +520,7 @@ export class FakeMachine {
 					pendingPermissions: 0,
 					modeId: modeId ?? null,
 					modelId: modelId ?? null,
-					autoAccept: false,
+					permissionMode: "ask",
 					parentId: null,
 					createdAt: now,
 					updatedAt: now,
@@ -567,24 +564,28 @@ export class FakeMachine {
 				session.modelId = modelId;
 				return { session };
 			}
-			case "session.setAutoAccept": {
-				const { sessionId, enabled } = args as { sessionId: string; enabled: boolean };
-				const session = requireSession(model, sessionId);
-				session.autoAccept = enabled;
-				return { session };
-			}
 			case "permission.reply":
 				return {};
-			// MOCK of the contract with the agent half, unverified against real
-			// galopin: a read that tells the truth about what is in force, a
-			// session-rule writer that applies a ceiling, and a tighten-only
-			// delete by id.
+			// MOCK of the frozen contract with the agent half, unverified against
+			// real galopin: the selector, a read that reports the session's mode
+			// and exceptions, and a tighten-only delete by id.
+			case "session.setPermissionMode": {
+				const { sessionId, mode } = args as { sessionId: string; mode: string };
+				const session = model.sessions.find((s) => s.id === sessionId);
+				if (!session) throw new OpError("not_found", "No such session.");
+				if (mode !== "deny" && mode !== "ask" && mode !== "allow") {
+					throw new OpError("invalid", "mode must be deny, ask or allow.");
+				}
+				if (session.parentId) {
+					throw new OpError("invalid", "a subagent follows its root");
+				}
+				session.permissionMode = mode;
+				return {};
+			}
 			case "permission.rules": {
 				const { sessionId } = args as { sessionId: string };
-				const cerea = (model.sessionRules.get(sessionId) ?? []).map((rule) => ({
-					...rule,
-					source: "cerea",
-				}));
+				const mode = rootModeOf(model, requireSession(model, sessionId));
+				const block = [{ permission: "*", pattern: "*", action: mode, source: "cerea" }];
 				const tail = Object.entries(model.permissionCeiling).map(([permission, action]) => ({
 					permission,
 					pattern: "*",
@@ -592,39 +593,18 @@ export class FakeMachine {
 					source: "ceiling",
 				}));
 				return {
-					rules: [...model.permissionRules, ...cerea, ...tail],
+					mode,
+					rules: [...model.permissionRules, ...block, ...tail],
 					savedApprovals: model.savedApprovals,
 					ceiling: model.permissionCeiling,
 				};
 			}
-			case "session.setRules": {
-				const { sessionId, rules } = args as { sessionId: string; rules: SessionRuleInput[] };
-				requireSession(model, sessionId);
-				const rank = { deny: 0, ask: 1, allow: 2 } as const;
-				const applied: SessionRuleInput[] = [];
-				for (const rule of rules) {
-					const max = model.permissionCeiling[rule.permission] ?? model.permissionCeiling["*"];
-					if (max && rank[rule.action] > rank[max]) {
-						if (model.overCeiling === "refuse") {
-							throw new OpError(
-								"forbidden",
-								`${rule.permission} may not exceed ${max} on this machine.`
-							);
-						}
-						applied.push({ ...rule, action: max });
-					} else {
-						applied.push({ ...rule });
-					}
-				}
-				model.sessionRules.set(sessionId, applied);
-				return {};
-			}
 			case "permission.saved.remove": {
 				const { id } = args as { id: string; sessionId: string };
 				const found = model.savedApprovals.find((approval) => approval.id === id);
-				if (!found) throw new OpError("not_found", "No such saved approval.");
+				if (!found) throw new OpError("not_found", "No such exception.");
 				if (found.removable === false) {
-					throw new OpError("forbidden", "This approval cannot be withdrawn from here.");
+					throw new OpError("forbidden", "This exception cannot be withdrawn from here.");
 				}
 				model.savedApprovals = model.savedApprovals.filter((approval) => approval.id !== id);
 				return {};
@@ -785,6 +765,18 @@ function requireWorkspace(model: FakeMachineModel, workspaceId: string): Workspa
 	const workspace = model.workspaces.find((w) => w.id === workspaceId);
 	if (!workspace) throw new Error(`fake machine: no such workspace ${workspaceId}`);
 	return workspace;
+}
+
+/** A session's blanket: its own when top-level, else its root's (a child
+ * reports its root's, per the contract). Absent reads as "ask". */
+function rootModeOf(model: FakeMachineModel, session: Session): PermissionMode {
+	let current = session;
+	while (current.parentId) {
+		const parent = model.sessions.find((s) => s.id === current.parentId);
+		if (!parent) break;
+		current = parent;
+	}
+	return current.permissionMode ?? "ask";
 }
 
 function requireSession(model: FakeMachineModel, sessionId: string): Session {

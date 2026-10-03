@@ -143,7 +143,6 @@ async function stubModelPicker(
 					modeId: null,
 					modelId,
 				},
-				features: [],
 				cwd: "/repo",
 			}),
 		})
