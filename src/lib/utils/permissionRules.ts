@@ -3,17 +3,11 @@
  *
  * opencode decides: the LAST matching rule wins, and with no match it asks.
  * These helpers describe a list the machine already composed (lowest to
- * highest precedence); nothing here evaluates a real tool call. The one thing
- * they help produce is the session's own rules (`validateDraft`), which the
- * machine still caps by its ceiling: the panel offers nothing above the
- * ceiling, and shows what is in force afterwards, never what it asked for.
+ * highest precedence); nothing here evaluates a real tool call, and nothing
+ * here writes a rule: the panel's own writes are the session's mode and the
+ * removal of an exception, neither of which is a rule.
  */
-import type {
-	PermissionRule,
-	PermissionRulesResult,
-	Policy,
-	SessionRuleInput,
-} from "$lib/types/machineProtocol";
+import type { PermissionRule, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 
 /** The tools the line summarises. Other permission names still appear in the
  * expanded list; these three are the ones a person asks about. */
@@ -124,10 +118,9 @@ export function sourceLabel(source: string | undefined): string {
 	}
 }
 
-// -- the ceiling, saved approvals, and the session's own rules ---------------
+// -- the ceiling and the session's exceptions --------------------------------
 
 const RANK: Record<RuleAction, number> = { deny: 0, ask: 1, allow: 2 };
-const ALL_ACTIONS: RuleAction[] = ["allow", "ask", "deny"];
 
 /** The ceiling as a permission key -> most-permissive action map. The machine
  * reports it directly (`ceiling`); a machine that does not is read from its
@@ -145,6 +138,17 @@ export function ceilingOf(
 	return derived;
 }
 
+/** The ceiling as the machine's `hello` reports it (`permission.max`), for a
+ * surface that has no `permission.rules` read of its own (the inbox's cards).
+ * Only the two words that cap anything are kept. */
+export function ceilingOfPolicy(policy: Policy | undefined): Record<string, "ask" | "deny"> {
+	const out: Record<string, "ask" | "deny"> = {};
+	for (const [key, value] of Object.entries(policy?.permission?.max ?? {})) {
+		if (value === "ask" || value === "deny") out[key] = value;
+	}
+	return out;
+}
+
 /** The most permissive action a rule for `permission` may carry, or null when
  * the machine caps nothing for it. A `*` entry caps every key it does not name. */
 export function ceilingFor(
@@ -154,81 +158,30 @@ export function ceilingFor(
 	return ceiling[permission] ?? ceiling["*"] ?? null;
 }
 
-/** The actions the panel offers for `permission`: never above the ceiling.
- * The machine caps anyway; this only keeps the panel from offering what it
- * knows will be lowered or refused. */
-export function allowedActions(
-	ceiling: Record<string, "ask" | "deny">,
-	permission: string
-): RuleAction[] {
+/** Whether the ceiling holds `permission` below allow, so that an "Always
+ * allow" for it would store nothing: the machine answers once and the next
+ * call asks again. The card hides the button instead of offering it. */
+export function isCapped(ceiling: Record<string, "ask" | "deny">, permission: string): boolean {
 	const max = ceilingFor(ceiling, permission);
-	return max === null ? ALL_ACTIONS : ALL_ACTIONS.filter((action) => RANK[action] <= RANK[max]);
+	return max !== null && RANK[max] < RANK.allow;
 }
 
-/** Saved "always" approvals held for one tool, for the count on its pill. */
-export function savedCount(result: Pick<PermissionRulesResult, "savedApprovals">, tool: string) {
+/** What the ceiling still holds back under Allow, in words: "bash asks",
+ * "edit is denied". Empty when it caps nothing. The key `*` reads "everything". */
+export function ceilingNote(ceiling: Record<string, "ask" | "deny">): string {
+	return Object.entries(ceiling)
+		.map(
+			([key, max]) => `${key === "*" ? "everything" : key} ${max === "ask" ? "asks" : "is denied"}`
+		)
+		.join(", ");
+}
+
+/** The exceptions held for one tool, for the count on its pill. */
+export function exceptionCount(
+	result: Pick<PermissionRulesResult, "savedApprovals">,
+	tool: string
+) {
 	return result.savedApprovals.filter((approval) => approval.permission === tool).length;
-}
-
-/** The rules the person (through Cerea) has in force for this session: what
- * the editor starts from. */
-export function sessionRulesOf(rules: PermissionRule[]): SessionRuleInput[] {
-	return rules
-		.filter((rule) => rule.source === "cerea")
-		.map(({ permission, pattern, action }) => ({ permission, pattern, action }));
-}
-
-export interface DraftProblem {
-	index: number;
-	message: string;
-}
-
-/** Why a draft cannot be sent, one entry per offending row; empty when it can.
- * Mirrors what the forwarder and the machine accept, so a refusal is rare and
- * the message is written for the person editing. */
-export function validateDraft(
-	draft: SessionRuleInput[],
-	ceiling: Record<string, "ask" | "deny">
-): DraftProblem[] {
-	const problems: DraftProblem[] = [];
-	draft.forEach((rule, index) => {
-		const permission = rule.permission.trim();
-		if (!permission) {
-			problems.push({ index, message: "Name the permission (edit, bash, webfetch, …)." });
-		} else if (!/^[A-Za-z0-9_.:*-]+$/.test(permission) || permission.length > 64) {
-			problems.push({ index, message: `"${permission}" is not a permission name.` });
-		}
-		if (!rule.pattern.trim()) {
-			problems.push({ index, message: "A pattern is required; use * for everything." });
-		}
-		const max = ceilingFor(ceiling, permission);
-		if (max !== null && RANK[rule.action] > RANK[max]) {
-			problems.push({
-				index,
-				message: `${permission} may be at most "${max}" on this machine.`,
-			});
-		}
-	});
-	if (draft.length > 64) problems.push({ index: -1, message: "At most 64 rules." });
-	return problems;
-}
-
-/** Where what was asked for and what is in force differ, after a write: the
- * rows the machine lowered, dropped or changed. Compared by permission and
- * pattern against the session's `cerea` rules as re-read. Empty means the
- * machine applied exactly what was asked. */
-export function notApplied(
-	asked: SessionRuleInput[],
-	inForce: SessionRuleInput[]
-): Array<{ asked: SessionRuleInput; inForce: RuleAction | null }> {
-	const out: Array<{ asked: SessionRuleInput; inForce: RuleAction | null }> = [];
-	for (const rule of asked) {
-		const got = inForce.find(
-			(candidate) => candidate.permission === rule.permission && candidate.pattern === rule.pattern
-		);
-		if (!got || got.action !== rule.action) out.push({ asked: rule, inForce: got?.action ?? null });
-	}
-	return out;
 }
 
 // -- legacy machines ---------------------------------------------------------

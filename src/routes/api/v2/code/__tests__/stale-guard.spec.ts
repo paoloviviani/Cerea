@@ -168,7 +168,6 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["GET", "v1/providers"],
 	["GET", "v1/providers/opencode/modes"],
 	["GET", "v1/providers/opencode/models"],
-	["GET", "v1/providers/opencode/features"],
 	["GET", "v1/agents/a1"],
 	["DELETE", "v1/agents/a1"],
 	["GET", `v1/agents/a1/attachments/${SHA}`],
@@ -182,7 +181,6 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["POST", "v1/agents/a1/questions/q1"],
 	["POST", "v1/agents/a1/mode"],
 	["POST", "v1/agents/a1/model"],
-	["POST", "v1/agents/a1/feature"],
 	["POST", "v1/agents/a1/cancel"],
 	["POST", "v1/agents/a1/compact"],
 	["POST", "v1/agents/a1/revert"],
@@ -193,7 +191,7 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["POST", "v1/workspaces/w1/archive"],
 	["GET", "v1/agents/a1/diff"],
 	["GET", "v1/agents/a1/permission-rules"],
-	["POST", "v1/agents/a1/permission-rules"],
+	["POST", "v1/agents/a1/permission-mode"],
 	["DELETE", "v1/agents/a1/permission-approvals/x1"],
 ];
 
@@ -290,6 +288,18 @@ describe("a stale sign-in is refused everywhere under /api/v2/code", () => {
 			expect(failures).toEqual([]);
 		});
 	}
+
+	it("refuses the selector's write and an exception's removal by name, before any machine is asked", async () => {
+		const cookie = await withAuthTime(new Date(Date.now() - 8 * DAY));
+		for (const [method, path] of [
+			["POST", "v1/agents/a1/permission-mode?device=d1"],
+			["DELETE", "v1/agents/a1/permission-approvals/ex_1?device=d1"],
+		]) {
+			const res = await hit(method, path, cookie);
+			expect(res.status, `${method} ${path}`).toBe(401);
+			expect((await parse<{ code?: string }>(res)).code).toBe("reauth_required");
+		}
+	});
 
 	it("lets the same routes through once the sign-in is fresh, so the 401s above are the guard's", async () => {
 		const cookie = await withAuthTime(new Date(Date.now() - 6 * DAY));

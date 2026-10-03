@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ToolApprovalCard from "./ToolApprovalCard.svelte";
 import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
+import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 
 vi.mock("$lib/utils/sendElicitationAnswer", () => ({
 	sendElicitationAnswer: async () => ({ ok: true }),
@@ -50,7 +51,9 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		await expect.element(facts).toHaveTextContent("END-OF-PROMPT");
 		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
 		await expect.element(screen.getByRole("button", { name: "Deny" })).toBeVisible();
-		expect(screen.getByRole("button", { name: "Always allow" }).elements()).toHaveLength(0);
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+		).toHaveLength(0);
 	});
 
 	it("shows who a send goes to and exactly what it says", async () => {
@@ -95,7 +98,59 @@ describe("ToolApprovalCard, galopin approvals", () => {
 			request: request("bash", { command: "ls" }),
 			onanswer: async () => ({ ok: true }),
 		});
-		await expect.element(screen.getByRole("button", { name: "Always allow" })).toBeVisible();
+		await expect
+			.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+			.toBeVisible();
+	});
+
+	it("labels the agent's second button as a per-session exception, never a standing grant", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("bash", { command: "ls" }),
+			onanswer: async () => ({ ok: true }),
+		});
+		const text = screen.container.textContent ?? "";
+		expect(text).toContain("Always allow (this session)");
+		expect(text).not.toMatch(/Always allow(?! \(this session\))/);
+	});
+
+	it("answers Always allow with the always scope", async () => {
+		const onanswer = vi.fn(async () => ({ ok: true }));
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("bash", { command: "ls" }),
+			onanswer,
+		});
+		await screen.getByRole("button", { name: "Always allow (this session)" }).click();
+		expect(onanswer).toHaveBeenCalledWith("accept", "always");
+	});
+
+	describe("a key the machine's ceiling caps", () => {
+		const withCeiling = (capped: AlwaysCapped, tool: string) =>
+			render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: request(tool, { command: "ls" }),
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map([[ALWAYS_CAPPED, capped]]),
+			} as never);
+
+		it("hides Always allow for it, and keeps Allow once and Deny", async () => {
+			const screen = withCeiling((tool) => tool === "bash", "bash");
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			await expect.element(screen.getByRole("button", { name: "Deny" })).toBeVisible();
+			expect(
+				screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+			).toHaveLength(0);
+		});
+
+		it("keeps Always allow for a key it does not cap", async () => {
+			const screen = withCeiling((tool) => tool === "bash", "edit");
+			await expect
+				.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+				.toBeVisible();
+		});
 	});
 
 	it("does not trust a galopin flag in chat, where the arguments are a model's own", async () => {
