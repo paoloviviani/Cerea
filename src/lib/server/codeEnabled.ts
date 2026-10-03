@@ -31,7 +31,7 @@ export function codeFilesEnabled(): boolean {
  * double veto. Off unless explicitly `"true"` — the opposite default from
  * `codeFilesEnabled`, because a terminal is a full remote shell (D6/D7),
  * not a read-only view. The other half is each machine's own policy
- * (`--allow-terminal`), checked separately wherever a terminal op is
+ * (on by default; `--no-terminal` turns it off), checked separately wherever a terminal op is
  * forwarded.
  */
 export function codeTerminalEnabled(): boolean {

@@ -61,7 +61,7 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 	await expect(page.getByText("repo", { exact: true })).toBeVisible();
 	await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-	await page.getByRole("button", { name: "Write" }).click();
+	await page.getByRole("button", { name: "Build" }).click();
 	await page.getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -134,7 +134,7 @@ test.describe("the terminal, hermetic", () => {
 		await expect(button).toBeDisabled();
 		await expect(button).toHaveAttribute(
 			"title",
-			"This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here."
+			"This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
 		);
 	});
 
@@ -326,7 +326,10 @@ test.describe("the terminal, hermetic", () => {
 		fake.exitTerminal(terminalId, 0);
 		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 10_000 });
 
-		await page.getByRole("button", { name: "Close terminal" }).click();
+		await page
+			.getByTestId("code-terminals")
+			.getByRole("button", { name: "Close terminal", exact: true })
+			.click();
 		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
 		await expect.poll(() => fake?.model.terminals.has(terminalId)).toBe(false);
 

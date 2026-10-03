@@ -13,14 +13,18 @@ const BASE_OPTIONS = {
 };
 
 describe("buildEnrollCommand", () => {
-	it("chains install, enroll and run with the default client id omitted", () => {
+	it("chains install, enroll and run, one step and one flag per line, default client id omitted", () => {
 		const command = buildEnrollCommand(BASE_OPTIONS);
 
 		expect(command).toBe(
-			"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh && " +
-				`${GALOPIN_BIN} enroll --issuer 'https://idp.example.org' ` +
-				"--gateway 'https://gateway.example.org' --cerea 'https://cerea.example.org/chat' && " +
-				`${GALOPIN_BIN} run`
+			[
+				"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh &&",
+				`${GALOPIN_BIN} enroll \\`,
+				"  --issuer 'https://idp.example.org' \\",
+				"  --gateway 'https://gateway.example.org' \\",
+				"  --cerea 'https://cerea.example.org/chat' &&",
+				`${GALOPIN_BIN} run`,
+			].join("\n")
 		);
 	});
 
@@ -29,8 +33,8 @@ describe("buildEnrollCommand", () => {
 		// a bare `galopin` fails with "command not found" between the &&s.
 		const command = buildEnrollCommand(BASE_OPTIONS);
 
-		expect(GALOPIN_BIN).toBe('"${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}/galopin"');
-		expect(command).not.toMatch(/(^| && | )galopin /);
+		expect(GALOPIN_BIN).toBe("~/.local/bin/galopin");
+		expect(command).not.toMatch(/(^|\n| )galopin /);
 	});
 
 	it("adds the opencode install line only when asked, between the two installs", () => {
@@ -38,7 +42,7 @@ describe("buildEnrollCommand", () => {
 		const on = buildEnrollCommand({ ...BASE_OPTIONS, installOpencode: true });
 
 		expect(off).not.toContain("opencode.ai");
-		expect(on).toContain(" && curl -fsSL https://opencode.ai/install | bash && ");
+		expect(on).toContain(" &&\ncurl -fsSL https://opencode.ai/install | bash &&\n");
 	});
 
 	it("never prints --allow-auto-accept: the selector replaced it", () => {
@@ -61,13 +65,13 @@ describe("buildEnrollCommand", () => {
 		expect(command).not.toContain("--client-id");
 	});
 
-	it("adds --allow-terminal only when asked, at the end of the enroll step", () => {
-		const off = buildEnrollCommand(BASE_OPTIONS);
-		const on = buildEnrollCommand({ ...BASE_OPTIONS, allowTerminal: true });
+	it("terminals are on by default: --no-terminal only when turned off, last line of enroll", () => {
+		const on = buildEnrollCommand(BASE_OPTIONS);
+		const off = buildEnrollCommand({ ...BASE_OPTIONS, allowTerminal: false });
 
-		expect(off).not.toContain("--allow-terminal");
-		expect(on).toContain(
-			`--cerea 'https://cerea.example.org/chat' --allow-terminal && ${GALOPIN_BIN} run`
+		expect(on).not.toContain("terminal");
+		expect(off).toContain(
+			`  --cerea 'https://cerea.example.org/chat' \\\n  --no-terminal &&\n${GALOPIN_BIN} run`
 		);
 	});
 
@@ -76,21 +80,27 @@ describe("buildEnrollCommand", () => {
 		const on = buildEnrollCommand({
 			...BASE_OPTIONS,
 			allowProjectConfig: true,
-			allowTerminal: true,
+			allowTerminal: false,
 		});
 
 		expect(off).not.toContain("--allow-project-config");
 		expect(on).toContain("--allow-project-config");
-		expect(on.indexOf("--allow-terminal")).toBeLessThan(on.indexOf("--allow-project-config"));
+		expect(on.indexOf("--no-terminal")).toBeLessThan(on.indexOf("--allow-project-config"));
 	});
 
-	it("combines a custom client id and --allow-terminal together", () => {
+	it("a value stays on its flag's line: a custom client id, then --no-terminal", () => {
 		const command = buildEnrollCommand({
 			...BASE_OPTIONS,
 			clientId: "custom-client",
-			allowTerminal: true,
+			allowTerminal: false,
 		});
-		expect(command).toContain("--client-id 'custom-client' --allow-terminal");
+		expect(command).toContain("  --client-id 'custom-client' \\\n  --no-terminal");
+	});
+
+	it("parses as one POSIX command list: every line but the last continues", () => {
+		const lines = buildEnrollCommand({ ...BASE_OPTIONS, installOpencode: true }).split("\n");
+		for (const line of lines.slice(0, -1)) expect(line).toMatch(/( \\| &&)$/);
+		expect(lines.at(-1)).toBe(`${GALOPIN_BIN} run`);
 	});
 
 	it("strips a trailing slash from origin before use", () => {

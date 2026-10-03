@@ -137,8 +137,12 @@ async function enrollWith(choices: EnrollPolicyChoices): Promise<Enrolled> {
 		gatewayOrigin: idpUrl,
 		...choices,
 	});
-	const steps = command.split(" && ");
+	const steps = command.split(" &&\n");
 	expect(steps).toHaveLength(3);
+	// The command names the binary as ~/.local/bin/galopin; HOME is this
+	// machine's scratch directory, so put the built binary there.
+	mkdirSync(join(dir, ".local", "bin"), { recursive: true });
+	execFileSync("ln", ["-s", join(installDir, "galopin"), join(dir, ".local", "bin", "galopin")]);
 	const enrollStep = `${steps[1]} --device --no-discover --yes --output ${JSON.stringify(
 		join(dir, "opencode.json")
 	)} --creds ${JSON.stringify(join(dir, "creds.json"))}`;
@@ -203,7 +207,14 @@ describe.skipIf(!HAVE_BINARY)(
 		const scenarios: Array<[string, EnrollPolicyChoices]> = [
 			["nothing touched", defaultPolicyChoices()],
 			["terminal with a cap", choose({ allowTerminal: true, maxTerminals: 3 })],
-			["terminal, default cap", choose({ allowTerminal: true })],
+			[
+				"terminals, command shell and background subagents off",
+				choose({
+					allowTerminal: false,
+					allowCommandShell: false,
+					allowBackgroundSubagents: false,
+				}),
+			],
 			[
 				"one ceiling row changed: the whole set is written",
 				choose({ ceiling: { ...DEFAULT_CEILING, edit: "ask" } }),
@@ -225,8 +236,8 @@ describe.skipIf(!HAVE_BINARY)(
 			[
 				"the Advanced switches",
 				choose({
-					allowCommandShell: true,
-					allowBackgroundSubagents: true,
+					allowCommandShell: false,
+					allowBackgroundSubagents: false,
 					noAgentTools: true,
 					allowFreeModels: true,
 					allowOpencodeProvider: true,

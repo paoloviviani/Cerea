@@ -3,7 +3,8 @@
  * `/code` device list shows for a device whose `enrolledIssuer` has drifted
  * or whose access was revoked (spec §12): install, enroll against this
  * deployment's issuer/gateway/client id, then run — chained with `&&` so a
- * failed step never silently runs the next one.
+ * failed step never silently runs the next one, one step per line and one
+ * enroll flag per line, so it reads at a glance and still pastes as is.
  *
  * A pure function, not a component method, so it has its own unit specs
  * independent of rendering: the shape of the printed command is exactly as
@@ -46,15 +47,17 @@ export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
 	installOpencode?: boolean;
 }
 
-/** The binary's path as the installer installs it — `${GALOPIN_INSTALL_DIR:-
- * $HOME/.local/bin}/galopin` (galopinDist.ts's renderInstallScript). The
- * printed command uses it instead of a bare `galopin` because on a fresh
- * machine `~/.local/bin` is not on the installing shell's PATH yet, and a
- * bare name fails with "command not found" between the `&&`s. `$HOME` is
- * POSIX-guaranteed enough for a login shell; if some shell leaves it unset
- * the enroll step fails loudly instead of silently running the wrong
- * binary. */
-export const GALOPIN_BIN = '"${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}/galopin"';
+/** The binary's path as the installer installs it by default
+ * (galopinDist.ts's renderInstallScript: `${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}`).
+ * The printed command uses the full path instead of a bare `galopin` because
+ * on a fresh machine `~/.local/bin` is not on the installing shell's PATH yet,
+ * and a bare name fails with "command not found" between the `&&`s. Someone
+ * who set GALOPIN_INSTALL_DIR knows to edit it; everyone else reads a short,
+ * plain path (an unquoted leading `~` expands in every POSIX shell). */
+export const GALOPIN_BIN = "~/.local/bin/galopin";
+
+/** Continuation of one shell command onto the next line. */
+const CONT = " \\\n  ";
 
 /** The policy choices an options object carries, the rest at default. */
 function policyChoicesOf(opts: EnrollCommandOptions): EnrollPolicyChoices {
@@ -78,26 +81,31 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 		? `curl -fsSL https://opencode.ai/install | bash`
 		: null;
 
-	const enroll = [
-		GALOPIN_BIN,
-		"enroll",
-		"--issuer",
-		quoteShellArg(opts.issuer),
-		"--gateway",
-		quoteShellArg(opts.gatewayOrigin),
-		"--cerea",
-		quoteShellArg(origin),
-	];
+	// One flag per line, its value beside it: the args come flat, and a new
+	// line starts at every `--flag`.
+	const flags: string[] = [];
+	const push = (...args: string[]) => {
+		for (const arg of args) {
+			if (arg.startsWith("--") || flags.length === 0) flags.push(arg);
+			else flags[flags.length - 1] += ` ${arg}`;
+		}
+	};
+	push("--issuer", quoteShellArg(opts.issuer));
+	push("--gateway", quoteShellArg(opts.gatewayOrigin));
+	push("--cerea", quoteShellArg(origin));
 	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
 	if (clientId !== DEFAULT_CODE_CLIENT_ID) {
-		enroll.push("--client-id", quoteShellArg(clientId));
+		push("--client-id", quoteShellArg(clientId));
 	}
-	enroll.push(...policyFlagArgs(policyChoicesOf(opts)));
+	push(...policyFlagArgs(policyChoicesOf(opts)));
+	const enroll = [`${GALOPIN_BIN} enroll`, ...flags].join(CONT);
 
+	// One step per line; a line ending in `&&` continues without a backslash,
+	// and a failed step still never runs the next one.
 	const steps = [install];
 	if (installOpencode) {
 		steps.push(installOpencode);
 	}
-	steps.push(enroll.join(" "), `${GALOPIN_BIN} run`);
-	return steps.join(" && ");
+	steps.push(enroll, `${GALOPIN_BIN} run`);
+	return steps.join(" &&\n");
 }

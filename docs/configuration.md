@@ -80,16 +80,16 @@ chat against Pystino and for a chat against any other endpoint.
 
 ## Coding agents
 
-| Variable                 | What                                                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `CODE_AGENTS_ENABLED`    | Exactly `true` shows the Agents panel. Anything else hides it, and `/code` answers 404                                                  |
-| `CODE_FILES_ENABLED`     | Unset means on with the panel. `false` turns the read-only file explorer off for the whole deployment (each machine can also refuse it) |
-| `CODE_TERMINAL_ENABLED`  | Exactly `true` allows browser terminals; off by default. Still only live for a machine enrolled with `--allow-terminal`                 |
-| `CODE_MACHINE_ISSUER`    | The issuer a machine's token must come from. Defaults to `OPENID_PROVIDER_URL`                                                          |
-| `CODE_MACHINE_AUDIENCE`  | The audience a machine's token must carry (`pystino-api`)                                                                               |
-| `CODE_MACHINE_CLIENT_ID` | The client a machine's token must be issued to (`opencode-enrollment`)                                                                  |
-| `CODE_GATEWAY_ORIGIN`    | The gateway origin the pairing dialog passes to `galopin enroll --gateway`. Unset: the browser's own origin                             |
-| `GALOPIN_DIST_DIR`       | Where the image keeps the galopin binaries it serves at `<base>/galopin/`. Default `/app/galopin-dist`                                  |
+| Variable                 | What                                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CODE_AGENTS_ENABLED`    | Exactly `true` shows the Agents panel. Anything else hides it, and `/code` answers 404                                                                                    |
+| `CODE_FILES_ENABLED`     | Unset means on with the panel. `false` turns the read-only file explorer off for the whole deployment (each machine can also refuse it)                                   |
+| `CODE_TERMINAL_ENABLED`  | Exactly `true` allows browser terminals; off by default. Still only live for a machine whose policy allows terminals (the enroll default; `--no-terminal` turns them off) |
+| `CODE_MACHINE_ISSUER`    | The issuer a machine's token must come from. Defaults to `OPENID_PROVIDER_URL`                                                                                            |
+| `CODE_MACHINE_AUDIENCE`  | The audience a machine's token must carry (`pystino-api`)                                                                                                                 |
+| `CODE_MACHINE_CLIENT_ID` | The client a machine's token must be issued to (`opencode-enrollment`)                                                                                                    |
+| `CODE_GATEWAY_ORIGIN`    | The gateway origin the pairing dialog passes to `galopin enroll --gateway`. Unset: the browser's own origin                                                               |
+| `GALOPIN_DIST_DIR`       | Where the image keeps the galopin binaries it serves at `<base>/galopin/`. Default `/app/galopin-dist`                                                                    |
 
 The operator's view of these, and what each does to the panel, is in [The
 `/code` panel](code-panel.md).

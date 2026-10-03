@@ -125,7 +125,7 @@ test.describe("the new-agent dialog on a phone", () => {
 			expect(overflow).toBeLessThanOrEqual(0);
 
 			// The posture pills render whole, inside the viewport.
-			for (const label of ["Plan", "Write"]) {
+			for (const label of ["Plan", "Build"]) {
 				expectInsideViewport(await boxOf(dialog.getByRole("button", { name: label })), width);
 			}
 
@@ -204,12 +204,12 @@ test.describe("the pair dialog's setup commands", () => {
 		// origin-shaped, so this catches a regression to a hardcoded,
 		// origin-derived issuer) and, `CODE_GATEWAY_ORIGIN` being unset here,
 		// the browser's own bare origin as the gateway fallback.
-		await expect(
-			dialog.getByText(
-				`galopin enroll --issuer 'http://127.0.0.1:9/authelia' --gateway '${E2E_APP_ORIGIN}' --cerea '${E2E_APP_URL}'`
-			)
-		).toBeVisible();
-		await expect(dialog.getByText("galopin run")).toBeVisible();
+		const commandBlock = dialog.getByTestId("galopin-enroll-command");
+		await expect(commandBlock).toBeVisible();
+		await expect(commandBlock).toContainText(
+			`galopin enroll \\\n  --issuer 'http://127.0.0.1:9/authelia' \\\n  --gateway '${E2E_APP_ORIGIN}' \\\n  --cerea '${E2E_APP_URL}'`
+		);
+		await expect(commandBlock).toContainText("galopin run");
 		await expect(dialog.getByText("No machine has checked in yet.")).toBeVisible();
 
 		// The commands never clip on a phone.
@@ -247,7 +247,7 @@ test.describe("the pair dialog's setup commands", () => {
 		expect(page.url()).toContain(`device=dev_new`);
 	});
 
-	test("the Allow terminal checkbox adds --allow-terminal to the printed command", async ({
+	test("terminals are on by default; turning them off adds --no-terminal on its own line", async ({
 		page,
 	}) => {
 		await openAgentsPanel(page);
@@ -256,18 +256,18 @@ test.describe("the pair dialog's setup commands", () => {
 		await expect(dialog).toBeVisible();
 
 		const commandBlock = page.getByTestId("galopin-enroll-command");
-		await expect(commandBlock).not.toContainText("--allow-terminal");
+		await expect(commandBlock).not.toContainText("terminal");
+		await expect(commandBlock).toContainText("&&\n~/.local/bin/galopin run");
 
-		await dialog.getByRole("checkbox", { name: /Allow terminal/ }).check();
-		await expect(commandBlock).toContainText("&& galopin run");
+		await dialog.getByTestId("enroll-advanced").locator("summary").click();
+		await dialog.getByRole("checkbox", { name: /Terminals/ }).uncheck();
 		await expect(commandBlock).toContainText(
-			`--cerea '${E2E_APP_URL}' --allow-terminal && galopin run`
+			`  --cerea '${E2E_APP_URL}' \\\n  --no-terminal &&\n~/.local/bin/galopin run`
 		);
 
-		// Unchecking removes it again — the checkbox is a live toggle, not a
-		// one-way switch.
-		await dialog.getByRole("checkbox", { name: /Allow terminal/ }).uncheck();
-		await expect(commandBlock).not.toContainText("--allow-terminal");
+		// Checking it again removes the flag: the checkbox is a live toggle.
+		await dialog.getByRole("checkbox", { name: /Terminals/ }).check();
+		await expect(commandBlock).not.toContainText("--no-terminal");
 	});
 });
 

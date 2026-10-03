@@ -80,14 +80,16 @@ veto that only `enroll` can loosen:
   word or exceptions say. The old auto-accept toggle and
   `--allow-auto-accept` are gone (the flag is accepted for one more
   release and does nothing).
-- **A terminal**: a real, interactive shell, **off by default**.
-  `enroll --allow-terminal` turns it on — and means exactly what it says:
+- **A terminal**: a real, interactive shell, **on by default** (as are
+  slash commands that run shell and background subagents; `enroll
+--no-terminal`, `--no-command-shell` and `--no-background-subagents`
+  turn each off). A terminal means exactly what it says:
   _anyone who controls your Cerea session can run commands as you on this
   machine._ There is no model and no permission rule in the way once a
   terminal is open, so treat it like handing out shell access, because
   that's what it is. `--max-terminals N` caps how many can be open at once
-  (default 8). Enrolling with `--allow-terminal` always prints a warning:
-  the shell is outside every permission rule.
+  (default 8). Enrolling with terminals on always prints a warning: the
+  shell is outside every permission rule.
 
 `galopin policy show` prints the current policy in plain words.
 `galopin policy set` can locally **tighten** it without a full re-enroll —

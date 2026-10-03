@@ -12,6 +12,7 @@ import {
 	quoteShellArg,
 	ruleKeyProblem,
 	type EnrollPolicyChoices,
+	uniformCeiling,
 } from "./codeEnrollPolicy";
 import { buildEnrollCommand } from "./codeEnrollCommand";
 
@@ -64,12 +65,12 @@ describe("defaults emit nothing", () => {
 			files: "read",
 			fileDeny: [],
 			noDefaultFileDeny: false,
-			terminal: "denied",
+			terminal: "allowed",
 			maxTerminals: 8,
-			commandShell: "denied",
+			commandShell: "allowed",
 			agentTools: "allowed",
 			projectConfig: "denied",
-			backgroundSubagents: "denied",
+			backgroundSubagents: "allowed",
 			opencodeBuiltinProviders: false,
 		});
 	});
@@ -77,10 +78,14 @@ describe("defaults emit nothing", () => {
 
 describe("each control emits exactly its flag", () => {
 	const cases: Array<[string, Partial<EnrollPolicyChoices>, string[]]> = [
-		["terminal", { allowTerminal: true }, ["--allow-terminal"]],
+		["terminal off", { allowTerminal: false }, ["--no-terminal"]],
 		["trust repos", { allowProjectConfig: true }, ["--allow-project-config"]],
-		["command shell", { allowCommandShell: true }, ["--allow-command-shell"]],
-		["background subagents", { allowBackgroundSubagents: true }, ["--allow-background-subagents"]],
+		["command shell off", { allowCommandShell: false }, ["--no-command-shell"]],
+		[
+			"background subagents off",
+			{ allowBackgroundSubagents: false },
+			["--no-background-subagents"],
+		],
 		["no agent tools", { noAgentTools: true }, ["--no-agent-tools"]],
 		["free models", { allowFreeModels: true }, ["--allow-free-models"]],
 		["opencode provider", { allowOpencodeProvider: true }, ["--allow-opencode-provider"]],
@@ -100,20 +105,16 @@ describe("each control emits exactly its flag", () => {
 		});
 	}
 
-	it("max terminals: a number only with the terminal box ticked, only when not 8", () => {
-		expect(flags({ allowTerminal: true, maxTerminals: 3 })).toEqual([
-			"--allow-terminal",
-			"--max-terminals",
-			"3",
-		]);
-		expect(flags({ allowTerminal: true, maxTerminals: 8 })).toEqual(["--allow-terminal"]);
+	it("max terminals: a number only with terminals on, only when not 8", () => {
+		expect(flags({ allowTerminal: true, maxTerminals: 3 })).toEqual(["--max-terminals", "3"]);
+		expect(flags({ allowTerminal: true, maxTerminals: 8 })).toEqual([]);
 		// A number left behind in a hidden field is not a flag.
-		expect(flags({ allowTerminal: false, maxTerminals: 3 })).toEqual([]);
+		expect(flags({ allowTerminal: false, maxTerminals: 3 })).toEqual(["--no-terminal"]);
 	});
 
 	it("max terminals: an unusable number emits nothing rather than a refused enroll", () => {
 		for (const bad of [0, -1, 2.5, Number.NaN]) {
-			expect(flags({ allowTerminal: true, maxTerminals: bad })).toEqual(["--allow-terminal"]);
+			expect(flags({ allowTerminal: true, maxTerminals: bad })).toEqual([]);
 			expect(maxTerminalsProblem(bad)).not.toBeNull();
 		}
 		expect(maxTerminalsProblem(1)).toBeNull();
@@ -265,7 +266,9 @@ describe("quoting", () => {
 			gatewayOrigin: "https://gateway.example.org",
 			...choose({ workspaceRoots: ["/home/me/my projects"], fileDeny: ["*.secret"] }),
 		});
-		expect(command).toContain("--workspace-root '/home/me/my projects' --file-deny '*.secret'");
+		expect(command).toContain(
+			"  --workspace-root '/home/me/my projects' \\\n  --file-deny '*.secret'"
+		);
 	});
 
 	it("trims stray spaces around a typed value, not inside it", () => {
@@ -288,9 +291,37 @@ describe("the Advanced summary's count", () => {
 		expect(advancedChangedCount(choose({ allowTerminal: true, allowProjectConfig: true }))).toBe(0);
 		expect(
 			advancedChangedCount(
-				choose({ allowCommandShell: true, workspaceRoots: ["/a", "/b"], noFiles: true })
+				choose({ allowCommandShell: false, workspaceRoots: ["/a", "/b"], noFiles: true })
 			)
 		).toBe(3);
+		// Terminals, the command shell and background subagents count when turned off.
+		expect(
+			advancedChangedCount(
+				choose({ allowTerminal: false, allowCommandShell: false, allowBackgroundSubagents: false })
+			)
+		).toBe(3);
+		// The ceiling counts here only when its rows differ: "All tools" shows a uniform one.
+		const every = (action: "allow" | "ask" | "deny") =>
+			Object.fromEntries(
+				CEILING_KEYS.map((key) => [key, action])
+			) as EnrollPolicyChoices["ceiling"];
+		expect(advancedChangedCount(choose({ ceiling: every("ask") }))).toBe(0);
+		expect(advancedChangedCount(choose({ ceiling: { ...every("allow"), webfetch: "deny" } }))).toBe(
+			1
+		);
+	});
+
+	it("uniformCeiling names the one action every row holds, or null", () => {
+		expect(uniformCeiling(defaultPolicyChoices().ceiling)).toBeNull();
+		for (const action of ["allow", "ask", "deny"] as const) {
+			expect(
+				uniformCeiling(
+					Object.fromEntries(
+						CEILING_KEYS.map((key) => [key, action])
+					) as EnrollPolicyChoices["ceiling"]
+				)
+			).toBe(action);
+		}
 		expect(advancedChangedCount(choose({ workspaceRoots: [" "], fileDeny: [""] }))).toBe(0);
 	});
 });

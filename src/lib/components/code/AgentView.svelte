@@ -1079,7 +1079,7 @@
 					label="Terminal"
 					disabled={terminalVetoed}
 					title={terminalVetoed
-						? "This machine was enrolled without --allow-terminal. Re-enroll with it to use terminals here."
+						? "This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
 						: "Open a shell on this workspace"}
 					onclick={() => sidePane.toggleTerminal()}
 				>
