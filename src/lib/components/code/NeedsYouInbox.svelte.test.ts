@@ -20,6 +20,8 @@ const fake = vi.hoisted(() => ({
 	streamFrames: {} as Record<string, unknown[]>,
 	/** Held until the test releases it, so presence can be asserted first. */
 	streamGate: null as null | (() => void),
+	/** Each subagent's own transcript, by session id (MOCK of the timeline route). */
+	timelines: {} as Record<string, unknown[]>,
 }));
 
 vi.mock("$env/dynamic/public", () => ({
@@ -32,6 +34,9 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 		JSON.parse(
 			JSON.stringify(fake.pendingByDevice[deviceId] ?? { permissions: [], questions: [] })
 		),
+	fetchSubagentTimeline: async (_device: string, _root: string, child: string) => ({
+		updates: fake.timelines[child] ?? [],
+	}),
 	respondPermission: async (...args: unknown[]) => {
 		fake.permissionCalls.push(args);
 		return { ok: true };
@@ -105,6 +110,7 @@ beforeEach(() => {
 	fake.questionCalls = [];
 	fake.streamFrames = {};
 	fake.streamGate = null;
+	fake.timelines = {};
 	codeDeviceList.devices = [];
 	codeDeviceList.loading = false;
 	document.body.innerHTML = "";
@@ -250,5 +256,54 @@ describe("NeedsYouInbox Always allow", () => {
 		expect(
 			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
 		).toHaveLength(1);
+	});
+});
+
+describe("NeedsYouInbox a new subagent's first turn", () => {
+	it("names it on a subagent's ask, read from that subagent's transcript", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect
+			.element(screen.getByTestId("first-turn-chip"))
+			.toHaveTextContent("New subagent · first turn asks");
+	});
+
+	it("does not name it once that subagent has had another turn", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = {
+			"child-1": [
+				{ type: "user", text: "look around" },
+				{ type: "user", text: "now this" },
+			],
+		};
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+
+	it("does not name it on a top-level session's ask", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("root-1", "perm-1", { rootId: "root-1" })], questions: [] },
+		};
+		fake.timelines = { "root-1": [{ type: "user", text: "start" }] };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
 	});
 });

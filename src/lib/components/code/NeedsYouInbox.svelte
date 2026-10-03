@@ -30,6 +30,7 @@
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import AlwaysCappedScope from "./AlwaysCappedScope.svelte";
+	import FirstTurnScope from "./FirstTurnScope.svelte";
 	import { ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import {
@@ -386,11 +387,19 @@
 											tool
 										)}
 								>
-									<ToolApprovalCard
-										conversationId={item.sessionId}
-										request={permissionToElicitation(item.request)}
-										onanswer={(action, scope) => answerPermission(item, action, scope)}
-									/>
+									<!-- An ask from a subagent (its session is not the root's)
+									     says its first turn asks whatever the setting is. -->
+									<FirstTurnScope
+										deviceId={item.deviceId}
+										rootId={item.rootId}
+										childId={item.sessionId}
+									>
+										<ToolApprovalCard
+											conversationId={item.sessionId}
+											request={permissionToElicitation(item.request)}
+											onanswer={(action, scope) => answerPermission(item, action, scope)}
+										/>
+									</FirstTurnScope>
 								</AlwaysCappedScope>
 							{:else}
 								<AskQuestion

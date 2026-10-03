@@ -146,7 +146,9 @@ describe("the permission selector", () => {
 		const allow = mount(session({ permissionMode: "allow" }), { ceiling: { bash: "ask" } });
 		await expect
 			.element(allow.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Allow · bash asks (machine limit)");
+			.toHaveTextContent(
+				"Allow · bash asks (machine limit) · new subagents ask on their first turn"
+			);
 	});
 
 	it("names several caps, and a denial as a denial", async () => {
@@ -155,19 +157,28 @@ describe("the permission selector", () => {
 		});
 		await expect
 			.element(allow.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Allow · bash asks, webfetch is denied (machine limit)");
+			.toHaveTextContent(
+				"Allow · bash asks, webfetch is denied (machine limit) · new subagents ask on their first turn"
+			);
 	});
 
-	it("does not name the ceiling under Ask or Deny", async () => {
+	it("under Allow with nothing capped, still says new subagents ask on their first turn, with the reason on hover", async () => {
+		const screen = mount(session({ permissionMode: "allow" }), { ceiling: {} });
+		const note = screen.getByTestId("permission-mode-note");
+		await expect.element(note).toHaveTextContent(/^Allow · new subagents ask on their first turn$/);
+		const title = note.element().getAttribute("title") ?? "";
+		expect(title).toContain("before Cerea can hand it your permission setting");
+		expect(title).not.toMatch(/turn two|second turn|from turn/i);
+		// And the Allow segment's own tooltip carries it (the note hides on a phone).
+		expect(segment(screen, "allow").element().getAttribute("title")).toContain(
+			"a new subagent's first turn"
+		);
+	});
+
+	it("does not name the ceiling or the first-turn caveat under Ask", async () => {
 		const ask = mount(session({ permissionMode: "ask" }), { ceiling: { bash: "ask" } });
 		await expect.element(segment(ask, "ask")).toBeVisible();
 		expect(ask.getByTestId("permission-mode-note").elements()).toHaveLength(0);
-	});
-
-	it("says nothing about a ceiling that caps nothing", async () => {
-		const screen = mount(session({ permissionMode: "allow" }), { ceiling: {} });
-		await expect.element(segment(screen, "allow")).toBeVisible();
-		expect(screen.getByTestId("permission-mode-note").elements()).toHaveLength(0);
 	});
 
 	it("tells Allow's two surviving asks on its tooltip, so nobody reads it as 'anything'", async () => {

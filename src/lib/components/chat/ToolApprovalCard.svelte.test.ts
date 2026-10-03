@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import ToolApprovalCard from "./ToolApprovalCard.svelte";
 import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
 import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
+import { FIRST_TURN_SUBAGENT, type FirstTurnSubagent } from "$lib/utils/firstTurnSubagent";
 
 vi.mock("$lib/utils/sendElicitationAnswer", () => ({
 	sendElicitationAnswer: async () => ({ ok: true }),
@@ -159,5 +160,82 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		await expect
 			.element(screen.getByRole("button", { name: "Allow for this conversation" }))
 			.toBeVisible();
+	});
+
+	describe("a new subagent's first turn", () => {
+		const asked = (first: boolean, over: Partial<ElicitationRequestPayload> = {}) => {
+			const ensured: string[][] = [];
+			const provider: FirstTurnSubagent = {
+				ensure: (child, ask) => void ensured.push([child, ask]),
+				isFirst: () => first,
+			};
+			const screen = render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: { ...request("edit", { filePath: "x" }), childSessionId: "child-1", ...over },
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map([[FIRST_TURN_SUBAGENT, provider]]),
+			} as never);
+			return { screen, ensured };
+		};
+
+		it("says the first turn asks, with the reason on hover, and reads that subagent's transcript for this ask", async () => {
+			const { screen, ensured } = asked(true);
+			const chip = screen.getByTestId("first-turn-chip");
+			await expect.element(chip).toHaveTextContent("New subagent · first turn asks");
+			expect(chip.element().getAttribute("title")).toContain(
+				"before Cerea can hand it your permission setting"
+			);
+			expect(ensured).toEqual([["child-1", "gp_1"]]);
+		});
+
+		it("draws no chip for a later turn, or when it cannot tell", async () => {
+			const { screen } = asked(false);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("draws no chip for the session's own ask (no subagent)", async () => {
+			const provider: FirstTurnSubagent = { ensure: () => {}, isFirst: () => true };
+			const screen = render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: request("edit", { filePath: "x" }),
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map([[FIRST_TURN_SUBAGENT, provider]]),
+			} as never);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("draws no chip in chat, where no provider is above the card", async () => {
+			const screen = render(ToolApprovalCard, {
+				conversationId: "c1",
+				request: { ...request("edit", {}), childSessionId: "child-1" },
+			});
+			await expect.element(screen.getByRole("button", { name: /Allow/ }).first()).toBeVisible();
+			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+		});
+
+		it("uses the provider's own child id when the ask carries none (the inbox)", async () => {
+			const ensured: string[][] = [];
+			const provider: FirstTurnSubagent = {
+				childId: "child-9",
+				ensure: (child, ask) => void ensured.push([child, ask]),
+				isFirst: () => true,
+			};
+			const screen = render(ToolApprovalCard, {
+				props: {
+					conversationId: "a1",
+					request: request("edit", {}),
+					onanswer: async () => ({ ok: true }),
+				},
+				context: new Map([[FIRST_TURN_SUBAGENT, provider]]),
+			} as never);
+			await expect.element(screen.getByTestId("first-turn-chip")).toBeVisible();
+			expect(ensured).toEqual([["child-9", "gp_1"]]);
+		});
 	});
 });
