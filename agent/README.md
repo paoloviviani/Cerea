@@ -44,10 +44,16 @@ galopin policy   show, or locally tighten, this machine's policy.json
 
 ```sh
 galopin enroll --issuer https://llm.example.org/authelia \
-  --gateway https://llm.example.org --cerea https://llm.example.org/chat \
-  --output ~/.config/opencode/opencode.json
+  --gateway https://llm.example.org --cerea https://llm.example.org/chat
 galopin run
 ```
+
+`enroll` writes the opencode config to `<config-dir>/galopin/opencode.json`
+(beside `credentials.json`, whatever directory you run it from) unless
+`--output` says otherwise, and records that file's absolute path in
+`credentials.json`. `run` reads it from there and hands it to opencode, so no
+flag is needed. A machine enrolled before the path was recorded gets a warning
+from `run`: re-run `enroll`, or pass `run --opencode-config PATH`.
 
 Full flag reference, keeping it running as a systemd user unit or a
 macOS LaunchAgent, revocation and re-enrollment: `docs/agent-machines.md` at
@@ -106,8 +112,10 @@ Credentials and every other file galopin writes on its own behalf —
 `audit.log` (terminal opens/closes and policy refusals — never keystrokes,
 output, or file content: the local record Cerea itself cannot rewrite) —
 live in `<config-dir>/galopin/` (`~/.config/galopin` on Linux,
-`~/Library/Application Support/galopin` on macOS). opencode's own config
-keeps its own default, `~/.config/opencode/opencode.json`, unaffected.
+`~/Library/Application Support/galopin` on macOS). So is the `opencode.json`
+enroll writes by default (`opencode_config` in `credentials.json` records
+where it went); opencode's own config, `~/.config/opencode/opencode.json`, is
+left alone.
 
 `opencode-tmp/` there is opencode's TMPDIR while galopin supervises it,
 emptied on every (re)start: opencode is a Bun binary that extracts its
