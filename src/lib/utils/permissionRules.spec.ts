@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { PermissionRule } from "$lib/types/machineProtocol";
 import {
-	allowedActions,
 	annotateRules,
 	ceilingEmpty,
 	ceilingFor,
+	ceilingNote,
+	ceilingOfPolicy,
+	exceptionCount,
+	isCapped,
 	hasFileRules,
 	isLegacyMachine,
 	ceilingOf,
-	notApplied,
 	overriddenLabel,
-	savedCount,
-	sessionRulesOf,
 	sourceLabel,
 	summarizeTool,
-	validateDraft,
 } from "./permissionRules";
 
 const rule = (
@@ -176,80 +175,56 @@ describe("the ceiling", () => {
 		).toEqual({ edit: "deny" });
 	});
 
-	it("offers nothing above it, and everything where nothing is capped", () => {
-		const ceiling = { bash: "ask", edit: "deny" } as const;
-		expect(allowedActions(ceiling, "bash")).toEqual(["ask", "deny"]);
-		expect(allowedActions(ceiling, "edit")).toEqual(["deny"]);
-		expect(allowedActions(ceiling, "webfetch")).toEqual(["allow", "ask", "deny"]);
-		expect(allowedActions({ "*": "ask" }, "anything")).toEqual(["ask", "deny"]);
+	it("caps a key by its own entry, else by `*`, else not at all", () => {
 		expect(ceilingFor({ bash: "ask", "*": "deny" }, "bash")).toBe("ask");
+		expect(ceilingFor({ bash: "ask", "*": "deny" }, "edit")).toBe("deny");
+		expect(ceilingFor({ bash: "ask" }, "edit")).toBeNull();
+	});
+
+	it("reads the ceiling out of hello's policy, keeping only the two words that cap", () => {
+		expect(
+			ceilingOfPolicy({
+				workspaceRoots: [],
+				allowFreeModels: false,
+				permission: { max: { bash: "ask", edit: "deny", webfetch: "allow", x: "weird" } },
+			})
+		).toEqual({ bash: "ask", edit: "deny" });
+		expect(ceilingOfPolicy(undefined)).toEqual({});
+	});
+
+	it("says a key is capped when its ceiling is below allow: its Always would store nothing", () => {
+		const ceiling = { bash: "ask", edit: "deny" } as const;
+		expect(isCapped(ceiling, "bash")).toBe(true);
+		expect(isCapped(ceiling, "edit")).toBe(true);
+		expect(isCapped(ceiling, "webfetch")).toBe(false);
+		expect(isCapped({ "*": "ask" }, "anything")).toBe(true);
+		expect(isCapped({}, "bash")).toBe(false);
+	});
+
+	it("names what the ceiling still holds back, for the selector's note", () => {
+		expect(ceilingNote({ bash: "ask" })).toBe("bash asks");
+		expect(ceilingNote({ bash: "ask", edit: "deny" })).toBe("bash asks, edit is denied");
+		expect(ceilingNote({ "*": "ask" })).toBe("everything asks");
+		expect(ceilingNote({})).toBe("");
 	});
 });
 
-describe("the session's rules draft", () => {
-	it("starts from the rules Cerea has in force, as plain triples", () => {
-		expect(
-			sessionRulesOf([
-				rule("edit", "*", "allow", "opencode"),
-				rule("bash", "git *", "ask", "cerea"),
-			])
-		).toEqual([{ permission: "bash", pattern: "git *", action: "ask" }]);
-	});
-
-	it("flags a rule above the ceiling, an empty name or pattern, and a bad name", () => {
-		const ceiling = { bash: "ask" } as const;
-		expect(validateDraft([{ permission: "bash", pattern: "*", action: "ask" }], ceiling)).toEqual(
-			[]
-		);
-		const over = validateDraft([{ permission: "bash", pattern: "*", action: "allow" }], ceiling);
-		expect(over).toHaveLength(1);
-		expect(over[0].message).toContain('at most "ask"');
-		expect(validateDraft([{ permission: " ", pattern: "*", action: "ask" }], {})).toHaveLength(1);
-		expect(validateDraft([{ permission: "edit", pattern: " ", action: "ask" }], {})).toHaveLength(
-			1
-		);
-		expect(
-			validateDraft([{ permission: "no spaces", pattern: "*", action: "ask" }], {})
-		).toHaveLength(1);
-	});
-
-	it("reports what the machine did not apply as asked", () => {
-		const asked = [
-			{ permission: "bash", pattern: "*", action: "allow" as const },
-			{ permission: "edit", pattern: "*", action: "allow" as const },
-			{ permission: "webfetch", pattern: "*", action: "ask" as const },
-		];
-		const inForce = [
-			{ permission: "bash", pattern: "*", action: "ask" as const },
-			{ permission: "edit", pattern: "*", action: "allow" as const },
-		];
-		expect(notApplied(asked, inForce)).toEqual([
-			{ asked: asked[0], inForce: "ask" },
-			{ asked: asked[2], inForce: null },
-		]);
-		expect(notApplied(asked.slice(1, 2), inForce)).toEqual([]);
-	});
-});
-
-describe("savedCount", () => {
-	it("counts a tool's saved approvals", () => {
+describe("exceptionCount", () => {
+	it("counts a tool's exceptions", () => {
 		const savedApprovals = [
 			{ id: "a", permission: "bash", patterns: [] },
 			{ id: "b", permission: "bash", patterns: [] },
 			{ id: "c", permission: "edit", patterns: [] },
 		];
-		expect(savedCount({ savedApprovals }, "bash")).toBe(2);
-		expect(savedCount({ savedApprovals }, "webfetch")).toBe(0);
+		expect(exceptionCount({ savedApprovals }, "bash")).toBe(2);
+		expect(exceptionCount({ savedApprovals }, "webfetch")).toBe(0);
 	});
 });
 
 describe("legacy machines", () => {
 	const BASE = { workspaceRoots: [], allowFreeModels: false };
-	const EMPTY = { ...BASE, permission: { responders: "denied" as const, max: {} } };
-	const ENROLLED = {
-		...BASE,
-		permission: { responders: "denied" as const, max: { bash: "ask" } },
-	};
+	const EMPTY = { ...BASE, permission: { max: {} } };
+	const ENROLLED = { ...BASE, permission: { max: { bash: "ask" } } };
 	const ALLOW_ALL = [rule("*", "*", "allow", "opencode")];
 	const WITH_ASK_BLOCK = [
 		rule("*", "*", "allow", "opencode"),
@@ -260,7 +235,7 @@ describe("legacy machines", () => {
 
 	it("reads an empty or missing ceiling in hello as no ceiling", () => {
 		expect(ceilingEmpty(EMPTY)).toBe(true);
-		expect(ceilingEmpty({ ...BASE, permission: { responders: "denied" } })).toBe(true);
+		expect(ceilingEmpty({ ...BASE, permission: {} })).toBe(true);
 		expect(ceilingEmpty(undefined)).toBe(true);
 		expect(ceilingEmpty(ENROLLED)).toBe(false);
 	});

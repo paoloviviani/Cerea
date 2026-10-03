@@ -1,7 +1,7 @@
 /**
  * The composer's `/` menu, hermetically: the /code endpoints are stubbed at
  * the network layer, so the client code paths are the real ones — the same
- * harness the stop/auto-accept specs use.
+ * harness the stop and selector specs use.
  *
  * What is pinned here: `/` opens the menu of panel commands; filtering and
  * arrow keys move through it; Tab/Enter accept into the draft; a submitted
@@ -104,7 +104,6 @@ async function installStubs(page: Page): Promise<Harness> {
 									images: true,
 									files: true,
 									worktrees: false,
-									autoAccept: true,
 									questions: true,
 									revert: true,
 									revertFiles: true,
@@ -120,7 +119,7 @@ async function installStubs(page: Page): Promise<Harness> {
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) => {
 		route.fulfill({
 			contentType: "application/json",
-			body: superjsonBody({ agent: h.agent, features: [], cwd: "/repo" }),
+			body: superjsonBody({ agent: h.agent, cwd: "/repo" }),
 		});
 	});
 	await page.route("**/api/v2/code/v1/workspaces?*", (route) =>
@@ -139,9 +138,6 @@ async function installStubs(page: Page): Promise<Harness> {
 	);
 	await page.route("**/api/v2/code/v1/providers/opencode/models?*", (route) =>
 		route.fulfill({ contentType: "application/json", body: superjsonBody({ models: MODELS }) })
-	);
-	await page.route("**/api/v2/code/v1/providers/opencode/features?*", (route) =>
-		route.fulfill({ contentType: "application/json", body: superjsonBody({ features: [] }) })
 	);
 
 	// The menu's backend half: empty by default so the panel-only tests stay

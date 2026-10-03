@@ -7,24 +7,24 @@
  *
  * A pure function, not a component method, so it has its own unit specs
  * independent of rendering: the shape of the printed command is exactly as
- * load-bearing as the values inside it.
+ * load-bearing as the values inside it. The machine-policy flags come from
+ * `codeEnrollPolicy.ts`: a default emits nothing.
  */
+import {
+	defaultPolicyChoices,
+	policyFlagArgs,
+	quoteShellArg,
+	type EnrollPolicyChoices,
+} from "$lib/codeEnrollPolicy";
+
+export { quoteShellArg };
 
 /** The default the enrollment CLI itself falls back to (`agent/enroll.go`) —
  * the id baked into both bundled IdPs. `--client-id` is only worth printing
  * when a deployment overrides it. */
 export const DEFAULT_CODE_CLIENT_ID = "opencode-enrollment";
 
-/** POSIX single-quoting: closes the quote, appends a literal single quote via
- * `'"'"'`, reopens it. Defensive rather than load-bearing — every value here
- * is deployment configuration (an origin, an issuer, a client id), never
- * end-user input — but a misconfigured `CODE_MACHINE_CLIENT_ID` or a gateway
- * origin with a stray character must not silently break out of its argument. */
-export function quoteShellArg(value: string): string {
-	return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-export interface EnrollCommandOptions {
+export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
 	/** This deployment's own address, base path included (`PublicConfig`'s
 	 * `origin`) — used for both the installer's URL and `--cerea`. */
 	origin: string;
@@ -39,22 +39,6 @@ export interface EnrollCommandOptions {
 	 * `--client-id` out of the printed command, matching the CLI's own
 	 * default. */
 	clientId?: string;
-	/** Adds `--allow-terminal`, off by default. */
-	allowTerminal?: boolean;
-	/** Adds `--allow-auto-accept`, off by default. NOT a per-session
-	 * behaviour: it is the machine ceiling's "responders allowed" setting,
-	 * i.e. whether the panel's Auto-accept toggle (opencode's auto mode, a
-	 * responder that answers tool asks "allow once", never questions, never
-	 * denies) may be turned on for a session at all. opencode's own permission
-	 * rules decide everything else. The pairing dialog no longer offers it as
-	 * a checkbox; the option stays for callers that build the command by hand. */
-	allowAutoAccept?: boolean;
-	/** Adds `--allow-project-config`, off by default. Lets a repo's own
-	 * opencode config load (its agents, commands, MCP, plugins, AGENTS.md)
-	 * with the gateway provider and default models pinned over it — enable
-	 * only on machines that open repos you trust, since repo plugins run
-	 * as you. */
-	allowProjectConfig?: boolean;
 	/** Adds the opencode install line before enroll — galopin runs the
 	 * opencode binary as its agent, and a fresh machine has neither it nor
 	 * a reason to know that. Off by default because a machine that already
@@ -71,6 +55,16 @@ export interface EnrollCommandOptions {
  * the enroll step fails loudly instead of silently running the wrong
  * binary. */
 export const GALOPIN_BIN = '"${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}/galopin"';
+
+/** The policy choices an options object carries, the rest at default. */
+function policyChoicesOf(opts: EnrollCommandOptions): EnrollPolicyChoices {
+	const choices = defaultPolicyChoices();
+	for (const key of Object.keys(choices) as Array<keyof EnrollPolicyChoices>) {
+		const given = opts[key];
+		if (given !== undefined) Object.assign(choices, { [key]: given });
+	}
+	return choices;
+}
 
 export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const origin = opts.origin.replace(/\/+$/, "");
@@ -98,15 +92,7 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	if (clientId !== DEFAULT_CODE_CLIENT_ID) {
 		enroll.push("--client-id", quoteShellArg(clientId));
 	}
-	if (opts.allowAutoAccept) {
-		enroll.push("--allow-auto-accept");
-	}
-	if (opts.allowProjectConfig) {
-		enroll.push("--allow-project-config");
-	}
-	if (opts.allowTerminal) {
-		enroll.push("--allow-terminal");
-	}
+	enroll.push(...policyFlagArgs(policyChoicesOf(opts)));
 
 	const steps = [install];
 	if (installOpencode) {

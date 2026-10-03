@@ -152,7 +152,6 @@ async function forwarder(
 }
 
 const TERMINAL_ALLOWED_POLICY = {
-	autoAccept: "denied" as const,
 	workspaceRoots: [],
 	allowFreeModels: false,
 	terminal: "allowed" as const,
@@ -384,7 +383,6 @@ describe("terminal tickets", () => {
 		const denied = await connectAndPair({
 			machine: { capabilities: { terminal: true } },
 			policy: {
-				autoAccept: "denied",
 				workspaceRoots: [],
 				allowFreeModels: false,
 				terminal: "denied",

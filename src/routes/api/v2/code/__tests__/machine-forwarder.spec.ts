@@ -236,7 +236,7 @@ describe("the forwarder over a live machine link", () => {
 	});
 
 	describe("the read-only file explorer (ADR 0090)", () => {
-		const POLICY = { autoAccept: "denied" as const, workspaceRoots: [], allowFreeModels: false };
+		const POLICY = { workspaceRoots: [], allowFreeModels: false };
 
 		it("forwards a listing and serves an image raw, sandboxed and audited", async () => {
 			const machine = await connectAndPair({

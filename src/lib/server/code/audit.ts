@@ -26,13 +26,13 @@ export interface CodeAuditInput {
 	origin?: string;
 	shell?: string;
 	outcome?: string;
-	/** A permission action's session and the saved approval it touched
-	 * (`permission.saved.remove`) — ids only, never the approval's patterns
+	/** A permission action's session and the exception it touched
+	 * (`permission.saved.remove`) — ids only, never the exception's patterns
 	 * (for bash the pattern IS the command text). */
 	sessionId?: string;
 	approvalId?: string;
-	/** How many rules a `permission.rules.set` carried (never which). */
-	count?: number;
+	/** The blanket a `permission.mode` set: deny, ask or allow. */
+	mode?: string;
 }
 
 /** The row-writing core, independent of a SvelteKit `RequestEvent`: the
@@ -61,7 +61,7 @@ export async function recordCodeAuditRow(
 			...(input.outcome ? { outcome: input.outcome } : {}),
 			...(input.sessionId ? { sessionId: input.sessionId.slice(0, 200) } : {}),
 			...(input.approvalId ? { approvalId: input.approvalId.slice(0, 200) } : {}),
-			...(input.count !== undefined ? { count: input.count } : {}),
+			...(input.mode ? { mode: input.mode.slice(0, 16) } : {}),
 			...(context.ip ? { ip: context.ip } : {}),
 			...(context.userAgent ? { userAgent: context.userAgent.slice(0, 256) } : {}),
 			at: new Date(),

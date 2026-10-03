@@ -11,10 +11,11 @@
 	plan, build, … — listed live from the machine, never a hardcoded set
 	that would drift from what it enforces) and the model. Both apply live
 	to the open agent, not to one send: the licence is the agent's until it
-	is switched again (`session.setMode`/`setModel`). Beside them sit the
-	provider's feature toggles the agent itself reports (opencode's
-	auto-accept), drawn like chat's own toggle pills — blue when on, gray
-	when off — and claimed only from the agent's snapshot.
+	is switched again (`session.setMode`/`setModel`). Beside them sits the
+	permission selector, Deny · Ask · Allow: the session's blanket until
+	changed, claimed only from the agent's snapshot (the machine's word, never
+	an optimistic guess) and disabled on a subagent, which follows its main
+	session.
 
 	While a turn is live the stop control joins the send button in its spot
 	(chat's own swap has `ChatWindow` render `StopGeneratingBtn` there) — and
@@ -42,13 +43,10 @@
 	import IconChevronDown from "~icons/carbon/chevron-down";
 	import IconCheck from "~icons/carbon/checkmark";
 	import IconWarning from "~icons/carbon/warning-filled";
-	import LucideShieldCheck from "~icons/lucide/shield-check";
-	import LucideShield from "~icons/lucide/shield";
-	import LucideShieldOff from "~icons/lucide/shield-off";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import {
-		setAgentFeature,
 		setAgentMode,
+		setPermissionMode,
 		setAgentModel,
 		setAgentEffort,
 		compactAgent,
@@ -57,12 +55,14 @@
 		runAgentCommand,
 		CodeApiError,
 	} from "$lib/codeApi";
-	import type { CodeProviderFeature } from "$lib/codeApi";
+	import type { PermissionMode } from "$lib/types/machineProtocol";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
+	import { ceilingNote } from "$lib/utils/permissionRules";
+	import { FIRST_TURN_HINT } from "$lib/utils/firstTurnSubagent";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
 	import { resolveActiveModel } from "$lib/utils/activeModel";
 	import ModelEffortPicker from "$lib/components/chat/ModelEffortPicker.svelte";
 	import ModelPickerDialog from "$lib/components/ModelPickerDialog.svelte";
-	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { error as errorToast } from "$lib/stores/errors";
 	import {
 		readRecent,
@@ -92,10 +92,10 @@
 		/** The open agent's snapshot: the pills' current values are its. Null
 		 * when the snapshot read failed, and the pills then carry no claim. */
 		agent: CodeAgentSession | null;
-		/** The provider features the agent ITSELF reports — the auto-accept
-		 * toggle's live value. Empty when the snapshot read failed: a toggle
-		 * with no daemon word behind it does not render as on or off. */
-		features?: CodeProviderFeature[];
+		/** The machine's ceiling (`permission.rules.ceiling`): permission key
+		 * -> the most it may ever be. The selector's note names what it still
+		 * holds back under Allow. Empty until the read lands. */
+		ceiling?: Record<string, "ask" | "deny">;
 		/** Whether a turn is live on the transcript — the send button's spot
 		 * carries the stop control while it is, permission prompts included. */
 		running?: boolean;
@@ -125,6 +125,10 @@
 		 * confirmed it in a fresh read — the same discipline as the tree's
 		 * "never an optimistic splice". */
 		onchanged: () => void;
+		/** After the permission selector changed the machine's setting: the
+		 * parent re-reads the snapshot and the rules (the note and the
+		 * exceptions come from them). Falls back to `onchanged`. */
+		onpermissionchanged?: () => void;
 		/** Opens the re-enroll dialog — the same pointer the sidebar's pill
 		 * offers, reached here because the composer is where the dead send
 		 * would otherwise be discovered. */
@@ -145,10 +149,6 @@
 		/** Models the machine listed but its enrollment policy keeps off the
 		 * panel. */
 		modelsHidden?: number;
-		/** What toggles the provider offers at all — the descriptor list, not
-		 * the values. The live values come from the agent's snapshot
-		 * (`features`). Null while the view is fetching. */
-		featureCatalog?: CodeProviderFeature[] | null;
 		/** Whether the backend advertised the `usage` capability in `hello` —
 		 * the meter renders nothing at all when it did not. */
 		usageSupported?: boolean;
@@ -177,7 +177,7 @@
 		deviceId,
 		agentId,
 		agent,
-		features = [],
+		ceiling = {},
 		running = false,
 		enrollmentExpired = false,
 		offline = false,
@@ -185,6 +185,7 @@
 		mimeTypes = [],
 		onstop,
 		onchanged,
+		onpermissionchanged,
 		onreenroll,
 		usage = null,
 		lastCompaction = null,
@@ -194,7 +195,6 @@
 		models = null,
 		modelsFailure = null,
 		modelsHidden = 0,
-		featureCatalog = null,
 		compactSupported = false,
 		revertSupported = false,
 		steerSupported = false,
@@ -563,54 +563,6 @@
 		}
 	}
 
-	// A feature toggle's own optimistic value, keyed by feature id: flipped
-	// the instant it is clicked, the same discipline chat's own web-search
-	// and tool-approval pills use (`ChatInput.svelte`'s `toggleWebSearch`).
-	// Mode, model and effort stay snapshot-claimed (below) — those already
-	// change what the agent runs, so waiting for the daemon's word is the
-	// point — but a feature flip has no such ambiguity to wait out, and
-	// waiting was the whole reason it used to reroute through `onchanged()`:
-	// that re-fetches the agent snapshot wholesale (`AgentView.refreshAgent`
-	// replaces `agent` and `features` outright rather than patching them),
-	// which retriggered the models/modes effect above and flashed the
-	// model/effort pill for a change that had nothing to do with it. An
-	// override is dropped once the snapshot's own word agrees (the
-	// reconciling effect below), so a slower refresh from some other cause
-	// (a mode switch, the agent's own poll) still catches up to the truth.
-	let featureOverrides = $state<Record<string, boolean>>({});
-	$effect(() => {
-		let next: Record<string, boolean> | null = null;
-		for (const [id, optimistic] of Object.entries(featureOverrides)) {
-			const reported = features.find((feature) => feature.id === id);
-			if (reported && reported.value === optimistic) {
-				next ??= { ...featureOverrides };
-				delete next[id];
-			}
-		}
-		if (next) featureOverrides = next;
-	});
-
-	// The toggles the composer renders: the snapshot's features (value
-	// claimed, an in-flight optimistic flip overriding it) first, then
-	// anything the provider lists that the snapshot is silent on — rendered
-	// disabled, because existence is known but a state is not claimable,
-	// and a toggle that cannot show a claimed value must not take a click.
-	let featurePills = $derived.by(() => {
-		const reported = new Map(features.map((feature) => [feature.id, feature]));
-		const pills: Array<CodeProviderFeature & { reported: boolean }> = [
-			...features.map((feature) => ({
-				...feature,
-				value: featureOverrides[feature.id] ?? feature.value,
-				reported: true,
-			})),
-		];
-		for (const feature of featureCatalog ?? []) {
-			if (reported.has(feature.id)) continue;
-			pills.push({ ...feature, reported: false });
-		}
-		return pills;
-	});
-
 	// One switch in flight at a time; a refusal lands here and the pill
 	// shows it, since the snapshot it labels from never changed.
 	let applying = $state<string | null>(null);
@@ -645,23 +597,61 @@
 		}
 	}
 
-	/** Flip a provider feature (the auto-accept toggle): optimistic, like
-	 * chat's own toggle pills — claimed at once, rolled back with a toast if
-	 * the daemon refuses. No `onchanged()`: a feature flip does not need the
-	 * whole agent snapshot re-read to know it landed, and re-reading it
-	 * anyway was what flashed the model/effort pill on every auto-accept
-	 * click (see the effects above). */
-	async function applyFeature(feature: { id: string; value: boolean; blockedReason?: string }) {
-		if (feature.blockedReason) return;
-		const next = !feature.value;
-		featureOverrides = { ...featureOverrides, [feature.id]: next };
+	/** Set the session's blanket. Not optimistic: the selector shows the
+	 * snapshot's word, so a click is only claimed once the parent has re-read
+	 * the machine and it agrees. A refusal (a subagent, an unknown session)
+	 * lands in the same failure line as the other pills'. */
+	async function applyPermissionMode(mode: PermissionMode) {
+		if (applying || mode === agent?.permissionMode) return;
+		applying = "permission";
+		applyFailure = null;
 		try {
-			await setAgentFeature(deviceId, agentId, feature.id, next);
+			await setPermissionMode(deviceId, agentId, mode);
+			(onpermissionchanged ?? onchanged)();
 		} catch (err) {
-			featureOverrides = { ...featureOverrides, [feature.id]: feature.value };
-			errorToast.set(err instanceof Error ? err.message : "The daemon refused the feature.");
+			applyFailure =
+				err instanceof Error ? err.message : "The machine refused the permission setting.";
+		} finally {
+			applying = null;
 		}
 	}
+
+	/** The selector draws only with the machine's word to show (an older
+	 * galopin has no `permissionMode`), and never on a stale sign-in: the
+	 * server refuses the call anyway. */
+	const PERMISSION_SEGMENTS: Array<{ mode: PermissionMode; label: string; title: string }> = [
+		{
+			mode: "deny",
+			label: "Deny",
+			title:
+				"Edits, commands and fetches are refused without asking. Reading still works. Your exceptions are kept, but blocked.",
+		},
+		{
+			mode: "ask",
+			label: "Ask",
+			title:
+				"Edits, commands and fetches ask first. Reading is allowed. Your exceptions for this session run without asking.",
+		},
+		{
+			mode: "allow",
+			label: "Allow",
+			title: `Edits, commands and fetches run without asking, up to this machine's limits. Still asks: writing outside the project folder, an agent that is stuck repeating itself, and a new subagent's first turn. ${FIRST_TURN_HINT}`,
+		},
+	];
+	let isSubagent = $derived(Boolean(agent?.parentId));
+	let permissionMode = $derived(agent?.permissionMode ?? null);
+	let showPermissionSelector = $derived(permissionMode !== null && !codeReauth.required);
+	/** Under Allow, what this machine's ceiling still holds back. */
+	let permissionNote = $derived.by(() => {
+		if (isSubagent) return "Follows the main session";
+		if (permissionMode !== "allow") return "";
+		const held = ceilingNote(ceiling);
+		return [
+			"Allow",
+			...(held ? [`${held} (machine limit)`] : []),
+			"new subagents ask on their first turn",
+		].join(" · ");
+	});
 
 	let modeLabel = $derived.by(() => {
 		if (!agent?.modeId) return "Mode";
@@ -716,11 +706,8 @@
 	/** The mode pill's menu, same reason: `/mode` with no argument opens it. */
 	let modeMenuOpen = $state(false);
 
-	// Below `sm` there is no hover to carry a machine-policy veto's reason, so
-	// a vetoed feature pill there stays tappable (not `disabled`) and opens a
-	// popover with it; at `sm` and up it keeps the pill's older disabled
-	// shape with the reason as a banner underneath, title still carrying it
-	// on hover — existing specs pin that desktop shape.
+	// Below `sm` the pill row is one nowrap, scrolling line, and the layout
+	// (the ring's width, which of two rows carries the model picker) follows.
 	const narrowViewport = new MediaQuery("(max-width: 639px)");
 
 	async function applyEffort(effort: string | null) {
@@ -751,12 +738,6 @@
 		"flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10";
 	const menuNoteClass =
 		"flex h-9 items-center rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400";
-
-	/** The mobile tap-to-reveal veto pill: a dashed, muted shield — a
-	 * different shape from plain "off" so a tap goes looking for why, not
-	 * for a switch that will not flip. */
-	const vetoedFeaturePillClass =
-		"flex h-7 max-sm:h-6 flex-none items-center gap-1.5 max-sm:gap-0.5 rounded-full border border-dashed border-amber-400/60 bg-amber-50/60 px-2.5 max-sm:px-1.5 text-xs font-medium text-amber-700 opacity-90 dark:border-amber-700/50 dark:bg-amber-900/10 dark:text-amber-400";
 </script>
 
 <form
@@ -796,7 +777,7 @@
 			>
 				{#snippet children()}
 					<!-- Only the state that belongs *in* the prompt box renders here:
-				     the mode pill, the feature toggles and the status banners.
+				     the mode pill, the permission selector and the status banners.
 				     Below `sm` the toolbar row goes nowrap-and-scroll, with the
 				     `+` before it and the ring after it pinned outside it, so
 				     none of those scroll away. The model/effort control moved
@@ -855,90 +836,58 @@
 							</DropdownMenu.Content>
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
-					<!-- The provider's feature toggles, drawn like chat's own
-				     toggle pills (web search, tool approval): blue when on,
-				     gray when off, `aria-pressed` carrying the state, icon
-					     alone below `sm` (the label stays for a screen reader as
-					     `sr-only` text, so the accessible name survives going
-					     icon-only). The value is the agent snapshot's word; a
-					     toggle the snapshot is silent on renders disabled. A
-					     toggle whose machine policy vetoes it (`blockedReason`)
-					     stays visible rather than vanishing — a missing feature
-					     and a forbidden one read as the same "no such thing
-					     here" otherwise, and only one of those has a fix.
-					     `sm` and up keeps that fix as a disabled pill plus a
-					     banner underneath (hover/title carries the reason,
-					     existing specs pin this shape); below `sm` there is no
-					     hover, so the pill stays tappable and opens a popover
-					     with the reason instead of a banner that would cost the
-					     row its one line. -->
-					{#each featurePills as feature (feature.id)}
-						{#if feature.blockedReason && narrowViewport.current}
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger
-									class={vetoedFeaturePillClass}
-									aria-pressed={feature.value}
-									title={feature.blockedReason}
-								>
-									<LucideShieldOff class="size-3.5" />
-									<span class="max-sm:sr-only">{feature.label}</span>
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Portal>
-									<DropdownMenu.Content
-										class="{menuContentClass} max-w-64 px-2.5 py-2 text-xs text-amber-700 dark:text-amber-400"
-										side="top"
-										align="start"
-										sideOffset={8}
-										trapFocus={false}
-										onCloseAutoFocus={(e) => e.preventDefault()}
-										interactOutsideBehavior="defer-otherwise-close"
-									>
-										<div class="flex items-start gap-1.5">
-											<IconWarning class="mt-0.5 size-3 shrink-0" />
-											{feature.blockedReason}
-										</div>
-									</DropdownMenu.Content>
-								</DropdownMenu.Portal>
-							</DropdownMenu.Root>
-						{:else}
-							<TogglePill
-								compact
-								pressed={feature.value}
-								label={feature.label}
-								disabled={!feature.reported || Boolean(feature.blockedReason)}
-								title={feature.blockedReason ??
-									(feature.reported
-										? [
-												feature.description,
-												feature.value ? "On. Click to turn off." : "Off. Click to turn on.",
-											]
-												.filter(Boolean)
-												.join(" ")
-										: "Waiting for the daemon's word on this agent")}
-								onclick={() => void applyFeature(feature)}
-							>
-								{#snippet icon()}
-									{#if feature.blockedReason}
-										<LucideShieldOff class="size-3.5" />
-									{:else if feature.value}
-										<LucideShieldCheck class="size-3.5" />
-									{:else}
-										<LucideShield class="size-3.5" />
-									{/if}
-								{/snippet}
-							</TogglePill>
-						{/if}
-					{/each}
-					{#each featurePills.filter((feature) => feature.blockedReason && !narrowViewport.current) as feature (feature.id)}
-						<span
-							class="flex min-w-0 basis-full items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
+					<!-- The permission selector: the session's blanket, Deny · Ask ·
+					     Allow. The value is the agent snapshot's word, so a click
+					     waits for the machine's answer rather than guessing. On a
+					     subagent it is disabled and says whose it follows; under
+					     Allow, the note names what the ceiling still caps. Below
+					     `sm` the note drops out of the one-line row (the Allow
+					     segment's title carries the same facts). -->
+					{#if showPermissionSelector}
+						<div
+							role="radiogroup"
+							aria-label="Permission for this session"
+							aria-busy={applying === "permission"}
+							data-testid="permission-mode"
+							data-mode={permissionMode}
+							title={isSubagent
+								? "A subagent follows the main session's permission setting."
+								: "What this session does about a tool call it has no rule for."}
+							class="flex h-7 flex-none items-center rounded-full border border-blue-600/30 bg-blue-50/60 p-0.5 text-xs font-medium max-sm:h-6 dark:border-blue-700/60 dark:bg-blue-900/20"
 						>
-							<IconWarning class="size-3 shrink-0" />
-							<span class="min-w-0 truncate" title={feature.blockedReason}>
-								{feature.blockedReason}
+							{#each PERMISSION_SEGMENTS as segment (segment.mode)}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={permissionMode === segment.mode}
+									disabled={isSubagent || applying !== null}
+									title={segment.title}
+									data-testid="permission-mode-{segment.mode}"
+									onclick={() => void applyPermissionMode(segment.mode)}
+									class={[
+										"h-full rounded-full px-2.5 transition-colors disabled:cursor-default max-sm:px-1.5",
+										permissionMode === segment.mode
+											? "bg-blue-100 text-blue-700 dark:bg-blue-800/60 dark:text-blue-200"
+											: "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200",
+										(isSubagent || applying !== null) && permissionMode !== segment.mode
+											? "opacity-60"
+											: "",
+									]}
+								>
+									{segment.label}
+								</button>
+							{/each}
+						</div>
+						{#if permissionNote}
+							<span
+								class="flex min-w-0 flex-none items-center gap-1 text-xs text-gray-500 max-sm:hidden dark:text-gray-400"
+								data-testid="permission-mode-note"
+								title={isSubagent ? permissionNote : FIRST_TURN_HINT}
+							>
+								{permissionNote}
 							</span>
-						</span>
-					{/each}
+						{/if}
+					{/if}
 
 					{#if applyFailure}
 						<span
@@ -1009,7 +958,7 @@
      border. The usage ring trails the row right — chat's own layout keeps
      trailing actions out of the pill row's flow, and the ring is the agent
      row's trailing action, not another pill. The mode (build/plan) pill
-     lives back inside the composer's pill row with the feature toggles:
+     lives back inside the composer's pill row with the permission selector:
      it is a session toggle like they are, not a trailing readout.
      Outside ChatInput's scrollable toolbar row, so on mobile nothing
      masks any of it. -->

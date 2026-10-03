@@ -25,7 +25,6 @@ import type { Policy } from "../src/lib/types/machineProtocol";
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
 const TERMINAL_ALLOWED_POLICY: Policy = {
-	autoAccept: "denied",
 	workspaceRoots: [],
 	allowFreeModels: false,
 	terminal: "allowed",

@@ -123,16 +123,14 @@ export interface Machine {
 
 /**
  * The machine's permission policy (`policy.json` `permission`, what `enroll`'s
- * `--allow-auto-accept` / `--permission-max` / `--permission-rule` write).
+ * `--permission-max` / `--permission-rule` write).
  */
 export interface MachinePermission {
-	/** May a session be put on auto-accept at all (default "denied"). */
-	responders?: "allowed" | "denied";
 	/**
 	 * The ceiling: the most a key may ever be. The default is what a fresh
 	 * `enroll` writes — `bash` and `session_spawn` at "ask" — so a harness
-	 * machine behaves like an enrolled one: Always on bash is answered "once",
-	 * and the responder leaves bash to a person. A key left out is uncapped:
+	 * machine behaves like an enrolled one: bash asks under every setting, and
+	 * the card offers no Always on it. A key left out is uncapped:
 	 * pass `{ session_spawn: "ask" }` to open bash, or `{}` to cap nothing.
 	 */
 	max?: Record<string, "ask" | "deny">;
@@ -148,8 +146,6 @@ export const ENROLL_DEFAULT_MAX: Record<string, "ask" | "deny"> = {
 
 /** The machine's own policy (`policy.json`, what `enroll` flags would write). */
 export interface MachinePolicy {
-	/** Shorthand for `permission.responders` (the field's old name). */
-	autoAccept?: "allowed" | "denied";
 	permission?: MachinePermission;
 	allowFreeModels?: boolean;
 	workspaceRoots?: string[];
@@ -251,7 +247,6 @@ export async function startMachine(input: {
 		join(stateDir, "policy.json"),
 		JSON.stringify({
 			permission: {
-				responders: policy.permission?.responders ?? policy.autoAccept ?? "denied",
 				max: policy.permission?.max ?? ENROLL_DEFAULT_MAX,
 				...(policy.permission?.rules ? { rules: policy.permission.rules } : {}),
 			},

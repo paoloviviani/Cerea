@@ -1,7 +1,7 @@
 <!--
 	An on/off pill in the composer's toggle idiom: blue when on, gray when
 	off, `aria-pressed` carrying the state. Shared by chat's own toggles (web
-	search, tool approval) and /code's provider-feature toggles (auto-accept)
+	search, tool approval) and /code's panel toggles
 	— one class list rather than two copies drifting apart.
 
 	Presentational only: what a click *means* — an optimistic flip, a
@@ -25,8 +25,8 @@
 		 * only through `label`, which the caller already carries it in. */
 		badge?: string;
 		onclick: () => void;
-		/** The pill's own icon, since it differs per toggle (and, for /code's
-		 * feature pills, per state — on/off/vetoed). */
+		/** The pill's own icon, since it differs per toggle (and, for some,
+		 * per state). */
 		icon: Snippet;
 	}
 

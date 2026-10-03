@@ -384,6 +384,10 @@ export interface CodeAgentSession {
 	modelId: string | null;
 	/** The thinking effort chosen for this session, null for the model's default. */
 	effort?: string | null;
+	/** The session's blanket Deny / Ask / Allow, as the machine reports it (a
+	 * subagent reports its root's). Absent on a machine that predates the
+	 * selector: the composer then draws none. */
+	permissionMode?: "deny" | "ask" | "allow";
 	/** The session this one was spawned from, when it is a subagent. */
 	parentId?: string | null;
 	/** Its top-level ancestor (itself when it has no parent). */
@@ -409,10 +413,13 @@ export interface CodeAuditEntry {
 	bytes?: number;
 	/** A terminal action's target — never its content or keystrokes. */
 	terminalId?: string;
-	/** A permission action's session and saved approval (ids only). */
+	/** A permission action's session and the exception it touched (ids only). */
 	sessionId?: string;
 	approvalId?: string;
-	/** Rules a `permission.rules.set` carried. */
+	/** The blanket a `permission.mode` set: deny, ask or allow. */
+	mode?: string;
+	/** How many rules a `permission.rules.set` carried — only on rows written
+	 * before that action was retired. */
 	count?: number;
 	/** "removed" or "refused" for a permission action. */
 	outcome?: string;
