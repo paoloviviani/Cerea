@@ -70,7 +70,9 @@ veto that only `enroll` can loosen:
   allowed under all three words, and under Allow two asks survive: a write
   outside the project folder and the stuck-agent brake. "Always allow" on
   a card is an exception for that command in that session only, removable
-  in the panel. What **is** the machine's is the **ceiling**
+  in the panel. A change applies **from the session's next turn**: the
+  turn that is running is not stopped and finishes under the word it
+  started with. What **is** the machine's is the **ceiling**
   (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
   `session_spawn=ask`): the most any key may ever be, whatever a session's
   word or exceptions say. The old auto-accept toggle and

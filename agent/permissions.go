@@ -189,7 +189,9 @@ func (mc *machine) exceptionViews(rh backend.RuleHost, sessionID string) []backe
 // it is changed. An unknown session is `not_found`, a mode that is not one of
 // the three words `invalid`, and a subagent `invalid` too: it has no selector
 // of its own and follows its root. The change reaches the root and every
-// subagent under it, including ones already running. The answer is `{}`; read
+// subagent under it, including ones already running. It applies from the
+// session's NEXT turn: opencode takes a session's rules when a turn starts, and
+// nothing here stops, cancels or withdraws a turn that is running. The answer is `{}`; read
 // the mode back from the session. Audited as permission.mode.
 func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
