@@ -181,9 +181,10 @@
 		<label class="mb-4 flex items-start gap-2 text-xs text-ink-muted">
 			<input type="checkbox" class="mt-0.5" bind:checked={allowProjectConfig} />
 			<span>
-				<span class="font-medium text-ink">Trust repo configs.</span> A repo's own opencode config loads
-				— its agents, commands, MCP servers, plugins and instructions run as you. Enable only on machines
-				that open repos you trust; the gateway provider and default models stay pinned over it.
+				<span class="font-medium text-ink">Trust the repos this machine opens.</span> A repo you cloned
+				can carry its own assistant setup — extra commands, helpers and connections — which normally stays
+				switched off, because those are someone else's files. Turn this on only where you trust the repos.
+				Your AI provider stays locked to our gateway either way.
 			</span>
 		</label>
 
