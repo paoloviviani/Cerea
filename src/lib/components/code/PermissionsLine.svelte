@@ -161,7 +161,7 @@
 		{#if open}
 			<div
 				id="permissions-detail-{agentId}"
-				class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3"
+				class="scrollbar-custom flex max-h-[40vh] flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-surface p-3"
 				data-testid="permissions-detail"
 			>
 				<p class="text-ink-muted">

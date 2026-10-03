@@ -202,6 +202,22 @@ describe("Permissions line detail", () => {
 			.toHaveTextContent("This machine caps: bash at most ask.");
 	});
 
+	it("scrolls inside its own box, so a session with hundreds of rules cannot push the composer away", async () => {
+		const screen = mount({
+			...RESULT,
+			rules: Array.from({ length: 300 }, (_, i) => ({
+				permission: `tool_${i}`,
+				pattern: "*",
+				action: "ask" as const,
+			})),
+		});
+		await openDetail(screen);
+		const root = screen.getByTestId("permissions-detail").element();
+		expect(root.scrollHeight).toBeGreaterThan(root.clientHeight);
+		expect(root.clientHeight).toBeLessThanOrEqual(window.innerHeight * 0.4 + 1);
+		expect(getComputedStyle(root).overflowY).toBe("auto");
+	});
+
 	it("is read-only: no field, no select, and the only buttons are the exceptions' Remove", async () => {
 		const screen = mount();
 		await openDetail(screen);
