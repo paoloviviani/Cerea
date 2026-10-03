@@ -5,16 +5,16 @@
  *
  * What is pinned here, at 390×844 (the operator's phone): the `+`, every
  * pill, the context ring and send share one row (their boxes overlap
- * vertically, no second row); the pill group never wraps; auto-accept drops
- * to its shield icon alone but keeps its accessible name and its
- * `aria-pressed` on/off state; a machine-policy veto stays tappable (not
- * `disabled`) and reveals its reason on tap, since there is no hover on a
- * phone. At 1280×800, the same composer keeps today's text labels, and the
- * `+`, the pills, the ring and send now share one row too (brief item 2) —
- * including with the machine-veto banner showing underneath, which is
- * exactly the case that used to strand the `+` and send away from the
- * pill row (a `position: absolute` send button pinned to the composer's
- * corner, not a flex sibling of the row it was meant to share).
+ * vertically, no second row); the pill group never wraps; the permission
+ * selector (Deny · Ask · Allow) stays one pill-height group of three labelled
+ * segments with its accessible name and its `aria-checked` state, and its
+ * "what the ceiling still caps" note steps aside on a phone (the Allow
+ * segment's title carries it). At 1280×800, the same composer keeps its text
+ * labels and shows that note under Allow, and the `+`, the pills, the ring and
+ * send share one row too (brief item 2) — including with the note showing,
+ * which grows the row and must not strand the `+` and send away from it (a
+ * `position: absolute` send button pinned to the composer's corner, not a
+ * flex sibling of the row it was meant to share).
  */
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Locator, Page } from "playwright/test";
@@ -25,16 +25,6 @@ const WS = "ws_e2e";
 const AGENT = "agent_e2e";
 
 const superjsonBody = (data: unknown) => superjson.stringify(data);
-
-const VETO_NOTE =
-	"This machine's permission ceiling does not let a responder answer asks: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
-
-const AUTO_ACCEPT = {
-	id: "auto_accept",
-	label: "Auto Accept",
-	description: "Automatically approves OpenCode tool permission prompts.",
-	value: false,
-};
 
 const BACKEND = {
 	id: "opencode",
@@ -47,7 +37,6 @@ const BACKEND = {
 		images: true,
 		files: true,
 		worktrees: false,
-		autoAccept: true,
 		efforts: true,
 		questions: true,
 	},
@@ -56,11 +45,13 @@ const BACKEND = {
 /** One SSE frame in the bridge's wire shape, as `code-context-meter.spec.ts` uses it. */
 const frame = (payload: unknown) => `event: update\ndata: ${JSON.stringify(payload)}\n\n`;
 
-async function installStubs(page: Page, options: { blocked?: boolean } = {}) {
-	const feature = options.blocked
-		? { ...AUTO_ACCEPT, blockedReason: VETO_NOTE }
-		: { ...AUTO_ACCEPT };
-
+async function installStubs(
+	page: Page,
+	options: {
+		permissionMode?: "deny" | "ask" | "allow";
+		ceiling?: Record<string, "ask" | "deny">;
+	} = {}
+) {
 	await page.route("**/api/v2/code/devices", (route) =>
 		route.fulfill({
 			contentType: "application/json",
@@ -83,8 +74,8 @@ async function installStubs(page: Page, options: { blocked?: boolean } = {}) {
 					modeId: "build",
 					modelId: "pystino/coder-large",
 					effort: "high",
+					permissionMode: options.permissionMode ?? "ask",
 				},
-				features: [feature],
 				cwd: "/repo",
 			}),
 		})
@@ -124,8 +115,16 @@ async function installStubs(page: Page, options: { blocked?: boolean } = {}) {
 			}),
 		})
 	);
-	await page.route("**/api/v2/code/v1/providers/opencode/features?*", (route) =>
-		route.fulfill({ contentType: "application/json", body: superjsonBody({ features: [feature] }) })
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/permission-rules?*`, (route) =>
+		route.fulfill({
+			contentType: "application/json",
+			body: superjsonBody({
+				mode: options.permissionMode ?? "ask",
+				rules: [],
+				savedApprovals: [],
+				ceiling: options.ceiling ?? {},
+			}),
+		})
 	);
 
 	// No `max`: a raw token count, "20.2k" — the brief's own repro number.
@@ -173,11 +172,11 @@ test.describe("/code composer at 390×844", () => {
 		// own `ModelEffortPicker` — rather than the /code-only dropdown and
 		// its separate Effort pill this replaced.
 		const modelEffort = page.getByRole("button", { name: "Model and effort" });
-		const autoAccept = page.getByRole("button", { name: "Auto Accept" });
+		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
 		const ring = page.getByRole("button", { name: "20.2k" });
 		const send = page.getByRole("button", { name: "Send message" });
 
-		const all = [attach, mode, modelEffort, autoAccept, ring, send];
+		const all = [attach, mode, modelEffort, selector, ring, send];
 		for (const locator of all) {
 			await expect(locator).toBeVisible();
 		}
@@ -199,10 +198,11 @@ test.describe("/code composer at 390×844", () => {
 			expect(b.x + b.width).toBeLessThanOrEqual(390 + 0.5);
 		}
 
-		// Auto-accept is icon-only here: a near-square box, not the wide pill
-		// desktop shows with the label alongside.
-		const autoAcceptBox = await box(autoAccept);
-		expect(autoAcceptBox.width).toBeLessThan(36);
+		// The selector is one pill-height group of three labelled segments, not
+		// a stack: the labels stay (a phone needs the words, not a shield).
+		const selectorBox = await box(selector);
+		expect(selectorBox.height).toBeLessThan(32);
+		await expect(selector.getByRole("radio")).toHaveText(["Deny", "Ask", "Allow"]);
 
 		// The model name itself truncates rather than pushing the row wider
 		// (the pill's own bounding box also carries the effort suffix and
@@ -210,57 +210,63 @@ test.describe("/code composer at 390×844", () => {
 		const modelLabelBox = await box(modelEffort.locator("span").first());
 		expect(modelLabelBox.width).toBeLessThanOrEqual(80);
 
-		await expect(autoAccept).toHaveAttribute("aria-pressed", "false");
+		await expect(selector.getByRole("radio", { name: "Ask" })).toHaveAttribute(
+			"aria-checked",
+			"true"
+		);
 
 		await page.screenshot({ path: "test-results/mobile-composer-code-390.png" });
 	});
 
-	test("auto-accept and the ring keep an accessible name while going icon-only", async ({
-		page,
-	}) => {
-		const autoAccept = page.getByRole("button", { name: "Auto Accept" });
+	test("the ring keeps an accessible name while going icon-only", async ({ page }) => {
 		const ring = page.getByRole("button", { name: "20.2k" });
 
 		// The name survives (matched above); the visible label is what
 		// collapses — `sr-only`, not `display:none`, keeps the name intact.
-		const autoAcceptLabelBox = await box(autoAccept.locator("span").first());
-		expect(autoAcceptLabelBox.width).toBeLessThan(2);
 		const ringLabelBox = await box(ring.locator("span").first());
 		expect(ringLabelBox.width).toBeLessThan(2);
 	});
 });
 
-test.describe("/code composer: a machine-policy veto on mobile", () => {
-	test("stays tappable (not disabled) and reveals the veto reason on tap", async ({ page }) => {
-		await installStubs(page, { blocked: true });
+test.describe("/code composer: the ceiling note on mobile", () => {
+	test("steps aside on a phone, the row stays one line, and the Allow segment still carries it", async ({
+		page,
+	}) => {
+		await installStubs(page, { permissionMode: "allow", ceiling: { bash: "ask" } });
 		await page.setViewportSize({ width: 390, height: 844 });
 		await goto(page);
 		await expect(page.getByRole("combobox")).toBeVisible();
 
-		const pill = page.getByRole("button", { name: "Auto Accept" });
-		await expect(pill).toBeVisible();
-		await expect(pill).toBeEnabled();
-		await expect(page.getByText(VETO_NOTE)).toHaveCount(0);
-
-		await pill.click();
-		await expect(page.getByText(VETO_NOTE)).toBeVisible();
+		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
+		await expect(selector).toBeVisible();
+		await expect(page.getByTestId("permission-mode-note")).toBeHidden();
+		await expect(selector.getByRole("radio", { name: "Allow" })).toHaveAttribute(
+			"title",
+			/outside the project folder/
+		);
+		const attach = page.getByRole("button", { name: "Add attachment" });
+		const send = page.getByRole("button", { name: "Send message" });
+		const [attachBox, selectorBox, sendBox] = await Promise.all([attach, selector, send].map(box));
+		expect(overlapsVertically(attachBox, selectorBox)).toBe(true);
+		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 	});
 });
 
 test.describe("/code composer at 1280×800", () => {
-	test("keeps the text labels: Auto Accept and the ring's value", async ({ page }) => {
+	test("keeps the text labels: Deny · Ask · Allow and the ring's value", async ({ page }) => {
 		await installStubs(page);
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
 		await expect(page.getByRole("combobox")).toBeVisible();
 
-		const autoAccept = page.getByRole("button", { name: "Auto Accept" });
+		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
 		const ring = page.getByRole("button", { name: "20.2k" });
-		await expect(autoAccept).toBeVisible();
+		await expect(selector).toBeVisible();
 		await expect(ring).toBeVisible();
 
-		const autoAcceptLabelBox = await box(autoAccept.locator("span").first());
-		expect(autoAcceptLabelBox.width).toBeGreaterThan(10);
+		await expect(selector.getByRole("radio")).toHaveText(["Deny", "Ask", "Allow"]);
+		const askBox = await box(selector.getByRole("radio", { name: "Ask" }));
+		expect(askBox.width).toBeGreaterThan(20);
 		const ringLabelBox = await box(ring.locator("span").first());
 		expect(ringLabelBox.width).toBeGreaterThan(10);
 
@@ -285,30 +291,27 @@ test.describe("/code composer at 1280×800", () => {
 		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 	});
 
-	test("a machine-policy veto keeps its old disabled-plus-banner shape, and the row still lines up", async ({
-		page,
-	}) => {
-		await installStubs(page, { blocked: true });
+	test("under Allow the ceiling note shows, and the row still lines up", async ({ page }) => {
+		await installStubs(page, { permissionMode: "allow", ceiling: { bash: "ask" } });
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
 		await expect(page.getByRole("combobox")).toBeVisible();
 
-		const pill = page.getByRole("button", { name: "Auto Accept" });
-		await expect(pill).toBeVisible();
-		await expect(pill).toBeDisabled();
-		await expect(page.getByText(VETO_NOTE)).toBeVisible();
+		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
+		await expect(selector).toBeVisible();
+		await expect(page.getByTestId("permission-mode-note")).toHaveText(
+			"Allow · bash asks (machine limit) · new subagents ask on their first turn"
+		);
 
-		// The exact case that used to strand `+` and send below the pill row:
-		// the veto banner (`basis-full`-wrapped, under the pills) grows the
-		// toolbar row's height, and a `position: absolute` send button pinned
-		// to the composer's corner drifted away from it. Not anymore.
+		// The note is one more thing in the pill row: `+` and send must stay on
+		// it, not drift to the composer's corner.
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const send = page.getByRole("button", { name: "Send message" });
-		const [attachBox, pillBox, sendBox] = await Promise.all([attach, pill, send].map(box));
-		expect(overlapsVertically(attachBox, pillBox)).toBe(true);
+		const [attachBox, selectorBox, sendBox] = await Promise.all([attach, selector, send].map(box));
+		expect(overlapsVertically(attachBox, selectorBox)).toBe(true);
 		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 
-		await page.screenshot({ path: "test-results/mobile-composer-code-desktop-vetoed.png" });
+		await page.screenshot({ path: "test-results/mobile-composer-code-desktop-allow.png" });
 	});
 });
 

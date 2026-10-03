@@ -20,6 +20,12 @@ const fake = vi.hoisted(() => ({
 	streamFrames: {} as Record<string, unknown[]>,
 	/** Held until the test releases it, so presence can be asserted first. */
 	streamGate: null as null | (() => void),
+	/** Each subagent's own transcript, by session id (MOCK of the timeline route). */
+	timelines: {} as Record<string, unknown[]>,
+	/** Root modes by session id (MOCK of the agent snapshot read); absent means allow. */
+	rootModes: {} as Record<string, string>,
+	/** When true the snapshot read fails, so the mode is unknown. */
+	failAgent: false,
 }));
 
 vi.mock("$env/dynamic/public", () => ({
@@ -32,6 +38,9 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 		JSON.parse(
 			JSON.stringify(fake.pendingByDevice[deviceId] ?? { permissions: [], questions: [] })
 		),
+	fetchSubagentTimeline: async (_device: string, _root: string, child: string) => ({
+		updates: fake.timelines[child] ?? [],
+	}),
 	respondPermission: async (...args: unknown[]) => {
 		fake.permissionCalls.push(args);
 		return { ok: true };
@@ -39,6 +48,10 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	respondQuestion: async (...args: unknown[]) => {
 		fake.questionCalls.push(args);
 		return { ok: true };
+	},
+	getAgent: async (_device: string, agent: string) => {
+		if (fake.failAgent) throw new Error("no snapshot");
+		return { agent: { permissionMode: fake.rootModes[agent] ?? "allow" } };
 	},
 }));
 
@@ -105,6 +118,9 @@ beforeEach(() => {
 	fake.questionCalls = [];
 	fake.streamFrames = {};
 	fake.streamGate = null;
+	fake.timelines = {};
+	fake.rootModes = {};
+	fake.failAgent = false;
 	codeDeviceList.devices = [];
 	codeDeviceList.loading = false;
 	document.body.innerHTML = "";
@@ -201,5 +217,135 @@ describe("NeedsYouInbox", () => {
 			expect(fake.permissionCalls).toEqual([["d1", "root-1", "perm-9", "once", "child-1"]])
 		);
 		await vi.waitFor(() => expect(inbox()).toBeNull());
+	});
+});
+
+describe("NeedsYouInbox Always allow", () => {
+	const withPolicy = (max: Record<string, string>) => ({
+		id: "d1",
+		name: "Box",
+		status: "paired",
+		online: true,
+		policy: { workspaceRoots: [], allowFreeModels: false, permission: { max } },
+	});
+
+	it("is labelled as this session's exception, and is offered for a key the machine does not cap", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const screen = mount(withPolicy({ webfetch: "ask" }));
+		await expect
+			.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+			.toBeVisible();
+	});
+
+	it("hides it for a key the machine's own ceiling holds below allow (bash asks by default)", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const screen = mount(withPolicy({ bash: "ask" }));
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+		).toHaveLength(0);
+	});
+
+	it("decides each ask against its own machine's ceiling", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("a1", "perm-1")], questions: [] },
+			d2: { permissions: [permission("a2", "perm-2")], questions: [] },
+		};
+		await browserPage.viewport(1200, 800);
+		codeDeviceList.devices = [
+			withPolicy({ bash: "ask" }),
+			{ ...withPolicy({}), id: "d2", name: "Open box" },
+		] as unknown as typeof codeDeviceList.devices;
+		codeDeviceList.loading = false;
+		const screen = renderWithApp(NeedsYouInbox);
+		await expect.element(screen.getByTestId("needs-you-item").first()).toBeVisible();
+		await vi.waitFor(() => expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(2));
+		// Exactly one of the two cards (the open machine's) offers it.
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+		).toHaveLength(1);
+	});
+});
+
+describe("NeedsYouInbox a new subagent's first turn", () => {
+	it("names it on a subagent's ask, read from that subagent's transcript", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect
+			.element(screen.getByTestId("first-turn-chip"))
+			.toHaveTextContent("New subagent · first turn asks");
+	});
+
+	it("does not name it once that subagent has had another turn", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = {
+			"child-1": [
+				{ type: "user", text: "look around" },
+				{ type: "user", text: "now this" },
+			],
+		};
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+
+	it("does not name it on a top-level session's ask", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("root-1", "perm-1", { rootId: "root-1" })], questions: [] },
+		};
+		fake.timelines = { "root-1": [{ type: "user", text: "start" }] };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+
+	it("does not name it when the root is not on Allow", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+		fake.rootModes = { "root-1": "ask" };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+
+	it("does not name it when the root mode cannot be read", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+		fake.failAgent = true;
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
 	});
 });

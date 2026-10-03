@@ -58,7 +58,7 @@ async function pairedDevice(owner: App.Locals, status: "paired" | "pending" = "p
 		sub: "sub",
 		iss: "https://idp.example",
 		backends: [],
-		policy: { autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+		policy: { workspaceRoots: [], allowFreeModels: false },
 		credentialState: "ok",
 		createdAt: new Date(),
 		updatedAt: new Date(),

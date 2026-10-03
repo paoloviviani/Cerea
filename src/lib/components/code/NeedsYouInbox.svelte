@@ -19,8 +19,8 @@
 
 	Asks persist on the machine — there is deliberately no server-side queue
 	here, only a read of live state. An unattended run that stalls on an ask
-	is expected: auto-accept (with its machine veto) is the answer for those,
-	not this inbox.
+	is expected: the composer's Allow setting is the answer for those, not this
+	inbox.
 -->
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
@@ -29,11 +29,15 @@
 	import IconLaunch from "~icons/carbon/launch";
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
+	import AlwaysCappedScope from "./AlwaysCappedScope.svelte";
+	import FirstTurnScope from "./FirstTurnScope.svelte";
+	import { ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import {
 		listPendingApprovals,
 		respondPermission,
 		respondQuestion,
+		getAgent,
 		type PendingPermission,
 		type PendingQuestion,
 	} from "$lib/codeApi";
@@ -154,7 +158,38 @@
 		next.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 		items = next;
 		loading = false;
+		void refreshRootModes(next);
 		syncTails();
+	}
+
+	/**
+	 * The chip needs each asking subagent's ROOT mode, which the pending
+	 * items don't carry: one snapshot read per distinct root, redone every
+	 * poll so a mode switch shows up within a tick. Roots with pending
+	 * subagent asks are few; unknown modes simply draw no chip.
+	 */
+	let rootModes = $state(new Map<string, string>());
+	async function refreshRootModes(list: InboxItem[]) {
+		const seq = fetchSeq;
+		const roots = new Map<string, { deviceId: string; rootId: string }>();
+		for (const item of list) {
+			if (item.kind !== "permission" || !item.rootId || item.rootId === item.sessionId) continue;
+			const key = `${item.deviceId}:${item.rootId}`;
+			if (!roots.has(key)) roots.set(key, { deviceId: item.deviceId, rootId: item.rootId });
+		}
+		const settled = await Promise.allSettled(
+			[...roots].map(async ([key, { deviceId, rootId }]) => {
+				const detail = await getAgent(deviceId, rootId);
+				return { key, mode: detail.agent?.permissionMode ?? null };
+			})
+		);
+		if (seq !== fetchSeq) return;
+		const modes = new Map<string, string>();
+		for (const result of settled) {
+			if (result.status !== "fulfilled" || !result.value.mode) continue;
+			modes.set(result.value.key, result.value.mode);
+		}
+		rootModes = modes;
 	}
 
 	function dismiss(key: string) {
@@ -373,11 +408,34 @@
 								</a>
 							</div>
 							{#if item.kind === "permission"}
-								<ToolApprovalCard
-									conversationId={item.sessionId}
-									request={permissionToElicitation(item.request)}
-									onanswer={(action, scope) => answerPermission(item, action, scope)}
-								/>
+								<!-- The machine's own ceiling, from its hello: the inbox has
+								     no per-session read, and the ceiling is per machine. -->
+								<AlwaysCappedScope
+									capped={(tool) =>
+										isCapped(
+											ceilingOfPolicy(
+												codeDeviceList.devices.find((d) => d.id === item.deviceId)?.policy
+											),
+											tool
+										)}
+								>
+									<!-- An ask from a subagent (its session is not the root's)
+									     says its first turn asks whatever the setting is. -->
+									<FirstTurnScope
+										deviceId={item.deviceId}
+										rootId={item.rootId}
+										childId={item.sessionId}
+										rootMode={item.rootId
+											? (rootModes.get(`${item.deviceId}:${item.rootId}`) ?? null)
+											: null}
+									>
+										<ToolApprovalCard
+											conversationId={item.sessionId}
+											request={permissionToElicitation(item.request)}
+											onanswer={(action, scope) => answerPermission(item, action, scope)}
+										/>
+									</FirstTurnScope>
+								</AlwaysCappedScope>
 							{:else}
 								<AskQuestion
 									conversationId={item.sessionId}

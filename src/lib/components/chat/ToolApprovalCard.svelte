@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getContext } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { MessageElicitationResolvedUpdate } from "$lib/types/MessageUpdate";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
@@ -6,6 +7,14 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
+	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
+	import {
+		ALWAYS_ASKS_KEYS,
+		FIRST_TURN_HINT,
+		FIRST_TURN_LABEL,
+		FIRST_TURN_SUBAGENT,
+		type FirstTurnSubagent,
+	} from "$lib/utils/firstTurnSubagent";
 
 	/**
 	 * The tool-approval gate (ADR 0075): a dedicated card, not the generic
@@ -22,11 +31,11 @@
 		/**
 		 * Pluggable answer path: when set, the card answers through it instead
 		 * of `sendElicitationAnswer`, and the second button reads "Always
-		 * allow" rather than "Allow for this conversation" — the caller owns
-		 * the semantics (the coding-agent surface answers a daemon permission
-		 * through its own forwarder; `scope: "always"` there is the daemon's
-		 * own `permission.reply` vocabulary — the rest of this session — not
-		 * a conversation-scoped grant).
+		 * allow (this session)" rather than "Allow for this conversation" — the
+		 * caller owns the semantics (the coding-agent surface answers a daemon
+		 * permission through its own forwarder; `scope: "always"` there asks the
+		 * machine for an exception for this session, which the Permissions line
+		 * lists and can remove — not a conversation-scoped grant).
 		 */
 		onanswer?: (
 			action: ElicitationAction,
@@ -134,6 +143,35 @@
 	 * tool arguments, which may say anything.
 	 */
 	const galopin = $derived(onanswer !== undefined && toolApproval?.args?.galopin === true);
+	/** The ceiling holds this tool below allow: an "always" would store
+	 * nothing, so the button is not offered (see `alwaysCappedContext`). */
+	const alwaysCapped = getContext<AlwaysCapped | undefined>(ALWAYS_CAPPED);
+	/** A new subagent's first turn asks whatever the setting is (see
+	 * `firstTurnSubagent`): say so, so the ask does not read as the setting
+	 * being ignored. Only on the agent surface, where a provider is above. */
+	const firstTurn = getContext<FirstTurnSubagent | undefined>(FIRST_TURN_SUBAGENT);
+	const askingChild = $derived(
+		onanswer ? (request.childSessionId ?? firstTurn?.childId) : undefined
+	);
+	$effect(() => {
+		if (askingChild && open) firstTurn?.ensure(askingChild, request.elicitationId);
+	});
+	const firstTurnChip = $derived(
+		askingChild !== undefined &&
+			firstTurn?.isFirst(askingChild, request.elicitationId) === true &&
+			// The chip explains a surprise, so it draws only where one
+			// exists: the root on Allow (under Ask everything asks anyway),
+			// a key the ceiling leaves alone (a capped key asks every turn,
+			// and the machine-limit wording already explains it), and never
+			// a key that asks under every setting. Unknown root mode draws
+			// nothing rather than guessing.
+			firstTurn?.rootMode === "allow" &&
+			!(alwaysCapped?.(toolApproval?.tool ?? "") ?? false) &&
+			(toolApproval?.tool === undefined || !ALWAYS_ASKS_KEYS.has(toolApproval.tool))
+	);
+	const capped = $derived(
+		onanswer !== undefined && toolApproval ? (alwaysCapped?.(toolApproval.tool) ?? false) : false
+	);
 	type Fact = { label: string; value: string; long?: boolean };
 	const galopinFacts = $derived.by((): Fact[] => {
 		const args = toolApproval?.args;
@@ -226,6 +264,13 @@
 						>{toolApproval.tool}</code
 					>
 				</span>
+				{#if firstTurnChip}
+					<span
+						class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+						data-testid="first-turn-chip"
+						title={FIRST_TURN_HINT}>{FIRST_TURN_LABEL}</span
+					>
+				{/if}
 				{#if expiresAt !== undefined}
 					<span class="ml-auto text-xs text-gray-400 tabular-nums dark:text-gray-500">
 						{timeLeft}
@@ -268,14 +313,14 @@
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
 					{approveLabel}
 				</button>
-				{#if !galopin}
+				{#if !galopin && !capped}
 					<button
 						type="button"
 						onclick={() => send("accept", onanswer ? "always" : "conversation")}
 						disabled={submitting !== null}
 						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
 					>
-						{onanswer ? "Always allow" : "Allow for this conversation"}
+						{onanswer ? "Always allow (this session)" : "Allow for this conversation"}
 					</button>
 				{/if}
 				<button
