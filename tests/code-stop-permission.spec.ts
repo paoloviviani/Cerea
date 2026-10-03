@@ -1,5 +1,5 @@
 /**
- * The stop control and the auto-accept toggle, hermetically: the /code
+ * The stop control and the permission selector, hermetically: the /code
  * endpoints are stubbed at the network layer, so the client code paths are
  * the real ones.
  *
@@ -11,25 +11,21 @@
  *   is a receipt, not the outcome. Mid-permission-prompt is the case that
  *   matters: the daemon resolves the outstanding request denied, the card
  *   settles ("Denied"), and no dots hang;
- * - the auto-accept toggle renders from the agent snapshot's own feature
- *   word, the provider's feature list is read with the agent's working
- *   directory, and a click flips it optimistically — the same discipline
- *   chat's own web-search and tool-approval pills use — posting
- *   `{ featureId, value }` in the background and rolling back with a toast
- *   if the daemon refuses. Unlike mode/model/effort (which stay
- *   snapshot-claimed: those change what the agent runs, so waiting for the
- *   daemon's word is the point), a feature flip does not need the whole
- *   agent snapshot re-read to know it landed — and re-reading it anyway
- *   used to flash the model/effort pill on every click, since the parent
- *   replaces the snapshot wholesale rather than patching it;
- * - a feature the snapshot is silent on renders but does not take a click:
- *   existence is known from the provider's list, a state is not;
- * - a machine policy veto (`blockedReason`) still ships the toggle, visible
- *   and disabled, carrying the re-enroll fix rather than disappearing as if
- *   the feature never existed;
- * - the approval card's three buttons post the daemon's own vocabulary:
- *   "Allow once" is `{ decision: "once" }`, "Always allow" is
- *   `{ decision: "always" }`, "Deny" is `{ decision: "reject" }`.
+ * - the permission selector (Deny · Ask · Allow) renders from the agent
+ *   snapshot's `permissionMode` — the machine's word, never an optimistic
+ *   guess: a click posts `{ mode }` and the segment moves only when the
+ *   re-read snapshot says so. A refusal leaves the old word standing, a
+ *   subagent's view disables it, and under Allow it names what the machine's
+ *   ceiling still caps (from `permission.rules`). The write is its own route
+ *   (`permission-mode`), so changing it does not remount the sibling pills;
+ * - the approval card's buttons post the daemon's own vocabulary: "Allow once"
+ *   is `{ decision: "once" }`, "Always allow (this session)" is
+ *   `{ decision: "always" }` — and is not offered at all for a key the
+ *   ceiling caps — and "Deny" is `{ decision: "reject" }`.
+ *
+ * MOCK: `permissionMode`, the ceiling and the `permission-mode` answer are the
+ * panel's reading of the frozen contract with the agent half
+ * (feat/permission-selector-agent), not galopin's behaviour.
  */
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import type { Page } from "playwright/test";
@@ -40,13 +36,6 @@ const WS = "ws_e2e";
 const AGENT = "agent_e2e";
 
 const superjsonBody = (data: unknown) => superjson.stringify(data);
-
-const AUTO_ACCEPT = {
-	id: "auto_accept",
-	label: "Auto Accept",
-	description: "Automatically approves OpenCode tool permission prompts.",
-	value: false,
-};
 
 const running = () => ({ type: "turnState", state: "running", serverNow: Date.now() });
 const done = (reason?: string) => ({
@@ -75,11 +64,14 @@ const permissionDenied = () => ({
 
 async function installStubs(
 	page: Page,
-	options: { snapshot?: Record<string, unknown>; featureFails?: boolean } = {}
+	options: {
+		snapshot?: Record<string, unknown>;
+		modeFails?: boolean;
+		ceiling?: Record<string, "ask" | "deny">;
+	} = {}
 ) {
 	const cancelBodies: unknown[] = [];
-	const featureBodies: unknown[] = [];
-	const featureQueries: string[] = [];
+	const modeBodies: unknown[] = [];
 	const permissionBodies: unknown[] = [];
 	const frames: unknown[] = [];
 	const agent: Record<string, unknown> = options.snapshot ?? {
@@ -91,7 +83,7 @@ async function installStubs(
 		modeId: "plan",
 		modelId: "pystino/coder-large",
 		cwd: "/repo",
-		features: [{ ...AUTO_ACCEPT }],
+		permissionMode: "ask",
 	};
 
 	await page.route("**/api/v2/code/devices", (route) =>
@@ -105,7 +97,7 @@ async function installStubs(
 	await page.route(`**/api/v2/code/v1/agents/${AGENT}?*`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
-			body: superjsonBody({ agent, features: agent.features ?? [], cwd: agent.cwd }),
+			body: superjsonBody({ agent, cwd: agent.cwd }),
 		})
 	);
 	await page.route("**/api/v2/code/v1/workspaces?*", (route) =>
@@ -139,39 +131,33 @@ async function installStubs(
 		})
 	);
 
-	// The provider's feature list — the toggle's existence and name. The
-	// query carries the agent's working directory; record it to pin that.
-	await page.route("**/api/v2/code/v1/providers/opencode/features?*", async (route) => {
-		featureQueries.push(route.request().url());
-		await route.fulfill({
+	// What the machine says is in force: the session's mode and its ceiling.
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/permission-rules?*`, (route) =>
+		route.fulfill({
 			contentType: "application/json",
-			body: superjsonBody({ features: [{ ...AUTO_ACCEPT }] }),
-		});
-	});
+			body: superjsonBody({
+				mode: agent.permissionMode,
+				rules: [],
+				savedApprovals: [],
+				ceiling: options.ceiling ?? {},
+			}),
+		})
+	);
 
-	// The feature flip: record the body, then answer as the daemon would. The
-	// apply is optimistic now (no refetch rides on this response), but the
-	// stub still updates its own snapshot so a later, unrelated refresh
-	// would agree with what was already shown.
-	await page.route(`**/api/v2/code/v1/agents/${AGENT}/feature?*`, async (route) => {
-		const body = route.request().postDataJSON() as { featureId: string; value: boolean };
-		featureBodies.push(body);
-		if (options.featureFails) {
-			// A small delay: the flip must be visible as claimed before the
-			// refusal rolls it back, and a same-tick mocked round trip would
-			// let a poll-based assertion miss that entirely.
-			await new Promise((resolve) => setTimeout(resolve, 200));
+	// The selector's write: record the body, then answer as the machine would
+	// (and, once it has, report the new word in the snapshot a re-read gets).
+	await page.route(`**/api/v2/code/v1/agents/${AGENT}/permission-mode?*`, async (route) => {
+		const body = route.request().postDataJSON() as { mode: string };
+		modeBodies.push(body);
+		if (options.modeFails) {
 			await route.fulfill({
-				status: 500,
+				status: 400,
 				contentType: "application/json",
-				body: JSON.stringify({ message: "The daemon refused the feature." }),
+				body: JSON.stringify({ message: "a subagent follows its root" }),
 			});
 			return;
 		}
-		const listed = agent.features as Array<Record<string, unknown>>;
-		agent.features = listed.map((feature) =>
-			feature.id === body.featureId ? { ...feature, value: body.value } : feature
-		);
+		agent.permissionMode = body.mode;
 		await route.fulfill({
 			contentType: "application/json",
 			body: superjsonBody({ ok: true }),
@@ -222,7 +208,7 @@ async function installStubs(
 		await route.fulfill({ status: 200, contentType: "text/event-stream", body });
 	});
 
-	return { frames, cancelBodies, featureBodies, featureQueries, permissionBodies, agent };
+	return { frames, cancelBodies, modeBodies, permissionBodies, agent };
 }
 
 const goto = (page: Page) =>
@@ -284,8 +270,8 @@ test.describe("the stop control", () => {
 		h.frames.push({ type: "user", text: "Clean the build" }, running(), PERMISSION_REQUEST);
 		await goto(page);
 
-		await expect(page.getByRole("button", { name: "Always allow" })).toBeVisible();
-		await page.getByRole("button", { name: "Always allow" }).click();
+		await expect(page.getByRole("button", { name: "Always allow (this session)" })).toBeVisible();
+		await page.getByRole("button", { name: "Always allow (this session)" }).click();
 		await expect
 			.poll(() => h.permissionBodies, { timeout: 10_000 })
 			.toEqual([{ decision: "always" }]);
@@ -342,81 +328,77 @@ test.describe("the stop control", () => {
 	});
 });
 
-test.describe("the auto-accept toggle", () => {
-	test("reads the provider's features with the agent's cwd, and a click flips it optimistically", async ({
+test.describe("the permission selector", () => {
+	const segment = (page: Page, mode: string) => page.getByTestId(`permission-mode-${mode}`);
+
+	test("shows the machine's word, and a click posts { mode } and moves only when the snapshot does", async ({
 		page,
 	}) => {
 		const h = await installStubs(page);
 		await goto(page);
 
-		// The pill renders from the snapshot's word: off, pressable.
-		const pill = page.getByRole("button", { name: "Auto Accept" });
-		await expect(pill).toBeVisible();
-		await expect(pill).toHaveAttribute("aria-pressed", "false");
+		await expect(segment(page, "ask")).toHaveAttribute("aria-checked", "true");
+		await expect(segment(page, "allow")).toHaveAttribute("aria-checked", "false");
 
-		// The feature list was read, with the working directory the daemon
-		// resolves features per.
-		await expect.poll(() => h.featureQueries.length, { timeout: 10_000 }).toBeGreaterThan(0);
-		expect(h.featureQueries.some((url) => url.includes("cwd=%2Frepo"))).toBe(true);
-
-		await pill.click();
-
-		// Claimed at once — no wait for a refreshed snapshot, unlike mode or
-		// model. The default `expect` timeout is generous; the point this
-		// pins is that the flip does not depend on the feature POST's
-		// response landing first (`h.featureBodies` is asserted after).
-		await expect(pill).toHaveAttribute("aria-pressed", "true");
-		expect(h.featureBodies).toEqual([{ featureId: "auto_accept", value: true }]);
+		await segment(page, "allow").click();
+		await expect.poll(() => h.modeBodies, { timeout: 10_000 }).toEqual([{ mode: "allow" }]);
+		// The composer re-read the snapshot, which now carries the new word.
+		await expect(segment(page, "allow")).toHaveAttribute("aria-checked", "true");
+		await expect(segment(page, "ask")).toHaveAttribute("aria-checked", "false");
 	});
 
-	test("a refused flip rolls back and shows a toast, without touching the sibling pills", async ({
-		page,
-	}) => {
-		const h = await installStubs(page, { featureFails: true });
+	test("a refusal keeps the machine's old word standing and shows its reason", async ({ page }) => {
+		const h = await installStubs(page, { modeFails: true });
 		await goto(page);
 
-		const pill = page.getByRole("button", { name: "Auto Accept" });
-		const mode = page.getByRole("button", { name: "Plan" });
-		await expect(pill).toHaveAttribute("aria-pressed", "false");
-
-		await pill.click();
-		await expect(pill).toHaveAttribute("aria-pressed", "true");
-
-		// The daemon's refusal rolls the optimistic flip back and surfaces a
-		// toast — the same rollback chat's own toggles use — rather than
-		// leaving the pill claiming a state the server never accepted.
-		await expect(page.getByText("The daemon refused the feature.")).toBeVisible();
-		await expect(pill).toHaveAttribute("aria-pressed", "false");
-		await expect(mode).toBeVisible();
-		expect(h.featureBodies).toEqual([{ featureId: "auto_accept", value: true }]);
+		await segment(page, "deny").click();
+		await expect.poll(() => h.modeBodies, { timeout: 10_000 }).toEqual([{ mode: "deny" }]);
+		await expect(page.getByText("a subagent follows its root")).toBeVisible();
+		await expect(segment(page, "ask")).toHaveAttribute("aria-checked", "true");
+		await expect(segment(page, "deny")).toHaveAttribute("aria-checked", "false");
 	});
 
-	test("toggling auto-accept does not remount the sibling pills", async ({ page }) => {
+	test("changing it does not remount the sibling pills", async ({ page }) => {
 		await installStubs(page);
 		await goto(page);
 
-		const pill = page.getByRole("button", { name: "Auto Accept" });
 		const mode = page.getByRole("button", { name: "Plan" });
 		const model = page.getByRole("button", { name: "Model and effort" });
-		await expect(pill).toBeVisible();
 		await expect(mode).toBeVisible();
 		await expect(model).toBeVisible();
-
-		// A marker written straight onto the live DOM node: a remount tears
-		// the node down and builds a fresh one, which drops anything set on
-		// it directly like this — a prop or text update, the healthy case,
-		// never does.
 		await mode.evaluate((el) => el.setAttribute("data-remount-probe", "1"));
 		await model.evaluate((el) => el.setAttribute("data-remount-probe", "1"));
 
-		await pill.click();
-		await expect(pill).toHaveAttribute("aria-pressed", "true");
+		await segment(page, "allow").click();
+		await expect(segment(page, "allow")).toHaveAttribute("aria-checked", "true");
 
 		await expect(mode).toHaveAttribute("data-remount-probe", "1");
 		await expect(model).toHaveAttribute("data-remount-probe", "1");
 	});
 
-	test("a feature the snapshot is silent on renders but does not take a click", async ({
+	test("under Allow it names what the machine's ceiling still caps", async ({ page }) => {
+		await installStubs(page, {
+			ceiling: { bash: "ask" },
+			snapshot: {
+				id: AGENT,
+				title: "e2e agent",
+				provider: "opencode",
+				state: "idle",
+				workspaceId: WS,
+				modeId: "plan",
+				modelId: "pystino/coder-large",
+				cwd: "/repo",
+				permissionMode: "allow",
+			},
+		});
+		await goto(page);
+
+		await expect(page.getByTestId("permission-mode-note")).toHaveText(
+			"Allow · bash asks (machine limit)"
+		);
+	});
+
+	test("a subagent's view shows its root's word, disabled, and says it follows the main session", async ({
 		page,
 	}) => {
 		await installStubs(page, {
@@ -429,47 +411,39 @@ test.describe("the auto-accept toggle", () => {
 				modeId: "plan",
 				modelId: "pystino/coder-large",
 				cwd: "/repo",
-				// The provider lists the toggle, the agent reports none.
-				features: [],
+				parentId: "root_e2e",
+				permissionMode: "deny",
 			},
 		});
 		await goto(page);
 
-		const pill = page.getByRole("button", { name: "Auto Accept" });
-		await expect(pill).toBeVisible();
-		await expect(pill).toBeDisabled();
+		await expect(segment(page, "deny")).toHaveAttribute("aria-checked", "true");
+		await expect(segment(page, "allow")).toBeDisabled();
+		await expect(page.getByTestId("permission-mode-note")).toHaveText("Follows the main session");
 	});
 
-	test("a machine policy veto keeps the toggle visible, disabled, with the re-enroll fix", async ({
+	test("there is no Auto Accept pill any more", async ({ page }) => {
+		await installStubs(page);
+		await goto(page);
+		await expect(segment(page, "ask")).toBeVisible();
+		await expect(page.getByRole("button", { name: /auto.?accept/i })).toHaveCount(0);
+	});
+
+	test("the card hides Always allow for a key the ceiling caps, and offers it for another", async ({
 		page,
 	}) => {
-		const VETO_NOTE =
-			"This machine's permission ceiling does not let a responder answer asks: re-run `galopin enroll … --allow-auto-accept`, then restart `run`.";
-		const h = await installStubs(page, {
-			snapshot: {
-				id: AGENT,
-				title: "e2e agent",
-				provider: "opencode",
-				state: "idle",
-				workspaceId: WS,
-				modeId: "plan",
-				modelId: "pystino/coder-large",
-				cwd: "/repo",
-				features: [{ ...AUTO_ACCEPT, blockedReason: VETO_NOTE }],
+		const h = await installStubs(page, { ceiling: { bash: "ask" } });
+		h.frames.push({ type: "user", text: "Run it" }, running(), {
+			...PERMISSION_REQUEST,
+			request: {
+				...PERMISSION_REQUEST.request,
+				elicitationId: "perm_bash",
+				toolApproval: { tool: "bash", args: { command: "ls" } },
 			},
 		});
 		await goto(page);
 
-		// Absent under the old behaviour (the catalog dropped the feature
-		// entirely once policy denied it); visible and disabled now, with the
-		// exact fix carried alongside it rather than left implicit.
-		const pill = page.getByRole("button", { name: "Auto Accept" });
-		await expect(pill).toBeVisible();
-		await expect(pill).toBeDisabled();
-		await expect(page.getByText(VETO_NOTE)).toBeVisible();
-
-		await pill.click({ force: true });
-		await page.waitForTimeout(300);
-		expect(h.featureBodies).toEqual([]);
+		await expect(page.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Always allow (this session)" })).toHaveCount(0);
 	});
 });

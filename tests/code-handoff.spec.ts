@@ -52,7 +52,6 @@ test.beforeEach(async ({ page }) => {
 					modelId: "pystino/coder-large",
 					updatedAt: new Date().toISOString(),
 				},
-				features: [],
 				cwd: "/repo",
 			}),
 		})
@@ -71,7 +70,6 @@ test.beforeEach(async ({ page }) => {
 					modelId: "pystino/coder-large",
 					updatedAt: new Date().toISOString(),
 				},
-				features: [],
 				cwd: "/repo",
 			}),
 		})

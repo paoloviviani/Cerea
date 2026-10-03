@@ -33,7 +33,6 @@ const BACKEND_WITH_USAGE = {
 		images: true,
 		files: true,
 		worktrees: false,
-		autoAccept: true,
 		questions: true,
 	},
 };

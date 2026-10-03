@@ -53,7 +53,7 @@ function deviceRow(overrides: Record<string, unknown> = {}) {
 		online: true,
 		credentialState: "ok",
 		backends: [],
-		policy: { autoAccept: "denied", workspaceRoots: [], allowFreeModels: false },
+		policy: { workspaceRoots: [], allowFreeModels: false },
 		createdAt: new Date(),
 		...overrides,
 	};
@@ -69,7 +69,6 @@ async function installBaseStubs(page: Page, agentEnrollmentExpired = false) {
 			contentType: "application/json",
 			body: superjsonBody({
 				agent: AGENT_SNAPSHOT,
-				features: [],
 				cwd: "/repo",
 				enrollmentExpired: agentEnrollmentExpired,
 			}),
@@ -97,9 +96,6 @@ async function installBaseStubs(page: Page, agentEnrollmentExpired = false) {
 				models: [{ id: "pystino/coder-large", label: "Coder Large", isDefault: true }],
 			}),
 		})
-	);
-	await page.route("**/api/v2/code/v1/providers/opencode/features?*", (route) =>
-		route.fulfill({ contentType: "application/json", body: superjsonBody({ features: [] }) })
 	);
 	// A settled stream: the agent view mounts, folds the snapshot's turn
 	// state, and nothing more — no live turn is under test here.
