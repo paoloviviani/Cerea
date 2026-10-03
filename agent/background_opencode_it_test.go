@@ -127,7 +127,7 @@ func backgroundHarness(t *testing.T, backgroundAllowed bool) (context.Context, *
 		}
 	})
 
-	mat := sessions.New(ocBackend, policy.Policy{Permission: policy.Permission{Responders: policy.TerminalAllowed}})
+	mat := sessions.New(ocBackend, policy.Default())
 	if err := mat.Start(ctx); err != nil {
 		t.Fatalf("subscribing to opencode: %v", err)
 	}

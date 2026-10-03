@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
-	"sync"
 	"time"
 
 	"galopin/internal/backend"
@@ -19,8 +17,9 @@ import (
 
 // The machine's half of the permission pass-through (PROTOCOL.md §6
 // "Permissions"): what is decided here rather than in opencode or the
-// materializer — whether a reply may be "always", what the panel may read of
-// the rules, the one thing it may withdraw, and what a tightened policy sets in
+// materializer — the Deny / Ask / Allow selector and the exceptions a person
+// makes with "always allow", what the panel may read of the rules, the one
+// thing it may withdraw (an exception), and what a tightened policy sets in
 // motion.
 
 // ruleHost is the backend's permission surface, when it has one.
@@ -29,62 +28,66 @@ func (mc *machine) ruleHost() (backend.RuleHost, bool) {
 	return rh, ok
 }
 
-// installPermissions wires what runs on its own: the ceiling onto each subagent
-// opencode creates, and the audit of what the responder answers.
+// installPermissions wires what runs on its own: the root's selector and the
+// ceiling onto each subagent opencode creates.
 func (mc *machine) installPermissions() {
-	mc.mat.OnResponder(func(sessionID string, req backend.PermissionRequest, err error) {
-		decision := string(backend.DecisionOnce)
-		if err != nil {
-			decision = "failed"
-		}
-		mc.audit.permission(sessionID, req.ID, req.Tool, decision, "responder", false)
-	})
 	rh, ok := mc.ruleHost()
 	if !ok {
 		return
 	}
 	// Whatever the process held in memory dies with it, however it ended (a
-	// crash restart as much as a tightened policy): its saved "always"
-	// approvals are gone, and so are the asks it was waiting on. Keeping either
-	// would show a person a stale list and cards that answer into nothing.
+	// crash restart as much as a tightened policy): the asks it was waiting on
+	// are gone, and a card for one would answer into nothing. A session's
+	// exceptions are not among what dies: they are galopin's own, kept in its
+	// overlay and composed into the rules again.
 	rh.OnProcessStart(func() {
-		mc.saved.clear()
 		mc.mat.WithdrawPending()
 	})
 	mc.mat.OnChild(func(dir, childID string) { go mc.giveChildTheCeiling(dir, childID) })
 }
 
-// giveChildTheCeiling applies the ceiling to a subagent session as soon as the
-// machine hears of it. It waits briefly for the parent's task call to say which
-// agent the child is (the call's input arrives a moment after the session
-// does); without that it applies denies only. Best effort by nature — a first
-// tool call can beat it — which is what the agent-level floor is for.
+// giveChildTheCeiling applies the root's selector and the ceiling to a subagent
+// session as soon as the machine hears of it, then again when the parent's task
+// call says which agent the child is (the call's input is attached to the call
+// a moment after the session exists, and on 1.18.32 that moment can be most of a
+// second). The first application uses the agent opencode names in the child's own
+// title when the backend can read it, and applies denies only when it cannot; the
+// second is the authoritative one and changes nothing when the first was right.
+// Best effort by nature — a first tool call can still beat both — which is what
+// the agent-level floor is for.
 func (mc *machine) giveChildTheCeiling(dir, childID string) {
 	rh, ok := mc.ruleHost()
 	if !ok {
 		return
 	}
+	apply := func(agent string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := rh.ApplyChildRules(ctx, dir, childID, agent); err != nil {
+			logf("permissions: could not give subagent session %s the ceiling (the agent-level floor still stands): %v", childID, err)
+		}
+	}
+	apply("")
 	agent := ""
 	for deadline := time.Now().Add(childAgentWait); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
 		if agent = mc.mat.ChildAgent(childID); agent != "" {
 			break
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := rh.ApplyChildRules(ctx, dir, childID, agent); err != nil {
-		logf("permissions: could not give subagent session %s the ceiling (the agent-level floor still stands): %v", childID, err)
+	if agent != "" {
+		apply(agent)
 	}
 }
 
 // childAgentWait is how long a new subagent waits to learn its type.
 const childAgentWait = 2 * time.Second
 
-// capDecision lowers an "always" the ceiling does not let stand. An "always"
-// is a rule opencode keeps in memory for every session in the workspace and
-// checks after all the others, so one click on a key capped below allow would
-// otherwise exceed the ceiling for all of them. tool is the ask's permission
-// key; "" (the ask is not known to the machine) is capped whenever any key is,
+// capDecision lowers an "always" the ceiling does not let stand. An "always
+// allow" becomes an exception that is composed under the ceiling's tail like
+// every other rule, so on a key capped below allow it could never take effect:
+// it is answered "once" and nothing is stored, rather than shown to a person
+// as a standing permission that does nothing. tool is the ask's permission key;
+// "" (the ask is not known to the machine) is capped whenever any key is,
 // because what the "always" would cover cannot be told.
 func (mc *machine) capDecision(tool string, d backend.Decision) (backend.Decision, bool) {
 	if d != backend.DecisionAlways {
@@ -115,69 +118,6 @@ func (mc *machine) askedRequest(sessionID, requestID string) *backend.Permission
 	return nil
 }
 
-// savedLedger is the "always" approvals this machine relayed. opencode keeps
-// its own in memory with no ids and no way to list or withdraw them (1.18.32),
-// so galopin records each one it passed on, mints an id for it, and groups it
-// by the reply that created it: one entry per reply, however many patterns
-// opencode stored for it. It is cleared when opencode restarts, which is also
-// when opencode forgets them.
-type savedLedger struct {
-	mu      sync.Mutex
-	entries []backend.SavedApproval
-}
-
-func (l *savedLedger) add(sessionID, workspaceDir, tool string, resources []string) {
-	raw := make([]byte, 6)
-	_, _ = rand.Read(raw)
-	if len(resources) == 0 {
-		resources = []string{"*"}
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.entries = append(l.entries, backend.SavedApproval{
-		ID: "sa_" + hex.EncodeToString(raw), SessionID: sessionID, Permission: tool,
-		Patterns: resources, Removable: false, WorkspaceDir: workspaceDir,
-		GrantedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-// list is every entry; inDir only the ones granted in one workspace — the
-// scope of an opencode "always", which every session of the workspace shares.
-func (l *savedLedger) list() []backend.SavedApproval {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return append([]backend.SavedApproval(nil), l.entries...)
-}
-
-func (l *savedLedger) inDir(dir string) []backend.SavedApproval {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	var out []backend.SavedApproval
-	for _, e := range l.entries {
-		if e.WorkspaceDir == dir {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-func (l *savedLedger) find(id string) (backend.SavedApproval, bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for _, e := range l.entries {
-		if e.ID == id {
-			return e, true
-		}
-	}
-	return backend.SavedApproval{}, false
-}
-
-func (l *savedLedger) clear() {
-	l.mu.Lock()
-	l.entries = nil
-	l.mu.Unlock()
-}
-
 type ruleView struct {
 	Permission string `json:"permission"`
 	Pattern    string `json:"pattern"`
@@ -190,10 +130,11 @@ type ruleView struct {
 	Source string `json:"source"`
 }
 
-// opPermissionRules answers permission.rules: the rules in force for a
-// session, each tagged with its source, and the approvals saved. A read of live
-// state; nothing here writes anything. Re-read it after session.setRules: it is
-// how a person finds out what a write came to.
+// opPermissionRules answers permission.rules: the rules in force for a session,
+// each tagged with its source, the selector's mode, and the exceptions (as
+// savedApprovals). A read of live state; nothing here writes anything. Re-read it
+// after session.setPermissionMode or an "always allow": it is how a person finds
+// out what a change came to.
 func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
 		SessionID string `json:"sessionId"`
@@ -222,33 +163,40 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 	for _, k := range ceiling.Keys() {
 		max[k] = string(ceiling.Of(k))
 	}
-	// Scoped to this session's workspace, like the approvals themselves. The
-	// list is galopin's own record: opencode has none to read (SavedApproval).
-	saved := mc.saved.inDir(dir)
-	if saved == nil {
-		saved = []backend.SavedApproval{}
-	}
-	return map[string]any{"agent": layers.Agent, "rules": rules, "savedApprovals": saved, "ceiling": max}, nil
+	return map[string]any{
+		"agent": layers.Agent, "mode": layers.Mode, "rules": rules,
+		"savedApprovals": mc.exceptionViews(rh, a.SessionID), "ceiling": max,
+	}, nil
 }
 
-// maxSetRules and maxPatternLen bound a session.setRules write.
-const (
-	maxSetRules   = 200
-	maxPatternLen = 512
-)
+// exceptionViews is the root's exceptions as permission.rules lists them. They
+// belong to the ROOT session, so a subagent's view shows its root's, under the
+// root's id.
+func (mc *machine) exceptionViews(rh backend.RuleHost, sessionID string) []backend.SavedApproval {
+	root := mc.mat.RootOf(sessionID)
+	out := []backend.SavedApproval{}
+	for _, e := range rh.Exceptions(root) {
+		out = append(out, backend.SavedApproval{
+			ID: e.ID, SessionID: root, Permission: e.Permission, Patterns: e.Patterns,
+			Removable: true, GrantedAt: e.GrantedAt,
+		})
+	}
+	return out
+}
 
-// opSessionSetRules answers session.setRules {sessionId, rules}: a person's
-// rules for one session. EVERY rule is capped to the machine's ceiling first —
-// one above its max is applied at the max, never as requested — and the capped
-// set becomes the session's "cerea" rules, composed after the machine's own and
-// before the ceiling (permrules.ComposeFor), replacing the person's earlier
-// set. Only a malformed rule or an unknown session is refused; the answer is
-// `{}`, and what was actually applied is read back with permission.rules, so a
-// clamp is never hidden behind a success. Audited without patterns.
-func (mc *machine) opSessionSetRules(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+// opSessionSetPermissionMode answers session.setPermissionMode {sessionId,
+// mode}: the Deny / Ask / Allow selector, which covers the whole session until
+// it is changed. An unknown session is `not_found`, a mode that is not one of
+// the three words `invalid`, and a subagent `invalid` too: it has no selector
+// of its own and follows its root. The change reaches the root and every
+// subagent under it, including ones already running. It applies from the
+// session's NEXT turn: opencode takes a session's rules when a turn starts, and
+// nothing here stops, cancels or withdraws a turn that is running. The answer is `{}`; read
+// the mode back from the session. Audited as permission.mode.
+func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
-		SessionID string           `json:"sessionId"`
-		Rules     []permrules.Rule `json:"rules"`
+		SessionID string `json:"sessionId"`
+		Mode      string `json:"mode"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
@@ -257,53 +205,28 @@ func (mc *machine) opSessionSetRules(ctx context.Context, args json.RawMessage) 
 	if operr != nil {
 		return nil, operr
 	}
+	mode := permrules.Action(a.Mode)
+	if !mode.Valid() {
+		return nil, opErrf("invalid", "mode must be deny, ask or allow, got %q", a.Mode)
+	}
+	if mc.mat.RootOf(a.SessionID) != a.SessionID {
+		return nil, opErrf("invalid", "a subagent follows its root: set the mode on session %s", mc.mat.RootOf(a.SessionID))
+	}
 	rh, ok := mc.ruleHost()
 	if !ok {
-		return nil, opErrf("unsupported", "this backend has no permission rules to set")
+		return nil, opErrf("unsupported", "this backend has no permission selector")
 	}
-	if len(a.Rules) > maxSetRules {
-		return nil, opErrf("invalid", "at most %d rules per write", maxSetRules)
-	}
-	for i, r := range a.Rules {
-		switch {
-		case r.Permission == "":
-			return nil, opErrf("invalid", "rule %d has no permission", i)
-		case !r.Action.Valid():
-			return nil, opErrf("invalid", "rule %d: %q is not allow, ask or deny", i, r.Action)
-		case len(r.Pattern) > maxPatternLen:
-			return nil, opErrf("invalid", "rule %d: pattern longer than %d bytes", i, maxPatternLen)
-		}
-	}
-	capped, clamped := mc.live.Layers().Ceiling.Clamp(a.Rules)
-	if err := rh.SetSessionRules(ctx, dir, a.SessionID, capped); err != nil {
+	if err := rh.SetPermissionMode(ctx, dir, a.SessionID, mode); err != nil {
 		return nil, backendErr(err)
 	}
-	mc.audit.permissionSetRules(a.SessionID, len(a.Rules), len(capped), clamped, ruleTools(capped))
+	mc.audit.permissionMode(a.SessionID, string(mode))
 	return map[string]any{}, nil
 }
 
-// ruleTools is the distinct permission keys of a set of rules, sorted — what
-// the audit may say about a write; the patterns are not it.
-func ruleTools(rs []permrules.Rule) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range rs {
-		if !seen[r.Permission] {
-			seen[r.Permission] = true
-			out = append(out, r.Permission)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // opPermissionSavedRemove answers permission.saved.remove {sessionId, id}:
-// withdraw one saved "always". It can only tighten, and on opencode 1.18.32 it
-// cannot do even that: the approvals opencode keeps in memory have no id and no
-// call removes one, so an id galopin minted for one answers `unsupported`.
-// What clears them is a restart of opencode, which a tightened ceiling causes.
-// An id the machine does not hold (or one granted in another workspace than the
-// session's) is `not_found`.
+// withdraw one exception from the session's root, after which the rules are
+// applied again to the root and every subagent under it and the command asks
+// again. An id the root does not hold is `not_found`. Audited without patterns.
 func (mc *machine) opPermissionSavedRemove(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
 		SessionID string `json:"sessionId"`
@@ -316,14 +239,48 @@ func (mc *machine) opPermissionSavedRemove(ctx context.Context, args json.RawMes
 	if operr != nil {
 		return nil, operr
 	}
-	if _, ok := mc.ruleHost(); !ok {
-		return nil, opErrf("unsupported", "this backend has no saved approvals")
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return nil, opErrf("unsupported", "this backend has no exceptions")
 	}
-	e, ok := mc.saved.find(a.ID)
-	if !ok || e.WorkspaceDir != dir {
+	found, err := rh.RemoveException(ctx, dir, mc.mat.RootOf(a.SessionID), a.ID)
+	if !found {
+		if err != nil {
+			return nil, backendErr(err)
+		}
 		return nil, notFound("saved approval")
 	}
-	return nil, opErrf("unsupported", "opencode cannot withdraw one saved approval: it keeps them in memory with no way to remove one; they are all cleared when it restarts (a tightened ceiling does that)")
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	mc.audit.permissionSavedRemove(a.SessionID, a.ID)
+	return map[string]any{}, nil
+}
+
+// newExceptionID mints an exception's id.
+func newExceptionID() string {
+	raw := make([]byte, 6)
+	_, _ = rand.Read(raw)
+	return "ex_" + hex.EncodeToString(raw)
+}
+
+// grantException records the "always allow" a person gave on an ask as an
+// exception on its ROOT session: the permission and the patterns opencode said
+// the approval would cover (its `always`, else the ask's own). The caller has
+// checked the ceiling does not cap the key.
+func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir, sessionID string, asked *backend.PermissionRequest) error {
+	patterns := asked.Always
+	if len(patterns) == 0 {
+		patterns = asked.Patterns
+	}
+	if len(patterns) == 0 {
+		patterns = []string{"*"}
+	}
+	_, err := rh.AddException(ctx, dir, mc.mat.RootOf(sessionID), permrules.Exception{
+		ID: newExceptionID(), Permission: asked.Tool, Patterns: append([]string(nil), patterns...),
+		GrantedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	return err
 }
 
 // policyTightened applies a permission policy that just got stricter: opencode

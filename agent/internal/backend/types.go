@@ -25,8 +25,11 @@ type Session struct {
 	PendingPermissions int           `json:"pendingPermissions"`
 	ModeID             string        `json:"modeId,omitempty"`
 	ModelID            string        `json:"modelId,omitempty"`
-	AutoAccept         bool          `json:"autoAccept"`
-	ParentID           string        `json:"parentId,omitempty"`
+	// PermissionMode is the session's Deny/Ask/Allow selector ("deny" | "ask" |
+	// "allow"); a subagent reports its root's. Empty when the backend has no
+	// permission rules of its own to select over.
+	PermissionMode string `json:"permissionMode,omitempty"`
+	ParentID       string `json:"parentId,omitempty"`
 	// ParentToolCallID is the parent's tool call that spawned this session
 	// (set by session.children), so the panel can anchor it in the transcript.
 	ParentToolCallID string `json:"parentToolCallId,omitempty"`

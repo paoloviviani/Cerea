@@ -139,7 +139,7 @@ func (s *sessionState) toSession(backendID string) backend.Session {
 	return backend.Session{
 		ID: s.id, Backend: backendID, Title: s.title, Status: s.status,
 		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID,
-		AutoAccept: true, CreatedAt: s.createdAt, UpdatedAt: s.updatedAt,
+		CreatedAt: s.createdAt, UpdatedAt: s.updatedAt,
 	}
 }
 

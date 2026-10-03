@@ -62,11 +62,25 @@ var subagents = map[string]bool{"general": true, "explore": true}
 // {"permission": {...}, "agent": {name: {"permission": {...}}}}.
 func (c Ceiling) Floor() map[string]any { return floorFor(c, c) }
 
+// subagentAsk is what the floor holds a subagent to before its session has its
+// root's selector: the blanket's own names ask. A subagent starts its first tool
+// call as soon as opencode creates it, and the selector's rules land a moment
+// later (the root's mode, which is Ask unless a person said otherwise), so a
+// default that allowed would let the first call through on every machine,
+// ceiling or none. Asking here is the safe side of that window; the session's own
+// rules, which sit above config, then say what the root's mode really is.
+var subagentAsk = Ceiling{Max: map[string]Action{
+	"edit": Ask, "bash": Ask, "webfetch": Ask, "websearch": Ask, "codesearch": Ask, "task": Ask,
+}}
+
 // Floor is the floor for these layers: the ceiling for every built-in agent,
 // and for the subagents also the machine's own ask/deny rules, restated as caps
-// the way ChildCeiling does — a subagent's first tool call can beat the rules
-// galopin applies to its session, and this is what holds that window.
-func (l Layers) Floor() map[string]any { return floorFor(l.Ceiling, l.ChildCeiling()) }
+// the way ChildCeiling does, and the blanket's names asking by default
+// (subagentAsk) — a subagent's first tool call can beat the rules galopin
+// applies to its session, and this is what holds that window.
+func (l Layers) Floor() map[string]any {
+	return floorFor(l.Ceiling, l.ChildCeiling().Meet(subagentAsk))
+}
 
 // FloorRules is the floor for agent as rules.
 func (l Layers) FloorRules(agent string) []Rule { return floorRules(l.Floor(), agent) }

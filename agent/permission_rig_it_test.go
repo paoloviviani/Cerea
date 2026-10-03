@@ -44,6 +44,13 @@ type permRig struct {
 	live      *policy.Live
 	policyArg string
 	seq       int
+	// bypass makes the rig prompt opencode directly, skipping galopin's own
+	// composing of rules before a prompt (Backend.Prompt applies them to every
+	// session, raw ones included): the upgrade canaries are about opencode alone
+	// and must see only the rules they set. agents are the agent a bypassed
+	// session runs (the backend's overlay is what carries it otherwise).
+	bypass bool
+	agents map[string]string
 }
 
 type permRigOpts struct {
@@ -98,9 +105,6 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	}
 	pol := policy.Default()
 	pol.Permission = o.perm
-	if pol.Permission.Responders == "" {
-		pol.Permission.Responders = policy.TerminalDenied
-	}
 	r.policyArg = filepath.Join(r.stateDir, policyFileName)
 	if err := policy.Save(r.policyArg, pol); err != nil {
 		t.Fatal(err)
@@ -187,12 +191,22 @@ func (r *permRig) writeTool(name string) map[string]any {
 // (pending, returned), or the tool finishing (part returned). Exactly one is non-nil.
 func (r *permRig) try(s backend.Session, name string) (*backend.PermissionRequest, *backend.Part, int) {
 	r.t.Helper()
-	r.script(map[string]any{"toolCalls": []map[string]any{r.writeTool(name)}})
+	return r.tryCall(s, "write", map[string]any{"filePath": filepath.Join(r.work, name), "content": "x"})
+}
+
+// tryCall is try for any one tool call: it scripts the model to make the call
+// and waits for an ask or for the tool to finish (or to land on opencode's
+// "invalid" tool, which is where a tool a deny withdrew ends up).
+func (r *permRig) tryCall(s backend.Session, tool string, args map[string]any) (*backend.PermissionRequest, *backend.Part, int) {
+	r.t.Helper()
+	r.script(map[string]any{"toolCalls": []map[string]any{{
+		"id": fmt.Sprintf("call_t%d", r.next()), "name": tool, "arguments": mustJSON2(args),
+	}}})
 	mark := r.hub.mark()
-	if err := r.oc.Prompt(r.ctx, r.work, s.ID, backend.Prompt{Text: "write " + name}); err != nil {
+	if err := r.promptSession(s, "use "+tool); err != nil {
 		r.t.Fatalf("prompt: %v", err)
 	}
-	env := r.hub.wait(r.t, mark, 60*time.Second, "an ask or the write to finish", func(e sessions.Envelope) bool {
+	env := r.hub.wait(r.t, mark, 60*time.Second, "an ask or the "+tool+" call to finish", func(e sessions.Envelope) bool {
 		if e.SessionID != s.ID {
 			return false
 		}
@@ -200,13 +214,27 @@ func (r *permRig) try(s backend.Session, name string) (*backend.PermissionReques
 			return true
 		}
 		p := e.Event.Part
-		return e.Event.Kind == backend.EventPart && p != nil && (p.Tool == "write" || p.Tool == "invalid") &&
+		return e.Event.Kind == backend.EventPart && p != nil && (p.Tool == tool || p.Tool == "invalid") &&
 			(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
 	})
 	if env.Event.Kind == backend.EventPermissionAsked {
 		return env.Event.Request, nil, mark
 	}
 	return nil, env.Event.Part, mark
+}
+
+// promptSession sends a prompt the way the machine does, or straight to opencode
+// when the rig bypasses galopin (see bypass).
+func (r *permRig) promptSession(s backend.Session, text string) error {
+	if !r.bypass {
+		return r.oc.Prompt(r.ctx, r.work, s.ID, backend.Prompt{Text: text})
+	}
+	body := map[string]any{"parts": []map[string]any{{"type": "text", "text": text}}}
+	if a := r.agents[s.ID]; a != "" {
+		body["agent"] = a
+	}
+	r.raw(http.MethodPost, "/session/"+s.ID+"/prompt_async?directory="+r.work, body)
+	return nil
 }
 
 // reply answers through the real permission.reply op (so the ceiling's cap on
@@ -240,9 +268,60 @@ func (r *permRig) idle(s backend.Session, mark int) {
 	})
 }
 
-// saved is the "always" approvals the machine relayed (its own record: opencode
-// keeps its in memory, with no way to read it).
-func (r *permRig) saved() []backend.SavedApproval { return r.mc.saved.list() }
+// rulesView is permission.rules as the panel reads it.
+type rulesView struct {
+	Agent string `json:"agent"`
+	Mode  string `json:"mode"`
+	Rules []struct {
+		Permission string `json:"permission"`
+		Pattern    string `json:"pattern"`
+		Action     string `json:"action"`
+		Source     string `json:"source"`
+	} `json:"rules"`
+	SavedApprovals []backend.SavedApproval `json:"savedApprovals"`
+	Ceiling        map[string]string       `json:"ceiling"`
+}
+
+// reread is what the panel does after a change: ask the machine what is true.
+func (r *permRig) reread(s backend.Session) rulesView {
+	r.t.Helper()
+	raw, _ := json.Marshal(map[string]any{"sessionId": s.ID})
+	res, operr := r.mc.Handle(r.ctx, "permission.rules", raw)
+	if operr != nil {
+		r.t.Fatalf("permission.rules: %+v", operr)
+	}
+	body, _ := json.Marshal(res)
+	var v rulesView
+	if err := json.Unmarshal(body, &v); err != nil {
+		r.t.Fatal(err)
+	}
+	return v
+}
+
+// exceptions is the session's root's exceptions as the panel lists them.
+func (r *permRig) exceptions(s backend.Session) []backend.SavedApproval {
+	return r.reread(s).SavedApprovals
+}
+
+// setMode goes through the real session.setPermissionMode op.
+func (r *permRig) setMode(s backend.Session, mode string) {
+	r.t.Helper()
+	raw, _ := json.Marshal(map[string]any{"sessionId": s.ID, "mode": mode})
+	if res, operr := r.mc.Handle(r.ctx, "session.setPermissionMode", raw); operr != nil {
+		r.t.Fatalf("session.setPermissionMode %s: %+v", mode, operr)
+	} else if m, ok := res.(map[string]any); !ok || len(m) != 0 {
+		r.t.Fatalf("session.setPermissionMode answered %v, want {}", res)
+	}
+}
+
+// removeException goes through the real permission.saved.remove op.
+func (r *permRig) removeException(s backend.Session, id string) {
+	r.t.Helper()
+	raw, _ := json.Marshal(map[string]any{"sessionId": s.ID, "id": id})
+	if _, operr := r.mc.Handle(r.ctx, "permission.saved.remove", raw); operr != nil {
+		r.t.Fatalf("permission.saved.remove: %+v", operr)
+	}
+}
 
 // raw talks to opencode directly (for the canaries, which must set rules
 // galopin would never compose).
@@ -315,6 +394,12 @@ func (r *permRig) asks(mark int, s backend.Session) []backend.PermissionRequest 
 // own prompt (recognised by its marker) makes the write call.
 func (r *permRig) taskScript(marker, file string) {
 	r.t.Helper()
+	r.taskScriptCall(marker, r.writeTool(file))
+}
+
+// taskScriptCall is taskScript for any one tool call by the child.
+func (r *permRig) taskScriptCall(marker string, call map[string]any) {
+	r.t.Helper()
 	r.script(map[string]any{
 		"toolCalls": []map[string]any{{
 			"id": fmt.Sprintf("call_task%d", r.next()), "name": "task",
@@ -323,7 +408,7 @@ func (r *permRig) taskScript(marker, file string) {
 		"routes": []map[string]any{{
 			"contains": marker,
 			"scenario": map[string]any{
-				"toolCalls":    []map[string]any{r.writeTool(file)},
+				"toolCalls":    []map[string]any{call},
 				"content":      []string{"child done"},
 				"chunkDelayMs": 5, "finishReason": "stop",
 			},
@@ -335,9 +420,30 @@ func (r *permRig) taskScript(marker, file string) {
 // session id once it exists.
 func (r *permRig) delegate(parent backend.Session, marker, file string) (child string, mark int) {
 	r.t.Helper()
-	r.taskScript(marker, file)
+	return r.delegateCall(parent, marker, r.writeTool(file))
+}
+
+// delegateCall is delegate for any one tool call by the child.
+func (r *permRig) delegateCall(parent backend.Session, marker string, call map[string]any) (child string, mark int) {
+	r.t.Helper()
+	r.taskScriptCall(marker, call)
+	return r.startDelegation(parent)
+}
+
+// startDelegation prompts the parent to run the scripted task and waits for the
+// child's session.
+func (r *permRig) startDelegation(parent backend.Session) (child string, mark int) {
+	r.t.Helper()
+	// The task call is itself a tool the blanket moves: under Ask it asks. The
+	// tests are about the child's write, so the delegation is allowed once.
+	r.hub.setApprove(func(req *backend.PermissionRequest) string {
+		if req.Tool == "task" {
+			return "once"
+		}
+		return ""
+	})
 	mark = r.hub.mark()
-	if err := r.oc.Prompt(r.ctx, r.work, parent.ID, backend.Prompt{Text: "delegate"}); err != nil {
+	if err := r.promptSession(parent, "delegate"); err != nil {
 		r.t.Fatalf("prompt: %v", err)
 	}
 	env := r.hub.wait(r.t, mark, 60*time.Second, "the subagent session", func(e sessions.Envelope) bool {
@@ -350,6 +456,12 @@ func (r *permRig) delegate(parent backend.Session, marker, file string) (child s
 // tool finishing.
 func (r *permRig) childOutcome(child string, mark int) (*backend.PermissionRequest, *backend.Part) {
 	r.t.Helper()
+	return r.childOutcomeOf("write", child, mark)
+}
+
+// childOutcomeOf is childOutcome for the named tool.
+func (r *permRig) childOutcomeOf(tool, child string, mark int) (*backend.PermissionRequest, *backend.Part) {
+	r.t.Helper()
 	env := r.hub.wait(r.t, mark, 60*time.Second, "the subagent's ask or write", func(e sessions.Envelope) bool {
 		if e.SessionID != child {
 			return false
@@ -358,7 +470,7 @@ func (r *permRig) childOutcome(child string, mark int) (*backend.PermissionReque
 			return true
 		}
 		p := e.Event.Part
-		return e.Event.Kind == backend.EventPart && p != nil && (p.Tool == "write" || p.Tool == "invalid") &&
+		return e.Event.Kind == backend.EventPart && p != nil && (p.Tool == tool || p.Tool == "invalid") &&
 			(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
 	})
 	if env.Event.Kind == backend.EventPermissionAsked {

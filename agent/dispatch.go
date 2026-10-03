@@ -31,9 +31,7 @@ type machine struct {
 	pol        policy.Policy
 	// live is the permission part of the policy as it stands now (it can only
 	// tighten while the agent runs); the materializer reads the same one.
-	live *policy.Live
-	// saved is the "always" approvals this machine relayed (permissions.go).
-	saved     savedLedger
+	live      *policy.Live
 	files     *files.Service
 	terminals *terminal.Manager
 
@@ -148,14 +146,14 @@ func (mc *machine) resolveSession(sessionID string) (dir, workspaceID string, op
 
 // enrich fills in the fields only this process's own state can supply — a
 // Backend has no notion of workspace registry ids, pending permissions or
-// auto-accept. A single-session enrichment; a listing enriches many
+// the permission selector. A single-session enrichment; a listing enriches many
 // sessions at once through enrichAll instead, which shares one
 // ChildSummaries pass across all of them rather than paying its O(tracked
 // sessions) cost per session.
 func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session {
 	s.WorkspaceID = workspaceID
 	s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
-	s.AutoAccept = mc.mat.AutoAccept(s.ID)
+	s.PermissionMode = mc.permissionMode(s.ID)
 	s.RootID = mc.mat.RootOf(s.ID)
 	s.ChildSummary = mc.mat.ChildSummary(s.ID)
 	if status, ok := mc.mat.Status(s.ID); ok && status != "" {
@@ -174,7 +172,7 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 	for i, s := range sessions {
 		s.WorkspaceID = workspaceIDs[i]
 		s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
-		s.AutoAccept = mc.mat.AutoAccept(s.ID)
+		s.PermissionMode = mc.permissionMode(s.ID)
 		s.RootID = mc.mat.RootOf(s.ID)
 		s.ChildSummary = summaries[s.ID]
 		if status, ok := mc.mat.Status(s.ID); ok && status != "" {
@@ -225,8 +223,10 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionSetModel(ctx, args)
 	case "session.setEffort":
 		return mc.opSessionSetEffort(ctx, args)
-	case "session.setAutoAccept":
-		return mc.opSessionSetAutoAccept(args)
+	case "session.setAutoAccept", "session.setRules":
+		// Retired for one release (the Deny / Ask / Allow selector replaced both),
+		// then deleted.
+		return nil, opErrf("unsupported", "%s is retired: use session.setPermissionMode (PROTOCOL.md §6 \"Permissions\")", op)
 	case "session.sync":
 		return mc.opSessionSync(ctx, args)
 	case "session.diff":
@@ -246,8 +246,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opPermissionReply(ctx, args)
 	case "permission.rules":
 		return mc.opPermissionRules(ctx, args)
-	case "session.setRules":
-		return mc.opSessionSetRules(ctx, args)
+	case "session.setPermissionMode":
+		return mc.opSessionSetPermissionMode(ctx, args)
 	case "permission.saved.remove":
 		return mc.opPermissionSavedRemove(ctx, args)
 
@@ -652,29 +652,14 @@ func (mc *machine) opSessionSetEffort(ctx context.Context, args json.RawMessage)
 	return map[string]any{"session": mc.enrich(s, workspaceID)}, nil
 }
 
-func (mc *machine) opSessionSetAutoAccept(args json.RawMessage) (any, *link.OpError) {
-	var a struct {
-		SessionID string `json:"sessionId"`
-		Enabled   bool   `json:"enabled"`
+// permissionMode is the selector's word for a session ("" when the backend has
+// no permission rules to select over).
+func (mc *machine) permissionMode(sessionID string) string {
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return ""
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
-		return nil, invalidArgs(err)
-	}
-	if err := mc.mat.SetAutoAccept(a.SessionID, a.Enabled); err != nil {
-		if err == sessions.ErrAutoAcceptForbidden {
-			mc.audit.refusal("session.setAutoAccept", "this machine lets no session auto-accept")
-			return nil, opErrf("forbidden", "%v", err)
-		}
-		return nil, notFound("session")
-	}
-	mc.audit.autoAccept(a.SessionID, a.Enabled)
-	_, workspaceID, operr := mc.resolveSession(a.SessionID)
-	if operr != nil {
-		return nil, operr
-	}
-	return map[string]any{"session": map[string]any{
-		"id": a.SessionID, "workspaceId": workspaceID, "autoAccept": mc.mat.AutoAccept(a.SessionID),
-	}}, nil
+	return string(rh.PermissionMode(sessionID))
 }
 
 func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
@@ -923,28 +908,36 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if operr != nil {
 		return nil, operr
 	}
-	// One answer path for opencode's asks and galopin's own (gp_). An "always"
-	// the ceiling does not let stand goes out as "once".
+	// One answer path for opencode's asks and galopin's own (gp_).
 	asked := mc.askedRequest(a.SessionID, a.RequestID)
 	tool := ""
 	if asked != nil {
 		tool = asked.Tool
 	}
 	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
-	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, decision, a.Message); err != nil {
+	// "Always allow" is an exception galopin keeps on the root session, not an
+	// approval opencode keeps for the workspace: opencode is answered "once",
+	// always, so its invisible workspace-wide store is never filled. galopin's
+	// own gp_ asks are never "always" (the backend reads one as once), and a
+	// key the ceiling caps stores nothing (capDecision has already said once).
+	// The exception is in force BEFORE the answer goes out, so the call that
+	// follows the approved one is not asked again by a race.
+	sent, audited := decision, decision
+	if rh, ok := mc.ruleHost(); ok && decision == backend.DecisionAlways && !strings.HasPrefix(a.RequestID, "gp_") {
+		sent = backend.DecisionOnce
+		if asked != nil {
+			if err := mc.grantException(ctx, rh, dir, a.SessionID, asked); err != nil {
+				logf("permissions: could not record the exception for %s (this one is allowed once): %v", asked.Tool, err)
+				audited = backend.DecisionOnce
+			}
+		} else {
+			audited = backend.DecisionOnce
+		}
+	}
+	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, sent, a.Message); err != nil {
 		return nil, backendErr(err)
 	}
-	mc.audit.permission(a.SessionID, a.RequestID, tool, string(decision), "user", capped)
-	// An "always" opencode accepted is remembered by opencode, in memory and
-	// without an id; the machine keeps its own record of it so the panel can
-	// show what is standing (galopin's own gp_ asks never are: always is once).
-	if decision == backend.DecisionAlways && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") {
-		patterns := asked.Always
-		if len(patterns) == 0 {
-			patterns = asked.Patterns
-		}
-		mc.saved.add(a.SessionID, dir, tool, patterns)
-	}
+	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped)
 	return map[string]any{}, nil
 }
 

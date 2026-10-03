@@ -20,12 +20,13 @@ func TestHelloSendsEmptyWorkspaceRootsNotNull(t *testing.T) {
 	}
 }
 
-// The permission policy rides in the hello so the panel can explain a capped
-// "always" or a missing toggle; the old autoAccept word stays as a mirror of
-// responders (Cerea's hello schema still requires it).
+// The permission policy rides in the hello so the panel can say what a session's
+// Allow still cannot do. The old autoAccept word stays as the constant "denied"
+// for one more release (Cerea's hello schema still requires it) and there is no
+// responders field any more.
 func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	pol := policy.Default()
-	pol.Permission = policy.Permission{Responders: policy.TerminalAllowed, Max: map[string]string{"bash": "ask"}}
+	pol.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}}
 	body, err := json.Marshal(buildHello(newE2EFakeBackend(), pol))
 	if err != nil {
 		t.Fatal(err)
@@ -34,16 +35,18 @@ func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 		Policy struct {
 			AutoAccept string `json:"autoAccept"`
 			Permission struct {
-				Responders string            `json:"responders"`
-				Max        map[string]string `json:"max"`
+				Max map[string]string `json:"max"`
 			} `json:"permission"`
 		} `json:"policy"`
 	}
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Policy.AutoAccept != "allowed" || got.Policy.Permission.Responders != "allowed" || got.Policy.Permission.Max["bash"] != "ask" {
+	if got.Policy.AutoAccept != "denied" || got.Policy.Permission.Max["bash"] != "ask" {
 		t.Errorf("hello policy = %s", body)
+	}
+	if strings.Contains(string(body), "responders") {
+		t.Errorf("hello still names responders: %s", body)
 	}
 	// And a default policy still sends the strings and an object, never null.
 	body, _ = json.Marshal(buildHello(newE2EFakeBackend(), policy.Default()))
