@@ -352,7 +352,8 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 	return b.setOverlay(sessionID, ov)
 }
 
-// denyNote rides on every prompt of a session on Deny, as a synthetic part.
+// denyNote rides on every prompt of a session on Deny, as the turn's extra
+// system prompt (prompt_async's `system` field).
 // opencode does not refuse a tool whose every pattern is denied: it removes
 // the tool from the model's tool list. A model asked to curl a site then has
 // no bash, is not told why, and reaches for what is left (list, read), then

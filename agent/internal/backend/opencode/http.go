@@ -212,10 +212,7 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID str
 	if err := b.ensureRules(ctx, workspaceDir, sessionID, b.agentFor(sessionID)); err != nil {
 		return err
 	}
-	parts := make([]map[string]any, 0, 3+len(prompt.Attachments))
-	if b.cfg.Permissions != nil && b.PermissionMode(sessionID) == permrules.Deny {
-		parts = append(parts, map[string]any{"type": "text", "text": denyNote, "synthetic": true})
-	}
+	parts := make([]map[string]any, 0, 2+len(prompt.Attachments))
 	if prompt.Preface != "" {
 		// A synthetic part: the model reads it, the transcript never shows it
 		// as the person's text (PROTOCOL.md §7).
@@ -241,6 +238,13 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID str
 	// to map from). The fake-server test pins both halves.
 	messageID := mintMessageID()
 	body := map[string]any{"parts": parts, "messageID": messageID}
+	if b.cfg.Permissions != nil && b.PermissionMode(sessionID) == permrules.Deny {
+		// prompt_async's `system` is appended to the system prompt for this
+		// turn: an instruction, not something the person said, so a model
+		// follows it instead of thinking aloud about it in its answer (which
+		// it did when this rode as a synthetic part of the user message).
+		body["system"] = denyNote
+	}
 	ov := b.getOverlay(sessionID)
 	if ov.ModeID != "" {
 		body["agent"] = ov.ModeID
