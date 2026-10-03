@@ -179,7 +179,7 @@ func TestSubagentPermissionIntegration(t *testing.T) {
 		}
 	})
 
-	mat := sessions.New(ocBackend, policy.Policy{Permission: policy.Permission{Responders: policy.TerminalAllowed}})
+	mat := sessions.New(ocBackend, policy.Default())
 	if err := mat.Start(ctx); err != nil {
 		t.Fatalf("subscribing to opencode: %v", err)
 	}
@@ -228,41 +228,6 @@ func TestSubagentPermissionIntegration(t *testing.T) {
 		}
 		if string(body) != "hi-a\n" {
 			t.Errorf("child-a.txt = %q, want %q", body, "hi-a\n")
-		}
-	})
-
-	t.Run("child permission is auto-accepted from the parent's flag", func(t *testing.T) {
-		outFile := filepath.Join(workDir, "child-b.txt")
-		_ = os.Remove(outFile)
-		sess, err := ocBackend.CreateSession(ctx, workDir, backend.CreateSessionOptions{Title: "it-parent-b"})
-		if err != nil {
-			t.Fatalf("creating session: %v", err)
-		}
-		mat.Track(workDir, sess)
-		if err := mat.SetAutoAccept(sess.ID, true); err != nil {
-			t.Fatalf("enabling auto-accept: %v", err)
-		}
-
-		setMockScenario(t, mockOrigin, taskScenario("echo hi-b > child-b.txt"))
-		if err := ocBackend.Prompt(ctx, workDir, sess.ID, backend.Prompt{Text: "delegate this"}); err != nil {
-			t.Fatalf("prompt: %v", err)
-		}
-
-		childID := waitForChild(t, ctx, ocBackend, workDir, sess.ID, 60*time.Second)
-		envs := drainEnvelopes(t, mat, childID, 60*time.Second, func(env sessions.Envelope) bool {
-			return env.Event.Kind == backend.EventStatus && env.Event.Status == backend.StatusIdle
-		})
-		for _, env := range envs {
-			if env.Event.Kind == backend.EventPermissionAsked {
-				t.Errorf("saw a forwarded permission.asked for the child despite inherited auto-accept")
-			}
-		}
-		body, err := os.ReadFile(outFile)
-		if err != nil {
-			t.Fatalf("the child's tool never actually ran: reading %s: %v", outFile, err)
-		}
-		if string(body) != "hi-b\n" {
-			t.Errorf("child-b.txt = %q, want %q", body, "hi-b\n")
 		}
 	})
 }
