@@ -20,6 +20,11 @@ export interface FirstTurnSubagent {
 	/** The subagent that is asking, when the card cannot read that off the ask
 	 * itself (the inbox's cards carry no child id). */
 	childId?: string;
+	/** The ROOT session's permission mode, when the surface showing the card
+	 * knows it. The chip draws only on "allow": under Ask everything asks
+	 * anyway, so the chip would be noise. Absent means unknown, and unknown
+	 * draws nothing. */
+	rootMode?: string | null;
 	/** Start reading the child's transcript for this ask, once. */
 	ensure(childId: string, askId: string): void;
 	/** Whether that ask is known to be from the subagent's first turn. */
@@ -40,3 +45,26 @@ export function userTurns(updates: AgentStreamUpdate[]): number {
 export function isFirstTurn(updates: AgentStreamUpdate[]): boolean {
 	return userTurns(updates) <= 1;
 }
+
+/**
+ * Permission keys that ask under every setting, Allow included — so a chip
+ * saying "first turn asks" would wrongly suggest the ask stops afterwards:
+ * writing outside the project folder, the stuck-agent brake, reading `.env`,
+ * and the read-only tools that never reach a card through the blanket
+ * (they ask, if at all, by their own rule).
+ */
+export const ALWAYS_ASKS_KEYS = new Set([
+	"read",
+	"glob",
+	"grep",
+	"list",
+	"lsp",
+	"question",
+	"todowrite",
+	"todoread",
+	"plan_enter",
+	"plan_exit",
+	"skill",
+	"external_directory",
+	"doom_loop",
+]);

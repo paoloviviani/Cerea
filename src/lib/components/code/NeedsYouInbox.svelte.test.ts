@@ -22,6 +22,10 @@ const fake = vi.hoisted(() => ({
 	streamGate: null as null | (() => void),
 	/** Each subagent's own transcript, by session id (MOCK of the timeline route). */
 	timelines: {} as Record<string, unknown[]>,
+	/** Root modes by session id (MOCK of the agent snapshot read); absent means allow. */
+	rootModes: {} as Record<string, string>,
+	/** When true the snapshot read fails, so the mode is unknown. */
+	failAgent: false,
 }));
 
 vi.mock("$env/dynamic/public", () => ({
@@ -44,6 +48,10 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	respondQuestion: async (...args: unknown[]) => {
 		fake.questionCalls.push(args);
 		return { ok: true };
+	},
+	getAgent: async (_device: string, agent: string) => {
+		if (fake.failAgent) throw new Error("no snapshot");
+		return { agent: { permissionMode: fake.rootModes[agent] ?? "allow" } };
 	},
 }));
 
@@ -111,6 +119,8 @@ beforeEach(() => {
 	fake.streamFrames = {};
 	fake.streamGate = null;
 	fake.timelines = {};
+	fake.rootModes = {};
+	fake.failAgent = false;
 	codeDeviceList.devices = [];
 	codeDeviceList.loading = false;
 	document.body.innerHTML = "";
@@ -300,6 +310,38 @@ describe("NeedsYouInbox a new subagent's first turn", () => {
 			d1: { permissions: [permission("root-1", "perm-1", { rootId: "root-1" })], questions: [] },
 		};
 		fake.timelines = { "root-1": [{ type: "user", text: "start" }] };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+
+	it("does not name it when the root is not on Allow", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+		fake.rootModes = { "root-1": "ask" };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+
+	it("does not name it when the root mode cannot be read", async () => {
+		fake.pendingByDevice = {
+			d1: {
+				permissions: [permission("child-1", "perm-1", { rootId: "root-1" })],
+				questions: [],
+			},
+		};
+		fake.timelines = { "child-1": [{ type: "user", text: "look around" }] };
+		fake.failAgent = true;
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
 		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();

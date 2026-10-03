@@ -9,6 +9,7 @@
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 	import {
+		ALWAYS_ASKS_KEYS,
 		FIRST_TURN_HINT,
 		FIRST_TURN_LABEL,
 		FIRST_TURN_SUBAGENT,
@@ -156,7 +157,17 @@
 		if (askingChild && open) firstTurn?.ensure(askingChild, request.elicitationId);
 	});
 	const firstTurnChip = $derived(
-		askingChild !== undefined && firstTurn?.isFirst(askingChild, request.elicitationId) === true
+		askingChild !== undefined &&
+			firstTurn?.isFirst(askingChild, request.elicitationId) === true &&
+			// The chip explains a surprise, so it draws only where one
+			// exists: the root on Allow (under Ask everything asks anyway),
+			// a key the ceiling leaves alone (a capped key asks every turn,
+			// and the machine-limit wording already explains it), and never
+			// a key that asks under every setting. Unknown root mode draws
+			// nothing rather than guessing.
+			firstTurn?.rootMode === "allow" &&
+			!(alwaysCapped?.(toolApproval?.tool ?? "") ?? false) &&
+			(toolApproval?.tool === undefined || !ALWAYS_ASKS_KEYS.has(toolApproval.tool))
 	);
 	const capped = $derived(
 		onanswer !== undefined && toolApproval ? (alwaysCapped?.(toolApproval.tool) ?? false) : false
