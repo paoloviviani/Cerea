@@ -154,9 +154,16 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	// text, or the client loops forever.
 	// Only results after the latest user message count: an earlier turn's
 	// tool call must not stop a later prompt from making its own.
+	// opencode's provider SDK carries a tool's image (a `read` of a PNG) back
+	// to the model as a synthetic `user` message right after the tool
+	// message. That is not a prompt: counting it as the latest one would hide
+	// the tool result, and the client would loop forever. A real prompt can
+	// also follow a tool message (a turn that ended on a rejected ask), so
+	// only the synthetic message's own marker text is skipped.
 	lastUser := -1
 	for i, m := range req.Messages {
-		if m["role"] == "user" {
+		if m["role"] == "user" && !(i > 0 && req.Messages[i-1]["role"] == "tool" &&
+			strings.HasPrefix(contentText(m["content"]), "Attached media from tool result:")) {
 			lastUser = i
 		}
 	}

@@ -25,12 +25,13 @@ export { quoteShellArg };
  * when a deployment overrides it. */
 export const DEFAULT_CODE_CLIENT_ID = "opencode-enrollment";
 
-/** The opencode release galopin is built and tested against: the backend
- * reports it in its hello (`agent/internal/backend/opencode/opencode.go`,
- * `Version()`), and its live integration tests pin it. The install line asks
- * opencode's installer for exactly this release rather than the newest, which
- * may change a wire galopin depends on. `codeEnrollCommand.spec.ts` fails if
- * the two drift apart. */
+/** The opencode release galopin is built and tested against. The source of
+ * truth is `agent/packaging/opencode-version`: the Go backend embeds it and
+ * reports it in its hello, and CI installs it for the live integration tests.
+ * The install line asks opencode's installer for exactly this release rather
+ * than the newest, which may change a wire galopin depends on.
+ * `codeEnrollCommand.spec.ts` fails if this drifts from the file; change both
+ * with `agent/packaging/bump-opencode.sh <version>`. */
 export const OPENCODE_VERSION = "1.18.32";
 
 export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
