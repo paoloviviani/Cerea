@@ -753,9 +753,12 @@ in `agent/`.
 ## Installing on a machine (Linux or macOS)
 
 **Prerequisite:** `opencode` on the PATH, at the release galopin is tested
-against: `npm i -g opencode-ai@1.18.32`, or
+against (currently 1.18.32; the one place it is written is
+`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.18.32`, or
 `curl -fsSL https://opencode.ai/install | bash -s -- --version 1.18.32`. A newer
-opencode usually works, but it can change something galopin relies on. `galopin run` supervises
+opencode usually works, but it can change something galopin relies on; a daily
+CI job runs galopin's real-opencode suite against each new release
+(`agent/README.md`, "opencode releases"). `galopin run` supervises
 `opencode serve`, and it is the only runtime dependency. opencode is a
 separate open-source project (MIT licence) installed from its own
 installer; Cerea does not redistribute it and is not affiliated with it.

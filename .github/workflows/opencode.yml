@@ -1,0 +1,194 @@
+# galopin against real opencode releases.
+#
+#   pinned  the release agent/packaging/opencode-version names, with the WHOLE
+#           real-opencode suite (every IT in agent/, permission tests and
+#           upgrade canaries included). Runs on a push to main that touches
+#           agent/, weekly, and on demand.
+#   latest  opencode's newest release (or `version`, on demand), same suite,
+#           daily. Skipped when it is the pin, or when that version already
+#           passed against this agent code (a cache entry remembers the green).
+#           Opens or updates ONE issue: "breaks galopin" on a failure, "ready
+#           to bump the pin" on a pass. Bumping: agent/README.md, "opencode
+#           releases".
+#
+# Free-plan minutes: one Linux runner per job, 30 minute cap, no matrix, and
+# the daily job does nothing on a version it has already seen pass.
+name: opencode
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - ".github/workflows/opencode.yml"
+      - ".github/actions/opencode-suite/**"
+      - ".github/scripts/gotest_report.py"
+  schedule:
+    - cron: "17 4 * * 1" # weekly: pinned
+    - cron: "43 5 * * *" # daily: latest
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "opencode release for the `latest` job (default: npm's latest)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  pinned:
+    # the daily schedule is the `latest` job's
+    if: github.event_name != 'schedule' || github.event.schedule == '17 4 * * 1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - id: pin
+        run: echo "version=$(cat agent/packaging/opencode-version)" >> "$GITHUB_OUTPUT"
+      - id: suite
+        uses: ./.github/actions/opencode-suite
+        with:
+          version: ${{ steps.pin.outputs.version }}
+      - name: Fail the job if the suite did not pass
+        if: always() && steps.suite.outputs.ok != 'true'
+        run: exit 1
+
+  latest:
+    # not on a push (the pinned job's), only the daily schedule among schedules
+    if: github.event_name != 'push' && (github.event_name != 'schedule' || github.event.schedule == '43 5 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the version under test
+        id: v
+        run: |
+          pinned=$(cat agent/packaging/opencode-version)
+          version=${REQUESTED:-$(npm view opencode-ai version)}
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release number: '$version'"; exit 1; }
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "opencode under test: $version (pinned: $pinned)"
+
+      - name: Skip the pinned release
+        if: steps.v.outputs.version == steps.v.outputs.pinned
+        run: |
+          echo "### latest: opencode ${{ steps.v.outputs.version }} is the pinned release" >> "$GITHUB_STEP_SUMMARY"
+          echo "Nothing to test here: the \`pinned\` job covers it." >> "$GITHUB_STEP_SUMMARY"
+
+      # A green result is remembered per opencode release AND per agent/ tree,
+      # so a version that passed is not re-run daily, but galopin changes
+      # invalidate it. Entries are immutable: saved only after a pass.
+      - name: Was this release already green?
+        id: seen
+        if: steps.v.outputs.version != steps.v.outputs.pinned
+        uses: actions/cache/restore@v4
+        with:
+          path: .opencode-green
+          key: opencode-green-${{ steps.v.outputs.version }}-${{ hashFiles('agent/**') }}
+
+      - name: Already green
+        if: steps.seen.outputs.cache-hit == 'true'
+        run: |
+          {
+            echo "### latest: opencode ${{ steps.v.outputs.version }}: skipped, already green"
+            echo "This release passed the full suite against this agent code earlier (cache hit); not re-run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - id: suite
+        if: steps.v.outputs.version != steps.v.outputs.pinned && steps.seen.outputs.cache-hit != 'true'
+        uses: ./.github/actions/opencode-suite
+        with:
+          version: ${{ steps.v.outputs.version }}
+
+      - name: Remember the green
+        if: steps.suite.outputs.ok == 'true'
+        run: echo "${{ steps.v.outputs.version }}" > .opencode-green
+      - if: steps.suite.outputs.ok == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .opencode-green
+          key: opencode-green-${{ steps.v.outputs.version }}-${{ hashFiles('agent/**') }}
+
+      - name: Open or update the issue
+        if: always() && steps.suite.outcome != 'skipped'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          PINNED: ${{ steps.v.outputs.pinned }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OK: ${{ steps.suite.outputs.ok }}
+        run: |
+          dir="$RUNNER_TEMP/opencode-suite"
+          [ -f "$dir/result.json" ] || { echo "no result.json: nothing to report"; exit 0; }
+          gh label create opencode-pipeline --color 0E8A16 \
+            --description "opencode release pipeline (.github/workflows/opencode.yml)" 2>/dev/null || true
+
+          # one open issue per exact title; edit it, never pile up duplicates
+          upsert() { # title bodyfile
+            n=$(gh issue list --label opencode-pipeline --state open --limit 100 --json number,title \
+                  --jq "map(select(.title == \"$1\")) | .[0].number // empty")
+            if [ -n "$n" ]; then
+              gh issue edit "$n" --body-file "$2" > /dev/null && echo "updated issue #$n"
+            else
+              gh issue create --label opencode-pipeline --title "$1" --body-file "$2"
+            fi
+          }
+
+          if [ "$OK" != "true" ]; then
+            title="opencode $VERSION breaks galopin"
+            python3 - "$dir" "$VERSION" "$PINNED" "$RUN_URL" > "$dir/issue.md" <<'PY'
+          import json, sys
+          d, version, pinned, run = sys.argv[1:5]
+          r = json.load(open(d + "/result.json"))
+          print(f"galopin's real-opencode suite fails against **opencode {version}** (pinned: {pinned}).\n")
+          print(f"Run: {run}\n")
+          print(f"passed {r['passed']}, failed {r['failed']}, skipped {r['skipped']}\n")
+          if r["gate_skipped"]:
+              print("Gate-skipped (the suite did not really run): " + ", ".join(f"`{n}`" for n in r["gate_skipped"]) + "\n")
+          print("Failing tests:")
+          for n in r["failing"]:
+              print(f"- `{n}`")
+          print("\nFirst failure:\n```\n" + r["first_failure"][:3000] + "\n```")
+          print("\nReproduce: `npm i -g opencode-ai@" + version + " && cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 25m ./...`")
+          print("\n_Updated by the daily `latest` job; the pin stays at " + pinned + " until someone bumps it._")
+          PY
+            upsert "$title" "$dir/issue.md"
+          elif [ "$VERSION" != "$PINNED" ]; then
+            title="opencode $VERSION passes galopin's real-opencode suite: ready to bump the pin"
+            r=$(python3 -c 'import json,sys;r=json.load(open(sys.argv[1]));print(r["passed"],r["skipped"])' "$dir/result.json")
+            cat > "$dir/issue.md" <<MSG
+          The full real-opencode suite passes against **opencode $VERSION** (pinned: $PINNED): $r (passed, skipped).
+
+          Run: $RUN_URL
+
+          Bump checklist (details: \`agent/README.md\`, "opencode releases"):
+          - [ ] \`agent/packaging/bump-opencode.sh $VERSION\` (rewrites \`agent/packaging/opencode-version\` and \`OPENCODE_VERSION\` in \`src/lib/codeEnrollCommand.ts\`)
+          - [ ] run the printed local commands (full suite under the real opencode, then the TS spec)
+          - [ ] skim the opencode release notes for permission names, event or route changes the suite cannot see
+          - [ ] update prose that names the release (\`docs/agent-machines.md\`, \`agent/PROTOCOL.md\` "verified against" notes) if behaviour changed
+          - [ ] commit, merge; the \`pinned\` job then re-runs this suite on the new pin
+
+          _Opened by the daily \`latest\` job._
+          MSG
+            upsert "$title" "$dir/issue.md"
+            # an older "ready to bump" for another release is superseded
+            gh issue list --label opencode-pipeline --state open --limit 100 --json number,title \
+              --jq ".[] | select((.title | endswith(\"passes galopin's real-opencode suite: ready to bump the pin\")) and .title != \"$title\") | .number" |
+              while read -r old; do
+                gh issue close "$old" --comment "Superseded: opencode $VERSION also passes ($RUN_URL)." > /dev/null
+              done
+          else
+            echo "version equals the pin: nothing to report"
+          fi
+
+      - name: Fail the job if the suite did not pass
+        if: always() && steps.suite.outcome != 'skipped' && steps.suite.outputs.ok != 'true'
+        run: exit 1
