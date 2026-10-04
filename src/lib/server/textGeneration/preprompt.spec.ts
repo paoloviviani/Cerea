@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePreprompt } from "./preprompt";
+import { resolvePreprompt as resolveWithClock, type PrepromptInput } from "./preprompt";
 import { injectArtifactsPrompt } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
 import {
@@ -7,6 +7,15 @@ import {
 	ML_ASSISTANT_PREPROMPT,
 	mlAssistantSessionContext,
 } from "$lib/server/mlAssistantPrompt";
+
+/**
+ * Outside the ML preset every prompt now ends with the one current-time line
+ * (`utils/clock.spec.ts` pins it). These cases are about everything *else* in
+ * the prompt staying as it was, and the line moves by the minute, so it is
+ * taken off here rather than frozen into every expectation.
+ */
+const resolvePreprompt = (input: PrepromptInput) =>
+	resolveWithClock(input)?.replace(/\n\nCurrent date and time: [^\n]*$/, "");
 
 /**
  * The ML Assistant preset must not change how artifacts resolve for anything
