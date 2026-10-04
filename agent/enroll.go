@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -280,18 +281,16 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if err != nil {
 		return err
 	}
-	var tokens *tokenSet
+	if scope, dropped := requestScopes(doc); len(dropped) > 0 {
+		fmt.Fprintf(os.Stderr, "note: the identity provider does not list the scope(s) %s; asking for %q instead.\n",
+			strings.Join(dropped, ", "), scope)
+	}
 	if useDevice {
 		fmt.Fprintln(os.Stderr, "no usable browser here — signing in with the device code flow.")
-		tokens, err = runDeviceFlow(ctx, doc, opts.clientID)
-	} else {
-		tokens, err = runLoopbackFlow(ctx, doc, opts.clientID)
 	}
+	tokens, err := signIn(ctx, doc, opts.clientID, useDevice, defaultDeviceHooks())
 	if err != nil {
 		return err
-	}
-	if tokens.RefreshToken == "" {
-		return fmt.Errorf("the IdP issued no refresh token: offline access is required for the serve shim")
 	}
 
 	group, err := pickGroup(ctx, gateway, tokens.AccessToken, opts.group)
@@ -412,6 +411,28 @@ func normalizeGateway(raw string) (string, error) {
 		fmt.Fprintf(os.Stderr, "note: using %s (/v1 appended)\n", raw)
 	}
 	return raw, nil
+}
+
+// signIn runs the chosen flow and refuses a result no machine can live on: a
+// token response with no refresh token. An IdP that does not list
+// offline_access may still issue one (it was asked for without the scope), so
+// this checks what came back rather than what discovery promised.
+func signIn(ctx context.Context, doc *discovery, clientID string, useDevice bool, hooks deviceFlowHooks) (*tokenSet, error) {
+	var tokens *tokenSet
+	var err error
+	if useDevice {
+		tokens, err = runDeviceFlowWithHooks(ctx, doc, clientID, hooks)
+	} else {
+		tokens, err = runLoopbackFlow(ctx, doc, clientID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tokens.RefreshToken == "" {
+		scope, _ := requestScopes(doc)
+		return nil, noRefreshTokenError(slices.Contains(strings.Fields(scope), "offline_access"), clientID)
+	}
+	return tokens, nil
 }
 
 // selectFlow picks device vs loopback. Explicit flags win; otherwise a

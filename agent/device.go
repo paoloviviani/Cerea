@@ -29,9 +29,9 @@ type deviceAuthorization struct {
 // requestDeviceCode starts the device flow. Errors carry the endpoint's own
 // RFC 6749 words (invalid_client, ...) via the same typed error the token
 // endpoint produces, so a refused client_id reads as the refusal it is.
-func requestDeviceCode(ctx context.Context, endpoint, clientID string) (*deviceAuthorization, error) {
+func requestDeviceCode(ctx context.Context, endpoint, clientID, scope string) (*deviceAuthorization, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
-		strings.NewReader(url.Values{"client_id": {clientID}, "scope": {enrollScopes}}.Encode()))
+		strings.NewReader(url.Values{"client_id": {clientID}, "scope": {scope}}.Encode()))
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,8 @@ func runDeviceFlow(ctx context.Context, doc *discovery, clientID string) (*token
 // interval between polls, and polling immediately after printing the code
 // races the human who has not reached the browser yet.
 func runDeviceFlowWithHooks(ctx context.Context, doc *discovery, clientID string, hooks deviceFlowHooks) (*tokenSet, error) {
-	authz, err := requestDeviceCode(ctx, doc.DeviceAuthorizationEndpoint, clientID)
+	scope, _ := requestScopes(doc)
+	authz, err := requestDeviceCode(ctx, doc.DeviceAuthorizationEndpoint, clientID, scope)
 	if err != nil {
 		return nil, err
 	}
