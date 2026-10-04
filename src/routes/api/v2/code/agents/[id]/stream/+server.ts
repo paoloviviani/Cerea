@@ -35,6 +35,8 @@ import {
 	eventToUpdates,
 	foldEnvelopeEvents,
 	lastAssistantErrorOf,
+	newThinkingState,
+	seedThinking,
 	permissionRequestToUpdate,
 	snapshotToUpdates,
 	userMessageIdsOf,
@@ -145,19 +147,34 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// The command markers ride the same tracking: seeded from the snapshot,
 	// learned live, resolved per part (PROTOCOL.md §7).
 	let commandMarkers: Map<string, { name: string; arguments: string }>;
+	// Which part is thinking and which is the answer: a `delta` names only its
+	// part, so the type each `part` event announced is kept for the connection's
+	// life (machineTimeline's `ThinkingState`).
+	let thinking = newThinkingState();
 	if ("snapshot" in sync) {
-		initial = snapshotToUpdates(sync.snapshot, imageUrl, sessionId);
+		initial = snapshotToUpdates(sync.snapshot, imageUrl, sessionId, thinking);
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
 		userMessageIds = userMessageIdsOf(sync.snapshot);
 		commandMarkers = commandMarkersOf(sync.snapshot);
 	} else {
+		// A reconnect resumed from a cursor: the parts announced before it are
+		// not in the replayed gap, so their types come from the session as it
+		// stands now. Best effort — without it a gap's deltas wait for their
+		// part and are released as answer text when the turn moves on.
+		try {
+			const current = await link.sessionSync({ sessionId });
+			if ("snapshot" in current) seedThinking(current.snapshot, thinking);
+		} catch {
+			// The live tail still carries every part announced from here on.
+		}
 		const folded = foldEnvelopeEvents(
 			sync.events,
 			undefined,
 			undefined,
 			undefined,
 			undefined,
-			imageUrl
+			imageUrl,
+			thinking
 		);
 		initial = folded.updates;
 		lastAssistantError = folded.lastAssistantError;
@@ -228,7 +245,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		userMessageIds,
 		childOf,
 		commandMarkers,
-		imageUrl
+		imageUrl,
+		thinking
 	);
 	lastAssistantError = drainedFolded.lastAssistantError;
 	userMessageIds = drainedFolded.userMessageIds;
@@ -356,6 +374,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							lastAssistantError = undefined;
 							userMessageIds = new Map();
 							commandMarkers = new Map();
+							thinking = newThinkingState();
 							seenChildAsks.clear();
 							// A subagent's envelope can be the first to show the new
 							// epoch; its seq is not this session's cursor.
@@ -384,7 +403,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							child,
 							(messageId) => commandMarkers.get(messageId),
 							imageUrl,
-							next.sessionId
+							next.sessionId,
+							thinking
 						);
 						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;
