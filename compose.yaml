@@ -207,7 +207,8 @@ services:
       GATEWAY_OIDC__CLIENT_ID: ${OIDC_CONSOLE_CLIENT_ID:-pystino-console}
       GATEWAY_OIDC__CLIENT_SECRET: ${OIDC_CONSOLE_CLIENT_SECRET:-}
       GATEWAY_OIDC__REDIRECT_URI: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}/auth/callback/default
-      GATEWAY_OIDC__SCOPES: '["openid","profile","email","groups"]'
+      # A JSON list (pydantic-settings); ./configure writes it from OIDC_SCOPES.
+      GATEWAY_OIDC__SCOPES: ${OIDC_SCOPES_JSON:-["openid","profile","email","groups"]}
       GATEWAY_OIDC__GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM:-groups}
       GATEWAY_OIDC__ACCESS_TOKEN_AUDIENCE: ${OIDC_AUDIENCE:-pystino-api}
       GATEWAY_OIDC__LINK_BY_EMAIL: ${OIDC_LINK_BY_EMAIL:-false}
@@ -422,7 +423,7 @@ services:
       OPENID_INTERNAL_URL: ${OIDC_INTERNAL_BASE_URL:-}
       OPENID_CLIENT_ID: ${OIDC_CHAT_CLIENT_ID:-cerea}
       OPENID_CLIENT_SECRET: ${OIDC_CHAT_CLIENT_SECRET:-}
-      OPENID_SCOPES: ${OIDC_CHAT_SCOPES:-openid profile email groups}
+      OPENID_SCOPES: ${OIDC_SCOPES:-${OIDC_CHAT_SCOPES:-openid profile email groups}}
       # Signing out of the chat ends the IdP's session through this URL when
       # the IdP publishes no end_session_endpoint (the bundled Authelia);
       # `{redirect}` is where to land. And it expires the console's cookies on

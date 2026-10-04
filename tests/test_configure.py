@@ -51,6 +51,12 @@ class Deploy(unittest.TestCase):
             shutil.copy(ROOT / name, self.dir / name)
         for name in ("caddy", "authelia", "proxy.d"):
             shutil.copytree(ROOT / name, self.dir / name)
+        # No test reaches a real issuer; one that needs a discovery document
+        # sets `self.discovery`.
+        self.discovery = None
+        patcher = mock.patch.object(cfg, "fetch_discovery", side_effect=lambda issuer, *a, **k: self.discovery)
+        self.fetch = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -773,6 +779,158 @@ class TestBreakGlass(TestCommands):
         # up -d --wait (the last step) never ran: three calls (postgres,
         # bootstrap, break-glass), not four.
         self.assertEqual(len(calls), 3)
+
+
+# Fake discovery documents: only the fields ./configure reads.
+INFOMANIAK = {"issuer": "https://login.infomaniak.com", "scopes_supported": ["openid", "profile", "email", "phone"],
+              "claims_supported": ["sub", "email", "groups"], "grant_types_supported": ["authorization_code", "refresh_token"]}
+AUTHELIA = {"issuer": "https://id.example.org", "scopes_supported": ["openid", "offline_access", "profile", "email", "groups"]}
+NO_SCOPES = {"issuer": "https://id.example.org", "authorization_endpoint": "https://id.example.org/auth"}
+
+
+class TestScopes(Deploy):
+    """The scopes asked of the IdP follow what its discovery offers (invalid_scope)."""
+
+    def external(self, *extra):
+        return self.run_cli(
+            "--non-interactive", "--origin", "https://chat.example.org", "--tls", "upstream",
+            "--idp", "external", "--oidc-issuer", "https://id.example.org",
+            "--oidc-console-client-secret", "a", "--oidc-chat-client-secret", "b",
+            "--admin-email", "ops@example.org", *extra,
+        )
+
+    def test_compute_scopes(self):
+        self.assertEqual(cfg.compute_scopes(INFOMANIAK), (["openid", "profile", "email"], ["groups"]))
+        self.assertEqual(cfg.compute_scopes(AUTHELIA), (list(cfg.WANTED_SCOPES), []))
+        self.assertEqual(cfg.compute_scopes(NO_SCOPES), (list(cfg.WANTED_SCOPES), []))
+        self.assertEqual(cfg.compute_scopes(None), (list(cfg.WANTED_SCOPES), []))
+        # openid is never dropped, even from a document that forgets it.
+        self.assertEqual(cfg.compute_scopes({"scopes_supported": ["email"]}), (["openid", "email"], ["profile", "groups"]))
+        # An empty or malformed list says nothing.
+        self.assertEqual(cfg.compute_scopes({"scopes_supported": []})[0], list(cfg.WANTED_SCOPES))
+        self.assertEqual(cfg.compute_scopes({"scopes_supported": "openid"})[0], list(cfg.WANTED_SCOPES))
+
+    def test_infomaniak_like_drops_groups_for_gateway_and_chat(self):
+        self.discovery = INFOMANIAK
+        code, out, err = self.external()
+        self.assertEqual(code, 0, err)
+        env = self.env()
+        self.assertEqual(env["OIDC_SCOPES"], "openid profile email")
+        self.assertEqual(env["OIDC_SCOPES_JSON"], '["openid","profile","email"]')
+        self.assertIn("does not offer the groups scope", out)
+        self.assertIn("groups claim", out)
+
+    def test_authelia_like_keeps_groups_and_says_nothing(self):
+        self.discovery = AUTHELIA
+        code, out, err = self.external()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid profile email groups")
+        self.assertEqual(self.env()["OIDC_SCOPES_JSON"], '["openid","profile","email","groups"]')
+        self.assertNotIn("does not offer", out)
+
+    def test_no_scopes_supported_keeps_the_default(self):
+        self.discovery = NO_SCOPES
+        code, out, err = self.external()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid profile email groups")
+        self.assertNotIn("does not offer", out)
+
+    def test_unreadable_discovery_keeps_the_default_and_says_so(self):
+        code, out, err = self.external()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid profile email groups")
+        self.assertIn("could not read the issuer's discovery", out)
+
+    def test_offline_does_not_fetch(self):
+        self.discovery = INFOMANIAK
+        code, _, err = self.external("--offline")
+        self.assertEqual(code, 0, err)
+        self.fetch.assert_not_called()
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid profile email groups")
+
+    def test_bundled_authelia_is_unchanged_and_never_fetches(self):
+        self.discovery = INFOMANIAK
+        code, _, err = self.run_cli("--non-interactive", "--origin", "https://chat.example.org",
+                                    "--admin-email", "ops@example.org", "--tls", "internal")
+        self.assertEqual(code, 0, err)
+        self.fetch.assert_not_called()
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid profile email groups")
+        self.assertEqual(self.env()["OIDC_SCOPES_JSON"], '["openid","profile","email","groups"]')
+
+    def test_explicit_scopes_win_and_need_openid(self):
+        self.discovery = INFOMANIAK
+        code, _, err = self.external("--oidc-scopes", "openid,email,phone")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid email phone")
+        self.assertEqual(self.env()["OIDC_SCOPES_JSON"], '["openid","email","phone"]')
+        code, _, err = self.external("--oidc-scopes", "profile email")
+        self.assertEqual(code, 2)
+        self.assertIn("openid", err)
+
+    def test_a_rerun_keeps_a_hand_edited_list_but_a_new_issuer_recomputes(self):
+        self.discovery = AUTHELIA
+        self.external()
+        self.assertEqual(self.run_cli("--set", "OIDC_SCOPES=openid email")[0], 0)
+        self.assertEqual(self.env()["OIDC_SCOPES_JSON"], '["openid","email"]', "--set writes the JSON twin")
+        self.discovery = INFOMANIAK
+        self.external()
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid email")
+        self.run_cli("--non-interactive", "--origin", "https://chat.example.org", "--tls", "upstream",
+                     "--idp", "external", "--oidc-issuer", "https://login.infomaniak.com")
+        self.assertEqual(self.env()["OIDC_SCOPES"], "openid profile email")
+
+    def test_an_old_env_without_scopes_is_worked_out_on_the_next_run(self):
+        self.discovery = INFOMANIAK
+        self.external()
+        self.run_cli("--unset", "OIDC_SCOPES", "OIDC_SCOPES_JSON")
+        self.external()
+        self.assertEqual(self.env()["OIDC_SCOPES_JSON"], '["openid","profile","email"]')
+
+    def test_check_warns_about_an_unsupported_scope(self):
+        self.discovery = AUTHELIA
+        self.external()
+        self.discovery = INFOMANIAK
+        report = cfg.check(self.dir, network=True, probe_host=False)
+        self.assertEqual(report.errors, [])
+        warning = next(w for w in report.warnings if "does not list the scope" in w)
+        self.assertIn("groups", warning)
+        self.assertIn("--set OIDC_SCOPES='openid profile email'", warning)
+
+    def test_check_is_clean_when_every_scope_is_offered(self):
+        self.discovery = INFOMANIAK
+        self.external()
+        report = cfg.check(self.dir, network=True, probe_host=False)
+        self.assertFalse([w for w in report.warnings if "scope" in w], report.warnings)
+        self.assertTrue(any("offers every requested scope" in n for n in report.notes))
+
+    def test_check_with_no_scopes_supported_or_offline_or_bundled(self):
+        self.discovery = NO_SCOPES
+        self.external()
+        report = cfg.check(self.dir, network=True, probe_host=False)
+        self.assertTrue(any("scopes not checked" in n for n in report.notes))
+        self.fetch.reset_mock()
+        cfg.check(self.dir, network=False, probe_host=False)
+        self.fetch.assert_not_called()
+        self.run_cli("--non-interactive", "--origin", "https://chat.example.org",
+                     "--admin-email", "ops@example.org", "--tls", "internal", "--idp", "authelia")
+        self.fetch.reset_mock()
+        cfg.check(self.dir, network=True, probe_host=False)
+        self.fetch.assert_not_called()
+
+    def test_check_flags_a_missing_openid_and_a_diverging_json_twin(self):
+        self.external()
+        values = self.env()
+        values["OIDC_SCOPES"] = "profile email"
+        values["OIDC_SCOPES_JSON"] = '["openid"]'
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("must include openid" in e for e in report.errors))
+        self.assertTrue(any("OIDC_SCOPES_JSON" in w for w in report.warnings))
+
+    def test_compose_reads_both_from_env(self):
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        self.assertIn("GATEWAY_OIDC__SCOPES: ${OIDC_SCOPES_JSON:-", compose)
+        self.assertIn("OPENID_SCOPES: ${OIDC_SCOPES:-", compose)
 
 
 if __name__ == "__main__":
