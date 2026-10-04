@@ -4,10 +4,13 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
-## Unreleased
+## v0.3.10 — 2026-10-04
+
+Pins: Cerea `0.3.3`, Pystino `0.2.5`, Authelia 4.39.22.
 
 - Relicensed to Apache-2.0. The licence file is now `LICENSE`;
   earlier releases keep the licence they were published under.
+- Pystino 0.2.5 is the same code as 0.2.4 under Apache-2.0, its comments made organisation-neutral.
 
 ## v0.3.9 — 2026-10-04
 
