@@ -4,6 +4,14 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.12 — 2026-10-05
+
+Pins: Cerea `0.3.5`, Pystino `0.2.5`, Authelia 4.39.22.
+
+- Cerea 0.3.5: the model pill lists every model when there are ten or fewer,
+  with no "More models" entry; beyond ten, the short list of recent picks and
+  "More models" stay.
+
 ## v0.3.11 — 2026-10-05
 
 Pins: Cerea `0.3.4`, Pystino `0.2.5`, Authelia 4.39.22.
