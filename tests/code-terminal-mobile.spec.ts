@@ -1,9 +1,10 @@
 /**
  * The terminal's mobile extra-keys bar (§2.4 of
  * reports/2026-09-24-code-files-and-terminal-plan.md), at 390×844: view
- * mode by default (no keyboard, touch-scroll only), a Type button that
- * focuses xterm's textarea, and an extra-keys bar (Esc, Tab, sticky
- * Ctrl/Alt, arrows, `|~/-`, A-/A+) above the keyboard. Hermetic, on the
+ * mode by default (no keyboard, touch-scroll only), and an extra-keys bar
+ * (Esc, Tab, sticky Ctrl/Alt, arrows, `|~/-`, A-/A+) that is always shown,
+ * wrapped so every key is on screen, with Type/Done to raise and drop the
+ * keyboard. Hermetic, on the
  * same `FakeMachine` and pairing flow as tests/code-terminal.spec.ts — see
  * that file for the wire-level detail this one doesn't repeat.
  *
@@ -89,7 +90,6 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 
 	await openAgentsPanel(page);
 	await visibleTreeButton(page, "Start a coding session in this workspace").click();
-	await page.getByRole("dialog").getByRole("button", { name: "Write" }).click();
 	await page.getByRole("dialog").getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -158,11 +158,17 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 
 		await page.getByTestId("code-terminal").locator(".xterm").click();
 		await expect(xtermTextarea(page)).not.toBeFocused();
-		await expect(page.getByRole("button", { name: "Type" })).toBeVisible();
-		await expect(page.getByRole("toolbar", { name: "Terminal keys" })).toHaveCount(0);
+		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
+		await expect(bar).toBeVisible();
+		// Wrapped, not a scrolling strip: the first and last keys are both on screen.
+		await expect(bar.getByRole("button", { name: "Escape" })).toBeInViewport({ ratio: 1 });
+		await expect(bar.getByRole("button", { name: "Type" })).toBeInViewport({ ratio: 1 });
+		await expect(bar.getByRole("button", { name: "Increase font size" })).toBeInViewport({
+			ratio: 1,
+		});
 	});
 
-	test("Type focuses the textarea and shows the bar; Done returns to view mode", async ({
+	test("Type focuses the textarea; Done returns to view mode; the bar stays", async ({
 		page,
 		db,
 		session,
@@ -183,8 +189,8 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 
 		await bar.getByRole("button", { name: "Done" }).click();
 		await expect(xtermTextarea(page)).not.toBeFocused();
-		await expect(bar).toHaveCount(0);
-		await expect(page.getByRole("button", { name: "Type" })).toBeVisible();
+		await expect(bar).toBeVisible();
+		await expect(bar.getByRole("button", { name: "Type" })).toBeVisible();
 	});
 
 	test("Esc and Ctrl+C reach the machine as the right bytes", async ({ page, db, session }) => {
@@ -209,6 +215,31 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		await expect
 			.poll(() => fake?.model.terminals.get(terminalId)?.history.toString("latin1") ?? "")
 			.toContain("\x03");
+	});
+
+	test("in view mode the keys still work, without raising the keyboard", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `mtterm-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+
+		await page.setViewportSize(MOBILE_VIEWPORT);
+		await pairAndOpenWorkspace(page, name);
+		const terminalId = await openOneTerminal(page, fake);
+
+		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
+		await bar.getByRole("button", { name: "Arrow up" }).click();
+		await expect
+			.poll(() => {
+				const history = fake?.model.terminals.get(terminalId)?.history.toString("latin1") ?? "";
+				return history.includes("\x1b[A") || history.includes("\x1bOA");
+			})
+			.toBe(true);
+		await expect(xtermTextarea(page)).not.toBeFocused();
 	});
 
 	test("sticky Ctrl applies to one key only", async ({ page, db, session }) => {
@@ -332,7 +363,6 @@ test.describe("the terminal on desktop", () => {
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
 		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-		await page.getByRole("button", { name: "Write" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 

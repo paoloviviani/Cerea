@@ -67,6 +67,31 @@
 	const FONT_SIZE_MAX = 22;
 	let fontSize = $state(13);
 
+	// A soft keyboard overlays the page rather than resizing it (iOS Safari,
+	// Android Chrome's default), so the key bar would sit underneath it.
+	// Lift the bar by however much of this component the keyboard covers.
+	let root = $state<HTMLDivElement>();
+	let keyboardInset = $state(0);
+	$effect(() => {
+		const vv = window.visualViewport;
+		const el = root;
+		if (!vv || !el || !narrowViewport.current) {
+			keyboardInset = 0;
+			return;
+		}
+		const update = () => {
+			const visibleBottom = vv.offsetTop + vv.height;
+			keyboardInset = Math.max(0, Math.round(el.getBoundingClientRect().bottom - visibleBottom));
+		};
+		update();
+		vv.addEventListener("resize", update);
+		vv.addEventListener("scroll", update);
+		return () => {
+			vv.removeEventListener("resize", update);
+			vv.removeEventListener("scroll", update);
+		};
+	});
+
 	// xterm renders its own colors regardless of the page's CSS — unlike
 	// ordinary DOM content, `dark:` classes on the host div do nothing for
 	// the text xterm draws, so the theme has to be handed to it explicitly.
@@ -360,7 +385,12 @@
 	});
 </script>
 
-<div class="relative flex h-full min-h-0 flex-col" data-testid="code-terminal">
+<div
+	bind:this={root}
+	class="relative flex h-full min-h-0 flex-col"
+	style:padding-bottom={keyboardInset ? `${keyboardInset}px` : undefined}
+	data-testid="code-terminal"
+>
 	{#if connectionState === "offline" || connectionState === "reconnecting"}
 		<div
 			class="flex items-center gap-1.5 border-b border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
@@ -379,52 +409,54 @@
 	{/if}
 	<div bind:this={host} class="min-h-0 flex-1 bg-white p-1 dark:bg-gray-900"></div>
 	{#if narrowViewport.current}
-		{#if !typingMode}
-			<button
-				type="button"
-				class="flex h-9 shrink-0 items-center justify-center border-t border-gray-200 bg-gray-50 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-				onclick={enterTypingMode}
-			>
-				Type
-			</button>
-		{:else}
-			<div
-				role="toolbar"
-				aria-label="Terminal keys"
-				class="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-t border-gray-200 bg-gray-50 px-1.5 dark:border-gray-700 dark:bg-gray-800"
-			>
-				{#snippet key(label: string, text: string, onclick: () => void, pressed?: boolean)}
-					<button
-						type="button"
-						aria-label={label}
-						aria-pressed={pressed}
-						class="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-2 text-xs {pressed
+		<div
+			role="toolbar"
+			aria-label="Terminal keys"
+			class="grid shrink-0 grid-cols-9 gap-1 border-t border-gray-200 bg-gray-50 p-1.5 dark:border-gray-700 dark:bg-gray-800"
+		>
+			{#snippet key(
+				label: string,
+				text: string,
+				onclick: () => void,
+				pressed?: boolean,
+				wide = false
+			)}
+				<button
+					type="button"
+					aria-label={label}
+					aria-pressed={pressed}
+					class="flex h-8 min-w-0 items-center justify-center rounded-md text-xs {wide
+						? 'col-span-2 bg-blue-600 font-medium text-white dark:bg-blue-500'
+						: pressed
 							? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
 							: 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}"
-						onpointerdown={(e) => e.preventDefault()}
-						{onclick}
-					>
-						{text}
-					</button>
-				{/snippet}
-				{@render key("Escape", "Esc", () => sendKey("\x1b"))}
-				{@render key("Tab", "Tab", () => sendKey("\t"))}
-				{@render key("Control", "Ctrl", toggleCtrl, ctrlSticky)}
-				{@render key("Alt", "Alt", toggleAlt, altSticky)}
-				{@render key("Arrow up", "↑", () => sendArrow("A"))}
-				{@render key("Arrow down", "↓", () => sendArrow("B"))}
-				{@render key("Arrow left", "←", () => sendArrow("D"))}
-				{@render key("Arrow right", "→", () => sendArrow("C"))}
-				{@render key("Pipe", "|", () => sendKey("|"))}
-				{@render key("Tilde", "~", () => sendKey("~"))}
-				{@render key("Slash", "/", () => sendKey("/"))}
-				{@render key("Hyphen", "-", () => sendKey("-"))}
-				{@render key("Send Ctrl+C", "^C", () => sendControlByte(0x03))}
-				{@render key("Send Ctrl+D", "^D", () => sendControlByte(0x04))}
-				{@render key("Decrease font size", "A−", () => changeFontSize(-1))}
-				{@render key("Increase font size", "A+", () => changeFontSize(1))}
-				{@render key("Done", "Done", exitTypingMode)}
-			</div>
-		{/if}
+					onpointerdown={(e) => e.preventDefault()}
+					{onclick}
+				>
+					{text}
+				</button>
+			{/snippet}
+			{@render key("Escape", "Esc", () => sendKey("\x1b"))}
+			{@render key("Tab", "Tab", () => sendKey("\t"))}
+			{@render key("Control", "Ctrl", toggleCtrl, ctrlSticky)}
+			{@render key("Alt", "Alt", toggleAlt, altSticky)}
+			{@render key("Arrow up", "↑", () => sendArrow("A"))}
+			{@render key("Arrow down", "↓", () => sendArrow("B"))}
+			{@render key("Arrow left", "←", () => sendArrow("D"))}
+			{@render key("Arrow right", "→", () => sendArrow("C"))}
+			{@render key("Pipe", "|", () => sendKey("|"))}
+			{@render key("Tilde", "~", () => sendKey("~"))}
+			{@render key("Slash", "/", () => sendKey("/"))}
+			{@render key("Hyphen", "-", () => sendKey("-"))}
+			{@render key("Send Ctrl+C", "^C", () => sendControlByte(0x03))}
+			{@render key("Send Ctrl+D", "^D", () => sendControlByte(0x04))}
+			{@render key("Decrease font size", "A−", () => changeFontSize(-1))}
+			{@render key("Increase font size", "A+", () => changeFontSize(1))}
+			{#if typingMode}
+				{@render key("Done", "Done", exitTypingMode, undefined, true)}
+			{:else}
+				{@render key("Type", "Type", enterTypingMode, undefined, true)}
+			{/if}
+		</div>
 	{/if}
 </div>
