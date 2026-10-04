@@ -216,6 +216,23 @@ function readerFailureReason(status: number, model: string): string {
 }
 
 /** The text of an OCR response, or null when it carries none. Shared by both routes. */
+/** What an answer without text looked like, for the log: field names and
+ * lengths only, never the document's content. */
+function ocrResponseShape(answer: unknown): Record<string, unknown> {
+	if (!answer || typeof answer !== "object") return { type: typeof answer };
+	const record = answer as Record<string, unknown>;
+	const pages = Array.isArray(record.pages) ? (record.pages as Record<string, unknown>[]) : null;
+	return {
+		keys: Object.keys(record).sort(),
+		pages: pages?.length ?? null,
+		pageKeys: pages?.[0] && typeof pages[0] === "object" ? Object.keys(pages[0]).sort() : null,
+		markdownChars: pages?.map((page) =>
+			typeof page?.markdown === "string" ? page.markdown.length : null
+		),
+		usage: record.usage_info ?? null,
+	};
+}
+
 function textFromOcrResponse(answer: OcrResponse): Extracted | null {
 	const text = (answer.pages ?? [])
 		.map((page) => page.markdown ?? "")
@@ -393,7 +410,21 @@ export async function extractDocument(options: {
 
 	const baseUrl = directOcrBaseUrl();
 	if (baseUrl) return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
-	return extractViaGateway({ bytes, mime, filename, token, model });
+	const first = await extractViaGateway({ bytes, mime, filename, token, model });
+	if (first.ok || mime !== "application/pdf" || first.kind === "no-credential") return first;
+
+	// The OCR model failed (rate limited, down, or empty). A PDF with a text
+	// layer does not need OCR at all, so the local reader gets a turn before
+	// the upload is given up on; its answer is used only when it found text.
+	const local = await resolveOfficeReader(token);
+	if (!local || local === model) return first;
+	const fallback = await extractViaGateway({ bytes, mime, filename, token, model: local });
+	if (!fallback.ok) return first;
+	logger.info(
+		{ filename, model, fallback: local, firstStatus: first.status },
+		"document_extraction_fallback: the OCR model failed, the local reader read the text layer"
+	);
+	return fallback;
 }
 
 /** One `POST /v1/ocr` call with the model already chosen, as the calling user. */
@@ -424,8 +455,8 @@ async function extractViaGateway(options: {
 		const extracted = textFromOcrResponse(answer);
 		if (!extracted) {
 			logger.info(
-				{ filename, model },
-				"document_extraction_empty: no text layer — a scan needs an OCR model"
+				{ filename, model, shape: ocrResponseShape(answer) },
+				"document_extraction_empty: the reader answered without text"
 			);
 			if (!isOcrNative(mime)) {
 				return {
@@ -433,6 +464,17 @@ async function extractViaGateway(options: {
 					kind: "empty",
 					status: 422,
 					reason: `The local reader found no text in this document. It may be empty, or hold only images or drawings.`,
+				};
+			}
+			const localReader = await resolveOfficeReader(token);
+			if (localReader && localReader !== model) {
+				// An OCR model reads scans, so "use an OCR model" would send the
+				// person round in a circle; say which model came back empty.
+				return {
+					ok: false,
+					kind: "empty",
+					status: 422,
+					reason: `The OCR model ${model} returned no text for this document. Try again, or pick another reader on the Knowledge screen.`,
 				};
 			}
 			return {
@@ -606,7 +648,7 @@ async function extractDocumentDirect(options: {
 	const extracted = textFromOcrResponse(answer);
 	if (!extracted) {
 		logger.info(
-			{ filename, model },
+			{ filename, model, shape: ocrResponseShape(answer) },
 			"document_extraction_empty: the configured OCR endpoint returned no text"
 		);
 		return {
