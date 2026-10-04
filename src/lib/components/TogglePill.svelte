@@ -2,13 +2,15 @@
 	An on/off pill in the composer's toggle idiom: blue when on, gray when
 	off, `aria-pressed` carrying the state. Shared by chat's own toggles (web
 	search, tool approval) and /code's panel toggles
-	— one class list rather than two copies drifting apart.
+	— one class list (`composerPill.ts`, which /code's agent pickers also
+	build from) rather than copies drifting apart.
 
 	Presentational only: what a click *means* — an optimistic flip, a
 	background request, a rollback toast on refusal — stays with the caller.
 -->
 <script lang="ts">
 	import type { Snippet } from "svelte";
+	import { composerPillClass } from "$lib/components/composerPill";
 
 	interface Props {
 		pressed: boolean;
@@ -44,11 +46,7 @@
 
 <button
 	type="button"
-	class="flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors {compact
-		? 'max-sm:size-8 max-sm:justify-center max-sm:gap-0 max-sm:rounded-full max-sm:border-0 max-sm:bg-transparent max-sm:px-0 max-sm:text-base'
-		: ''} {pressed
-		? 'border-blue-600 bg-blue-100 text-blue-800 shadow-xs dark:border-blue-400 dark:bg-blue-900/60 dark:text-blue-100'
-		: 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'} disabled:opacity-60"
+	class={composerPillClass({ pressed, compact })}
 	aria-pressed={pressed}
 	{title}
 	{disabled}

@@ -198,10 +198,11 @@ test.describe("/code composer at 390×844", () => {
 			expect(b.x + b.width).toBeLessThanOrEqual(390 + 0.5);
 		}
 
-		// The selector is one pill-height group of three labelled segments, not
-		// a stack: the labels stay (a phone needs the words, not a shield).
+		// The selector is one pill-row-height group of three segments, not a
+		// stack. Under `sm` they are chat's compact icon circles (size-8), the
+		// label kept for a screen reader: the same row height as chat's toggles.
 		const selectorBox = await box(selector);
-		expect(selectorBox.height).toBeLessThan(32);
+		expect(selectorBox.height).toBeLessThanOrEqual(32);
 		await expect(selector.getByRole("radio")).toHaveText(["Deny", "Ask", "Allow"]);
 
 		// The model name itself truncates rather than pushing the row wider
