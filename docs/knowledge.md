@@ -18,6 +18,7 @@ Create and fill a base from the **Workspace** page, under **Knowledge**
 search actually uses.
 
 - A **scanned PDF** (pictures of pages, with no selectable text) comes out empty unless your administrator has chosen an OCR model. Open the document to check: if its text is empty, ask them.
+- A file that **cannot be read** says why, in the same words to you and to the assistant: no reader is configured for that format, the reader refused the file (and what it said), the reader could not be reached, or the file holds no text. Only a PDF with no text layer is called a scan.
 - Your bases are **yours to own and to share**. Sharing a base lets somebody
   read it; only you can change it.
 - **After an administrator changes the embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it.
@@ -82,6 +83,23 @@ group (by name).
 | Passage store    | PostgreSQL with pgvector, as `CHAT_PG_URL`. cerea-deploy creates this database on the stack's Postgres. Use **pgvector 0.8.2 or later** (0.8.2 fixed CVE-2026-3172 in parallel HNSW builds) |
 | Embeddings       | an embedding model in the gateway's catalogue (`POST /v1/embeddings`), chosen on the Knowledge screen by an administrator                                                                   |
 | Document reading | the gateway's extraction endpoint (`POST /v1/ocr`). The stack's own extractor runs locally, so documents do not leave the deployment unless an operator configures an external OCR model    |
+
+**Which reader takes which file.** The document reader you choose on the
+Knowledge screen (or fix with `CHAT_OCR_MODEL`) is for **PDFs and images**: an
+upstream OCR model such as Mistral's reads page pictures. Every other format
+(Word, Excel, PowerPoint, OpenDocument, e-books) always goes to this
+deployment's **local reader** (the gateway's model flagged `local`, the
+stack's markitdown), whatever OCR model is selected, and is never sent to an
+OCR model. With no local reader, an Office file fails with "No reader for Word
+documents is configured" rather than being sent somewhere that cannot read it.
+A legacy binary Office file saved under a `.docx` name (it sniffs as a
+compound file, not a zip) is sent to the local reader as `application/msword`;
+the reader looks at the bytes and either reads it or refuses with its own
+reason, which is shown. A deployment with `CHAT_OCR_BASE_URL` and no gateway
+reads PDFs only.
+
+Changing the reader needs no reason; one sent by an older client is still
+recorded in the change history.
 
 Bases, documents and sharing records live in the chat's MongoDB; passages and
 vectors live in PostgreSQL. Back up both (see cerea-deploy's README). The
