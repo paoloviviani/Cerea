@@ -47,11 +47,11 @@ means enrolling again; `galopin policy set` on the machine can only tighten."_
 
 **Common options**, at the top:
 
-| Control                                                                                       | What it adds to the printed command                                                              | Default                                                      | Use it when                                                                                                               |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| **The most any session may do here** (three pills: Allow · Ask · Deny, for all tools at once) | `--permission-max KEY=ACTION` for every tool                                                     | none pressed: `bash` and `session_spawn` Ask, the rest Allow | you want one cap for every tool (see below). Allow shows a warning about `bash`                                           |
-| **Trust the repos this machine opens** (amber)                                                | `--allow-project-config`                                                                         | off                                                          | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                                                                          | opencode's own installer line, `curl -fsSL https://opencode.ai/install \| bash`, before `enroll` | off                                                          | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| Control                                                                                       | What it adds to the printed command                                                                                                                                        | Default                                                      | Use it when                                                                                                               |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| **The most any session may do here** (three pills: Allow · Ask · Deny, for all tools at once) | `--permission-max KEY=ACTION` for every tool                                                                                                                               | none pressed: `bash` and `session_spawn` Ask, the rest Allow | you want one cap for every tool (see below). Allow shows a warning about `bash`                                           |
+| **Trust the repos this machine opens** (amber)                                                | `--allow-project-config`                                                                                                                                                   | off                                                          | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
+| **Install opencode**                                                                          | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.18.32`), before `enroll` | off                                                          | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
 **The cap** is "the most any session may do here": whatever a session's Deny /
 Ask / Allow setting or an "always allow" says, a tool never goes past it. The
@@ -752,8 +752,10 @@ in `agent/`.
 
 ## Installing on a machine (Linux or macOS)
 
-**Prerequisite:** `opencode` on the PATH, either `npm i -g opencode-ai` or
-`curl -fsSL https://opencode.ai/install | bash`. `galopin run` supervises
+**Prerequisite:** `opencode` on the PATH, at the release galopin is tested
+against: `npm i -g opencode-ai@1.18.32`, or
+`curl -fsSL https://opencode.ai/install | bash -s -- --version 1.18.32`. A newer
+opencode usually works, but it can change something galopin relies on. `galopin run` supervises
 `opencode serve`, and it is the only runtime dependency. opencode is a
 separate open-source project (MIT licence) installed from its own
 installer; Cerea does not redistribute it and is not affiliated with it.

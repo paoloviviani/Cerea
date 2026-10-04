@@ -25,6 +25,14 @@ export { quoteShellArg };
  * when a deployment overrides it. */
 export const DEFAULT_CODE_CLIENT_ID = "opencode-enrollment";
 
+/** The opencode release galopin is built and tested against: the backend
+ * reports it in its hello (`agent/internal/backend/opencode/opencode.go`,
+ * `Version()`), and its live integration tests pin it. The install line asks
+ * opencode's installer for exactly this release rather than the newest, which
+ * may change a wire galopin depends on. `codeEnrollCommand.spec.ts` fails if
+ * the two drift apart. */
+export const OPENCODE_VERSION = "1.18.32";
+
 export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
 	/** This deployment's own address, base path included (`PublicConfig`'s
 	 * `origin`) — used for both the installer's URL and `--cerea`. */
@@ -78,7 +86,7 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	// itself (agent opencode.go's Start), which is why no export is needed
 	// here and the line stays honest on both a fresh and a loaded PATH.
 	const installOpencode = opts.installOpencode
-		? `curl -fsSL https://opencode.ai/install | bash`
+		? `curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}`
 		: null;
 
 	// One flag per line, its value beside it: the args come flat, and a new

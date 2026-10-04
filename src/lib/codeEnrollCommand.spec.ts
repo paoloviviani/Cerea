@@ -4,7 +4,10 @@ import {
 	quoteShellArg,
 	DEFAULT_CODE_CLIENT_ID,
 	GALOPIN_BIN,
+	OPENCODE_VERSION,
 } from "./codeEnrollCommand";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const BASE_OPTIONS = {
 	origin: "https://cerea.example.org/chat",
@@ -42,7 +45,9 @@ describe("buildEnrollCommand", () => {
 		const on = buildEnrollCommand({ ...BASE_OPTIONS, installOpencode: true });
 
 		expect(off).not.toContain("opencode.ai");
-		expect(on).toContain(" &&\ncurl -fsSL https://opencode.ai/install | bash &&\n");
+		expect(on).toContain(
+			` &&\ncurl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} &&\n`
+		);
 	});
 
 	it("never prints --allow-auto-accept: the selector replaced it", () => {
@@ -128,5 +133,18 @@ describe("quoteShellArg", () => {
 		expect(quoted).toContain(`--gateway ${quoteShellArg(dangerous)}`);
 		// no unquoted occurrence of the raw payload
 		expect(quoted).not.toContain(`--gateway ${dangerous}`);
+	});
+});
+
+describe("the pinned opencode release", () => {
+	it("is the one galopin's opencode backend reports and is tested against", () => {
+		const source = readFileSync(
+			fileURLToPath(new URL("../../agent/internal/backend/opencode/opencode.go", import.meta.url)),
+			"utf8"
+		);
+		const reported = /func \(b \*Backend\) Version\(\) string \{ return "([^"]+)" \}/.exec(
+			source
+		)?.[1];
+		expect(reported).toBe(OPENCODE_VERSION);
 	});
 });
