@@ -180,6 +180,12 @@ jobs:
           _Opened by the daily \`latest\` job._
           MSG
             upsert "$title" "$dir/issue.md"
+            # a "breaks" issue for this very release is stale now
+            gh issue list --label opencode-pipeline --state open --limit 100 --json number,title \
+              --jq ".[] | select(.title == \"opencode $VERSION breaks galopin\") | .number" |
+              while read -r old; do
+                gh issue close "$old" --comment "Stale: opencode $VERSION now passes ($RUN_URL)." > /dev/null
+              done
             # an older "ready to bump" for another release is superseded
             gh issue list --label opencode-pipeline --state open --limit 100 --json number,title \
               --jq ".[] | select((.title | endswith(\"passes galopin's real-opencode suite: ready to bump the pin\")) and .title != \"$title\") | .number" |
