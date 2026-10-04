@@ -103,9 +103,14 @@ export async function writeConfig(
 	return saved;
 }
 
-/** Is the pipeline usable: enabled, and an embedding model named? */
+/** Is the pipeline usable: an embedding model named?
+ *
+ * Whether knowledge bases exist at all is the deployment's switch
+ * (`CHAT_KNOWLEDGE_ENABLED`, which hides these routes when off). The stored
+ * `enabled` field is a leftover nothing on the screen ever set, so reading it
+ * here left every deployment "not ready" with a model chosen. */
 function configReady(config: KnowledgeConfig): boolean {
-	return config.enabled && Boolean(config.embeddingModel);
+	return Boolean(config.embeddingModel);
 }
 
 // -- reach -------------------------------------------------------------------
@@ -301,7 +306,7 @@ export async function statusObject(
 }> {
 	const config = await readConfig();
 	let detail: string | null = null;
-	if (config.enabled && !config.embeddingModel) {
+	if (!config.embeddingModel) {
 		detail =
 			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
 	} else if (config.embeddingModel && token) {
@@ -318,7 +323,7 @@ export async function statusObject(
 		}
 	}
 	return {
-		enabled: config.enabled,
+		enabled: true,
 		ready: configReady(config) && !detail,
 		embedding_model: config.embeddingModel,
 		max_upload_bytes: MAX_UPLOAD_BYTES,
@@ -400,7 +405,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 	let detail: string | null = null;
 	let embeddingModels: string[] = [];
 	let extractorCandidates: ExtractorCandidate[] = [];
-	if (pipeline.enabled && !pipeline.embeddingModel) {
+	if (!pipeline.embeddingModel) {
 		detail =
 			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
 	} else if (token) {
@@ -491,7 +496,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 	}));
 
 	return {
-		enabled: pipeline.enabled,
+		enabled: true,
 		ready: configReady(pipeline) && !detail,
 		embedding_model: pipeline.embeddingModel,
 		// What extraction will actually use — env, then the stored choice, then
