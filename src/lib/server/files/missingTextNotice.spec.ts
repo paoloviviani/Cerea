@@ -7,7 +7,7 @@ const notice = (kind: ExtractionFailureKind, reason = "the specific reason") =>
 
 describe("missingTextNotice", () => {
 	it("hints at a scan only when the PDF has no text layer", () => {
-		expect(notice("no-text")).toContain("it needs an OCR model");
+		expect(notice("no-text")).toContain("a model that reads images");
 		expect(notice("no-text")).toContain("no text layer");
 	});
 

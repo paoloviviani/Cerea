@@ -314,7 +314,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// document is a model they are allowed to use and the page is billed to
 	// them rather than to the deployment.
 	const uploadedFiles = await Promise.all(
-		b64Files.map((file) => uploadFile(file, conv, locals.token))
+		b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))
 	).then((files) => [...files, ...hashFiles]);
 
 	// we will append tokens to the content of this message

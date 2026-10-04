@@ -112,6 +112,23 @@ export type MessageFile = {
 	 * one fixed guess. Absent on files stored before this was recorded, and on
 	 * files that are not documents.
 	 */
+	/**
+	 * For a PDF with pages that have no text (scans): those pages as images,
+	 * rendered by the local reader at upload and stored as conversation
+	 * attachments, by hash and 1-based page number. The page-ordered text is in
+	 * `extracted`, with a marker where each of these pages goes. Which model gets
+	 * the images and which only a note is decided each turn
+	 * (`preprocessMessages`): one that reads images gets them like images the
+	 * person uploaded; any other gets a sentence, and the files stay stored for a
+	 * later switch. `pageCount` is the PDF's own; `scannedTotal` is how many of its
+	 * pages needed an image, of which `files` holds the first ones (`truncated`).
+	 */
+	pageImages?: {
+		files: { page: number; value: string; mime: string }[];
+		pageCount: number;
+		scannedTotal: number;
+		truncated: boolean;
+	};
 	extractionError?: {
 		kind: ExtractionFailureKind;
 		reason: string;

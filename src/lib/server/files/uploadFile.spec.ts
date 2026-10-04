@@ -24,6 +24,7 @@ import type { Conversation } from "$lib/types/Conversation";
 import { uploadFile } from "./uploadFile";
 import { storeAttachment, findAttachments, deleteAttachmentsByPrefix } from "./attachmentStore";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
+import { deleteConversationStorage } from "$lib/server/conversationStorage";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -167,5 +168,79 @@ describe("uploadFile: a failure keeps its reason", () => {
 
 		expect(stored.extractionError?.kind).toBe("no-reader");
 		expect(await findAttachments(key, "msg-1")).toEqual([stored]);
+	});
+});
+
+describe("uploadFile: pages rendered to page images", () => {
+	const answer = (bytes: string[], over = {}) => ({
+		ok: true,
+		text: "text of page 1\n\n[[cerea:scan-page:2]]\n\n[[cerea:scan-page:3]]",
+		pages: 1,
+		scan: {
+			images: bytes.map((b, i) => ({ page: i + 2, mime: "image/jpeg", bytes: Buffer.from(b) })),
+			pageCount: bytes.length + 1,
+			scannedTotal: bytes.length,
+			truncated: false,
+			...over,
+		},
+	});
+	const pdf = () => fileOf(Buffer.from("%PDF-1.4\n%scan\n"), "scan.pdf", "application/pdf");
+
+	it("stores the page-ordered text and each page image under the conversation's tag", async () => {
+		extractMock.mockResolvedValue(
+			answer(["page-b", "page-c"], { truncated: true, scannedTotal: 9 })
+		);
+		const conv = conversation();
+
+		const stored = await uploadFile(pdf(), conv, "tok", { pageImages: true });
+
+		expect(extractMock.mock.calls[0][0]).toMatchObject({ pageImages: true });
+		expect(stored.extractionError).toBeUndefined();
+		expect(stored.extracted).toBeDefined();
+		expect(stored.pageImages).toMatchObject({ pageCount: 3, scannedTotal: 9, truncated: true });
+		expect(stored.pageImages?.files.map((f) => f.page)).toEqual([2, 3]);
+		const rows = await collections.bucket
+			.find({ "metadata.conversation": conv._id.toString(), "metadata.mime": "image/jpeg" })
+			.toArray();
+		expect(rows).toHaveLength(2);
+		for (const file of stored.pageImages?.files ?? []) {
+			expect(rows.some((row) => row.filename === `${conv._id}-${file.value}`)).toBe(true);
+		}
+
+		// They go with the conversation, like any attachment.
+		await deleteConversationStorage(conv._id);
+		expect(
+			await collections.bucketFiles.countDocuments({ "metadata.conversation": conv._id.toString() })
+		).toBe(0);
+	});
+
+	it("stores identical pages once, listing both", async () => {
+		extractMock.mockResolvedValue(answer(["same", "same"]));
+		const conv = conversation();
+
+		const stored = await uploadFile(pdf(), conv, "tok", { pageImages: true });
+
+		expect(stored.pageImages?.files).toHaveLength(2);
+		expect(
+			await collections.bucketFiles.countDocuments({
+				"metadata.conversation": conv._id.toString(),
+				"metadata.mime": "image/jpeg",
+			})
+		).toBe(1);
+	});
+
+	it("a PDF read without any scan has no pageImages", async () => {
+		extractMock.mockResolvedValue({ ok: true, text: "all text", pages: 2 });
+		const stored = await uploadFile(pdf(), conversation(), "tok", { pageImages: true });
+		expect(stored.pageImages).toBeUndefined();
+		expect(stored.extracted).toBeDefined();
+	});
+
+	it("is not asked for in the owner-keyed store, which has no model to read them", async () => {
+		extractMock.mockResolvedValue({ ok: true, text: "t", pages: 1 });
+		const device = new ObjectId().toHexString();
+		devices.push(device);
+		await storeAttachment(pdf(), `code:${device}:ses_1`, "msg-1", "tok");
+		expect(extractMock.mock.calls[0][0].pageImages).toBeFalsy();
 	});
 });
