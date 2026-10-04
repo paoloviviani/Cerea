@@ -245,6 +245,133 @@ function backgroundTaskUpdate(
 	};
 }
 
+/**
+ * How an agent's thinking reaches the panel: the chat's own wire shape.
+ *
+ * The chat folds a model's reasoning into the answer stream wrapped in
+ * `<think>…</think>` (`runMcpFlow` does it for provider `reasoning` deltas),
+ * and `ChatMessage` already splits that into a collapsible "Thinking" block
+ * beside the answer text — collapsed once the turn is over, stripped from the
+ * copy button. The agent view renders through the same component, so
+ * reasoning parts take the same route instead of a second representation.
+ *
+ * Live, a `delta` names only its part, so the part's type — told by the
+ * `part` event that announced it — has to be remembered between events:
+ * `ThinkingState` is that memory, one per watched session, kept by the SSE
+ * bridge. The wire has no "reasoning part finished" signal, so the block is
+ * closed lazily, by the next frame that is not more reasoning (an answer
+ * token, a tool call, a turn state, the next message).
+ */
+const THINK_OPEN = "<think>";
+const THINK_CLOSE = "</think>";
+
+export interface ThinkingState {
+	/** Part id → what its text is, learned from `part` events. */
+	kinds: Map<string, "text" | "reasoning">;
+	/** Deltas that arrived before their part's event, by part id: held until
+	 * the part announces its type, because guessing "answer" is what glued
+	 * the thinking onto the answer. Released as answer text if the turn (or
+	 * the message) ends first, so a part the machine never announced loses
+	 * nothing. */
+	held: Map<string, string>;
+	/** The part whose `<think>` block is open on the client, if any. */
+	openPart: string | null;
+}
+
+export function newThinkingState(): ThinkingState {
+	return { kinds: new Map(), held: new Map(), openPart: null };
+}
+
+const streamToken = (token: string): AgentStreamUpdate => ({
+	type: MessageUpdateType.Stream,
+	token,
+});
+
+/** Text of a part of a known kind → frames, opening or closing the thinking
+ * block as the kind demands. */
+function routeText(
+	state: ThinkingState,
+	partId: string,
+	kind: "text" | "reasoning",
+	text: string
+): AgentStreamUpdate[] {
+	if (!text) return [];
+	if (kind === "reasoning") {
+		if (state.openPart === null) {
+			state.openPart = partId;
+			return [streamToken(THINK_OPEN + text)];
+		}
+		// A second reasoning part with no answer or tool between: one block.
+		const gap = state.openPart === partId ? "" : "\n\n";
+		state.openPart = partId;
+		return [streamToken(gap + text)];
+	}
+	return [...closeThinking(state), streamToken(text)];
+}
+
+function closeThinking(state: ThinkingState): AgentStreamUpdate[] {
+	if (state.openPart === null) return [];
+	state.openPart = null;
+	return [streamToken(THINK_CLOSE)];
+}
+
+/** Held deltas given up on: they become answer text, in arrival order. */
+function releaseHeld(state: ThinkingState): AgentStreamUpdate[] {
+	const out: AgentStreamUpdate[] = [];
+	for (const [partId, text] of state.held) out.push(...routeText(state, partId, "text", text));
+	state.held.clear();
+	return out;
+}
+
+/** Frames that are not part of the transcript's own flow: they never end a
+ * thinking block that is still open. */
+const isSideChannel = (update: AgentStreamUpdate) =>
+	update.type === "usage" || update.type === "childActivity" || update.type === "compaction";
+
+/** What the thinking state does with one live event's frames: a part event
+ * learns the part's type (and releases what waited on it); a delta is routed
+ * by it; anything else that produces frames closes an open thinking block. */
+function applyThinking(
+	state: ThinkingState,
+	event: NormalizedEvent,
+	frames: () => AgentStreamUpdate[]
+): AgentStreamUpdate[] {
+	// The model's own text and thinking; a user echo or a backend-injected
+	// part keeps its own mapping and, like any other frame, ends the thinking.
+	if (
+		event.kind === "part" &&
+		event.part.role !== "user" &&
+		((event.part.type === "text" && !event.part.synthetic) || event.part.type === "reasoning")
+	) {
+		const part = event.part;
+		const kind = part.type === "reasoning" ? "reasoning" : "text";
+		// The text contract (PROTOCOL.md §7): a part's first event carries its
+		// text so far and growth after that arrives as deltas, so a part already
+		// seen adds nothing here.
+		const known = state.kinds.has(part.id);
+		state.kinds.set(part.id, kind);
+		const out = routeText(state, part.id, kind, known ? "" : part.text);
+		const waiting = state.held.get(part.id);
+		if (waiting !== undefined) {
+			state.held.delete(part.id);
+			out.push(...routeText(state, part.id, kind, waiting));
+		}
+		return out;
+	}
+	if (event.kind === "delta") {
+		if (event.field !== "text") return [];
+		const kind = state.kinds.get(event.partId);
+		if (kind) return routeText(state, event.partId, kind, event.delta);
+		state.held.set(event.partId, (state.held.get(event.partId) ?? "") + event.delta);
+		return [];
+	}
+	const out = frames();
+	if (out.every(isSideChannel)) return out;
+	// The turn moved on (a tool, a boundary, a status): thinking is over, and
+	// what never found its part is the answer after all.
+	return [...closeThinking(state), ...releaseHeld(state), ...out];
+}
+
 /** One part → zero or more panel frames. A part upserts in place on the
  * wire (spec §7's text contract); folded here as its current, whole value —
  * a snapshot read and a live `part` event both call this the same way.
@@ -330,9 +457,12 @@ function partToUpdates(
 			const update: AgentCompactionUpdate = { type: "compaction", auto: part.auto };
 			return [update];
 		}
-		// reasoning: no panel shape yet. file/subtask: the diff pane and the
-		// polled subagent roster are the panel's surfaces for those, not the
-		// transcript fold.
+		// A reload finds the whole part: its thinking, closed, in the chat's
+		// own `<think>` wrapping (see `ThinkingState`).
+		case "reasoning":
+			return part.text ? [streamToken(THINK_OPEN + part.text + THINK_CLOSE)] : [];
+		// file/subtask: the diff pane and the polled subagent roster are the
+		// panel's surfaces for those, not the transcript fold.
 		default:
 			return [];
 	}
@@ -481,7 +611,10 @@ function statusToTurnState(
  * session id, so the reply routes to the child's request), while
  * everything else — tokens, tool calls, turn states — stays out of the
  * parent's transcript and surfaces only as a `childActivity` side-channel
- * cue for the subagent card to re-sync on. */
+ * cue for the subagent card to re-sync on.
+ *
+ * `thinking` is the per-session memory `delta` routing needs (see
+ * `ThinkingState`): the caller keeps one for the connection's lifetime. */
 export function eventToUpdates(
 	event: NormalizedEvent,
 	lastAssistantError?: string,
@@ -489,7 +622,8 @@ export function eventToUpdates(
 	child?: ChildContext,
 	resolveCommand?: (messageId: string) => { name: string; arguments: string } | undefined,
 	imageUrl?: ToolImageUrl,
-	sessionId?: string
+	sessionId?: string,
+	thinking: ThinkingState = newThinkingState()
 ): AgentStreamUpdate[] {
 	if (child) {
 		switch (event.kind) {
@@ -519,6 +653,28 @@ export function eventToUpdates(
 				return [{ type: "childActivity", childId: child.childId }];
 		}
 	}
+	return applyThinking(thinking, event, () =>
+		liveFrames(
+			event,
+			lastAssistantError,
+			resolveClientMessageId,
+			resolveCommand,
+			imageUrl,
+			sessionId
+		)
+	);
+}
+
+/** The watched session's own event → frames, before thinking is routed. */
+function liveFrames(
+	event: NormalizedEvent,
+	lastAssistantError: string | undefined,
+	resolveClientMessageId: ((messageId: string) => string | undefined) | undefined,
+	resolveCommand:
+		((messageId: string) => { name: string; arguments: string } | undefined) | undefined,
+	imageUrl: ToolImageUrl | undefined,
+	sessionId: string | undefined
+): AgentStreamUpdate[] {
 	switch (event.kind) {
 		case "message": {
 			// A pure boundary marker (see `AgentMessageBoundaryUpdate`): the
@@ -542,7 +698,7 @@ export function eventToUpdates(
 				imageUrl
 			);
 		case "delta":
-			return event.field === "text" ? [{ type: MessageUpdateType.Stream, token: event.delta }] : [];
+			return []; // routed by part type in `applyThinking`, never here
 		case "part.removed":
 			return [];
 		case "status":
@@ -649,15 +805,49 @@ function answeredQuestionFromPart(part: Part): AgentStreamUpdate[] {
 	];
 }
 
+/** The reasoning part a running turn is still writing: the last part of the
+ * last message, when the session is busy. Its block is open on any client
+ * that has seen it. */
+function trailingReasoning(transcript: Transcript): string | null {
+	if (transcript.status !== "busy" && transcript.status !== "retry") return null;
+	const last = (transcript.messages ?? []).at(-1);
+	const part = (last?.parts ?? []).at(-1);
+	return part?.type === "reasoning" && part.text ? part.id : null;
+}
+
+/** Seed live part routing from a transcript: each part's type, so a delta
+ * for a part announced before it still routes, and the open block of a
+ * reasoning part still being written (the caller leaves it open too). The
+ * SSE bridge also calls it alone when a reconnect resumes from a cursor and
+ * no snapshot is replayed. */
+export function seedThinking(transcript: Transcript, state: ThinkingState): void {
+	for (const { parts } of transcript.messages ?? []) {
+		for (const part of parts ?? []) {
+			if (part.role === "user") continue;
+			if (part.type === "reasoning") state.kinds.set(part.id, "reasoning");
+			else if (part.type === "text" && !part.synthetic) state.kinds.set(part.id, "text");
+		}
+	}
+	state.openPart = trailingReasoning(transcript);
+}
+
 /** A whole snapshot (`session.sync`'s `Transcript`, or an offline read) →
- * the panel frames a fresh mount replays. */
+ * the panel frames a fresh mount replays.
+ *
+ * `thinking`, when the caller goes on to tail the session live, is seeded
+ * from it (`seedThinking`), and a reasoning part still being written is left
+ * open, so the deltas that follow continue its block instead of starting a
+ * second. */
 export function snapshotToUpdates(
 	transcript: Transcript,
 	imageUrl?: ToolImageUrl,
-	sessionId?: string
+	sessionId?: string,
+	thinking?: ThinkingState
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	let lastAssistantError: string | undefined;
+	if (thinking) seedThinking(transcript, thinking);
+	const openPart = thinking?.openPart ?? null;
 	// The protocol types these lists as arrays, but a machine that omits an
 	// empty one (Go's nil slices) must degrade to "nothing", not a 500.
 	for (const { message, parts } of transcript.messages ?? []) {
@@ -670,6 +860,10 @@ export function snapshotToUpdates(
 			...(message.role === "user" && message.sentBy ? { sentBy: message.sentBy } : {}),
 		});
 		for (const part of parts ?? []) {
+			if (part.type === "reasoning" && part.id === openPart) {
+				updates.push(streamToken(THINK_OPEN + part.text));
+				continue;
+			}
 			updates.push(
 				...partToUpdates(part, clientMessageId, command, imageUrl),
 				...answeredQuestionFromPart(part)
@@ -757,7 +951,8 @@ export function foldEnvelopeEvents(
 	initialUserMessageIds?: Map<string, string>,
 	childOf?: (sessionId: string) => ChildContext | undefined,
 	initialCommandMarkers?: Map<string, { name: string; arguments: string }>,
-	imageUrl?: ToolImageUrl
+	imageUrl?: ToolImageUrl,
+	thinking: ThinkingState = newThinkingState()
 ): {
 	updates: AgentStreamUpdate[];
 	lastAssistantError: string | undefined;
@@ -788,7 +983,8 @@ export function foldEnvelopeEvents(
 				child,
 				(messageId) => commandMarkers.get(messageId),
 				imageUrl,
-				sessionId
+				sessionId,
+				thinking
 			)
 		);
 	}
