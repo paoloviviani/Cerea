@@ -24,6 +24,22 @@ embedding a passage, searching.
 
 **When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that your quota is used up. Where the deployment shows it, **Settings → Usage & billing** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
 
+**What the model knows about time.** Every reply is generated knowing the
+current date and time **in your timezone** (the one your browser reports), as
+one line at the end of its instructions. When you write after more than an
+hour's silence, that message reaches the model with a short prefix such as
+`(sent Sat 4 Oct 14:32, 3 hours after the previous message)`, so a chat picked
+up a week later does not read as one sitting. The prefix is added for the model
+only: it is never saved and never shown in the transcript.
+
+**Deleting.** Deleting a conversation removes everything it stored: attachments
+and the text read from them, code-run files, its indexed transcript, and any
+**share link** made from it (the link stops working). **Delete all
+conversations** includes chats inside projects. Deleting a **project** keeps its
+chats and returns them to your ordinary list. A daily sweep removes files and
+share links left behind by anything that failed or by older versions, after a
+24-hour grace period.
+
 ## Models and effort
 
 The model pill in the composer opens a short list: the current model and the

@@ -10,7 +10,7 @@ describe("DeleteAllConversationsModal", () => {
 		expect(heading?.textContent?.trim()).toBe("Delete all conversations");
 
 		const normalizedText = (baseElement.textContent ?? "").replace(/\s+/g, " ");
-		expect(normalizedText).toContain("Chats inside projects will be kept");
+		expect(normalizedText).toContain("Chats inside projects are deleted too");
 		expect(normalizedText).toContain("This action cannot be undone");
 	});
 

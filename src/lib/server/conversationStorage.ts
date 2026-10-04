@@ -12,6 +12,7 @@
  * stored thing means adding it here, once.
  */
 
+import { collections } from "$lib/server/database";
 import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
@@ -19,8 +20,33 @@ import { logger } from "$lib/server/logger";
 import type { Conversation } from "$lib/types/Conversation";
 
 /**
- * Delete the deliverables, the attachments and the indexed transcript of a
- * conversation, or of a set of them.
+ * The share links made from these conversations, and the files copied for
+ * them (`routes/conversation/[id]/share`, which copies the attachments under
+ * the share's own id). A link is a snapshot, but it is the conversation's
+ * snapshot: "delete this conversation" that leaves a public link serving it
+ * is the wrong answer to a deliberate question. The rows go first, so the
+ * link is dead whatever happens to the files; the sweep retries those.
+ * Shares are found by `conversationId`, which new ones carry and legacy ones
+ * get at boot (`backfillSharedConversationIds`).
+ */
+export async function deleteConversationShares(
+	conversationId: Conversation["_id"] | Conversation["_id"][]
+): Promise<void> {
+	const ids = Array.isArray(conversationId) ? conversationId : [conversationId];
+	if (ids.length === 0) return;
+	const shares = await collections.sharedConversations
+		.find({ conversationId: { $in: ids } })
+		.project<{ _id: string }>({ _id: 1 })
+		.toArray();
+	if (shares.length === 0) return;
+	const shareIds = shares.map((share) => share._id);
+	await collections.sharedConversations.deleteMany({ _id: { $in: shareIds } });
+	await deleteConversationAttachments(shareIds);
+}
+
+/**
+ * Delete the deliverables, the attachments, the share links and the indexed
+ * transcript of a conversation, or of a set of them.
  *
  * The transcript is the project's memory of it: `indexConversation` writes
  * `chat:conversation:<id>` into the project's memory base, and every later
@@ -48,10 +74,18 @@ export async function deleteConversationStorage(
 		deleteConversationDeliverables(conversationId),
 		deleteConversationAttachments(conversationId),
 		deleteDerived({ conversationId }),
+		deleteConversationShares(conversationId),
 	]);
-	// The first two log their own failures. This one does not, and it is the
-	// privacy one; the daily orphan sweep retries what it leaves.
+	// The first two log their own failures. These do not, and they are the
+	// privacy ones; the daily orphan sweep retries what they leave.
 	const derived = results[2];
+	const shares = results[3];
+	if (shares.status === "rejected") {
+		logger.error(
+			{ err: shares.reason },
+			"conversation_share_delete_failed: the orphan sweep will retry"
+		);
+	}
 	if (derived.status === "rejected") {
 		logger.error(
 			{ err: derived.reason },

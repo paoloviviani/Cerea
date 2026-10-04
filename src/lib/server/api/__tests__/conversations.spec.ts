@@ -17,6 +17,12 @@ async function parseResponse<T = unknown>(res: Response): Promise<T> {
 	return superjson.parse(await res.text()) as T;
 }
 
+async function storeFile(name: string, conversation: string) {
+	const upload = collections.bucket.openUploadStream(name, { metadata: { conversation } });
+	upload.end(Buffer.from("bytes"));
+	await new Promise((resolve) => upload.once("finish", resolve));
+}
+
 function conversationsPath(params?: Record<string, string>): string {
 	const query = params ? `?${new URLSearchParams(params)}` : "";
 	return `/api/v2/conversations${query}`;
@@ -171,14 +177,16 @@ describe.sequential("DELETE /api/v2/conversations", () => {
 		await cleanupTestData();
 	});
 
-	it("removes all loose conversations for authenticated user but preserves project chats", async () => {
+	it("removes all conversations for the authenticated user, project chats included, with what they stored", async () => {
 		const { locals } = await createTestUser();
 		const projectId = new ObjectId();
 
 		await createTestConversation(locals, { title: "Chat 1" });
 		await createTestConversation(locals, { title: "Chat 2" });
 		await createTestConversation(locals, { title: "Chat 3" });
-		await createTestConversation(locals, { title: "Project Chat", projectId });
+		const projectConv = await createTestConversation(locals, { title: "Project Chat", projectId });
+		const projectChat = projectConv._id.toString();
+		await storeFile(`${projectChat}-abc`, projectChat);
 
 		const res = await testRequest(DELETE, {
 			path: conversationsPath(),
@@ -188,12 +196,11 @@ describe.sequential("DELETE /api/v2/conversations", () => {
 		expect(res.status).toBe(200);
 
 		const data = await parseResponse<number>(res);
-		expect(data).toBe(3);
-
-		const remaining = await collections.conversations.find().toArray();
-		expect(remaining).toHaveLength(1);
-		expect(remaining[0].title).toBe("Project Chat");
-		expect(remaining[0].projectId?.toString()).toBe(projectId.toString());
+		expect(data).toBe(4);
+		expect(await collections.conversations.countDocuments()).toBe(0);
+		expect(
+			await collections.bucketFiles.countDocuments({ "metadata.conversation": projectChat })
+		).toBe(0);
 	});
 
 	it("returns 401 for unauthenticated request", async () => {
