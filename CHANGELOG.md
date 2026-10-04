@@ -4,6 +4,23 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.2 — 2026-10-04
+
+Pins: Cerea `sha-ae67826` (Cerea v0.3.2), Pystino `sha-5f9a870`, Authelia
+4.39.22.
+
+### Agent machines (/code)
+- **The agent composer's pills match chat's**: one shared style for both
+  composers, so they cannot drift apart again. On a phone the Deny / Ask /
+  Allow selector becomes three compact icons, like chat's toggles, and the
+  whole row fits at 360px (before, "Allow" was cut off). Blue now means the
+  active choice in both.
+- **opencode releases are tested automatically.** The full real-opencode
+  suite now runs in CI on the pinned release (on every galopin change and
+  weekly) and daily on opencode's newest release, opening an issue when a
+  release breaks galopin or is ready to adopt. The pinned version lives in
+  one file, `agent/packaging/opencode-version`.
+
 ## v0.3.1 — 2026-10-04
 
 Pins: Cerea `sha-ecacd73` (Cerea v0.3.1), Pystino `sha-5f9a870`, Authelia
