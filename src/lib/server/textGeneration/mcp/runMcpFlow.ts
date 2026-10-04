@@ -683,6 +683,7 @@ export async function* runMcpFlow({
 			? Math.max(catalogMaxTokens ?? 0, clampedFloor)
 			: catalogMaxTokens;
 
+		const userTimezone = (locals as unknown as { timezone?: string })?.timezone;
 		let messagesOpenAI: ChatCompletionMessageParam[] = await prepareMessagesWithFiles(
 			messages,
 			imageProcessor,
@@ -701,9 +702,9 @@ export async function* runMcpFlow({
 				// part of what CONTEXT_RESERVE_TOKENS holds back.
 				contextLengthTokens: targetContextLength,
 				maxOutputTokens: maxTokens,
+				timezone: userTimezone,
 			}
 		);
-		const userTimezone = (locals as unknown as { timezone?: string })?.timezone;
 		// In the mode the doctrine paragraphs are swapped, not appended to: the
 		// generic restraint rule tells the model not to reach for a tool unless it
 		// lacks a capability, and names writing code as a case to answer directly,

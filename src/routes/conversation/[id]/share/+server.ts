@@ -58,6 +58,7 @@ export async function POST({ params, locals }) {
 		title: conversation.title,
 		model: conversation.model,
 		preprompt: conversation.preprompt,
+		conversationId: conversation._id,
 		// ADR 0093: who this link belongs to, for the merge/erasure registry
 		// (`userKeyedCollections.ts`). Absent for a session-only share, like
 		// every other per-user row.

@@ -1,3 +1,4 @@
+import { gapMarker } from "./clock";
 import type { MessageFile } from "$lib/types/Message";
 import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
 import type { OpenAI } from "openai";
@@ -411,11 +412,25 @@ export async function prepareMessagesWithFiles(
 		 * max_tokens). Reserved from the window alongside prompt overhead.
 		 */
 		maxOutputTokens?: number;
+		/**
+		 * The user's IANA zone, for the gap marker below. Server zone when absent.
+		 */
+		timezone?: string;
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
 	type ReplayCandidate = { replay: AssistantReplayMessage[]; flat: ChatMessageParam };
 	const prepared = await Promise.all(
-		messages.map(async (message): Promise<ChatMessageParam[] | ReplayCandidate> => {
+		messages.map(async (message, index): Promise<ChatMessageParam[] | ReplayCandidate> => {
+			// A user message sent long after the one before it says so, in its own
+			// text, built here from the stored timestamps and sent, never saved:
+			// the transcript the person sees and the database stay as written.
+			// Assistant messages never carry one, and a conversation with no long
+			// pause carries none at all.
+			const marker =
+				message.from === "user" && index > 0
+					? gapMarker(messages[index - 1].createdAt, message.createdAt, options?.timezone)
+					: null;
+			const stamped = (text: string) => (marker ? `${marker}\n${text}` : text);
 			if (message.from === "user" && message.files && message.files.length > 0) {
 				const { imageParts, textContent } = await prepareFiles(
 					imageProcessor,
@@ -427,6 +442,7 @@ export async function prepareMessagesWithFiles(
 				if (textContent.length > 0) {
 					messageText = textContent + "\n\n" + message.content;
 				}
+				messageText = stamped(messageText);
 
 				if (imageParts.length > 0 && isMultimodal) {
 					const parts = [{ type: "text" as const, text: messageText }, ...imageParts];
@@ -479,7 +495,12 @@ export async function prepareMessagesWithFiles(
 					flat: { role: "assistant", content: visible },
 				};
 			}
-			return [{ role: message.from, content: message.content }];
+			return [
+				{
+					role: message.from,
+					content: message.from === "user" ? stamped(message.content) : message.content,
+				},
+			];
 		})
 	);
 

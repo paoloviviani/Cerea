@@ -201,6 +201,7 @@ export async function endpointOai(
 					currentProducerModel: model.id ?? model.name,
 					contextLengthTokens: model.contextLength,
 					maxOutputTokens: parameters?.max_tokens,
+					timezone: (locals as unknown as { timezone?: string } | undefined)?.timezone,
 				});
 
 			// Normalize preprompt and handle empty values

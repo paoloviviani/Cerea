@@ -15,6 +15,10 @@
  *   at. Only ones older than a day: an upload waits for its `attach` call, and
  *   sweeping a file somebody is about to attach would fail their upload.
  * - **Transcripts** (`chat:conversation:<id>`) whose conversation was deleted.
+ * - **Attachments** in the same bucket whose conversation, share or code
+ *   device is gone, and shares whose conversation is (`orphanAttachments.ts`,
+ *   after the same 24 h grace). This part does not need knowledge bases to be
+ *   enabled.
  *
  * It never fails loudly: each part is its own try/catch, logs and moves on,
  * and the counts are logged so a sweep that finds work is visible.
@@ -25,6 +29,7 @@ import { collections } from "$lib/server/database";
 import { onExit } from "$lib/server/exitHandler";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { logger } from "$lib/server/logger";
+import { sweepOrphanAttachments } from "$lib/server/files/orphanAttachments";
 import { CONVERSATION_SOURCE_PREFIX, deleteDerived } from "./deleteDerived";
 import { ensureSchema, fromUuid, toUuid, withClient } from "./db";
 
@@ -40,6 +45,8 @@ export interface SweepCounts {
 	orphanFiles: number;
 	orphanTranscripts: number;
 	orphanDocuments: number;
+	orphanAttachments: number;
+	orphanShares: number;
 }
 
 function batches<T>(items: T[], size = BATCH): T[][] {
@@ -203,15 +210,28 @@ export async function sweepKnowledgeOrphans(now = new Date()): Promise<SweepCoun
 		orphanFiles: 0,
 		orphanTranscripts: 0,
 		orphanDocuments: 0,
+		orphanAttachments: 0,
+		orphanShares: 0,
 	};
-	if (!knowledgeEnabled()) return counts;
 	// Transcripts first: deleting one removes its chunks and file along the
 	// proper path, so the chunk pass below has less to find.
 	const parts: [string, () => Promise<void>][] = [
-		["transcripts", () => sweepTranscripts(counts)],
-		["documents", () => sweepDocuments(counts)],
-		["chunks", () => sweepChunks(counts)],
-		["files", () => sweepFiles(counts, now)],
+		...(knowledgeEnabled()
+			? ([
+					["transcripts", () => sweepTranscripts(counts)],
+					["documents", () => sweepDocuments(counts)],
+					["chunks", () => sweepChunks(counts)],
+					["files", () => sweepFiles(counts, now)],
+				] as [string, () => Promise<void>][])
+			: []),
+		[
+			"attachments",
+			async () => {
+				const swept = await sweepOrphanAttachments(now);
+				counts.orphanAttachments = swept.files;
+				counts.orphanShares = swept.shares;
+			},
+		],
 	];
 	for (const [name, run] of parts) {
 		try {
