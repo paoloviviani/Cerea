@@ -408,7 +408,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 	if (!pipeline.embeddingModel) {
 		detail =
 			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
-	} else if (token) {
+	}
+	// Listed either way: with no model chosen yet, the pickers are how one gets chosen.
+	if (token) {
 		try {
 			const models = await gateway.get<{
 				data: { id: string; kind?: string; local?: boolean }[];
