@@ -39,11 +39,9 @@ git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
 docker compose up -d
 ```
 
-> **While the project is private:** this repository and the images it pulls
-> are not public yet. Clone with credentials that can read it (`gh repo clone
-> paoloviviani/cerea-deploy`, or an HTTPS token), and build the images
-> locally with `dev/build.sh` (below) until they are published. Nothing else
-> in these instructions changes when the repository goes public.
+The images are public on the GitHub Container Registry
+(`ghcr.io/paoloviviani/cerea`, `pystino-gateway`, `pystino-redaction`); Compose
+pulls the versions this release pins, with no login.
 
 `./configure` asks for your origin (`https://chat.example.org`), the
 administrator's email, a preset, the TLS mode and the identity provider. It
@@ -648,15 +646,15 @@ needed.
 ## Troubleshooting
 
 - `docker compose logs <service> --tail 50` is the first stop. The `bootstrap` service explains any refusal in one line ("fix .env and run `docker compose up -d` again").
-- `/chat` redirects in a loop, or sign-in never sticks: the origin in `.env` doesn't match the one in the browser, or the host has no dot (bundled Authelia).
-- `denied` on `docker compose pull`: the images are private, so log in to the registry once, or build them (below).
+- `/chat` redirects in a loop, or sign-in never sticks: the origin in `.env` doesn't match the one in the browser, or the host is a single-word name such as `myserver` (the bundled Authelia needs a dotted name or an IP address).
+- `denied` or `manifest unknown` on `docker compose pull`: `.env` names a version or registry that is not published (an old `CEREA_VERSION`/`PYSTINO_VERSION` override, or `*_REGISTRY='local'` left by `dev/build.sh`). Run `dev/build.sh --reset`, or remove those keys.
 - The console shows no models: add a provider and its models in the console. An upstream key in `.env` seeds a provider row, but no model is offered until one is configured.
 
 
 ## Building the images yourself
 
-Only for development, or before a release is published. You need Git access to
-the Pystino and Cerea repositories:
+Only for development, or to run commits that have no published image yet
+(both source repositories are public):
 
 ```sh
 dev/build.sh           # clone Pystino and Cerea at the pinned commits, build, point .env at the result

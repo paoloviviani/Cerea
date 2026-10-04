@@ -4,6 +4,24 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.8 — 2026-10-04
+
+Pins: Cerea `0.3.3`, Pystino `0.2.3` (published images), Authelia 4.39.22.
+
+### Deployment
+- **Public images.** The repositories are public, and the images are
+  published on the GitHub Container Registry: `ghcr.io/paoloviviani/cerea`,
+  `pystino-gateway` and `pystino-redaction`. `compose.yaml` now pins release
+  versions (`0.3.3`, `0.2.3`) instead of commit tags, and `docker compose
+  pull` needs no login. Proven on a fresh copy of the kit with an empty
+  Docker login: configure, pull, up, sign in.
+- Building the images yourself (`dev/build.sh`) is now only for development
+  or unreleased commits. The README's "while the project is private" notes
+  are gone.
+- Documentation is published on GitHub Pages:
+  https://paoloviviani.github.io/Cerea/ and
+  https://paoloviviani.github.io/Pystino/.
+
 ## v0.3.7 — 2026-10-04
 
 Pins unchanged from v0.3.6. Opt-in; nothing changes until you add the override.
