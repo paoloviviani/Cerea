@@ -4,6 +4,20 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.1 — 2026-10-04
+
+Pins: Cerea `sha-ecacd73` (Cerea v0.3.1), Pystino `sha-5f9a870`, Authelia
+4.39.22.
+
+### Agent machines (/code)
+- **An agent's thinking shows as a collapsible Thinking block**, the same
+  as in chat, while it streams and after a reload. Before, it was printed
+  as part of the answer while streaming and vanished on reload.
+- **The pairing dialog's "Install opencode" line pins the opencode release
+  galopin is tested against** (`--version 1.18.32`) instead of installing
+  the newest one. Machines that already installed a newer opencode keep
+  it until that line is run again.
+
 ## v0.3.0 — 2026-10-04
 
 Pins: Cerea `sha-5069d60` (Cerea v0.3.0), Pystino `sha-5f9a870`, Authelia
