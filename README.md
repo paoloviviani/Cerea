@@ -21,7 +21,11 @@ pull from their publishers under their own licences: Authelia
 (Apache-2.0), Caddy (Apache-2.0), PostgreSQL with pgvector (PostgreSQL
 Licence), Valkey (BSD-3-Clause) and MongoDB 4.4 (Server Side Public
 License v1, run here as Cerea's internal database, not offered as a
-service). The Cerea and Pystino images carry their own NOTICE files.
+service). The optional backup sidecar's image, built on your machine from
+`tools/backup/`, copies in the official restic (BSD-2-Clause) and rclone
+(MIT) binaries and installs Alpine's PostgreSQL client (PostgreSQL Licence),
+MongoDB Database Tools (Apache-2.0) and supercronic (MIT). The Cerea and
+Pystino images carry their own NOTICE files.
 
 ## First run
 
@@ -197,6 +201,121 @@ but only on the host's loopback.
 `https://`), and the agent machines have to reach it as well: they join the
 same NetBird network, or the origin is published some other way. The stack
 builds every sign-in redirect from it.
+
+### Example: backups with restic
+
+A `backup` service takes the four parts of [Backup and restore](#backup-and-restore)
+on a schedule — `.env`, the Postgres dump, the Mongo archive and the Authelia
+volumes — and stores them in a [restic](https://restic.net) repository:
+encrypted, deduplicated, on any backend restic speaks (S3, B2, Azure, GCS,
+SFTP, a REST server, a local path) and on any of [rclone](https://rclone.org)'s
+(`rclone:<remote>:<path>`). It is configured by environment variables in `.env`.
+
+```sh
+cp tools/backup/compose.override.example.yaml compose.override.yaml   # or merge it into yours
+./configure --set RESTIC_REPOSITORY=s3:s3.eu-central-1.amazonaws.com/my-bucket/cerea \
+                  RESTIC_PASSWORD=… AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=…
+docker compose up -d --build backup
+docker compose logs backup               # "repository initialised", then "scheduler up"
+docker compose exec backup backup-now    # a backup right now, in the foreground
+docker compose exec backup restic snapshots
+```
+
+The image is built from `tools/backup/` on your machine, because no published
+image carries restic, rclone, a Postgres 18 client and the Mongo tools
+together. It is Alpine, 250 MB, with pinned sources: the official `restic/restic:0.18.1`
+and `rclone/rclone:1.73.0` binaries, `alpine:3.23.6` for the rest. After a
+`git pull` that changes `tools/backup/`, run `docker compose up -d --build backup`.
+
+**Keep the repository password somewhere else.** `.env` is in every snapshot,
+and it holds `RESTIC_PASSWORD`: the backup that explains how to open itself is
+no use on the day `.env` is gone. Put the password (and the backend's
+credentials) in a password manager as well.
+
+#### Settings
+
+All in `.env` (`./configure --set KEY=VALUE`); `docker compose up -d` applies a change.
+
+| Variable | Default | |
+|---|---|---|
+| `RESTIC_REPOSITORY` | required | where the backups go; `rclone:remote:path` for rclone |
+| `RESTIC_PASSWORD` | required | or `RESTIC_PASSWORD_FILE` (a mounted file) or `RESTIC_PASSWORD_COMMAND` |
+| `AWS_*`, `B2_*`, `AZURE_*`, `GOOGLE_*`, `OS_*`, `ST_*`, … | | whatever credentials [restic reads for the backend](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html) |
+| `RCLONE_CONFIG_<NAME>_TYPE`, `…_<OPTION>` | | an rclone remote defined by variables, see below |
+| `BACKUP_SCHEDULE` | `17 3 * * *` | cron, five fields; `TZ` sets the timezone (UTC by default) |
+| `RESTIC_FORGET_ARGS` | `--keep-daily 7 --keep-weekly 4 --keep-monthly 6` | retention, applied with `forget --prune` after each backup; set it empty to keep everything |
+| `BACKUP_CHECK_EVERY` | `7` | run `restic check` every N backups (`0`: never); `RESTIC_CHECK_ARGS=--read-data-subset=5%` also reads a share of the data |
+| `BACKUP_MAX_AGE_HOURS` | `36` | the container turns `unhealthy` when no backup has succeeded for this long |
+| `BACKUP_HOST` | the project name | the host name recorded on every snapshot, and the one retention groups by; keep it constant |
+| `BACKUP_REPO_TIMEOUT` | `120` | seconds to wait for the repository to answer before a run fails as unreachable |
+| `BACKUP_WORK_SIZE` | `2g` | size of the RAM disk the dumps are written to; at least the combined size of the dumps |
+| `BACKUP_MONGO` | `auto` | `auto` backs up Mongo when the `chat` profile is on; `yes` or `no` forces it |
+
+**Repositories.**
+- **A local path.** Mount it in the override (`- /srv/backups/cerea:/repo`) and set `RESTIC_REPOSITORY=/repo`. Keep it on another disk, or it protects you from nothing.
+- **A restic backend with its own credentials**, as above. Check the variable names in restic's documentation for your backend.
+- **rclone, with the remote defined in `.env`:** `RESTIC_REPOSITORY=rclone:cloud:cerea` and `RCLONE_CONFIG_CLOUD_TYPE=webdav`, `RCLONE_CONFIG_CLOUD_URL=…`, `RCLONE_CONFIG_CLOUD_USER=…`, `RCLONE_CONFIG_CLOUD_PASS=…` (obscured with `rclone obscure`). The remote's name is the `CLOUD` in the variable names, in lower case in the repository.
+- **rclone, with an `rclone.conf`:** uncomment the `rclone.conf` volume in the override and set `RCLONE_CONFIG=/rclone.conf`. Mounted read-only, so a remote whose token rclone must refresh (Google Drive, OneDrive) needs the file writable: drop the `:ro`.
+- rclone prints `Config file "/root/.rclone.conf" not found - using defaults` for every call when no file is mounted. It is harmless.
+
+#### What a run does
+
+1. Opens the repository, and runs `restic init` once, with a log line, if there is none. A wrong password or an unreachable backend stops here, with restic's own message.
+2. Writes, into a RAM disk inside the container: `.env`, `postgres.sql` (`pg_dumpall`, over the stack's network, as `POSTGRES_USER`), `chat-mongo.archive.gz` (`mongodump`), `authelia.tgz` (both Authelia volumes, mounted read-only) and a small `backup.info`. They are the files [Backup and restore](#backup-and-restore) names, taken one after the other in a few seconds, so they belong together. `.env` is never written to a disk; the RAM disk is deleted when the run ends, however it ends.
+3. `restic backup`s that directory as one snapshot, tagged `cerea`, host = the project name.
+4. `restic forget --prune` with `RESTIC_FORGET_ARGS`, and every `BACKUP_CHECK_EVERY`-th run a `restic check`.
+
+The stack keeps running throughout and nothing is stopped. `pg_dumpall` and
+`mongodump` read consistent data while the services write. Authelia's SQLite
+store is copied with SQLite's own online backup, so it is consistent too; the
+rest of its volumes are a few small files that change rarely. A person who
+changes their password during the few seconds of a run is the only race, and
+the next run holds the result. The two stores are not one transaction: schedule
+the run for a quiet hour, and take a manual backup with the stack idle before an upgrade.
+
+The container is not root on the host. It has no Docker socket, a read-only
+root filesystem, `cap_drop: ALL` (plus `DAC_OVERRIDE`, for Authelia's 0600
+files and a repository directory that is not root's), and mounts `.env` and
+the Authelia volumes read-only.
+
+#### Failures
+
+Every run ends in a log line you can search for: `BACKUP OK` or
+`BACKUP FAILED at step '…'`, on stderr, with restic's message above it, and the
+run exits non-zero. `docker compose logs backup | grep -E 'BACKUP|PREFLIGHT'`
+is the whole history. The container's health turns `unhealthy`
+(`docker compose ps`) after a failed run, or when the last success is older than `BACKUP_MAX_AGE_HOURS`,
+which also catches a scheduler that never fired. At start the sidecar opens the repository
+and logs `PREFLIGHT FAILED` if it cannot, so a wrong password shows when you
+`up` it, not at 03:17. A run that finds another one still going stops with exit 75.
+
+#### Restoring from the repository
+
+On the machine you are rebuilding, with the kit cloned. All it needs are the
+repository's address, password and credentials, from your password manager:
+
+```sh
+docker build -t cerea-backup:1 tools/backup
+cat > restore.env <<'EOT'        # no quotes: docker's --env-file keeps them
+RESTIC_REPOSITORY=…
+RESTIC_PASSWORD=…
+EOT
+mkdir -m 700 restore
+docker run --rm -e BACKUP_RESTORE_CHOWN="$(id -u):$(id -g)" --env-file restore.env \
+  -v "$PWD/restore:/restore" cerea-backup:1 restore          # or: restore <snapshot-id>
+B=restore
+```
+
+Add what your backend needs: `-v /srv/backups/cerea:/repo` for a local
+repository, the `RCLONE_CONFIG_*` variables to `restore.env`, or `-v
+"$PWD/rclone.conf:/rclone.conf:ro" -e RCLONE_CONFIG=/rclone.conf`. On a box that still
+has its `.env` and override, `docker compose run --rm --no-deps --cap-add CHOWN -e BACKUP_RESTORE_CHOWN="$(id -u):$(id -g)" -v "$PWD/restore:/restore" backup restore` does the same.
+With restic installed on the host, `restic restore latest:/work/cerea --tag cerea --target restore` lands the same files.
+
+`restore` prints the repository's snapshots and fills `restore/` with the five
+files, newest snapshot by default (`BACKUP_RESTORE_CHOWN` hands them to you). Then follow the restore steps in
+[Backup and restore](#backup-and-restore) from `cp "$B/.env" .env`. Delete
+`restore/` afterwards: it holds every secret in the clear.
 
 ## TLS modes
 
@@ -476,11 +595,13 @@ B=backup-$(date +%Y%m%d-%H%M%S); mkdir -m 700 "$B"
 cp .env "$B/"
 docker compose exec -T postgres pg_dumpall -U gateway > "$B/postgres.sql"
 docker compose exec -T chat-mongo mongodump --quiet --archive --gzip > "$B/chat-mongo.archive.gz"
-docker run --rm -v cerea_authelia-config:/c:ro -v cerea_authelia-data:/d:ro -v "$PWD/$B:/out" \
-  alpine tar czf /out/authelia.tgz -C / c d
+P=cerea    # COMPOSE_PROJECT_NAME: the volumes are named after it
+docker run --rm -v ${P}_authelia-config:/authelia-config:ro -v ${P}_authelia-data:/authelia-data:ro \
+  -v "$PWD/$B:/out" alpine tar czf /out/authelia.tgz -C / authelia-config authelia-data
 ```
 
-(Volumes are named after `COMPOSE_PROJECT_NAME`, `cerea` by default.)
+Prefer it automatic, scheduled and off the box? The [restic sidecar](#example-backups-with-restic)
+writes exactly these four files, encrypted, to a repository of your choice.
 
 To restore into a fresh install with the same `.env`:
 
@@ -489,12 +610,16 @@ cp "$B/.env" .env && chmod 600 .env
 docker compose up -d --wait postgres chat-mongo
 docker compose exec -T postgres psql -U gateway -d postgres < "$B/postgres.sql"
 docker compose exec -T chat-mongo mongorestore --quiet --archive --gzip --drop < "$B/chat-mongo.archive.gz"
-# The archive (deploy-backup.sh) stores `authelia-config/` and `authelia-data/`
-# at its root; unpack, then move each into its volume.
-docker run --rm -v cerea_authelia-config:/c -v cerea_authelia-data:/d -v "$PWD/$B:/in:ro" \
+# The archive stores `authelia-config/` and `authelia-data/` at its root;
+# unpack, then move each into its volume.
+P=cerea    # COMPOSE_PROJECT_NAME
+docker run --rm -v ${P}_authelia-config:/c -v ${P}_authelia-data:/d -v "$PWD/$B:/in:ro" \
   alpine sh -c "tar xzf /in/authelia.tgz -C /tmp && cp -a /tmp/authelia-config/. /c/ && cp -a /tmp/authelia-data/. /d/"
 docker compose up -d --wait
 ```
+
+Restoring from the restic sidecar's repository? `$B` is the directory
+[its `restore` command](#restoring-from-the-repository) fills; the steps are the same.
 
 Take a backup before every upgrade: database migrations only go forward.
 
