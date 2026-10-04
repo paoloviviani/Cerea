@@ -344,6 +344,44 @@ test.describe("owned machine agent: parity", () => {
 		expect(requests.some((r) => JSON.stringify(r.body).includes("marker-7f3a"))).toBe(true);
 	});
 
+	test("thinking: a model's reasoning is a collapsed Thinking block beside the answer, live and after a reload", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		// opencode's openai-compatible provider turns `reasoning_content` deltas
+		// into a reasoning part, then the content into a separate text part.
+		await mockOpenAI.setDefaultScenario({
+			reasoning: ["Weighing ", "the two ", "sandbox options."],
+			reasoningField: "reasoning_content",
+			content: ["Option ", "B ", "wins."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await send(page, "which sandbox?");
+		const reply = page.locator('[data-message-role="assistant"]');
+		const thinkingBlock = reply.getByRole("button", { name: "Expand" });
+		const checkShape = async () => {
+			await expect(reply.getByText("Option B wins.")).toBeVisible({ timeout: 60_000 });
+			// Collapsed: the label is there, the reasoning text is not shown.
+			await expect(reply.getByText("Thinking", { exact: true })).toBeVisible();
+			await expect(thinkingBlock).toHaveCount(1);
+			await expect(reply.getByText("Weighing the two sandbox options.")).toHaveCount(0);
+			// The answer is the answer alone: the thinking is not glued onto it.
+			await expect(reply.locator(".prose").filter({ hasText: "Option B wins." })).not.toContainText(
+				"Weighing"
+			);
+			await thinkingBlock.click();
+			await expect(reply.getByText("Weighing the two sandbox options.")).toBeVisible();
+			await reply.getByRole("button", { name: "Collapse" }).click();
+		};
+		await checkShape();
+		await page.reload();
+		await checkShape();
+	});
+
 	/**
 	 * One scenario serving a whole subagent tree: the parent's prompt gets
 	 * a `task` call, while the child's own prompt — which echoes the task

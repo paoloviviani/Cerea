@@ -15,6 +15,7 @@ import {
 	foldEnvelopeEvents,
 	frameKey,
 	lastAssistantErrorOf,
+	newThinkingState,
 	parseBackgroundTaskXml,
 	permissionRequestToUpdate,
 	questionRequestedToUpdate,
@@ -258,6 +259,12 @@ describe("the seam: duplicate identical tokens must not be dropped", () => {
 
 	it("two identical delta events both come through as two Stream frames", () => {
 		const envelopes: Envelope[] = [
+			{
+				sessionId: "s1",
+				epoch: "e1",
+				seq: 0,
+				event: { kind: "part", part: textPart("p1", "m1", "assistant", "") },
+			},
 			{
 				sessionId: "s1",
 				epoch: "e1",
@@ -1479,5 +1486,290 @@ describe("tool-image size passthrough", () => {
 		expect(result?.result.outputs[1]).toEqual({
 			content: [{ type: "image", mimeType: "image/png", url: `/img/${sha}`, size: 5_000_000 }],
 		});
+	});
+});
+
+describe("agent thinking: the chat's own <think> wrapping", () => {
+	const reasoningPart = (id: string, messageId: string, text: string): Part => ({
+		id,
+		messageId,
+		role: "assistant",
+		type: "reasoning",
+		text,
+	});
+	const toolPart = (
+		id: string,
+		messageId: string,
+		callId: string,
+		status: "running" | "completed" = "running"
+	): Part => ({
+		id,
+		messageId,
+		role: "assistant",
+		type: "tool",
+		callId,
+		tool: "bash",
+		status,
+		input: { command: "ls" },
+		...(status === "completed" ? { output: "ok" } : {}),
+	});
+	const delta = (partId: string, text: string, messageId = "m1"): NormalizedEvent => ({
+		kind: "delta",
+		messageId,
+		partId,
+		role: "assistant",
+		field: "text",
+		delta: text,
+	});
+	const part = (p: Part): NormalizedEvent => ({ kind: "part", part: p });
+	const wrap = (events: NormalizedEvent[]): Envelope[] =>
+		events.map((event, i) => ({ sessionId: "s1", epoch: "e1", seq: i + 1, event }));
+	/** Stream tokens only, joined: what ChatMessage's content ends up as. */
+	const streamText = (updates: { type: unknown; token?: string }[]) =>
+		updates
+			.filter((u) => u.type === MessageUpdateType.Stream)
+			.map((u) => u.token)
+			.join("");
+	const think = (text: string) => `<think>${text}</think>`;
+
+	it("live: reasoning part and deltas, then a text part and deltas, are thinking then answer", () => {
+		const { updates } = foldEnvelopeEvents(
+			wrap([
+				part(reasoningPart("r1", "m1", "The user wants")),
+				delta("r1", " me to refuse"),
+				part(textPart("t1", "m1", "assistant", "")),
+				delta("t1", "I can't"),
+				delta("t1", " — sorry."),
+				{ kind: "status", status: "idle" },
+			])
+		);
+		expect(streamText(updates)).toBe(`${think("The user wants me to refuse")}I can't — sorry.`);
+		// The block is closed before the first answer token, not after it.
+		const tokens = updates.filter((u) => u.type === MessageUpdateType.Stream);
+		expect(tokens.map((u) => u.token)).toEqual([
+			"<think>The user wants",
+			" me to refuse",
+			"</think>",
+			"I can't",
+			" — sorry.",
+		]);
+	});
+
+	it("live: a text part that carries its first text closes the thinking too", () => {
+		const { updates } = foldEnvelopeEvents(
+			wrap([
+				part(reasoningPart("r1", "m1", "hmm")),
+				part(textPart("t1", "m1", "assistant", "Answer")),
+			])
+		);
+		expect(streamText(updates)).toBe(`${think("hmm")}Answer`);
+	});
+
+	it("live: a delta that arrives before its part is held until the part says what it is", () => {
+		const thinking = newThinkingState();
+		const first = eventToUpdates(
+			delta("r1", "early thought"),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"s1",
+			thinking
+		);
+		expect(first).toEqual([]);
+		const second = eventToUpdates(
+			part(reasoningPart("r1", "m1", "")),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"s1",
+			thinking
+		);
+		expect(streamText(second)).toBe("<think>early thought");
+		const after = eventToUpdates(
+			delta("r1", " and more"),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"s1",
+			thinking
+		);
+		expect(streamText(after)).toBe(" and more");
+	});
+
+	it("live: a delta whose part never arrives is released as answer text when the turn ends", () => {
+		const { updates } = foldEnvelopeEvents(
+			wrap([delta("t9", "orphan"), { kind: "status", status: "idle" }])
+		);
+		expect(streamText(updates)).toBe("orphan");
+		// ...and before the turn-state frame that ended it.
+		expect(updates.at(-1)?.type).toBe(MessageUpdateType.TurnState);
+	});
+
+	it("live: reasoning, tool call, reasoning, text keep their order", () => {
+		const { updates } = foldEnvelopeEvents(
+			wrap([
+				part(reasoningPart("r1", "m1", "first")),
+				part(toolPart("tool1", "m1", "call_1")),
+				part(reasoningPart("r2", "m2", "second")),
+				delta("r2", " thought", "m2"),
+				part(textPart("t1", "m2", "assistant", "done")),
+			])
+		);
+		const shape = updates.map((u) =>
+			u.type === MessageUpdateType.Stream
+				? u.token
+				: u.type === MessageUpdateType.Tool
+					? "tool"
+					: null
+		);
+		expect(shape.filter((x) => x !== null)).toEqual([
+			"<think>first",
+			"</think>",
+			"tool",
+			"<think>second",
+			" thought",
+			"</think>",
+			"done",
+		]);
+	});
+
+	it("live: a usage frame in the middle of thinking does not split the block", () => {
+		const { updates } = foldEnvelopeEvents(
+			wrap([
+				part(reasoningPart("r1", "m1", "a")),
+				{
+					kind: "usage",
+					usage: {
+						input: 1,
+						output: 1,
+						reasoning: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						cost: 0,
+						contextUsed: 1,
+						contextMax: null,
+					},
+				},
+				delta("r1", "b"),
+			])
+		);
+		expect(streamText(updates)).toBe("<think>ab");
+	});
+
+	it("live: a ThinkingState seeded from a snapshot routes the deltas of parts announced before it", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: assistantMessage("m1"),
+					parts: [reasoningPart("r1", "m1", "so far")],
+				},
+			],
+			permissions: [],
+			questions: [],
+			status: "busy",
+			usage: null,
+			todos: [],
+		};
+		const thinking = newThinkingState();
+		const initial = snapshotToUpdates(transcript, undefined, "s1", thinking);
+		// Still being written: left open, so the live deltas continue the block.
+		expect(streamText(initial)).toBe("<think>so far");
+		const { updates } = foldEnvelopeEvents(
+			wrap([delta("r1", " and on"), part(textPart("t1", "m1", "assistant", "Answer"))]),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			thinking
+		);
+		expect(streamText(updates)).toBe(` and on</think>Answer`);
+	});
+
+	it("reload: reasoning and text parts become a closed block then the answer, in order", () => {
+		const transcript: Transcript = {
+			messages: [
+				{ message: userMessage("u1"), parts: [textPart("up", "u1", "user", "hi")] },
+				{
+					message: assistantMessage("m1"),
+					parts: [
+						reasoningPart("r1", "m1", "The user wants me to…"),
+						textPart("t1", "m1", "assistant", "I can't — "),
+					],
+				},
+			],
+			permissions: [],
+			questions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(streamText(updates)).toBe(`${think("The user wants me to…")}I can't — `);
+	});
+
+	it("reload: reasoning, tool, reasoning, text keep their order", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: assistantMessage("m1"),
+					parts: [
+						reasoningPart("r1", "m1", "one"),
+						toolPart("tool1", "m1", "call_1", "completed"),
+						reasoningPart("r2", "m1", "two"),
+						textPart("t1", "m1", "assistant", "end"),
+					],
+				},
+			],
+			permissions: [],
+			questions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const shape = snapshotToUpdates(transcript)
+			.map((u) =>
+				u.type === MessageUpdateType.Stream
+					? u.token
+					: u.type === MessageUpdateType.Tool
+						? "tool"
+						: null
+			)
+			.filter((x) => x !== null);
+		expect(shape).toEqual([think("one"), "tool", "tool", think("two"), "end"]);
+	});
+
+	it("reload: an empty reasoning part adds nothing", () => {
+		const transcript: Transcript = {
+			messages: [{ message: assistantMessage("m1"), parts: [reasoningPart("r1", "m1", "")] }],
+			permissions: [],
+			questions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		expect(streamText(snapshotToUpdates(transcript))).toBe("");
+	});
+
+	it("a subagent's own events stay out of the parent transcript, thinking included", () => {
+		const child: ChildContext = { childId: "c1", childTitle: null };
+		const thinking = newThinkingState();
+		const out = eventToUpdates(
+			part(reasoningPart("r1", "m1", "child thought")),
+			undefined,
+			undefined,
+			child,
+			undefined,
+			undefined,
+			"s1",
+			thinking
+		);
+		expect(out).toEqual([{ type: "childActivity", childId: "c1" }]);
 	});
 });
