@@ -32,6 +32,41 @@ all four targets people run this on (`linux/amd64`, `linux/arm64`,
 writes `REVISION` (the Cerea commit built from), `SHA256SUMS`, and copies in
 `packaging/galopin.service` and `packaging/org.cerea.galopin.plist`.
 
+## opencode releases
+
+galopin drives opencode's HTTP and ACP surfaces, so an opencode release can
+break it (a renamed permission, a changed event). The release galopin is
+built and tested against is written once, in `packaging/opencode-version`; the
+binary embeds it (`Backend.Version()`), CI installs it, and the panel's
+install line (`OPENCODE_VERSION` in `src/lib/codeEnrollCommand.ts`) is
+checked equal to it by a spec.
+
+`.github/workflows/opencode.yml` runs the **whole** real-opencode suite (every
+`*_it_test.go`, permission tests and `TestUpgradeCanary*` included, with
+`GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1`):
+
+- **`pinned`**: the pinned release. On a push to main that touches `agent/`,
+  weekly, and on demand.
+- **`latest`**: opencode's newest release, daily (or `version` on a manual
+  run, to try a specific release). Does nothing when that is the pin, or
+  when the release already passed against this `agent/` tree (cached). Each
+  job's summary lists the version, counts and failing tests.
+
+`latest` keeps one open issue, labelled `opencode-pipeline`:
+
+- **`opencode <v> breaks galopin`**: the failing tests, the run link, the
+  first failure's message. It is updated on each failing run, not duplicated.
+  The pin stays where it is; nothing breaks for users, who install the pinned
+  release. Reproduce with the command in the issue, then fix galopin (or
+  decide to stay on the pin).
+- **`opencode <v> passes galopin's real-opencode suite: ready to bump the
+  pin`**: a checklist for the next step. It closes an older "ready" issue.
+
+To bump: `packaging/bump-opencode.sh <version>` rewrites both places and
+prints the local commands to run (install that release, the full suite, the
+TS spec). Review the opencode release notes too: the suite cannot see a new
+behaviour it does not test. Commit; the `pinned` job re-runs on the merge.
+
 ## Running
 
 ```

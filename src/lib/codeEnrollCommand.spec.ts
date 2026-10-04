@@ -137,14 +137,12 @@ describe("quoteShellArg", () => {
 });
 
 describe("the pinned opencode release", () => {
-	it("is the one galopin's opencode backend reports and is tested against", () => {
-		const source = readFileSync(
-			fileURLToPath(new URL("../../agent/internal/backend/opencode/opencode.go", import.meta.url)),
+	it("is the one in agent/packaging/opencode-version, which galopin reports and CI tests", () => {
+		const pinned = readFileSync(
+			fileURLToPath(new URL("../../agent/packaging/opencode-version", import.meta.url)),
 			"utf8"
 		);
-		const reported = /func \(b \*Backend\) Version\(\) string \{ return "([^"]+)" \}/.exec(
-			source
-		)?.[1];
-		expect(reported).toBe(OPENCODE_VERSION);
+		expect(pinned).toMatch(/^\d+\.\d+\.\d+\n$/);
+		expect(OPENCODE_VERSION).toBe(pinned.trim());
 	});
 });

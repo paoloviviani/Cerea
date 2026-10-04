@@ -1,0 +1,70 @@
+name: opencode suite
+description: >
+  Install an exact opencode release and run galopin's whole real-opencode test
+  suite against it (every test in agent/, with both IT gates set). Writes
+  $RUNNER_TEMP/opencode-suite/{result.json,summary.md,test.log}. Never fails
+  the job itself: the caller decides, after it has reported.
+inputs:
+  version:
+    description: opencode-ai release to install
+    required: true
+outputs:
+  ok:
+    description: "'true' when every test passed and none was gate-skipped"
+    value: ${{ steps.report.outputs.ok }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: agent/go.mod
+        cache-dependency-path: agent/go.sum
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: Install opencode ${{ inputs.version }}
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        npm install -g "opencode-ai@${VERSION}"
+        got=$(opencode --version)
+        echo "opencode --version: $got"
+        [ "$got" = "$VERSION" ] || { echo "::error::installed opencode $got, wanted $VERSION"; exit 1; }
+        git config --global user.name ci
+        git config --global user.email ci@example.invalid
+    - name: Run the real-opencode suite
+      id: test
+      shell: bash
+      env:
+        GALOPIN_OPENCODE_IT: "1"
+        GALOPIN_ACP_IT: "1"
+      working-directory: agent
+      run: |
+        mkdir -p "$RUNNER_TEMP/opencode-suite"
+        set +e
+        # the full log goes to the artifact; the console copy is line-capped
+        # because a failing IT prints one multi-megabyte line of events
+        go test -count=1 -v -timeout 25m ./... 2>&1 | tee "$RUNNER_TEMP/opencode-suite/test.log" | cut -c1-2000
+        echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+    - name: Report
+      id: report
+      if: always()
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        CODE: ${{ steps.test.outputs.code }}
+      run: |
+        python3 "${{ github.action_path }}/../../scripts/gotest_report.py" \
+          "$RUNNER_TEMP/opencode-suite/test.log" "${CODE:-1}" "$VERSION" "${{ github.job }}" \
+          "$RUNNER_TEMP/opencode-suite" > /dev/null
+        ok=$(python3 -c 'import json,os;print(str(json.load(open(os.environ["RUNNER_TEMP"]+"/opencode-suite/result.json"))["ok"]).lower())')
+        echo "ok=$ok" >> "$GITHUB_OUTPUT"
+    - name: Keep the full log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: opencode-${{ github.job }}-${{ inputs.version }}-log
+        path: ${{ runner.temp }}/opencode-suite/
+        retention-days: 7
+        if-no-files-found: ignore

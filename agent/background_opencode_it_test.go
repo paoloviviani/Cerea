@@ -14,6 +14,7 @@ import (
 	backendopencode "galopin/internal/backend/opencode"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
+	"galopin/packaging"
 )
 
 // backgroundScenario scripts the mock so the parent's prompt gets a task
@@ -41,16 +42,19 @@ func backgroundScenario() map[string]any {
 	}
 }
 
-// backgroundHarness starts a real, pinned opencode against the mock LLM,
+// backgroundHarness starts a real opencode against the mock LLM,
 // returning the backend, materializer, work dir and a cancelable context.
 // backgroundAllowed decides whether the child gets
 // OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1 (the enrolled policy).
 func backgroundHarness(t *testing.T, backgroundAllowed bool) (context.Context, *backendopencode.Backend, *sessions.Materializer, string) {
 	t.Helper()
+	// The experimental flag this exercises is opencode's own, so a release
+	// that changes it is exactly what the opencode CI pipeline wants to see
+	// fail here, not a version guard that fails every release but the pin.
 	if out, err := exec.Command("opencode", "--version").CombinedOutput(); err != nil {
 		t.Fatalf("opencode --version: %v", err)
-	} else if !strings.Contains(string(out), "1.18.32") {
-		t.Fatalf("live background IT is pinned to opencode 1.18.32, got %q", strings.TrimSpace(string(out)))
+	} else {
+		t.Logf("background IT against opencode %s (pinned: %s)", strings.TrimSpace(string(out)), packaging.OpencodeVersion())
 	}
 
 	mockPort := itFreePort(t)
@@ -136,7 +140,7 @@ func backgroundHarness(t *testing.T, backgroundAllowed bool) (context.Context, *
 }
 
 // TestBackgroundSubagentsIntegration proves the background contract against
-// a real, pinned opencode (1.18.32): with the enrolled policy the task tool
+// a real opencode (the pinned release in CI, or the release under test): with the enrolled policy the task tool
 // accepts background:true, the child lands in the same exposed tree, and
 // the synthetic completion arrives on the parent. Without it the same call
 // fails closed inside opencode. Gated behind GALOPIN_OPENCODE_IT=1 like

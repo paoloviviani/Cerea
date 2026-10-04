@@ -25,6 +25,7 @@ import (
 	"galopin/internal/attach"
 	"galopin/internal/backend"
 	"galopin/internal/permrules"
+	"galopin/packaging"
 )
 
 // Config is everything needed to spawn and reach one opencode instance.
@@ -252,10 +253,10 @@ func New(cfg Config) *Backend {
 }
 
 // ID/Version implement backend.Backend. Version is the opencode release
-// the live integration tests are pinned to (1.18.32): hello reports it,
-// and the capability probe never consults it.
+// the live integration tests are pinned to (packaging/opencode-version,
+// embedded): hello reports it, and the capability probe never consults it.
 func (b *Backend) ID() string      { return "opencode" }
-func (b *Backend) Version() string { return "1.18.32" }
+func (b *Backend) Version() string { return packaging.OpencodeVersion() }
 
 // lifecycleContext returns the context Start was called with, or ok=false
 // when Start has not completed (or was never called).
