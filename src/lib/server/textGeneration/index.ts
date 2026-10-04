@@ -14,6 +14,7 @@ import { isMlAssistantConversation, pinnedHubToken } from "$lib/server/mlAssista
 import { settleMlBudget } from "$lib/server/mlBudget/settle";
 import { reservedMicroUsd } from "$lib/utils/mlBudget";
 import { logger } from "$lib/server/logger";
+import { modelReadsImages } from "./utils/modelReadsImages";
 import { resolvePreprompt } from "./preprompt";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
@@ -198,7 +199,11 @@ async function* textGenerationWithoutTitle(
 		}
 	}
 
-	const processedMessages = await preprocessMessages(messages, convId);
+	const processedMessages = await preprocessMessages(
+		messages,
+		convId,
+		modelReadsImages(ctx.model, ctx.forceMultimodal)
+	);
 
 	let mcpProducedOutput = false;
 

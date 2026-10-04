@@ -92,4 +92,8 @@ test("changing the extractor asks for no reason and saves", async ({ page, db, s
 
 	await expect(page.getByText("Saved.")).toBeVisible();
 	await expect(picker).toHaveValue("mistral-ocr-4.1");
+
+	// Leave the deployment default behind: the choice is a row in the shared
+	// database, and every later spec that reads a document would read with it.
+	await db.collection("knowledgeConfig").deleteMany({});
 });

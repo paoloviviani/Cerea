@@ -68,6 +68,19 @@ limited to **10 MB** each.
   the file**, and the text is stored beside it. That is a billing decision:
   the reader is priced per page, so reading again on every turn would charge
   for the same twelve-page PDF on every question about it.
+- **A scanned PDF** (pictures of pages, no text layer) is read **by the model**
+  when the deployment's own reader is the one reading PDFs and the
+  conversation's model can see images: the reader renders the pages (at most
+  the first 20, so a longer scan says "only the first 20 of N pages"), they are
+  stored as attachments of the conversation, and they are sent to the model
+  exactly like images you attached, beside a note ("Scanned PDF name.pdf: pages
+  1–N attached as images"). They are deleted with the conversation. A model that
+  cannot see images is told the PDF is a scan and that it needs an OCR reader or
+  a model that reads images; if you switch to such a model later, the stored pages
+  are not sent (the note says so) and are sent again if you switch back. When a
+  remote OCR model is the PDF reader, it reads the scan itself and no pages are
+  rendered. Whether a model sees images is its **vision** switch under
+  Workspace → Models.
 - **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, so it says so rather than answering as if nothing were attached.
 
 Which model reads documents is decided by the **Knowledge** settings (an
