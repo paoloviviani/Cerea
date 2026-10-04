@@ -71,6 +71,9 @@ first = ""
 if failed:
     first_name = failed[0]
     msg = [l[:300] for l in out.get(first_name, []) if not l.startswith("---")]
+    if not msg:  # the failure was logged by a subtest
+        for sub in fail_sub.get(first_name, []):
+            msg += [l[:300] for l in out.get(sub, []) if not l.startswith("---")]
     first = f"{first_name}: " + "\n".join(msg[-12:])
 elif not suite_ran:
     first = "the suite did not run: the opencode install or the setup before it failed (see the run log)"

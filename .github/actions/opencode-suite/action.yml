@@ -43,7 +43,9 @@ runs:
       run: |
         mkdir -p "$RUNNER_TEMP/opencode-suite"
         set +e
-        go test -count=1 -v -timeout 25m ./... 2>&1 | tee "$RUNNER_TEMP/opencode-suite/test.log"
+        # the full log goes to the artifact; the console copy is line-capped
+        # because a failing IT prints one multi-megabyte line of events
+        go test -count=1 -v -timeout 25m ./... 2>&1 | tee "$RUNNER_TEMP/opencode-suite/test.log" | cut -c1-2000
         echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
     - name: Report
       id: report
@@ -58,3 +60,11 @@ runs:
           "$RUNNER_TEMP/opencode-suite" > /dev/null
         ok=$(python3 -c 'import json,os;print(str(json.load(open(os.environ["RUNNER_TEMP"]+"/opencode-suite/result.json"))["ok"]).lower())')
         echo "ok=$ok" >> "$GITHUB_OUTPUT"
+    - name: Keep the full log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: opencode-${{ github.job }}-${{ inputs.version }}-log
+        path: ${{ runner.temp }}/opencode-suite/
+        retention-days: 7
+        if-no-files-found: ignore
