@@ -10,7 +10,7 @@ Everything is in this repository, and you can read all of it before running anyt
 the IdP's `authelia/configuration.yml`, and `./configure`, a single
 standard-library Python script that writes `.env` for you.
 
-Licence: EUPL-1.2, Copyright 2026 Paolo Viviani ([LICENCE](LICENCE),
+Licence: Apache-2.0, Copyright 2026 Paolo Viviani ([LICENSE](LICENSE),
 [NOTICE](NOTICE)). This kit contains no third-party code; see
 [AI-DISCLOSURE.md](https://github.com/paoloviviani/cerea-deploy/blob/main/AI-DISCLOSURE.md) for how it was written.
 
