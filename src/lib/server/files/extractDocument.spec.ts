@@ -294,6 +294,85 @@ describe("when there is no text", () => {
 		expect(answer.ok ? "" : answer.reason).toContain("scan needs an OCR model");
 	});
 
+	it("reads a text-layer PDF with the local reader when the OCR model is rate-limited", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "markitdown", kind: "ocr", local: true },
+				{ id: "mistral-ocr-4.1", kind: "ocr" },
+			],
+		});
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockImplementation(
+			async (_token: string, _path: string, body: { model: string }) => {
+				if (body.model === "mistral-ocr-4.1") throw new GatewayCallFailed(429, "rate limited");
+				return OCR_OK;
+			}
+		);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "menu.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: true, text: "page one text" });
+	});
+
+	it("keeps the OCR model's reason when the local reader finds no text either", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "markitdown", kind: "ocr", local: true },
+				{ id: "mistral-ocr-4.1", kind: "ocr" },
+			],
+		});
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockImplementation(
+			async (_token: string, _path: string, body: { model: string }) => {
+				if (body.model === "mistral-ocr-4.1") throw new GatewayCallFailed(429, "rate limited");
+				throw new GatewayCallFailed(422, "This document has no text layer.");
+			}
+		);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "scan.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({
+			ok: false,
+			status: 429,
+			reason: "The document reader mistral-ocr-4.1 is rate-limited by its provider.",
+		});
+	});
+
+	it("names the OCR model that came back empty instead of asking for an OCR model", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "markitdown", kind: "ocr", local: true },
+				{ id: "mistral-ocr-4.1", kind: "ocr" },
+			],
+		});
+		gatewayPostMock.mockResolvedValue({ pages: [{ index: 0, markdown: "" }] });
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "scan.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: false, status: 422 });
+		expect(answer.ok ? "" : answer.reason).toContain(
+			"The OCR model mistral-ocr-4.1 returned no text"
+		);
+	});
+
 	it("keeps the gateway's status for anything else that goes wrong", async () => {
 		gatewayGetMock.mockResolvedValue({ data: [{ id: "markitdown", kind: "ocr" }] });
 		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
