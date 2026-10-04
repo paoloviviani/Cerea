@@ -4,7 +4,9 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
-## Unreleased
+## v0.3.7 — 2026-10-04
+
+Pins unchanged from v0.3.6. Opt-in; nothing changes until you add the override.
 
 ### Deployment
 - **Restic backups, as an override.** `tools/backup/` ships a `backup`
