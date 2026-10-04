@@ -121,7 +121,8 @@ Among them, what identity configuration turns up:
 - an external IdP with no admin rule — set `--admin-email`, or `--admin-claim` with `--admin-claim-value`; a half-set claim pair, or an `OIDC_ADMIN_EMAIL` entry that is not a valid address, is reported the same way;
 - `OIDC_LINK_BY_EMAIL` on — the reminder to turn it off when the transition is done;
 - the `team` preset without SMTP — people cannot reset their own password;
-- `pystino idp check --discovery-only`, run in the gateway container against the configured issuer.
+- `pystino idp check --discovery-only`, run in the gateway container against the configured issuer;
+- with an external IdP, any configured scope the issuer's `scopes_supported` does not list (`--offline` skips the lookup).
 
 It changes nothing, so it is safe on a running install.
 
@@ -421,8 +422,9 @@ any OIDC issuer. Register three clients there, then pass their details:
 | galopin (`opencode-enrollment`) | public | the device flow, and loopback `http://localhost/callback` |
 
 The machine client needs the device-flow and refresh-token grants and
-`offline_access` in its scopes; the other two take the scopes
-`openid profile email groups`. Map the groups claim the IdP sends
+`offline_access` in its scopes (galopin asks for it only when the issuer lists
+it; see below); the other two take the scopes `openid profile email groups`,
+less what the issuer does not offer. Map the groups claim the IdP sends
 (`--oidc-groups-claim`, `groups` by default), and make sure `email` arrives
 with `email_verified` as the JSON boolean `true`. If the IdP publishes no
 `end_session_endpoint`, set
@@ -441,6 +443,45 @@ out of the IdP.
 
 Arguments on the command line are visible to other users of the machine;
 interactive `./configure` asks for secrets without echoing them.
+
+### Providers that don't offer a groups scope (e.g. Infomaniak)
+
+Some providers publish a `groups` *claim* but no `groups` *scope*, and answer a
+sign-in that asks for it with `invalid_scope`. Infomaniak's discovery lists
+`scopes_supported = openid, profile, email, phone`, for one.
+
+With `--idp external`, `./configure` reads the issuer's
+`/.well-known/openid-configuration` and asks only for the scopes it lists
+(`openid` always stays), from `openid profile email groups`. It writes
+the result for both the console and the chat, and says so when `groups` is
+dropped:
+
+```
+OIDC_SCOPES='openid profile email'
+OIDC_SCOPES_JSON='["openid","profile","email"]'
+```
+
+The two are one list: the chat reads the words, the gateway wants JSON. To
+change it later, `./configure --set OIDC_SCOPES='openid profile email'` writes
+both, and `--oidc-scopes` does the same when configuring. A re-run keeps a
+list you edited unless the issuer changed. When the issuer's document lists no
+`scopes_supported` (or `--offline` is given), the default stays.
+`./configure --check` warns about any configured scope the issuer does not
+list.
+
+Without the scope, group-based features (group sync, quotas and billing by
+group, an `--admin-claim groups` rule) work only if the IdP puts a groups claim
+in its tokens regardless; check with `docker compose run --rm --no-deps
+gateway pystino idp check --device`, which prints the claim. With no groups
+claim, people sign in with no group memberships and an admin rule by
+`--admin-email` still works.
+
+galopin follows the same rule: it asks for `offline_access` only when the
+issuer lists it. A provider that grants `refresh_token` without the scope
+(Infomaniak) is still asked, and if no refresh token comes back, `galopin
+enroll` stops with a message instead of enrolling a machine that would lose
+its sign-in within the hour; enable refresh tokens for the `opencode-enrollment`
+client at the provider.
 
 **Who is an administrator** is decided in `.env`, and re-checked at every
 sign-in and at every gateway start:

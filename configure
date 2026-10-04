@@ -53,6 +53,9 @@ DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
 IDPS = ("authelia", "external")
+#: What the console and the chat ask the IdP for. `groups` is a scope only at
+#: some providers (Authelia, Keycloak); others carry the claim without it.
+WANTED_SCOPES = ("openid", "profile", "email", "groups")
 
 # --- presets ---------------------------------------------------------------------
 #
@@ -270,6 +273,53 @@ KEY = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 class ConfigError(ValueError):
     """An answer that would produce a deployment which cannot work."""
+
+
+# --- scopes ---------------------------------------------------------------------
+
+
+def fetch_discovery(issuer: str, timeout: float = 8.0) -> dict | None:
+    """The issuer's OIDC discovery document, or None when it cannot be read.
+
+    The public issuer URL, from this host: the back-channel address (the
+    bundled Authelia's, say) only resolves inside the compose network.
+    """
+    import urllib.request
+
+    url = issuer.rstrip("/") + "/.well-known/openid-configuration"
+    request = urllib.request.Request(url, headers={"User-Agent": "cerea-configure", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            document = json.load(response)
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def supported_scopes(discovery: dict | None) -> list | None:
+    """`scopes_supported`, or None when the document does not say."""
+    listed = (discovery or {}).get("scopes_supported")
+    if isinstance(listed, list) and listed and all(isinstance(s, str) for s in listed):
+        return listed
+    return None
+
+
+def compute_scopes(discovery: dict | None) -> tuple:
+    """(scopes to request, wanted scopes dropped), from the issuer's discovery.
+
+    The wanted set intersected with `scopes_supported`; `openid` always stays,
+    as no OIDC login works without it. No `scopes_supported` means the default.
+    """
+    listed = supported_scopes(discovery)
+    if listed is None:
+        return list(WANTED_SCOPES), []
+    scopes = [s for s in WANTED_SCOPES if s == "openid" or s in listed]
+    return scopes, [s for s in WANTED_SCOPES if s not in scopes]
+
+
+def scopes_json(scopes: str) -> str:
+    """The gateway's list-typed setting wants JSON; the chat's takes the words."""
+    return json.dumps(scopes.split(), separators=(",", ":"))
 
 
 # --- .env files ------------------------------------------------------------------
@@ -631,6 +681,7 @@ class Answers:
     oidc_chat_client_id: str | None = None
     oidc_chat_client_secret: str | None = None
     oidc_groups_claim: str | None = None
+    oidc_scopes: str | None = None
     oidc_logout_url: str | None = None
     # Who is an administrator (external IdP only; the bundled Authelia uses
     # admin_email as its bootstrap address instead).
@@ -678,11 +729,12 @@ def answers_from(values: dict) -> Answers:
     )
 
 
-def build(answers: Answers, existing: dict, template: str) -> Result:
+def build(answers: Answers, existing: dict, template: str, discovery: dict | None = None) -> Result:
     """Every value the stack reads, from the answers and what .env already holds.
 
     Pure apart from randomness: no file is read or written here, so every rule
-    is a unit test.
+    is a unit test. `discovery` is the external issuer's discovery document,
+    fetched by the caller (None: unreadable or not fetched).
     """
     fresh = not existing
     values = dict(template_defaults(template))
@@ -872,6 +924,8 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
             OIDC_CONSOLE_CLIENT_ID="pystino-console",
             OIDC_CHAT_CLIENT_ID="cerea",
             OIDC_GROUPS_CLAIM="groups",
+            # Authelia offers every scope the stack wants.
+            OIDC_SCOPES=" ".join(WANTED_SCOPES),
             OIDC_AUDIENCE="pystino-api",
             # Authelia publishes no end_session_endpoint; the chat signs out
             # through the portal's /logout, {redirect} = where to land.
@@ -911,6 +965,7 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
                 if values.get(key, "").startswith((f"{origin}/authelia", AUTHELIA_INTERNAL)):
                     values[key] = ""
             values["OIDC_KIND"] = "generic"
+        old_issuer = values.get("OIDC_ISSUER", "")
         for attr, key in (
             ("oidc_issuer", "OIDC_ISSUER"),
             ("oidc_internal_base_url", "OIDC_INTERNAL_BASE_URL"),
@@ -924,6 +979,29 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
             value = getattr(answers, attr)
             if value is not None:
                 values[key] = value.rstrip("/") if key.endswith(("ISSUER", "BASE_URL")) else value
+        # The scopes follow the issuer: asked for what it offers, so a provider
+        # that rejects an unknown scope (invalid_scope) still signs people in.
+        # Worked out when the issuer is new or no scopes were ever written, and
+        # then left alone: a hand-edited list survives a re-run.
+        if answers.oidc_scopes is not None:
+            words = answers.oidc_scopes.replace(",", " ").split()
+            if "openid" not in words:
+                raise ConfigError("--oidc-scopes must include openid")
+            values["OIDC_SCOPES"] = " ".join(dict.fromkeys(words))
+        elif idp_changed or values.get("OIDC_ISSUER") != old_issuer or "OIDC_SCOPES" not in existing:
+            scopes, dropped = compute_scopes(discovery)
+            values["OIDC_SCOPES"] = " ".join(scopes)
+            if discovery is None:
+                notes.append(
+                    "could not read the issuer's discovery document: asking for the default scopes "
+                    f"({values['OIDC_SCOPES']}); ./configure --check says whether it supports them"
+                )
+            if dropped:
+                notes.append(
+                    f"the issuer does not offer the {', '.join(dropped)} scope(s), so none is asked for "
+                    f"(requesting {values['OIDC_SCOPES']}). Group features then depend on the IdP "
+                    "putting a groups claim in its tokens anyway (see OIDC_GROUPS_CLAIM)"
+                )
         values.setdefault("OIDC_KIND", "generic")
         if idp_changed and values.get("OIDC_KIND") == "authelia":
             values["OIDC_KIND"] = "generic"
@@ -959,6 +1037,8 @@ def build(answers: Answers, existing: dict, template: str) -> Result:
                 "an external identity provider needs an admin rule: --admin-email, or "
                 "--admin-claim with --admin-claim-value"
             )
+    # The gateway's setting is a JSON list; written from the one list above.
+    values["OIDC_SCOPES_JSON"] = scopes_json(values.get("OIDC_SCOPES", ""))
     return result
 
 
@@ -1051,6 +1131,15 @@ def check_values(values: dict, report: Report) -> None:
     for key, why in RETIRED.items():
         if key in values:
             report.warnings.append(f"{key} is set but no longer read: {why}")
+    if values.get("OIDC_SCOPES"):
+        words = values["OIDC_SCOPES"].split()
+        if "openid" not in words:
+            report.errors.append("OIDC_SCOPES must include openid")
+        if values.get("OIDC_SCOPES_JSON", scopes_json(values["OIDC_SCOPES"])) != scopes_json(values["OIDC_SCOPES"]):
+            report.warnings.append(
+                "OIDC_SCOPES_JSON (the gateway's) differs from OIDC_SCOPES (the chat's): "
+                "set both with `./configure --set OIDC_SCOPES='...'`, which writes the JSON twin too"
+            )
     for key in ("PYSTINO_VERSION", "CEREA_VERSION"):
         registry = values.get(key.replace("VERSION", "REGISTRY"), "")
         if values.get(key) and registry != "local":
@@ -1197,6 +1286,34 @@ def check_values(values: dict, report: Report) -> None:
             )
 
 
+def check_scopes(values: dict, report: Report) -> None:
+    """Warn about scopes the external issuer's discovery does not list."""
+    if values.get("OIDC_KIND") == "authelia":
+        return
+    issuer = values.get("OIDC_ISSUER", "")
+    if not issuer.startswith("https://"):
+        return
+    discovery = fetch_discovery(issuer)
+    if discovery is None:
+        report.warnings.append(f"could not read {issuer}/.well-known/openid-configuration from here")
+        return
+    listed = supported_scopes(discovery)
+    if listed is None:
+        report.notes.append("the issuer's discovery lists no scopes_supported: scopes not checked")
+        return
+    asked = values.get("OIDC_SCOPES", "").split() or list(WANTED_SCOPES)
+    unsupported = [s for s in asked if s not in listed]
+    if unsupported:
+        report.warnings.append(
+            f"the issuer does not list the scope(s) {', '.join(unsupported)} in scopes_supported; some providers "
+            "refuse the sign-in (invalid_scope). Remove them: ./configure --set OIDC_SCOPES='"
+            + " ".join(s for s in asked if s in listed)
+            + "'"
+        )
+    else:
+        report.notes.append(f"the issuer offers every requested scope ({' '.join(asked)})")
+
+
 def check_host(values: dict, report: Report, *, root: Path, network: bool) -> None:
     """What needs Docker, DNS or the network."""
     version = compose_version()
@@ -1306,6 +1423,8 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
     if not (root / "proxy.d").is_dir():
         report.errors.append("proxy.d/ is missing (the proxy mounts it); restore it with git checkout proxy.d")
     check_values(values, report)
+    if network:
+        check_scopes(values, report)
     if probe_host:
         check_host(values, report, root=root, network=network)
     return report
@@ -1509,8 +1628,12 @@ def cmd_configure(args, root: Path) -> int:
         if missing:
             print(f"configure: non-interactive, and {' and '.join(missing)} not given", file=sys.stderr)
             return 2
+    discovery = None
+    issuer = (answers.oidc_issuer or existing.get("OIDC_ISSUER", "")).strip()
+    if answers.idp == "external" and answers.oidc_scopes is None and not args.offline and issuer.startswith("https://"):
+        discovery = fetch_discovery(issuer)
     try:
-        result = build(answers, existing, template)
+        result = build(answers, existing, template, discovery)
         text = render(template, result.values, HEADER)
     except ConfigError as exc:
         print(f"configure: {exc}", file=sys.stderr)
@@ -1540,7 +1663,7 @@ def cmd_configure(args, root: Path) -> int:
     print()
     print(f"  origin    {values['PUBLIC_ORIGIN']}   (TLS {values['TLS_MODE']})")
     print(f"  preset    {values['PYSTINO_PRESET']}   profiles {values['COMPOSE_PROFILES']}")
-    print(f"  identity  {values['OIDC_ISSUER']}")
+    print(f"  identity  {values['OIDC_ISSUER']}   (scopes: {values['OIDC_SCOPES']})")
     print()
     print("next:  ./configure --check  &&  docker compose up -d --wait")
     return 0
@@ -1670,6 +1793,10 @@ def cmd_set(args, root: Path) -> int:
     if not changes:
         print(".env already says so; nothing written")
         return 0
+    if "OIDC_SCOPES" in changes and "OIDC_SCOPES_JSON" not in changes:
+        # The gateway reads the JSON twin; keep it in step with the words.
+        values["OIDC_SCOPES_JSON"] = scopes_json(values.get("OIDC_SCOPES", ""))
+        changes.append("OIDC_SCOPES_JSON")
     try:
         text = render(template, values, HEADER)
     except ConfigError as exc:
@@ -1701,7 +1828,7 @@ def parser() -> argparse.ArgumentParser:
     )
     mode = p.add_argument_group("what to do (default: write .env)")
     mode.add_argument("--check", action="store_true", help="check .env and this host; change nothing")
-    mode.add_argument("--offline", action="store_true", help="with --check: skip DNS and port probes")
+    mode.add_argument("--offline", action="store_true", help="skip DNS, port and issuer probes (--check), or the issuer lookup (writing .env)")
     mode.add_argument("--set", nargs="+", metavar="KEY=VALUE", help="change values in .env, no questions")
     mode.add_argument("--unset", nargs="+", metavar="KEY", help="remove values from .env")
     mode.add_argument("--non-interactive", action="store_true", help="ask nothing; fail on a missing answer")
@@ -1739,6 +1866,8 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--oidc-chat-client-id")
     o.add_argument("--oidc-chat-client-secret")
     o.add_argument("--oidc-groups-claim")
+    o.add_argument("--oidc-scopes", help="external IdP: scopes to ask for, space- or comma-separated "
+                   "(default: openid profile email groups, minus what the issuer's discovery does not offer)")
     o.add_argument("--oidc-logout-url", help="external IdP without end_session_endpoint; {redirect} = landing")
     o.add_argument("--admin-claim", help="external IdP: a dotted claim path that can confer admin (e.g. groups)")
     o.add_argument("--admin-claim-value", help="external IdP: comma-separated values of --admin-claim that confer it")
