@@ -271,7 +271,9 @@
 			</label>
 
 			<label class="flex flex-col gap-1">
-				<span class="text-sm font-medium">Document extraction</span>
+				<span class="text-sm font-medium"
+					>Document extraction (chat uploads and knowledge bases)</span
+				>
 				{#if status.extractor_source === "env"}
 					<div
 						class="rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
@@ -301,8 +303,9 @@
 						Set with <code class="text-xs">CHAT_OCR_MODEL</code> in the environment; this deployment's
 						operator decided, not this screen.
 					{:else}
-						Every reader this account may use, including this deployment's own extractor when the
-						gateway has one. A scan needs an OCR model, which sends the document to that provider.
+						Reads PDFs and images attached in chats and added to knowledge bases. Word, Excel and
+						PowerPoint files always use this deployment's own extractor. A scan needs an OCR model,
+						which sends the document to that provider.
 					{/if}
 				</span>
 			</label>
