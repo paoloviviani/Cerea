@@ -4,7 +4,9 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
-## Unreleased
+## v0.3.11 — 2026-10-05
+
+Pins: Cerea `0.3.4`, Pystino `0.2.5`, Authelia 4.39.22.
 
 - External IdPs that reject an unknown scope (Infomaniak answers `invalid_scope`
   to `groups`) can sign in: `./configure` asks the issuer's discovery which
@@ -12,6 +14,7 @@ shipped.
   (the gateway, which was hardcoded). `./configure --check` warns about a scope
   the issuer does not list; `--oidc-scopes` sets them by hand. The bundled
   Authelia is unchanged.
+- Cerea 0.3.4: galopin enrollment asks only for the scopes the identity provider advertises, and refuses an enrollment that got no refresh token.
 
 ## v0.3.10 — 2026-10-04
 
