@@ -63,7 +63,7 @@ For scripted installs, every question has a flag:
 
 | Preset       | Runs                                                           | For |
 |--------------|----------------------------------------------------------------|-----|
-| `homelab`    | gateway, console, chat; no ledger or quotas                    | one person or a family |
+| `homelab`    | gateway, console, chat, local document reader; no ledger or quotas | one person or a family |
 | `team`       | homelab + ledger, quotas, pattern-based PII redaction          | a team (the default) |
 | `enterprise` | team + NER redaction (built locally) and headless-browser fetch | an organisation |
 | `satellite`  | the chat only, against a central Pystino and its IdP           | a second site |
@@ -538,6 +538,11 @@ link-by-email on — how many existing accounts a first sign-in would link to.
      surviving account at their next sign-in, or within a minute of their
      next activity.
 5. **Each person with an agent machine re-enrolls it.** Their `/chat/code` shows **Re-enroll this machine: the identity provider changed** with the command to run on that machine; tell them before you switch.
+6. **The old provider stays listed.** The console's Settings screen keeps it as
+   a disabled "previous" row, so people who signed in there can be linked
+   back. If nobody ever signed in through it, **Remove** on that row deletes
+   it; if people did, the row says how many and stays. Removing it loses
+   nothing: pointing `.env` at that issuer again creates it afresh.
 
 ### Merging accounts
 

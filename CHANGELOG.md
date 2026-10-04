@@ -4,6 +4,35 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.13 — 2026-10-05
+
+Pins: Cerea `0.3.6`, Pystino `0.2.6`, Authelia 4.39.22.
+
+- **Documents.** Old Word `.doc` files are read, even saved as `.docx`; Word,
+  Excel and PowerPoint always go to the local reader; a PDF whose OCR model
+  fails (a rate limit, say) is read by the local reader; the chat says why a
+  file could not be read instead of "no readable text".
+- **Scanned PDFs.** Pages without text become images, stored with the
+  conversation and sent to models that read images (`CHAT_PDF_IMAGE_PAGES`,
+  default 20, 0 turns it off).
+- **The `homelab` preset runs the local document reader** (the new
+  `documents` profile), so Office files are read there too. Re-run
+  `./configure` on a homelab install to pick it up.
+- **Knowledge bases index again.** They counted as ready only with a stored
+  flag the Knowledge screen never set; now the embedding model decides. The
+  extractor change no longer asks for a reason, and the setting says it covers
+  chat uploads too.
+- **Storage.** Deleting a conversation deletes its shared copies; deleting a
+  project returns its chats to the list; "delete all" includes project chats;
+  a daily sweep removes orphaned files after 24h. The gateway clears stored
+  reply text after `GATEWAY_TRANSCRIPT_RETENTION_HOURS` (default 24).
+- **Chat.** The current date and time in your timezone in every prompt, and a
+  marker on a message sent after a long gap; long user messages fold behind
+  "Show more"; the mobile terminal key bar is always shown and stays above the
+  keyboard.
+- **Identity.** The console can remove a previous identity provider nobody
+  signed in through (README, Switching the identity provider).
+
 ## v0.3.12 — 2026-10-05
 
 Pins: Cerea `0.3.5`, Pystino `0.2.5`, Authelia 4.39.22.

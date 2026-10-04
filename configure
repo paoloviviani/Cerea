@@ -98,10 +98,13 @@ PRESETS = {
     for p in (
         Preset(
             "homelab",
-            "gateway, console and chat; no ledger, quotas or redaction",
-            ("gateway", "chat"),
+            "gateway, console and chat with the local document reader; no ledger, quotas or redaction",
+            ("gateway", "chat", "documents"),
             {
                 **_NO_GATEWAY_FEATURES,
+                # The local reader: Word, Excel and PowerPoint files are only
+                # ever read by it, so a chat without it cannot read them.
+                "GATEWAY_EXTRACTOR__ENDPOINT": "http://extractor:8080",
                 "FETCH_BACKEND": "direct",
                 **_CHAT_ON,
                 # No ledger: nothing for the Usage tab to read.
@@ -170,7 +173,7 @@ PRESETS = {
         ),
     )
 }
-PROFILES = ("gateway", "chat", "authelia", "redaction", "fetch")
+PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch")
 
 #: configuration.yml's template quotes these with Authelia's own `msquote`,
 #: which does not escape an embedded quote (an unescaped `'` still ends a

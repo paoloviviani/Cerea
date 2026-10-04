@@ -10,7 +10,7 @@
 # dev/build.sh builds the same images from source and points .env at them.
 #
 # Add-ons are compose profiles chosen by COMPOSE_PROFILES in .env: gateway,
-# chat, authelia, redaction, fetch. Profiles select services; they never change
+# chat, authelia, redaction, documents, fetch. Profiles select services; they never change
 # what a service is.
 #
 # Caddy and Authelia run their stock images. Their configuration is the
@@ -25,9 +25,9 @@ name: ${COMPOSE_PROJECT_NAME:-cerea}
 
 # The pins. tools/pin rewrites the defaults after `:-` on each release; .env
 # overrides them only for local builds (dev/build.sh) or a private registry.
-x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.2.5}}
-x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.2.5}-pattern}
-x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.3.5}}
+x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.2.6}}
+x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.2.6}-pattern}
+x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.3.6}}
 
 x-database-url: &database-url postgresql+asyncpg://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-gateway}
 
@@ -196,6 +196,7 @@ services:
       GATEWAY_REDACTION__LANGUAGE: ${REDACTION_LANGUAGE:-en}
       GATEWAY_REDACTION__FAIL_OPEN: "false"
       GATEWAY_EXTRACTOR__ENDPOINT: ${GATEWAY_EXTRACTOR__ENDPOINT:-}
+      GATEWAY_TRANSCRIPT_RETENTION_HOURS: ${GATEWAY_TRANSCRIPT_RETENTION_HOURS:-24}
       # Identity: OIDC only. The env seeds the first provider row;
       # after that the console owns it. INTERNAL_BASE_URL is the back-channel:
       # the gateway reaches the bundled Authelia at http://authelia:9091, never
@@ -401,6 +402,7 @@ services:
       CHAT_OCR_MODEL: ${CHAT_OCR_MODEL:-}
       CHAT_OCR_BASE_URL: ${CHAT_OCR_BASE_URL:-}
       CHAT_OCR_API_KEY: ${CHAT_OCR_API_KEY:-}
+      CHAT_PDF_IMAGE_PAGES: ${CHAT_PDF_IMAGE_PAGES:-20}
       # The agent-machine component: galopin, the machine agent, dials
       # wss://<origin>/chat/api/v2/code/machine — the /chat route the proxy
       # already has, so no extra service, port or route — and authenticates
@@ -472,8 +474,11 @@ services:
       retries: 5
       start_period: 180s
 
+  # The local document reader (markitdown, antiword, page images). Its own
+  # profile so a deployment without redaction still reads Office files; the
+  # redaction profile brings it too.
   extractor:
-    profiles: [redaction]
+    profiles: [documents, redaction]
     image: *redaction-image
     restart: unless-stopped
     environment:

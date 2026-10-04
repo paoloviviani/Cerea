@@ -391,7 +391,7 @@ class TestReRun(unittest.TestCase):
         self.assertEqual(v["FETCH_BACKEND"], "playwright")
         self.assertEqual(v["ACME_EMAIL"], "certs@example.org")
         v = build(existing=first, preset="homelab").values
-        self.assertEqual(v["COMPOSE_PROFILES"], "gateway,chat,authelia")
+        self.assertEqual(v["COMPOSE_PROFILES"], "gateway,chat,authelia,documents")
         self.assertEqual(v["FETCH_BACKEND"], "direct")
 
     def test_a_pystino_only_env_moves_over(self):
