@@ -20,4 +20,12 @@ export type SharedConversation = Pick<
 	 * left unfixed.
 	 */
 	userId?: User["_id"];
+	/**
+	 * The conversation this link was made from, so that deleting the
+	 * conversation can delete the link and its copied files with it
+	 * (`conversationStorage.ts`). Absent on links made before it was kept;
+	 * `backfillSharedConversationIds` fills those in at boot where exactly one
+	 * conversation of the same owner carries the share's root message.
+	 */
+	conversationId?: Conversation["_id"];
 };

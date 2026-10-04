@@ -26,6 +26,12 @@ import { logger } from "$lib/server/logger";
 import type { Conversation } from "$lib/types/Conversation";
 
 /**
+ * What `metadata.conversation` holds: a conversation's ObjectId, or the
+ * nanoid of a shared copy of one (`routes/conversation/[id]/share`).
+ */
+export type OwnerTag = Conversation["_id"] | string;
+
+/**
  * Delete every stored attachment — bytes and extracted text alike — belonging
  * to a conversation or set of conversations.
  *
@@ -34,7 +40,7 @@ import type { Conversation } from "$lib/types/Conversation";
  * same orphaning this function exists to end.
  */
 export async function deleteConversationAttachments(
-	conversationId: Conversation["_id"] | Conversation["_id"][]
+	conversationId: OwnerTag | OwnerTag[]
 ): Promise<void> {
 	const ids = Array.isArray(conversationId) ? conversationId : [conversationId];
 	if (ids.length === 0) return;

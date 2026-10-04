@@ -49,10 +49,11 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 export const DELETE: RequestHandler = async ({ locals }) => {
 	requireAuth(locals);
 
-	// Deletes loose/standalone conversations only. Chats that belong to a project
-	// (`projectId` is set) are part of that project's standing context and
-	// transcript, and are managed or deleted from within the project itself.
-	const filter = { ...authCondition(locals), projectId: { $exists: false } };
+	// Every conversation of the caller's, project chats included, as the v1
+	// route has always done: "delete all" that left some behind, attachments
+	// and indexed transcripts with them, would not mean what it says. The
+	// dialog says so (`DeleteAllConversationsModal`).
+	const filter = { ...authCondition(locals) };
 	const ids = await collections.conversations
 		.find(filter)
 		.project<{ _id: Conversation["_id"] }>({ _id: 1 })
