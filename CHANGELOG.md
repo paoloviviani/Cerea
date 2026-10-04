@@ -6,7 +6,7 @@ shipped.
 
 ## Unreleased
 
-- Relicensed from EUPL-1.2 to Apache-2.0. The licence file is now `LICENSE`;
+- Relicensed to Apache-2.0. The licence file is now `LICENSE`;
   earlier releases keep the licence they were published under.
 
 ## v0.3.9 — 2026-10-04
