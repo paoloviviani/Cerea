@@ -154,9 +154,13 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	// text, or the client loops forever.
 	// Only results after the latest user message count: an earlier turn's
 	// tool call must not stop a later prompt from making its own.
+	// A user message straight after a tool message is not a prompt: the
+	// client carries a tool's image back to the model that way (opencode's
+	// provider SDK does, for a `read` of a PNG). Counting it as the latest
+	// prompt would hide the tool result, and the client would loop forever.
 	lastUser := -1
 	for i, m := range req.Messages {
-		if m["role"] == "user" {
+		if m["role"] == "user" && (i == 0 || req.Messages[i-1]["role"] != "tool") {
 			lastUser = i
 		}
 	}
