@@ -42,6 +42,15 @@
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconChevronDown from "~icons/carbon/chevron-down";
 	import IconCheck from "~icons/carbon/checkmark";
+	import IconShieldX from "~icons/lucide/shield-x";
+	import IconShieldQuestion from "~icons/lucide/shield-question";
+	import IconShieldCheck from "~icons/lucide/shield-check";
+	import {
+		composerPillClass,
+		PILL_COMPACT,
+		PILL_PRESSED,
+		PILL_REST,
+	} from "$lib/components/composerPill";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import {
@@ -619,22 +628,30 @@
 	/** The selector draws only with the machine's word to show (an older
 	 * galopin has no `permissionMode`), and never on a stale sign-in: the
 	 * server refuses the call anyway. */
-	const PERMISSION_SEGMENTS: Array<{ mode: PermissionMode; label: string; title: string }> = [
+	const PERMISSION_SEGMENTS: Array<{
+		mode: PermissionMode;
+		label: string;
+		title: string;
+		icon: typeof IconShieldX;
+	}> = [
 		{
 			mode: "deny",
 			label: "Deny",
+			icon: IconShieldX,
 			title:
 				"Edits, commands and fetches are refused without asking. Reading still works. Your exceptions are kept, but blocked.",
 		},
 		{
 			mode: "ask",
 			label: "Ask",
+			icon: IconShieldQuestion,
 			title:
 				"Edits, commands and fetches ask first. Reading is allowed. Your exceptions for this session run without asking.",
 		},
 		{
 			mode: "allow",
 			label: "Allow",
+			icon: IconShieldCheck,
 			title: `Edits, commands and fetches run without asking, up to this machine's limits. Still asks: writing outside the project folder, an agent that is stuck repeating itself, and a new subagent's first turn. ${FIRST_TURN_HINT}`,
 		},
 	];
@@ -724,14 +741,23 @@
 		}
 	}
 
-	// The chat composer's own pill classes, always in the blue tone: these
-	// are pickers showing what the agent is set to, not toggles of state.
-	// Mobile shrinks height, padding and gap (max-sm:) so four-plus pills fit
-	// one unwrapped, horizontally-scrolling row under 390px; sm and up is
-	// unchanged from before this pass.
-	const pillClass =
-		"flex h-7 max-sm:h-6 flex-none items-center gap-1 max-sm:gap-0.5 rounded-full border px-2.5 max-sm:px-1.5 text-xs font-medium transition-colors border-blue-600/30 bg-blue-50 text-blue-700 dark:border-blue-700/60 dark:bg-blue-900/30 dark:text-blue-300 disabled:opacity-60";
-	const chevronClass = "size-3 max-sm:size-2.5 opacity-70";
+	// The pickers wear the chat composer's own pill classes (`composerPill.ts`,
+	// shared with `TogglePill`): the same height, padding, border and
+	// resting gray, with the same phone treatment. Blue is reserved for the
+	// active choice (the selector's selected segment), as in chat.
+	const pillClass = composerPillClass({ picker: true });
+	// The selector's segments: a pressed toggle's own blue when selected.
+	// Under `sm` each is the compact icon circle, label kept for a screen
+	// reader, exactly as chat's compact toggles.
+	const segmentClass = (selected: boolean) =>
+		[
+			"flex h-full flex-none items-center gap-1 rounded-full border border-transparent px-2.5 text-xs font-medium transition-colors disabled:cursor-default",
+			PILL_COMPACT,
+			selected
+				? PILL_PRESSED
+				: "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200",
+		].join(" ");
+	const chevronClass = "size-3 opacity-70";
 	const menuContentClass =
 		"z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100";
 	const menuItemClass =
@@ -791,7 +817,7 @@
 							disabled={applying === "mode"}
 							title="How much the agent may do on its own — the machine's modes, as the backend defines them"
 						>
-							<span class="max-sm:max-w-12 max-sm:truncate">{modeLabel}</span>
+							<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
 							<IconChevronDown class={chevronClass} />
 						</DropdownMenu.Trigger>
 						<DropdownMenu.Portal>
@@ -853,7 +879,7 @@
 							title={isSubagent
 								? "A subagent follows the main session's permission setting."
 								: "What this session does about a tool call it has no rule for."}
-							class="flex h-7 flex-none items-center rounded-full border border-blue-600/30 bg-blue-50/60 p-0.5 text-xs font-medium max-sm:h-6 dark:border-blue-700/60 dark:bg-blue-900/20"
+							class="flex h-7 flex-none items-center rounded-full border p-0.5 max-sm:h-8 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 {PILL_REST}"
 						>
 							{#each PERMISSION_SEGMENTS as segment (segment.mode)}
 								<button
@@ -865,16 +891,14 @@
 									data-testid="permission-mode-{segment.mode}"
 									onclick={() => void applyPermissionMode(segment.mode)}
 									class={[
-										"h-full rounded-full px-2.5 transition-colors disabled:cursor-default max-sm:px-1.5",
-										permissionMode === segment.mode
-											? "bg-blue-100 text-blue-700 dark:bg-blue-800/60 dark:text-blue-200"
-											: "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200",
+										segmentClass(permissionMode === segment.mode),
 										(isSubagent || applying !== null) && permissionMode !== segment.mode
 											? "opacity-60"
 											: "",
 									]}
 								>
-									{segment.label}
+									<segment.icon class="hidden size-3.5 max-sm:block" />
+									<span class="max-sm:sr-only">{segment.label}</span>
 								</button>
 							{/each}
 						</div>
