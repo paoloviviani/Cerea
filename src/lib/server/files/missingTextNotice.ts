@@ -24,7 +24,8 @@ export function missingTextNotice(error: MessageFile["extractionError"]): string
 		case "no-text":
 			return (
 				`No text could be read from this document: it has no text layer. ` +
-				`${say} If it is a scan, it needs an OCR model rather than the built-in extractor.`
+				`${say} If it is a scan, it needs an OCR reader, or a model that reads images, ` +
+				`rather than the built-in text extractor: tell the person to choose one.`
 			);
 		case "empty":
 			return `This document was read but no text was found in it. ${reason} ${say}`;

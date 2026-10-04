@@ -25,7 +25,12 @@ const { readConfigMock, gatewayGetMock, gatewayPostMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("$lib/server/config", () => ({
-	config: { CHAT_OCR_MODEL: undefined, CHAT_OCR_BASE_URL: undefined, CHAT_OCR_API_KEY: undefined },
+	config: {
+		CHAT_OCR_MODEL: undefined,
+		CHAT_OCR_BASE_URL: undefined,
+		CHAT_OCR_API_KEY: undefined,
+		CHAT_PDF_IMAGE_PAGES: undefined,
+	},
 }));
 
 vi.mock("$lib/server/knowledge/service", () => ({ readConfig: readConfigMock }));
@@ -757,5 +762,209 @@ describe("documentMime: a container whose name says Office is a candidate", () =
 	it("keeps an already-known type", () => {
 		expect(documentMime("application/pdf", "weird.docx")).toBe("application/pdf");
 		expect(documentMime(DOCX, "m.docx")).toBe(DOCX);
+	});
+});
+
+describe("a PDF's scanned pages as page images", () => {
+	const JPEG = Buffer.from("fake-jpeg-bytes").toString("base64");
+	const img = (page: number, mime = "image/jpeg") => ({ page, mime, data: JPEG });
+	// A four-page PDF: text, scan, text, scan.
+	const mixed = (extra: Record<string, unknown> = {}) => ({
+		pages: [
+			{ index: 0, markdown: "Page one has plenty of real text on it." },
+			{ index: 1, markdown: "" },
+			{ index: 2, markdown: "Page three also has plenty of real text." },
+			{ index: 3, markdown: "" },
+		],
+		usage_info: { pages_processed: 4 },
+		page_images: [img(4), img(2)],
+		page_count: 4,
+		truncated: false,
+		...extra,
+	});
+	const ask = (pageImages: boolean | undefined = true) =>
+		extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "scan.pdf",
+			token: "t",
+			pageImages,
+		});
+	const setLimit = (value: string | undefined) =>
+		((config as unknown as { CHAT_PDF_IMAGE_PAGES?: string }).CHAT_PDF_IMAGE_PAGES = value);
+
+	beforeEach(() => {
+		setLimit(undefined);
+		gatewayGetMock.mockResolvedValue(MODELS);
+	});
+
+	it("asks the local reader for pages whatever model the caller has, and puts text and scans back in page order", async () => {
+		gatewayPostMock.mockResolvedValue(mixed());
+
+		const answer = await ask();
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({
+			model: "markitdown",
+			page_images: { max_pages: 20, long_side: 1280 },
+		});
+		expect(answer.ok).toBe(true);
+		if (!answer.ok) return;
+		expect(answer.text).toBe(
+			[
+				"Page one has plenty of real text on it.",
+				"[[cerea:scan-page:2]]",
+				"Page three also has plenty of real text.",
+				"[[cerea:scan-page:4]]",
+			].join("\n\n")
+		);
+		expect(answer.scan?.images.map((image) => image.page)).toEqual([2, 4]);
+		expect(answer.scan).toMatchObject({ pageCount: 4, scannedTotal: 2, truncated: false });
+		expect(answer.scan?.images[0].bytes.toString()).toBe("fake-jpeg-bytes");
+	});
+
+	it("a fully scanned PDF is text-less but still a success, with every page an image", async () => {
+		gatewayPostMock.mockResolvedValue({
+			pages: [
+				{ index: 0, markdown: "" },
+				{ index: 1, markdown: "" },
+			],
+			page_images: [img(1), img(2)],
+			page_count: 2,
+			truncated: false,
+		});
+
+		const answer = await ask();
+
+		expect(answer).toMatchObject({
+			ok: true,
+			text: "[[cerea:scan-page:1]]\n\n[[cerea:scan-page:2]]",
+			scan: { scannedTotal: 2 },
+		});
+	});
+
+	it("says which scan pages were not read when the reader hit its limit", async () => {
+		gatewayPostMock.mockResolvedValue({
+			pages: [
+				{ index: 0, markdown: "" },
+				{ index: 1, markdown: "" },
+				{ index: 2, markdown: "" },
+			],
+			page_images: [img(1), img(2)],
+			page_count: 3,
+			truncated: true,
+		});
+
+		const answer = await ask();
+
+		if (!answer.ok) throw new Error("expected success");
+		expect(answer.text).toContain("Page 3 is a scan that was not read");
+		expect(answer.scan).toMatchObject({ pageCount: 3, scannedTotal: 3, truncated: true });
+		expect(answer.scan?.images).toHaveLength(2);
+	});
+
+	it("keeps only well-formed images, each page once, at most the limit", async () => {
+		setLimit("3");
+		gatewayPostMock.mockResolvedValue({
+			pages: [],
+			page_images: [
+				img(1, "image/gif"),
+				{ page: 2, mime: "image/jpeg" },
+				{ page: 3, mime: "image/jpeg", data: "" },
+				{ page: 0, mime: "image/jpeg", data: JPEG },
+				img(4),
+				img(4),
+				img(5),
+				img(6),
+				img(7),
+			],
+			page_count: 7,
+		});
+
+		const answer = await ask();
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ page_images: { max_pages: 3 } });
+		if (!answer.ok) throw new Error("expected success");
+		expect(answer.scan?.images.map((image) => image.page)).toEqual([4, 5, 6]);
+	});
+
+	it("CHAT_PDF_IMAGE_PAGES=0 turns it off: no request for pages, the old no-text answer", async () => {
+		setLimit("0");
+		gatewayPostMock.mockResolvedValue({ pages: [{ markdown: "" }] });
+
+		const answer = await ask();
+
+		expect(gatewayPostMock.mock.calls[0][2]).not.toHaveProperty("page_images");
+		expect(answer).toMatchObject({ ok: false, kind: "no-text" });
+	});
+
+	it("an unreadable setting falls back to 20, and a huge one is clamped", async () => {
+		gatewayPostMock.mockResolvedValue({ pages: [{ markdown: "" }] });
+		setLimit("lots");
+		await ask();
+		setLimit("500");
+		await ask();
+		expect(gatewayPostMock.mock.calls[0][2].page_images.max_pages).toBe(20);
+		expect(gatewayPostMock.mock.calls[1][2].page_images.max_pages).toBe(50);
+	});
+
+	it("never asks a remote OCR model for pages", async () => {
+		setEnvModel("mistral-ocr-4.1");
+		gatewayPostMock.mockResolvedValue({ pages: [{ markdown: "" }] });
+
+		const answer = await ask();
+
+		// The remote model itself is never asked for pages (its empty answer then
+		// sends the PDF to the local reader, which is: see the fallback test below).
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "mistral-ocr-4.1" });
+		expect(gatewayPostMock.mock.calls[0][2]).not.toHaveProperty("page_images");
+		expect(answer).toMatchObject({ ok: false, kind: "empty" });
+	});
+
+	it("asks only when the caller can use the pages: not for a knowledge base's text", async () => {
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		await ask(false);
+		await ask(undefined as never);
+		// `undefined` defaults to false in the options object, `ask` above defaults to true.
+		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
+		expect(gatewayPostMock.mock.calls[0][2]).not.toHaveProperty("page_images");
+		expect(gatewayPostMock.mock.calls[2][2]).not.toHaveProperty("page_images");
+	});
+
+	it("a PDF whose pages all have text is the ordinary answer, whatever was asked", async () => {
+		gatewayPostMock.mockResolvedValue({ ...OCR_OK, page_images: [] });
+
+		const answer = await ask();
+
+		expect(answer).toMatchObject({ ok: true, text: "page one text" });
+		expect(answer.ok && answer.scan).toBeFalsy();
+	});
+
+	it("the local reader reached as a fallback is asked for pages too, under the same rules", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockImplementation(
+			async (_token: string, _path: string, body: { model: string }) => {
+				if (body.model === "mistral-ocr-4.1") throw new GatewayCallFailed(429, "rate limited");
+				return mixed();
+			}
+		);
+
+		const answer = await ask();
+
+		const calls = gatewayPostMock.mock.calls.map((call) => call[2]);
+		// The remote model is never asked for pages; the local one is.
+		expect(calls[0]).toMatchObject({ model: "mistral-ocr-4.1" });
+		expect(calls[0]).not.toHaveProperty("page_images");
+		expect(calls[1]).toMatchObject({ model: "markitdown", page_images: { max_pages: 20 } });
+		expect(answer.ok && answer.scan?.images.map((image) => image.page)).toEqual([2, 4]);
+
+		// And not when the caller cannot use pages, or the setting is 0.
+		gatewayPostMock.mockClear();
+		await ask(false);
+		expect(gatewayPostMock.mock.calls[1][2]).not.toHaveProperty("page_images");
+		gatewayPostMock.mockClear();
+		setLimit("0");
+		await ask();
+		expect(gatewayPostMock.mock.calls[1][2]).not.toHaveProperty("page_images");
 	});
 });
