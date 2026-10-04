@@ -4,6 +4,20 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.6 — 2026-10-04
+
+Pins unchanged from v0.3.5. Documentation and `.gitignore` only; no restart
+needed.
+
+### Deployment
+- **Your own services go in `compose.override.yaml`**, which Compose merges
+  automatically and git now ignores, so `git pull` and `./configure` never
+  touch it. The README's new "Adding your own services" section says which
+  file belongs to whom, with a worked example: a NetBird client in the
+  stack, the proxy in its network namespace, and no port published on the
+  host. Proven on a throwaway stack with a stand-in for the NetBird client,
+  through to a full sign-in.
+
 ## v0.3.5 — 2026-10-04
 
 Pins: Cerea `sha-77d49f6` (unchanged, v0.3.3), Pystino `sha-39c4d51` (Pystino
