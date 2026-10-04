@@ -4,6 +4,22 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## Unreleased
+
+### Deployment
+- **Restic backups, as an override.** `tools/backup/` ships a `backup`
+  service for `compose.override.yaml`: on a cron schedule it takes `.env`, a
+  `pg_dumpall`, a `mongodump` and the two Authelia volumes in one pass (over
+  the stack's network: no Docker socket, read-only mounts, the dumps in RAM)
+  and stores them as one encrypted restic snapshot, on any restic backend or
+  through rclone, configured by `RESTIC_*` variables in `.env`. Retention,
+  `restic init` on first use, a periodic `restic check`, a healthcheck, and
+  a `restore` command. README: "Example: backups with restic".
+- **README, Backup and restore:** the manual backup tarred the Authelia
+  volumes under `c/` and `d/` while the restore expected `authelia-config/`
+  and `authelia-data/`; the backup now writes what the restore reads. Volume
+  names take the project name (`P=`).
+
 ## v0.3.6 — 2026-10-04
 
 Pins unchanged from v0.3.5. Documentation and `.gitignore` only; no restart
