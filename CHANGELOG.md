@@ -4,6 +4,11 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## Unreleased
+
+- Relicensed to Apache-2.0. The licence file is now `LICENSE`;
+  earlier releases keep the licence they were published under.
+
 ## v0.3.9 — 2026-10-04
 
 Pins: Cerea `0.3.3`, Pystino `0.2.4`, Authelia 4.39.22.
