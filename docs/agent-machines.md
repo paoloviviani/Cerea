@@ -856,6 +856,24 @@ The default shim port is **41871**, bumped upward while occupied and then
 recorded in the config, so `enroll`'s own loopback callback listener and the
 shim never collide.
 
+### Which scopes `enroll` asks for
+
+`enroll` asks for `openid profile email groups offline_access`, narrowed to
+what the issuer's discovery lists in `scopes_supported` (`openid` always stays;
+without a list, all five are asked for). Some providers, Infomaniak among them,
+answer `invalid_scope` to a scope they do not list, and publish `groups` as a
+claim only. `enroll` prints a note when it leaves something out.
+
+`offline_access` is how most IdPs are told to issue a refresh token. One that
+does not list it but lists the `refresh_token` grant is asked without it, and
+`enroll` checks the token response: **no refresh token means no enrollment**.
+It stops with "the IdP issued no refresh token … so this machine could not
+stay signed in" rather than write a machine that would lose its sign-in
+within the hour. Enable refresh tokens for the `opencode-enrollment` client at
+the IdP, then enroll again. Without a `groups` scope, billing by group needs
+the IdP to put a groups claim in its tokens anyway (the gateway's
+`--oidc-groups-claim`).
+
 ### When the refresh token dies
 
 A gateway or IdP redeploy can revoke the refresh token the shim holds. That
