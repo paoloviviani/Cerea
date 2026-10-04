@@ -623,6 +623,8 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 				orphanFiles: 0,
 				orphanTranscripts: 0,
 				orphanDocuments: 0,
+				orphanAttachments: 0,
+				orphanShares: 0,
 			});
 		});
 

@@ -18,6 +18,8 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
+import type { Conversation } from "$lib/types/Conversation";
+import { logger } from "$lib/server/logger";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import {
 	knowledgeBaseId,
@@ -83,6 +85,27 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 		const base = await collections.vectorStores.findOne({ _id: new ObjectId(memoryId) });
 		if (base?.ownerId.equals(access.project.userId)) {
 			await deleteDerived({ storeIds: base._id, dropStores: true });
+		}
+	}
+	// Its chats are kept, and go back to the ordinary list, as the dialog says:
+	// without this they kept a `projectId` naming nothing, which no list shows.
+	// Their transcripts leave the project's memory, though — a chat that is no
+	// longer in the project must stop surfacing in its retrieval
+	// (`conversationStorage.ts`'s note on moving a conversation out).
+	const conversationIds = await collections.conversations
+		.find({ projectId: access.project._id })
+		.project<{ _id: Conversation["_id"] }>({ _id: 1 })
+		.toArray()
+		.then((rows) => rows.map((row) => row._id));
+	if (conversationIds.length > 0) {
+		await collections.conversations.updateMany(
+			{ _id: { $in: conversationIds } },
+			{ $unset: { projectId: "" } }
+		);
+		for (const conversationId of conversationIds) {
+			await deleteDerived({ conversationId }).catch((err) =>
+				logger.warn({ err, conversationId }, "project_delete_transcript_cleanup_failed")
+			);
 		}
 	}
 	await collections.projects.deleteOne({ _id: access.project._id });

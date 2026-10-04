@@ -1,6 +1,7 @@
 import type { Migration } from ".";
 import { collections } from "$lib/server/database";
 import { Collection, FindCursor, ObjectId } from "mongodb";
+import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { logger } from "$lib/server/logger";
 import type { Conversation } from "$lib/types/Conversation";
 
@@ -10,6 +11,9 @@ const DELETE_THRESHOLD_MS = 60 * 60 * 1000;
 async function deleteBatch(conversations: Collection<Conversation>, ids: ObjectId[]) {
 	if (ids.length === 0) return 0;
 	const deleteResult = await conversations.deleteMany({ _id: { $in: ids } });
+	// What the conversations stored elsewhere goes with them; this used to
+	// leave their files behind (the orphan sweep now catches those from before).
+	await deleteConversationStorage(ids);
 	return deleteResult.deletedCount;
 }
 

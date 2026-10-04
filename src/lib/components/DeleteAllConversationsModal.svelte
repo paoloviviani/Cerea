@@ -50,8 +50,8 @@
 			</div>
 
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				Are you sure you want to delete all conversations? Chats inside projects will be kept. This
-				action cannot be undone.
+				Are you sure you want to delete all conversations? Chats inside projects are deleted too.
+				This action cannot be undone.
 			</p>
 
 			<div class="flex items-center justify-end gap-2">
