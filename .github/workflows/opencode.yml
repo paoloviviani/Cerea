@@ -17,7 +17,7 @@ name: opencode
 
 on:
   push:
-    branches: [main, ci/opencode-pipeline] # TEMP-PROOF: the proof branch
+    branches: [main]
     paths:
       - "agent/**"
       - ".github/workflows/opencode.yml"
@@ -56,8 +56,7 @@ jobs:
 
   latest:
     # not on a push (the pinned job's), only the daily schedule among schedules
-    # TEMP-PROOF: also on a push (the proof branch)
-    if: github.event_name != 'schedule' || github.event.schedule == '43 5 * * *'
+    if: github.event_name != 'push' && (github.event_name != 'schedule' || github.event.schedule == '43 5 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
