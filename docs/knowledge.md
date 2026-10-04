@@ -18,6 +18,7 @@ Create and fill a base from the **Workspace** page, under **Knowledge**
 search actually uses.
 
 - A **scanned PDF** (pictures of pages, with no selectable text) comes out empty unless your administrator has chosen an OCR model. Open the document to check: if its text is empty, ask them.
+  In a **chat**, a scan is also handled by the model: see [Attachments](chat.md#attachments).
 - A file that **cannot be read** says why, in the same words to you and to the assistant: no reader is configured for that format, the reader refused the file (and what it said), the reader could not be reached, or the file holds no text. Only a PDF with no text layer is called a scan.
 - Your bases are **yours to own and to share**. Sharing a base lets somebody
   read it; only you can change it.

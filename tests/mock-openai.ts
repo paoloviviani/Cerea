@@ -31,6 +31,10 @@ export const KNOWLEDGE_MODELS_FIXTURE = {
 	],
 };
 
+/** An 8x8 red JPEG: what the mock extractor renders a scanned page as. */
+const SCAN_PAGE_JPEG =
+	"/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAgDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABgf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCAAHlhf//Z";
+
 /** A tool call the upstream asks the app to perform. */
 export interface ToolCallSpec {
 	id: string;
@@ -294,6 +298,42 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				is_admin: true,
 				groups: [],
 				default_billing_group: null,
+			});
+			return;
+		}
+
+		// ── Document reading — Pystino's `POST /v1/ocr`, per the amended contract.
+		// A PDF is read page by page: pages with text come back as text in `pages`
+		// (0-based `index`), pages without as `page_images` (1-based `page`) when
+		// the request asked for them. The mock's PDF has three pages: text, scan,
+		// scan. Not asked for pages, the scans are simply empty pages.
+		if (url.pathname === "/v1/ocr" && req.method === "POST") {
+			const body = JSON.parse((await readBody(req)) || "{}") as {
+				page_images?: { max_pages?: number; long_side?: number };
+			};
+			recorded.push({
+				method: "POST",
+				path: url.pathname,
+				conversationId,
+				stream: false,
+				body: body as Record<string, unknown>,
+				at: Date.now(),
+			});
+			const pages = [
+				{ index: 0, markdown: "Page one of the mock PDF has real text on it, plenty of it." },
+				{ index: 1, markdown: "" },
+				{ index: 2, markdown: "" },
+			];
+			if (!body.page_images) {
+				json(res, 200, { pages, usage_info: { pages_processed: 3 } });
+				return;
+			}
+			json(res, 200, {
+				pages,
+				usage_info: { pages_processed: 3 },
+				page_images: [2, 3].map((page) => ({ page, mime: "image/jpeg", data: SCAN_PAGE_JPEG })),
+				page_count: 3,
+				truncated: false,
 			});
 			return;
 		}

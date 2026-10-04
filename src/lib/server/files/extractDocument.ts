@@ -164,12 +164,131 @@ const DIRECT_OCR_MIME_ALLOWLIST = ["application/pdf"] as const;
 const DIRECT_OCR_MAX_BYTES = 10 * 1024 * 1024;
 
 interface OcrPage {
+	/** 0-based page number. */
+	index?: number;
 	markdown?: string;
 }
 
 interface OcrResponse {
 	pages?: OcrPage[];
 	usage_info?: { pages_processed?: number };
+	/**
+	 * Only when asked for, and only for a PDF with pages that have no text of
+	 * their own: those pages, rendered (1-based `page`). The other pages come
+	 * back as text in `pages`, as they always have.
+	 */
+	page_images?: { page?: number; mime?: string; data?: string }[];
+	page_count?: number;
+	/** More pages needed an image than the request allowed. */
+	truncated?: boolean;
+}
+
+/** Page images asked for per PDF when `CHAT_PDF_IMAGE_PAGES` is unset. */
+export const PDF_IMAGE_PAGES_DEFAULT = 20;
+/** The gateway clamps the request to this; asking for more would only be refused. */
+const PDF_IMAGE_PAGES_CEILING = 50;
+/** Long side, in pixels, of a rendered page; the gateway clamps it to 2048. */
+export const PAGE_IMAGE_LONG_SIDE = 1280;
+/** What one rendered page may weigh, decoded. The reader caps the total; this is the belt. */
+const PAGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const PAGE_IMAGE_MIMES = new Set(["image/jpeg", "image/png"]);
+
+/**
+ * How many image pages to ask the local reader for: `CHAT_PDF_IMAGE_PAGES`,
+ * 20 when unset or unreadable, and 0 — off, the old behaviour — when set to 0.
+ */
+export function pdfImagePageLimit(): number {
+	const raw = config.CHAT_PDF_IMAGE_PAGES?.toString().trim();
+	if (!raw) return PDF_IMAGE_PAGES_DEFAULT;
+	const n = Number(raw);
+	if (!Number.isInteger(n) || n < 0) return PDF_IMAGE_PAGES_DEFAULT;
+	return Math.min(n, PDF_IMAGE_PAGES_CEILING);
+}
+
+/**
+ * Marks where a page the reader rendered as an image sits in the page-ordered
+ * text. Stored as is and worded at send time (`preprocessMessages`), because
+ * what to say depends on the model that turn: "attached as an image" is true
+ * for one that sees images and false for one that does not.
+ */
+export const SCAN_PAGE_MARKER = /\[\[cerea:scan-page:(\d+)\]\]/g;
+const scanPageMarker = (page: number) => `[[cerea:scan-page:${page}]]`;
+
+/** The image pages of a PDF, rendered by the local reader. */
+export interface ScannedPages {
+	images: { page: number; mime: string; bytes: Buffer }[];
+	pageCount: number;
+	/** Image pages the PDF has in all: those attached, plus any past the limit. */
+	scannedTotal: number;
+	truncated: boolean;
+}
+
+/**
+ * A PDF with some pages that are pictures, put back in page order.
+ *
+ * The reader answers per page: a page with real text comes back as text in
+ * `pages` (0-based `index`), one without as an image in `page_images`
+ * (1-based `page`). This walks the pages in order and writes the text where a
+ * page has it, a marker where it has an image, and a plain sentence where it
+ * has neither — a scan page past the reader's limit, which nobody read. Null
+ * when there are no usable images, so a response that is only text, or only
+ * nothing, goes the ordinary way.
+ *
+ * Read defensively — this is another service's output: only well-formed
+ * images, at most `limit`, each page once.
+ */
+function composePages(
+	answer: OcrResponse,
+	limit: number
+): { text: string; scan: ScannedPages } | null {
+	const images = new Map<number, ScannedPages["images"][number]>();
+	for (const entry of answer.page_images ?? []) {
+		if (images.size >= limit) break;
+		const page = entry?.page;
+		if (!Number.isInteger(page) || (page as number) < 1 || images.has(page as number)) continue;
+		if (typeof entry.data !== "string" || !PAGE_IMAGE_MIMES.has(entry.mime ?? "")) continue;
+		const bytes = Buffer.from(entry.data, "base64");
+		if (bytes.length === 0 || bytes.length > PAGE_IMAGE_MAX_BYTES) continue;
+		images.set(page as number, { page: page as number, mime: entry.mime as string, bytes });
+	}
+	if (images.size === 0) return null;
+
+	const textByPage = new Map<number, string>();
+	for (const [position, page] of (answer.pages ?? []).entries()) {
+		const markdown = page.markdown ?? "";
+		const index = Number.isInteger(page.index) ? (page.index as number) : position;
+		if (markdown.trim() && !images.has(index + 1)) textByPage.set(index + 1, markdown);
+	}
+	const pageCount = Math.max(
+		answer.page_count ?? 0,
+		(answer.pages ?? []).length,
+		...images.keys(),
+		...textByPage.keys()
+	);
+
+	const parts: string[] = [];
+	let unread = 0;
+	for (let page = 1; page <= pageCount; page += 1) {
+		const text = textByPage.get(page);
+		if (text !== undefined) parts.push(text);
+		else if (images.has(page)) parts.push(scanPageMarker(page));
+		else {
+			unread += 1;
+			parts.push(
+				`Page ${page} is a scan that was not read: it is past the limit of ${limit} image pages.`
+			);
+		}
+	}
+	const sorted = [...images.values()].sort((a, b) => a.page - b.page);
+	return {
+		text: parts.join("\n\n"),
+		scan: {
+			images: sorted,
+			pageCount,
+			scannedTotal: sorted.length + unread,
+			truncated: answer.truncated === true || unread > 0,
+		},
+	};
 }
 
 interface ModelCard {
@@ -249,7 +368,7 @@ function textFromOcrResponse(answer: OcrResponse): Extracted | null {
  * same fact — 503 when the deployment lacks a reader, 422 when the document
  * itself is the problem, 502 when the reader could not be reached.
  */
-export type Extraction = ({ ok: true } & Extracted) | ExtractionFailure;
+export type Extraction = ({ ok: true } & Extracted & { scan?: ScannedPages }) | ExtractionFailure;
 
 export type { ExtractionFailureKind };
 
@@ -361,6 +480,15 @@ export async function extractDocument(options: {
 	mime: string;
 	filename: string;
 	token: string | undefined;
+	/**
+	 * Ask the local reader for the pages of a PDF that have no text as images
+	 * (up to `CHAT_PDF_IMAGE_PAGES`), returned in `scan` beside the page-ordered
+	 * text. Asked for only when the model that reads PDFs *is* the local reader
+	 * — a remote OCR model reads a scan itself and is never sent the request —
+	 * and by callers that can store and use the pages: a chat attachment, not a
+	 * knowledge base's text.
+	 */
+	pageImages?: boolean;
 }): Promise<Extraction> {
 	const { bytes, mime, filename, token } = options;
 	if (!token) {
@@ -410,21 +538,51 @@ export async function extractDocument(options: {
 
 	const baseUrl = directOcrBaseUrl();
 	if (baseUrl) return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
-	const first = await extractViaGateway({ bytes, mime, filename, token, model });
+	// Page images are for the local reader only: a remote OCR model reads a scan
+	// itself, and is never sent the request. The same rule for the fallback below.
+	const wantsPages =
+		options.pageImages === true && mime === "application/pdf" && pdfImagePageLimit() > 0;
+	const first = await extractViaGateway({
+		bytes,
+		mime,
+		filename,
+		token,
+		model,
+		imagePages: wantsPages && (await isLocalReader(token, model)) ? pdfImagePageLimit() : 0,
+	});
 	if (first.ok || mime !== "application/pdf" || first.kind === "no-credential") return first;
 
 	// The OCR model failed (rate limited, down, or empty). A PDF with a text
 	// layer does not need OCR at all, so the local reader gets a turn before
-	// the upload is given up on; its answer is used only when it found text.
+	// the upload is given up on; its answer is used only when it found text —
+	// or, for pages that are pictures, rendered them.
 	const local = await resolveOfficeReader(token);
 	if (!local || local === model) return first;
-	const fallback = await extractViaGateway({ bytes, mime, filename, token, model: local });
+	const fallback = await extractViaGateway({
+		bytes,
+		mime,
+		filename,
+		token,
+		model: local,
+		imagePages: wantsPages ? pdfImagePageLimit() : 0,
+	});
 	if (!fallback.ok) return first;
 	logger.info(
 		{ filename, model, fallback: local, firstStatus: first.status },
-		"document_extraction_fallback: the OCR model failed, the local reader read the text layer"
+		"document_extraction_fallback: the OCR model failed, the local reader read the document"
 	);
 	return fallback;
+}
+
+/** Whether `model` is this deployment's own reader (the gateway's `local: true`). */
+async function isLocalReader(token: string, model: string): Promise<boolean> {
+	try {
+		const answer = await gateway.get<{ data: ModelCard[] }>(token, "models?include=ocr");
+		return answer.data.some((card) => card.id === model && card.local === true);
+	} catch (err) {
+		logger.warn({ err }, "document_extraction_unavailable: could not list models");
+		return false;
+	}
 }
 
 /** One `POST /v1/ocr` call with the model already chosen, as the calling user. */
@@ -434,8 +592,10 @@ async function extractViaGateway(options: {
 	filename: string;
 	token: string;
 	model: string;
+	/** Image pages to ask for; 0 asks for none. */
+	imagePages?: number;
 }): Promise<Extraction> {
-	const { bytes, mime, filename, token, model } = options;
+	const { bytes, mime, filename, token, model, imagePages = 0 } = options;
 
 	// A `data:` URI rather than a URL, deliberately: the other form has the
 	// provider fetch the document, which means this deployment never holds it
@@ -451,7 +611,31 @@ async function extractViaGateway(options: {
 			// through rather than reinterpreted — the gateway refuses the request
 			// without it (`document.type: Field required`).
 			document: { type: "document_url", document_url: uri },
+			...(imagePages > 0
+				? { page_images: { max_pages: imagePages, long_side: PAGE_IMAGE_LONG_SIDE } }
+				: {}),
 		});
+		// Pages that are pictures come back beside the pages that are text; put
+		// them back in order. Without any, it is an ordinary answer.
+		const composed = imagePages > 0 ? composePages(answer, imagePages) : null;
+		if (composed) {
+			logger.info(
+				{
+					filename,
+					model,
+					imagePages: composed.scan.images.length,
+					pageCount: composed.scan.pageCount,
+					truncated: composed.scan.truncated,
+				},
+				"document_extraction_page_images: pages without text rendered as images"
+			);
+			return {
+				ok: true,
+				text: composed.text,
+				pages: composed.scan.pageCount - composed.scan.images.length,
+				scan: composed.scan,
+			};
+		}
 		const extracted = textFromOcrResponse(answer);
 		if (!extracted) {
 			logger.info(

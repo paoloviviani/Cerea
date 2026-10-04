@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Conversation } from "$lib/types/Conversation";
 import type { MessageFile } from "$lib/types/Message";
 import { sha256 } from "$lib/utils/sha256";
@@ -43,9 +44,20 @@ async function store(
 export async function uploadFile(
 	file: File,
 	conv: Conversation,
-	token?: string
+	token?: string,
+	options?: UploadOptions
 ): Promise<MessageFile> {
-	return writeAttachment(file, conv._id.toString(), token);
+	return writeAttachment(file, conv._id.toString(), token, undefined, options);
+}
+
+export interface UploadOptions {
+	/**
+	 * A PDF read by the local reader comes back with its pages that have no
+	 * text as images, stored as attachments of the conversation
+	 * (`MessageFile.pageImages`). Chat sets it: a chat has a model that can be
+	 * sent them, now or after a switch.
+	 */
+	pageImages?: boolean;
 }
 
 /**
@@ -71,7 +83,8 @@ export async function writeAttachment(
 	file: File,
 	ownerKey: string,
 	token?: string,
-	tag?: AttachmentTag
+	tag?: AttachmentTag,
+	options?: UploadOptions
 ): Promise<MessageFile> {
 	const buffer = await file.arrayBuffer();
 	const sha = await sha256(await file.text());
@@ -87,7 +100,14 @@ export async function writeAttachment(
 
 	let extracted: Extraction | undefined;
 	if (isExtractableDocument(mime)) {
-		extracted = await extractDocument({ bytes: buffer, mime, filename: file.name, token });
+		extracted = await extractDocument({
+			bytes: buffer,
+			mime,
+			filename: file.name,
+			token,
+			// Page images are a chat feature: only there is there a model to read them.
+			pageImages: !tag && options?.pageImages,
+		});
 		// A failed extraction does not fail the upload — the attachment is stored
 		// without text either way, and carries the reason on its `MessageFile`.
 		if (!extracted.ok) {
@@ -144,7 +164,39 @@ export async function writeAttachment(
 			? { messageId: tag.messageId, sha: textSha, extractedFrom: sha, pages: extracted.pages }
 			: {}),
 	});
-	return { ...stored, extracted: { value: textSha, pages: extracted.pages } };
+	const withText = { ...stored, extracted: { value: textSha, pages: extracted.pages } };
+	if (!extracted.scan) return withText;
+
+	// Pages without text, rendered as images. Each is an attachment of the
+	// conversation like any uploaded image — same owner tag, so deleting the
+	// conversation and the orphan sweep take them with it — named by the hash
+	// of its bytes. Stored whatever model the conversation has: which model gets
+	// them or only the note is decided on each turn, so a later switch either
+	// way just works.
+	const files: { page: number; value: string; mime: string }[] = [];
+	const written = new Set<string>();
+	for (const image of extracted.scan.images) {
+		const imageSha = createHash("sha256").update(image.bytes).digest("hex");
+		// Two pages with the same bytes (blank sheets) are one stored entry,
+		// listed twice so the model still gets both pages.
+		if (!written.has(imageSha)) {
+			written.add(imageSha);
+			await store(`${ownerKey}-${imageSha}`, image.bytes, {
+				conversation: ownerKey,
+				mime: image.mime,
+			});
+		}
+		files.push({ page: image.page, value: imageSha, mime: image.mime });
+	}
+	return {
+		...withText,
+		pageImages: {
+			files,
+			pageCount: extracted.scan.pageCount,
+			scannedTotal: extracted.scan.scannedTotal,
+			truncated: extracted.scan.truncated,
+		},
+	};
 }
 
 /** A name that says "document", for the log line of a skip that is worth a line. */
