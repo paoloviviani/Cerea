@@ -14,6 +14,15 @@ export interface PickerModel {
 }
 
 export const SHORT_LIST_MAX = 6;
+/** Up to this many models, the popover lists them all and offers no "More
+ * models": a short list of recent picks only pays off when the catalog is too
+ * long to scan. Beyond it, the short list and "More models" come back. */
+export const FULL_LIST_MAX = 10;
+
+/** Whether the popover shows every model (and no "More models" entry). */
+export function listsEveryModel(models: PickerModel[]): boolean {
+	return models.length <= FULL_LIST_MAX;
+}
 export const RECENT_MODELS_KEY = "chat.recentModels";
 /** /code's own recent-picks memory: a separate key, since the machine's
  * model catalog is not the chat deployment's and the two lists should not
@@ -21,9 +30,11 @@ export const RECENT_MODELS_KEY = "chat.recentModels";
 export const CODE_RECENT_MODELS_KEY = "code.recentModels";
 
 /**
- * With no query: the current model first, then recent picks still offered,
- * up to six. With a query: every model whose id, name or description holds
- * all the query's words, current first.
+ * With no query and a catalog of at most FULL_LIST_MAX models: every model,
+ * the current one first, then recent picks, then the rest in catalog order.
+ * With no query and a longer catalog: the current model first, then recent
+ * picks still offered, up to six. With a query: every model whose id, name or
+ * description holds all the query's words, current first.
  */
 export function shortList(
 	models: PickerModel[],
@@ -41,6 +52,10 @@ export function shortList(
 		return hits.sort((a, b) => Number(b.id === currentId) - Number(a.id === currentId));
 	}
 	const ids = [currentId, ...recentIds.filter((id) => id !== currentId)];
+	if (listsEveryModel(models)) {
+		const ranked = ids.map((id) => byId.get(id)).filter((m): m is PickerModel => !!m);
+		return [...new Set([...ranked, ...models])];
+	}
 	const out: PickerModel[] = [];
 	for (const id of ids) {
 		const model = byId.get(id);

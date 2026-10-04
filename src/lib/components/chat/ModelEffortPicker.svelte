@@ -7,7 +7,8 @@
 	  description and a check on the current one.
 	- "Effort ▸": the model's effort levels plus Default, only for a model
 	  that takes one (a preset that pins effort shows it, read-only).
-	- "More models ▸": the full searchable picker.
+	- "More models ▸": the full searchable picker, only when the catalog has
+	  more than ten models; up to ten, the list above simply shows them all.
 
 	Callbacks, not writes: the chat and /code wire picks differently (a
 	conversation PATCH or the new-chat default here; machine ops there).
@@ -18,7 +19,12 @@
 	import CarbonCaretDown from "~icons/carbon/caret-down";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideCheck from "~icons/lucide/check";
-	import { effortLabel, shortList, type PickerModel } from "$lib/utils/modelEffortPicker";
+	import {
+		effortLabel,
+		listsEveryModel,
+		shortList,
+		type PickerModel,
+	} from "$lib/utils/modelEffortPicker";
 
 	interface Props {
 		models: PickerModel[];
@@ -165,16 +171,18 @@
 					</DropdownMenu.Sub>
 				{/if}
 			{/if}
-			<DropdownMenu.Item
-				class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-				onSelect={() => {
-					open = false;
-					onmore();
-				}}
-			>
-				<span>More models</span>
-				<CarbonChevronRight class="size-3 text-gray-500" />
-			</DropdownMenu.Item>
+			{#if !listsEveryModel(models)}
+				<DropdownMenu.Item
+					class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+					onSelect={() => {
+						open = false;
+						onmore();
+					}}
+				>
+					<span>More models</span>
+					<CarbonChevronRight class="size-3 text-gray-500" />
+				</DropdownMenu.Item>
+			{/if}
 		</DropdownMenu.Content>
 	</DropdownMenu.Portal>
 </DropdownMenu.Root>
