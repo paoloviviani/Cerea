@@ -25,7 +25,7 @@ import { ObjectId } from "mongodb";
 
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import type { MessageFile } from "$lib/types/Message";
+import type { ExtractionFailureKind, MessageFile } from "$lib/types/Message";
 import { downloadFile } from "./downloadFile";
 import { writeAttachment } from "./uploadFile";
 
@@ -72,6 +72,8 @@ interface StoredMetadata {
 	declaredMime?: string;
 	extractedFrom?: string;
 	pages?: number;
+	extractionKind?: ExtractionFailureKind;
+	extractionReason?: string;
 }
 
 /**
@@ -108,9 +110,12 @@ export async function findAttachments(ownerKey: string, messageId: string): Prom
 		files.push({
 			type: "hash",
 			value: meta.sha,
-			mime: meta.declaredMime ?? meta.mime ?? "application/octet-stream",
+			mime: meta.mime ?? meta.declaredMime ?? "application/octet-stream",
 			name: meta.name ?? meta.sha,
 			...(extracted ? { extracted } : {}),
+			...(!extracted && meta.extractionKind && meta.extractionReason
+				? { extractionError: { kind: meta.extractionKind, reason: meta.extractionReason } }
+				: {}),
 		});
 	}
 	return files;

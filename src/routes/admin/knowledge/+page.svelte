@@ -95,7 +95,6 @@
 	let extractor = $state("");
 	let chunkChars = $state("1200");
 	let chunkOverlap = $state("150");
-	let reason = $state("");
 
 	function seed(next: Status) {
 		status = next;
@@ -109,7 +108,6 @@
 		extractor = next.extractor_model ?? "";
 		chunkChars = String(next.chunk_chars);
 		chunkOverlap = String(next.chunk_overlap);
-		reason = "";
 	}
 
 	async function load() {
@@ -136,13 +134,6 @@
 	);
 	const extractorDefault = $derived(status ? (status.extractor_model ?? "") : "");
 
-	// The only change that alters *where documents go*, and therefore the only
-	// one that asks for a sentence. The gateway enforces this too; the form
-	// states it so the refusal is never a surprise. Never true while the
-	// picker is fixed by the environment: `extractor` cannot move away from
-	// `extractorDefault` when there is no select bound to it.
-	const needsReason = $derived(status !== null && extractor !== extractorDefault);
-
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		if (!status) return;
@@ -163,7 +154,6 @@
 		if (Number(chunkOverlap) !== status.chunk_overlap) {
 			body.chunk_overlap = Number(chunkOverlap);
 		}
-		if (reason.trim()) body.reason = reason.trim();
 
 		if (Object.keys(body).length === 0) {
 			notice = "Nothing to change.";
@@ -343,22 +333,6 @@
 				Each base snapshots these when it is created, so a change applies to new bases only. Overlap
 				is capped at a third of the passage size.
 			</p>
-
-			{#if needsReason}
-				<label class="flex flex-col gap-1">
-					<span class="text-sm font-medium">Why</span>
-					<input
-						class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-						bind:value={reason}
-						required
-						placeholder="This extractor sends documents to a provider. Say why."
-					/>
-					<span class="text-xs text-gray-500 dark:text-gray-400">
-						Kept with the change, because this is the one setting that alters where user documents
-						go.
-					</span>
-				</label>
-			{/if}
 
 			{#if saveError}
 				<p class="text-sm text-red-700 dark:text-red-300">{saveError}</p>

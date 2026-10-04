@@ -720,9 +720,12 @@ export async function ingestDocument(
 			// file document whose text was lost re-pays the extraction; keeping the
 			// text on the row is what makes the ordinary reindex cheap.
 			const bytes = await readStoredFile(document.fileId);
-			const { extractDocument, isExtractableDocument } =
+			const { documentMime, extractDocument, isExtractableDocument } =
 				await import("$lib/server/files/extractDocument");
-			const mime = await storedFileMime(document.fileId);
+			const mime = documentMime(
+				await storedFileMime(document.fileId),
+				document.filename ?? "document"
+			);
 			if (!isExtractableDocument(mime)) {
 				text = bytes.toString("utf-8");
 			} else {

@@ -47,7 +47,12 @@ vi.mock("$lib/server/gatewayServer", () => {
 });
 
 import { config } from "$lib/server/config";
-import { assertOcrConfigValid, extractDocument, resolveExtractorModel } from "./extractDocument";
+import {
+	assertOcrConfigValid,
+	documentMime,
+	extractDocument,
+	resolveExtractorModel,
+} from "./extractDocument";
 
 const OCR_OK = {
 	pages: [{ index: 0, markdown: "page one text" }],
@@ -481,5 +486,197 @@ describe("direct mode: CHAT_OCR_BASE_URL set, no gateway", () => {
 
 		expect(answer).toMatchObject({ ok: false, status: 422 });
 		expect(answer.ok ? "" : answer.reason).toContain("returned no text");
+	});
+});
+
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const MODELS = {
+	data: [
+		{ id: "mistral-ocr-4.1", kind: "ocr" },
+		{ id: "markitdown", kind: "ocr", local: true },
+	],
+};
+
+describe("routing: which reader takes which format", () => {
+	it("never sends a .docx to the OCR model — not the env one, not the screen's", async () => {
+		setEnvModel("mistral-ocr-4.1");
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue(MODELS);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: DOCX,
+			filename: "m.docx",
+			token: "t",
+		});
+
+		expect(answer.ok).toBe(true);
+		expect(gatewayPostMock).toHaveBeenCalledTimes(1);
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
+		expect(gatewayPostMock.mock.calls[0][2].document.document_url).toMatch(
+			/^data:application\/vnd\.openxmlformats/
+		);
+	});
+
+	it("sends every non-PDF Office format to the local reader", async () => {
+		setEnvModel("mistral-ocr-4.1");
+		gatewayGetMock.mockResolvedValue(MODELS);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		for (const mime of [
+			"application/msword",
+			"application/vnd.ms-excel",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			"application/vnd.oasis.opendocument.text",
+			"application/epub+zip",
+		]) {
+			gatewayPostMock.mockClear();
+			await extractDocument({ bytes: BYTES, mime, filename: "f", token: "t" });
+			expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
+		}
+	});
+
+	it("still sends a PDF to the selected OCR model", async () => {
+		setEnvModel("mistral-ocr-4.1");
+		gatewayGetMock.mockResolvedValue(MODELS);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({ bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" });
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "mistral-ocr-4.1" });
+	});
+
+	it("with no local reader a .docx fails saying so, and nothing is sent to the OCR model", async () => {
+		setEnvModel("mistral-ocr-4.1");
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr-4.1", kind: "ocr" }] });
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: DOCX,
+			filename: "m.docx",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: false, kind: "no-reader", status: 503 });
+		expect(answer.ok ? "" : answer.reason).toContain("No reader for Word documents");
+		expect(gatewayPostMock).not.toHaveBeenCalled();
+	});
+
+	it("an unreachable catalogue is the same clear failure, not a call to the OCR model", async () => {
+		setEnvModel("mistral-ocr-4.1");
+		gatewayGetMock.mockRejectedValue(new Error("connection refused"));
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/vnd.ms-excel",
+			filename: "f.xls",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: false, kind: "no-reader" });
+		expect(answer.ok ? "" : answer.reason).toContain("spreadsheets");
+		expect(gatewayPostMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("the kind of every failure travels with its reason", () => {
+	const GatewayCallFailed = async () =>
+		(await import("$lib/server/gatewayServer")).GatewayCallFailed;
+
+	async function pdf() {
+		readConfigMock.mockResolvedValue({ extractorModel: "reader" });
+		return extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+	}
+
+	it("a refusal from the reader carries its own words", async () => {
+		const Failed = await GatewayCallFailed();
+		gatewayPostMock.mockRejectedValue(
+			new Failed(422, "this is a legacy .doc; antiword is missing")
+		);
+		expect(await pdf()).toMatchObject({
+			ok: false,
+			kind: "refused",
+			reason: "this is a legacy .doc; antiword is missing",
+		});
+	});
+
+	it("another 4xx is a refusal too, not 'could not be reached'", async () => {
+		const Failed = await GatewayCallFailed();
+		gatewayPostMock.mockRejectedValue(new Failed(415, "unsupported media type"));
+		expect(await pdf()).toMatchObject({
+			ok: false,
+			kind: "refused",
+			reason: "unsupported media type",
+		});
+	});
+
+	it("a provider failure or a network error is unreachable", async () => {
+		const Failed = await GatewayCallFailed();
+		gatewayPostMock.mockRejectedValue(new Failed(503, "upstream"));
+		expect(await pdf()).toMatchObject({ ok: false, kind: "unreachable" });
+		gatewayPostMock.mockRejectedValue(new Error("ECONNRESET"));
+		expect(await pdf()).toMatchObject({ ok: false, kind: "unreachable", status: 502 });
+	});
+
+	it("a PDF with no text is no-text; an Office file with none is empty, with no scan advice", async () => {
+		gatewayPostMock.mockResolvedValue({ pages: [{ markdown: " " }] });
+		expect(await pdf()).toMatchObject({ ok: false, kind: "no-text" });
+
+		gatewayGetMock.mockResolvedValue(MODELS);
+		const empty = await extractDocument({
+			bytes: BYTES,
+			mime: DOCX,
+			filename: "m.docx",
+			token: "t",
+		});
+		expect(empty).toMatchObject({ ok: false, kind: "empty" });
+		expect(empty.ok ? "" : empty.reason).not.toMatch(/scan|OCR/);
+	});
+
+	it("no reader and no credential are their own kinds", async () => {
+		expect(
+			await extractDocument({
+				bytes: BYTES,
+				mime: "application/pdf",
+				filename: "a.pdf",
+				token: "t",
+			})
+		).toMatchObject({ kind: "no-reader" });
+		expect(
+			await extractDocument({
+				bytes: BYTES,
+				mime: "application/pdf",
+				filename: "a.pdf",
+				token: undefined,
+			})
+		).toMatchObject({ kind: "no-credential" });
+	});
+});
+
+describe("documentMime: a container whose name says Office is a candidate", () => {
+	it("maps a compound file by its extension to the binary generation", () => {
+		expect(documentMime("application/x-cfb", "menu.doc.docx")).toBe("application/msword");
+		expect(documentMime("application/x-cfb", "Old.DOC")).toBe("application/msword");
+		expect(documentMime("application/x-cfb", "t.xlsx")).toBe("application/vnd.ms-excel");
+		expect(documentMime("application/x-cfb", "t.ppt")).toBe("application/vnd.ms-powerpoint");
+	});
+
+	it("leaves a compound file with another name alone", () => {
+		expect(documentMime("application/x-cfb", "setup.msi")).toBe("application/x-cfb");
+	});
+
+	it("takes a plain zip named for an Office format, and nothing else zip-shaped", () => {
+		expect(documentMime("application/zip", "m.docx")).toBe(DOCX);
+		expect(documentMime("application/zip", "backup.zip")).toBe("application/zip");
+	});
+
+	it("keeps an already-known type", () => {
+		expect(documentMime("application/pdf", "weird.docx")).toBe("application/pdf");
+		expect(documentMime(DOCX, "m.docx")).toBe(DOCX);
 	});
 });

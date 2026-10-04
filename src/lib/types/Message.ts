@@ -3,6 +3,18 @@ import type { MessageUpdate } from "./MessageUpdate";
 import type { Timestamps } from "./Timestamps";
 import type { v4 } from "uuid";
 
+/**
+ * Why an attached document has no extracted text; `extractDocument.ts` words
+ * each one. `no-reader` nothing configured can read the format; `no-credential`
+ * the session has no gateway credential; `refused` a reader looked and said no
+ * (its own reason); `unreachable` the reader or its provider could not be
+ * reached; `no-text` a PDF with no text layer (a scan); `empty` an Office-style
+ * file with no text in it; `unsupported` the configured endpoint does not take
+ * this format or size.
+ */
+export type ExtractionFailureKind =
+	"no-reader" | "no-credential" | "refused" | "unreachable" | "no-text" | "empty" | "unsupported";
+
 export type Message = Partial<Timestamps> & {
 	from: "user" | "assistant" | "system";
 	id: ReturnType<typeof v4>;
@@ -91,5 +103,17 @@ export type MessageFile = {
 		value: string;
 		/** Pages the extractor reported, which is what was billed. */
 		pages: number;
+	};
+	/**
+	 * Why `extracted` is absent, when extraction was attempted and failed. The
+	 * prompt words itself from this, so the assistant — and through it the
+	 * person — is told what actually went wrong (no reader, the reader refused
+	 * the format, it could not be reached, the file has no text) rather than
+	 * one fixed guess. Absent on files stored before this was recorded, and on
+	 * files that are not documents.
+	 */
+	extractionError?: {
+		kind: ExtractionFailureKind;
+		reason: string;
 	};
 };
