@@ -4,6 +4,22 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.4 — 2026-10-04
+
+Pins: Cerea `sha-77d49f6` (unchanged, v0.3.3), Pystino `sha-38a7b0f` (Pystino
+v0.2.2), Authelia 4.39.22.
+
+### Gateway
+- **opencode without Cerea**: `curl -fsSL https://<your-host>/opencode/install.sh | bash`
+  points a plain opencode at the gateway with an API key minted in the
+  console. It merges into your global opencode config (other providers
+  and settings kept, a backup written), lists the gateway's chat models
+  with their limits, image input and reasoning levels, never takes the key
+  on the command line, and can keep it out of the file entirely
+  (`--key-in-env`). `--install-opencode` installs the tested opencode
+  release (1.18.34). The gateway serves the script itself, so it always
+  matches the gateway it points at.
+
 ## v0.3.3 — 2026-10-04
 
 Pins: Cerea `sha-77d49f6` (Cerea v0.3.3), Pystino `sha-5f9a870`, Authelia
