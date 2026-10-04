@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="static/chatui/logo-white.svg">
+    <img src="static/chatui/logo.svg" alt="Cerea" width="240">
+  </picture>
+</p>
+
 # Cerea
 
 A self-hosted chat for the models your gateway exposes, with knowledge bases,
