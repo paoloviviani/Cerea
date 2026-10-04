@@ -67,6 +67,7 @@
 	import { setMessageRunContext } from "$lib/utils/execution/messageContext";
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import ImageLightbox from "./ImageLightbox.svelte";
+	import CollapsibleUserText from "./CollapsibleUserText.svelte";
 	import { splitArtifactSegments, stripArtifacts } from "$lib/utils/artifacts";
 	import type { ArtifactOperation } from "$lib/utils/artifacts";
 
@@ -1131,11 +1132,10 @@
 							</details>
 						</div>
 					{:else}
-						<p
+						<CollapsibleUserText
+							text={message.content.trim()}
 							class="disabled w-full appearance-none bg-inherit px-5 py-3.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-600 dark:text-gray-300"
-						>
-							{message.content.trim()}
-						</p>
+						/>
 					{/if}
 				{:else}
 					<form
