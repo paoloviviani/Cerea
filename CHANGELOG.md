@@ -4,6 +4,19 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.5 — 2026-10-04
+
+Pins: Cerea `sha-77d49f6` (unchanged, v0.3.3), Pystino `sha-39c4d51` (Pystino
+v0.2.3), Authelia 4.39.22.
+
+### Console and docs
+- **"Configure opencode with Pystino"**: the console's Overview shows the
+  opencode one-liner, filled in with this deployment's own address, next to
+  the API keys, and again right after a key is minted. The docs home lists
+  it first under "Where to go next".
+- The documentation sites on `/docs/cerea/` and `/docs/pystino/` are
+  rebuilt with every release (they had not been since 2026-09-29).
+
 ## v0.3.4 — 2026-10-04
 
 Pins: Cerea `sha-77d49f6` (unchanged, v0.3.3), Pystino `sha-38a7b0f` (Pystino
