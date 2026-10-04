@@ -195,7 +195,7 @@ but only on the host's loopback.
 
 **TLS.** Two setups work:
 - `--tls upstream`: NetBird's reverse proxy, or another edge, terminates TLS and forwards plain HTTP to the NetBird address on port 80. It must pass `Host`, forward WebSocket upgrades and not buffer (see [TLS modes](#tls-modes)). Set `TRUSTED_PROXIES` to the range it connects from; for NetBird that is `100.64.0.0/10`.
-- `--tls internal`: people reach the NetBird address or name directly, with Caddy's own certificate. Every browser and agent machine must trust that CA ([Certificate trust](#certificate-trust-with---tls-internal)).
+- `--tls internal`: people reach the NetBird address or name directly, with Caddy's own certificate. Every browser and agent machine must trust that CA ([Certificate trust](#certificate-trust-with-internal-tls)).
 
 **`PUBLIC_ORIGIN` must be the address people type into the browser** (with
 `https://`), and the agent machines have to reach it as well: they join the
@@ -338,7 +338,7 @@ The proxy trusts `X-Forwarded-For` only from `TRUSTED_PROXIES` (default
 as a VPN's `100.64.0.0/10`, set `TRUSTED_PROXIES` to that range. Otherwise the
 logs show the front's address instead of the client's.
 
-### Certificate trust with `--tls internal`
+### Certificate trust with internal TLS
 
 Caddy signs the certificate with its own CA, so every browser shows a warning
 until you trust that CA, or accept the warning once. The CA certificate is
