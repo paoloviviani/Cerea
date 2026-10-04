@@ -4,6 +4,19 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.9 — 2026-10-04
+
+Pins: Cerea `0.3.3`, Pystino `0.2.4`, Authelia 4.39.22.
+
+### Gateway and console (Pystino 0.2.4)
+- The console's "How it works" link (Configure opencode) opens the
+  published documentation on GitHub Pages.
+- Pystino's release manifest now names the Cerea release it was tested
+  with (0.3.3) and pins every upstream image by digest; its release checks
+  and full-stack CI run green on public images.
+- Proven again from a fresh copy of the kit with an empty Docker login:
+  configure, pull, up, sign in.
+
 ## v0.3.8 — 2026-10-04
 
 Pins: Cerea `0.3.3`, Pystino `0.2.3` (published images), Authelia 4.39.22.
