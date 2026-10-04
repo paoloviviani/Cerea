@@ -5,6 +5,10 @@
 first-sign-in.txt
 # Your own proxy snippets: git pull never touches them.
 proxy.d/*.caddy
+# Your own additions to the stack: Compose merges compose.override.yaml into
+# compose.yaml by itself, and git pull never touches it.
+compose.override.yaml
+compose.override.yml
 # Source checkouts dev/build.sh builds from.
 dev/src/
 __pycache__/
