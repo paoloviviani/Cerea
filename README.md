@@ -130,6 +130,73 @@ It changes nothing, so it is safe on a running install.
 - **Apply** with `docker compose up -d`. Compose recreates only the services whose settings changed.
 - **Edited `caddy/` or `authelia/` yourself?** Compose can't see a change inside a mounted file. Run `docker compose up -d --force-recreate proxy authelia`, or `tools/pin` to refresh the `cerea.config-rev` labels that make compose notice.
 - **Own routes and headers** go in `proxy.d/*.caddy`. Git ignores those files, and the proxy imports them (see `proxy.d/README.md`).
+- **Own services** go in `compose.override.yaml`: see [Adding your own services](#adding-your-own-services).
+
+## Adding your own services
+
+Four files, four owners:
+
+| File | Owner |
+|---|---|
+| `.env` | `./configure`. It keeps keys it doesn't know in a final "Not in .env.example" section, so your own variables (a setup key, say) survive a re-run |
+| `compose.yaml` | this kit; `git pull` replaces it |
+| `compose.override.yaml` | you. Compose merges it into `compose.yaml` by itself, and git ignores it |
+| `proxy.d/*.caddy` | you: extra routes and headers |
+
+`./configure`, `./configure --check`, `tools/pin` and `dev/build.sh` leave the
+override alone, and `--check` reads the merged result. Name no `-f` of your own
+on the command line: it turns the automatic merge off.
+
+### Example: a NetBird client in the stack
+
+A NetBird client in the same Compose project gives the stack an address on
+your NetBird network without publishing a port on the host. The proxy joins
+the client's network namespace, so Caddy listens on the NetBird address:
+
+```yaml
+# compose.override.yaml
+services:
+  netbird:
+    image: netbirdio/netbird:latest
+    restart: unless-stopped
+    hostname: cerea                 # the peer's name on the NetBird network
+    environment:
+      NB_SETUP_KEY: ${NB_SETUP_KEY:?add NB_SETUP_KEY to .env}
+      NB_HOSTNAME: cerea
+    cap_add: [NET_ADMIN, SYS_ADMIN, SYS_RESOURCE]
+    devices: ["/dev/net/tun"]
+    volumes:
+      - netbird-state:/var/lib/netbird
+
+  proxy:
+    network_mode: "service:netbird"  # Caddy shares the client's namespace
+    ports: !reset []                 # the client owns the network now
+
+  gateway:
+    ports: !reset []                 # drop the loopback port 8000 as well
+
+volumes:
+  netbird-state:
+```
+
+Put the key in `.env` with `./configure --set NB_SETUP_KEY=…`. The caps and
+the `/dev/net/tun` device are what NetBird's own
+[Docker instructions](https://docs.netbird.io/get-started/install/docker) list;
+check them there for your version. The client sits on the stack's network, so
+the proxy still reaches `gateway`, `chat` and `authelia` by name.
+
+`!reset` needs Docker Compose 2.24, which `./configure` already requires. On an
+older Compose, set `PUBLIC_BIND=127.0.0.1` instead: the ports stay published,
+but only on the host's loopback.
+
+**TLS.** Two setups work:
+- `--tls upstream`: NetBird's reverse proxy, or another edge, terminates TLS and forwards plain HTTP to the NetBird address on port 80. It must pass `Host`, forward WebSocket upgrades and not buffer (see [TLS modes](#tls-modes)). Set `TRUSTED_PROXIES` to the range it connects from; for NetBird that is `100.64.0.0/10`.
+- `--tls internal`: people reach the NetBird address or name directly, with Caddy's own certificate. Every browser and agent machine must trust that CA ([Certificate trust](#certificate-trust-with---tls-internal)).
+
+**`PUBLIC_ORIGIN` must be the address people type into the browser** (with
+`https://`), and the agent machines have to reach it as well: they join the
+same NetBird network, or the origin is published some other way. The stack
+builds every sign-in redirect from it.
 
 ## TLS modes
 
