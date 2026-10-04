@@ -186,7 +186,7 @@ func TestRequestDeviceCodePinsDefaults(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	authz, err := requestDeviceCode(context.Background(), srv.URL+"/device", "opencode-enrollment")
+	authz, err := requestDeviceCode(context.Background(), srv.URL+"/device", "opencode-enrollment", enrollScopes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestRequestDeviceCodeRefusal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := requestDeviceCode(context.Background(), srv.URL+"/device", "wrong")
+	_, err := requestDeviceCode(context.Background(), srv.URL+"/device", "wrong", enrollScopes)
 	if err == nil || !strings.Contains(err.Error(), "invalid_client") {
 		t.Fatalf("expected invalid_client refusal, got: %v", err)
 	}

@@ -28,6 +28,11 @@ type discovery struct {
 	// RevocationEndpoint (RFC 7009) is where a revoked machine revokes its
 	// own refresh token; optional, since not every IdP advertises one.
 	RevocationEndpoint string `json:"revocation_endpoint"`
+	// ScopesSupported and GrantTypesSupported are what enroll narrows its
+	// scope request by: some IdPs (Infomaniak) answer invalid_scope to a
+	// scope they do not list, however standard it is elsewhere.
+	ScopesSupported     []string `json:"scopes_supported"`
+	GrantTypesSupported []string `json:"grant_types_supported"`
 }
 
 // oauth2Error is an RFC 6749 §5.2 error body (error + error_description).
@@ -96,13 +101,57 @@ type tokenSet struct {
 
 const defaultExpiresIn = 300
 
-// enrollScopes is the scope string both flows request. groups is not
+// enrollScopes is the scope set both flows want. groups is not
 // decoration: without it the ledger bills nobody (ADR 0084) and
 // /v1/billing/groups answers empty. offline_access is the whole point of
 // the serve shim: it holds a refresh credential so opencode never sees
 // a token, and without the scope requested (and the IdP consenting) no
 // refresh token is issued — enroll fails loudly on its absence.
+//
+// It is the ceiling, not always the request: see requestScopes.
 const enrollScopes = "openid profile email groups offline_access"
+
+// requestScopes is enrollScopes narrowed to what the issuer's discovery
+// lists, openid always kept; dropped names what was left out. A document
+// with no scopes_supported says nothing, so the full set goes out as before.
+//
+// offline_access dropped here is not the end of refresh: an IdP that grants
+// refresh_token without the scope (Infomaniak) issues one anyway, which is
+// why enroll checks the token response rather than the discovery.
+func requestScopes(doc *discovery) (scope string, dropped []string) {
+	wanted := strings.Fields(enrollScopes)
+	if len(doc.ScopesSupported) == 0 {
+		return enrollScopes, nil
+	}
+	listed := make(map[string]bool, len(doc.ScopesSupported))
+	for _, s := range doc.ScopesSupported {
+		listed[s] = true
+	}
+	kept := make([]string, 0, len(wanted))
+	for _, s := range wanted {
+		if s == "openid" || listed[s] {
+			kept = append(kept, s)
+		} else {
+			dropped = append(dropped, s)
+		}
+	}
+	return strings.Join(kept, " "), dropped
+}
+
+// noRefreshTokenError is enroll's refusal when the token response carries no
+// refresh token: the machine would sign in once and die with its first
+// access token, so no enrollment is written. offline names whether
+// offline_access went out in the request, to point at the right remedy.
+func noRefreshTokenError(offline bool, clientID string) error {
+	if offline {
+		return fmt.Errorf("the IdP issued no refresh token although offline_access was requested, "+
+			"so this machine could not stay signed in; allow refresh tokens (offline access) "+
+			"for client %s at the IdP, then enroll again", clientID)
+	}
+	return fmt.Errorf("the IdP issued no refresh token (it does not list offline_access, and issues "+
+		"none without it), so this machine could not stay signed in; enable refresh tokens "+
+		"for client %s at the IdP, then enroll again", clientID)
+}
 
 // httpClient is the one place timeouts are set: every IdP and gateway call
 // goes through here, so no flow can hang forever on a black-holed address.
@@ -291,11 +340,12 @@ func runLoopbackFlow(ctx context.Context, doc *discovery, clientID string) (*tok
 		return nil, fmt.Errorf("minting nonce: %w", err)
 	}
 
+	scope, _ := requestScopes(doc)
 	authQuery := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {clientID},
 		"redirect_uri":          {redirectURI},
-		"scope":                 {enrollScopes},
+		"scope":                 {scope},
 		"state":                 {state},
 		"nonce":                 {nonce},
 		"code_challenge":        {pkceChallenge(verifier)},
