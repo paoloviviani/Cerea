@@ -46,6 +46,7 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 		clear_extractor?: boolean;
 		chunk_chars?: number;
 		chunk_overlap?: number;
+		/** Accepted for compatibility with older clients; no change requires one. */
 		reason?: string;
 	};
 	if (body.chunk_chars !== undefined) {
@@ -63,15 +64,6 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	// The bounds above are the form's own, so a value the screen offers can
 	// never be refused here; the service caps the overlap at a third of the
 	// passage size whatever arrives.
-
-	// The one setting that alters where user documents are sent, and the one
-	// this screen refuses to change without a stated reason. The form asks
-	// client-side; this is the gate that cannot be bypassed.
-	if (typeof body.extractor_model === "string" && body.extractor_model.trim()) {
-		if (!body.reason?.trim()) {
-			error(400, "Naming a model to read documents changes where they are sent. Say why.");
-		}
-	}
 
 	// Only what changed. The store reads a missing column as "this row does
 	// not decide", so sending a whole document would overwrite settings nobody

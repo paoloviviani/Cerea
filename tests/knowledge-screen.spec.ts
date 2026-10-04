@@ -69,3 +69,27 @@ test("every reader is listed, no Automatic, the local extractor pre-selected and
 	// selection, not a placeholder.
 	await expect(picker).toHaveValue("markitdown");
 });
+
+test("changing the extractor asks for no reason and saves", async ({ page, db, session }) => {
+	await installAdminSession(db, session.sessionId);
+	await page.goto(`${E2E_APP_BASE}/admin/knowledge`);
+
+	const picker = page.getByLabel("Document extraction");
+	await expect(picker).toHaveValue("markitdown");
+	await picker.selectOption("mistral-ocr-4.1");
+
+	// No "Why" field appears for the change, and nothing is required of the form.
+	await expect(page.getByText("Why", { exact: true })).toHaveCount(0);
+	await expect(page.getByPlaceholder(/Say why/)).toHaveCount(0);
+
+	const request = page.waitForRequest(
+		(r) => r.url().includes("/api/v2/admin/knowledge") && r.method() === "PUT"
+	);
+	await page.getByRole("button", { name: "Save" }).click();
+	expect(JSON.parse((await request).postData() ?? "{}")).toEqual({
+		extractor_model: "mistral-ocr-4.1",
+	});
+
+	await expect(page.getByText("Saved.")).toBeVisible();
+	await expect(picker).toHaveValue("mistral-ocr-4.1");
+});

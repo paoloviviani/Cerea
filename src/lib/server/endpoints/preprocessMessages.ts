@@ -1,7 +1,8 @@
 import type { Message } from "$lib/types/Message";
 import type { EndpointMessage } from "./endpoints";
 import { downloadFile } from "../files/downloadFile";
-import { isExtractableDocument } from "../files/extractDocument";
+import { documentMime, isExtractableDocument } from "../files/extractDocument";
+import { missingTextNotice } from "../files/missingTextNotice";
 import type { ObjectId } from "mongodb";
 
 export async function preprocessMessages(
@@ -24,9 +25,9 @@ export async function preprocessMessages(
  * under the document's own name, so nothing downstream needs to know that
  * extraction happened.
  *
- * When there is no text — no OCR model configured, a scan with no text layer,
- * an extractor that refused — the model gets **a sentence saying so** in place
- * of the document. That is the whole reason this is not simply a filter: an
+ * When there is no text — no reader configured, a scan with no text layer,
+ * an extractor that refused — the model gets **a sentence saying so, and which
+ * of those it was** (`missingTextNotice`), in place of the document. That is the whole reason this is not simply a filter: an
  * attachment dropped silently makes the assistant answer as though nothing was
  * attached, and the person watching it sees their file in the transcript and
  * an answer that ignores it.
@@ -37,17 +38,12 @@ async function resolveFile(
 ) {
 	if (!file.extracted) {
 		const downloaded = await downloadFile(file.value, convId);
-		if (!isExtractableDocument(file.mime)) return downloaded;
+		if (!isExtractableDocument(documentMime(file.mime, file.name))) return downloaded;
 		return {
 			type: "base64" as const,
 			name: file.name,
 			mime: "text/markdown",
-			value: Buffer.from(
-				`No text could be read from this document. Say so rather than ` +
-					`guessing at its contents. If it is a scan, it needs an OCR model ` +
-					`rather than the built-in extractor.`,
-				"utf-8"
-			).toString("base64"),
+			value: Buffer.from(missingTextNotice(file.extractionError), "utf-8").toString("base64"),
 		};
 	}
 	const text = await downloadFile(file.extracted.value, convId);

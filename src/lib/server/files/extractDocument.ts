@@ -40,8 +40,17 @@
  * save that never touched extraction can never turn it off, and with no
  * reader anywhere the reason comes back spelled out rather than as a silent
  * absence of text.
+ *
+ * **That choice is for PDFs and images only.** An upstream OCR model reads
+ * page images; nobody has shown one reading `.docx`/`.xlsx`/`.pptx`, and a
+ * Word file sent to one comes back as an opaque refusal or as nothing. Every
+ * other format goes to this deployment's *local* reader (the gateway's
+ * `local: true` model) whichever model is selected for PDFs, and with no local
+ * reader the document fails with a reason saying so — it is never sent to an
+ * OCR model in the hope that it copes (`resolveOfficeReader`, docs/knowledge.md).
  */
 
+import type { ExtractionFailureKind } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
@@ -68,6 +77,57 @@ export const DOCUMENT_MIME_ALLOWLIST = [
 
 export function isExtractableDocument(mime: string): boolean {
 	return (DOCUMENT_MIME_ALLOWLIST as readonly string[]).includes(mime);
+}
+
+/**
+ * Formats an OCR model reads: page images. Everything else extractable is an
+ * Office-style container and goes to the local reader instead.
+ */
+function isOcrNative(mime: string): boolean {
+	return mime === "application/pdf" || mime.startsWith("image/");
+}
+
+/** What a file's extension says it is, for the containers whose bytes do not say it themselves. */
+const EXTENSION_MIME: Record<string, string> = {
+	doc: "application/msword",
+	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	xls: "application/vnd.ms-excel",
+	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	ppt: "application/vnd.ms-powerpoint",
+	pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	odt: "application/vnd.oasis.opendocument.text",
+	ods: "application/vnd.oasis.opendocument.spreadsheet",
+	odp: "application/vnd.oasis.opendocument.presentation",
+	epub: "application/epub+zip",
+};
+
+/** Which of those a legacy compound file (CFB) can be: the binary Office generations. */
+const CFB_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
+/** Which a plain zip can be: the zipped formats. */
+const ZIP_EXTENSIONS = new Set(["docx", "xlsx", "pptx", "odt", "ods", "odp", "epub"]);
+
+/**
+ * The document type to treat an upload as, given what its bytes sniffed as.
+ *
+ * `file-type` calls a legacy binary Office file `application/x-cfb` (a
+ * `.doc`, a `.xls`, and equally a `.msi`) and an Office Open XML file it
+ * cannot place `application/zip`. Neither is in the allowlist, so a legacy
+ * `.doc` saved with a `.docx` name used to skip extraction without a word. A
+ * compound or zip container whose *name* says Office is a candidate: it goes
+ * to the reader under the type the name implies, and the reader — which can
+ * read the magic bytes — decides, and says why when it refuses. Anything else
+ * keeps its sniffed type.
+ */
+export function documentMime(sniffed: string, filename: string): string {
+	if (isExtractableDocument(sniffed)) return sniffed;
+	const ext = filename.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
+	if (sniffed === "application/x-cfb" && CFB_EXTENSIONS.has(ext)) {
+		// A `.docx` name on a compound file is a legacy file under the wrong name,
+		// so the type is the binary generation, not the one the name claims.
+		return EXTENSION_MIME[ext.slice(0, 3)];
+	}
+	if (sniffed === "application/zip" && ZIP_EXTENSIONS.has(ext)) return EXTENSION_MIME[ext];
+	return sniffed;
 }
 
 /**
@@ -172,7 +232,16 @@ function textFromOcrResponse(answer: OcrResponse): Extracted | null {
  * same fact — 503 when the deployment lacks a reader, 422 when the document
  * itself is the problem, 502 when the reader could not be reached.
  */
-export type Extraction = ({ ok: true } & Extracted) | { ok: false; reason: string; status: number };
+export type Extraction = ({ ok: true } & Extracted) | ExtractionFailure;
+
+export type { ExtractionFailureKind };
+
+export interface ExtractionFailure {
+	ok: false;
+	kind: ExtractionFailureKind;
+	reason: string;
+	status: number;
+}
 
 /**
  * The model this document would be read with, or null if the deployment has
@@ -230,11 +299,36 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
 export const NO_READER_MESSAGE =
 	"This deployment has no document reader configured, so PDFs and Office files cannot be read yet. An administrator picks one on the Knowledge screen.";
 
-const NO_READER: { ok: false; reason: string; status: number } = {
+const NO_READER: ExtractionFailure = {
 	ok: false,
+	kind: "no-reader",
 	status: 503,
 	reason: NO_READER_MESSAGE,
 };
+
+function formatLabel(mime: string): string {
+	if (mime.includes("word") || mime === "application/msword") return "Word documents";
+	if (mime.includes("excel") || mime.includes("spreadsheet")) return "spreadsheets";
+	if (mime.includes("powerpoint") || mime.includes("presentation")) return "presentations";
+	if (mime === "application/epub+zip") return "e-books";
+	return "this kind of document";
+}
+
+/**
+ * The reader for an Office-style document: this deployment's *local* one — the
+ * gateway's `local: true` model — whichever model is selected for PDFs, or
+ * null. Not the env value, not the screen's choice: those name an OCR model,
+ * and an OCR model is for page images.
+ */
+export async function resolveOfficeReader(token: string): Promise<string | null> {
+	try {
+		const answer = await gateway.get<{ data: ModelCard[] }>(token, "models?include=ocr");
+		return answer.data.find((model) => model.kind === "ocr" && model.local === true)?.id ?? null;
+	} catch (err) {
+		logger.warn({ err }, "document_extraction_unavailable: could not list models");
+		return null;
+	}
+}
 
 /**
  * The text of one document, or the reason there is none.
@@ -255,10 +349,37 @@ export async function extractDocument(options: {
 	if (!token) {
 		return {
 			ok: false,
+			kind: "no-credential",
 			status: 401,
 			reason:
 				"This session has no gateway credential, so the document cannot be read. Sign out and back in.",
 		};
+	}
+
+	// PDFs and images go to the selected OCR model; every other format goes to
+	// the local reader, whatever is selected, or fails saying there is none.
+	if (!isOcrNative(mime)) {
+		const reader = await resolveOfficeReader(token);
+		if (!reader) {
+			// A direct endpoint reads PDFs only and says so in its own words.
+			const baseUrl = directOcrBaseUrl();
+			if (baseUrl) {
+				const model = config.CHAT_OCR_MODEL?.trim() ?? "";
+				return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
+			}
+			const label = formatLabel(mime);
+			logger.info(
+				{ filename, mime },
+				"document_extraction_skipped: no local reader for this format"
+			);
+			return {
+				ok: false,
+				kind: "no-reader",
+				status: 503,
+				reason: `No reader for ${label} is configured: this deployment has no local document reader, and an OCR model cannot read them. An administrator needs to enable the local reader on the Knowledge screen.`,
+			};
+		}
+		return extractViaGateway({ bytes, mime, filename, token, model: reader });
 	}
 
 	const model = await resolveExtractorModel(token);
@@ -272,6 +393,18 @@ export async function extractDocument(options: {
 
 	const baseUrl = directOcrBaseUrl();
 	if (baseUrl) return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
+	return extractViaGateway({ bytes, mime, filename, token, model });
+}
+
+/** One `POST /v1/ocr` call with the model already chosen, as the calling user. */
+async function extractViaGateway(options: {
+	bytes: ArrayBuffer;
+	mime: string;
+	filename: string;
+	token: string;
+	model: string;
+}): Promise<Extraction> {
+	const { bytes, mime, filename, token, model } = options;
 
 	// A `data:` URI rather than a URL, deliberately: the other form has the
 	// provider fetch the document, which means this deployment never holds it
@@ -294,8 +427,17 @@ export async function extractDocument(options: {
 				{ filename, model },
 				"document_extraction_empty: no text layer — a scan needs an OCR model"
 			);
+			if (!isOcrNative(mime)) {
+				return {
+					ok: false,
+					kind: "empty",
+					status: 422,
+					reason: `The local reader found no text in this document. It may be empty, or hold only images or drawings.`,
+				};
+			}
 			return {
 				ok: false,
+				kind: "no-text",
 				status: 422,
 				reason:
 					"This document has no readable text. A scan needs an OCR model — this deployment's own reader reads text layers only.",
@@ -312,9 +454,17 @@ export async function extractDocument(options: {
 		// 429" — so this names the reader instead of leaving the upload looking
 		// like nothing works at all.
 		let reason = "The document reader could not be reached, so the file was stored without text.";
+		let kind: ExtractionFailureKind = "unreachable";
 		if (err instanceof GatewayCallFailed) {
-			if (status === 422) reason = err.message;
-			else if (status === 429 || status >= 500) reason = readerFailureReason(status, model);
+			if (status === 422) {
+				reason = err.message;
+				kind = "refused";
+			} else if (status === 429 || status >= 500) reason = readerFailureReason(status, model);
+			else {
+				// Any other refusal (400, 415…) is the reader's own word on this file.
+				reason = err.message || reason;
+				kind = "refused";
+			}
 		}
 		logger.warn(
 			{
@@ -325,7 +475,7 @@ export async function extractDocument(options: {
 			},
 			"document_extraction_failed: the attachment is stored without text"
 		);
-		return { ok: false, status, reason };
+		return { ok: false, kind, status, reason };
 	}
 }
 
@@ -354,6 +504,7 @@ async function extractDocumentDirect(options: {
 	if (!(DIRECT_OCR_MIME_ALLOWLIST as readonly string[]).includes(mime)) {
 		return {
 			ok: false,
+			kind: "unsupported",
 			status: 422,
 			reason: `This deployment's OCR endpoint reads PDFs only; "${filename}" is ${
 				mime || "not a recognized document type"
@@ -364,6 +515,7 @@ async function extractDocumentDirect(options: {
 	if (bytes.byteLength > DIRECT_OCR_MAX_BYTES) {
 		return {
 			ok: false,
+			kind: "unsupported",
 			status: 413,
 			reason: `This document is too large to send directly to the configured OCR endpoint (limit ${Math.floor(
 				DIRECT_OCR_MAX_BYTES / (1024 * 1024)
@@ -394,6 +546,7 @@ async function extractDocumentDirect(options: {
 		);
 		return {
 			ok: false,
+			kind: "unreachable",
 			status: 502,
 			reason: "The document reader could not be reached, so the file was stored without text.",
 		};
@@ -427,6 +580,8 @@ async function extractDocumentDirect(options: {
 				: "The document reader could not be reached, so the file was stored without text.";
 		return {
 			ok: false,
+			kind:
+				response.status === 429 || response.status >= 500 ? ("unreachable" as const) : "refused",
 			status: response.status,
 			reason: detail ?? fallback,
 		};
@@ -442,6 +597,7 @@ async function extractDocumentDirect(options: {
 		);
 		return {
 			ok: false,
+			kind: "unreachable",
 			status: 502,
 			reason: "The document reader could not be reached, so the file was stored without text.",
 		};
@@ -455,6 +611,7 @@ async function extractDocumentDirect(options: {
 		);
 		return {
 			ok: false,
+			kind: "no-text",
 			status: 422,
 			reason:
 				"The configured OCR endpoint returned no text for this document — it may be blank, corrupted, or a file the endpoint could not parse.",
