@@ -4,6 +4,17 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.3 — 2026-10-04
+
+Pins: Cerea `sha-77d49f6` (Cerea v0.3.3), Pystino `sha-5f9a870`, Authelia
+4.39.22.
+
+### Agent machines (/code)
+- **opencode is pinned to 1.18.34** (was 1.18.32). The release testing
+  pipeline ran galopin's full real-opencode suite (421 tests) green on it.
+  The pairing dialog's "Install opencode" line now installs 1.18.34;
+  machines keep whatever opencode they have until that line is run again.
+
 ## v0.3.2 — 2026-10-04
 
 Pins: Cerea `sha-ae67826` (Cerea v0.3.2), Pystino `sha-5f9a870`, Authelia
