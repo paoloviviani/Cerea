@@ -6,6 +6,8 @@ import {
 	effortLabel,
 	readRecent,
 	shortList,
+	listsEveryModel,
+	FULL_LIST_MAX,
 	withRecent,
 } from "./modelEffortPicker";
 
@@ -15,6 +17,32 @@ const models = [
 	{ id: "org/gamma", name: "Gamma" },
 	...Array.from({ length: 8 }, (_, i) => ({ id: `org/m${i}`, name: `M${i}` })),
 ];
+
+describe("a small catalog", () => {
+	const few = models.slice(0, 3);
+
+	it("lists every model, current first, then recent picks, then catalog order", () => {
+		expect(listsEveryModel(few)).toBe(true);
+		expect(shortList(few, "org/gamma", ["org/beta"], "").map((r) => r.id)).toEqual([
+			"org/gamma",
+			"org/beta",
+			"org/alpha",
+		]);
+	});
+
+	it("lists every model even with no recent picks (one picked, three offered)", () => {
+		expect(shortList(few, "org/alpha", [], "").map((r) => r.id)).toEqual([
+			"org/alpha",
+			"org/beta",
+			"org/gamma",
+		]);
+	});
+
+	it("keeps the short list and More models beyond the threshold", () => {
+		expect(listsEveryModel(models.slice(0, FULL_LIST_MAX))).toBe(true);
+		expect(listsEveryModel(models.slice(0, FULL_LIST_MAX + 1))).toBe(false);
+	});
+});
 
 describe("the short list", () => {
 	it("puts the current model first, then recent picks, at most six", () => {

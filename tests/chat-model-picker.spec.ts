@@ -98,10 +98,11 @@ test("the pill searches models and switches the conversation's model", async ({
 	});
 	await expect(page.getByRole("button", { name: "Model and effort" })).not.toContainText("Default");
 
-	// "More models" still opens the full picker.
+	// A small catalog (ten models or fewer) is listed whole, with no search and
+	// no "More models": all five fixture models show up straight away.
 	await page.getByRole("button", { name: "Model and effort" }).click();
-	await page.getByRole("menuitem", { name: "More models" }).click();
-	await expect(page.getByRole("dialog")).toBeVisible();
+	await expect(page.getByRole("menuitem").filter({ hasText: "test-org/" })).toHaveCount(5);
+	await expect(page.getByRole("menuitem", { name: "More models" })).toHaveCount(0);
 });
 
 test("the pill's checkmark lands on the active model on first open, including a new chat's default", async ({
@@ -117,8 +118,8 @@ test("the pill's checkmark lands on the active model on first open, including a 
 	// current first — enough rows to tell "checked" from "unchecked" apart.
 	await page.getByRole("textbox", { name: "Search models" }).fill("test-org");
 
-	// The search-result rows only — "More models" is its own always-present
-	// menu item, not one of the search hits.
+	// The search-result rows only — "More models" would be its own menu item,
+	// not one of the search hits (and with five models it is not shown at all).
 	const rows = page.getByRole("menuitem").filter({ hasNotText: "More models" });
 	await expect(rows).toHaveCount(5);
 
