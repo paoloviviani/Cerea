@@ -1,3 +1,4 @@
+import { currentTimeLine } from "./utils/clock";
 import { artifactsEnabledForTurn, artifactsModeForTurn, injectArtifactsPrompt } from "./artifacts";
 import type { ArtifactsMode } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
@@ -100,7 +101,11 @@ export function resolvePreprompt({
 	// procedure the model carries out through those same channels, never
 	// execution of its own.
 	const withSkills = skillsPreprompt ? `${resolved}\n\n${skillsPreprompt}` : resolved;
-	if (!mlAssistant) return withSkills;
+	// The one line that says when it is now, for every turn, in the user's zone.
+	// At the end: it changes by the minute, so everything above it stays a
+	// cacheable prefix. The ML preset states the date and time in its own
+	// session context below, so it gets no second one.
+	if (!mlAssistant) return `${withSkills}\n\n${currentTimeLine(now ?? new Date(), timezone)}`;
 	// The mode is always budget-gated; a conversation without a stored budget is
 	// a zero budget, and the rules — including how to ask for a grant — must
 	// reach the model exactly then.

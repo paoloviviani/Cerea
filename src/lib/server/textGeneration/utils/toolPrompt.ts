@@ -1,3 +1,4 @@
+import { isoDateIn } from "./clock";
 import type { OpenAiTool } from "$lib/server/mcp/tools";
 import type { BuiltinTool } from "../builtinTools/types";
 import { ARTIFACT_TOOL_POINTER, ARTIFACT_TOOL_RULE } from "../artifacts";
@@ -37,29 +38,12 @@ export function buildToolPreprompt(
 		.map((t) => (t?.function?.name ? String(t.function.name) : ""))
 		.filter((s) => s.length > 0);
 	if (names.length === 0) return "";
+	// "Now" is not stated here: `resolvePreprompt` puts the one current-time line
+	// in the system prompt for every turn, tools or not. What this paragraph
+	// needs is today's date in the person's zone, for the search guidance.
 	const now = new Date();
-	const dateTimeOptions: Intl.DateTimeFormatOptions = {
-		year: "numeric",
-		month: "long",
-		day: "numeric",
-		weekday: "long",
-		hour: "2-digit",
-		minute: "2-digit",
-		...(timezone ? { timeZone: timezone } : {}),
-	};
-	// Same exposure as the session-context stamp: the zone is client-supplied and
-	// validated only as a string, and Intl throws on one it does not know. Here the
-	// throw is caught upstream and degrades the turn to a tool-free answer, which
-	// is quieter than a failure and just as wrong.
-	let currentDateTime: string;
-	try {
-		currentDateTime = now.toLocaleString("en-US", dateTimeOptions);
-	} catch {
-		timezone = undefined;
-		currentDateTime = now.toLocaleString("en-US", { ...dateTimeOptions, timeZone: undefined });
-	}
-	const isoDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-	const locationLine = timezone ? ` User's timezone: ${timezone}.` : "";
+	const isoDate = isoDateIn(now, timezone);
+	const year = isoDate.slice(0, 4);
 	// Only builtins actually on offer this turn contribute guidance.
 	const offered = (builtins ?? []).filter((builtin) => names.includes(builtin.name));
 	const exemptNames = offered
@@ -80,7 +64,6 @@ export function buildToolPreprompt(
 			}`;
 	const general = [
 		`You have access to these tools: ${names.join(", ")}.`,
-		`Current date and time: ${currentDateTime} (${isoDate}).${locationLine}`,
 		restraint,
 		// Right after the restraint paragraph, never anywhere else: the rule only
 		// works read together with the tool guidance, not restated pages later.
@@ -96,7 +79,7 @@ export function buildToolPreprompt(
 		...(mlAssistant
 			? [ML_ASSISTANT_TOOL_DOCTRINE.grounding, ML_ASSISTANT_TOOL_DOCTRINE.largeResults]
 			: [
-					`SEARCH: Use 3-6 precise keywords. For historical events, include the year the event occurred. For recent or current topics, use today's year (${now.getFullYear()}). When a tool accepts date-range parameters (e.g., startPublishedDate, endPublishedDate), always use today's date (${isoDate}) as the end date unless the user specifies otherwise. For multi-part questions, search each part separately. If the results only partially cover the question, run a follow-up search or crawl the most relevant result URL instead of answering from memory.`,
+					`SEARCH: Use 3-6 precise keywords. For historical events, include the year the event occurred. For recent or current topics, use today's year (${year}). When a tool accepts date-range parameters (e.g., startPublishedDate, endPublishedDate), always use today's date (${isoDate}) as the end date unless the user specifies otherwise. For multi-part questions, search each part separately. If the results only partially cover the question, run a follow-up search or crawl the most relevant result URL instead of answering from memory.`,
 					`GROUNDING: When you answer from tool results, the results are your only source of facts. Do not supplement them with specifics from your own knowledge — details not present in the results are likely wrong, even when they sound plausible. If a fact is missing, search again or say you could not verify it. Attribute key facts to their sources with markdown links to the result URLs. If results conflict, say so. Never fabricate URLs, citations, or facts.`,
 					`INTERACTIVE APPS: When asked to build an interactive application, game, or visualization without a specific language/framework preference, create a single self-contained HTML file with embedded CSS and JavaScript.`,
 				]),
