@@ -4,6 +4,23 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.0 — 2026-10-06
+
+Pins: Cerea `0.4.0`, Pystino `0.3.0`, Authelia 4.39.22.
+
+- **Project memory.** Notes kept per project, shared by everyone who can see
+  it, added to that project's chats only (after personal memory). Members add,
+  edit and delete them in the project's Memory section; the model has
+  `remember_for_project` / `forget_for_project`. A deleted account's notes
+  stay, shown as "deleted user". Follows `CHAT_MEMORY_ENABLED`.
+- **Web search is chosen in Admin → Web search**, from the gateway's search
+  backends (`WEB_SEARCH_MODEL` overrides it). With no backend set up, the
+  web search switches are disabled and say so instead of doing nothing.
+  Pystino 0.3.0: `/v1/search` accepts the chosen backend when the caller is
+  granted it.
+- **Code sandbox:** a file that could not be copied to `/mnt/data` shows as
+  "not available" with the reason, and runs wait for copies in flight.
+
 ## v0.3.18 — 2026-10-06
 
 Pins: Cerea `0.3.11`, Pystino `0.2.6`, Authelia 4.39.22.

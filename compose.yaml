@@ -25,9 +25,9 @@ name: ${COMPOSE_PROJECT_NAME:-cerea}
 
 # The pins. tools/pin rewrites the defaults after `:-` on each release; .env
 # overrides them only for local builds (dev/build.sh) or a private registry.
-x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.2.6}}
-x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.2.6}-pattern}
-x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.3.11}}
+x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.3.0}}
+x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.3.0}-pattern}
+x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.4.0}}
 
 x-database-url: &database-url postgresql+asyncpg://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-gateway}
 
@@ -403,6 +403,7 @@ services:
       CHAT_OCR_BASE_URL: ${CHAT_OCR_BASE_URL:-}
       CHAT_OCR_API_KEY: ${CHAT_OCR_API_KEY:-}
       CHAT_PDF_IMAGE_PAGES: ${CHAT_PDF_IMAGE_PAGES:-20}
+      WEB_SEARCH_MODEL: ${WEB_SEARCH_MODEL:-}
       # The agent-machine component: galopin, the machine agent, dials
       # wss://<origin>/chat/api/v2/code/machine — the /chat route the proxy
       # already has, so no extra service, port or route — and authenticates
