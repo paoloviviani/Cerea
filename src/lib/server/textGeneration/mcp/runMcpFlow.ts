@@ -703,6 +703,7 @@ export async function* runMcpFlow({
 				contextLengthTokens: targetContextLength,
 				maxOutputTokens: maxTokens,
 				timezone: userTimezone,
+				codeToolOffered: oaTools.some((tool) => tool.function.name === EXECUTE_CODE_TOOL_NAME),
 			}
 		);
 		// In the mode the doctrine paragraphs are swapped, not appended to: the

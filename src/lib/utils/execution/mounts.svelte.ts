@@ -17,9 +17,22 @@ export interface MountedFile {
 	name: string;
 }
 
+/** A conversation attachment that was left out of the sandbox, and why. */
+export interface SkippedFile {
+	name: string;
+	reason: string;
+}
+
 class MountsStore {
 	#files = $state<MountedFile[]>([]);
 	#busy = $state(false);
+	#skipped = $state<SkippedFile[]>([]);
+	/** Paths put here by the conversation's attachments, so a switch takes back only those. */
+	#conversationPaths = new Set<string>();
+
+	get skipped(): SkippedFile[] {
+		return this.#skipped;
+	}
 
 	get files(): MountedFile[] {
 		return this.#files;
@@ -76,6 +89,35 @@ class MountsStore {
 		} finally {
 			this.#busy = false;
 		}
+	}
+
+	/** A chat attachment mounted for the open conversation. */
+	recordConversationFile(mounted: MountedFile): void {
+		this.#conversationPaths.add(mounted.path);
+		untrack(() => {
+			this.#skipped = this.#skipped.filter((note) => note.name !== mounted.name);
+		});
+		this.record(mounted);
+	}
+
+	/** A chat attachment that was not mounted; one note per name. */
+	recordSkipped(note: SkippedFile): void {
+		untrack(() => {
+			this.#skipped = [...this.#skipped.filter((other) => other.name !== note.name), note];
+		});
+	}
+
+	/**
+	 * Forget the conversation's attachments (the sandbox side is removed by
+	 * the caller): the chips and notes of the conversation just left. Knowledge
+	 * and artifact mounts are untouched.
+	 */
+	dropConversationFiles(): void {
+		untrack(() => {
+			this.#files = this.#files.filter((file) => !this.#conversationPaths.has(file.path));
+			this.#skipped = [];
+		});
+		this.#conversationPaths.clear();
 	}
 
 	private record(mounted: MountedFile): void {

@@ -1,21 +1,43 @@
 import type { Message, MessageFile } from "$lib/types/Message";
 import type { EndpointMessage } from "./endpoints";
-import { downloadFile } from "../files/downloadFile";
+import { downloadFile, storedSizes } from "../files/downloadFile";
 import { documentMime, isExtractableDocument } from "../files/extractDocument";
 import { missingTextNotice } from "../files/missingTextNotice";
 import { scanNotice, wordScanMarkers } from "../files/scanNotice";
+import { mountNamesByHash } from "$lib/utils/execution/attachmentNames";
 import type { ObjectId } from "mongodb";
 
 export async function preprocessMessages(
 	messages: Message[],
 	convId: ObjectId,
 	/** The turn's model reads images (`modelReadsImages`); decides what a scanned PDF becomes. */
-	canReadImages = false
+	canReadImages = false,
+	/**
+	 * Every message of the conversation, not just this branch: where an
+	 * attachment is mounted in the sandbox is decided over all of them
+	 * (`planAttachments`), the same list the browser mounts from.
+	 */
+	conversationMessages: Message[] = messages
 ): Promise<EndpointMessage[]> {
 	return Promise.resolve(messages)
-		.then((msgs) => downloadFiles(msgs, convId, canReadImages))
+		.then(async (msgs) =>
+			downloadFiles(msgs, convId, canReadImages, await mountNamesFor(conversationMessages, convId))
+		)
 		.then((msgs) => injectClipboardFiles(msgs))
 		.then(stripEmptyInitialSystemMessage);
+}
+
+/**
+ * Where each attachment of the conversation will be in the sandbox, for the
+ * ones the browser will actually mount: the stored sizes decide, against the
+ * same caps the mounter applies.
+ */
+async function mountNamesFor(messages: Message[], convId: ObjectId): Promise<Map<string, string>> {
+	const files = messages.flatMap((message) => message.files ?? []);
+	const hashes = files.flatMap((file) =>
+		file.type === "hash" ? [file.value, ...(file.extracted ? [file.extracted.value] : [])] : []
+	);
+	return mountNamesByHash(files, await storedSizes([...new Set(hashes)], convId));
 }
 
 /**
@@ -107,12 +129,21 @@ async function resolveOne(
 async function downloadFiles(
 	messages: Message[],
 	convId: ObjectId,
-	canReadImages: boolean
+	canReadImages: boolean,
+	mountNames: Map<string, string>
 ): Promise<EndpointMessage[]> {
 	return Promise.all(
 		messages.map<Promise<EndpointMessage>>((message) =>
 			Promise.all(
-				(message.files ?? []).map((file) => resolveFile(file, convId, canReadImages))
+				(message.files ?? []).map(async (file) => {
+					const resolved = await resolveFile(file, convId, canReadImages);
+					// The text the model reads is first; whether it is told where the
+					// original lives is decided later, by whether code is on offer.
+					const mountName = file.type === "hash" ? mountNames.get(file.value) : undefined;
+					return mountName && resolved.length > 0
+						? [{ ...resolved[0], mountName }, ...resolved.slice(1)]
+						: resolved;
+				})
 			).then((files) => ({ ...message, files: files.flat() }))
 		)
 	);
