@@ -4,6 +4,15 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.14 — 2026-10-05
+
+Pins: Cerea `0.3.7`, Pystino `0.2.6`, Authelia 4.39.22.
+
+- Cerea 0.3.7: the Knowledge screen stores the embedding model it shows. With
+  none stored it pre-selected the first one, and Save stored nothing, so
+  knowledge kept reporting "no embedding model". After updating, open admin
+  Knowledge and press Save once.
+
 ## v0.3.13 — 2026-10-05
 
 Pins: Cerea `0.3.6`, Pystino `0.2.6`, Authelia 4.39.22.
