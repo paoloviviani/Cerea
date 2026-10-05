@@ -52,6 +52,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	messageEvents: true,
 	bucketFiles: false, // covered by the bucket: entries above
 	codeExecutionOutputs: true,
+	codeRunFiles: true, // conversation-keyed, no owner field of its own
 	migrationResults: false,
 	semaphores: false,
 	tools: false,
