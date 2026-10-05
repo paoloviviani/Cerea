@@ -127,6 +127,64 @@ describe("AttachmentMounter", () => {
 		expect(mounter.needsSync([pdf("h1", "a.pdf")])).toBe(true);
 	});
 
+	it("warns with the URL and the status of a failed fetch, and reports the reason on the chip", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const { mounter, skipped } = setup({
+			"/conversation/conv1/output/h1": new Response("{}", { status: 403 }),
+		});
+		await mounter.sync([pdf("h1", "a.pdf")]);
+		expect(skipped).toEqual([{ name: "a.pdf", reason: "the request failed (403)" }]);
+		const line = warn.mock.calls.map((call) => String(call[0])).join("\n");
+		expect(line).toContain("/conversation/conv1/output/h1");
+		expect(line).toContain("status 403");
+		expect(line).toContain("a.pdf");
+		warn.mockRestore();
+	});
+
+	it("warns and reports when the sandbox refuses a file", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => body("x"))
+		);
+		const skipped: Array<{ name: string; reason: string }> = [];
+		const mounter = new AttachmentMounter(
+			"conv1",
+			{
+				loadFiles: async () => {
+					throw new Error("the worker is gone");
+				},
+				removeFile: async () => undefined,
+			},
+			{ mounted: () => undefined, skipped: (note) => skipped.push(note) }
+		);
+		await mounter.sync([pdf("h1", "a.pdf")]);
+		expect(skipped).toEqual([{ name: "a.pdf", reason: "the worker is gone" }]);
+		expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("a.pdf");
+		warn.mockRestore();
+	});
+
+	it("reports an undecodable inline file instead of throwing, and still mounts the others", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const { mounter, skipped, mounted } = setup({
+			"/conversation/conv1/output/h2": body("fine"),
+		});
+		await expect(
+			mounter.sync([
+				{
+					type: "base64",
+					value: "not base64 !!",
+					name: "bad.bin",
+					mime: "application/octet-stream",
+				},
+				pdf("h2", "ok.pdf"),
+			])
+		).resolves.toBeUndefined();
+		expect(skipped.map((note) => note.name)).toEqual(["bad.bin"]);
+		expect(mounted).toEqual(["/mnt/data/ok.pdf"]);
+		warn.mockRestore();
+	});
+
 	it("takes back only what it mounted", async () => {
 		const { mounter, removed } = setup({
 			"/conversation/conv1/output/h1": body("x"),

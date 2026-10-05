@@ -24,6 +24,22 @@ export class OverCapError extends Error {
 	}
 }
 
+/**
+ * A request the server answered with an error status. Carries the URL and the
+ * status so a caller can report both: the message alone ("the request failed
+ * (404)") says what went wrong but not for which file, which is what somebody
+ * debugging a missing `/mnt/data` entry needs.
+ */
+export class FetchFailedError extends Error {
+	constructor(
+		readonly url: string,
+		readonly status: number,
+		message: string
+	) {
+		super(message);
+	}
+}
+
 async function discardBody(response: Response): Promise<void> {
 	try {
 		await response.body?.cancel();
@@ -47,7 +63,11 @@ export async function fetchWithinCap(
 		} catch {
 			// Not JSON; fall back to the status alone.
 		}
-		throw new Error(detail || `the request failed (${response.status})`);
+		throw new FetchFailedError(
+			url,
+			response.status,
+			detail || `the request failed (${response.status})`
+		);
 	}
 
 	const declared = Number(response.headers.get("Content-Length"));
