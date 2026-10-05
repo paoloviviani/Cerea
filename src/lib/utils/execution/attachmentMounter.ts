@@ -1,4 +1,4 @@
-import { fetchWithinCap, OverCapError } from "./files";
+import { fetchWithinCap, FetchFailedError, OverCapError } from "./files";
 import {
 	MAX_ATTACHMENT_FILE_BYTES,
 	checkAttachmentCaps,
@@ -67,26 +67,42 @@ export class AttachmentMounter {
 		});
 	}
 
-	/** Mount whatever of `files` is not mounted yet. Never throws. */
+	/**
+	 * Mount whatever of `files` is not mounted yet. Never throws: a file that
+	 * fails for any reason — a bad response, an undecodable inline payload, a
+	 * sandbox that refuses it — is reported through `skipped` and the rest go on.
+	 */
 	async sync(files: readonly AttachmentSource[]): Promise<void> {
 		for (const planned of planAttachments(files)) {
-			const entry = this.#entries.get(planned.name) ?? {
-				original: false,
-				text: false,
-				refused: false,
-				paths: [],
-			};
-			this.#entries.set(planned.name, entry);
-			if (entry.refused) continue;
-			if (!entry.original) {
-				const bytes = await this.fetchOriginal(entry, planned);
-				if (!bytes || !(await this.mount(entry, planned.name, bytes))) continue;
-				entry.original = true;
+			try {
+				await this.syncOne(planned);
+			} catch (err) {
+				console.warn(`[attachments] ${planned.name} could not be mounted:`, err);
+				this.hooks.skipped({
+					name: planned.name,
+					reason: err instanceof Error ? err.message : "could not be mounted",
+				});
 			}
-			if (planned.textName && planned.file.extracted && !entry.text) {
-				const bytes = await this.fetchHash(entry, planned.textName, planned.file.extracted.value);
-				if (bytes && (await this.mount(entry, planned.textName, bytes))) entry.text = true;
-			}
+		}
+	}
+
+	private async syncOne(planned: PlannedAttachment): Promise<void> {
+		const entry = this.#entries.get(planned.name) ?? {
+			original: false,
+			text: false,
+			refused: false,
+			paths: [],
+		};
+		this.#entries.set(planned.name, entry);
+		if (entry.refused) return;
+		if (!entry.original) {
+			const bytes = await this.fetchOriginal(entry, planned);
+			if (!bytes || !(await this.mount(entry, planned.name, bytes))) return;
+			entry.original = true;
+		}
+		if (planned.textName && planned.file.extracted && !entry.text) {
+			const bytes = await this.fetchHash(entry, planned.textName, planned.file.extracted.value);
+			if (bytes && (await this.mount(entry, planned.textName, bytes))) entry.text = true;
 		}
 	}
 
@@ -130,15 +146,18 @@ export class AttachmentMounter {
 		name: string,
 		hash: string
 	): Promise<ArrayBuffer | undefined> {
+		const url = `/conversation/${this.conversationId}/output/${hash}`;
 		try {
-			return await fetchWithinCap(
-				`/conversation/${this.conversationId}/output/${hash}`,
-				MAX_ATTACHMENT_FILE_BYTES
-			);
+			return await fetchWithinCap(url, MAX_ATTACHMENT_FILE_BYTES);
 		} catch (err) {
 			if (err instanceof OverCapError) {
 				this.refuse(entry, name, err.bytes);
 			} else {
+				// Names the URL and the status: the chip says which file and why, but
+				// not which request, and that is what a missing /mnt/data entry
+				// gets debugged from.
+				const status = err instanceof FetchFailedError ? ` (status ${err.status})` : "";
+				console.warn(`[attachments] ${name} was not fetched from ${url}${status}:`, err);
 				this.hooks.skipped({
 					name,
 					reason: err instanceof Error ? err.message : "could not be loaded",
@@ -178,6 +197,7 @@ export class AttachmentMounter {
 			this.hooks.mounted({ path: mounted, name });
 			return true;
 		} catch (err) {
+			console.warn(`[attachments] the sandbox did not take ${name}:`, err);
 			this.hooks.skipped({
 				name,
 				reason: err instanceof Error ? err.message : "the sandbox refused it",

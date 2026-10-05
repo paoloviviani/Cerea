@@ -35,9 +35,9 @@
 		{#each mounts.skipped as note (note.name)}
 			<span
 				class="rounded-full bg-amber-50 px-2 py-0.5 font-mono text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-				title="{note.name} was not mounted: {note.reason}"
+				title="{note.name} is not in /mnt/data: {note.reason}"
 			>
-				{note.name} not mounted: {note.reason}
+				{note.name} not available: {note.reason}
 			</span>
 		{/each}
 	</div>
