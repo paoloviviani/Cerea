@@ -1,6 +1,6 @@
 import type { Message, MessageFile } from "$lib/types/Message";
 import type { EndpointMessage } from "./endpoints";
-import { downloadFile } from "../files/downloadFile";
+import { downloadFile, storedSizes } from "../files/downloadFile";
 import { documentMime, isExtractableDocument } from "../files/extractDocument";
 import { missingTextNotice } from "../files/missingTextNotice";
 import { scanNotice, wordScanMarkers } from "../files/scanNotice";
@@ -19,11 +19,25 @@ export async function preprocessMessages(
 	 */
 	conversationMessages: Message[] = messages
 ): Promise<EndpointMessage[]> {
-	const mountNames = mountNamesByHash(conversationMessages.flatMap((m) => m.files ?? []));
 	return Promise.resolve(messages)
-		.then((msgs) => downloadFiles(msgs, convId, canReadImages, mountNames))
+		.then(async (msgs) =>
+			downloadFiles(msgs, convId, canReadImages, await mountNamesFor(conversationMessages, convId))
+		)
 		.then((msgs) => injectClipboardFiles(msgs))
 		.then(stripEmptyInitialSystemMessage);
+}
+
+/**
+ * Where each attachment of the conversation will be in the sandbox, for the
+ * ones the browser will actually mount: the stored sizes decide, against the
+ * same caps the mounter applies.
+ */
+async function mountNamesFor(messages: Message[], convId: ObjectId): Promise<Map<string, string>> {
+	const files = messages.flatMap((message) => message.files ?? []);
+	const hashes = files.flatMap((file) =>
+		file.type === "hash" ? [file.value, ...(file.extracted ? [file.extracted.value] : [])] : []
+	);
+	return mountNamesByHash(files, await storedSizes([...new Set(hashes)], convId));
 }
 
 /**

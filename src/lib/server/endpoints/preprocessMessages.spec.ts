@@ -2,7 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import type { Message } from "$lib/types/Message";
 
+// Stored sizes by hash; anything not listed is a small file.
+const sizes = vi.hoisted(() => new Map<string, number | null>());
+
 vi.mock("../files/downloadFile", () => ({
+	storedSizes: vi.fn(
+		async (hashes: string[]) =>
+			new Map(
+				hashes.flatMap((h) => (sizes.get(h) === null ? [] : [[h, sizes.get(h) ?? 100] as const]))
+			)
+	),
 	downloadFile: vi.fn(async (sha: string) => ({
 		type: "base64",
 		name: `raw-${sha}`,
@@ -233,5 +242,64 @@ describe("where the original of an attachment is mounted", () => {
 			new ObjectId()
 		);
 		expect(out.files?.[0]?.mountName).toBeUndefined();
+	});
+});
+
+describe("the original is only announced when the browser will mount it", () => {
+	const MB = 1024 * 1024;
+	const doc = (value: string, name: string, extracted?: string) => ({
+		type: "hash" as const,
+		value,
+		mime: "application/pdf",
+		name,
+		...(extracted ? { extracted: { value: extracted, pages: 1 } } : {}),
+	});
+	const mountNames = async (files: ReturnType<typeof doc>[]) => {
+		const [out] = await preprocessMessages([message(files)], new ObjectId());
+		return out.files?.map((file) => file.mountName);
+	};
+
+	beforeEach(() => sizes.clear());
+
+	it("gives no name to a file over 20 MB, and keeps the next one's name", async () => {
+		sizes.set("big", 20 * MB + 1);
+		expect(await mountNames([doc("big", "big.pdf", "t1"), doc("ok", "ok.pdf", "t2")])).toEqual([
+			undefined,
+			"ok.pdf",
+		]);
+	});
+
+	it("takes a file of exactly 20 MB", async () => {
+		sizes.set("edge", 20 * MB);
+		expect(await mountNames([doc("edge", "edge.pdf", "t1")])).toEqual(["edge.pdf"]);
+	});
+
+	it("counts the 100 MB total in the mounter's order, text after its original", async () => {
+		// 4 x 20 MB originals fill 80 MB; the next original's 20 MB reaches the cap
+		// exactly and is taken (its text is then refused, which does not matter),
+		// the one after is over.
+		for (const hash of ["a", "b", "c", "d", "e", "f"]) sizes.set(hash, 20 * MB);
+		const names = await mountNames(
+			["a", "b", "c", "d", "e", "f"].map((hash) => doc(hash, `${hash}.bin`))
+		);
+		expect(names).toEqual(["a.bin", "b.bin", "c.bin", "d.bin", "e.bin", undefined]);
+	});
+
+	it("lets an earlier file's text use up room a later file needed", async () => {
+		// Four 19 MB originals alone would fit (76 MB). With 19 MB of text beside
+		// each of the first three the total is 95 MB after c, so d is refused.
+		for (const hash of ["a", "b", "c", "d", "a-t", "b-t", "c-t"]) sizes.set(hash, 19 * MB);
+		const names = await mountNames([
+			doc("a", "a.pdf", "a-t"),
+			doc("b", "b.pdf", "b-t"),
+			doc("c", "c.pdf", "c-t"),
+			doc("d", "d.pdf"),
+		]);
+		expect(names).toEqual(["a.pdf", "b.pdf", "c.pdf", undefined]);
+	});
+
+	it("gives no name to a file with no stored bytes", async () => {
+		sizes.set("gone", null);
+		expect(await mountNames([doc("gone", "gone.pdf")])).toEqual([undefined]);
 	});
 });

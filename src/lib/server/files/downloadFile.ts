@@ -35,6 +35,29 @@ export async function downloadFile(
 }
 
 /**
+ * The stored size in bytes of each of a conversation's files, by hash — the
+ * GridFS `length`, read without downloading anything. A hash with no stored
+ * file is simply absent. Used to tell the model only what the browser will
+ * really mount (`mountNamesByHash`).
+ */
+export async function storedSizes(
+	hashes: readonly string[],
+	convId: Conversation["_id"] | SharedConversation["_id"]
+): Promise<Map<string, number>> {
+	const sizes = new Map<string, number>();
+	if (hashes.length === 0) return sizes;
+	const prefix = `${convId.toString()}-`;
+	const stored = await collections.bucket
+		.find({
+			filename: { $in: hashes.map((hash) => `${prefix}${hash}`) },
+			"metadata.conversation": convId.toString(),
+		})
+		.toArray();
+	for (const file of stored) sizes.set(file.filename.slice(prefix.length), file.length);
+	return sizes;
+}
+
+/**
  * "Download, never render": the response every stored-attachment route
  * answers with. An `<img>` still displays it (it ignores the disposition);
  * navigating to it saves a file instead of running whatever the bytes are,

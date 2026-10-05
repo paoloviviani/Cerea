@@ -46,7 +46,8 @@ under the conversation, like knowledge files.
 - **Same name twice** (two `report.pdf`): the second is `report (2).pdf`, and
   the assistant is told that name.
 - **Size caps**: a file over 20 MB is not mounted, and once 100 MB is mounted
-  the rest are not. A chip says which file was left out and why.
+  the rest are not. A chip says which file was left out and why, and the
+  assistant is not told a path for it.
 - **Not mounted**: page images of scanned PDFs, pasted text, and anything in
   shared or read-only views or the [code panel](code-panel.md),
   which has its own machine.

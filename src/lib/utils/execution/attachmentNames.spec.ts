@@ -91,6 +91,32 @@ describe("attachment mount names", () => {
 	});
 });
 
+describe("mount names under the caps", () => {
+	const mb = 1024 * 1024;
+
+	it("leaves out what the mounter would skip, and counts in its order", () => {
+		const ids = ["a", "b", "c", "d", "e", "f"];
+		const files = [hash("big", "big.bin"), ...ids.map((id) => hash(id, `${id}.bin`))];
+		const sizes = new Map([["big", 21 * mb], ...ids.map((id) => [id, 20 * mb] as const)]);
+		// big: over 20 MB per file. Then five 20 MB files fill 100 MB; the sixth is over.
+		expect([...mountNamesByHash(files, sizes).values()]).toEqual([
+			"a.bin",
+			"b.bin",
+			"c.bin",
+			"d.bin",
+			"e.bin",
+		]);
+	});
+
+	it("leaves out a file whose stored size is unknown", () => {
+		expect(mountNamesByHash([hash("a", "a.bin")], new Map()).size).toBe(0);
+	});
+
+	it("applies no caps when sizes are not given", () => {
+		expect(mountNamesByHash([hash("a", "a.bin")]).get("a")).toBe("a.bin");
+	});
+});
+
 describe("attachment caps", () => {
 	it("takes a file up to 20 MB and refuses one over", () => {
 		expect(checkAttachmentCaps(0, MAX_ATTACHMENT_FILE_BYTES)).toBe("ok");
