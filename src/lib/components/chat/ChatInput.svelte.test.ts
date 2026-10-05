@@ -17,6 +17,10 @@ import { allMcpServers } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 import type { MCPServer } from "$lib/types/Tool";
 
+/** The connector list loads over a fetch; a slow CI runner needs more than
+ * vi.waitFor's 1s default (a 5s bound still fails fast on a real regression). */
+const waitSlow = <T>(check: () => T | Promise<T>) => vi.waitFor(check, { timeout: 5000 });
+
 // The composer's MCP stores read `$env/dynamic/public` at module scope; the
 // client project runs in a real browser where no SvelteKit env exists.
 vi.mock("$env/dynamic/public", () => ({
@@ -141,7 +145,7 @@ afterEach(() => {
 
 const openMenu = async (container: HTMLElement) => {
 	fireTap(find(container, 'button[aria-label="Add attachment"]'));
-	await vi.waitFor(() => expect(document.body.textContent).toContain("Knowledge bases"));
+	await waitSlow(() => expect(document.body.textContent).toContain("Knowledge bases"));
 };
 
 const openKnowledgeSubmenu = async (_container: HTMLElement) => {
@@ -150,7 +154,7 @@ const openKnowledgeSubmenu = async (_container: HTMLElement) => {
 	);
 	if (!trigger) throw new Error("no knowledge submenu trigger");
 	trigger.click();
-	await vi.waitFor(() => expect(document.body.textContent).toContain("Specs"));
+	await waitSlow(() => expect(document.body.textContent).toContain("Specs"));
 };
 
 describe("ChatInput: attaching knowledge bases", () => {
@@ -167,7 +171,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 		expect(item.getAttribute("aria-checked")).toBe("false");
 		item.click();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(calls).toContainEqual({
 				method: "PATCH",
 				url: expect.stringContaining(`/conversation/${CONV_ID}`),
@@ -192,7 +196,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 		expect(item.getAttribute("aria-checked")).toBe("true");
 		item.click();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(calls).toContainEqual({
 				method: "PATCH",
 				url: expect.stringContaining(`/conversation/${CONV_ID}`),
@@ -214,7 +218,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 		if (!item) throw new Error("no Specs checkbox item");
 		item.click();
 
-		await vi.waitFor(() => expect(item.getAttribute("aria-checked")).toBe("false"));
+		await waitSlow(() => expect(item.getAttribute("aria-checked")).toBe("false"));
 	});
 
 	it("before a conversation exists, toggling stays local and PATCHes nothing", async () => {
@@ -229,7 +233,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 		if (!item) throw new Error("no Specs checkbox item");
 		item.click();
 
-		await vi.waitFor(() => expect(item.getAttribute("aria-checked")).toBe("true"));
+		await waitSlow(() => expect(item.getAttribute("aria-checked")).toBe("true"));
 		expect(calls.filter((call) => call.method === "PATCH")).toEqual([]);
 	});
 
@@ -253,7 +257,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 		// requireAuthUser() closes the dropdown outright for an anonymous
 		// session — the menu itself never opens, so no submenu inside it either.
 		fireTap(find(host, 'button[aria-label="Add attachment"]'));
-		await vi.waitFor(() => expect(document.body.textContent).not.toContain("Add text file"));
+		await waitSlow(() => expect(document.body.textContent).not.toContain("Add text file"));
 		expect(document.body.textContent).not.toContain("Knowledge bases");
 	});
 });
@@ -325,7 +329,7 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(findConnectorItem("jmcp").textContent).toContain("Needs attention")
 		);
 		const mark = [...findConnectorItem("jmcp").querySelectorAll("span")].find(
@@ -344,12 +348,12 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
 		);
 		findConnectorItem("Notion").click();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
 		);
 		expect(get(selectedConnectorIds).has("conn-notion")).toBe(false);
@@ -366,12 +370,12 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
 		);
 		findConnectorItem("Notion").click();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
 		);
 		expect(get(enabledConnectors).map((c) => c.id)).toEqual(["conn-notion"]);
@@ -389,8 +393,8 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() => expect(document.body.textContent).toContain("Loading connectors…"));
-		await vi.waitFor(() =>
+		await waitSlow(() => expect(document.body.textContent).toContain("Loading connectors…"));
+		await waitSlow(() =>
 			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
 		);
 	});
@@ -402,7 +406,7 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(findConnectorItem("Pending").textContent).toContain("Not signed in")
 		);
 		expect(findConnectorItem("Pending").getAttribute("role")).toBe("menuitem");
@@ -410,7 +414,7 @@ describe("ChatInput: MCP connector toggles", () => {
 
 		// The manager is a workspace tab now, not a dialog: selecting a
 		// disconnected connector navigates to it, where the sign-in lives.
-		await vi.waitFor(() => expect(appNavigation().goto).toHaveBeenCalledWith("/workspace?tab=mcp"));
+		await waitSlow(() => expect(appNavigation().goto).toHaveBeenCalledWith("/workspace?tab=mcp"));
 		// …and nothing was selected: a no-op toggle would send no tools.
 		expect(get(selectedConnectorIds).size).toBe(0);
 		expect(get(enabledConnectors)).toEqual([]);
@@ -423,7 +427,7 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(document.body.textContent).toContain(
 				"No connectors yet. Add one from Manage MCP Servers."
 			)
@@ -438,9 +442,7 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMenu(container);
 		await openMcpSubmenu();
 
-		await vi.waitFor(() =>
-			expect(document.body.textContent).toContain("Could not load connectors")
-		);
+		await waitSlow(() => expect(document.body.textContent).toContain("Could not load connectors"));
 		expect(document.body.textContent).toContain("Manage MCP Servers");
 	});
 });
@@ -475,7 +477,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		const trigger = candidates[0];
 		if (!trigger) throw new Error(`no ${name} submenu trigger`);
 		trigger.click();
-		await vi.waitFor(() => expect(document.body.textContent).toContain(waitFor));
+		await waitSlow(() => expect(document.body.textContent).toContain(waitFor));
 		await settlePanels();
 	};
 
@@ -571,7 +573,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			expect(pill.getAttribute("aria-pressed")).toBe("false");
 			pill.click();
 
-			await vi.waitFor(() =>
+			await waitSlow(() =>
 				expect(calls).toContainEqual({
 					method: "PATCH",
 					url: expect.stringContaining(`/conversation/${CONV_ID}`),
@@ -591,7 +593,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			expect(pill.getAttribute("aria-pressed")).toBe("true");
 			pill.click();
 
-			await vi.waitFor(() =>
+			await waitSlow(() =>
 				expect(calls).toContainEqual({
 					method: "PATCH",
 					url: expect.stringContaining(`/conversation/${CONV_ID}`),
@@ -608,7 +610,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			const pill = findWebSearchPill(container);
 			pill.click();
 
-			await vi.waitFor(() => expect(pill.getAttribute("aria-pressed")).toBe("false"));
+			await waitSlow(() => expect(pill.getAttribute("aria-pressed")).toBe("false"));
 		});
 
 		it("before a conversation exists, toggling stays local and PATCHes nothing", async () => {
@@ -618,7 +620,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			const pill = findWebSearchPill(container);
 			pill.click();
 
-			await vi.waitFor(() => expect(pill.getAttribute("aria-pressed")).toBe("true"));
+			await waitSlow(() => expect(pill.getAttribute("aria-pressed")).toBe("true"));
 			expect(calls.filter((call) => call.method === "PATCH")).toEqual([]);
 		});
 	});
@@ -695,7 +697,7 @@ describe("ChatInput: the / menu", () => {
 		const box = find(container, "textarea") as HTMLTextAreaElement;
 		box.value = text;
 		box.dispatchEvent(new Event("input", { bubbles: true }));
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(Boolean(document.getElementById("slash-command-listbox"))).toBe(
 				text.startsWith("/") && !text.startsWith("//")
 			)
@@ -712,7 +714,7 @@ describe("ChatInput: the / menu", () => {
 		expect(document.getElementById("slash-command-listbox")).not.toBeNull();
 
 		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-		await vi.waitFor(() => expect(onsubmit).toHaveBeenCalledTimes(1));
+		await waitSlow(() => expect(onsubmit).toHaveBeenCalledTimes(1));
 		expect(onslashcommand).not.toHaveBeenCalled();
 	});
 
@@ -723,7 +725,7 @@ describe("ChatInput: the / menu", () => {
 
 		const box = await typeDraft(container, "/compact");
 		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-		await vi.waitFor(() =>
+		await waitSlow(() =>
 			expect(onslashcommand).toHaveBeenCalledWith(
 				{ name: "compact", description: "Compact now", group: "panel" },
 				""
@@ -739,7 +741,7 @@ describe("ChatInput: the / menu", () => {
 
 		const box = await typeDraft(container, "/mod");
 		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-		await vi.waitFor(() => expect(box.value).toBe("/model "));
+		await waitSlow(() => expect(box.value).toBe("/model "));
 		// The menu is closed by the accept, and the ghost hint is announced.
 		expect(document.getElementById("slash-command-listbox")).toBeNull();
 		expect(onslashcommand).not.toHaveBeenCalled();

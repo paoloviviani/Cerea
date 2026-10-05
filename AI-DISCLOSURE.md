@@ -1,6 +1,7 @@
 # AI Use Disclosure
 
 ## Summary
+
 This disclosure refers to this repository's additions to the original
 huggingface/chat-ui project: the code written for Cerea specifically —
 the /code agent panel and its machine protocol, the knowledge and
@@ -11,12 +12,14 @@ hand-written changes are limited to small edits. The retained upstream
 code is addressed under Provenance below.
 
 ## Human contribution
+
 - Overall architecture, module decomposition and interface design
 - Iterative specification and refinement over thousands of interactions
 - Selection, rejection and restructuring of generated output
 - Review, testing and integration decisions
 
 ## Provenance and third-party code
+
 Cerea is a fork of huggingface/chat-ui: the upstream code it retains
 was written by the Hugging Face team, is not AI-generated in this
 project, and is not covered by this disclosure (see NOTICE).
@@ -26,6 +29,7 @@ report concerns through this repository's private vulnerability
 reporting (Security tab) or an issue labelled `provenance`.
 
 ## Copyright position
+
 Copyright in this project's own contributions is claimed to the
 extent it subsists under applicable law; portions may not be eligible
 for protection. This does not affect the copyright of upstream or
