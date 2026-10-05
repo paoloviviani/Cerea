@@ -105,6 +105,7 @@ export const load = async ({ fetch, url, data }) => {
 		oldModels: [],
 		user,
 		gatewayIsAdmin: data.gatewayIsAdmin,
+		webSearchAvailable: data.webSearchAvailable,
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		settings: {

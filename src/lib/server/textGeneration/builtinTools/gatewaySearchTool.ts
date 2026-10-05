@@ -5,8 +5,9 @@ import type { BuiltinTool } from "./types";
 /**
  * The gateway's unified search, as a builtin (`POST /v1/search`).
  *
- * One shape in, one shape out: the gateway picks the backend from the
- * caller's billing-group policy and translates both ways, always at the
+ * One shape in, one shape out: the gateway picks the backend — the one the
+ * administrator chose on Admin → Web search when the caller is granted it,
+ * otherwise the caller's billing-group policy — and translates both ways, always at the
  * vendor's default depth. The per-vendor adapters this file used to carry —
  * Linkup's `q`/`depth`, Exa's `query`/`type` — are deleted, not moved: a
  * caller that speaks the dialect chooses the backend, and choosing backends
@@ -60,6 +61,12 @@ export function createGatewaySearchBuiltins(params: {
 	token?: string;
 	/** The search backends this caller is granted, by name. */
 	searchModelIds: string[];
+	/**
+	 * The backend the administrator chose (Admin → Web search), named in the
+	 * request. The gateway accepts it only among this caller's grants; absent,
+	 * the billing-group policy decides.
+	 */
+	backend?: string;
 	/** Search result URLs become safe fetch targets in a later tool round. */
 	allowedFetchUrls?: Set<string>;
 }): BuiltinTool[] {
@@ -113,7 +120,11 @@ export function createGatewaySearchBuiltins(params: {
 					const answer = await gateway.post<{
 						results?: { title?: unknown; url?: unknown; snippet?: unknown }[];
 						backend?: unknown;
-					}>(params.token, "search", { query, max_results: max });
+					}>(params.token, "search", {
+						query,
+						max_results: max,
+						...(params.backend ? { backend: params.backend } : {}),
+					});
 					const results = Array.isArray(answer.results)
 						? answer.results.flatMap((entry) => {
 								if (typeof entry.url !== "string" || !entry.url) return [];
