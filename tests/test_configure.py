@@ -338,6 +338,16 @@ class TestFreshInstall(unittest.TestCase):
         self.assertEqual(build(agents=True).values["CODE_AGENTS_ENABLED"], "true")
         self.assertEqual(build().values["CODE_AGENTS_ENABLED"], "")
 
+    def test_terminal_switch_needs_agents(self):
+        self.assertEqual(build(agents=True, terminal=True).values["CODE_TERMINAL_ENABLED"], "true")
+        self.assertEqual(build(agents=True).values["CODE_TERMINAL_ENABLED"], "")
+        # No agent machines, no terminal, whatever was asked.
+        self.assertEqual(build(terminal=True).values["CODE_TERMINAL_ENABLED"], "")
+        # A re-run keeps it, and --no-agents turns it off with them.
+        first = dict(build(agents=True, terminal=True).values)
+        self.assertEqual(build(existing=first).values["CODE_TERMINAL_ENABLED"], "true")
+        self.assertEqual(build(existing=first, agents=False).values["CODE_TERMINAL_ENABLED"], "")
+
     def test_defaults_for_the_new_adr_0093_fields(self):
         v = build().values
         self.assertEqual(v["OIDC_GROUP_SYNC"], "every_login")

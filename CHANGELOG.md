@@ -4,6 +4,19 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.15 — 2026-10-05
+
+Pins: Cerea `0.3.8`, Pystino `0.2.6`, Authelia 4.39.22.
+
+- `./configure --terminal` turns on the browser terminal for agent machines
+  (`CODE_TERMINAL_ENABLED`, off unless set; it needs `--agents`). A fresh
+  install had no way to ask for it, so the terminal entry never showed. On an
+  existing install: `./configure --terminal`, then `docker compose up -d`.
+- Cerea 0.3.8: the pairing dialog says when the deployment has the terminal
+  off; an agent follow-up that fails to send keeps its draft; the connector
+  list no longer flips to "Could not load connectors" when two refreshes cross;
+  account erasure also removes a run's file records.
+
 ## v0.3.14 — 2026-10-05
 
 Pins: Cerea `0.3.7`, Pystino `0.2.6`, Authelia 4.39.22.

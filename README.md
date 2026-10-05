@@ -616,10 +616,13 @@ curl -fsSL '<origin>/chat/galopin/install.sh' | sh && \
   galopin run
 ```
 
-An **Allow terminal** checkbox on the same dialog adds `--allow-terminal` to
-the command. It grants interactive shell access on the machine to whoever
-controls your chat session — no model and no permission rule in the way once
-a terminal is open — so it stays off unless you want it. The installer
+**The browser terminal** has two switches. The deployment's, `--terminal`
+(`CODE_TERMINAL_ENABLED='true'`), is off unless you turn it on; while it is off
+no terminal is offered anywhere, and the pairing dialog says so. Each machine's
+own, the dialog's **Allow terminal** checkbox, adds `--allow-terminal` to the
+command. Together they grant interactive shell access on the machine to whoever
+controls the chat session — no model and no permission rule in the way once a
+terminal is open. The installer
 verifies the binary's checksum; `enroll` signs in through the browser. The
 machine then appears in `/chat/code`, where its owner confirms it. Revoking
 it there disconnects it for good. A machine whose identity provider changed,

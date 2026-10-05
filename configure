@@ -668,6 +668,7 @@ class Answers:
     tls: str = "acme"
     idp: str = "authelia"
     agents: bool | None = None
+    terminal: bool | None = None
     project: str | None = None
     http_port: int | None = None
     https_port: int | None = None
@@ -729,6 +730,7 @@ def answers_from(values: dict) -> Answers:
         tls=values.get("TLS_MODE", "acme") or "acme",
         idp="authelia" if "authelia" in profiles or not profiles else "external",
         agents=values.get("CODE_AGENTS_ENABLED", "") == "true",
+        terminal=values.get("CODE_TERMINAL_ENABLED", "") == "true",
     )
 
 
@@ -884,6 +886,11 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
     # --- agent machines -------------------------------------------------------------
     if answers.agents is not None:
         values["CODE_AGENTS_ENABLED"] = "true" if answers.agents else ""
+    # The browser terminal rides on agent machines: without them there is
+    # nothing to open a shell on, so it is off whatever was asked.
+    if answers.terminal is not None or answers.agents is False:
+        on = bool(answers.terminal) and values.get("CODE_AGENTS_ENABLED") == "true"
+        values["CODE_TERMINAL_ENABLED"] = "true" if on else ""
 
     # --- identity -------------------------------------------------------------------
     values["PYSTINO_BOOTSTRAP_ADMIN_EMAIL"] = admin_email
@@ -1851,6 +1858,8 @@ def parser() -> argparse.ArgumentParser:
     o = p.add_argument_group("optional")
     o.add_argument("--agents", action=argparse.BooleanOptionalAction, default=None,
                    help="agent machines (/chat/code and galopin)")
+    o.add_argument("--terminal", action=argparse.BooleanOptionalAction, default=None,
+                   help="the browser terminal on agent machines (a full remote shell; needs --agents)")
     o.add_argument("--project", help="compose project name (default cerea)")
     o.add_argument("--http-port", type=int, help="host port for HTTP (upstream mode: what the front forwards to)")
     o.add_argument("--https-port", type=int, help="host port for HTTPS")
