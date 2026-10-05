@@ -27,6 +27,8 @@ class ConversationAttachments {
 	#source: Source | undefined;
 	#mounter: AttachmentMounter | undefined;
 	#queue: Promise<unknown> = Promise.resolve();
+	/** Mounts queued or running; a run started meanwhile waits for them. */
+	#pending = 0;
 	#watching = false;
 
 	/** The open chat conversation and its messages; `null` when there is none. */
@@ -46,10 +48,22 @@ class ConversationAttachments {
 		const session = getExecutionSession();
 		if (!source || !session) return undefined;
 		const mounter = this.mounterFor(source.conversationId, session);
-		if (!mounter.needsSync(source.files)) return undefined;
+		if (!mounter.needsSync(source.files)) {
+			// Nothing new to mount, but an earlier run's mount may still be in
+			// flight: starting now would run the code before its files are there.
+			return this.#pending > 0 ? this.#queue.then(() => undefined) : undefined;
+		}
 		// Serialised: a run that starts while a mount is in flight waits for it
-		// rather than racing a second fetch of the same file.
-		const next = this.#queue.then(() => mounter.sync(source.files));
+		// rather than racing a second fetch of the same file. `sync` does not
+		// throw, but the catch keeps one that somehow did from leaving the queue
+		// rejected — every later mount chained onto it would be skipped, silently.
+		this.#pending += 1;
+		const next = this.#queue
+			.then(() => mounter.sync(source.files))
+			.catch((err) => console.warn("[attachments] mounting failed:", err))
+			.finally(() => {
+				this.#pending -= 1;
+			});
 		this.#queue = next;
 		return next;
 	}
@@ -79,7 +93,7 @@ class ConversationAttachments {
 		const mounter = this.#mounter;
 		this.#mounter = undefined;
 		getMountsStore()?.dropConversationFiles();
-		if (mounter) this.#queue = this.#queue.then(() => mounter.unmountAll());
+		if (mounter) this.#queue = this.#queue.then(() => mounter.unmountAll()).catch(() => undefined);
 	}
 }
 
@@ -99,9 +113,12 @@ export function setAttachmentSource(
 }
 
 /**
- * Run `run` once the open conversation's attachments are in the sandbox. A
- * mount that fails or finds nothing to do never blocks the run: when there is
- * nothing pending `run` is called synchronously, as it always was.
+ * Run `run` once the open conversation's attachments have settled in the
+ * sandbox — mounted, or reported as not available on the chips. A mount that
+ * fails never blocks the run, but the run does wait for it to finish failing:
+ * code that starts while a file is still being fetched sees an empty
+ * `/mnt/data`. When there is nothing pending `run` is called synchronously, as
+ * it always was.
  */
 export function withAttachmentMounts<T>(run: () => Promise<T>): Promise<T> {
 	const pending = conversationAttachments?.ensure();

@@ -152,6 +152,40 @@ export async function projectAccess(
 	return shared ? { project, owned: false } : null;
 }
 
+/**
+ * The conversation's project, if its project memory may be used this turn:
+ * the deployment flag is on, the conversation belongs to a project, and the
+ * person running it is still its owner or someone it is shared with.
+ *
+ * The membership re-check is what separates this from `projectContext`, which
+ * trusts the conversation's `projectId`: reading a project's instructions after
+ * a share was withdrawn is a stale convenience, but *writing* into every
+ * member's prompt after it was withdrawn is not, and the block carries what
+ * the other members wrote. One answer for both the block and the tools, so
+ * they cannot disagree. `undefined` rather than throwing: this is on the
+ * generation path.
+ */
+export async function projectForMemory(
+	projectId: ObjectId | undefined,
+	locals: App.Locals | undefined
+): Promise<Project | undefined> {
+	const user = locals?.user;
+	if (!projectId || !user) return undefined;
+	const { memoryEnabled } = await import("$lib/server/memoryEnabled");
+	if (!memoryEnabled()) return undefined;
+	try {
+		const project = await collections.projects.findOne({ _id: projectId });
+		if (!project) return undefined;
+		if (project.userId.equals(user._id)) return project;
+		const principals = await viewerPrincipals(user, locals?.token);
+		const access = await projectAccess(projectId.toString(), user._id, principals);
+		return access?.project;
+	} catch (err) {
+		logger.warn({ err: String(err) }, "project_memory_access_degraded: continuing without it");
+		return undefined;
+	}
+}
+
 export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 	const { project, owned } = access;
 	const conversationCount = await collections.conversations.countDocuments({

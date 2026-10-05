@@ -26,6 +26,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	projects: true,
 	skills: true,
 	memories: true,
+	projectMemories: true, // authored by a user; erased with the owning project
 	vectorStores: true,
 	knowledgeDocuments: true, // indirect: via storeId -> vectorStores.ownerId
 	knowledgeConfig: false,
@@ -672,5 +673,63 @@ describe("previewErasureCounts (the erasure preview's dry run)", () => {
 	it("has an entry for every registered collection", async () => {
 		const counts = await previewErasureCounts(new ObjectId(), { conversationIds: [] });
 		expect(Object.keys(counts).sort()).toEqual(USER_KEYED_COLLECTIONS.map((e) => e.name).sort());
+	});
+});
+
+describe("projectMemories erasure (notes follow the project, not the author)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	it("deletes notes in projects the person owns, keeps the ones they wrote in other people's, and is previewed accurately", async () => {
+		const erased = new ObjectId();
+		const other = new ObjectId();
+		const mine = new ObjectId();
+		const theirs = new ObjectId();
+		await collections.projects.deleteMany({ _id: { $in: [mine, theirs] } });
+		await collections.projectMemories.deleteMany({ projectId: { $in: [mine, theirs] } });
+		const now = new Date();
+		await collections.projects.insertMany([
+			{ _id: mine, userId: erased, name: "Mine", shares: [], createdAt: now, updatedAt: now },
+			{ _id: theirs, userId: other, name: "Theirs", shares: [], createdAt: now, updatedAt: now },
+		] as never);
+		const row = (projectId: ObjectId, authorUserId: ObjectId, text: string) => ({
+			_id: new ObjectId(),
+			projectId,
+			text,
+			source: "user" as const,
+			authorUserId,
+			createdAt: now,
+			updatedAt: now,
+		});
+		await collections.projectMemories.insertMany([
+			row(mine, erased, "Mine, by me."),
+			row(mine, other, "Mine, by a colleague."),
+			row(theirs, erased, "Theirs, by me."),
+			row(theirs, other, "Theirs, by them."),
+		]);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "projectMemories");
+		if (!entry) throw new Error("projectMemories is not registered");
+		expect(entry.eraseRule).toBe("custom");
+		const counts = await previewErasureCounts(erased, NO_CONVERSATIONS);
+		expect(counts.projectMemories).toBe(2);
+
+		expect(await entry.erase(erased, NO_CONVERSATIONS)).toBe(2);
+		const left = await collections.projectMemories
+			.find({ projectId: { $in: [mine, theirs] } })
+			.toArray();
+		expect(left.map((r) => r.text).sort()).toEqual(["Theirs, by me.", "Theirs, by them."]);
+
+		// It must run before `projects` removes the rows it reads to find what the person owns.
+		const names = USER_KEYED_COLLECTIONS.map((e) => e.name);
+		expect(names.indexOf("projectMemories")).toBeLessThan(names.indexOf("projects"));
+
+		// A merge moves authorship onto the target.
+		const target = new ObjectId();
+		expect(await entry.merge(erased, target)).toBe(1);
+		expect(
+			await collections.projectMemories.countDocuments({ projectId: theirs, authorUserId: target })
+		).toBe(1);
 	});
 });

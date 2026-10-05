@@ -136,4 +136,71 @@ describe("conversation attachments in the sandbox", () => {
 		setAttachmentSource({ conversationId: "c2", messages: [] });
 		expect(mounts?.files.map((f) => f.name)).toEqual(["kb.txt"]);
 	});
+
+	it("shows a file whose fetch failed as not available, still runs, and mounts it once it can", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const mounts = getMountsStore();
+		let up = false;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string) => (up ? served(url) : new Response("{}", { status: 404 })))
+		);
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [file("h1", "gone.pdf")] }] });
+
+		const run = vi.fn(async () => "ran");
+		await withAttachmentMounts(run);
+		expect(run).toHaveBeenCalledTimes(1);
+		expect(session.loadFiles).not.toHaveBeenCalled();
+		expect(mounts?.skipped).toEqual([{ name: "gone.pdf", reason: "the request failed (404)" }]);
+		expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+			"/conversation/c1/output/h1"
+		);
+
+		// The next run retries, and a success clears the note.
+		up = true;
+		await withAttachmentMounts(async () => undefined);
+		expect(mounts?.skipped).toEqual([]);
+		expect(mounts?.files.map((f) => f.name)).toContain("gone.pdf");
+		warn.mockRestore();
+	});
+
+	it("makes a run wait for a mount still in flight, even when there is nothing new to mount", async () => {
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string) => {
+				await gate;
+				return served(url);
+			})
+		);
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [file("h1", "slow.pdf")] }] });
+
+		const order: string[] = [];
+		const first = withAttachmentMounts(async () => order.push("first"));
+		// Let the first mount reach its fetch, then ask for a second run while
+		// every file is already being handled.
+		await Promise.resolve();
+		const second = withAttachmentMounts(async () => order.push("second"));
+		await Promise.resolve();
+		expect(order).toEqual([]);
+
+		release?.();
+		await Promise.all([first, second]);
+		expect(order).toEqual(["first", "second"]);
+		expect(session.loadFiles).toHaveBeenCalled();
+	});
+
+	it("does not let a mount that blew up stop later mounts", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		session.loadFiles.mockRejectedValueOnce(new Error("worker died"));
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [file("h1", "a.pdf")] }] });
+		await withAttachmentMounts(async () => undefined);
+		expect(getMountsStore()?.skipped.map((note) => note.name)).toContain("a.pdf");
+
+		session.loadFiles.mockClear();
+		await withAttachmentMounts(async () => undefined);
+		expect(session.loadFiles).toHaveBeenCalled();
+		warn.mockRestore();
+	});
 });
