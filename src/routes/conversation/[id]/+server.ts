@@ -16,6 +16,7 @@ import {
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import { uploadFile } from "$lib/server/files/uploadFile";
+import { resolveHashFiles } from "$lib/server/files/resolveHashFiles";
 import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
@@ -313,9 +314,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// gateway at upload, as the person who attached it, so what reads their
 	// document is a model they are allowed to use and the page is billed to
 	// them rather than to the deployment.
-	const uploadedFiles = await Promise.all(
-		b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))
-	).then((files) => [...files, ...hashFiles]);
+	const uploadedFiles = await Promise.all([
+		Promise.all(b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))),
+		// A file sent back by reference takes what the server recorded for it.
+		resolveHashFiles(hashFiles, conv, locals.token),
+	]).then(([uploaded, resolved]) => [...uploaded, ...resolved]);
 
 	// we will append tokens to the content of this message
 	let messageToWriteToId: Message["id"] | undefined = undefined;
