@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"galopin/internal/backend"
@@ -44,6 +45,44 @@ func (mc *machine) installPermissions() {
 		mc.mat.WithdrawPending()
 	})
 	mc.mat.OnChild(func(dir, childID string) { go mc.giveChildTheCeiling(dir, childID) })
+	mc.mat.OnChildAsk(func(dir string, req backend.PermissionRequest) { go mc.answerChildAsk(dir, req) })
+}
+
+// answerChildAsk answers a subagent's ask that its root's selector allows. A
+// child's first tool call is judged by the agent-level floor, which asks for the
+// blanket's names whatever the root's mode is (opencode takes a session's rules
+// when its turn starts, and a task starts the child's turn in the same breath
+// it creates it); the rules galopin then applies land too late for that call. So
+// the ask is read against the rules the child is entitled to — the root's mode
+// and exceptions under the ceiling, as ChildRules composes them — and answered
+// "once" when those allow it. An ask they do not allow (a root on Ask, or a key
+// the ceiling caps) is left for a person.
+func (mc *machine) answerChildAsk(dir string, req backend.PermissionRequest) {
+	rh, ok := mc.ruleHost()
+	if !ok || strings.HasPrefix(req.ID, "gp_") {
+		return
+	}
+	agent := ""
+	for deadline := time.Now().Add(childAgentWait); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if agent = mc.mat.ChildAgent(req.SessionID); agent != "" {
+			break
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if rh.ChildAskAction(ctx, dir, req.SessionID, agent, req.Tool, req.Patterns) != permrules.Allow {
+		return
+	}
+	if mc.askedRequest(req.SessionID, req.ID) == nil {
+		return
+	}
+	if err := mc.back.ReplyPermission(ctx, dir, req.SessionID, req.ID, backend.DecisionOnce, ""); err != nil {
+		if !backend.IsNotFound(err) {
+			logf("permissions: could not answer subagent ask %s that its root allows: %v", req.ID, err)
+		}
+		return
+	}
+	mc.audit.permission(req.SessionID, req.ID, req.Tool, string(backend.DecisionOnce), "galopin", false)
 }
 
 // giveChildTheCeiling applies the root's selector and the ceiling to a subagent

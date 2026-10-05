@@ -23,3 +23,11 @@ var ErrAttachmentUnknown = errors.New("no such attachment in this session")
 // longer on the machine (the ACP backend keeps them in memory only; a galopin
 // restart loses them). dispatch.go maps it to "not_found".
 var ErrAttachmentGone = errors.New("this image is no longer on the machine")
+
+// ErrPermissionGone is returned by ReplyPermission when the backend no longer
+// holds the ask: it was answered elsewhere or the backend's process restarted.
+// The ask is resolved, so a caller treats it as answered, not as a failure.
+var ErrPermissionGone = errors.New("the permission request is no longer pending")
+
+// IsNotFound reports whether err says a permission ask is already gone.
+func IsNotFound(err error) bool { return errors.Is(err, ErrPermissionGone) }
