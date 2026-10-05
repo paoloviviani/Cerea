@@ -4,6 +4,20 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.17 — 2026-10-05
+
+Pins: Cerea `0.3.10`, Pystino `0.2.6`, Authelia 4.39.22.
+
+- Cerea 0.3.10: a subagent follows its session's Allow from its first turn
+  (galopin answers the ask the session's rules allow; the machine's limit still
+  asks, e.g. `bash=ask` by default). An ask that has already gone settles as
+  "Already answered" instead of an opencode 404. In the agent view, approval
+  rows never split the reply's text, a long subagent name no longer runs off a
+  phone screen, and "A subagent is still running in the background" clears when
+  it finishes. **Update galopin on each machine:** re-run the install line from
+  the pairing dialog (`curl -fsSL <origin>/chat/galopin/install.sh | sh`) and
+  restart `galopin run`; no re-enroll.
+
 ## v0.3.16 — 2026-10-05
 
 Pins: Cerea `0.3.9`, Pystino `0.2.6`, Authelia 4.39.22.
