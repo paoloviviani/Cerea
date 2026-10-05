@@ -48,7 +48,7 @@ import { ARTIFACT_TOOL_NAME } from "../builtinTools/artifactTool";
 import { artifactsEnabledForTurn, artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
 import { extractArtifactDraft } from "./artifactDraft";
 import { EXECUTE_CODE_TOOL_NAME } from "../builtinTools/executeCodeTool";
-import { findSearchModelIds } from "../builtinTools/gatewaySearchTool";
+import { resolveWebSearchFor } from "$lib/server/webSearch/config";
 import {
 	MAX_RECOVERED_EXECUTE_CODE_CALLS,
 	recoverLeakedExecuteCodeCall,
@@ -250,6 +250,7 @@ export async function* runMcpFlow({
 		toolsEnabled: artifactToolsEnabled,
 		artifactsMode: (model as unknown as { artifactsMode?: ArtifactsMode }).artifactsMode,
 	});
+	const webSearch = await resolveWebSearchFor(turnToken);
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		memoryEnabled: memoryAllowed,
@@ -258,7 +259,8 @@ export async function* runMcpFlow({
 		).askUserQuestionEnabled(),
 		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
 		token: turnToken,
-		searchModelIds: turnToken ? await findSearchModelIds(turnToken) : [],
+		searchModelIds: webSearch.granted,
+		searchBackend: webSearch.model ?? undefined,
 		webSearchEnabled: resolveWebSearchEnabled({
 			conversationWebSearch: conv.webSearch,
 			projectDefault: projectWebSearchDefault,

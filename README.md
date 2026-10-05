@@ -22,8 +22,8 @@ greeting that means both _buongiorno_ and _arrivederci_.
   currently signs the chat and the console in against one provider; to combine
   several sources of users, federate them in your own IdP (Keycloak,
   Authentik and the like).
-- **Web search**, run by the deployment's search backends through the gateway
-  (the gateway can also meter provider-side search where a model offers it).
+- **Web search**, run by the deployment's search backends through the gateway,
+  with the backend chosen in Administration → Web search (the gateway can also meter provider-side search where a model offers it).
 - **File upload and extraction**: PDFs, Office documents, images and text,
   read once at upload by the gateway, which can do it inside your deployment.
 - **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no

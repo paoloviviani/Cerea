@@ -77,6 +77,27 @@ describe("createGatewaySearchBuiltins", () => {
 		});
 	});
 
+	it("names the administrator's chosen backend to the gateway, and only then", async () => {
+		const [named] = createGatewaySearchBuiltins({
+			token: "bearer-token",
+			searchModelIds: ["exa", "linkup"],
+			backend: "linkup",
+		}) as BuiltinTool[];
+		await named.execute({ query: "x" }, CTX);
+		expect(gatewayPostMock).toHaveBeenLastCalledWith("bearer-token", "search", {
+			query: "x",
+			max_results: 5,
+			backend: "linkup",
+		});
+
+		const [policy] = builtins() as BuiltinTool[];
+		await policy.execute({ query: "x" }, CTX);
+		expect(gatewayPostMock).toHaveBeenLastCalledWith("bearer-token", "search", {
+			query: "x",
+			max_results: 5,
+		});
+	});
+
 	it("drops results without a usable URL and names untitled ones", async () => {
 		gatewayPostMock.mockResolvedValue({
 			results: [

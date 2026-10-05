@@ -17,6 +17,7 @@
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import TogglePill from "$lib/components/TogglePill.svelte";
+	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
@@ -146,7 +147,16 @@
 		draftKey = null,
 	}: Props = $props();
 
+	// Per caller, from the root layout: no granted search backend means the
+	// switch could only ever do nothing, so it is shown disabled with why.
+	const webSearchUnavailable = $derived(
+		webSearchUnavailableReason(
+			page.data as { webSearchAvailable?: boolean; gatewayIsAdmin?: boolean }
+		)
+	);
+
 	async function toggleWebSearch() {
+		if (webSearchUnavailable) return;
 		const previous = webSearch;
 		const next = !webSearch;
 		webSearch = next;
@@ -1383,17 +1393,23 @@
 			     itself only exists when the console has granted a search tier,
 			     so a toggle with nothing behind it costs nothing and changes
 			     nothing. -->
-						<TogglePill
-							compact
-							pressed={webSearch}
-							label="Web search"
-							title="Search the web through this deployment's search backends (this chat only)"
-							onclick={toggleWebSearch}
-						>
-							{#snippet icon()}
-								<CarbonEarth class="size-3.5" />
-							{/snippet}
-						</TogglePill>
+						<!-- The wrapper carries the reason: a disabled button swallows
+						     hover, so its own title would never show. -->
+						<span class="contents" title={webSearchUnavailable ?? undefined}>
+							<TogglePill
+								compact
+								pressed={webSearch && !webSearchUnavailable}
+								disabled={!!webSearchUnavailable}
+								label="Web search"
+								title={webSearchUnavailable ??
+									"Search the web through this deployment's search backends (this chat only)"}
+								onclick={toggleWebSearch}
+							>
+								{#snippet icon()}
+									<CarbonEarth class="size-3.5" />
+								{/snippet}
+							</TogglePill>
+						</span>
 
 						<!-- Chat-local override of the tool-approval policy (ADR 0075).
 				     Inside a conversation this PATCHes the override; on the home

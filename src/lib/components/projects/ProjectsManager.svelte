@@ -23,6 +23,7 @@
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import Modal from "$lib/components/Modal.svelte";
 	import Switch from "$lib/components/Switch.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
@@ -168,6 +169,11 @@
 	// as "follow app default" server-side; the form always saves an explicit
 	// value. Connector ids: empty means "use the workspace MCP defaults".
 	let defaultWebSearch = $state(false);
+	const webSearchUnavailable = $derived(
+		webSearchUnavailableReason(
+			page.data as { webSearchAvailable?: boolean; gatewayIsAdmin?: boolean }
+		)
+	);
 	let defaultConnectors = $state<string[]>([]);
 
 	function openForm(project: ProjectView | null) {
@@ -617,10 +623,13 @@
 						<Switch
 							name="project-default-websearch"
 							bind:checked={defaultWebSearch}
-							disabled={busy}
+							disabled={busy || !!webSearchUnavailable}
 						/>
 						<span class="text-sm text-gray-700 dark:text-gray-300">Web search on by default</span>
 					</div>
+					{#if webSearchUnavailable}
+						<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
+					{/if}
 					<div class="mt-2">
 						<span class="text-sm text-gray-700 dark:text-gray-300">MCPs on by default:</span>
 						{#if !$mcpConnectorsLoaded}

@@ -20,6 +20,7 @@
 	import IconDocument from "~icons/carbon/document";
 	import IconLaunch from "~icons/carbon/launch";
 	import IconPlug from "~icons/carbon/plug";
+	import IconSearch from "~icons/carbon/search";
 	import type { LayoutServerData } from "./$types";
 
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
@@ -33,6 +34,7 @@
 		...((page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false
 			? [{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook }]
 			: []),
+		{ href: "/admin/web-search", label: "Web search", icon: IconSearch },
 		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
 		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
 		{ href: "/admin/skills", label: "Skills", icon: IconDocument },

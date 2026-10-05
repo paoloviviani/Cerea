@@ -11,6 +11,7 @@
 	import { error } from "$lib/stores/errors";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
+	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { onMount } from "svelte";
@@ -49,6 +50,12 @@
 	}
 	// The default new chats inherit. The composer's toggle writes per-chat
 	// state instead — settings hold *defaults*, a chat holds *per-chat state*.
+	const webSearchUnavailable = $derived(
+		webSearchUnavailableReason(
+			page.data as { webSearchAvailable?: boolean; gatewayIsAdmin?: boolean }
+		)
+	);
+
 	function getWebSearchDefault() {
 		return $settings.webSearchEnabled === true;
 	}
@@ -234,8 +241,15 @@
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
 							New chats start with web search on. Toggling it in a chat changes only that chat.
 						</p>
+						{#if webSearchUnavailable}
+							<p class="text-[12px] text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
+						{/if}
 					</div>
-					<Switch name="webSearchEnabled" bind:checked={getWebSearchDefault, setWebSearchDefault} />
+					<Switch
+						name="webSearchEnabled"
+						disabled={!!webSearchUnavailable}
+						bind:checked={getWebSearchDefault, setWebSearchDefault}
+					/>
 				</div>
 
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">

@@ -98,7 +98,8 @@ const settingsContext = new Map<string, unknown>([["settings", writable({ active
 async function renderComposer(
 	params: Record<string, string>,
 	attached: { id: string; name: string }[] = [],
-	webSearch = false
+	webSearch = false,
+	pageData: Record<string, unknown> = {}
 ) {
 	let host = document.getElementById("app");
 	if (!host) {
@@ -112,7 +113,7 @@ async function renderComposer(
 		{
 			page: {
 				params,
-				data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+				data: { user: { username: "tester" }, loginEnabled: true, shared: false, ...pageData },
 			},
 			baseElement: host,
 			context: settingsContext,
@@ -575,6 +576,37 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			if (!pill) throw new Error("no Web search pill");
 			return pill as HTMLElement;
 		};
+
+		it("is disabled with a reason when the caller has no search backend", async () => {
+			const calls = stubFetch();
+			const { container } = await renderComposer({ id: CONV_ID }, [], true, {
+				webSearchAvailable: false,
+			});
+
+			const pill = findWebSearchPill(container) as HTMLButtonElement;
+			expect(pill.disabled).toBe(true);
+			expect(pill.getAttribute("aria-pressed")).toBe("false");
+			expect(pill.title).toBe("Web search isn't set up on this deployment.");
+			pill.click();
+			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+		});
+
+		it("points an administrator at where to set it up", async () => {
+			stubFetch();
+			const { container } = await renderComposer({ id: CONV_ID }, [], false, {
+				webSearchAvailable: false,
+				gatewayIsAdmin: true,
+			});
+			expect(findWebSearchPill(container).title).toContain("Admin → Web search");
+		});
+
+		it("is enabled when a search backend is granted", async () => {
+			stubFetch();
+			const { container } = await renderComposer({ id: CONV_ID }, [], false, {
+				webSearchAvailable: true,
+			});
+			expect((findWebSearchPill(container) as HTMLButtonElement).disabled).toBe(false);
+		});
 
 		it("toggling on in a chat PATCHes the conversation, never the settings", async () => {
 			const calls = stubFetch();
