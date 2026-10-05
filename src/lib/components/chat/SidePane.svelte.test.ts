@@ -103,7 +103,10 @@ describe("SidePane mobile drawer", () => {
 		const screen = mount();
 		await expect.element(screen.getByRole("dialog", { name: "Tasks" })).toBeVisible();
 		expect(screen.container.querySelector("aside")).toBeNull();
-		await screen.getByRole("button", { name: "Close Tasks" }).click();
+		// The drawer covers the right 85%, so the backdrop's centre is under it:
+		// tap the strip left of the drawer, where a person would. (Clicking the
+		// centre only passed when it landed before the drawer had flown in.)
+		await screen.getByRole("button", { name: "Close Tasks" }).click({ position: { x: 5, y: 5 } });
 		expect(sidePane.open).toBe(false);
 	});
 
