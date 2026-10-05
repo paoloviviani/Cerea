@@ -28,12 +28,12 @@ const ISSUER = "https://issuer.example/realms/r";
 const GATEWAY = "https://gw.example";
 const ORIGIN = "https://chat.example";
 
-function mount() {
+function mount(data: Record<string, unknown> = {}) {
 	return renderWithApp(
 		PairDeviceDialog,
 		{ onclose: () => {}, onpaired: () => {} },
 		{
-			page: { data: { codeOidcIssuerUrl: ISSUER, codeGatewayOrigin: GATEWAY } },
+			page: { data: { codeOidcIssuerUrl: ISSUER, codeGatewayOrigin: GATEWAY, ...data } },
 			publicConfig: { PUBLIC_ORIGIN: ORIGIN },
 		}
 	);
@@ -405,5 +405,24 @@ describe("the risky ones read as risky", () => {
 			const label = screen.getByTestId(testid).element().closest("label");
 			expect(label?.querySelector('[data-risky="true"]'), testid).toBeNull();
 		}
+	});
+});
+
+describe("the deployment's terminal switch", () => {
+	it("says the terminal is off for this deployment when it is", async () => {
+		const screen = mount({ codeTerminalEnabled: false });
+		await openAdvanced(screen);
+		await expect
+			.element(screen.getByTestId("enroll-terminal-deployment-off"))
+			.toHaveTextContent("Terminal is off for this deployment");
+	});
+
+	it("says nothing extra when the deployment offers terminals", async () => {
+		const screen = mount({ codeTerminalEnabled: true });
+		await openAdvanced(screen);
+		await expect.element(screen.getByTestId("enroll-allow-terminal")).toBeInTheDocument();
+		expect(
+			screen.container.querySelector("[data-testid='enroll-terminal-deployment-off']")
+		).toBeNull();
 	});
 });
