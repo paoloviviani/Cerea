@@ -4,6 +4,15 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.16 — 2026-10-05
+
+Pins: Cerea `0.3.9`, Pystino `0.2.6`, Authelia 4.39.22.
+
+- Cerea 0.3.9: a chat's attachments are available to code runs at
+  `/mnt/data/<name>`, with their extracted text beside them as `<name>.md`
+  (20 MB per file, 100 MB in total), and the model is told where. Code that
+  opened an upload used to find nothing.
+
 ## v0.3.15 — 2026-10-05
 
 Pins: Cerea `0.3.8`, Pystino `0.2.6`, Authelia 4.39.22.
