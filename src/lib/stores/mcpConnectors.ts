@@ -214,11 +214,17 @@ export const defaultEnabledConnectors = derived(
 
 export const defaultEnabledConnectorsCount = derived(defaultEnabledConnectors, ($on) => $on.length);
 
+/** Which refresh is the latest: an older one that answers after it must not
+ * overwrite what it found (opening the menu twice on a slow link did). */
+let refreshGeneration = 0;
+
 export async function refreshConnectors(): Promise<void> {
+	const generation = ++refreshGeneration;
 	try {
 		const response = await fetch(`${base}/api/v2/mcp/connectors`);
 		if (!response.ok) throw new Error(`status ${response.status}`);
 		const { data } = (await response.json()) as { data: McpConnectorView[] };
+		if (generation !== refreshGeneration) return;
 		connectors.set(data);
 		connectorsFailed.set(false);
 
@@ -233,11 +239,12 @@ export async function refreshConnectors(): Promise<void> {
 		}
 		selectedConnectorIds.update(($ids) => new Set([...$ids].filter((id) => live.has(id))));
 	} catch (error) {
+		if (generation !== refreshGeneration) return;
 		console.error("Failed to load MCP connectors:", error);
 		connectors.set([]);
 		connectorsFailed.set(true);
 	} finally {
-		connectorsLoaded.set(true);
+		if (generation === refreshGeneration) connectorsLoaded.set(true);
 	}
 }
 

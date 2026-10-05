@@ -22,6 +22,9 @@ import {
 	adoptNewChatSelection,
 	resetConversationSelections,
 	migrateConnectorDefaults,
+	connectors,
+	connectorsFailed,
+	refreshConnectors,
 } from "./mcpConnectors";
 
 // The stores read `$env/dynamic/public` at module scope (via mcpServers);
@@ -219,5 +222,34 @@ describe("the first message of a new chat", () => {
 		openConversationSelection("chat-new", get(defaultConnectorIds));
 
 		expect(get(selectedConnectorIds)).toEqual(new Set());
+	});
+});
+
+describe("refreshConnectors", () => {
+	it("an older refresh that answers last does not overwrite the newer one", async () => {
+		let failFirst: (() => void) | undefined;
+		const answers = [
+			// The first call hangs, then fails after the second has landed.
+			() =>
+				new Promise<Response>((_resolve, reject) => {
+					failFirst = () => reject(new Error("late failure"));
+				}),
+			async () =>
+				new Response(JSON.stringify({ data: [{ id: "c1", name: "Notion", connected: true }] }), {
+					status: 200,
+				}),
+		];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => (answers.shift() ?? answers[0])())
+		);
+
+		const older = refreshConnectors();
+		await refreshConnectors();
+		failFirst?.();
+		await older;
+
+		expect(get(connectors).map((c) => c.id)).toEqual(["c1"]);
+		expect(get(connectorsFailed)).toBe(false);
 	});
 });
