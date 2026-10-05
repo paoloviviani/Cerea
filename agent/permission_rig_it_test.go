@@ -63,6 +63,8 @@ type permRigOpts struct {
 	tools bool
 	// agentTools with a second workspace.
 	secondWorkspace bool
+	// background lets the task tool start background subagents.
+	background bool
 }
 
 func newPermRig(t *testing.T, o permRigOpts) *permRig {
@@ -114,7 +116,7 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	cfgOC := backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: r.stateDir, Port: r.port, Password: r.password,
 		OverlayPath: filepath.Join(r.stateDir, "opencode-overlay.json"), TmpDir: filepath.Join(itTmpDir(t), "oc-tmp"),
-		Permissions: r.live.Layers, StartupTimeout: 90 * time.Second, Logf: t.Logf,
+		Permissions: r.live.Layers, BackgroundSubagents: o.background, StartupTimeout: 90 * time.Second, Logf: t.Logf,
 	}
 	if o.tools {
 		cfgOC.ToolsDir = filepath.Join(r.stateDir, "opencode-tools")

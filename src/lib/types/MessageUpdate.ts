@@ -89,6 +89,11 @@ export interface MessageStreamUpdate {
 	token: string;
 	/** Length of the original token. Used for compressed/persisted stream markers where token is empty. */
 	len?: number;
+	/** The backend part this token belongs to (the code agent's own streams):
+	 * a later token of the same part keeps extending its text block even when a
+	 * row (a permission card, a tool) arrived in between, so a row never splits
+	 * a text part. */
+	partId?: string;
 }
 
 /**

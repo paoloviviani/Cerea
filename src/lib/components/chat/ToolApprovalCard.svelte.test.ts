@@ -317,3 +317,46 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		});
 	});
 });
+
+describe("ToolApprovalCard, a settled subagent row", () => {
+	const subagentAsk = {
+		...request("bash", { command: "sleep 60" }),
+		childSessionId: "ses_child",
+		childTitle: "Dummy 60s sleep test (@general subagent)",
+	} as ElicitationRequestPayload;
+	const resolved = {
+		type: "elicitation",
+		subtype: "resolved",
+		elicitationId: "gp_1",
+		action: "accept",
+		resolution: "user",
+	} as never;
+
+	it("does not overflow a 390px phone: the title gives way, the outcome stays", async () => {
+		const screen = render(
+			ToolApprovalCard,
+			{ conversationId: "a1", request: subagentAsk, resolved, onanswer: async () => ({ ok: true }) },
+			{ baseElement: document.body }
+		);
+		const host = screen.container.parentElement as HTMLElement;
+		host.style.width = "390px";
+		host.style.overflow = "visible";
+		const row = screen.container.querySelector("button[aria-label]") as HTMLElement;
+		await expect.element(screen.getByText("Allowed")).toBeVisible();
+		const rowRight = row.getBoundingClientRect().right;
+		expect(rowRight).toBeLessThanOrEqual(390 + 1);
+		const outcome = screen.getByText("Allowed").element().getBoundingClientRect();
+		expect(outcome.right).toBeLessThanOrEqual(390 + 1);
+	});
+
+	it("settles with a short note, not an error, when the ask was already answered", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: subagentAsk,
+			onanswer: async () => ({ ok: true, note: "Already answered" }),
+		});
+		await screen.getByRole("button", { name: "Allow once" }).click();
+		await expect.element(screen.getByText("Already answered")).toBeVisible();
+		expect(screen.getByText("PermissionNotFoundError").elements()).toHaveLength(0);
+	});
+});

@@ -24,6 +24,7 @@
 -->
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
+	import { replyOutcome } from "$lib/utils/permissionReply";
 	import { browser } from "$app/environment";
 	import IconChevronDown from "~icons/carbon/chevron-down";
 	import IconLaunch from "~icons/carbon/launch";
@@ -280,10 +281,9 @@
 			dismiss(item.key);
 			return { ok: true };
 		} catch (err) {
-			return {
-				ok: false,
-				error: err instanceof Error ? err.message : "Could not answer the request.",
-			};
+			const outcome = replyOutcome(err, "Could not answer the request.");
+			if (outcome.ok) dismiss(item.key);
+			return outcome;
 		}
 	}
 

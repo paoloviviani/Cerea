@@ -23,6 +23,8 @@
 -->
 <script lang="ts">
 	import { setContext, untrack } from "svelte";
+	import { ALREADY_ANSWERED_NOTE, replyOutcome } from "$lib/utils/permissionReply";
+	import { throttleTrailing } from "$lib/utils/throttleTrailing";
 	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
 	import { goto } from "$app/navigation";
@@ -786,20 +788,21 @@
 
 	/** A `childActivity` frame arrived for one subagent: count it, so that
 	 * subagent's expanded card re-syncs its timeline (the card throttles). */
-	let lastBackgroundPollAt = 0;
+	const backgroundPoll = throttleTrailing(() => {
+		void pollSubagents();
+		void refreshAgent(false);
+	}, 2000);
+	$effect(() => () => backgroundPoll.cancel());
 	function noteChildActivity(childId: string) {
 		childActivity[childId] = (childActivity[childId] ?? 0) + 1;
 		// While the parent is settled but a background child still works, its
 		// envelopes are the only liveness signal this view gets: re-ask the
 		// roster (and the snapshot carrying `childSummary`) on them,
-		// throttled, so the background banner and the subagent cards settle
-		// when the child does instead of reading "running" forever.
+		// throttled — with a trailing call, so the envelope that says the child
+		// finished is never the one dropped — and the background banner and the
+		// subagent cards settle when the child does.
 		if (rosterPhase !== "settled" || skipMachineFetches) return;
-		const now = Date.now();
-		if (now - lastBackgroundPollAt < 2000) return;
-		lastBackgroundPollAt = now;
-		void pollSubagents();
-		void refreshAgent(false);
+		backgroundPoll.call();
 	}
 
 	/** The claim ChatMessage asks per tool call: does a subagent own this
@@ -892,9 +895,9 @@
 		request: ElicitationRequestPayload,
 		action: ElicitationAction,
 		scope?: "always"
-	): Promise<{ ok: boolean; error?: string }> {
+	): Promise<{ ok: boolean; error?: string; note?: string }> {
 		try {
-			await respondPermission(
+			const reply = await respondPermission(
 				deviceId,
 				agentId,
 				request.elicitationId,
@@ -902,12 +905,10 @@
 				request.childSessionId
 			);
 			permissionsKey += 1;
+			if (reply?.alreadyResolved) return { ok: true, note: ALREADY_ANSWERED_NOTE };
 			return { ok: true };
 		} catch (err) {
-			return {
-				ok: false,
-				error: err instanceof Error ? err.message : "Could not answer the request.",
-			};
+			return replyOutcome(err, "Could not answer the request.");
 		}
 	}
 
