@@ -99,6 +99,16 @@ func TestBackgroundSubagentPermissions(t *testing.T) {
 						return e.SessionID == id && e.Event.Kind == backend.EventPart && p != nil && p.Tool == tool && p.ToolStatus == backend.ToolCompleted
 					})
 				}
+				if bg {
+					// The roster the panel's banner reads clears when the child ends.
+					deadline := time.Now().Add(30 * time.Second)
+					for cs := r.mc.mat.ChildSummary(root.ID); cs != nil && cs.Running > 0; cs = r.mc.mat.ChildSummary(root.ID) {
+						if time.Now().After(deadline) {
+							t.Fatalf("the root still reports %d running children after the child finished", cs.Running)
+						}
+						time.Sleep(200 * time.Millisecond)
+					}
+				}
 				if bg && tc.tool == "bash" {
 					// A background child must not keep its root busy: the root's
 					// turn ends while the child's sleep is still running.

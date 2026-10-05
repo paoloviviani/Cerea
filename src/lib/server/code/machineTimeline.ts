@@ -282,9 +282,10 @@ export function newThinkingState(): ThinkingState {
 	return { kinds: new Map(), held: new Map(), openPart: null };
 }
 
-const streamToken = (token: string): AgentStreamUpdate => ({
+const streamToken = (token: string, partId?: string): AgentStreamUpdate => ({
 	type: MessageUpdateType.Stream,
 	token,
+	...(partId ? { partId } : {}),
 });
 
 /** Text of a part of a known kind → frames, opening or closing the thinking
@@ -306,7 +307,7 @@ function routeText(
 		state.openPart = partId;
 		return [streamToken(gap + text)];
 	}
-	return [...closeThinking(state), streamToken(text)];
+	return [...closeThinking(state), streamToken(text, partId)];
 }
 
 function closeThinking(state: ThinkingState): AgentStreamUpdate[] {
@@ -413,7 +414,7 @@ function partToUpdates(
 							...(command ? { command } : {}),
 						},
 					]
-				: [{ type: MessageUpdateType.Stream, token: part.text }];
+				: [{ type: MessageUpdateType.Stream, token: part.text, partId: part.id }];
 		}
 		case "tool": {
 			const call = toolCallUpdate(part.callId, part.tool, part.input);

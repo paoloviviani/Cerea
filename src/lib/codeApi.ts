@@ -620,7 +620,7 @@ export async function respondPermission(
 	requestId: string,
 	decision: PermissionDecision,
 	childSessionId?: string
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; alreadyResolved?: boolean }> {
 	return unwrap(
 		await fetch(
 			`${root()}/v1/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}?device=${encodeURIComponent(deviceId)}`,

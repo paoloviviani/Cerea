@@ -402,7 +402,7 @@ export class MachineLink {
 		requestId: string;
 		decision: "once" | "always" | "reject";
 		message?: string;
-	}): Promise<Record<string, never>> {
+	}): Promise<{ alreadyResolved?: boolean }> {
 		return this.call("permission.reply", args);
 	}
 	/**
