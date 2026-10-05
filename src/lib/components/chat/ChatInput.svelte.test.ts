@@ -143,15 +143,21 @@ afterEach(() => {
 	document.getElementById("app")?.remove();
 });
 
+/** The submenu trigger labelled `label`. Ancestor containers' text can start
+ * with the same label, and clicking one of those is a no-op, so take the
+ * shortest match: the trigger itself. */
+const submenuTrigger = (label: string): HTMLElement | undefined =>
+	[...document.body.querySelectorAll<HTMLElement>("div")]
+		.filter((el) => el.textContent?.trim().startsWith(label))
+		.sort((a, b) => (a.textContent?.trim().length ?? 0) - (b.textContent?.trim().length ?? 0))[0];
+
 const openMenu = async (container: HTMLElement) => {
 	fireTap(find(container, 'button[aria-label="Add attachment"]'));
 	await waitSlow(() => expect(document.body.textContent).toContain("Knowledge bases"));
 };
 
 const openKnowledgeSubmenu = async (_container: HTMLElement) => {
-	const trigger = [...document.body.querySelectorAll("div")].find((el) =>
-		el.textContent?.trim().startsWith("Knowledge bases")
-	);
+	const trigger = submenuTrigger("Knowledge bases");
 	if (!trigger) throw new Error("no knowledge submenu trigger");
 	trigger.click();
 	await waitSlow(() => expect(document.body.textContent).toContain("Specs"));
@@ -298,9 +304,7 @@ describe("ChatInput: MCP connector toggles", () => {
 	}
 
 	const openMcpSubmenu = async () => {
-		const trigger = [...document.body.querySelectorAll("div")].find((el) =>
-			el.textContent?.trim().startsWith("MCP Servers")
-		);
+		const trigger = submenuTrigger("MCP Servers");
 		if (!trigger) throw new Error("no MCP submenu trigger");
 		trigger.click();
 	};

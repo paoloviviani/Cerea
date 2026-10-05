@@ -616,6 +616,17 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			eraseByOwnerOrConversation(collections.turnStates, "userId", userId, ctx),
 	},
 	{
+		name: "codeRunFiles",
+		owner: "conversationId (carries no owner field of its own)",
+		mergeRule: "follows-conversation",
+		eraseRule: "by-conversation",
+		// The records naming a run's files; the bytes are `codeExecutionOutputs`,
+		// erased by owner above. Conversation deletion already removes these
+		// (`deleteConversationDeliverables`); this is account erasure's half.
+		merge: async () => 0,
+		erase: (_userId, ctx) => eraseByConversation(collections.codeRunFiles, ctx),
+	},
+	{
 		name: "mcpElicitations",
 		owner: "conversationId (carries no owner field of its own)",
 		mergeRule: "follows-conversation",
