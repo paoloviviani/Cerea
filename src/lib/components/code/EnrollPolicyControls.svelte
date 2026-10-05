@@ -20,6 +20,7 @@
 -->
 <script lang="ts">
 	import IconWarning from "~icons/carbon/warning-filled";
+	import { page } from "$app/state";
 	import IconClose from "~icons/carbon/close";
 	import {
 		CEILING_ACTIONS,
@@ -232,6 +233,16 @@
 						session can run commands as you, with no model and no permission rule in the way.
 					</span>
 				</label>
+				{#if page.data.codeTerminalEnabled !== true}
+					<!-- The deployment's half of the double veto: while it is off no
+					     terminal is offered at all, whatever this box says. The box
+					     stays, so turning the deployment's switch on later needs no
+					     re-enroll. -->
+					<p class="mt-1 ml-6 text-ink-muted" data-testid="enroll-terminal-deployment-off">
+						Terminal is off for this deployment: none is offered until an administrator turns it on
+						(<code>./configure --terminal</code>). This box decides what this machine allows then.
+					</p>
+				{/if}
 				{#if choices.allowTerminal}
 					<label class="mt-1.5 ml-6 flex items-center gap-2">
 						<span>At most</span>
