@@ -1,3 +1,4 @@
+import type { ObjectId } from "mongodb";
 import type { Conversation } from "$lib/types/Conversation";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
@@ -25,7 +26,12 @@ export { RESEARCH_TOOL_NAME, isResearchTool } from "./researchTool";
 export { SANDBOX_TOOL_NAME, isSandboxTool } from "./sandboxTool";
 export { JOB_CHECK_TOOL_NAME, isJobCheckTool } from "./jobCheckTool";
 export { CREATE_TRACKIO_TOOL_NAME } from "./createTrackioTool";
-export { REMEMBER_TOOL_NAME, FORGET_TOOL_NAME } from "./memoryTool";
+export {
+	REMEMBER_TOOL_NAME,
+	FORGET_TOOL_NAME,
+	REMEMBER_FOR_PROJECT_TOOL_NAME,
+	FORGET_FOR_PROJECT_TOOL_NAME,
+} from "./memoryTool";
 export { isNestedAgentTool } from "./nestedAgent";
 
 /**
@@ -62,6 +68,14 @@ export function getEnabledBuiltinTools(params: {
 	 * there is nowhere durable to put a fact without one.
 	 */
 	memoryEnabled?: boolean;
+	/**
+	 * The conversation's project, set only when the caller has confirmed that
+	 * the deployment flag is on and this person is still a member of it.
+	 * Adds `remember_for_project`/`forget_for_project` alongside the personal
+	 * pair; independent of `memoryEnabled`, which is the person's own opt-in
+	 * for facts about themselves.
+	 */
+	projectMemoryProjectId?: ObjectId;
 	/**
 	 * Whether `ask_user_question` joins this conversation even outside the ML
 	 * Assistant preset (which always has it): the deployment switch
@@ -162,7 +176,14 @@ export function getEnabledBuiltinTools(params: {
 	// standing fact about somebody is as relevant to an ordinary chat as to a
 	// mode one, and the whole point is that it survives across them. Both
 	// switches are already folded into the one flag by the caller.
-	tools.push(...createMemoryBuiltins({ enabled: params.memoryEnabled === true }));
+	tools.push(
+		...createMemoryBuiltins({
+			enabled: params.memoryEnabled === true,
+			...(params.projectMemoryProjectId
+				? { project: { projectId: params.projectMemoryProjectId } }
+				: {}),
+		})
+	);
 
 	// The gateway's own search backends, metered to this caller. Two switches,
 	// both meaningful: the per-chat state says they consent to web search in

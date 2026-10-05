@@ -166,6 +166,24 @@ async function* textGenerationWithoutTitle(
 		logger.warn({ err: String(err) }, "[memory] memory context failed; continuing without it");
 	}
 
+	// A project's shared notes, after the personal block and only for a
+	// conversation that belongs to the project (`projectForMemory` also
+	// re-checks that this person is still a member). They are gated by the
+	// deployment flag alone: the person's own opt-in above is about facts
+	// concerning themselves, and these are the project's. Same posture as the
+	// block above — a failure logs and continues.
+	try {
+		const { projectForMemory } = await import("$lib/server/projects");
+		const memberProject = await projectForMemory(conv.projectId, ctx.locals);
+		if (memberProject) {
+			const { projectMemoryContext } = await import("$lib/server/memory/service");
+			const block = await projectMemoryContext(memberProject._id);
+			if (block) preprompt = preprompt ? `${preprompt}\n\n${block}` : block;
+		}
+	} catch (err) {
+		logger.warn({ err: String(err) }, "[memory] project memory failed; continuing without it");
+	}
+
 	// A project's standing context, and whatever its knowledge bases — plus any
 	// bases attached to this conversation from the composer — offer for this
 	// question. Appended to the system prompt rather than mixed into

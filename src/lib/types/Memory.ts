@@ -115,3 +115,19 @@ export const MEMORY_MAX_FACTS = 200;
  * measured against, and the two must not drift.
  */
 export const MEMORY_BLOCK_MAX_CHARS = 1500;
+
+/**
+ * The same three limits for a project's shared notes (`ProjectMemory`), kept
+ * beside the personal ones so the two sets are read — and tuned — together.
+ *
+ * Each is larger than its personal twin because a project note is a different
+ * kind of thing: it is written down for other people and for a long-running
+ * piece of work ("the staging database is reset every Monday; deploys go
+ * through the release branch"), not a one-line preference. The prompt budget
+ * is still a hard cap — it comes out of the same unmeasured prompt reserve
+ * the personal block does (see `MEMORY_BLOCK_MAX_CHARS`) — and past it the
+ * oldest notes stop being sent, as personal facts do.
+ */
+export const PROJECT_MEMORY_TEXT_MAX_CHARS = 2000;
+export const PROJECT_MEMORY_MAX_NOTES = 100;
+export const PROJECT_MEMORY_BLOCK_MAX_CHARS = 8000;

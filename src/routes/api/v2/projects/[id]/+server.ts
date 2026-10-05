@@ -108,6 +108,9 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 			);
 		}
 	}
+	// Its notes are the project's and go with it (they would otherwise be
+	// unreachable rows no screen lists), unlike its chats, which are kept.
+	await collections.projectMemories.deleteMany({ projectId: access.project._id });
 	await collections.projects.deleteOne({ _id: access.project._id });
 	return new Response(null, { status: 204 });
 };

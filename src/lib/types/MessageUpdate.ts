@@ -366,6 +366,13 @@ export interface MessageMemoryUpdate {
 	text: string;
 	/** The stored row, present only for `remembered`. */
 	memoryId?: string;
+	/**
+	 * Present when the write was to a project's shared notes
+	 * (`remember_for_project` / `forget_for_project`) rather than the person's
+	 * own: names the list so the card's undo calls the project's route.
+	 */
+	scope?: "project";
+	projectId?: string;
 }
 
 /**
