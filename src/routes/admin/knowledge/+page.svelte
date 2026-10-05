@@ -126,12 +126,11 @@
 
 	onMount(load);
 
-	// The pre-filled default a save that touches nothing is compared against —
-	// the resolved value the picker showed, not the raw stored column, which
-	// may be null while the picker still shows something concrete.
-	const embeddingDefault = $derived(
-		status ? (status.embedding_model ?? status.available_embedding_models[0] ?? "") : ""
-	);
+	// Compared against what is stored, not what the picker shows: with nothing
+	// stored the picker pre-selects the first model, and comparing against that
+	// made Save answer "Nothing to change" and store nothing — knowledge then
+	// stayed "no embedding model" with one visibly selected.
+	const embeddingDefault = $derived(status ? (status.embedding_model ?? "") : "");
 	const extractorDefault = $derived(status ? (status.extractor_model ?? "") : "");
 
 	async function save(event: SubmitEvent) {
