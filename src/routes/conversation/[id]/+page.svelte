@@ -2,7 +2,7 @@
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { consumePendingFiles } from "$lib/utils/pendingFiles";
 	import { isAborted } from "$lib/stores/isAborted";
-	import { onMount, untrack } from "svelte";
+	import { onDestroy, onMount, untrack } from "svelte";
 	import { page } from "$app/state";
 	import { beforeNavigate, replaceState } from "$app/navigation";
 	import { UrlDependency } from "$lib/types/UrlDependency";
@@ -44,6 +44,7 @@
 	import { noteServerNow } from "$lib/utils/clockSkew.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import SharePreviewTags from "$lib/components/SharePreviewTags.svelte";
+	import { setAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
 	import { planStepsToMlSteps } from "$lib/utils/planProgress";
@@ -761,6 +762,19 @@
 			});
 		}
 	});
+
+	// The sandbox is session-global, so the open conversation's attachments are
+	// offered to it from here and taken back on leaving: never another
+	// conversation's files, and nothing at all for a shared (read-only) view.
+	// Mounting itself waits for the first code run (attachmentMounts.svelte.ts).
+	$effect(() => {
+		if (data.shared || !convId) {
+			setAttachmentSource(null);
+			return;
+		}
+		setAttachmentSource({ conversationId: convId, messages });
+	});
+	onDestroy(() => setAttachmentSource(null));
 
 	$effect(() => {
 		// No staleness heuristic: the reaper marks a dead run terminal, flipping this false.

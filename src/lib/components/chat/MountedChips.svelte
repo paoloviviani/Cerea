@@ -6,12 +6,13 @@
 	 * The inventory of files currently mounted into the execution runtime.
 	 * The worker's filesystem is session-global — chat blocks and artifact
 	 * cells share one interpreter — so this row is the only place that says
-	 * what `/mnt/data` actually holds right now.
+	 * what `/mnt/data` actually holds right now. Chat attachments left out of
+	 * it (over a size cap, say) are listed too, so a missing file is explained.
 	 */
 	const mounts = getMountsStore();
 </script>
 
-{#if mounts?.files.length}
+{#if mounts?.files.length || mounts?.skipped.length}
 	<div class="flex flex-wrap items-center gap-1.5 px-5 pb-1.5 text-xs">
 		<span class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
 			Mounted
@@ -29,6 +30,14 @@
 				>
 					<CarbonClose class="text-[10px]" />
 				</button>
+			</span>
+		{/each}
+		{#each mounts.skipped as note (note.name)}
+			<span
+				class="rounded-full bg-amber-50 px-2 py-0.5 font-mono text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+				title="{note.name} was not mounted: {note.reason}"
+			>
+				{note.name} not mounted: {note.reason}
 			</span>
 		{/each}
 	</div>
