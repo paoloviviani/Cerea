@@ -86,8 +86,10 @@ test("changing the extractor asks for no reason and saves", async ({ page, db, s
 		(r) => r.url().includes("/api/v2/admin/knowledge") && r.method() === "PUT"
 	);
 	await page.getByRole("button", { name: "Save" }).click();
+	// The embedding model shown but never stored goes along with it.
 	expect(JSON.parse((await request).postData() ?? "{}")).toEqual({
 		extractor_model: "mistral-ocr-4.1",
+		embedding_model: "test-embedding",
 	});
 
 	await expect(page.getByText("Saved.")).toBeVisible();
@@ -95,5 +97,24 @@ test("changing the extractor asks for no reason and saves", async ({ page, db, s
 
 	// Leave the deployment default behind: the choice is a row in the shared
 	// database, and every later spec that reads a document would read with it.
+	await db.collection("knowledgeConfig").deleteMany({});
+});
+
+test("with no embedding model stored, Save stores the one the picker shows", async ({
+	page,
+	db,
+	session,
+}) => {
+	await db.collection("knowledgeConfig").deleteMany({});
+	await installAdminSession(db, session.sessionId);
+	await page.goto(`${E2E_APP_BASE}/admin/knowledge`);
+
+	await expect(page.getByLabel("Embedding model")).toHaveValue("test-embedding");
+	await page.getByRole("button", { name: "Save" }).click();
+	await expect(page.getByText("Saved.")).toBeVisible();
+	await expect
+		.poll(async () => (await db.collection("knowledgeConfig").findOne({}))?.embeddingModel)
+		.toBe("test-embedding");
+
 	await db.collection("knowledgeConfig").deleteMany({});
 });
