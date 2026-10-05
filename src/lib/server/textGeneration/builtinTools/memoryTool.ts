@@ -1,14 +1,20 @@
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
+import type { ObjectId } from "mongodb";
 import {
 	forgetFact,
+	forgetForProject,
 	MemoryValidationError,
 	MEMORY_TEXT_MAX_CHARS,
+	PROJECT_MEMORY_TEXT_MAX_CHARS,
 	rememberFact,
+	rememberForProject,
 } from "$lib/server/memory/service";
 import type { BuiltinTool } from "./types";
 
 export const REMEMBER_TOOL_NAME = "remember";
 export const FORGET_TOOL_NAME = "forget";
+export const REMEMBER_FOR_PROJECT_TOOL_NAME = "remember_for_project";
+export const FORGET_FOR_PROJECT_TOOL_NAME = "forget_for_project";
 
 /**
  * Writing and unwriting the standing facts about a person (see
@@ -62,74 +68,95 @@ const DOCTRINE =
 	"person is shown the change as it happens.";
 
 /**
- * The tools, or none at all.
- *
- * `enabled` is resolved by the caller (runMcpFlow) from the deployment flag
- * and the person's own setting, because it needs a database read and
- * `getEnabledBuiltinTools` is deliberately synchronous — the same division
- * `searchModelIds` and `playwrightReachable` already follow. Returning an
- * empty array rather than throwing keeps the "a tool withholds itself" shape
- * every other builtin here uses.
+ * Doctrine for the project pair. Shorter than the personal one because the
+ * rules it shares (nothing transient, nothing secret, one self-contained
+ * sentence) are already stated there when both are offered; what it adds is
+ * the one thing a model gets wrong between the two lists — which one a fact
+ * belongs in — and the fact that the note is read by other people.
  */
-export function createMemoryBuiltins(params: { enabled: boolean }): BuiltinTool[] {
-	if (!params.enabled) return [];
+const PROJECT_DOCTRINE =
+	"PROJECT MEMORY: This conversation belongs to a project, which keeps a shared list of notes " +
+	"read by every member in every conversation in it. Call " +
+	`${REMEMBER_FOR_PROJECT_TOOL_NAME} when they ask you to remember something for the project, or ` +
+	"when a durable fact about the project's work comes up that the next person to open it would " +
+	"otherwise have to rediscover — a decision and its reason, a convention, a constraint, where " +
+	`something lives. Call ${FORGET_FOR_PROJECT_TOOL_NAME} when a note is wrong or they ask for ` +
+	`it to go. Use ${REMEMBER_TOOL_NAME} instead for facts about the person themselves ` +
+	"(their preferences, how they want to be addressed): a project note is read by colleagues. " +
+	"The same limits apply as for personal memory: nothing transient, no secrets or credentials, " +
+	"one self-contained sentence or short paragraph that makes sense with no surrounding context, " +
+	"and never announce that you are using these tools.";
 
+/** What differs between the personal pair and the project pair. */
+interface Flavor {
+	rememberName: string;
+	forgetName: string;
+	textMax: number;
+	doctrine: string;
+	rememberDescription: string;
+	rememberFactDescription: string;
+	forgetDescription: string;
+	forgetFactDescription: string;
+	remember(
+		text: string,
+		ctx: { userId: ObjectId; conversationId?: ObjectId }
+	): Promise<{ text: string; id: string; created: boolean }>;
+	forget(text: string, ctx: { userId: ObjectId }): Promise<{ text: string }>;
+	/** Added to the transcript card so its undo can reach the right route. */
+	updateScope: { scope?: "project"; projectId?: string };
+	unavailable: string;
+}
+
+function build(flavor: Flavor): BuiltinTool[] {
 	const remember: BuiltinTool = {
-		name: REMEMBER_TOOL_NAME,
+		name: flavor.rememberName,
 		definition: {
 			type: "function" as const,
 			function: {
-				name: REMEMBER_TOOL_NAME,
-				description:
-					"Store one standing fact about the person you are talking to, so it is available " +
-					"in every future conversation. Use it for things that stay true, not for the state " +
-					"of the current task.",
+				name: flavor.rememberName,
+				description: flavor.rememberDescription,
 				parameters: {
 					type: "object",
 					properties: {
 						fact: {
 							type: "string",
-							maxLength: MEMORY_TEXT_MAX_CHARS,
-							description:
-								"One self-contained sentence in the third person, understandable with no " +
-								'surrounding context. For example: "Works on the Pystino gateway for ' +
-								'his personal deployment" or "Prefers concise answers with no preamble".',
+							maxLength: flavor.textMax,
+							description: flavor.rememberFactDescription,
 						},
 					},
 					required: ["fact"],
 				},
 			},
 		},
-		preprompt: DOCTRINE,
+		preprompt: flavor.doctrine,
 
 		async execute(args, ctx) {
 			if (!ctx.userId) {
 				// Anonymous sessions have nowhere durable to write; say so plainly
 				// rather than failing in a way the model reads as "try again".
-				return { error: "Memory is only available to a signed-in person. Continue without it." };
+				return { error: flavor.unavailable };
 			}
 			try {
-				const { memory, created } = await rememberFact({
+				const { text, id, created } = await flavor.remember(String(args.fact ?? ""), {
 					userId: ctx.userId,
-					text: String(args.fact ?? ""),
-					source: "model",
-					...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+					conversationId: ctx.conversationId,
 				});
 				return {
 					// A no-op is reported as one. Told "Remembered" for something it
 					// already knew, a model tends to announce a save that did not
 					// happen, and on the next turn tends to save it again.
 					resultText: created
-						? `Remembered: ${memory.text}`
-						: `Already in memory, nothing changed: ${memory.text}`,
+						? `Remembered: ${text}`
+						: `Already in memory, nothing changed: ${text}`,
 					extraUpdates: created
 						? [
 								{
 									type: MessageUpdateType.Memory as const,
 									uuid: ctx.uuid,
 									action: "remembered" as const,
-									text: memory.text,
-									memoryId: memory._id.toString(),
+									text,
+									memoryId: id,
+									...flavor.updateScope,
 								},
 							]
 						: [],
@@ -142,24 +169,19 @@ export function createMemoryBuiltins(params: { enabled: boolean }): BuiltinTool[
 	};
 
 	const forget: BuiltinTool = {
-		name: FORGET_TOOL_NAME,
+		name: flavor.forgetName,
 		definition: {
 			type: "function" as const,
 			function: {
-				name: FORGET_TOOL_NAME,
-				description:
-					"Remove one standing fact from memory. Use it when the person asks you to forget " +
-					"something, or when a remembered fact has become wrong.",
+				name: flavor.forgetName,
+				description: flavor.forgetDescription,
 				parameters: {
 					type: "object",
 					properties: {
 						fact: {
 							type: "string",
-							maxLength: MEMORY_TEXT_MAX_CHARS,
-							description:
-								"The fact to remove, repeated as closely as you can to how it appears in " +
-								"the memory list you were given. If more than one matches you will be " +
-								"told, and can retry with the exact wording.",
+							maxLength: flavor.textMax,
+							description: flavor.forgetFactDescription,
 						},
 					},
 					required: ["fact"],
@@ -168,11 +190,9 @@ export function createMemoryBuiltins(params: { enabled: boolean }): BuiltinTool[
 		},
 
 		async execute(args, ctx) {
-			if (!ctx.userId) {
-				return { error: "Memory is only available to a signed-in person. Continue without it." };
-			}
+			if (!ctx.userId) return { error: flavor.unavailable };
 			try {
-				const removed = await forgetFact({ userId: ctx.userId, text: String(args.fact ?? "") });
+				const removed = await flavor.forget(String(args.fact ?? ""), { userId: ctx.userId });
 				return {
 					resultText: `Forgotten: ${removed.text}`,
 					extraUpdates: [
@@ -181,12 +201,13 @@ export function createMemoryBuiltins(params: { enabled: boolean }): BuiltinTool[
 							uuid: ctx.uuid,
 							action: "forgot" as const,
 							text: removed.text,
+							...flavor.updateScope,
 						},
 					],
 				};
 			} catch (err) {
 				// Every failure here is a mismatch the model can fix by retrying
-				// with better wording, and `forgetFact` puts the real list in the
+				// with better wording, and the service puts the real list in the
 				// message for exactly that. None of them is a server fault.
 				if (err instanceof MemoryValidationError) return { error: err.message };
 				throw err;
@@ -195,4 +216,108 @@ export function createMemoryBuiltins(params: { enabled: boolean }): BuiltinTool[
 	};
 
 	return [remember, forget];
+}
+
+/**
+ * The tools, or none at all.
+ *
+ * `enabled` is resolved by the caller (runMcpFlow) from the deployment flag
+ * and the person's own setting, because it needs a database read and
+ * `getEnabledBuiltinTools` is deliberately synchronous — the same division
+ * `searchModelIds` and `playwrightReachable` already follow. Returning an
+ * empty array rather than throwing keeps the "a tool withholds itself" shape
+ * every other builtin here uses.
+ *
+ * `project` is the second pair, offered *in addition* in a project's
+ * conversation and only when the caller has already confirmed this person is
+ * a member and the deployment flag is on. It is independent of `enabled`: the
+ * personal opt-in is a decision about facts concerning oneself, and a shared
+ * project's notes are not that.
+ */
+export function createMemoryBuiltins(params: {
+	enabled: boolean;
+	project?: { projectId: ObjectId };
+}): BuiltinTool[] {
+	const tools: BuiltinTool[] = [];
+
+	if (params.enabled) {
+		tools.push(
+			...build({
+				rememberName: REMEMBER_TOOL_NAME,
+				forgetName: FORGET_TOOL_NAME,
+				textMax: MEMORY_TEXT_MAX_CHARS,
+				doctrine: DOCTRINE,
+				rememberDescription:
+					"Store one standing fact about the person you are talking to, so it is available " +
+					"in every future conversation. Use it for things that stay true, not for the state " +
+					"of the current task.",
+				rememberFactDescription:
+					"One self-contained sentence in the third person, understandable with no " +
+					'surrounding context. For example: "Works on the Pystino gateway for ' +
+					'his personal deployment" or "Prefers concise answers with no preamble".',
+				forgetDescription:
+					"Remove one standing fact from memory. Use it when the person asks you to forget " +
+					"something, or when a remembered fact has become wrong.",
+				forgetFactDescription:
+					"The fact to remove, repeated as closely as you can to how it appears in " +
+					"the memory list you were given. If more than one matches you will be " +
+					"told, and can retry with the exact wording.",
+				unavailable: "Memory is only available to a signed-in person. Continue without it.",
+				updateScope: {},
+				async remember(text, ctx) {
+					const { memory, created } = await rememberFact({
+						userId: ctx.userId,
+						text,
+						source: "model",
+						...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+					});
+					return { text: memory.text, id: memory._id.toString(), created };
+				},
+				forget: (text, ctx) => forgetFact({ userId: ctx.userId, text }),
+			})
+		);
+	}
+
+	if (params.project) {
+		const { projectId } = params.project;
+		tools.push(
+			...build({
+				rememberName: REMEMBER_FOR_PROJECT_TOOL_NAME,
+				forgetName: FORGET_FOR_PROJECT_TOOL_NAME,
+				textMax: PROJECT_MEMORY_TEXT_MAX_CHARS,
+				doctrine: PROJECT_DOCTRINE,
+				rememberDescription:
+					"Store one note on this project's shared memory, available to every member in " +
+					"every conversation in this project. Use it for durable facts about the work, " +
+					"not for facts about the person you are talking to and not for the state of the " +
+					"current task.",
+				rememberFactDescription:
+					"One self-contained note, understandable by a colleague with no surrounding " +
+					'context. For example: "Deploys go through the release branch; the staging ' +
+					'database is reset every Monday".',
+				forgetDescription:
+					"Remove one note from this project's shared memory. Use it when a note is wrong " +
+					"or the person asks for it to go.",
+				forgetFactDescription:
+					"The note to remove, repeated as closely as you can to how it appears in the " +
+					"project memory you were given. If more than one matches you will be told, " +
+					"and can retry with the exact wording.",
+				unavailable: "Project memory is only available to a signed-in person. Continue without it.",
+				updateScope: { scope: "project", projectId: projectId.toString() },
+				async remember(text, ctx) {
+					const { memory, created } = await rememberForProject({
+						projectId,
+						authorUserId: ctx.userId,
+						text,
+						source: "model",
+						...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+					});
+					return { text: memory.text, id: memory._id.toString(), created };
+				},
+				forget: (text) => forgetForProject({ projectId, text }),
+			})
+		);
+	}
+
+	return tools;
 }

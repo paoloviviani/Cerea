@@ -32,6 +32,7 @@
 		refreshConnectors as refreshMcpConnectors,
 	} from "$lib/stores/mcpConnectors";
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
+	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import type { ProjectView } from "$lib/types/Project";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconTrash from "~icons/carbon/trash-can";
@@ -75,6 +76,11 @@
 	const knowledgeOn = $derived(
 		(page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false
 	);
+
+	// The deployment switch for memory (FeatureFlags, from
+	// CHAT_MEMORY_ENABLED): off hides the project's notes, whose routes would
+	// answer 404 anyway.
+	const memoryOn = $derived((page.data as { memoryEnabled?: boolean }).memoryEnabled !== false);
 
 	// The same choice the home page makes: this person's active model if it is
 	// still one of the deployment's, the first otherwise.
@@ -724,6 +730,12 @@
 							<p class="text-sm text-gray-700 dark:text-gray-300">{attachedNames.join(", ")}</p>
 						{/if}
 					</div>
+				{/if}
+
+				{#if memoryOn}
+					{#key current.id}
+						<ProjectMemorySection projectId={current.id} />
+					{/key}
 				{/if}
 
 				<div>

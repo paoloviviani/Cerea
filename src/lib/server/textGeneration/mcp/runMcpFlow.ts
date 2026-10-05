@@ -221,6 +221,10 @@ export async function* runMcpFlow({
 	// is the right answer anyway — there is nowhere durable to write a fact.
 	const { memoryEnabled } = await import("$lib/server/memoryEnabled");
 	const memoryAllowed = memoryEnabled() && serverSettings?.memoryEnabled === true;
+	// The project pair is offered on the deployment flag and current
+	// membership alone, not the personal opt-in: see `projectForMemory`.
+	const { projectForMemory } = await import("$lib/server/projects");
+	const memoryProject = await projectForMemory(conv.projectId, locals);
 	// Read once: the preset decides the servers, the round budget and which tool
 	// doctrine is sent, and they must all agree within a run. Read here — ahead
 	// of the builtin list — because the artifact tool's tool-vs-tags gating
@@ -253,6 +257,7 @@ export async function* runMcpFlow({
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		memoryEnabled: memoryAllowed,
+		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
 		askUserQuestionEnabled: (
 			await import("$lib/server/askUserQuestionEnabled")
 		).askUserQuestionEnabled(),

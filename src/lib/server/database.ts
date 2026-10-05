@@ -45,6 +45,7 @@ import { findRepoRoot } from "./findRepoRoot";
 import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
+import type { ProjectMemory } from "$lib/types/ProjectMemory";
 import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
@@ -291,6 +292,10 @@ export class Database {
 		// read here would drop a fact somebody just saved out of the very next
 		// prompt, which reads as the feature not working.
 		const memories = db.collection<Memory>("memories");
+		// Shared notes a project's members keep for each other, read whole on
+		// every turn in that project's chats; primary for the same reason as
+		// `memories` (see `ProjectMemory`).
+		const projectMemories = db.collection<ProjectMemory>("projectMemories");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
@@ -337,6 +342,7 @@ export class Database {
 			projects,
 			skills,
 			memories,
+			projectMemories,
 			vectorStores,
 			knowledgeDocuments,
 			knowledgeConfig,
@@ -385,6 +391,7 @@ export class Database {
 			knowledgeDocuments,
 			skills,
 			memories,
+			projectMemories,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
@@ -494,6 +501,11 @@ export class Database {
 		memories
 			.createIndex({ userId: 1, createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for memories by userId"));
+		// The same read, keyed by project: the prompt build and the project's
+		// Memory tab both want every note of one project, oldest first.
+		projectMemories
+			.createIndex({ projectId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for projectMemories by projectId"));
 		// Deployment-scope names are unique across the deployment: two
 		// administrators must not publish two different procedures under one
 		// `@name`. Partial, so the per-owner user rows above are untouched.

@@ -12,12 +12,14 @@ import type { TextGenerationContext } from "./types";
 const mocks = vi.hoisted(() => ({
 	runMcpFlow: vi.fn(),
 	generate: vi.fn(),
+	memoryEnabled: vi.fn(() => true),
 	assembleSkillsContext: vi.fn(async (): Promise<{ preprompt?: string; mentioned: string[] }> => ({
 		preprompt: undefined,
 		mentioned: [],
 	})),
 }));
 
+vi.mock("$lib/server/memoryEnabled", () => ({ memoryEnabled: mocks.memoryEnabled }));
 vi.mock("./mcp/runMcpFlow", () => ({ runMcpFlow: mocks.runMcpFlow }));
 vi.mock("./generate", () => ({ generate: mocks.generate }));
 vi.mock("$lib/server/skills/prompt", () => ({
@@ -85,6 +87,8 @@ beforeEach(() => {
 	mocks.runMcpFlow.mockReset();
 	mocks.generate.mockReset();
 	mocks.generate.mockImplementation(noUpdates);
+	mocks.memoryEnabled.mockReset();
+	mocks.memoryEnabled.mockReturnValue(true);
 	mocks.assembleSkillsContext.mockReset();
 	mocks.assembleSkillsContext.mockImplementation(async () => ({
 		preprompt: undefined,
@@ -207,5 +211,113 @@ describe("textGeneration abort", () => {
 		await collect(ctx);
 
 		expect(mocks.generate).not.toHaveBeenCalled();
+	});
+});
+
+describe("textGeneration project memory", () => {
+	// The project's notes ride the preprompt of that project's own chats and
+	// nobody else's: gated by the conversation's `projectId`, by current
+	// membership, and by the deployment flag — and placed after the personal
+	// block.
+	const ownerId = new ObjectId();
+	const projectId = new ObjectId();
+	const otherProjectId = new ObjectId();
+
+	async function flowPreprompt(conv: Record<string, unknown>, userId = ownerId) {
+		mocks.runMcpFlow.mockImplementation(mcpFlow({ result: "not_applicable" }));
+		const ctx = makeContext();
+		ctx.conv = { _id: new ObjectId(), preprompt: undefined, ...conv } as never;
+		ctx.locals = { user: { _id: userId } } as never;
+		await collect(ctx);
+		return (mocks.runMcpFlow.mock.calls.at(-1)?.[0] as { preprompt?: string }).preprompt ?? "";
+	}
+
+	beforeEach(async () => {
+		const { collections, ready } = await import("$lib/server/database");
+		await ready;
+		await collections.projects.deleteMany({ _id: { $in: [projectId, otherProjectId] } });
+		await collections.projectMemories.deleteMany({
+			projectId: { $in: [projectId, otherProjectId] },
+		});
+		await collections.memories.deleteMany({ userId: ownerId });
+		await collections.settings.deleteMany({ userId: ownerId as never });
+		const base = {
+			userId: ownerId,
+			name: "P",
+			instructions: "",
+			knowledgeBaseIds: [],
+			shares: [],
+			indexPastChats: false,
+			retrievalLimit: 6,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+		await collections.projects.insertMany([
+			{ _id: projectId, ...base },
+			{ _id: otherProjectId, ...base, userId: new ObjectId() },
+		] as never);
+		const now = new Date();
+		await collections.projectMemories.insertMany([
+			{
+				_id: new ObjectId(),
+				projectId,
+				text: "Deploys go through the release branch.",
+				source: "user",
+				authorUserId: ownerId,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				_id: new ObjectId(),
+				projectId: otherProjectId,
+				text: "Somebody else's secret plan.",
+				source: "user",
+				authorUserId: new ObjectId(),
+				createdAt: now,
+				updatedAt: now,
+			},
+		]);
+	});
+
+	it("puts the project's notes in a chat that belongs to the project", async () => {
+		const preprompt = await flowPreprompt({ projectId });
+		expect(preprompt).toContain("Project memory");
+		expect(preprompt).toContain("Deploys go through the release branch.");
+	});
+
+	it("leaves them out of a chat outside any project", async () => {
+		const preprompt = await flowPreprompt({});
+		expect(preprompt).not.toContain("Project memory");
+		expect(preprompt).not.toContain("release branch");
+	});
+
+	it("never shows another project's notes, or the notes to a non-member", async () => {
+		// A chat pointing at a project the person neither owns nor has a share on.
+		const preprompt = await flowPreprompt({ projectId: otherProjectId });
+		expect(preprompt).not.toContain("Somebody else's secret plan.");
+		// And a stranger holding a chat whose projectId is the owner's project.
+		const stranger = await flowPreprompt({ projectId }, new ObjectId());
+		expect(stranger).not.toContain("release branch");
+	});
+
+	it("comes after the personal memory block", async () => {
+		const { collections } = await import("$lib/server/database");
+		await collections.settings.insertOne({ userId: ownerId, memoryEnabled: true } as never);
+		await collections.memories.insertOne({
+			_id: new ObjectId(),
+			userId: ownerId,
+			text: "Prefers Italian.",
+			source: "user",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		const preprompt = await flowPreprompt({ projectId });
+		expect(preprompt.indexOf("Prefers Italian.")).toBeGreaterThan(-1);
+		expect(preprompt.indexOf("Prefers Italian.")).toBeLessThan(preprompt.indexOf("Project memory"));
+	});
+
+	it("is off with the deployment switch", async () => {
+		mocks.memoryEnabled.mockReturnValue(false);
+		expect(await flowPreprompt({ projectId })).not.toContain("Project memory");
 	});
 });
