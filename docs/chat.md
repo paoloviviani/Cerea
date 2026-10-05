@@ -92,10 +92,20 @@ deployment can also point extraction at a reader directly
 
 The **Web search** pill in the composer switches search on **for this
 conversation**. It is your consent to spend: the search runs through the
-deployment's search backends, chosen by the gateway from your billing group's
-policy, and is metered to you. If your group has no search allowance, turning the pill on does nothing and costs nothing; ask your administrator if you need search.
+deployment's search backends and is metered to you.
 
-This is the deployment's own search, not the model's: the gateway runs it on a backend your group's policy names, so the same question searches the same sources whoever asks it.
+If you have no search backend (none in the gateway, or none granted to you),
+the pill, the "on by default" switch in your settings and the project default
+are shown disabled with "Web search isn't set up on this deployment"; an
+administrator also sees where to fix it. Nothing is offered that could not
+work.
+
+This is the deployment's own search, not the model's. **Administration → Web
+search** lists the search backends the gateway offers and lets an administrator
+choose which one runs (`WEB_SEARCH_MODEL` in the environment overrides it).
+With none chosen, or when you are not granted the chosen one, the gateway uses
+your billing group's search policy, so the same question searches the same
+sources whoever asks it.
 
 Whether a new conversation starts with search on follows a chain: the
 conversation's own state, then the project's default (inside a project), then

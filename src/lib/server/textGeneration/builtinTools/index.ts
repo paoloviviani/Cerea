@@ -42,6 +42,8 @@ export function getEnabledBuiltinTools(params: {
 	token?: string;
 	/** Ids of the `kind: "search"` models this caller may use; absent means none. */
 	searchModelIds?: string[];
+	/** The backend the admin chose, named to the gateway; absent lets the group policy decide. */
+	searchBackend?: string;
 	/** The user's web-search setting; on, the search builtin joins any conversation. */
 	webSearchEnabled?: boolean;
 	/** URLs from user messages; search results join this set during the run. */
@@ -182,6 +184,7 @@ export function getEnabledBuiltinTools(params: {
 			...createGatewaySearchBuiltins({
 				token: params.token,
 				searchModelIds: params.searchModelIds ?? [],
+				backend: params.searchBackend,
 				allowedFetchUrls: params.allowedFetchUrls,
 			})
 		);
