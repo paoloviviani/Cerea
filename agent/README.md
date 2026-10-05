@@ -60,7 +60,7 @@ checked equal to it by a spec.
   release. Reproduce with the command in the issue, then fix galopin (or
   decide to stay on the pin).
 - **`opencode <v> passes galopin's real-opencode suite: ready to bump the
-  pin`**: a checklist for the next step. It closes an older "ready" issue.
+pin`**: a checklist for the next step. It closes an older "ready" issue.
 
 To bump: `packaging/bump-opencode.sh <version>` rewrites both places and
 prints the local commands to run (install that release, the full suite, the

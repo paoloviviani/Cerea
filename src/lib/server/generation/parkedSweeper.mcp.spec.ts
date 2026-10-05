@@ -19,7 +19,7 @@ import { ObjectId } from "mongodb";
 const seen = vi.hoisted(() => ({ locals: [] as unknown[] }));
 
 vi.mock("$lib/server/textGeneration", () => ({
-	async *textGeneration (ctx: { locals: unknown }) {
+	async *textGeneration(ctx: { locals: unknown }) {
 		seen.locals.push(ctx.locals);
 	},
 }));

@@ -56,10 +56,10 @@ try {
 if (current !== expected) {
 	// The npm package ships no standalone LICENSE file (only the package.json
 	// declaration), so attribution is a generated notice naming the version.
-		await writeFile(
-			path.join(outRoot, "NOTICE.txt"),
-			`Pyodide ${pkg.version}\nhttps://github.com/pyodide/pyodide\nLicense: MPL-2.0\nServed unmodified from the pyodide npm package (see package-lock.json for the pinned integrity hash).\n\nThe package distribution's wheels each carry their own licence inside the archive.\nAmong them are LGPL-3.0+ components (gmpy2, built with GMP and MPFR; and the GDAL wheel),\nwhich are unmodified upstream builds — source: https://github.com/pyodide/pyodide and\neach project's upstream repository.\n`
-		);
+	await writeFile(
+		path.join(outRoot, "NOTICE.txt"),
+		`Pyodide ${pkg.version}\nhttps://github.com/pyodide/pyodide\nLicense: MPL-2.0\nServed unmodified from the pyodide npm package (see package-lock.json for the pinned integrity hash).\n\nThe package distribution's wheels each carry their own licence inside the archive.\nAmong them are LGPL-3.0+ components (gmpy2, built with GMP and MPFR; and the GDAL wheel),\nwhich are unmodified upstream builds — source: https://github.com/pyodide/pyodide and\neach project's upstream repository.\n`
+	);
 	await writeFile(versionMarker, expected);
 }
 
