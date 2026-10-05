@@ -95,7 +95,8 @@ describe("remember_for_project / forget_for_project", () => {
 			text: "Releases are cut on Thursdays.",
 		});
 		expect(await collections.memories.countDocuments({ userId })).toBe(0);
-		const update = (result as { extraUpdates: Record<string, unknown>[] }).extraUpdates[0];
+		const update = (result as unknown as { extraUpdates: Record<string, unknown>[] })
+			.extraUpdates[0];
 		expect(update).toMatchObject({
 			type: MessageUpdateType.Memory,
 			action: "remembered",
@@ -109,7 +110,7 @@ describe("remember_for_project / forget_for_project", () => {
 		await tool(REMEMBER_FOR_PROJECT_TOOL_NAME).execute({ fact: "Same note." }, ctx);
 		const again = await tool(REMEMBER_FOR_PROJECT_TOOL_NAME).execute({ fact: "same note" }, ctx);
 		expect(again).toMatchObject({ resultText: expect.stringContaining("nothing changed") });
-		expect((again as { extraUpdates: unknown[] }).extraUpdates).toEqual([]);
+		expect((again as unknown as { extraUpdates: unknown[] }).extraUpdates).toEqual([]);
 	});
 
 	it("hands validation errors back to the model instead of throwing", async () => {
