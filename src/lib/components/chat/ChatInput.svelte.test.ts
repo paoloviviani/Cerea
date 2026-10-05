@@ -315,7 +315,14 @@ describe("ChatInput: MCP connector toggles", () => {
 				'[role="menuitemcheckbox"], [role="menuitem"]'
 			),
 		].find((el) => el.textContent?.includes(name));
-		if (!item) throw new Error(`no menu item for ${name}`);
+		if (!item) {
+			// Say what was on screen: on CI this has failed after a toggle with
+			// nothing to go on.
+			const menus = [...document.body.querySelectorAll('[role="menu"]')]
+				.map((menu) => menu.textContent?.replace(/\s+/g, " ").trim().slice(0, 200))
+				.join(" | ");
+			throw new Error(`no menu item for ${name}; menus: ${menus || "(none open)"}`);
+		}
 		return item;
 	};
 
