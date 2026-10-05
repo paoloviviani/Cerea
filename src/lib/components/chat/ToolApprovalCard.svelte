@@ -40,7 +40,7 @@
 		onanswer?: (
 			action: ElicitationAction,
 			scope?: "always"
-		) => Promise<{ ok: boolean; error?: string }>;
+		) => Promise<{ ok: boolean; error?: string; note?: string }>;
 		/** The allow button's label; the agent path approves a single request. */
 		approveLabel?: string;
 	}
@@ -95,7 +95,13 @@
 		return title ? `Subagent ${title}` : "Subagent";
 	});
 
+	/** Set when the machine said the ask was already answered (by itself, for a
+	 * subagent its root allows, or by another client): not an error, and the
+	 * click's own verb would be a lie on the settled row. */
+	let alreadyAnswered = $state<string | null>(null);
+
 	let settledLabel = $derived.by(() => {
+		if (alreadyAnswered && !resolved) return alreadyAnswered;
 		if (outcome === "accept") return "Allowed";
 		if (outcome === "decline") return "Denied";
 		if (resolved?.resolution === "expired" || expired) return "Timed out — denied";
@@ -115,6 +121,7 @@
 				error = result.error ?? "The answer did not go through.";
 				return;
 			}
+			if (result.note) alreadyAnswered = result.note;
 			submitted = action;
 			return;
 		}
@@ -220,14 +227,22 @@
 				onclick={() => (showArgs = !showArgs)}
 				aria-label={showArgs ? "Collapse" : "Expand"}
 			>
+				{#if subagentLabel}
+					<!-- The title is what gives way on a narrow screen; the outcome
+					     after it, the tool and the chevron stay on screen. -->
+					<span
+						class="min-w-0 truncate text-sm font-medium text-gray-500 transition-colors group-hover/header:text-gray-600 dark:text-gray-400 dark:group-hover/header:text-gray-300"
+						title={subagentLabel}>{subagentLabel}</span
+					>
+				{/if}
 				<span
 					class="shrink-0 text-sm font-medium text-gray-500 transition-colors group-hover/header:text-gray-600 dark:text-gray-400 dark:group-hover/header:text-gray-300"
 				>
-					{#if subagentLabel}{subagentLabel} ·
+					{#if subagentLabel}·
 					{/if}{settledLabel}
 				</span>
 				<code
-					class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+					class="min-w-0 shrink truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
 					>{toolApproval.tool}</code
 				>
 				<CarbonChevronRight

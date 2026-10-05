@@ -27,6 +27,8 @@ const fake = vi.hoisted(() => ({
 	timelines: {} as Record<string, unknown[]>,
 	ruleReads: 0,
 	snapshotReads: 0,
+	/** A background child counts as running until this many snapshot reads. */
+	childRunningUntilRead: 0,
 }));
 
 // The composer's MCP stores read `$env/dynamic/public` at module scope and
@@ -64,6 +66,15 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 				modelId: null,
 				permissionMode: fake.mode,
 				parentId: fake.parentId,
+				...(fake.childRunningUntilRead > 0
+					? {
+							childSummary: {
+								children: 1,
+								running: fake.snapshotReads <= fake.childRunningUntilRead ? 1 : 0,
+								waiting: 0,
+							},
+						}
+					: {}),
 			},
 			cwd: "/w",
 			enrollmentExpired: false,
@@ -133,6 +144,7 @@ beforeEach(() => {
 	fake.timelines = {};
 	fake.ruleReads = 0;
 	fake.snapshotReads = 0;
+	fake.childRunningUntilRead = 0;
 	sidePane.reset();
 });
 
@@ -355,5 +367,26 @@ describe("AgentView permission selector", () => {
 			await new Promise((resolve) => setTimeout(resolve, 100));
 			expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
 		});
+	});
+});
+
+describe("AgentView background banner", () => {
+	it("clears when the child finishes, even if its last signal lands just after a poll", async () => {
+		await browserPage.viewport(1200, 800);
+		fake.childRunningUntilRead = 1000;
+		const screen = mount();
+		await expect
+			.element(screen.getByText("A subagent is still running in the background."))
+			.toBeVisible();
+		// The next read after the first activity frame still says running; the one
+		// after the second (held until the throttle window ends) says it is done.
+		fake.childRunningUntilRead = fake.snapshotReads + 1;
+		await arrive([
+			{ type: "childActivity", childId: "c1" },
+			{ type: "childActivity", childId: "c1" },
+		]);
+		await expect
+			.element(screen.getByText("A subagent is still running in the background."))
+			.not.toBeInTheDocument();
 	});
 });

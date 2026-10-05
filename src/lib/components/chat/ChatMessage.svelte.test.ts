@@ -184,3 +184,44 @@ describe("collapsed process blocks during streaming", () => {
 		expect(summaries(screen.baseElement as HTMLElement).length).toBeGreaterThan(0);
 	});
 });
+
+describe("a row arriving inside a streaming text part", () => {
+	const stream = (token: string, partId: string) => ({ type: "stream", token, partId });
+	const permissionAsked = {
+		type: "elicitation",
+		subtype: "request",
+		request: {
+			elicitationId: "perm1",
+			server: "bash",
+			mode: "form",
+			message: "Subagent Dummy sleep test wants to call bash",
+			toolApproval: { tool: "bash", args: { command: "sleep 60" } },
+			childSessionId: "ses_child",
+			childTitle: "Dummy sleep test",
+		},
+	};
+
+	it("keeps an inline code span whole and puts the row after the text", () => {
+		// The parent's sentence is mid-stream when the child's approval arrives.
+		const { baseElement } = mount([
+			stream("Background task launched (id `ses_ef2e958", "p1"),
+			permissionAsked,
+			stream("05ffe80E5LI9BTLxQJ2`) — it will sleep 60s.", "p1"),
+		]);
+		const text = baseElement.textContent ?? "";
+		// The id is one run of text: no row between its halves.
+		expect(text).toContain("ses_ef2e95805ffe80E5LI9BTLxQJ2");
+		expect(text.indexOf("it will sleep 60s")).toBeLessThan(text.indexOf("Subagent Dummy sleep test"));
+	});
+
+	it("still gives a later part its own block after the row", () => {
+		const { baseElement } = mount([
+			stream("First part.", "p1"),
+			permissionAsked,
+			stream("Second part.", "p2"),
+		]);
+		const text = baseElement.textContent ?? "";
+		expect(text.indexOf("First part.")).toBeLessThan(text.indexOf("Subagent Dummy sleep test"));
+		expect(text.indexOf("Subagent Dummy sleep test")).toBeLessThan(text.indexOf("Second part."));
+	});
+});

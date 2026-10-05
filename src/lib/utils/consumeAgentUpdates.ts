@@ -379,7 +379,7 @@ export async function consumeAgentUpdates(
 			case MessageUpdateType.Stream: {
 				openAssistant();
 				const last = updatesBuffer.at(-1);
-				if (last?.type === MessageUpdateType.Stream) {
+				if (last?.type === MessageUpdateType.Stream && last.partId === update.partId) {
 					updatesBuffer = [
 						...updatesBuffer.slice(0, -1),
 						{ ...last, token: last.token + update.token },

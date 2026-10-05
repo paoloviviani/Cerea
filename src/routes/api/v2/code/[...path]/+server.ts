@@ -1183,14 +1183,21 @@ export const POST: RequestHandler = async (event) => {
 			parentSessionId,
 			parsed.data.childSessionId
 		);
-		await callOp(() =>
+		const replied = await callOp(() =>
 			link.permissionReply({
 				sessionId: targetSessionId,
 				requestId: decodeURIComponent(permissionMatch[2]),
 				decision: parsed.data.decision,
 			})
 		);
-		return superjsonResponse({ ok: true });
+		// The machine answers "already resolved" for an ask something else
+		// answered first: not an error, and the card says so.
+		return superjsonResponse({
+			ok: true,
+			...((replied as { alreadyResolved?: boolean } | undefined)?.alreadyResolved
+				? { alreadyResolved: true }
+				: {}),
+		});
 	}
 
 	// The user-question tool design: the SAME "accept"/"decline" vocabulary
