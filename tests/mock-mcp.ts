@@ -165,9 +165,13 @@ export async function startMockMcp(
 			recorded.length = 0;
 		},
 		close: () =>
-			new Promise<void>((resolve, reject) =>
-				httpServer.close((err) => (err ? reject(err) : resolve()))
-			),
+			new Promise<void>((resolve, reject) => {
+				httpServer.close((err) => (err ? reject(err) : resolve()));
+				// close() waits for every open connection, and an MCP client's
+				// keep-alive (or a streaming GET) never ends on its own: the
+				// spec's afterAll hit its 30s hook timeout waiting here on CI.
+				httpServer.closeAllConnections();
+			}),
 	};
 }
 
