@@ -621,7 +621,8 @@
 		await revertAgent(deviceId, agentId, userMessageId);
 		rollback = null;
 		streamNonce += 1;
-		await handleSend(text);
+		// A refused resend is already on the banner; nothing else to keep here.
+		await handleSend(text).catch(() => undefined);
 	}
 
 	let loading = $derived(isConversationGenerationActive(messages));
@@ -857,6 +858,8 @@
 				codeEnrollment[deviceId] = "expired";
 			}
 			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
+			// Tell the composer it did not land, so it keeps the draft.
+			throw err;
 		}
 	}
 

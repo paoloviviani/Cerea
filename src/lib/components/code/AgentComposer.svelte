@@ -118,7 +118,9 @@
 		 * 502 the daemon was never asked to answer. */
 		offline?: boolean;
 		/** Called synchronously with the submit, before the POST — the view
-		 * engages the column's follow and raises its pending placeholder. */
+		 * engages the column's follow and raises its pending placeholder. It
+		 * rejects when the send did not land (the view has already said why),
+		 * and the draft is kept. */
 		onsend: (text: string, files: File[]) => Promise<void>;
 		/** What the picker, paste and chips accept; empty hides the picker. */
 		mimeTypes?: string[];
@@ -261,6 +263,8 @@
 			// and its files, like every composer here.
 			draft = "";
 			files = [];
+		} catch {
+			// The view shows the failure; the draft stays for another try.
 		} finally {
 			busy = false;
 		}
@@ -283,6 +287,8 @@
 			await onsend(message, files);
 			draft = "";
 			files = [];
+		} catch {
+			// As in submit: the view shows why, the draft stays.
 		} finally {
 			busy = false;
 		}
