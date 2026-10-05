@@ -73,10 +73,11 @@ chat against Pystino and for a chat against any other endpoint.
 
 ## Web fetch
 
-| Variable                 | What                                                                                                                                                                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FETCH_BACKEND`          | Who reads a page the assistant fetches: `direct` (a plain HTTPS request; the default) or `playwright` (the [headless browser](browser.md)). A third name, `pystino`, is recognised but not implemented and fails with a message |
-| `PLAYWRIGHT_WS_ENDPOINT` | Where the renderer listens, inside the compose network only. Never publish it                                                                                                                                                   |
+| Variable                 | What                                                                                                                                                                                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FETCH_BACKEND`          | Who reads a page the assistant fetches: `direct` (a plain HTTPS request; the default) or `playwright` (the [headless browser](browser.md)). A third name, `pystino`, is recognised but not implemented and fails with a message                                                                                           |
+| `WEB_SEARCH_MODEL`       | The search backend (a gateway `kind: search` model) the **Web search** pill uses. Overrides Administration → Web search and is shown there as "set in the environment". Unset: the admin screen's choice, else the caller's billing-group search policy. A caller not granted the named backend falls back to that policy |
+| `PLAYWRIGHT_WS_ENDPOINT` | Where the renderer listens, inside the compose network only. Never publish it                                                                                                                                                                                                                                             |
 
 ## Coding agents
 

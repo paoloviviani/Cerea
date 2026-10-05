@@ -81,6 +81,13 @@ export interface KnowledgeConfig extends Timestamps {
 	 * and naming any other reader are the same act.
 	 */
 	extractorModel?: string | null;
+	/**
+	 * The search backend (a gateway model name) web search runs on, as the Web
+	 * search admin screen chose. Not a knowledge setting — it lives in this
+	 * document so web search stays configurable with the pipeline switched off.
+	 * `null` or absent means the caller's billing-group search policy decides.
+	 */
+	webSearchModel?: string | null;
 	chunkChars: number;
 	chunkOverlap: number;
 }
