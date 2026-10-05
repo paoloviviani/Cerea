@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processAlive, stopTree, sweepStaleRunProcesses } from "../../../tests/e2eProc.ts";
@@ -77,14 +77,23 @@ describe("sweepStaleRunProcesses", () => {
 		await stopTree(leader, 2000);
 		expect(isDead(leader)).toBe(true);
 		if (grandchild > 0) {
-			let alive = true;
-			try {
-				process.kill(grandchild, 0);
-			} catch (err) {
-				if ((err as NodeJS.ErrnoException).code === "ESRCH") alive = false;
-				else throw err;
-			}
-			expect(alive).toBe(false);
+			// Killed is not the same instant as gone: an orphaned child is reaped
+			// by whoever adopted it, which on a CI runner can take a moment, and
+			// a zombie still answers kill(pid, 0). Gone, or a zombie, within 2s.
+			const gone = () => {
+				try {
+					process.kill(grandchild, 0);
+				} catch (err) {
+					if ((err as NodeJS.ErrnoException).code === "ESRCH") return true;
+					throw err;
+				}
+				try {
+					return readFileSync(`/proc/${grandchild}/stat`, "utf8").split(") ")[1]?.startsWith("Z");
+				} catch {
+					return true;
+				}
+			};
+			await expect.poll(gone, { timeout: 2000, interval: 50 }).toBe(true);
 		}
 	});
 });
