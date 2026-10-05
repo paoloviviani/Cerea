@@ -327,6 +327,11 @@ type RuleHost interface {
 	// selector and the ceiling (never the machine's own allows); agent is its
 	// type, "" when unknown.
 	ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error
+	// ChildAskAction is what the child session's rules, as the root's selector
+	// and the ceiling compose them for its agent, say about one ask: Allow only
+	// when every pattern is allowed. Nothing is applied. Ask when the agent's
+	// rules cannot be read.
+	ChildAskAction(ctx context.Context, workspaceDir, sessionID, agent, tool string, patterns []string) permrules.Action
 	// OnProcessStart registers a callback run every time the backend's process
 	// starts (the first start included, a crash restart and a deliberate one
 	// alike). What the process held in memory — its pending asks — is gone with

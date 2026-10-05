@@ -181,7 +181,10 @@ type Materializer struct {
 	// onChild is told, outside the lock, of each subagent session a LIVE event
 	// first revealed (not one a startup listing found). newChildren is what
 	// setParentLocked saw since the last drain.
-	onChild     func(workspaceDir, childID string)
+	onChild func(workspaceDir, childID string)
+	// onAsk is told, outside the lock, of each permission ask a subagent
+	// session raises (its root's selector may already allow it).
+	onAsk       func(workspaceDir string, req backend.PermissionRequest)
 	newChildren []string
 
 	outCh chan Envelope
@@ -293,6 +296,13 @@ type childRef struct{ id, dir string }
 // OnChild installs the callback told of every subagent session a live event
 // reveals, so the machine can give it the ceiling at once. Set before Start.
 func (m *Materializer) OnChild(fn func(workspaceDir, childID string)) { m.onChild = fn }
+
+// OnChildAsk installs the callback told of every permission ask a subagent
+// session raises, so the machine can answer one its root's selector allows. Set
+// before Start.
+func (m *Materializer) OnChildAsk(fn func(workspaceDir string, req backend.PermissionRequest)) {
+	m.onAsk = fn
+}
 
 // ChildAgent is the subagent type a child session was started as, read from
 // its parent's task call ("" until that call's input is known).
@@ -430,11 +440,19 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 		envs = append(envs, m.appendRingLocked(st, ev))
 	}
 	children := m.drainChildrenLocked()
+	var childAsk *backend.PermissionRequest
+	if be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil && st.parentID != "" {
+		r := *be.Event.Request
+		childAsk = &r
+	}
 	m.mu.Unlock()
 	if m.onChild != nil {
 		for _, c := range children {
 			m.onChild(c.dir, c.id)
 		}
+	}
+	if childAsk != nil && m.onAsk != nil {
+		m.onAsk(be.WorkspaceDir, *childAsk)
 	}
 
 	for _, env := range envs {
@@ -1106,4 +1124,27 @@ func (m *Materializer) WithdrawPending() {
 	for _, env := range envs {
 		m.publish(env)
 	}
+}
+
+// WithdrawPermission closes one permission ask the materializer still holds,
+// announcing it as rejected so no client keeps a card for it; a no-op when it
+// holds none by that id. It is for an ask the backend says is already gone.
+func (m *Materializer) WithdrawPermission(sessionID, requestID string) {
+	m.mu.Lock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	if _, held := st.permissions[requestID]; !held {
+		m.mu.Unlock()
+		return
+	}
+	delete(st.permissions, requestID)
+	st.permissionOrder = removeString(st.permissionOrder, requestID)
+	env := m.appendRingLocked(st, backend.Event{
+		Kind: backend.EventPermissionReplied, RequestID: requestID, Decision: backend.DecisionReject, By: "user",
+	})
+	m.mu.Unlock()
+	m.publish(env)
 }

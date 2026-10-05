@@ -935,6 +935,12 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		}
 	}
 	if err := mc.back.ReplyPermission(ctx, dir, a.SessionID, a.RequestID, sent, a.Message); err != nil {
+		if backend.IsNotFound(err) {
+			// Already resolved (the machine answered it for a root that allows
+			// it, or the backend restarted): close the card, say so, no error.
+			mc.mat.WithdrawPermission(a.SessionID, a.RequestID)
+			return map[string]any{"alreadyResolved": true}, nil
+		}
 		return nil, backendErr(err)
 	}
 	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped)

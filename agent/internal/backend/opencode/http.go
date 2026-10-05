@@ -312,7 +312,14 @@ func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir string, sess
 	// practice (found live): omitting it 404s with PermissionNotFoundError
 	// even for a request id that was just seen in a live permission.asked
 	// event for this exact session.
-	return b.doJSON(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply"+directoryQuery(workspaceDir), body, nil)
+	err := b.doJSON(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply"+directoryQuery(workspaceDir), body, nil)
+	if err != nil && strings.Contains(err.Error(), "status 404") && strings.Contains(err.Error(), "PermissionNotFoundError") {
+		// opencode no longer holds the ask: something else answered it (the
+		// machine's own auto-answer for a subagent its root allows, another
+		// client) or its process restarted. Not a failure the caller can fix.
+		return fmt.Errorf("%w: %v", backend.ErrPermissionGone, err)
+	}
+	return err
 }
 
 func (b *Backend) Modes(ctx context.Context, workspaceDir string) ([]backend.Mode, error) {

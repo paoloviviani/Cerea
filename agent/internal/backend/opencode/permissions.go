@@ -314,6 +314,31 @@ func (b *Backend) ApplyChildRules(ctx context.Context, workspaceDir, sessionID, 
 	return b.applyChildLocked(ctx, workspaceDir, sessionID, agent)
 }
 
+// ChildAskAction evaluates an ask a subagent session raised against the rules
+// it is entitled to (see permrules.ChildRules), without touching the session:
+// opencode takes a session's rules when a turn starts, so a child's first call
+// is asked by the agent-level floor before ApplyChildRules can land, and this
+// is how the machine tells that ask from one the root's mode or the ceiling
+// really wants.
+func (b *Backend) ChildAskAction(ctx context.Context, dir, sessionID, agent, tool string, patterns []string) permrules.Action {
+	if b.cfg.Permissions == nil || agent == "" || !b.isChild(sessionID) {
+		return permrules.Ask
+	}
+	agentRules, err := b.agentRuleset(ctx, dir, agent)
+	if err != nil {
+		return permrules.Ask
+	}
+	rules := permrules.ChildRules(b.layers(), b.selectorOf(sessionID), agentRules)
+	if len(patterns) == 0 {
+		patterns = []string{"*"}
+	}
+	out := permrules.Allow
+	for _, p := range patterns {
+		out = permrules.Min(out, permrules.Evaluate(rules, tool, p))
+	}
+	return out
+}
+
 // applyChildLocked composes and sends a child's rules. Caller holds perm.mu.
 func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent string) error {
 	l := b.layers()
