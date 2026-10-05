@@ -103,6 +103,9 @@ func (r *ruleBackend) RuleLayers(context.Context, string, string) (backend.RuleL
 }
 
 // OnProcessStart records the callback; start() plays a process start.
+func (r *ruleBackend) ChildAskAction(context.Context, string, string, string, string, []string) permrules.Action {
+	return permrules.Ask
+}
 func (r *ruleBackend) OnProcessStart(fn func()) { r.onStart = fn }
 func (r *ruleBackend) start() {
 	if r.onStart != nil {

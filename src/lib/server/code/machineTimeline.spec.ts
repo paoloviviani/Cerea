@@ -120,7 +120,7 @@ describe("snapshotToUpdates", () => {
 			todos: [],
 		};
 		const updates = snapshotToUpdates(transcript);
-		expect(updates).toContainEqual({ type: MessageUpdateType.Stream, token: "on it" });
+		expect(updates).toContainEqual({ type: MessageUpdateType.Stream, token: "on it", partId: expect.any(String) });
 		const call = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "call");
 		const result = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "result");
 		expect(call).toBeTruthy();
@@ -209,7 +209,7 @@ describe("messageBoundary: the machine's own message id, for later actions to an
 			{ type: "messageBoundary", role: "user", messageId: "m1" },
 			{ type: "user", text: "first" },
 			{ type: "messageBoundary", role: "assistant", messageId: "m2" },
-			{ type: MessageUpdateType.Stream, token: "second" },
+			{ type: MessageUpdateType.Stream, token: "second", partId: "p2" },
 		]);
 	});
 });
@@ -296,8 +296,8 @@ describe("the seam: duplicate identical tokens must not be dropped", () => {
 		const streamTokens = updates.filter((u) => u.type === MessageUpdateType.Stream);
 		expect(streamTokens).toHaveLength(2);
 		expect(streamTokens).toEqual([
-			{ type: MessageUpdateType.Stream, token: " the" },
-			{ type: MessageUpdateType.Stream, token: " the" },
+			{ type: MessageUpdateType.Stream, token: " the", partId: "p1" },
+			{ type: MessageUpdateType.Stream, token: " the", partId: "p1" },
 		]);
 	});
 

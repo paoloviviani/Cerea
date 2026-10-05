@@ -282,7 +282,11 @@ func TestSelectorS7AlwaysOnACappedKeyStoresNothing(t *testing.T) {
 // turn is therefore judged by what the process already carries — the agent-level
 // floor (which asks for the blanket's names, under Allow too) and the denies
 // opencode copies from its parent — and not by the root's word or exceptions.
-// The first-turn asserts below are canaries as much as specs: the day one of
+// Since the machine answers a child's ask its root's mode allows
+// (answerChildAsk), the ask is still raised on the first turn — it is the floor's
+// — but under Allow it is answered at once and no person is left holding it; the
+// background_permission IT asserts that. The first-turn asserts below are
+// canaries as much as specs: the day one of
 // them fails, opencode can carry the root's rules in time and the floor's ask
 // default can go. Each subtest says which it is looking at.
 func TestSelectorS8Subagents(t *testing.T) {

@@ -289,7 +289,7 @@
 	};
 
 	type Block =
-		| { type: "text"; content: string }
+		| { type: "text"; content: string; partId?: string }
 		| { type: "think"; content: string; closed: boolean }
 		| { type: "tool"; uuid: string; updates: MessageToolUpdate[] }
 		| { type: "artifact"; op: ArtifactOperation; opIndex: number }
@@ -428,8 +428,18 @@
 				contentCursor += len;
 				if (!chunk) continue;
 				const last = res.at(-1);
-				if (last?.type === "text") last.content += chunk;
-				else res.push({ type: "text" as const, content: chunk });
+				// A part's text keeps growing in ITS block when a row (a permission
+				// card, a tool) landed after it: the row stays below the text
+				// instead of cutting it in two, which would split an inline code
+				// span or a list across two markdown renders.
+				const sameText = update.partId
+					? res.findLast((b) => b.type === "text" && b.partId === update.partId)
+					: undefined;
+				const target = sameText ?? (last?.type === "text" ? last : undefined);
+				if (target?.type === "text") {
+					target.content += chunk;
+					if (update.partId) target.partId = update.partId;
+				} else res.push({ type: "text" as const, content: chunk, partId: update.partId });
 			} else if (isMessageToolUpdate(update)) {
 				// The panel's subagent claim, decided per frame — the roster can
 				// pair (or unname) a call between commits, and the builder reruns
