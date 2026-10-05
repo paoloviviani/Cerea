@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootstrapWorker } from "./pyodide.worker";
+import { AttachmentMounter } from "./attachmentMounter";
 import { MOUNT_ROOT, type HostToWorker, type WorkerToHost } from "./protocol";
 
 /**
@@ -165,6 +166,95 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 				(m) => m.type === "fileRemoved" && m.id === 6
 			)) as Extract<WorkerToHost, { type: "fileRemoved" }> & { id: number };
 			expect(refused.error).toBeDefined();
+		},
+		{ timeout: 180_000 }
+	);
+
+	it(
+		"an attached file is reachable at /mnt/data/<name> from a code run, with its text beside it",
+		async () => {
+			const scope = makeScope();
+			send(scope, { type: "run", id: 1, code: "1" });
+			await until(scope, (m) => m.type === "result" && m.id === 1);
+
+			// The mounter talks to the real worker through the same messages the
+			// host's ExecutionSession sends; only the download route is stubbed.
+			let next = 10;
+			const request = async <T extends WorkerToHost>(
+				message: HostToWorker & { id: number },
+				reply: T["type"]
+			) => (await until(scope, (m) => m.type === reply && "id" in m && m.id === message.id)) as T;
+			const session = {
+				loadFiles: async (files: Array<{ name: string; data: ArrayBuffer | string }>) => {
+					const id = next++;
+					send(scope, { type: "loadFiles", id, files });
+					const done = await request<Extract<WorkerToHost, { type: "filesLoaded" }>>(
+						{ type: "loadFiles", id, files },
+						"filesLoaded"
+					);
+					return done.written;
+				},
+				removeFile: async (path: string) => {
+					const id = next++;
+					send(scope, { type: "removeFile", id, path });
+					await request({ type: "removeFile", id, path }, "fileRemoved");
+				},
+			};
+			const served: Record<string, string> = {
+				"/conversation/c1/output/h1": "a,b\n1,2\n",
+				"/conversation/c1/output/t1": "# the extracted text",
+			};
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (url: string) => {
+					const text = served[url];
+					return text === undefined
+						? new Response("{}", { status: 404 })
+						: new Response(text, { headers: { "Content-Length": String(text.length) } });
+				})
+			);
+			const mounter = new AttachmentMounter("c1", session, {
+				mounted: () => {},
+				skipped: () => {},
+			});
+			await mounter.sync([
+				{
+					type: "hash",
+					value: "h1",
+					name: "sales data.csv",
+					mime: "text/csv",
+					extracted: { value: "t1" },
+				},
+			]);
+
+			send(scope, {
+				type: "run",
+				id: 2,
+				code: `print(open('${MOUNT_ROOT}/sales data.csv').read().strip())\nprint(open('${MOUNT_ROOT}/sales data.csv.md').read())`,
+			});
+			const ran = (await until(scope, (m) => m.type === "result" && m.id === 2)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(ran.ok).toBe(true);
+			expect(ran.stdout).toContain("a,b\n1,2");
+			expect(ran.stdout).toContain("# the extracted text");
+
+			// Leaving the conversation takes both files back out.
+			expect(await mounter.unmountAll()).toEqual([
+				`${MOUNT_ROOT}/sales data.csv`,
+				`${MOUNT_ROOT}/sales data.csv.md`,
+			]);
+			send(scope, {
+				type: "run",
+				id: 3,
+				code: `import os\nprint(os.path.exists('${MOUNT_ROOT}/sales data.csv'))`,
+			});
+			const gone = (await until(scope, (m) => m.type === "result" && m.id === 3)) as Extract<
+				WorkerToHost,
+				{ type: "result" }
+			>;
+			expect(gone.stdout).toContain("False");
 		},
 		{ timeout: 180_000 }
 	);

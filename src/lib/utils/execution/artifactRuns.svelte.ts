@@ -1,4 +1,5 @@
 import { untrack } from "svelte";
+import { withAttachmentMounts } from "./attachmentMounts.svelte";
 import { getExecutionSession } from "./runtime";
 import { artifactRunKey } from "./keys";
 import { collectOutputFiles } from "./runs.svelte";
@@ -106,8 +107,7 @@ class ArtifactRunsStore {
 			this.#memory[key] = state;
 		});
 
-		session
-			.run(content)
+		withAttachmentMounts(() => session.run(content))
 			.then((outcome) => {
 				const settled: RunState = {
 					...state,

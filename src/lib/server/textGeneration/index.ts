@@ -202,7 +202,8 @@ async function* textGenerationWithoutTitle(
 	const processedMessages = await preprocessMessages(
 		messages,
 		convId,
-		modelReadsImages(ctx.model, ctx.forceMultimodal)
+		modelReadsImages(ctx.model, ctx.forceMultimodal),
+		conv.messages
 	);
 
 	let mcpProducedOutput = false;

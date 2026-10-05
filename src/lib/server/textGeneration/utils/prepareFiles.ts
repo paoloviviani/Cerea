@@ -1,4 +1,5 @@
 import { gapMarker } from "./clock";
+import { attachmentMountNotice } from "$lib/utils/execution/attachmentNames";
 import type { MessageFile } from "$lib/types/Message";
 import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
 import type { OpenAI } from "openai";
@@ -416,6 +417,12 @@ export async function prepareMessagesWithFiles(
 		 * The user's IANA zone, for the gap marker below. Server zone when absent.
 		 */
 		timezone?: string;
+		/**
+		 * The code tool is offered this turn: an attached document then says where
+		 * the original is in the sandbox (`mountName`, set by preprocessMessages).
+		 * Without code there is no sandbox to point at, so the line is left out.
+		 */
+		codeToolOffered?: boolean;
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
 	type ReplayCandidate = { replay: AssistantReplayMessage[]; flat: ChatMessageParam };
@@ -435,7 +442,8 @@ export async function prepareMessagesWithFiles(
 				const { imageParts, textContent } = await prepareFiles(
 					imageProcessor,
 					message.files,
-					isMultimodal
+					isMultimodal,
+					options?.codeToolOffered === true
 				);
 
 				let messageText = message.content;
@@ -566,7 +574,8 @@ export async function prepareMessagesWithFiles(
 async function prepareFiles(
 	imageProcessor: ReturnType<typeof makeImageProcessor>,
 	files: MessageFile[],
-	isMultimodal: boolean
+	isMultimodal: boolean,
+	codeToolOffered: boolean
 ): Promise<{
 	imageParts: OpenAI.Chat.Completions.ChatCompletionContentPartImage[];
 	textContent: string;
@@ -600,7 +609,9 @@ async function prepareFiles(
 		const textParts = await Promise.all(
 			textFiles.map(async (file) => {
 				const content = Buffer.from(file.value, "base64").toString("utf-8");
-				return `<document name="${file.name}" type="${file.mime}">\n${content}\n</document>`;
+				const where =
+					codeToolOffered && file.mountName ? `${attachmentMountNotice(file.mountName)}\n` : "";
+				return `<document name="${file.name}" type="${file.mime}">\n${where}${content}\n</document>`;
 			})
 		);
 		textContent = textParts.join("\n\n");

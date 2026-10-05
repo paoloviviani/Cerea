@@ -188,3 +188,50 @@ describe("a PDF's page images", () => {
 		expect(vi.mocked(downloadFile).mock.calls.filter((c) => c[0] === "same")).toHaveLength(1);
 	});
 });
+
+describe("where the original of an attachment is mounted", () => {
+	it("names it on the text the model reads, and agrees across the whole conversation", async () => {
+		// Two messages attach a file with the same name: the second is mounted as
+		// "report (2).pdf", whichever branch this turn happens to send.
+		const first = message([
+			{
+				type: "hash",
+				value: "h1",
+				mime: "application/pdf",
+				name: "report.pdf",
+				extractionError: { kind: "no-text", reason: "" },
+			},
+		]);
+		const second = {
+			...message([
+				{
+					type: "hash",
+					value: "h2",
+					mime: "application/pdf",
+					name: "report.pdf",
+					extractionError: { kind: "no-text", reason: "" },
+				},
+			]),
+			id: "m2" as Message["id"],
+		};
+		const [out] = await preprocessMessages([second], new ObjectId(), false, [first, second]);
+		expect(out.files?.[0].mountName).toBe("report (2).pdf");
+	});
+
+	it("is absent on a file that cannot be mounted (pasted text)", async () => {
+		const [out] = await preprocessMessages(
+			[
+				message([
+					{
+						type: "base64",
+						value: "aGk=",
+						mime: "application/vnd.chatui.clipboard",
+						name: "paste",
+					},
+				]),
+			],
+			new ObjectId()
+		);
+		expect(out.files?.[0]?.mountName).toBeUndefined();
+	});
+});
