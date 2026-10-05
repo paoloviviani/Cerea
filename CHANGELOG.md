@@ -4,6 +4,15 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.3.18 — 2026-10-06
+
+Pins: Cerea `0.3.11`, Pystino `0.2.6`, Authelia 4.39.22.
+
+- Cerea 0.3.11: a message retried, edited or resent after a stop keeps its
+  attachments' extracted text. It used to carry the file by reference only, and
+  the model was told no text could be read "and the reason was not recorded"
+  while the text was stored under the earlier message.
+
 ## v0.3.17 — 2026-10-05
 
 Pins: Cerea `0.3.10`, Pystino `0.2.6`, Authelia 4.39.22.
