@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { attachmentResponse } from "./downloadFile";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ObjectId } from "mongodb";
+import { collections, ready } from "$lib/server/database";
+import { attachmentResponse, storedSizes } from "./downloadFile";
 
 /**
  * The download response's hardening headers: `conversation/[id]/output/[sha256]`
@@ -31,5 +33,46 @@ describe("attachmentResponse", () => {
 		});
 		expect(res.headers.get("content-type")).toBe("application/octet-stream");
 		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+	});
+});
+
+describe("storedSizes", () => {
+	const convId = new ObjectId();
+	const other = new ObjectId();
+
+	async function put(conv: ObjectId, hash: string, bytes: Buffer) {
+		const upload = collections.bucket.openUploadStream(`${conv.toString()}-${hash}`, {
+			metadata: { conversation: conv.toString(), mime: "text/plain" },
+		});
+		await new Promise<void>((resolve, reject) => {
+			upload.on("error", reject);
+			upload.on("finish", () => resolve());
+			upload.end(bytes);
+		});
+	}
+
+	beforeAll(async () => {
+		await ready;
+		await put(convId, "h1", Buffer.alloc(1234));
+		await put(other, "h2", Buffer.alloc(9));
+	});
+
+	afterAll(async () => {
+		for (const id of [convId, other]) {
+			for (const file of await collections.bucket
+				.find({ "metadata.conversation": id.toString() })
+				.toArray()) {
+				await collections.bucket.delete(file._id);
+			}
+		}
+	});
+
+	it("reads the stored length without downloading, for this conversation's files only", async () => {
+		const sizes = await storedSizes(["h1", "h2", "missing"], convId);
+		expect([...sizes]).toEqual([["h1", 1234]]);
+	});
+
+	it("answers an empty list without a query", async () => {
+		expect((await storedSizes([], convId)).size).toBe(0);
 	});
 });

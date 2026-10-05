@@ -100,11 +100,34 @@ export function planAttachments(files: readonly AttachmentSource[]): PlannedAtta
 	return plan;
 }
 
-/** Stored file hash → mount name, for the prompt's side of the agreement. */
-export function mountNamesByHash(files: readonly AttachmentSource[]): Map<string, string> {
+/**
+ * Stored file hash → mount name, for the prompt's side of the agreement.
+ *
+ * With `sizes` (stored bytes by hash) it also applies the caps exactly as the
+ * browser's mounter does — files in plan order, a file's text counted after
+ * its original, a refused file not counted — and leaves out every file the
+ * browser will not mount, so the model is never pointed at a path that does
+ * not exist. A file with no known size is left out too: it cannot be fetched.
+ */
+export function mountNamesByHash(
+	files: readonly AttachmentSource[],
+	sizes?: ReadonlyMap<string, number>
+): Map<string, string> {
 	const names = new Map<string, string>();
+	let mounted = 0;
 	for (const planned of planAttachments(files)) {
-		if (planned.file.type === "hash") names.set(planned.file.value, planned.name);
+		if (planned.file.type !== "hash") continue;
+		if (sizes) {
+			const size = sizes.get(planned.file.value);
+			if (size === undefined || checkAttachmentCaps(mounted, size) !== "ok") continue;
+			mounted += size;
+			const textHash = planned.file.extracted?.value;
+			const textSize = textHash ? sizes.get(textHash) : undefined;
+			if (textSize !== undefined && checkAttachmentCaps(mounted, textSize) === "ok") {
+				mounted += textSize;
+			}
+		}
+		names.set(planned.file.value, planned.name);
 	}
 	return names;
 }
