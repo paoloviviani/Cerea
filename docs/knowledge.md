@@ -57,7 +57,34 @@ discovering.
 - Each conversation is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
 
 This is a different thing from [personal memory](chat.md#memory), a short list
-of facts about you that goes into every conversation.
+of facts about you that goes into every conversation, and from the project's
+notes below.
+
+### Project notes
+
+A project also keeps a short **list of notes** that every member shares — a
+convention, a decision and its reason, where something lives — and that goes
+into every conversation **in that project** and nowhere else. It is the
+[personal memory](chat.md#memory) list, moved from a person to a project, and
+it is on whenever the deployment has memory on (`CHAT_MEMORY_ENABLED`); your
+own opt-in for personal memory does not apply, because the notes are not about
+you.
+
+- **Everyone who can see the project can read, add, edit and delete notes**: the
+  owner and everyone it is shared with. That is wider than the project's
+  instructions, which only the owner changes. Each note shows who wrote it, its
+  date and, if the assistant wrote it, the chat it came from.
+- **The assistant can write them too.** In a project chat it is offered
+  `remember_for_project` and `forget_for_project` as well as `remember` and
+  `forget`, and the change shows in the transcript with an undo.
+- **Limits.** A note is at most 2,000 characters and a project keeps 100. The
+  prompt block has a budget of 8,000 characters; past it the **oldest** notes
+  stop being sent, and the Memory section of the project dialog marks which.
+- **Deleting a project deletes its notes.** Erasing a person's account deletes
+  the notes in projects they own, with the project; notes they wrote in other
+  people's projects stay, and show their author as "deleted user".
+- A note is read by everyone in the project and goes into everyone's prompt, so
+  never keep a password, key or token in one.
 
 ## Sharing
 

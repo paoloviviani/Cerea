@@ -44,10 +44,16 @@
 		working = true;
 		failure = null;
 		try {
+			// A project note undoes through the project's own routes; the rest of
+			// this is identical, which is why the card does not fork.
+			const root =
+				update.scope === "project" && update.projectId
+					? `${base}/api/v2/projects/${update.projectId}/memory`
+					: `${base}/api/v2/memory`;
 			const response =
 				update.action === "remembered"
-					? await fetch(`${base}/api/v2/memory/${update.memoryId}`, { method: "DELETE" })
-					: await fetch(`${base}/api/v2/memory`, {
+					? await fetch(`${root}/${update.memoryId}`, { method: "DELETE" })
+					: await fetch(root, {
 							method: "POST",
 							headers: { "Content-Type": "application/json" },
 							body: JSON.stringify({ text: update.text }),

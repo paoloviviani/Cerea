@@ -190,6 +190,14 @@ async function reassignWithRenameOnConflict<T extends Document>(
 	return moved;
 }
 
+async function ownedProjectIds(userId: ObjectId): Promise<ObjectId[]> {
+	const rows = await collections.projects
+		.find({ userId })
+		.project<{ _id: ObjectId }>({ _id: 1 })
+		.toArray();
+	return rows.map((row) => row._id);
+}
+
 async function eraseByField<T extends Document>(
 	collection: Pick<Collection<T>, "deleteMany">,
 	field: string,
@@ -385,6 +393,37 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		ownerField: "userId",
 		merge: (stray, target) => reassignSimple(collections.conversations, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.conversations, "userId", userId),
+	},
+	{
+		name: "projectMemories",
+		owner: "authorUserId (erase: the owning project's userId)",
+		// A merge moves the stray's authorship onto the target. The notes in
+		// projects the stray *owned* need nothing: `projects` reassigns the
+		// project and its notes follow by `projectId`.
+		mergeRule: "reassign",
+		eraseRule: "custom",
+		merge: (stray, target) =>
+			reassignSimple(collections.projectMemories, "authorUserId", stray, target),
+		// Notes in projects this person owns go with the project (user decision
+		// 2). Notes they wrote in projects owned by somebody else are the
+		// project's knowledge by now and stay; the author then reads as "deleted
+		// user" because the account row is gone (see `projectMemoryViews`). That
+		// is why this is not `by-owner` on `authorUserId`, and why it must run
+		// *before* the `projects` entry below deletes the rows it reads.
+		erase: async (userId) => {
+			const owned = await ownedProjectIds(userId);
+			if (owned.length === 0) return 0;
+			const { deletedCount } = await collections.projectMemories.deleteMany({
+				projectId: { $in: owned },
+			});
+			return deletedCount;
+		},
+		count: async (userId) => {
+			const owned = await ownedProjectIds(userId);
+			return owned.length === 0
+				? 0
+				: collections.projectMemories.countDocuments({ projectId: { $in: owned } });
+		},
 	},
 	{
 		name: "projects",

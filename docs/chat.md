@@ -132,7 +132,7 @@ into a store that outlives the conversation.
 
 For memory that scales beyond a list, use a knowledge base
 ([Knowledge and projects](knowledge.md)); a project can also keep its own
-memory.
+memory, and its own shared [notes](knowledge.md#project-notes).
 
 ## Skills
 
