@@ -11,10 +11,17 @@ import type { ExecutionSession } from "./runtime";
  * downloaded in full and then discarded, and never silently truncated.
  */
 
-function overCapError(bytes: number): Error {
-	return new Error(
-		`this file is ${(bytes / (1024 * 1024)).toFixed(1)} MB; the runtime accepts files up to 50 MB`
-	);
+/**
+ * A file over the cap, refused before (or while) it was read. The message
+ * speaks for the runtime's own limit; a caller with a stricter cap says its
+ * own in its own words, from `bytes`.
+ */
+export class OverCapError extends Error {
+	constructor(readonly bytes: number) {
+		super(
+			`this file is ${(bytes / (1024 * 1024)).toFixed(1)} MB; the runtime accepts files up to 50 MB`
+		);
+	}
 }
 
 async function discardBody(response: Response): Promise<void> {
@@ -47,7 +54,7 @@ export async function fetchWithinCap(
 	if (Number.isFinite(declared) && declared > 0) {
 		if (declared > maxBytes) {
 			await discardBody(response);
-			throw overCapError(declared);
+			throw new OverCapError(declared);
 		}
 		return response.arrayBuffer();
 	}
@@ -63,7 +70,7 @@ export async function fetchWithinCap(
 		total += value.byteLength;
 		if (total > maxBytes) {
 			await discardBody(response);
-			throw overCapError(total);
+			throw new OverCapError(total);
 		}
 		chunks.push(value);
 	}

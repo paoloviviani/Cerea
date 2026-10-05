@@ -19,7 +19,8 @@ runs on the deployment, and the files the code opens never leave your browser.
   (`python-docx`, `openpyxl`, `pypdf`, `python-pptx`, `XlsxWriter`).
 - **Ask about your files.** Attach a file, or use a knowledge base, and the
   code can read it (it sees it under `/mnt/data/<filename>`). A knowledge-base
-  document arrives as its indexed text, not the original file.
+  document arrives as its indexed text, not the original file; an attachment
+  arrives as the original, see [Files you attach](#files-you-attach).
 - **Ask for a file back.** "Give me this as an Excel sheet", "make a Word
   report": the file appears under the answer with **Download** and, where the
   type allows, a preview (text, images, PDF, Word). When a file is what you
@@ -28,6 +29,31 @@ runs on the deployment, and the files the code opens never leave your browser.
   listed file is kept with the conversation for 30 days and shows up as an
   [artifact](artifacts.md).
 - **Ask for charts.** See [Charts](#charts) below.
+
+## Files you attach
+
+The first time code runs in a chat conversation, the files attached to its
+messages are put in the sandbox, and any attached later are added before the
+next run. Each one is at `/mnt/data/<its original name>` with its original
+bytes, so `pd.read_excel("/mnt/data/sales.xlsx")` works even when the
+assistant could not read the file's text. When the app extracted text from it
+(a PDF, a Word file), that text is beside it as `<name>.md`. They show as chips
+under the conversation, like knowledge files.
+
+- **When the assistant can run code**, the text it sees for an attachment starts
+  with one line saying where the original is: "The original file is available
+  to code at `/mnt/data/<name>`." Without the code tool the line is left out.
+- **Same name twice** (two `report.pdf`): the second is `report (2).pdf`, and
+  the assistant is told that name.
+- **Size caps**: a file over 20 MB is not mounted, and once 100 MB is mounted
+  the rest are not. A chip says which file was left out and why, and the
+  assistant is not told a path for it.
+- **Not mounted**: page images of scanned PDFs, pasted text, and anything in
+  shared or read-only views or the [code panel](code-panel.md),
+  which has its own machine.
+- **Switching conversations** takes that conversation's files out of the
+  sandbox, so one chat's files are never visible from another. Knowledge files
+  you mounted yourself stay.
 
 ## Charts
 
@@ -71,7 +97,7 @@ version of the same artifact, not a new one.
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Time      | 20 seconds per run. A longer run is stopped and the sandbox restarts; ask for the work in smaller steps, or on a sample of the data |
 | Output    | 8,000 characters per stream (stdout, stderr)                                                                                        |
-| Files     | 50 MB per file loaded into a run                                                                                                    |
+| Files     | 50 MB per file loaded into a run; chat attachments 20 MB each and 100 MB together                                                   |
 | Memory    | the WebAssembly heap; running out raises `MemoryError`                                                                              |
 | Network   | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge                   |
 | First run | loads the runtime (about 12 MB) once; later runs start immediately                                                                  |

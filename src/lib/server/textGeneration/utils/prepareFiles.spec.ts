@@ -1047,3 +1047,39 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		expect(callMessage.tool_calls?.[0]?.id).toBe("u10000000");
 	});
 });
+
+describe("telling the model where an attachment is in the sandbox", () => {
+	const attached = (): EndpointMessage[] => [
+		{
+			from: "user",
+			content: "summarise it",
+			files: [
+				{
+					type: "base64",
+					name: "report.pdf",
+					mime: "text/markdown",
+					value: Buffer.from("# Report").toString("base64"),
+					mountName: "report.pdf",
+				},
+			],
+		},
+	];
+	const textOf = (out: Awaited<ReturnType<typeof prepareMessagesWithFiles>>) =>
+		String(out[0].content);
+
+	it("adds the one line when the code tool is offered", async () => {
+		const out = await prepareMessagesWithFiles(attached(), imageProcessor, false, {
+			codeToolOffered: true,
+		});
+		expect(textOf(out)).toContain(
+			'<document name="report.pdf" type="text/markdown">\nThe original file is available to code at /mnt/data/report.pdf.\n# Report'
+		);
+	});
+
+	it("leaves it out when code is not on offer", async () => {
+		for (const options of [{ codeToolOffered: false }, undefined]) {
+			const out = await prepareMessagesWithFiles(attached(), imageProcessor, false, options);
+			expect(textOf(out)).not.toContain("/mnt/data");
+		}
+	});
+});

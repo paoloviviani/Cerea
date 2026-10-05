@@ -83,6 +83,13 @@ export type MessageFile = {
 	value: string;
 	mime: string;
 	/**
+	 * Set only on the copy of a file handed to the model for one turn
+	 * (`preprocessMessages`), never stored: the name the original is mounted
+	 * under in the code sandbox, so the prompt can say where it is when code is
+	 * on offer. See `utils/execution/attachmentNames.ts`.
+	 */
+	mountName?: string;
+	/**
 	 * For an attached document — a PDF, a `.docx` — the text the gateway's
 	 * extractor read out of it, stored as its own GridFS entry and named here
 	 * by hash.

@@ -1,4 +1,5 @@
 import { untrack } from "svelte";
+import { withAttachmentMounts } from "./attachmentMounts.svelte";
 import { getExecutionSession, type ExecutionSession, type ExecutionStatus } from "./runtime";
 import type { RunOutcome } from "./protocol";
 
@@ -120,8 +121,7 @@ class RunsStore {
 		};
 		this.#runs[key] = state;
 
-		session
-			.run(code)
+		withAttachmentMounts(() => session.run(code))
 			.then((outcome) => {
 				const settled: RunState = {
 					...state,
