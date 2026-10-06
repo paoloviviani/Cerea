@@ -120,7 +120,11 @@ describe("snapshotToUpdates", () => {
 			todos: [],
 		};
 		const updates = snapshotToUpdates(transcript);
-		expect(updates).toContainEqual({ type: MessageUpdateType.Stream, token: "on it", partId: expect.any(String) });
+		expect(updates).toContainEqual({
+			type: MessageUpdateType.Stream,
+			token: "on it",
+			partId: expect.any(String),
+		});
 		const call = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "call");
 		const result = updates.find((u) => u.type === MessageUpdateType.Tool && u.subtype === "result");
 		expect(call).toBeTruthy();
