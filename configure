@@ -1696,9 +1696,6 @@ def cmd_break_glass(args, root: Path) -> int:
     if not env_path.exists():
         print("configure: --break-glass needs an existing .env; run ./configure first", file=sys.stderr)
         return 2
-    if not args.reason or not args.reason.strip():
-        print("configure: --break-glass needs --reason", file=sys.stderr)
-        return 2
     if not args.admin_email:
         print("configure: --break-glass needs --admin-email", file=sys.stderr)
         return 2
@@ -1742,8 +1739,10 @@ def cmd_break_glass(args, root: Path) -> int:
     step = "pystino break-glass"
     bg_cmd = [
         "docker", "compose", "run", "--rm", "--no-deps", "gateway",
-        "pystino", "break-glass", "--email", answers.admin_email, "--reason", args.reason,
+        "pystino", "break-glass", "--email", answers.admin_email,
     ]
+    if args.reason and args.reason.strip():
+        bg_cmd += ["--reason", args.reason.strip()]
     if args.admin_login:
         bg_cmd += ["--login", args.admin_login]
     proc = _run(bg_cmd, timeout=60, cwd=root)
@@ -1870,7 +1869,7 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--admin-password-file", help="bundled Authelia: read the first password from this file "
                    "instead of minting one")
     o.add_argument("--admin-login", help="--break-glass: the recovered account's login (default: from --admin-email)")
-    o.add_argument("--reason", help="--break-glass: why, for the gateway's audit row (required)")
+    o.add_argument("--reason", help="--break-glass: why, for the gateway's audit row (optional)")
     o.add_argument("--oidc-issuer", help="external IdP: the issuer URL")
     o.add_argument("--oidc-internal-base-url", help="external IdP: a URL for it inside the network")
     o.add_argument("--oidc-console-client-id")

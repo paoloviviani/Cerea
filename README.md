@@ -589,6 +589,8 @@ When nobody can administer, or the identity provider itself is gone:
 ./configure --break-glass --admin-email ops@example.org --reason "IdP outage"
 ```
 
+`--reason` is optional; when given, it is stored on the gateway's audit row.
+
 It rewrites `.env` to the bundled Authelia — your external settings are kept
 in the `.env.bak-<timestamp>` file it makes and nowhere else — brings the
 stack up, and grants admin to the account with that email: creating it if it

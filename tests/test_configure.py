@@ -687,14 +687,13 @@ class TestBreakGlass(TestCommands):
         self.assertEqual(code, 2)
         self.assertIn("run ./configure first", err)
 
-    def test_needs_reason_and_admin_email(self):
+    def test_needs_admin_email_but_not_a_reason(self):
         self.configure()
-        code, _, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
-        self.assertEqual(code, 2)
-        self.assertIn("--reason", err)
         code, _, err = self.run_cli("--break-glass", "--reason", "x")
         self.assertEqual(code, 2)
         self.assertIn("--admin-email", err)
+        code, _, err = self.run_cli("--break-glass")
+        self.assertNotIn("--reason", err)
 
     def test_switches_to_bundled_with_a_utc_backup_and_the_right_call_order(self):
         self.configure(

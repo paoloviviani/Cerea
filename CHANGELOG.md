@@ -4,6 +4,19 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.5 — 2026-10-06
+
+Pins: Cerea `0.4.5`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Look:** Inter replaces Roboto in the chat and the console, and every text size
+  is 1px larger (chat text 16px, menus and sidebar 13–15px). Chat replies are
+  denser (line height 1.5) and the reply bubble is slimmer, so a phone line gains
+  about 30px.
+- **Reasons are optional everywhere:** resetting a quota, merging users, the sign-in
+  policy, the redaction engine and break-glass no longer require one. A reason you
+  give is still stored in the audit log. `./configure --break-glass --reason` is
+  optional too.
+
 ## v0.4.4 — 2026-10-06
 
 Pins: Cerea `0.4.4`, Pystino `0.3.1`, Authelia 4.39.22.
