@@ -321,11 +321,11 @@ with httpx.Client(follow_redirects=True, timeout=90) as c:
     )
 
     print("\nmanaging a project from its own row:")
-    # What the `⋯` menu's two items do. Edit opens the overlay on the project,
-    # which is a GET; Delete is this, and it must leave the conversation alone
+    # What the `⋯` menu's two items do. Project settings opens the project's
+    # page, which loads it with a GET; Delete is this, and it must leave the conversation alone
     # — the confirmation promises exactly that.
     detail = c.get(f"{CHAT}/api/v2/projects/{project['id']}")
-    check("Edit can open the project", detail.status_code == 200, str(detail.status_code))
+    check("Project settings can open the project", detail.status_code == 200, str(detail.status_code))
 
     gone = c.delete(f"{CHAT}/api/v2/projects/{project['id']}")
     check("Delete removes it", gone.status_code == 204, str(gone.status_code))

@@ -30,8 +30,9 @@
 	opens, not with the project list — a dozen projects would otherwise be a
 	dozen requests to draw a sidebar nobody expanded.
 
-	**Managing a project happens on its own row**, through the `⋯`: Edit opens
-	that project, Delete removes it. The `+` on the Projects header is the only
+	**Managing a project happens on its own row**, through the `⋯`: Project
+	settings goes to that project's page (`/projects/<id>`), Delete removes it.
+	The `+` on the Projects header goes to `/projects/new` and is the only
 	control there that is not about an existing project. Nothing here opens a
 	list of every project, because the tree already is one.
 
@@ -59,7 +60,6 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import ProjectsManager from "./projects/ProjectsManager.svelte";
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonEdit from "~icons/carbon/edit";
@@ -157,14 +157,6 @@
 		}
 	});
 
-	// ---- the overlay a branch's `+` and its leaves open ---------------------
-
-	let showProjectsModal = $state(false);
-	/** Which project the overlay opens on, and whether it opens to create one. */
-	let projectTarget = $state<string | undefined>(undefined);
-	let projectCreate = $state(false);
-
-	let projectsBranch = $state<ReturnType<typeof ProjectsBranch> | undefined>(undefined);
 	let chatsOpen = $state(true);
 
 	// codeNav.view is "auto" until something picks a side explicitly; while
@@ -222,14 +214,7 @@
 		{/if}
 	{:else}
 		{#if signedIn}
-			<ProjectsBranch
-				bind:this={projectsBranch}
-				onopen={(id) => {
-					projectTarget = id;
-					projectCreate = id === undefined;
-					showProjectsModal = true;
-				}}
-			/>
+			<ProjectsBranch />
 		{/if}
 
 		<TreeBranch label="Chats" badge={loose.length || undefined} bind:open={chatsOpen}>
@@ -320,16 +305,3 @@
 		</div>
 	{/if}
 </div>
-
-{#if showProjectsModal}
-	<ProjectsManager
-		initialId={projectTarget}
-		initialView={projectCreate ? "create" : undefined}
-		onclose={() => {
-			showProjectsModal = false;
-			// The dialog is where a project is created, renamed and shared, so
-			// the tree may be stale by the time it closes.
-			void projectsBranch?.reload();
-		}}
-	/>
-{/if}

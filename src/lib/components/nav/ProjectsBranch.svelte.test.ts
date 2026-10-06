@@ -57,17 +57,16 @@ async function renderBranch(model: string) {
 		host.id = "app";
 		document.body.appendChild(host);
 	}
-	const onopen = vi.fn();
 	const mounted = renderWithApp(
 		ProjectsBranch,
-		{ onopen },
+		{},
 		{
 			page: { params: {}, data: { models: [{ id: model }] } },
 			baseElement: host,
 			...settingsContext(model),
 		}
 	);
-	return { ...mounted, container: host, onopen };
+	return { ...mounted, container: host };
 }
 
 const settingsContext = (activeModel: string) => ({
@@ -150,7 +149,7 @@ const openBranch = async (container: HTMLElement) => {
 describe("ProjectsBranch: starting a chat from the row", () => {
 	it("the + creates the conversation with the project attached and navigates to it", async () => {
 		stubFetch(undefined, undefined);
-		const { container, onopen } = await renderBranch("model-b");
+		const { container } = await renderBranch("model-b");
 		await openBranch(container);
 
 		const plus = find(container, 'button[title="New chat"]');
@@ -161,13 +160,13 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 			{ url: "/conversation", body: { model: "model-b", projectId: project.id } },
 		]);
 		expect(appNavigation().goto).toHaveBeenCalledWith("/conversation/conv-42");
-		// The overlay was never opened: the point of the row's own +.
-		expect(onopen).not.toHaveBeenCalled();
+		// No project page was opened: the point of the row's own +.
+		expect(appNavigation().goto).not.toHaveBeenCalledWith(expect.stringContaining("/projects/"));
 	});
 
-	it("starting from an empty folder works from the row itself, not the overlay", async () => {
+	it("starting from an empty folder works from the row itself, not the project page", async () => {
 		stubFetch(undefined, []);
-		const { container, onopen } = await renderBranch("model-a");
+		const { container } = await renderBranch("model-a");
 		await openBranch(container);
 
 		// opening the folder lists nothing
@@ -185,7 +184,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		expect(posts).toEqual([
 			{ url: "/conversation", body: { model: "model-a", projectId: project.id } },
 		]);
-		expect(onopen).not.toHaveBeenCalled();
+		expect(appNavigation().goto).not.toHaveBeenCalledWith(expect.stringContaining("/projects/"));
 	});
 
 	it("a failed create says why and does not navigate", async () => {
@@ -295,5 +294,35 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 			const el = [...container.querySelectorAll("span")].find((s) => s.textContent === "1");
 			if (!el) throw new Error("no count badge yet");
 		});
+	});
+});
+
+describe("ProjectsBranch: managing a project is a page, not an overlay", () => {
+	it("the header + goes to /projects/new", async () => {
+		stubFetch(undefined, undefined);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+
+		find(container, 'button[title="New project"]').click();
+		await vi.waitFor(() => expect(appNavigation().goto).toHaveBeenCalledWith("/projects/new"));
+	});
+
+	it("the row's menu has one entry, Project settings, which goes to the project's page, beside Delete", async () => {
+		stubFetch(undefined, undefined);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+
+		find(container, 'button[aria-label="Manage Mortgage"]').click();
+		const items = await vi.waitFor(() => {
+			const found = [...document.querySelectorAll("[role='menuitem']")];
+			if (found.length === 0) throw new Error("menu not open yet");
+			return found as HTMLElement[];
+		});
+		expect(items.map((item) => item.textContent?.trim())).toEqual(["Project settings", "Delete"]);
+
+		items[0].click();
+		await vi.waitFor(() =>
+			expect(appNavigation().goto).toHaveBeenCalledWith(`/projects/${project.id}`)
+		);
 	});
 });

@@ -16,7 +16,8 @@ The sidebar has two trees, **Projects** and **Chats**, then a few single
 entries at the foot: **Workspace**, **Settings** and, for administrators,
 **Admin** ([Administering the chat](chat-admin.md)). A conversation keeps
 the model it was started with. Projects group conversations that share
-standing context and knowledge; see [Knowledge and projects](knowledge.md).
+standing context and knowledge; each project has a page of its own, opened from
+its row's `⋯` menu (**Project settings**). See [Knowledge and projects](knowledge.md).
 
 Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,

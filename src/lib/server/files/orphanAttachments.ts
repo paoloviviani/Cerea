@@ -15,6 +15,10 @@
  *   side; only the device can, which is what `deleteCodeDeviceAttachments`
  *   does at revoke and this backstops.
  *
+ * - a **`project:<id>`** key (a project's context documents) whose project
+ *   is gone. Deleting the project removes them; this backstops a delete that
+ *   died halfway.
+ *
  * Anything else is left alone: a tag that is none of these is somebody
  * else's, and a wrong guess deletes it.
  *
@@ -28,6 +32,7 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { parseCodeAttachmentKey } from "$lib/server/codeAttachments";
+import { parseProjectOwnerKey } from "$lib/server/projectDocuments";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
 
 export const ATTACHMENT_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -90,6 +95,19 @@ async function deadTags(tags: string[]): Promise<string[]> {
 	dead.push(
 		...codeKeys.filter((entry) => !liveDevices.has(entry.parts?.deviceId ?? "")).map((e) => e.tag)
 	);
+
+	const projectKeys = tags
+		.map((tag) => ({ tag, id: parseProjectOwnerKey(tag) }))
+		.filter((entry): entry is { tag: string; id: string } => entry.id !== null);
+	const liveProjects = new Set(
+		(
+			await collections.projects
+				.find({ _id: { $in: projectKeys.map((entry) => new ObjectId(entry.id)) } })
+				.project<{ _id: ObjectId }>({ _id: 1 })
+				.toArray()
+		).map((row) => row._id.toString())
+	);
+	dead.push(...projectKeys.filter((entry) => !liveProjects.has(entry.id)).map((e) => e.tag));
 	return dead;
 }
 

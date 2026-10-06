@@ -5,7 +5,7 @@ import superjson from "superjson";
 import { codeReauth, resetCodeReauth, flagCodeReauth } from "$lib/stores/codeReauth.svelte";
 import { codeNav } from "$lib/stores/codeNav.svelte";
 
-// NavMenu mounts ProjectsManager, whose MCP-defaults checklist reads the
+// NavMenu mounts the sidebar tree, whose project rows read the
 // connector stores: those read a deployment name off the environment at
 // module scope, and the bare name is all a test needs (same mock as the
 // ConnectorsSection suite).

@@ -166,27 +166,11 @@ async function* textGenerationWithoutTitle(
 		logger.warn({ err: String(err) }, "[memory] memory context failed; continuing without it");
 	}
 
-	// A project's shared notes, after the personal block and only for a
-	// conversation that belongs to the project (`projectForMemory` also
-	// re-checks that this person is still a member). They are gated by the
-	// deployment flag alone: the person's own opt-in above is about facts
-	// concerning themselves, and these are the project's. Same posture as the
-	// block above — a failure logs and continues.
-	try {
-		const { projectForMemory } = await import("$lib/server/projects");
-		const memberProject = await projectForMemory(conv.projectId, ctx.locals);
-		if (memberProject) {
-			const { projectMemoryContext } = await import("$lib/server/memory/service");
-			const block = await projectMemoryContext(memberProject._id);
-			if (block) preprompt = preprompt ? `${preprompt}\n\n${block}` : block;
-		}
-	} catch (err) {
-		logger.warn({ err: String(err) }, "[memory] project memory failed; continuing without it");
-	}
-
-	// A project's standing context, and whatever its knowledge bases — plus any
-	// bases attached to this conversation from the composer — offer for this
-	// question. Appended to the system prompt rather than mixed into
+	// A project's context, in its five levels (see `projectContext`: instructions,
+	// documents, project memory, then what its knowledge bases and past chats offer
+	// for this question) — plus any bases attached to this conversation from the
+	// composer. The project's shared notes come through here too, after the
+	// personal block above, and on the same member re-check. Appended to the system prompt rather than mixed into
 	// `resolvePreprompt`, and the ordering is the point: the conversation's own
 	// prompt — the user's per-model custom prompt, or the ML Assistant preset —
 	// keeps precedence, and the project adds to it.
