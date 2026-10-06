@@ -211,7 +211,9 @@ describe("a row arriving inside a streaming text part", () => {
 		const text = baseElement.textContent ?? "";
 		// The id is one run of text: no row between its halves.
 		expect(text).toContain("ses_ef2e95805ffe80E5LI9BTLxQJ2");
-		expect(text.indexOf("it will sleep 60s")).toBeLessThan(text.indexOf("Subagent Dummy sleep test"));
+		expect(text.indexOf("it will sleep 60s")).toBeLessThan(
+			text.indexOf("Subagent Dummy sleep test")
+		);
 	});
 
 	it("still gives a later part its own block after the row", () => {

@@ -335,7 +335,12 @@ describe("ToolApprovalCard, a settled subagent row", () => {
 	it("does not overflow a 390px phone: the title gives way, the outcome stays", async () => {
 		const screen = render(
 			ToolApprovalCard,
-			{ conversationId: "a1", request: subagentAsk, resolved, onanswer: async () => ({ ok: true }) },
+			{
+				conversationId: "a1",
+				request: subagentAsk,
+				resolved,
+				onanswer: async () => ({ ok: true }),
+			},
 			{ baseElement: document.body }
 		);
 		const host = screen.container.parentElement as HTMLElement;
