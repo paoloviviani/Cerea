@@ -4,6 +4,14 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.3 — 2026-10-06
+
+Pins: Cerea `0.4.3`, Pystino `0.3.0`, Authelia 4.39.22.
+
+- Cerea 0.4.3: a project chat's title appears in the sidebar as soon as the
+  first answer names it (it used to need a reload); the sidebar shows the
+  pixel mark alone, larger and bolder, a little further from the edge.
+
 ## v0.4.2 — 2026-10-06
 
 Pins: Cerea `0.4.2`, Pystino `0.3.0`, Authelia 4.39.22.
