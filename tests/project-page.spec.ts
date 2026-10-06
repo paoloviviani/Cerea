@@ -10,6 +10,7 @@
  */
 import { test, expect, seedConversation, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
+import type { Page } from "playwright/test";
 
 async function installUserSession(db: Db, sessionId: string): Promise<ObjectId> {
 	const now = new Date();
@@ -150,7 +151,7 @@ test("the project page is two columns on a desktop, with nothing scrolling sidew
 
 /** Every element that scrolls sideways (the page itself included): the overflow
  * the user saw was inside the page's own scroll panel, not the document. */
-async function horizontalOverflow(page: import("@playwright/test").Page): Promise<string[]> {
+async function horizontalOverflow(page: Page): Promise<string[]> {
 	return page.evaluate(() =>
 		[document.documentElement, ...document.querySelectorAll<HTMLElement>("body *")]
 			.filter((el) => {
