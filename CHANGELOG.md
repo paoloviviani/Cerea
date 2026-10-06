@@ -4,6 +4,22 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.4 — 2026-10-06
+
+Pins: Cerea `0.4.4`, Pystino `0.3.1`, Authelia 4.39.22.
+
+- **Quota counters match the spend again** (Pystino 0.3.1). A gateway restart
+  after the first quota rule was created could add the month's ledger total on
+  top of the counter, so the quota showed more than was spent. A rebuild now
+  replaces the counter with the ledger. Console → Quotas → **Quota health**
+  shows counter against ledger per rule, and **Reconcile** corrects an existing
+  gap (press it once after updating if yours differs).
+- **`tools/diagnose`** writes one report (`diagnose-<date>.txt`, secrets,
+  tokens and emails masked) to send when something goes wrong; see "Reporting
+  a problem" in the README.
+- **A final answer after a tool is no longer shown twice** (Cerea 0.4.4): for
+  reasoning models the answer could be appended a second time.
+
 ## v0.4.3 — 2026-10-06
 
 Pins: Cerea `0.4.3`, Pystino `0.3.0`, Authelia 4.39.22.
