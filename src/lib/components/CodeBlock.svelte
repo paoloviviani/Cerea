@@ -365,7 +365,9 @@
 		<details
 			class="mx-5 mb-2 rounded-lg border border-gray-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700/70 dark:text-gray-400"
 		>
-			<summary class="cursor-pointer">
+			<!-- leading-4: the header row is what the folded button cluster centres on;
+			     a line height that follows the text size moves it off-centre. -->
+			<summary class="cursor-pointer leading-4">
 				View code · {generatedFileCount} generated file{generatedFileCount === 1 ? "" : "s"} below
 			</summary>
 			<div class="pt-1">{@render codeFence()}</div>
