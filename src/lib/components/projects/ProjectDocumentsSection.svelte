@@ -54,7 +54,7 @@
 	const percent = $derived(Math.min(100, (used / PROJECT_DOCUMENTS_MAX_CHARS) * 100));
 	const warn = $derived(used > PROJECT_DOCUMENTS_WARN_CHARS);
 
-	async function api<T>(path: string, init?: RequestInit): Promise<T> {
+	async function api<T>(path: string, init?: { method?: string; body?: FormData }): Promise<T> {
 		const response = await fetch(`${base}/api/v2/projects/${projectId}/documents${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;

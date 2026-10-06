@@ -1,5 +1,5 @@
 <!--
-	A project's shared notes, as a section of the project overlay.
+	A project's shared notes, as a section of the project page.
 
 	Everyone who can see the project can read, add, edit and delete here (see
 	`$lib/types/ProjectMemory`), so each note carries its author, the chat it
