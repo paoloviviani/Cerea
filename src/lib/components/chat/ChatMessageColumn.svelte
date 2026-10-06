@@ -204,7 +204,7 @@
 		<!-- @container: descendants (e.g. the per-message router-metadata row) adapt
 		     to the actual column width, which shrinks when the artifact panel is open -->
 		<div
-			class="@container mx-auto flex h-full max-w-3xl flex-col gap-6 px-5 pt-6 sm:gap-8 xl:max-w-4xl xl:pt-10"
+			class="@container mx-auto flex h-full max-w-3xl flex-col gap-6 px-3 pt-6 sm:gap-8 sm:px-5 xl:max-w-4xl xl:pt-10"
 		>
 			{@render head?.()}
 			{#if messages.length > 0}

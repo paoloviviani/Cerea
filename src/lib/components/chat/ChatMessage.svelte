@@ -717,7 +717,7 @@
 	});
 
 	// Tailwind's `prose` resets font-size to 1rem while the app shell uses
-	// `text-smd` (0.94rem); re-applying it here keeps answer text — and every
+	// `text-smd` (1rem); re-applying it here keeps answer text — and every
 	// em-scaled child (code, pre, lists, tables, KaTeX) — in line with the rest
 	// of the UI. Single source for both the streaming and final render branches.
 	const proseClasses =
@@ -758,7 +758,7 @@
 			animating={isLast && loading}
 		/>
 		<div
-			class="relative flex min-w-[60px] flex-col gap-2 rounded-2xl border border-line bg-linear-to-br from-gray-50 px-5 py-3.5 wrap-break-word text-gray-600 dark:from-gray-800/80 dark:text-gray-300 prose-pre:my-2"
+			class="relative flex min-w-[60px] flex-col gap-2 rounded-2xl border border-line bg-linear-to-br from-gray-50 px-3 py-2.5 wrap-break-word text-gray-600 sm:px-4 sm:py-3 dark:from-gray-800/80 dark:text-gray-300 prose-pre:my-2"
 		>
 			{#if message.files?.length}
 				<div class="flex h-fit flex-wrap gap-x-5 gap-y-2">
