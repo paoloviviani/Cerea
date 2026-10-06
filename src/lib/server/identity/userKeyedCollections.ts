@@ -55,6 +55,7 @@ import { collections } from "$lib/server/database";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
 import { conversationSourceRef, deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { deleteAttachmentsByPrefix } from "$lib/server/files/attachmentStore";
+import { deleteProjectDocuments } from "$lib/server/projectDocuments";
 
 export type MergeRuleKind =
 	| "reassign"
@@ -423,6 +424,35 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			return owned.length === 0
 				? 0
 				: collections.projectMemories.countDocuments({ projectId: { $in: owned } });
+		},
+	},
+	{
+		name: "projectDocuments",
+		owner: "addedByUserId (erase: the owning project's userId)",
+		// Authorship moves onto the target, as a note's does. A project the
+		// stray *owned* moves with `projects`, and its documents follow by
+		// `projectId` (the stored files are keyed `project:<id>`, which a merge
+		// never changes).
+		mergeRule: "reassign",
+		eraseRule: "custom",
+		merge: (stray, target) =>
+			reassignSimple(collections.projectDocuments, "addedByUserId", stray, target),
+		// As the notes: documents in projects this person owns go with the
+		// project — rows *and* the stored original and text, which are the part
+		// no collection scan would find — while the ones they added to somebody
+		// else's project are that project's by now and stay, the uploader then
+		// reading "deleted user". Runs before `projects` for the same reason.
+		erase: async (userId) => {
+			const owned = await ownedProjectIds(userId);
+			let count = 0;
+			for (const projectId of owned) count += await deleteProjectDocuments(projectId);
+			return count;
+		},
+		count: async (userId) => {
+			const owned = await ownedProjectIds(userId);
+			return owned.length === 0
+				? 0
+				: collections.projectDocuments.countDocuments({ projectId: { $in: owned } });
 		},
 	},
 	{

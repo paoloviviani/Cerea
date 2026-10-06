@@ -27,6 +27,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	skills: true,
 	memories: true,
 	projectMemories: true, // authored by a user; erased with the owning project
+	projectDocuments: true, // added by a user; erased (rows and stored files) with the owning project
 	vectorStores: true,
 	knowledgeDocuments: true, // indirect: via storeId -> vectorStores.ownerId
 	knowledgeConfig: false,
@@ -731,5 +732,75 @@ describe("projectMemories erasure (notes follow the project, not the author)", (
 		expect(
 			await collections.projectMemories.countDocuments({ projectId: theirs, authorUserId: target })
 		).toBe(1);
+	});
+});
+
+describe("projectDocuments erasure (documents follow the project, not the uploader)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	it("deletes rows and stored files in projects the person owns, keeps what they added elsewhere, and previews it", async () => {
+		const erased = new ObjectId();
+		const other = new ObjectId();
+		const mine = new ObjectId();
+		const theirs = new ObjectId();
+		const now = new Date();
+		await collections.projects.deleteMany({ _id: { $in: [mine, theirs] } });
+		await collections.projectDocuments.deleteMany({ projectId: { $in: [mine, theirs] } });
+		await collections.projects.insertMany([
+			{ _id: mine, userId: erased, name: "Mine", shares: [], createdAt: now, updatedAt: now },
+			{ _id: theirs, userId: other, name: "Theirs", shares: [], createdAt: now, updatedAt: now },
+		] as never);
+		const docs = [
+			{ projectId: mine, by: erased },
+			{ projectId: mine, by: other },
+			{ projectId: theirs, by: erased },
+			{ projectId: theirs, by: other },
+		].map(({ projectId, by }, i) => ({
+			_id: new ObjectId(),
+			projectId,
+			name: `d${i}`,
+			mime: "text/plain",
+			bytes: 1,
+			sha: `sha${i}`,
+			chars: 1,
+			status: "ready" as const,
+			addedByUserId: by,
+			createdAt: now,
+			updatedAt: now,
+		}));
+		await collections.projectDocuments.insertMany(docs);
+		for (const projectId of [mine, theirs]) {
+			const upload = collections.bucket.openUploadStream(`project:${projectId}-x`, {
+				metadata: { conversation: `project:${projectId}`, messageId: "m" },
+			});
+			upload.end(Buffer.from("b"));
+			await new Promise((resolve) => upload.once("finish", resolve));
+		}
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "projectDocuments");
+		if (!entry) throw new Error("projectDocuments is not registered");
+		expect(entry.eraseRule).toBe("custom");
+		expect((await previewErasureCounts(erased, NO_CONVERSATIONS)).projectDocuments).toBe(2);
+
+		expect(await entry.erase(erased, NO_CONVERSATIONS)).toBe(2);
+		const left = await collections.projectDocuments
+			.find({ projectId: { $in: [mine, theirs] } })
+			.toArray();
+		expect(left.map((r) => r.name).sort()).toEqual(["d2", "d3"]);
+		expect(
+			await collections.bucketFiles.countDocuments({ "metadata.conversation": `project:${mine}` })
+		).toBe(0);
+		expect(
+			await collections.bucketFiles.countDocuments({ "metadata.conversation": `project:${theirs}` })
+		).toBe(1);
+
+		const names = USER_KEYED_COLLECTIONS.map((e) => e.name);
+		expect(names.indexOf("projectDocuments")).toBeLessThan(names.indexOf("projects"));
+
+		const target = new ObjectId();
+		expect(await entry.merge(erased, target)).toBe(1);
+		await collections.bucketFiles.deleteMany({ "metadata.conversation": `project:${theirs}` });
 	});
 });

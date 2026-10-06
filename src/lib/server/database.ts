@@ -46,6 +46,7 @@ import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
+import type { ProjectDocument } from "$lib/types/ProjectDocument";
 import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
@@ -296,6 +297,9 @@ export class Database {
 		// every turn in that project's chats; primary for the same reason as
 		// `memories` (see `ProjectMemory`).
 		const projectMemories = db.collection<ProjectMemory>("projectMemories");
+		// The index of a project's context documents; the bytes and the text are
+		// in the bucket under `project:<id>` (see `ProjectDocument`).
+		const projectDocuments = db.collection<ProjectDocument>("projectDocuments");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
@@ -343,6 +347,7 @@ export class Database {
 			skills,
 			memories,
 			projectMemories,
+			projectDocuments,
 			vectorStores,
 			knowledgeDocuments,
 			knowledgeConfig,
@@ -392,6 +397,7 @@ export class Database {
 			skills,
 			memories,
 			projectMemories,
+			projectDocuments,
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
@@ -506,6 +512,11 @@ export class Database {
 		projectMemories
 			.createIndex({ projectId: 1, createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for projectMemories by projectId"));
+		// A project's documents, read whole on every turn in its chats and listed
+		// on its page: both by project, oldest first.
+		projectDocuments
+			.createIndex({ projectId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for projectDocuments by projectId"));
 		// Deployment-scope names are unique across the deployment: two
 		// administrators must not publish two different procedures under one
 		// `@name`. Partial, so the per-owner user rows above are untouched.

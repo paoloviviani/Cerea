@@ -161,6 +161,20 @@ export async function deleteAttachments(ownerKey: string): Promise<number> {
 	return deleteMatching({ "metadata.conversation": ownerKey });
 }
 
+/**
+ * Delete the files one message of an owner key stored — the bytes and the
+ * extracted text both carry the `messageId`. For a surface whose "message" is
+ * a single item it keeps (a project's context document).
+ */
+export async function deleteAttachmentsForMessage(
+	ownerKey: string,
+	messageId: string
+): Promise<number> {
+	assertOwnerKey(ownerKey);
+	assertMessageId(messageId);
+	return deleteMatching({ "metadata.conversation": ownerKey, "metadata.messageId": messageId });
+}
+
 function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
