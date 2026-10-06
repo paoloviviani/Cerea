@@ -276,6 +276,39 @@ body {
 }
 
 /*
+  Chat-density pass. Tailwind's prose is set for long-form articles (line height
+  1.75, paragraphs a line and a quarter apart); in a chat column that reads as
+  air between every line and spreads a short answer over a phone's whole
+  screen. Tighter, still comfortable at the 16px running text.
+*/
+.prose {
+	line-height: 1.5;
+}
+.prose :where(p):not(:where([class~="not-prose"] *)) {
+	margin-top: 0.6em;
+	margin-bottom: 0.6em;
+}
+.prose :where(ul, ol):not(:where([class~="not-prose"] *)) {
+	margin-top: 0.5em;
+	margin-bottom: 0.5em;
+}
+.prose :where(li):not(:where([class~="not-prose"] *)) {
+	margin-top: 0.15em;
+	margin-bottom: 0.15em;
+}
+.prose :where(h1, h2, h3, h4):not(:where([class~="not-prose"] *)) {
+	margin-top: 1em;
+	margin-bottom: 0.35em;
+}
+.prose :where(th, td):not(:where([class~="not-prose"] *)) {
+	padding-top: 0.35em;
+	padding-bottom: 0.35em;
+}
+.prose > :first-child {
+	margin-top: 0;
+}
+
+/*
   The unlayered `.prose` override above would otherwise beat the plugin's layered
   `prose-invert` remap, so restate it here (after the override) at the same level.
   This app only uses the `dark:` variant form, but cover the bare class too.
