@@ -4,6 +4,13 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.2 — 2026-10-06
+
+Pins: Cerea `0.4.2`, Pystino `0.3.0`, Authelia 4.39.22.
+
+- Cerea 0.4.2: the project page is two columns on a desktop and no longer
+  scrolls sideways; the project row's menu says Settings.
+
 ## v0.4.1 — 2026-10-06
 
 Pins: Cerea `0.4.1`, Pystino `0.3.0`, Authelia 4.39.22.
