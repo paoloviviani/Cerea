@@ -11,8 +11,9 @@
 		 * downscales to a grey smear below ~48px and no dilate radius fixes
 		 * both readings at once; the 24x8 pixel grid (the verbatim
 		 * makebead-24x8.png in brand/) is crisp with full pixel coverage at
-		 * every integer scale. The sidebar pairs it with an 18px font whose
-		 * stems are ~2px, so the mark renders at h-4 (16px, a clean 2x).
+		 * every integer scale. The ridge line is two grid cells thick in one
+		 * solid ink (24x9), and the sidebar shows it alone, without the app
+		 * name beside it, at 3x (27px tall).
 		 */
 		variant?: "default" | "small";
 	}
@@ -22,11 +23,11 @@
 	// Bump when any served logo file changes: the assets carry no
 	// Cache-Control, so browsers heuristic-cache them for hours and a swap
 	// otherwise keeps showing the old drawing to returning visitors.
-	const ASSET_VERSION = "7";
+	const ASSET_VERSION = "8";
 
 	const file = $derived(variant === "small" ? "logo-small" : "logo");
-	const w = $derived(variant === "small" ? 48 : 337);
-	const h = $derived(variant === "small" ? 16 : 112);
+	const w = $derived(variant === "small" ? 72 : 337);
+	const h = $derived(variant === "small" ? 27 : 112);
 </script>
 
 <!--

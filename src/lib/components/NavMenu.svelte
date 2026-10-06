@@ -183,8 +183,8 @@
 		class="flex items-center rounded-xl text-lg font-semibold select-none"
 		href="{publicConfig.PUBLIC_ORIGIN}{base}/"
 	>
-		<Logo variant="small" classNames="h-4 w-auto mr-1" />
-		{publicConfig.PUBLIC_APP_NAME}
+		<!-- The mark alone: its alt carries the app name for screen readers. -->
+		<Logo variant="small" classNames="h-[27px] w-auto" />
 	</a>
 	<!-- The switcher's own idiom, carried up top: the same gray pill and chip
 	     the Chats/Agents selector uses, with the same small semibold text and
