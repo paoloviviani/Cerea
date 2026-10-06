@@ -126,6 +126,31 @@ Among them, what identity configuration turns up:
 
 It changes nothing, so it is safe on a running install.
 
+## Reporting a problem
+
+```sh
+tools/diagnose               # writes ./diagnose-<date>.txt (mode 0600)
+tools/diagnose --lines 500   # more log lines per service
+```
+
+One text file to attach to a bug report, collected by reading only: nothing is
+restarted or changed. It holds:
+
+- versions and pins: this repository's commit, the Docker and Compose versions, the pins in `compose.yaml` and the image each service runs;
+- `docker compose ps`, and each service's state, health, restart count, OOM kill and exit code;
+- the last 200 log lines of `chat`, `gateway` and `extractor`;
+- the quota health: every rule's counter against the ledger, from `pystino quota health` in the gateway container. A gateway image too old to have it gets a SQL and `valkey-cli` listing instead;
+- disk usage (`df` and `docker system df`);
+- the keys of `.env`. A value is shown only for versions, presets, profiles and flags (`COMPOSE_PROFILES`, `PYSTINO_PRESET`, `*_VERSION`, `CHAT_*_ENABLED`, and a few more); every other key reads `<redacted>`, or `<empty>` if you left it unset.
+
+**It never includes a secret.** Every line is masked by pattern: email
+addresses, JWTs and bearer tokens, API keys, `password=`/`secret=`/`token=`
+values, cookies, credentials inside URLs, private keys, password digests and
+long opaque strings. Any secret-named value in your `.env` is also removed
+wherever it appears, whatever shape it has. The patterns are the part that can
+miss something nobody has seen yet, so **read the file before you send it**.
+It still holds your hostnames, user ids and what your logs say.
+
 ## Changing the configuration later
 
 - **Re-run `./configure`.** It edits the existing `.env` and never overwrites it. Secrets are kept, your hand edits survive unless the answer they depend on changed, and the previous file is saved as `.env.bak-<time>`.
@@ -694,6 +719,7 @@ needed.
 
 ## Troubleshooting
 
+- Asking for help: run `tools/diagnose` and attach the file it writes (see [Reporting a problem](#reporting-a-problem)).
 - `docker compose logs <service> --tail 50` is the first stop. The `bootstrap` service explains any refusal in one line ("fix .env and run `docker compose up -d` again").
 - `/chat` redirects in a loop, or sign-in never sticks: the origin in `.env` doesn't match the one in the browser, or the host is a single-word name such as `myserver` (the bundled Authelia needs a dotted name or an IP address).
 - `denied` or `manifest unknown` on `docker compose pull`: `.env` names a version or registry that is not published (an old `CEREA_VERSION`/`PYSTINO_VERSION` override, or `*_REGISTRY='local'` left by `dev/build.sh`). Run `dev/build.sh --reset`, or remove those keys.
