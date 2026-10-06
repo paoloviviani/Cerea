@@ -7,7 +7,8 @@
  * editor would be able to redirect every future conversation in it.
  *
  * Deleting a project does **not** delete its conversations, and does not delete
- * its knowledge bases. The conversations keep their `projectId`, pointing at
+ * its knowledge bases (its notes and context documents go with it: they belong to the
+ * project and nothing else lists them). The conversations keep their `projectId`, pointing at
  * nothing, and appear in the ordinary chat list again; the bases are gateway
  * resources with their own owner and their own lifecycle. Cascading either
  * would make "delete this project" a destructive act somebody performs to tidy
@@ -21,6 +22,7 @@ import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
 import { logger } from "$lib/server/logger";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
+import { deleteProjectDocuments } from "$lib/server/projectDocuments";
 import {
 	knowledgeBaseId,
 	projectAccess,
@@ -111,6 +113,9 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	// Its notes are the project's and go with it (they would otherwise be
 	// unreachable rows no screen lists), unlike its chats, which are kept.
 	await collections.projectMemories.deleteMany({ projectId: access.project._id });
+	// Likewise its context documents, rows and stored files — the one thing a
+	// project holds in the bucket (`projectDocuments.ts`).
+	await deleteProjectDocuments(access.project._id);
 	await collections.projects.deleteOne({ _id: access.project._id });
 	return new Response(null, { status: 204 });
 };

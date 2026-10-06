@@ -13,7 +13,7 @@ import {
 } from "./extractDocument";
 
 /** One GridFS entry, resolved when the write has actually landed. */
-async function store(
+export async function store(
 	name: string,
 	bytes: Buffer,
 	metadata: Record<string, string | number>

@@ -131,3 +131,21 @@ export const MEMORY_BLOCK_MAX_CHARS = 1500;
 export const PROJECT_MEMORY_TEXT_MAX_CHARS = 2000;
 export const PROJECT_MEMORY_MAX_NOTES = 100;
 export const PROJECT_MEMORY_BLOCK_MAX_CHARS = 8000;
+
+/**
+ * A project's context documents (`ProjectDocument`): whole files whose
+ * extracted text rides every prompt in that project, like a chat attachment
+ * and unlike a knowledge base, which is searched. Kept beside the memory
+ * limits because they draw on the same unmeasured prompt reserve and must be
+ * read, and tuned, together — but they are character budgets over text that
+ * is sent *in full*, so they are far larger than a note's.
+ *
+ * `MAX_CHARS` is a hard cap on the project's total, enforced at upload;
+ * `WARN_CHARS` is where the page starts saying that every message gets slower
+ * and dearer. `CHARS_PER_TOKEN` is the page's rough conversion, not a tokenizer.
+ */
+export const PROJECT_DOCUMENTS_MAX_CHARS = 100_000;
+export const PROJECT_DOCUMENTS_WARN_CHARS = 50_000;
+export const PROJECT_DOCUMENT_CHARS_PER_TOKEN = 4;
+/** Rows, not characters: a failed document costs no prompt but is still a row on the page. */
+export const PROJECT_DOCUMENTS_MAX_COUNT = 50;

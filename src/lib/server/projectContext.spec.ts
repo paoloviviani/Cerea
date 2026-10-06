@@ -217,3 +217,87 @@ describe("projectContext with conversation-attached bases", () => {
 		});
 	});
 });
+
+describe("projectContext: the five levels, in order", () => {
+	const ownerId = new ObjectId();
+	const projectId = new ObjectId();
+
+	beforeEach(async () => {
+		const { collections } = await import("$lib/server/database");
+		await collections.projects.deleteMany({ _id: projectId });
+		await collections.projectMemories.deleteMany({ projectId });
+		await collections.projectDocuments.deleteMany({ projectId });
+		await collections.bucketFiles.deleteMany({ "metadata.conversation": `project:${projectId}` });
+		const now = new Date();
+		await collections.projects.insertOne({
+			_id: projectId,
+			userId: ownerId,
+			name: "P",
+			instructions: "LEVEL1 instructions.",
+			knowledgeBaseIds: ["b1b1b1b1b1b1b1b1b1b1b1b1"],
+			indexPastChats: true,
+			memoryBaseId: "d1d1d1d1d1d1d1d1d1d1d1d1",
+			retrievalLimit: 6,
+			shares: [],
+			createdAt: now,
+			updatedAt: now,
+		} as never);
+		await collections.projectMemories.insertOne({
+			_id: new ObjectId(),
+			projectId,
+			text: "LEVEL3 a note.",
+			source: "user",
+			authorUserId: ownerId,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const { addProjectDocument } = await import("$lib/server/projectDocuments");
+		await addProjectDocument({
+			projectId,
+			file: new File(["LEVEL2 document body."], "spec.txt", { type: "text/plain" }),
+			userId: ownerId,
+		});
+		searchBaseMock.mockImplementation((baseId: string) =>
+			Promise.resolve({
+				data: [
+					{
+						...hitsForBase(baseId)[0],
+						text: baseId.startsWith("d") ? "LEVEL5 past chat" : "LEVEL4 knowledge",
+					},
+				],
+			})
+		);
+	});
+
+	async function build(user: ObjectId, forProject?: boolean) {
+		const { collections } = await import("$lib/server/database");
+		const project = forProject
+			? ((await collections.projects.findOne({ _id: projectId })) ?? undefined)
+			: undefined;
+		return projectContext({
+			project,
+			question: "q",
+			token,
+			locals: { user: { _id: user } } as unknown as App.Locals,
+		});
+	}
+
+	it("puts instructions, documents, memory, knowledge and past chats in that order", async () => {
+		const context = (await build(ownerId, true)) as string;
+		const at = ["LEVEL1", "LEVEL2", "LEVEL3", "LEVEL4", "LEVEL5"].map((tag) =>
+			context.indexOf(tag)
+		);
+		expect(at.every((index) => index >= 0)).toBe(true);
+		expect(at).toEqual([...at].sort((a, b) => a - b));
+		expect(context).toContain("## spec.txt\nLEVEL2 document body.");
+	});
+
+	it("gives the documents to that project's chats only, and not to a former member", async () => {
+		expect(await build(ownerId, false)).toBeUndefined();
+		// A project's own chat run by somebody who is no longer (or never was) a member.
+		const stranger = (await build(new ObjectId(), true)) as string;
+		expect(stranger).toContain("LEVEL1");
+		expect(stranger).not.toContain("LEVEL2");
+		expect(stranger).not.toContain("LEVEL3");
+	});
+});
