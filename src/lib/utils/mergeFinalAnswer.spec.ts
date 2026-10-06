@@ -69,6 +69,18 @@ describe("mergeFinalAnswerContent — interrupted", () => {
 });
 
 describe("mergeFinalAnswerContent — tools (case A: already streamed)", () => {
+	test("a step break after </think> inside the final text still counts as streamed", () => {
+		const existing = "<think>plan</think>Checking.\n\n<think>done</think>\n\nAnswer.";
+		expect(
+			merge({
+				existing,
+				finalText: "<think>done</think>Answer.",
+				hadTools: true,
+				isInterrupted: false,
+			})
+		).toBe(existing);
+	});
+
 	test("keeps existing when it ends with the final text verbatim", () => {
 		expect(
 			merge({

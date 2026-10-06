@@ -124,6 +124,32 @@ describe("applyUpdateToMessage", () => {
 			expect(m.content).toBe("a story\n\na caption");
 		});
 
+		it("A: a final round opening with reasoning is not stored twice", () => {
+			// Seen live: a reasoning model streams text, calls a tool, then answers
+			// with `<think>…</think>answer`. The step break lands right after
+			// `</think>`, inside the final text, which used to read as new text.
+			const m = message({ content: "" });
+			const c = ctx(m);
+			applyUpdateToMessage(stream("<think>plan</think>Checking."), c);
+			applyUpdateToMessage(toolCall, c);
+			applyUpdateToMessage(stream("<think>done"), c);
+			applyUpdateToMessage(stream("</think>Answer."), c);
+			const streamed = m.content;
+			expect(streamed).toContain("</think>\n\nAnswer.");
+
+			applyUpdateToMessage(
+				{
+					type: MessageUpdateType.FinalAnswer,
+					text: "<think>done</think>Answer.",
+					interrupted: false,
+				},
+				c
+			);
+
+			expect(m.content).toBe(streamed);
+			expect(m.content.match(/Answer\./g)).toHaveLength(1);
+		});
+
 		it("A: a trailing newline on the final text still counts as streamed", () => {
 			// The reported duplication class: streamed text vs final text
 			// differing invisibly (trailing newline, CRLF, NFD accents)
