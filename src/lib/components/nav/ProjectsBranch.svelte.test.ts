@@ -3,6 +3,7 @@ import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWi
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { writable } from "svelte/store";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
+import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
 
 const find = (root: ParentNode, selector: string): HTMLElement => {
 	const el = root.querySelector<HTMLElement>(selector);
@@ -69,9 +70,12 @@ async function renderBranch(model: string) {
 	return { ...mounted, container: host };
 }
 
+let convsStore = newConversationsStore();
+
 const settingsContext = (activeModel: string) => ({
 	context: new Map<string, unknown>([
 		["settings", writable({ activeModel })],
+		[CONVERSATIONS_CONTEXT_KEY, (convsStore = newConversationsStore())],
 		// NavConversationItem asks this store for the live-turn badge. The class
 		// is not exported, but the shape the rows read is just these three.
 		[
@@ -198,6 +202,27 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 			expect(alert).toHaveBeenCalledWith("You have reached the maximum number of conversations.")
 		);
 		expect(appNavigation().goto).not.toHaveBeenCalled();
+	});
+
+	it("a project chat's title arrives live, without a reload", async () => {
+		stubFetch(undefined, [{ ...existingChat, title: "New Chat" }]);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+		const folder = [...container.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("Mortgage")
+		);
+		if (!folder) throw new Error("no folder row for the project");
+		folder.click();
+		const rail = await vi.waitFor(() => {
+			const el = container.querySelector<HTMLElement>(".border-l");
+			if (!el) throw new Error("no project chat guide rail yet");
+			return el;
+		});
+		expect(rail.textContent).toContain("New Chat");
+
+		// What the chat page does when the first generation names the chat.
+		convsStore.update("conv-1", { title: "Mortgage rates compared" });
+		await vi.waitFor(() => expect(rail.textContent).toContain("Mortgage rates compared"));
 	});
 
 	it("a chat's own menu renames it in place", async () => {

@@ -37,6 +37,7 @@ interface ConversationListItem {
 
 class ConversationsStore {
 	#list = $state<ConvSidebar[]>([]);
+	#titles = $state<Record<string, string>>({});
 
 	get list(): ConvSidebar[] {
 		return this.#list;
@@ -52,9 +53,19 @@ class ConversationsStore {
 	 * Silently ignores unknown ids (e.g. race between title update and delete).
 	 */
 	update(id: string, patch: Partial<Omit<ConvSidebar, "id">>): void {
+		// Titles are kept for every id, listed or not: a project's chats are left
+		// out of this list (they live under their project in the sidebar), so the
+		// title a generation gives one must reach the project branch some other
+		// way, or it shows "New Chat" until a reload.
+		if (patch.title !== undefined) this.#titles = { ...this.#titles, [id]: patch.title };
 		const idx = this.#list.findIndex((c) => String(c.id) === id);
 		if (idx === -1) return;
 		this.#list[idx] = { ...this.#list[idx], ...patch };
+	}
+
+	/** The latest title set for each conversation this session, by id. */
+	get titles(): Readonly<Record<string, string>> {
+		return this.#titles;
 	}
 
 	/** Remove a conversation by id (optimistic delete). */
@@ -95,6 +106,11 @@ class ConversationsStore {
 			console.error("[conversationsStore] refresh failed", err);
 		}
 	}
+}
+
+/** A store not registered anywhere: for a test that supplies the context itself. */
+export function newConversationsStore(): ConversationsStore {
+	return new ConversationsStore();
 }
 
 /** Call once in +layout.svelte to create and register the store in context. */

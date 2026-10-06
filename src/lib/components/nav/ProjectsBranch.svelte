@@ -42,6 +42,7 @@
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { projectsRevision } from "$lib/stores/projectsRevision";
+	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { ProjectView } from "$lib/types/Project";
 	import CarbonFolder from "~icons/carbon/folder";
@@ -50,6 +51,8 @@
 
 	const settings = useSettingsStore();
 	const client = useAPIClient();
+	// A chat named by its first generation gets the title here too, live.
+	const convsStore = useConversationsStore();
 
 	interface ProjectConversation {
 		id: string;
@@ -377,7 +380,7 @@
 						{#each chats[project.id] as conversation (conversation.id)}
 							{@const sidebarConv = {
 								id: conversation.id,
-								title: conversation.title,
+								title: convsStore?.titles[conversation.id] ?? conversation.title,
 								model: conversation.model,
 								updatedAt: new Date(conversation.updatedAt),
 							} as ConvSidebar}
