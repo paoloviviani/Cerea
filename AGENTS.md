@@ -282,15 +282,16 @@ Four rules:
   chats load when _its_ folder opens, not with the project list — a dozen
   projects would otherwise be a dozen requests to draw a sidebar nobody
   expanded;
-- **managing a project happens on its own row**, through the `⋯`: Edit opens
-  that project's overlay, Delete removes it after a confirmation that says what
-  is _kept_ (the chats return to the ordinary list; the knowledge bases are
-  gateway resources with their own owner). The `+` on the Projects header is
-  the only control there that is not about an existing project;
-- **nothing opens a list of all projects.** `ProjectsManager` takes
-  `initialId` or `initialView="create"`, and with either it hides its own way
-  back to the list — the tree already is that list, with per-row management.
-  The list view survives only for the `/projects` route;
+- **managing a project happens on its own row**, through the `⋯`: **Project
+  settings** navigates to the project's page (`/projects/<id>`), Delete removes
+  it after a confirmation that says what is _kept_ (the chats return to the
+  ordinary list; the knowledge bases are gateway resources with their own
+  owner). The `+` on the Projects header goes to `/projects/new` and is the only
+  control there that is not about an existing project. There is no overlay and
+  no nested Edit: the page tells the tree to reload through `projectsRevision`;
+- **nothing opens a list of all projects from the sidebar.** The list survives
+  only as the `/projects` route (`ProjectsManager`, now just that list, each card
+  a link to the project's page);
 - **a project's chats live under the project, so Chats leaves them out.** That
   is what `projectId` on `ConvSidebar` is for; without it every project
   conversation appeared in both places.
@@ -328,9 +329,9 @@ the text.
 
 ## The dialog language, and where it comes from
 
-**Projects are overlays; models, MCP servers and knowledge are tabs of the
-workspace page** (`/workspace`), and every manager screen is drawn in the
-shape the MCP dialog gave this app — the design language's reference
+**A project is a page (`/projects/<id>`, `/projects/new`); models, MCP servers
+and knowledge are tabs of the workspace page** (`/workspace`), and every manager
+screen and the project page are drawn in the shape the MCP dialog gave this app — the design language's reference
 implementation is still `src/lib/components/mcp/`. Read
 `MCPServerManager.svelte` and `ServerCard.svelte` before adding a screen.
 
@@ -362,9 +363,9 @@ step away from itself would be the wrong direction.
 
 **Old manager addresses redirect into the workspace.** `/knowledge` and
 `/knowledge/<id>` redirect to `/workspace?tab=kb` (with the `id` carried over),
-because people link to those addresses. `/projects` and `/projects/<id>` still
-render `ProjectsManager` as a page — projects remain overlays, and the list
-view survives only as that page. The one trap that caused — **a page body runs
+because people link to those addresses. `/projects` is the list of projects and
+`/projects/<id>` one project's page (`ProjectPage`; `ProjectsManager` is only
+the list now, and the overlay is gone). The one trap that caused — **a page body runs
 on the server**, so a manager that fetched in its component body answered 502
 with `Failed to parse URL from /chat/api/v2/...`. Every manager loads in
 `onMount`, which the workspace tabs also rely on.
@@ -415,6 +416,50 @@ bite:
 - The memory base is an **ordinary knowledge base**, visible on the Knowledge
   screen and deletable there, named after its project. That is deliberate: the
   transcripts are somewhere a person can look.
+
+### The project page, and what a project puts in a prompt
+
+`components/projects/ProjectPage.svelte` is one scroll of sections, which are the
+**five context levels** in the order `projectContext` (`server/projects.ts`)
+builds the prompt — the one function that assembles project context, and the
+order is part of its contract (`projectContext.spec.ts` asserts it):
+
+1. standing instructions (in full);
+2. context documents (in full);
+3. project memory (in full);
+4. knowledge bases (searched);
+5. past chats (searched).
+
+The page's explainer lists the same five. Levels 2 and 3 re-check that the
+person running the turn can still see the project (`projectForMember`): they are
+what members write into each other's prompts. 4 and 5 share one retrieval
+budget and are rendered as two blocks. Saving: the text fields and options share
+one Save; actions (attach a base, a document, remove a chat) happen at once,
+because unsaved attach state is how a base looks attached when it is not.
+
+**Context documents** (`server/projectDocuments.ts`, `ProjectDocumentsSection`):
+files whose extracted text goes into every prompt of that project. They go
+through the chat's own writer (`writeAttachment`: same sniffing, extractor,
+failure reasons, legacy `.doc`), once, at upload, owner-keyed `project:<id>` in
+GridFS with the row's id as `messageId`; plain text gets an extracted entry of
+its own so every document is read from one place. The budget
+(`PROJECT_DOCUMENTS_MAX_CHARS` 100,000, warning at 50,000, beside the memory
+limits in `types/Memory.ts`) is enforced where the cost is known: a project
+already full refuses _before_ extracting (the extractor bills per page), a file
+that tips it over is extracted, refused and removed, and a re-check after the
+insert closes the race between two uploads. A failed extraction is a `failed`
+row with its reason and contributes nothing. Files only: no `webkitdirectory`,
+and `readDrop` refuses a dropped directory. Everyone who can see the project can
+add and remove (like notes); the row keeps the uploader for display. Project
+delete (`deleteProjectDocuments`), erasure (the `projectDocuments` roster entry,
+which runs before `projects`) and the orphan sweep (`project:<id>` keys with no
+project) all clean up the bucket entries — a `project:` tag the sweep did not
+know would have been left alone for ever.
+
+**Removing a chat from a project** (`DELETE /api/v2/projects/<id>/conversations/<cid>`)
+is exactly what project delete does to each chat: clear `projectId`, then
+`deleteDerived` its transcript from the project's memory base. The chat's author
+or the project's owner may.
 
 ### Attaching a document to a message
 

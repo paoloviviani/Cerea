@@ -1,18 +1,19 @@
 <!--
 	Projects in the tree: a branch of folders, each holding its own chats.
 
-	**Managing one happens on its own row**, through the `⋯` beside it — Edit
-	opens that project, Delete removes it after a confirmation. **Starting a
+	**Managing one happens on its own row**, through the `⋯` beside it — Project
+	settings goes to that project's page, Delete removes it after a confirmation. **Starting a
 	chat in one also happens on its own row**, through the `+` — it creates a
 	conversation with the project attached and goes there, because standing
-	context applies from the conversation itself and the overlay would only be
-	three steps to the same POST. There is no route from here to a list of
-	every project, deliberately: reaching a project's settings by opening an
-	overlay, finding it in a list and clicking it is three steps to do
-	something the row was already pointing at.
+	context applies from the conversation itself and the project page would only
+	be three steps to the same POST. There is no route from here to a list of
+	every project, deliberately: the row already points at the project.
 
 	The `+` on the header line is the one thing that is not about an existing
-	project, so it is the one thing on the header line.
+	project, so it is the one thing on the header line, and it goes to
+	`/projects/new`. The page tells this tree when something changed
+	(`projectsRevision`), so a rename or a removed chat shows up here without a
+	reload.
 
 	Each chat inside a project is the same row the flat Chats list uses —
 	`NavConversationItem` — so it carries the same `⋯`: Rename and Delete,
@@ -40,10 +41,11 @@
 	import NavConversationItem from "../NavConversationItem.svelte";
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings.js";
+	import { projectsRevision } from "$lib/stores/projectsRevision";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { ProjectView } from "$lib/types/Project";
 	import CarbonFolder from "~icons/carbon/folder";
-	import CarbonEdit from "~icons/carbon/edit";
+	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonTrash from "~icons/carbon/trash-can";
 
 	const settings = useSettingsStore();
@@ -56,12 +58,7 @@
 		updatedAt: string;
 	}
 
-	interface Props {
-		/** Opens one project's overlay: an id to edit, nothing to create. */
-		onopen: (id?: string) => void;
-	}
-
-	let { onopen }: Props = $props();
+	const openProject = (id?: string) => goto(`${base}/projects/${id ?? "new"}`);
 
 	let open = $state(false);
 	let projects = $state<ProjectView[]>([]);
@@ -278,12 +275,20 @@
 		}
 	}
 
-	/** Called by the parent after a project's overlay closes. */
-	export async function reload() {
+	/** The project page changed something this tree shows. */
+	async function reload() {
 		if (!loaded && !open) return;
 		chats = {};
 		await loadProjects();
 	}
+
+	let seenRevision = $projectsRevision;
+	$effect(() => {
+		const revision = $projectsRevision;
+		if (revision === seenRevision) return;
+		seenRevision = revision;
+		void reload();
+	});
 </script>
 
 <TreeBranch
@@ -291,7 +296,7 @@
 	badge={loaded && !failed ? projects.length : undefined}
 	{open}
 	onactivate={toggleBranch}
-	onadd={() => onopen()}
+	onadd={() => openProject()}
 	addTitle="New project"
 >
 	{#snippet icon()}
@@ -303,7 +308,7 @@
 	{:else if failed}
 		<TreeLeaf label="Unavailable" depth={1} title="Could not load projects" />
 	{:else if projects.length === 0}
-		<TreeLeaf label="No projects yet" depth={1} onclick={() => onopen()} />
+		<TreeLeaf label="No projects yet" depth={1} onclick={() => openProject()} />
 	{:else}
 		{#each projects as project (project.id)}
 			<TreeBranch
@@ -327,12 +332,12 @@
 								role="menuitem"
 								onclick={() => {
 									close();
-									onopen(project.id);
+									void openProject(project.id);
 								}}
 								class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
 							>
-								<CarbonEdit class="size-3.5" />
-								Edit
+								<CarbonSettings class="size-3.5" />
+								Project settings
 							</button>
 							{#if project.owned}
 								<button
