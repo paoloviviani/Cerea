@@ -337,7 +337,7 @@
 								class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
 							>
 								<CarbonSettings class="size-3.5" />
-								Project settings
+								Settings
 							</button>
 							{#if project.owned}
 								<button

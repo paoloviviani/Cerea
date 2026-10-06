@@ -307,7 +307,7 @@ describe("ProjectsBranch: managing a project is a page, not an overlay", () => {
 		await vi.waitFor(() => expect(appNavigation().goto).toHaveBeenCalledWith("/projects/new"));
 	});
 
-	it("the row's menu has one entry, Project settings, which goes to the project's page, beside Delete", async () => {
+	it("the row's menu has one entry, Settings, which goes to the project's page, beside Delete", async () => {
 		stubFetch(undefined, undefined);
 		const { container } = await renderBranch("model-a");
 		await openBranch(container);
@@ -318,7 +318,7 @@ describe("ProjectsBranch: managing a project is a page, not an overlay", () => {
 			if (found.length === 0) throw new Error("menu not open yet");
 			return found as HTMLElement[];
 		});
-		expect(items.map((item) => item.textContent?.trim())).toEqual(["Project settings", "Delete"]);
+		expect(items.map((item) => item.textContent?.trim())).toEqual(["Settings", "Delete"]);
 
 		items[0].click();
 		await vi.waitFor(() =>

@@ -97,7 +97,11 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	await expect(docs.getByText("call.md")).toBeVisible();
 	await expect(docs.getByText(`${NOTE.length} characters`)).toBeVisible();
 	await expect(docs.getByText(`${NOTE.length} of 100,000 characters`)).toBeVisible();
-	expect(await db.collection("projectDocuments").countDocuments({ name: "call.md" })).toBe(1);
+	expect(
+		await db
+			.collection("projectDocuments")
+			.countDocuments({ name: "call.md", projectId: new ObjectId(projectId) })
+	).toBe(1);
 
 	// A chat, removed from the project and kept.
 	const conversationId = await seedConversation(db, session.sessionId, {
@@ -119,11 +123,41 @@ test("the project page is one column on a phone", async ({ page, db, session }) 
 	await page.setViewportSize({ width: 390, height: 800 });
 	await page.goto(`${E2E_APP_BASE}/projects/new`);
 	await expect(page.getByLabel("Name")).toBeVisible();
-	const overflow = await page.evaluate(
-		() => document.documentElement.scrollWidth - window.innerWidth
-	);
-	expect(overflow).toBeLessThanOrEqual(0);
+	expect(await horizontalOverflow(page)).toEqual([]);
 	const box = await page.getByLabel("Name").boundingBox();
 	expect(box?.width ?? 0).toBeGreaterThan(250);
 	expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
 });
+
+test("the project page is two columns on a desktop, with nothing scrolling sideways", async ({
+	page,
+	db,
+	session,
+}) => {
+	await installUserSession(db, session.sessionId);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(`${E2E_APP_BASE}/projects/new`);
+	await expect(page.getByLabel("Name")).toBeVisible();
+	expect(await horizontalOverflow(page)).toEqual([]);
+	// The name card and the instructions card sit side by side.
+	const name = await page.getByLabel("Name").boundingBox();
+	const instructions = await page.getByLabel("Standing instructions").boundingBox();
+	expect(name && instructions).toBeTruthy();
+	expect(Math.abs((name?.y ?? 0) - (instructions?.y ?? 0))).toBeLessThan(200);
+	expect(instructions?.x ?? 0).toBeGreaterThan((name?.x ?? 0) + (name?.width ?? 0));
+	await page.screenshot({ path: test.info().outputPath("desktop.png"), fullPage: true });
+});
+
+/** Every element that scrolls sideways (the page itself included): the overflow
+ * the user saw was inside the page's own scroll panel, not the document. */
+async function horizontalOverflow(page: import("@playwright/test").Page): Promise<string[]> {
+	return page.evaluate(() =>
+		[document.documentElement, ...document.querySelectorAll<HTMLElement>("body *")]
+			.filter((el) => {
+				const style = getComputedStyle(el);
+				const scrolls = el === document.documentElement || /auto|scroll/.test(style.overflowX);
+				return scrolls && el.scrollWidth > el.clientWidth + 1;
+			})
+			.map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)}`)
+	);
+}

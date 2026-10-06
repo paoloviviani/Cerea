@@ -410,7 +410,7 @@
 	] as const;
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-4 sm:p-6">
 	<header class="flex flex-col gap-1">
 		<a
 			href="{base}/projects"
@@ -429,7 +429,7 @@
 		</p>
 	</header>
 
-	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
+	<div class="scrollbar-custom min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
 		{#if failure}
 			<p class="{s.ERROR} mb-4" role="alert">{failure}</p>
 		{/if}
@@ -444,9 +444,12 @@
 				<a href="{base}/projects" class={s.PRIMARY}>All projects</a>
 			</div>
 		{:else}
-			<form class="{s.STACK} pb-6" onsubmit={save}>
+			<form
+				class="grid grid-cols-1 items-start gap-5 pb-6 lg:grid-cols-2 [&>*]:min-w-0"
+				onsubmit={save}
+			>
 				{#if project}
-					<div class="{s.STRIP} {s.STRIP_ACTIVE}">
+					<div class="{s.STRIP} {s.STRIP_ACTIVE} lg:col-span-2">
 						<div class="flex items-center gap-3">
 							<div class={s.STRIP_TILE}>
 								<LucideFolderOpen class="size-5 text-accent" />
@@ -473,7 +476,7 @@
 					</div>
 				{/if}
 
-				<section class={s.TIPS} aria-labelledby="project-levels">
+				<section class="{s.TIPS} lg:col-span-2" aria-labelledby="project-levels">
 					<h2 id="project-levels" class={s.TIPS_TITLE}>What every chat here is given</h2>
 					<ol class="space-y-1 text-xs text-ink-muted">
 						{#each LEVELS as level, index (level.title)}
@@ -791,7 +794,7 @@
 
 				{#if owned}
 					<div
-						class="sticky bottom-0 -mx-1 flex items-center justify-end gap-3 rounded-lg border border-line bg-surface px-3 py-2"
+						class="sticky bottom-0 flex items-center justify-end gap-3 rounded-lg border border-line bg-surface px-3 py-2 lg:col-span-2"
 					>
 						{#if saved && !dirty}
 							<span class="text-xs text-ok" role="status">Saved</span>
