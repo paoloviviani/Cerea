@@ -153,6 +153,50 @@ export async function projectAccess(
 }
 
 /**
+ * The project of a request, for a route open to everyone who can see it —
+ * 401 without an account, 404 (never 403) for a project that is not theirs, as
+ * `projectAccess` explains. Routes that only the owner may use check `owned`
+ * themselves.
+ */
+export async function requireProjectAccess(
+	locals: App.Locals,
+	id: string | undefined
+): Promise<ProjectAccess & { user: User }> {
+	if (!locals.user) error(401, "Login required");
+	const principals = await viewerPrincipals(locals.user, locals.token);
+	const access = await projectAccess(id as string, locals.user._id, principals);
+	if (!access) error(404, "No such project.");
+	return { ...access, user: locals.user };
+}
+
+/**
+ * The conversation's project, if the person running this turn may still see it.
+ * The re-check behind everything the *members* write into the prompt (project
+ * memory, context documents): reading a project's instructions after a share was
+ * withdrawn is a stale convenience, but sending what other members wrote into a
+ * former member's prompt is not. `undefined` rather than throwing: this is on
+ * the generation path.
+ */
+export async function projectForMember(
+	projectId: ObjectId | undefined,
+	locals: App.Locals | undefined
+): Promise<Project | undefined> {
+	const user = locals?.user;
+	if (!projectId || !user) return undefined;
+	try {
+		const project = await collections.projects.findOne({ _id: projectId });
+		if (!project) return undefined;
+		if (project.userId.equals(user._id)) return project;
+		const principals = await viewerPrincipals(user, locals?.token);
+		const access = await projectAccess(projectId.toString(), user._id, principals);
+		return access?.project;
+	} catch (err) {
+		logger.warn({ err: String(err) }, "project_member_access_degraded: continuing without it");
+		return undefined;
+	}
+}
+
+/**
  * The conversation's project, if its project memory may be used this turn:
  * the deployment flag is on, the conversation belongs to a project, and the
  * person running it is still its owner or someone it is shared with.
@@ -169,21 +213,10 @@ export async function projectForMemory(
 	projectId: ObjectId | undefined,
 	locals: App.Locals | undefined
 ): Promise<Project | undefined> {
-	const user = locals?.user;
-	if (!projectId || !user) return undefined;
+	if (!projectId || !locals?.user) return undefined;
 	const { memoryEnabled } = await import("$lib/server/memoryEnabled");
 	if (!memoryEnabled()) return undefined;
-	try {
-		const project = await collections.projects.findOne({ _id: projectId });
-		if (!project) return undefined;
-		if (project.userId.equals(user._id)) return project;
-		const principals = await viewerPrincipals(user, locals?.token);
-		const access = await projectAccess(projectId.toString(), user._id, principals);
-		return access?.project;
-	} catch (err) {
-		logger.warn({ err: String(err) }, "project_memory_access_degraded: continuing without it");
-		return undefined;
-	}
+	return projectForMember(projectId, locals);
 }
 
 export async function projectView(access: ProjectAccess): Promise<ProjectView> {
@@ -221,16 +254,37 @@ export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 }
 
 /**
- * The system-prompt addition for one turn: a project's instructions, and
- * whatever its knowledge bases — plus any bases attached to the conversation
- * itself — offer for the question being asked.
+ * The system-prompt addition for one turn, built from the **five context
+ * levels** of a project, always in this order:
  *
- * The two sources are **additive**: a conversation's own bases join the
+ * 1. **standing instructions** — in full;
+ * 2. **context documents** — in full, every readable file the members attached;
+ * 3. **project memory** — in full, the members' shared notes;
+ * 4. **knowledge bases** — searched: passages from the project's bases, plus
+ *    any attached to the conversation itself;
+ * 5. **past chats** — searched: passages from the project's own earlier
+ *    conversations, when it indexes them.
+ *
+ * The first three are sent whole on every turn and are paid for on every turn
+ * (which is why documents have a budget); the last two are retrieved for the
+ * question being asked. The order is part of the contract: what the project
+ * *is* first, what its members *wrote down* next, what was *found* last. The
+ * project page's explainer lists the same five, and `projectContext.spec`
+ * asserts the order.
+ *
+ * Levels 2 and 3 are what members write into each other's prompts, so they
+ * re-check that the person running the turn can still see the project
+ * (`projectForMember`); level 1 trusts the conversation's `projectId`, as it
+ * always has. A level that cannot be read logs and is skipped: a worse answer
+ * beats none.
+ *
+ * The two searched levels are **additive**: a conversation's own bases join the
  * project's candidate pool, they never replace it, so a base attached from
  * the composer cannot silently switch off the standing context the
  * conversation's project was built around. They also share one retrieval
  * budget, bounded best-first across every base, for the reason the `retrieve`
- * comment states — the cost of a prompt is the person's own.
+ * comment states — the cost of a prompt is the person's own. The passages are
+ * then rendered as two blocks, knowledge before past chats.
  *
  * `project` may be absent: a conversation attached to no project retrieves
  * from its own bases alone, at the same default limit a project would start
@@ -254,24 +308,49 @@ export async function projectContext(options: {
 }): Promise<string | undefined> {
 	const { project, question, token, locals } = options;
 	const parts: string[] = [];
+
+	// 1. Standing instructions.
 	if (project?.instructions.trim()) parts.push(project.instructions.trim());
+
+	if (project) {
+		// 2. Context documents.
+		try {
+			const { buildProjectDocumentsBlock } = await import("$lib/server/projectDocuments");
+			const member = await projectForMember(project._id, locals);
+			const block = member ? await buildProjectDocumentsBlock(member._id) : undefined;
+			if (block) parts.push(block);
+		} catch (err) {
+			logger.warn({ err: String(err) }, "project_documents_degraded: answering without them");
+		}
+
+		// 3. Project memory (its own deployment flag, and its own try/catch).
+		try {
+			const member = await projectForMemory(project._id, locals);
+			if (member) {
+				const { projectMemoryContext } = await import("$lib/server/memory/service");
+				const block = await projectMemoryContext(member._id);
+				if (block) parts.push(block);
+			}
+		} catch (err) {
+			logger.warn({ err: String(err) }, "[memory] project memory failed; continuing without it");
+		}
+	}
 
 	const conversationBases = options.knowledgeBaseIds ?? [];
 	// The memory base is searched only while the feature is on, so turning it
 	// off stops retrieval without detaching anything a person attached by hand.
 	const bases = [...(project?.knowledgeBaseIds ?? []), ...conversationBases];
-	if (project?.indexPastChats && project.memoryBaseId) bases.push(project.memoryBaseId);
+	const memoryId = project?.indexPastChats ? project.memoryBaseId : undefined;
+	if (memoryId) bases.push(memoryId);
 	// Deduped: a base attached to both the project and the conversation must
 	// not be searched twice — its passages would crowd the budget with copies.
 	const uniqueBases = [...new Set(bases)];
 
-	if (token && uniqueBases.length > 0 && question.trim() && knowledgeEnabled()) {
-		// The caller is the reader: reach checks run against this person, and
-		// the query's embedding is metered to their token. No signed-in user
-		// means nothing to check against and nothing to bill — no retrieval.
-		if (!locals?.user) return parts.length > 0 ? parts.join("\n\n") : undefined;
+	// The caller is the reader: reach checks run against this person, and the
+	// query's embedding is metered to their token. No signed-in user means
+	// nothing to check against and nothing to bill — no retrieval.
+	if (token && uniqueBases.length > 0 && question.trim() && knowledgeEnabled() && locals?.user) {
 		const caller = await callerFrom(locals);
-		const memoryId = project?.indexPastChats ? project.memoryBaseId : undefined;
 		const passages = await retrieve({
 			bases: uniqueBases,
 			question,
@@ -284,10 +363,12 @@ export async function projectContext(options: {
 					? { baseId: memoryId, caller: await memoryCaller(memoryId, project) }
 					: undefined,
 		});
-		if (passages.length > 0) {
-			const rendered = passages
-				.map((hit) => `## ${hit.title || "untitled"}\n${hit.text}`)
-				.join("\n\n");
+		const render = (hits: GatewaySearchHit[]) =>
+			hits.map((hit) => `## ${hit.title || "untitled"}\n${hit.text}`).join("\n\n");
+
+		// 4. Knowledge bases.
+		const fromKnowledge = passages.filter((hit) => hit.baseId !== memoryId);
+		if (fromKnowledge.length > 0) {
 			// The conversation's own bases say "this conversation's knowledge":
 			// with no project there is no project to name, and with both, the
 			// project's bases belong to this conversation anyway.
@@ -296,13 +377,26 @@ export async function projectContext(options: {
 			parts.push(
 				`The following passages come from ${source}. Use them where ` +
 					"they are relevant and say which one you used; ignore them where they are " +
-					`not.\n\n${rendered}`
+					`not.\n\n${render(fromKnowledge)}`
+			);
+		}
+
+		// 5. Past chats.
+		const fromPastChats = passages.filter((hit) => hit.baseId === memoryId);
+		if (fromPastChats.length > 0) {
+			parts.push(
+				"The following passages come from this project's own past conversations. Use them " +
+					"where they are relevant and say which one you used; ignore them where they are " +
+					`not.\n\n${render(fromPastChats)}`
 			);
 		}
 	}
 
 	return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
+
+/** A passage, and the base it came from — the split between levels 4 and 5. */
+type RetrievedPassage = GatewaySearchHit & { baseId: string };
 
 async function retrieve(options: {
 	bases: string[];
@@ -313,9 +407,9 @@ async function retrieve(options: {
 	caller: Caller;
 	/** The project's memory base, read as its owner (see the header). */
 	memory?: { baseId: string; caller: Caller | undefined };
-}): Promise<GatewaySearchHit[]> {
+}): Promise<RetrievedPassage[]> {
 	const { bases, question, limit, token, projectName, caller, memory } = options;
-	const hits: GatewaySearchHit[] = [];
+	const hits: RetrievedPassage[] = [];
 	// The chat's own store, since ADR 0070: an in-process search.
 	for (const baseId of bases) {
 		try {
@@ -325,7 +419,7 @@ async function retrieve(options: {
 				token,
 				{ query: question, max_num_results: limit }
 			);
-			hits.push(...answer.data);
+			hits.push(...answer.data.map((hit) => ({ ...hit, baseId })));
 		} catch (err) {
 			logger.warn(
 				{ err, project: projectName, base: baseId },

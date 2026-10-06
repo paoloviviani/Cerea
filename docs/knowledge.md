@@ -28,20 +28,74 @@ Indexing is billed to the person indexing, like any other call.
 
 ## Projects
 
-A project is a way of organising **conversations**. Everything in it shares:
+A project is a way of organising **conversations**. It has **a page of its
+own**: the sidebar's **Projects** `+` opens `/projects/new` to create one, and a
+project row's `⋯` menu has **Project settings**, which opens `/projects/<id>`
+(and **Delete**). The page is one scroll of sections, each editable where it
+stands; the text fields and options share one **Save changes**, and everything
+that is an action (attaching a base, adding a document, removing a chat) happens
+at once.
 
-- **Instructions**, prepended to the system prompt of every conversation in the
-  project.
-- **Knowledge bases** attached to the project, searched on every turn (up to
-  the project's retrieval limit, six passages by default).
-- **Defaults for new chats**: web search on or off, and which
-  [connectors](connectors.md) start selected; when the project leaves either
-  unset, the app defaults apply.
+### What every chat in a project is given
 
-The sidebar shows a project as a folder of its chats, and its `⋯` menu edits or
-deletes it. **Deleting a project keeps its chats**: they return to your ordinary
-list. The knowledge bases are their own resources with their own owner, so they
-are kept too.
+Five levels, always in this order. The first three are sent **in full on every
+message**; the last two are **searched**, so only what matches your question
+arrives. The page lists them at the top, in this order:
+
+1. **Standing instructions**: prepended to the system prompt of every
+   conversation in the project (in full).
+2. **Context documents**: files you attach to the project (in full; see below).
+3. **Project memory**: the project's shared [notes](#project-notes) (in full).
+4. **Knowledge bases** attached to the project, searched on every turn (up to
+   the project's retrieval limit, six passages by default).
+5. **Past chats**: the project's own earlier conversations, searched, when you
+   turn that on (see [Project memory](#project-memory)).
+
+The page also holds the project's **name and description**, its **chats** (each
+with a link and **Remove from project**), **sharing** and the **defaults for
+new chats**: web search on or off, and which [connectors](connectors.md) start
+selected; when the project leaves either unset, the app defaults apply.
+
+**Knowledge bases can be attached or detached at any time**, not only when the
+project is created: search the list under **Knowledge bases** and press
+**Attach**. To make a base, use the link to the Workspace's Knowledge tab.
+
+**Deleting a project keeps its chats**: they return to your ordinary list. The
+knowledge bases are their own resources with their own owner, so they are kept
+too. The project's notes and context documents belong to it and are deleted
+with it.
+
+**Remove from project** does the same for one chat: the chat returns to your
+ordinary list and its transcript leaves the project's past-chats memory. You can
+remove a chat you started; the project's owner can remove any.
+
+### Context documents
+
+Attach files to a project and the **full extracted text of each goes into every
+message** in that project's chats, like a chat [attachment](chat.md#attachments)
+and unlike a knowledge base. Use them for the few things the assistant should
+always have in front of it: a call text, a style guide, a contract.
+
+- **Files, not folders.** Add individual files (several at once is fine); a
+  dropped folder is refused, because whole documents go into every prompt and a
+  folder is how a project ends up with a thousand of them. Text files (`.txt`,
+  `.md`, `.csv`, `.json`…) and documents (PDF, Word, Excel, PowerPoint,
+  OpenDocument, EPUB), up to 10 MB each.
+- **Read once, at upload**, by the same reader as chat attachments, with the
+  same failure reasons. A file that cannot be read **stays listed with its
+  reason** and adds nothing to the prompt.
+- **A budget of 100,000 characters** of extracted text per project. Each
+  document shows its size in characters and roughly tokens (about four
+  characters to a token), and a bar shows the total. Past **50,000** the page
+  warns that large context makes every message in the project slower and more
+  expensive; an upload that would pass 100,000 is **refused**. A project holds
+  at most 50 documents.
+- **Everyone who can see the project can add and remove documents**, as with
+  notes, and each shows who added it. The text goes into the prompt of that
+  project's chats only, for people who can still see the project.
+- **Deleting** a document removes the stored original and its text. Erasing a
+  person's account deletes the documents in projects they own, with the project;
+  documents they added to other people's projects stay, and show "deleted user".
 
 ### Project memory
 
@@ -79,7 +133,7 @@ you.
   `forget`, and the change shows in the transcript with an undo.
 - **Limits.** A note is at most 2,000 characters and a project keeps 100. The
   prompt block has a budget of 8,000 characters; past it the **oldest** notes
-  stop being sent, and the Memory section of the project dialog marks which.
+  stop being sent, and the Memory section of the project page marks which.
 - **Deleting a project deletes its notes.** Erasing a person's account deletes
   the notes in projects they own, with the project; notes they wrote in other
   people's projects stay, and show their author as "deleted user".
