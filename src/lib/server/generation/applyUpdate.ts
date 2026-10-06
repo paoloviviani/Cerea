@@ -213,11 +213,17 @@ export function applyUpdateToMessage(
 			// the paragraph-break join and the answer is stored twice,
 			// permanently.
 			const trimmedFinalSuffix = normFinal.replace(/\s+$/, "");
+			// The step break this function inserts after a tool lands right after
+			// `</think>` for a reasoning model — inside the final text, not at its
+			// edges — so compare whitespace-free too, or the answer is stored twice.
+			const squash = (text: string): string => text.replace(/\s+/g, "");
+			const squashedFinal = squash(normFinal);
 			const alreadyStreamed =
 				!!finalText &&
 				(normExisting.endsWith(normFinal) ||
 					(trimmedFinalPrefix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalPrefix)) ||
-					(trimmedFinalSuffix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalSuffix)));
+					(trimmedFinalSuffix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalSuffix)) ||
+					(squashedFinal.length > 0 && squash(normExisting).endsWith(squashedFinal)));
 			if (existing && existing.length > 0) {
 				// A. If we already streamed the same final text, keep as-is.
 				if (alreadyStreamed) {

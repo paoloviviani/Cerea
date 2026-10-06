@@ -24,6 +24,11 @@ export function normForCompare(text: string): string {
 	return text.replace(/\r\n/g, "\n").normalize("NFC");
 }
 
+/** Comparison form with every whitespace run removed (see the step-break case). */
+export function squashWhitespace(text: string): string {
+	return text.replace(/\s+/g, "");
+}
+
 /**
  * Content for an assistant message when a FinalAnswer arrives, mirroring the server so
  * every view agrees. Isolated (and unit-tested) because this reconciliation of streamed
@@ -61,11 +66,18 @@ export function mergeFinalAnswerContent({
 		// still count as streamed, or it falls through to the join below
 		// and the answer is stored twice.
 		const trimmedFinalSuffix = normFinal.replace(/\s+$/, "");
+		// Whitespace-free form for the step-break case: after a tool, the server
+		// inserts a paragraph break where the next step's visible text starts,
+		// which for a reasoning model is right after `</think>` — inside the
+		// final text, not at its edges. Without this the final answer reads as
+		// new and is appended a second time.
+		const squashedFinal = squashWhitespace(normFinal);
 		const alreadyStreamed =
 			!!finalText &&
 			(normExisting.endsWith(normFinal) ||
 				(trimmedFinalPrefix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalPrefix)) ||
-				(trimmedFinalSuffix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalSuffix)));
+				(trimmedFinalSuffix.length > 0 && trimmedExistingSuffix.endsWith(trimmedFinalSuffix)) ||
+				(squashedFinal.length > 0 && squashWhitespace(normExisting).endsWith(squashedFinal)));
 
 		if (existing.length > 0) {
 			// A. We already streamed the same final text; keep it.
