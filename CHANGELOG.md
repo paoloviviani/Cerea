@@ -4,6 +4,21 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.1 — 2026-10-06
+
+Pins: Cerea `0.4.1`, Pystino `0.3.0`, Authelia 4.39.22.
+
+- **Projects are a page** (`/projects/<id>`, `/projects/new`) instead of an
+  overlay: the sidebar's ⋯ has Project settings and Delete. On the page:
+  standing instructions, context documents, project memory, knowledge bases
+  (attachable and detachable at any time), the project's chats (each removable
+  from the project), sharing, and every option the overlay had.
+- **Context documents:** files whose text goes into every prompt of the
+  project, in full. Individual files only (no folders), extracted once at
+  upload; 100,000 characters per project, with a warning above 50,000.
+- A project's prompt is built in five levels, in this order: instructions,
+  documents, project memory (in full), knowledge bases, past chats (searched).
+
 ## v0.4.0 — 2026-10-06
 
 Pins: Cerea `0.4.0`, Pystino `0.3.0`, Authelia 4.39.22.
