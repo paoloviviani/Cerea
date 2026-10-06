@@ -1,21 +1,12 @@
 <!--
-	The overlay, as a page.
-
-	This address predates the dialog and people link to it, so it is kept — but
-	what it renders is the same `ProjectsManager` the nav opens. One
-	implementation and one design: a dialog for whoever arrives from the nav and
-	a separate page for whoever arrives from a link is how the two drift apart.
-
-	Closing navigates to the chat, because here the dialog *is* the page and
-	"close" has nowhere else to mean.
+	A project's page. Keyed on the id so moving between projects remounts it,
+	which is what "a fresh page" has always meant here.
 -->
 <script lang="ts">
-	import { base } from "$app/paths";
-	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import ProjectsManager from "$lib/components/projects/ProjectsManager.svelte";
-
-	const id = $derived(page.params.id as string);
+	import ProjectPage from "$lib/components/projects/ProjectPage.svelte";
 </script>
 
-<ProjectsManager initialId={id} onclose={() => goto(`${base}/`)} />
+{#key page.params.id}
+	<ProjectPage id={page.params.id} />
+{/key}
