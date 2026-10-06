@@ -180,7 +180,7 @@
 	class="sticky top-0 flex flex-none touch-none items-center justify-between px-1.5 py-3.5 max-sm:pt-0"
 >
 	<a
-		class="flex items-center rounded-xl text-lg font-semibold select-none"
+		class="flex items-center rounded-xl pl-2.5 text-lg font-semibold select-none"
 		href="{publicConfig.PUBLIC_ORIGIN}{base}/"
 	>
 		<!-- The mark alone: its alt carries the app name for screen readers. -->
