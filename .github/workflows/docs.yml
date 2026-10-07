@@ -1,8 +1,8 @@
 # Publish the documentation site to GitHub Pages.
 #
 # Runs on pushes to main that touch the docs, the site config, or the deploy
-# kit's README (the deploy-kit page includes the sibling cerea-deploy checkout
-# at build time — fetched here read-only, never committed), and on demand.
+# kit's README (the deploy-kit page includes kit/README.md from this
+# repository), and on demand.
 # The build is `--strict`: a broken link or a missing include fails the
 # publish rather than shipping a lying page.
 #
@@ -19,9 +19,7 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       # The kit's own README rides along: deploy-kit.md includes it.
-      # (The cerea-deploy push itself does not trigger this workflow; a
-      # Cerea docs push after a kit README change re-publishes. For an
-      # immediate republish on a kit-only change, run this manually.)
+      - "kit/README.md"
   workflow_dispatch:
 
 permissions:
@@ -48,18 +46,6 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-
-      # The deploy-kit page's --8<-- "cerea-deploy/README.md" include: the
-      # PUBLIC live main of the cerea-deploy repository, fetched here at
-      # build time into the sibling path the snippets base_path expects
-      # ([".", ".."]). Not a pinned checkout: the site renders whatever the
-      # kit's main says today, the same single source of truth the box
-      # build reads. check_paths:true fails the strict build if the include
-      # is missing, so the page cannot silently render without its README.
-      - run: |
-          mkdir -p cerea-deploy
-          curl -fsSL https://raw.githubusercontent.com/paoloviviani/cerea-deploy/main/README.md -o cerea-deploy/README.md
-          test -s cerea-deploy/README.md
 
       # astral-sh/setup-uv installs uv; the pinned set lives in
       # docs/requirements.txt with no Python project file in the repo.

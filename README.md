@@ -40,11 +40,13 @@ greeting that means both _buongiorno_ and _arrivederci_.
 
 Cerea is deployed as part of a full stack: the chat, the Pystino gateway and
 console, a bundled identity provider, a TLS proxy and the add-ons. The
-**cerea-deploy** repository holds all of it: one `compose.yaml`, a documented
-`.env.example`, and a `./configure` script.
+**deploy kit**, the `kit/` directory of this repository, holds all of it: one
+`compose.yaml`, a documented `.env.example`, and a `./configure` script. Its
+installer fetches only that directory:
 
 ```sh
-git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
+curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh | sh
+cd cerea/kit
 ./configure
 docker compose up -d
 ```
@@ -68,7 +70,7 @@ Cerea reads its settings from the environment. The ones that matter most:
 | `FETCH_BACKEND`                                                                               | `direct` (default) or `playwright`, the [headless browser](docs/browser.md) |
 | `CODE_AGENTS_ENABLED`, `CODE_TERMINAL_ENABLED`                                                | the `/code` panel, and its browser terminal                                 |
 
-The deployment's full, commented list is cerea-deploy's `.env.example`; `.env`
+The deployment's full, commented list is the kit's `.env.example`; `.env`
 here lists every variable the app understands.
 
 ## Agents

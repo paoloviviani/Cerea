@@ -24,7 +24,7 @@ binaries and their checksums at `<base>/galopin/`, with an installer at
 
 ## Turning it on
 
-In cerea-deploy: `./configure --agents` at install time, or
+In the deploy kit: `./configure --agents` at install time, or
 `./configure --set CODE_AGENTS_ENABLED=true` on an existing install, then
 `docker compose up -d`.
 
@@ -37,7 +37,7 @@ In cerea-deploy: `./configure --agents` at install time, or
 | `CODE_MACHINE_CLIENT_ID` | the client a machine's token must be issued to; default `opencode-enrollment`                     |
 
 The last three only need setting when machine tokens come from somewhere
-unusual; cerea-deploy's defaults match its bundled Authelia.
+unusual; the deploy kit's defaults match its bundled Authelia.
 
 ## Setting up a machine
 
