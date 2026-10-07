@@ -1,14 +1,27 @@
-# Cheap checks on every push and pull request: no images are pulled or built.
-# (The full bring-up runs in Pystino's release workflow, on tags only.)
-name: check
+# The deploy kit (kit/): cheap checks on every push to main and every pull
+# request that touches it. No images are pulled or built here; the full
+# bring-up is Pystino's `stack` workflow, on Pystino's release tags, and the
+# fresh-kit test in CONTRIBUTING.md "Releasing".
+name: kit
 
 on:
   push:
     branches: [main]
+    paths:
+      - "kit/**"
+      - ".github/workflows/kit.yml"
   pull_request:
+    paths:
+      - "kit/**"
+      - ".github/workflows/kit.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: kit
 
 jobs:
   check:
@@ -17,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.10"}
+        with: { python-version: "3.10" }
       - name: configure's tests (standard library only)
         run: python3 -m unittest discover -s tests -v
       - name: config-rev labels and pins are current
@@ -37,3 +50,7 @@ jobs:
               -e SITE_ADDRESS="${mode%%|*}" -e TLS_DIRECTIVE="${mode#*|}" -e PROXY_DEFAULT=gateway \
               caddy:2.11-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           done
+      - name: get-kit.sh parses and passes shellcheck
+        run: |
+          sh -n get-kit.sh
+          shellcheck get-kit.sh
