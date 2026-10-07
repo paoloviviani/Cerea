@@ -17,6 +17,13 @@ is set, which this deployment never sets.
 Third-party components under other licences
 -------------------------------------------
 
+The deploy kit (kit/) contains no third-party code. It references stock images
+that its users pull from their publishers under their own licences (Authelia
+and Caddy: Apache-2.0; PostgreSQL with pgvector: PostgreSQL Licence; Valkey:
+BSD-3-Clause; MongoDB 4.4: SSPL-1.0, run as Cerea's internal database and not
+offered as a service); kit/README.md lists them, with the tools its optional
+backup sidecar installs.
+
 libvips, as the prebuilt @img/sharp-libvips-* binaries (and the libvips inside
 @img/sharp-win32-* and @img/sharp-wasm32) installed as optional dependencies
 of sharp: LGPL-3.0-or-later. They are loaded dynamically by sharp at runtime

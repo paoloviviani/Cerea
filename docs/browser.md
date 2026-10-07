@@ -12,7 +12,7 @@ the page in a real browser and reads what a person would see.
 
 ## Turning it on
 
-In cerea-deploy, add the `fetch` profile. The `enterprise` preset includes it;
+In the deploy kit, add the `fetch` profile. The `enterprise` preset includes it;
 for another preset run `./configure --set COMPOSE_PROFILES=…,fetch
 FETCH_BACKEND=playwright`, then `docker compose up -d`.
 

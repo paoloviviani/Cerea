@@ -18,11 +18,11 @@ greeting that means both _buongiorno_ and _arrivederci_.
 Cerea is one part of a stack of three repositories, and this site documents
 the chat:
 
-| Part             | What it is                                                                                           |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| **Cerea**        | this repository: the chat, and **galopin**, the agent that runs on a person's own machine (`agent/`) |
-| **Pystino**      | the gateway and its console: every model call, its accounting, quotas, redaction and sign-in         |
-| **cerea-deploy** | the deployment: one `compose.yaml`, a documented `.env.example` and a `./configure` script           |
+| Part               | What it is                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Cerea**          | this repository: the chat, and **galopin**, the agent that runs on a person's own machine (`agent/`)     |
+| **Pystino**        | the gateway and its console: every model call, its accounting, quotas, redaction and sign-in             |
+| **The deploy kit** | the deployment (`kit/` here): one `compose.yaml`, a documented `.env.example` and a `./configure` script |
 
 Each call the chat makes carries the signed-in person's own token, so quotas
 and billing are theirs. Pystino has its own documentation; this site links to it from the

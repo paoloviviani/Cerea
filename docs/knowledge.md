@@ -159,12 +159,12 @@ group (by name).
 
 ## For operators
 
-|                  |                                                                                                                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Switch           | `CHAT_KNOWLEDGE_ENABLED`: on unless set to `false`; `false` hides the Knowledge tab and the project and composer affordances                                                                |
-| Passage store    | PostgreSQL with pgvector, as `CHAT_PG_URL`. cerea-deploy creates this database on the stack's Postgres. Use **pgvector 0.8.2 or later** (0.8.2 fixed CVE-2026-3172 in parallel HNSW builds) |
-| Embeddings       | an embedding model in the gateway's catalogue (`POST /v1/embeddings`), chosen on the Knowledge screen by an administrator                                                                   |
-| Document reading | the gateway's extraction endpoint (`POST /v1/ocr`). The stack's own extractor runs locally, so documents do not leave the deployment unless an operator configures an external OCR model    |
+|                  |                                                                                                                                                                                               |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Switch           | `CHAT_KNOWLEDGE_ENABLED`: on unless set to `false`; `false` hides the Knowledge tab and the project and composer affordances                                                                  |
+| Passage store    | PostgreSQL with pgvector, as `CHAT_PG_URL`. the deploy kit creates this database on the stack's Postgres. Use **pgvector 0.8.2 or later** (0.8.2 fixed CVE-2026-3172 in parallel HNSW builds) |
+| Embeddings       | an embedding model in the gateway's catalogue (`POST /v1/embeddings`), chosen on the Knowledge screen by an administrator                                                                     |
+| Document reading | the gateway's extraction endpoint (`POST /v1/ocr`). The stack's own extractor runs locally, so documents do not leave the deployment unless an operator configures an external OCR model      |
 
 **Which reader takes which file.** The document reader you choose on the
 Knowledge screen (or fix with `CHAT_OCR_MODEL`) is for **PDFs and images**: an
@@ -184,7 +184,7 @@ Changing the reader needs no reason; one sent by an older client is still
 recorded in the change history.
 
 Bases, documents and sharing records live in the chat's MongoDB; passages and
-vectors live in PostgreSQL. Back up both (see cerea-deploy's README). The
+vectors live in PostgreSQL. Back up both (see the [deploy kit](deploy-kit.md) README). The
 variables are on [Configuration](configuration.md).
 
 Limits: there is no reranking step yet; ranking runs in half precision over

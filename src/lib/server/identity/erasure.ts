@@ -6,7 +6,7 @@
  * `pending` `chat_erasures` row, retrying with backoff until the chat
  * confirms. Both endpoints live under `/internal/*` — never reachable from
  * the edge (the routes themselves refuse a proxy header; the Caddyfile's own
- * 404 for that path is cerea-deploy's half).
+ * 404 for that path is the deploy kit's half).
  *
  * **Resolving "the person".** Not just `gatewayUserId == gateway_user_id`:
  * also every unkeyed legacy account the gateway's `identities` names

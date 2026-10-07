@@ -23,10 +23,14 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+      # The deploy kit has its own workflow, kit.yml.
+      - "kit/**"
   pull_request:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+      # The deploy kit has its own workflow, kit.yml.
+      - "kit/**"
   workflow_dispatch:
   schedule:
     - cron: "41 4 * * 1" # Mondays: the client project

@@ -1,0 +1,44 @@
+# Restic backups for this stack: copy to compose.override.yaml (or merge into
+# the one you have), set RESTIC_REPOSITORY and RESTIC_PASSWORD in .env, then
+#   docker compose up -d --build backup
+# See the README, "Backups with restic".
+services:
+  backup:
+    build: ./tools/backup
+    image: cerea-backup:1
+    restart: unless-stopped
+    # RESTIC_*, the backend's credentials (AWS_*, B2_*, AZURE_*, RCLONE_CONFIG_*,
+    # ...) and BACKUP_* are read from .env. The container mounts .env anyway, to
+    # back it up, so this exposes nothing it could not already read.
+    env_file: .env
+    volumes:
+      - ./.env:/stack/.env:ro
+      - authelia-config:/authelia-config:ro
+      - authelia-data:/authelia-data:ro
+      - backup-state:/state              # restic's cache and the last-run state; no secrets
+      # A local repository (RESTIC_REPOSITORY=/repo):
+      #- /srv/backups/cerea:/repo
+      # An rclone.conf instead of RCLONE_CONFIG_* variables (RCLONE_CONFIG=/rclone.conf):
+      #- ./rclone.conf:/rclone.conf:ro
+    tmpfs:
+      - /work:size=${BACKUP_WORK_SIZE:-2g},mode=0700   # the dumps live here, in RAM, for the length of a run
+      - /tmp
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]              # read Authelia's 0600 files, write a repository that is not root's
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chat-mongo:
+        condition: service_healthy
+        required: false                  # only with the chat profile
+    healthcheck:
+      test: ["CMD", "backup-health"]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 30s
+
+volumes:
+  backup-state:
