@@ -27,7 +27,8 @@ Usage: get-kit.sh [options]
 Install the Cerea deploy kit into DIR/kit, or upgrade or migrate one.
 
   --version REF   the release to install: a tag vX.Y.Z, or a branch such as
-                  "stable". Default: the newest vX.Y.Z tag of the repository.
+                  "stable". Default: the release tag the stable branch points
+                  at (the newest vX.Y.Z tag if the repository has no stable).
   --dir PATH      where the checkout goes. Default: ./cerea
                   It must not exist or be empty (unless --upgrade).
   --repo URL      the repository to fetch from. Default:
@@ -131,14 +132,27 @@ absolute() {
 	printf '%s\n' "$p"
 }
 
-# The newest release tag: vX.Y.Z only, so a pre-release or a stray tag is never
-# "latest". ls-remote needs no token and has no rate limit, unlike the API.
+# The release to install by default: the vX.Y.Z tag that the `stable` branch
+# points at. `stable` moves only once a release has passed its checks, so a tag
+# pushed a few minutes earlier is never picked up half-proven. A repository
+# with no `stable` branch (a fork, a test remote) falls back to its newest
+# vX.Y.Z tag. ls-remote needs no token and has no rate limit, unlike the API.
 latest_tag() {
-	tags=$(git ls-remote --tags --refs "$REPO") || die "cannot list the tags of $REPO"
-	best=$(printf '%s\n' "$tags" |
-		sed -n 's#^.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$#\1#p' |
-		sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-	[ -n "$best" ] || die "no release tag vX.Y.Z found in $REPO; name one with --version"
+	refs=$(git ls-remote "$REPO" refs/heads/stable 'refs/tags/v*') || die "cannot list the refs of $REPO"
+	stable=$(printf '%s\n' "$refs" | sed -n 's#^\([0-9a-f]*\)[[:space:]]*refs/heads/stable$#\1#p')
+	if [ -n "$stable" ]; then
+		# An annotated tag's commit is on its peeled `^{}` line; a lightweight
+		# tag's on its own line.
+		best=$(printf '%s\n' "$refs" |
+			sed -n "s#^${stable}[[:space:]]*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\(\^{}\)\{0,1\}\$#\1#p" |
+			sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+		[ -n "$best" ] || die "the stable branch of $REPO is not at a release tag; name one with --version"
+	else
+		best=$(printf '%s\n' "$refs" |
+			sed -n 's#^.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$#\1#p' |
+			sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+		[ -n "$best" ] || die "no release tag vX.Y.Z found in $REPO; name one with --version"
+	fi
 	printf 'v%s\n' "$best"
 }
 
