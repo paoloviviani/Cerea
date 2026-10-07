@@ -6,6 +6,19 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import type { StreamingMode } from "$lib/types/Settings";
 	import Switch from "$lib/components/Switch.svelte";
+	import SwatchGroup from "$lib/components/settings/SwatchGroup.svelte";
+	import {
+		ACCENTS,
+		ACCENT_LABELS,
+		ACCENT_SWATCHES,
+		DEFAULT_ACCENT,
+		DEFAULT_NEUTRAL,
+		NEUTRALS,
+		NEUTRAL_LABELS,
+		NEUTRAL_SWATCHES,
+		parseAccent,
+		parseNeutral,
+	} from "$lib/utils/palettes";
 
 	import { goto } from "$app/navigation";
 	import { error } from "$lib/stores/errors";
@@ -167,6 +180,83 @@
 		</div>
 	{/if}
 	<div class="flex h-full flex-col gap-4 max-sm:pt-0">
+		<section
+			aria-labelledby="appearance-heading"
+			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
+		>
+			<h2
+				id="appearance-heading"
+				class="pt-3 text-[13px] font-semibold text-gray-800 dark:text-gray-200"
+			>
+				Appearance
+			</h2>
+			<div class="divide-y divide-gray-200 dark:divide-gray-700">
+				<div class="flex items-start justify-between py-3">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Theme</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							Choose light, dark, or follow system.
+						</p>
+					</div>
+					<select
+						class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+						value={themePref}
+						onchange={(e) => {
+							const v = e.currentTarget.value as ThemePreference;
+							setTheme(v);
+							themePref = v;
+						}}
+					>
+						<option value="system">System</option>
+						<option value="light">Light</option>
+						<option value="dark">Dark</option>
+					</select>
+				</div>
+
+				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							Accent colour
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							Buttons, links and the selected chat.
+						</p>
+					</div>
+					<SwatchGroup
+						label="Accent colour"
+						value={$settings.accent ?? DEFAULT_ACCENT}
+						options={ACCENTS.map((a) => ({
+							value: a,
+							label: ACCENT_LABELS[a],
+							colour: ACCENT_SWATCHES[a],
+						}))}
+						onchange={(v) => settings.instantSet({ accent: parseAccent(v) })}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							Background tone
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							Cool or warm greys behind the text.
+						</p>
+					</div>
+					<SwatchGroup
+						label="Background tone"
+						value={$settings.neutral ?? DEFAULT_NEUTRAL}
+						options={NEUTRALS.map((n) => ({
+							value: n,
+							label: NEUTRAL_LABELS[n],
+							colour: NEUTRAL_SWATCHES[n],
+						}))}
+						onchange={(v) => settings.instantSet({ neutral: parseNeutral(v) })}
+					/>
+				</div>
+			</div>
+		</section>
+
 		<div
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 		>
@@ -293,29 +383,6 @@
 						disabled={!page.data.pyodidePyPiInstallAllowed}
 						bind:checked={getPyodidePyPiInstallEnabled, setPyodidePyPiInstallEnabled}
 					/>
-				</div>
-
-				<!-- Theme selector -->
-				<div class="flex items-start justify-between py-3">
-					<div>
-						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Theme</div>
-						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Choose light, dark, or follow system.
-						</p>
-					</div>
-					<select
-						class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-						value={themePref}
-						onchange={(e) => {
-							const v = e.currentTarget.value as ThemePreference;
-							setTheme(v);
-							themePref = v;
-						}}
-					>
-						<option value="system">System</option>
-						<option value="light">Light</option>
-						<option value="dark">Dark</option>
-					</select>
 				</div>
 
 				{#if taskModelId}

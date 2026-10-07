@@ -1,5 +1,6 @@
 import { browser } from "$app/environment";
 import { base } from "$app/paths";
+import type { Accent, Neutral } from "$lib/utils/palettes";
 import type { ReasoningEffort, StreamingMode } from "$lib/types/Settings";
 import { getContext, setContext } from "svelte";
 import { type Writable, writable, get } from "svelte/store";
@@ -28,6 +29,8 @@ type SettingsStore = {
 	directPaste: boolean;
 	hapticsEnabled: boolean;
 	billingOrganization?: string;
+	accent?: Accent;
+	neutral?: Neutral;
 };
 
 type SettingsStoreWritable = Writable<SettingsStore> & {

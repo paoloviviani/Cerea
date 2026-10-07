@@ -15,7 +15,7 @@ export const handle: Handle = async (input) => {
 		// During static build, still replace %gaId% placeholder with empty string
 		// to prevent the GA script from loading with an invalid ID
 		return input.resolve(input.event, {
-			transformPageChunk: ({ html }) => html.replace("%gaId%", ""),
+			transformPageChunk: ({ html }) => html.replace("%gaId%", "").replace("%paletteAttrs%", ""),
 		});
 	}
 	return handleRequest(input);

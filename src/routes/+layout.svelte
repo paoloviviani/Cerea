@@ -9,6 +9,7 @@
 
 	import { error } from "$lib/stores/errors";
 	import { createSettingsStore } from "$lib/stores/settings";
+	import { applyPalette } from "$lib/utils/palettes";
 	import { setHapticsEnabled } from "$lib/utils/haptics";
 	import { initWithServers } from "$lib/stores/mcpServers";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
@@ -147,6 +148,12 @@
 
 	$effect(() => {
 		setHapticsEnabled($settings.hapticsEnabled);
+	});
+
+	// The server renders <html> with the saved palette; this keeps it in step
+	// when the person picks another one, so a choice applies without a reload.
+	$effect(() => {
+		applyPalette(document.documentElement, $settings);
 	});
 
 	// The effective PyPI-install flag is the user's own opt-in AND the
