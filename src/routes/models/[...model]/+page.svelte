@@ -52,10 +52,6 @@
 				},
 				body: JSON.stringify({
 					model,
-					preprompt:
-						($settings.customPromptsEnabled?.[modelId] ?? true)
-							? $settings.customPrompts[modelId]
-							: "",
 					// The composer latches the mode before handing the message over, so
 					// the conversation this creates is marked with it from the start.
 					mlAssistant: mlAssistant.taskStarted,

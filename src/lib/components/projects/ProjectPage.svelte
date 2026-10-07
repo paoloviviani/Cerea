@@ -28,6 +28,7 @@
 	page body runs on the server, where a relative fetch has no origin.
 -->
 <script lang="ts">
+	import { modelLabel } from "$lib/utils/customModelEntries";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
@@ -84,7 +85,18 @@
 		)
 	);
 
-	const catalogue = $derived((page.data.models ?? []) as { id: string }[]);
+	const catalogue = $derived(
+		(page.data.models ?? []) as {
+			id: string;
+			displayName?: string;
+			customBase?: { displayName: string };
+		}[]
+	);
+	/** A chat's model as people know it: a custom model reads "name · base". */
+	const modelName = (id: string) => {
+		const model = catalogue.find((entry) => entry.id === id);
+		return model ? modelLabel({ ...model, id }) : id;
+	};
 	const startModel = $derived(
 		catalogue.some((model) => model.id === $settings.activeModel)
 			? $settings.activeModel
@@ -723,7 +735,7 @@
 														>{conversation.title}</span
 													>
 													<span class="text-xs text-ink-muted">
-														{conversation.model}
+														{modelName(conversation.model)}
 														{#if !conversation.mine}· somebody else's{/if}
 													</span>
 												</span>

@@ -1,6 +1,7 @@
 import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
+import { baseModelIdFor, conversationOwnerFilter } from "$lib/server/customModels";
 import { logger } from "$lib/server/logger";
 import {
 	getShareThumbnailPng,
@@ -56,7 +57,9 @@ export async function POST({ params, locals }) {
 		rootMessageId: conversation.rootMessageId,
 		messages: conversation.messages,
 		title: conversation.title,
-		model: conversation.model,
+		// The base, never a custom id: the importer has no such model, and the
+		// link must not name one person's private variant.
+		model: await baseModelIdFor(conversation.model, conversationOwnerFilter(conversation)),
 		preprompt: conversation.preprompt,
 		conversationId: conversation._id,
 		// ADR 0093: who this link belongs to, for the merge/erasure registry

@@ -26,8 +26,6 @@ const MODEL = {
 function settingsContext() {
 	const store = writable({
 		activeModel: "test/model",
-		customPrompts: {},
-		customPromptsEnabled: {},
 		multimodalOverrides: {},
 		toolsOverrides: {},
 		artifactsOverrides: {},

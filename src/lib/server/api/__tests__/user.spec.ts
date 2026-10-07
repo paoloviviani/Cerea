@@ -92,7 +92,6 @@ describe("GET /api/v2/user/settings", () => {
 			streamingMode: "smooth",
 			directPaste: false,
 			shareConversationsWithModelAuthors: true,
-			customPrompts: {},
 			multimodalOverrides: {},
 			toolsOverrides: {},
 			providerOverrides: {},
@@ -109,7 +108,9 @@ describe("GET /api/v2/user/settings", () => {
 			streamingMode: "raw",
 			directPaste: true,
 			hapticsEnabled: true,
+			// Retired per-model prompts still sitting in an old document.
 			customPrompts: { "my-model": "Be helpful" },
+			globalSystemPrompt: "Answer in Italian.",
 			multimodalOverrides: {},
 			toolsOverrides: {},
 			hidePromptExamples: {},
@@ -117,7 +118,7 @@ describe("GET /api/v2/user/settings", () => {
 			welcomeModalSeenAt: new Date("2024-01-01"),
 			createdAt: new Date(),
 			updatedAt: new Date(),
-		});
+		} as never);
 
 		const res = await testRequest(settingsGET, { path: "/api/v2/user/settings", locals });
 		const data = await parseResponse<Record<string, unknown>>(res);
@@ -127,8 +128,11 @@ describe("GET /api/v2/user/settings", () => {
 			shareConversationsWithModelAuthors: false,
 			streamingMode: "raw",
 			directPaste: true,
-			customPrompts: { "my-model": "Be helpful" },
+			globalSystemPrompt: "Answer in Italian.",
 		});
+		// The retired per-model prompts are never sent back, even when stored.
+		expect(data).not.toHaveProperty("customPrompts");
+		expect(data).not.toHaveProperty("customPromptsEnabled");
 	});
 
 	it("maps legacy stored streamingMode=final to smooth", async () => {
@@ -263,7 +267,31 @@ describe("POST /api/v2/user/settings", () => {
 		expect(stored?.shareConversationsWithModelAuthors).toBe(true);
 		expect(stored?.streamingMode).toBe("smooth");
 		expect(stored?.directPaste).toBe(false);
-		expect(stored?.customPrompts).toEqual({});
+		expect(stored).not.toHaveProperty("customPrompts");
+	});
+
+	it("saves the global system prompt, and ignores an old client's per-model prompts", async () => {
+		const { user, locals } = await createTestUser();
+
+		const res = await testRequest(settingsPOST, {
+			path: "/api/v2/user/settings",
+			locals,
+			...jsonBody({
+				globalSystemPrompt: "Always be brief.",
+				// What a client from before the removal still sends.
+				customPrompts: { "some-model": "Pretend to be a pirate." },
+				customPromptsEnabled: { "some-model": true },
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const stored = (await collections.settings.findOne({ userId: user._id })) as Record<
+			string,
+			unknown
+		> | null;
+		expect(stored?.globalSystemPrompt).toBe("Always be brief.");
+		expect(stored).not.toHaveProperty("customPrompts");
+		expect(stored).not.toHaveProperty("customPromptsEnabled");
 	});
 });
 

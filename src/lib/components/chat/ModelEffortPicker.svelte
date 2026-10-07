@@ -120,7 +120,18 @@
 					onSelect={() => pick(row.id)}
 				>
 					<span class="min-w-0 flex-1">
-						<span class="block truncate">{row.name}</span>
+						<span class="flex items-center gap-1.5">
+							<span class="truncate"
+								>{row.name}{#if row.baseName}
+									<span class="text-gray-500 dark:text-gray-400"> · {row.baseName}</span>{/if}</span
+							>
+							{#if row.baseName}
+								<span
+									class="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-px text-[10px] font-medium text-blue-700 dark:text-blue-400"
+									>custom</span
+								>
+							{/if}
+						</span>
 						{#if row.description}
 							<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
 								>{row.description}</span

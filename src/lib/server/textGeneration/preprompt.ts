@@ -13,6 +13,10 @@ import { formatMicroUsd, remainingMicroUsd } from "$lib/utils/mlBudget";
 export interface PrepromptInput {
 	/** The conversation's stored system prompt. */
 	conversationPreprompt?: string;
+	/** The person's global system prompt (settings); every chat turn. */
+	globalPrompt?: string;
+	/** The prompt of the custom model the conversation is on, if any. */
+	customModelPrompt?: string;
 	/** Whether this conversation runs the ML Assistant preset. */
 	mlAssistant: boolean;
 	/** Per-model user override for artifacts, from the model settings page. */
@@ -47,6 +51,28 @@ export interface PrepromptInput {
 }
 
 /**
+ * The person's own instructions for a chat turn, in the one order they apply:
+ * their global prompt, then the custom model's prompt, then the conversation's
+ * stored prompt (the deployment model's default, or an imported share's).
+ * Empty and whitespace-only parts are skipped, so an unset global prompt leaves
+ * no stray blank lines. Everything `resolvePreprompt` adds after this (the
+ * artifacts and execution contracts, skills) and everything the turn appends
+ * after it (memory, then the project's context) reads below these.
+ *
+ * The one function that composes them: a caller never joins prompts itself.
+ */
+export function composeUserPrompt({
+	globalPrompt,
+	customModelPrompt,
+	conversationPreprompt,
+}: Pick<PrepromptInput, "globalPrompt" | "customModelPrompt" | "conversationPreprompt">): string {
+	return [globalPrompt, customModelPrompt, conversationPreprompt]
+		.map((part) => part?.trim())
+		.filter((part): part is string => Boolean(part))
+		.join("\n\n");
+}
+
+/**
  * The system prompt for one generation.
  *
  * Artifacts are unchanged by the preset outside tool mode: outside it they
@@ -59,6 +85,8 @@ export interface PrepromptInput {
  */
 export function resolvePreprompt({
 	conversationPreprompt,
+	globalPrompt,
+	customModelPrompt,
 	mlAssistant,
 	artifactsOverride,
 	supportsArtifacts,
@@ -71,7 +99,11 @@ export function resolvePreprompt({
 	budget,
 	skillsPreprompt,
 }: PrepromptInput): string | undefined {
-	const base = mlAssistant ? ML_ASSISTANT_PREPROMPT : conversationPreprompt;
+	// The ML Assistant preset supplies the whole system prompt, so neither the
+	// global prompt nor a custom model's reaches it.
+	const base = mlAssistant
+		? ML_ASSISTANT_PREPROMPT
+		: composeUserPrompt({ globalPrompt, customModelPrompt, conversationPreprompt });
 	const toolsEnabled = mlAssistant
 		? (supportsTools ?? false)
 		: (forceTools ?? supportsTools ?? false);

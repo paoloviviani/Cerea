@@ -6,6 +6,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
+import { conversationOwnerFilter, isSelectableModel } from "$lib/server/customModels";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
 import { knowledgeBaseViews, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
 import { setMlBudgetTotal } from "$lib/server/mlBudget/budget";
@@ -150,7 +151,14 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		}
 	}
 
-	if (model !== undefined && !validModelIdSchema.safeParse(model).success) {
+	if (
+		model !== undefined &&
+		!(await isSelectableModel(
+			model,
+			conversationOwnerFilter({ userId: locals.user?._id, sessionId: locals.sessionId }),
+			(id) => validModelIdSchema.safeParse(id).success
+		))
+	) {
 		error(400, "Invalid model ID");
 	}
 
