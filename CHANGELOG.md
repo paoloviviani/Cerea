@@ -4,6 +4,13 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.6 — 2026-10-07
+
+Pins: Cerea `0.4.6`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- Cerea 0.4.6: your messages are right-aligned in a light blue bubble (deep navy in
+  dark mode), so your turns and the replies are easy to tell apart when scrolling.
+
 ## v0.4.5 — 2026-10-06
 
 Pins: Cerea `0.4.5`, Pystino `0.3.2`, Authelia 4.39.22.
