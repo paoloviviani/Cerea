@@ -33,6 +33,7 @@ interface ConversationListItem {
 	updatedAt: Date | string;
 	model?: string;
 	mlAssistant?: boolean;
+	projectId?: string;
 }
 
 class ConversationsStore {
@@ -99,6 +100,9 @@ class ConversationsStore {
 				model: conv.model ?? defaultModel,
 				updatedAt: new Date(conv.updatedAt),
 				mlAssistant: conv.mlAssistant ?? false,
+				// Without it the Chats branch, which leaves project chats out by
+				// this field, listed every project chat until a full reload.
+				...(conv.projectId ? { projectId: conv.projectId } : {}),
 			}));
 			this.#list = freshList;
 		} catch (err) {
