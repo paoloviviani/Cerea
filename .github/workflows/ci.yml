@@ -11,8 +11,8 @@
 #   - the client project (a real Chromium in the Playwright image, the
 #     costliest suite) runs weekly and on demand, not on every PR.
 # Image builds are images.yml (main and tags); the gateway contract is
-# contract.yml; galopin's real-opencode IT against opencode's latest release
-# is opencode-latest.yml (weekly, non-blocking).
+# contract.yml; galopin's real-opencode suite, on the pinned opencode and on its
+# newest release, is opencode.yml.
 name: ci
 
 on:

@@ -250,9 +250,7 @@ describe("AgentView permission selector", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("permission-mode-note"))
-			.toHaveTextContent(
-				"Allow · bash asks (machine limit) · new subagents ask on their first turn"
-			);
+			.toHaveTextContent("Allow · bash asks (machine limit)");
 	});
 
 	it("is disabled on a subagent's view, saying it follows the main session", async () => {
