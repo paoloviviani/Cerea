@@ -4,6 +4,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import superjson from "superjson";
 import { codeReauth, resetCodeReauth, flagCodeReauth } from "$lib/stores/codeReauth.svelte";
 import { codeNav } from "$lib/stores/codeNav.svelte";
+import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 
 // NavMenu mounts the sidebar tree, whose project rows read the
 // connector stores: those read a deployment name off the environment at
@@ -85,6 +86,92 @@ describe("NavMenu's foot", () => {
 		const form = host.querySelector('form[action="/logout"]');
 		expect(form).not.toBeNull();
 		expect(form?.getAttribute("method")).toBe("POST");
+	});
+});
+
+/**
+ * Projects and Chats are pages as well as folders: the label opens the page
+ * (the list of projects, the searchable list of chats) and only the chevron
+ * expands or collapses the branch.
+ */
+describe("NavMenu's Chats header", () => {
+	let host: HTMLElement;
+
+	beforeEach(() => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({ conversations: [] }))
+		);
+		host = document.createElement("div");
+		host.id = "app";
+		document.body.appendChild(host);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		host.remove();
+	});
+
+	const chat = {
+		id: "c1",
+		title: "Plan the offsite",
+		updatedAt: new Date(),
+		model: "m",
+	};
+
+	function mount() {
+		return renderWithApp(
+			NavMenu,
+			{ conversations: [chat], user: { username: "ada" }, gatewayIsAdmin: false } as never,
+			{
+				page: { data: { models: [] } },
+				baseElement: host,
+				// A conversation row asks this store for its live-turn badge.
+				context: new Map<unknown, unknown>([
+					[ACTIVE_GENERATIONS_CONTEXT_KEY, { has: () => false, statusFor: () => undefined }],
+				]),
+			}
+		);
+	}
+
+	it("the label links to /chats and following it leaves the branch open", () => {
+		mount();
+
+		const link = host.querySelector('a[href="/chats"]') as HTMLAnchorElement;
+		expect(link.textContent?.trim()).toBe("Chats");
+		let followed = false;
+		link.addEventListener("click", (event) => {
+			followed = !event.defaultPrevented;
+			event.preventDefault();
+		});
+		link.click();
+
+		expect(followed).toBe(true);
+		expect(host.textContent).toContain("Plan the offsite");
+		expect(host.querySelector('button[aria-label="Collapse Chats"]')).not.toBeNull();
+	});
+
+	it("the chevron alone collapses and expands the list", async () => {
+		mount();
+		expect(host.textContent).toContain("Plan the offsite");
+
+		(host.querySelector('button[aria-label="Collapse Chats"]') as HTMLElement).click();
+		await vi.waitFor(() => expect(host.textContent).not.toContain("Plan the offsite"));
+		const expand = host.querySelector('button[aria-label="Expand Chats"]') as HTMLElement;
+		expect(expand.getAttribute("aria-expanded")).toBe("false");
+
+		expand.click();
+		await vi.waitFor(() => expect(host.textContent).toContain("Plan the offsite"));
+		expect(host.querySelector('button[aria-label="Collapse Chats"]')).not.toBeNull();
+	});
+
+	it("both headers are links with a chevron of their own, each a link and a button of its own", () => {
+		mount();
+
+		expect(host.querySelector('a[href="/projects"]')).not.toBeNull();
+		expect(host.querySelector('button[aria-label="Expand Projects"]')).not.toBeNull();
+		expect(host.querySelector('a[href="/chats"]')).not.toBeNull();
+		expect(host.querySelector('button[aria-label="Collapse Chats"]')).not.toBeNull();
 	});
 });
 

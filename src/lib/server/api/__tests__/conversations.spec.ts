@@ -172,6 +172,172 @@ describe.sequential("GET /api/v2/conversations", () => {
 	});
 });
 
+describe.sequential("GET /api/v2/conversations?q= (title search)", () => {
+	afterEach(async () => {
+		await cleanupTestData();
+	});
+
+	type Listed = { conversations: Array<{ title: string; projectId?: string }>; hasMore: boolean };
+	const search = async (locals: App.Locals, q: string, extra: Record<string, string> = {}) =>
+		parseResponse<Listed>(
+			await testRequest(GET, { path: conversationsPath({ q, ...extra }), locals })
+		);
+	const titles = (listed: Listed) => listed.conversations.map((c) => c.title);
+
+	it("returns the titles that contain the query, newest first", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, {
+			title: "Mortgage rates",
+			updatedAt: new Date("2024-01-01"),
+		});
+		await createTestConversation(locals, {
+			title: "Fix my mortgage spreadsheet",
+			updatedAt: new Date("2024-05-01"),
+		});
+		await createTestConversation(locals, {
+			title: "Pasta recipe",
+			updatedAt: new Date("2024-06-01"),
+		});
+
+		expect(titles(await search(locals, "mortgage"))).toEqual([
+			"Fix my mortgage spreadsheet",
+			"Mortgage rates",
+		]);
+	});
+
+	it("returns nothing when no title matches", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, { title: "Pasta recipe" });
+
+		const listed = await search(locals, "mortgage");
+		expect(listed.conversations).toEqual([]);
+		expect(listed.hasMore).toBe(false);
+	});
+
+	it("treats an empty or blank query as no filter", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, { title: "One" });
+		await createTestConversation(locals, { title: "Two" });
+
+		expect(await search(locals, "")).toMatchObject({ conversations: [{}, {}] });
+		expect((await search(locals, "   ")).conversations).toHaveLength(2);
+	});
+
+	it("takes regex characters literally", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, { title: "Why c++ templates (again)?" });
+		await createTestConversation(locals, { title: "Plain C talk" });
+		await createTestConversation(locals, { title: "price $5 [draft] a.b" });
+		await createTestConversation(locals, { title: "axb" });
+
+		expect(titles(await search(locals, "c++"))).toEqual(["Why c++ templates (again)?"]);
+		expect(titles(await search(locals, "(again)?"))).toEqual(["Why c++ templates (again)?"]);
+		expect(titles(await search(locals, "[draft]"))).toEqual(["price $5 [draft] a.b"]);
+		// An unescaped `.` would also match "axb".
+		expect(titles(await search(locals, "a.b"))).toEqual(["price $5 [draft] a.b"]);
+		// `.*` is two characters, not "anything".
+		expect((await search(locals, ".*")).conversations).toEqual([]);
+		// A pattern that is invalid as a regex is just text.
+		expect((await search(locals, "(((")).conversations).toEqual([]);
+	});
+
+	it("ignores case and accents, in either direction", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, { title: "Café Müller à Zürich" });
+		await createTestConversation(locals, { title: "Cafe Muller" });
+		await createTestConversation(locals, { title: "ÉCOLE normale" });
+		// A title stored decomposed: "e" then U+0301.
+		await createTestConversation(locals, { title: "re\u0301sume\u0301 notes" });
+		await createTestConversation(locals, { title: "Zażółć gęślą" });
+
+		expect(titles(await search(locals, "CAFE"))).toHaveLength(2);
+		expect(titles(await search(locals, "café"))).toHaveLength(2);
+		expect(titles(await search(locals, "muller"))).toHaveLength(2);
+		expect(titles(await search(locals, "zurich"))).toEqual(["Café Müller à Zürich"]);
+		expect(titles(await search(locals, "ecole"))).toEqual(["ÉCOLE normale"]);
+		expect(titles(await search(locals, "école"))).toEqual(["ÉCOLE normale"]);
+		expect(titles(await search(locals, "résumé"))).toEqual(["re\u0301sume\u0301 notes"]);
+		expect(titles(await search(locals, "resume"))).toEqual(["re\u0301sume\u0301 notes"]);
+		expect(titles(await search(locals, "zazolc"))).toEqual(["Zażółć gęślą"]);
+	});
+
+	it("matches across runs of whitespace", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, { title: "plan   the  trip" });
+
+		expect(titles(await search(locals, "plan the trip"))).toEqual(["plan   the  trip"]);
+	});
+
+	it("only searches the caller's own conversations", async () => {
+		const { locals } = await createTestUser();
+		const other = await createTestUser();
+		await createTestConversation(locals, { title: "Mine: budget" });
+		await createTestConversation(other.locals, { title: "Theirs: budget" });
+		// An anonymous session's chat is no one's but that session's.
+		await createTestConversation(createTestLocals({ sessionId: "someone-else" }), {
+			title: "Session: budget",
+		});
+
+		expect(titles(await search(locals, "budget"))).toEqual(["Mine: budget"]);
+		expect(titles(await search(other.locals, "budget"))).toEqual(["Theirs: budget"]);
+	});
+
+	it("includes the caller's project chats, marked with the project", async () => {
+		const { locals } = await createTestUser();
+		const projectId = new ObjectId();
+		await createTestConversation(locals, { title: "Loose budget chat" });
+		await createTestConversation(locals, { title: "Project budget chat", projectId });
+
+		const listed = await search(locals, "budget");
+		expect(titles(listed).sort()).toEqual(["Loose budget chat", "Project budget chat"]);
+		expect(listed.conversations.find((c) => c.title === "Project budget chat")?.projectId).toBe(
+			projectId.toString()
+		);
+	});
+
+	it("pages the matches with p, and reports hasMore", async () => {
+		const { locals } = await createTestUser();
+		for (let i = 0; i < CONV_NUM_PER_PAGE + 5; i++) {
+			await createTestConversation(locals, {
+				title: `needle ${i}`,
+				updatedAt: new Date(Date.now() - i * 1000),
+			});
+		}
+		for (let i = 0; i < 10; i++) await createTestConversation(locals, { title: `hay ${i}` });
+
+		const first = await search(locals, "needle", { p: "0" });
+		expect(first.conversations).toHaveLength(CONV_NUM_PER_PAGE);
+		expect(first.hasMore).toBe(true);
+		expect(first.conversations[0].title).toBe("needle 0");
+
+		const second = await search(locals, "needle", { p: "1" });
+		expect(second.conversations).toHaveLength(5);
+		expect(second.hasMore).toBe(false);
+		expect(titles(second).every((t) => t.startsWith("needle"))).toBe(true);
+	});
+
+	it("caps the query length instead of failing on a huge one", async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, { title: "short title" });
+
+		const res = await testRequest(GET, {
+			path: conversationsPath({ q: "x".repeat(50_000) }),
+			locals,
+		});
+		expect(res.status).toBe(200);
+		expect((await parseResponse<Listed>(res)).conversations).toEqual([]);
+		// Past the cap the rest is ignored: the first 100 characters are the query.
+		await createTestConversation(locals, { title: "y".repeat(100) });
+		expect(titles(await search(locals, "y".repeat(100) + "zzz"))).toEqual(["y".repeat(100)]);
+	});
+
+	it("still requires a sign-in", async () => {
+		const locals = createTestLocals({ sessionId: undefined, user: undefined });
+		const res = await testRequest(GET, { path: conversationsPath({ q: "a" }), locals });
+		expect(res.status).toBe(401);
+	});
+});
+
 describe.sequential("DELETE /api/v2/conversations", () => {
 	afterEach(async () => {
 		await cleanupTestData();

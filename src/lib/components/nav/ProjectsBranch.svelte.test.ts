@@ -351,3 +351,50 @@ describe("ProjectsBranch: managing a project is a page, not an overlay", () => {
 		);
 	});
 });
+
+describe("ProjectsBranch: the header opens the list, the chevron opens the branch", () => {
+	it("the label is a link to /projects, and following it does not expand the branch", async () => {
+		stubFetch(undefined, undefined);
+		const { container } = await renderBranch("model-a");
+
+		const link = find(container, 'a[href="/projects"]');
+		expect(link.textContent?.trim()).toBe("Projects");
+		let followed = false;
+		link.addEventListener("click", (event) => {
+			followed = !event.defaultPrevented;
+			event.preventDefault();
+		});
+		link.click();
+
+		expect(followed).toBe(true);
+		expect(find(container, 'button[aria-label="Expand Projects"]')).toBeTruthy();
+		expect(container.textContent).not.toContain("Mortgage");
+		// Nothing was asked of the server just to draw the closed branch.
+		expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+	});
+
+	it("the chevron alone expands (loading the projects) and collapses, without navigating", async () => {
+		stubFetch(undefined, undefined);
+		const { container } = await renderBranch("model-a");
+
+		find(container, 'button[aria-label="Expand Projects"]').click();
+		await vi.waitFor(() => expect(container.textContent).toContain("Mortgage"));
+		const collapse = find(container, 'button[aria-label="Collapse Projects"]');
+		expect(collapse.getAttribute("aria-expanded")).toBe("true");
+
+		collapse.click();
+		await vi.waitFor(() => expect(container.textContent).not.toContain("Mortgage"));
+		expect(
+			find(container, 'button[aria-label="Expand Projects"]').getAttribute("aria-expanded")
+		).toBe("false");
+		expect(appNavigation().goto).not.toHaveBeenCalled();
+	});
+
+	it("the + still goes to a new project", async () => {
+		stubFetch(undefined, undefined);
+		const { container } = await renderBranch("model-a");
+
+		find(container, 'button[title="New project"]').click();
+		await vi.waitFor(() => expect(appNavigation().goto).toHaveBeenCalledWith("/projects/new"));
+	});
+});
