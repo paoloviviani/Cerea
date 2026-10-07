@@ -5,7 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.5.0 — 2026-10-07
+
+Pins: Cerea `0.5.0`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Customize models** (a new Workspace tab): a **global system prompt** for every chat,
+  and **custom models**: a name, a base model and a system prompt of your own, private
+  to you, listed in the model picker next to the base models. They inherit everything
+  from the base (vision, tools, reasoning, effort); requests always go to the base.
+  Prompt order: global, then the custom model's, then the project's.
+- **The per-model system prompt is gone.** Prompts saved per model are dropped at
+  startup and never applied again; a conversation keeps the prompt it was created with.
+- Agents: the Allow selector no longer claims new subagents ask on their first turn
+  (they follow the session's setting since 0.3.10).
+- A Development guide (`CONTRIBUTING.md`, and a page on the docs site), and a pass over
+  every docs page.
 
 - **The kit now lives in the Cerea repository**, in `kit/`, with its history. One Cerea
   tag `vX.Y.Z` is the kit's version, and `stable` (a branch of the Cerea repository, moved
