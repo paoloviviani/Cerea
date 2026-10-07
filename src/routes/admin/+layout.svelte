@@ -99,11 +99,6 @@
 	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 		<header class="flex flex-col gap-1">
 			<h1 class="text-xl font-semibold">Administration</h1>
-			<p class="text-sm text-gray-500 dark:text-gray-400">
-				Site-wide settings for this chat. Signed in as {data.identity.email ??
-					data.identity.displayName ??
-					"an administrator"}.
-			</p>
 			{#if (page.data as { consoleEnabled?: boolean }).consoleEnabled}
 				<!-- Not a section of this panel but a way out of it: the platform
 				     side — providers, models, prices, quotas, users — lives in the

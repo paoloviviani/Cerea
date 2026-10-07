@@ -75,20 +75,6 @@
 	);
 	type TabKey = (typeof ALL_TABS)[number]["key"];
 
-	// Written out rather than joined from the tab labels: the labels are
-	// title-case nav rows ("MCP Servers"), and a sentence assembled from them
-	// reads like a menu. Two optional clauses, so it stays one sentence
-	// whichever of the two switches a deployment has turned off.
-	const subtitle = $derived(
-		[
-			"Models (and your own variants of them), MCP servers",
-			data.knowledgeEnabled !== false ? ", knowledge bases" : "",
-			" and skills",
-			data.memoryEnabled !== false ? ", plus what the assistant remembers about you" : "",
-			".",
-		].join("")
-	);
-
 	// Anything else in the query means the default tab, so a bare `/workspace`
 	// and a mistyped `?tab=...` both land on Models.
 	const tab = $derived(
@@ -110,9 +96,6 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Workspace</h1>
-		<p class="text-sm text-gray-500 dark:text-gray-400">
-			{subtitle}
-		</p>
 	</header>
 
 	<nav
