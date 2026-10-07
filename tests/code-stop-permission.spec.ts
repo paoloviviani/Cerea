@@ -394,7 +394,7 @@ test.describe("the permission selector", () => {
 		await goto(page);
 
 		await expect(page.getByTestId("permission-mode-note")).toHaveText(
-			"Allow · bash asks (machine limit) · new subagents ask on their first turn"
+			"Allow · bash asks (machine limit)"
 		);
 	});
 

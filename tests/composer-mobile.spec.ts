@@ -301,7 +301,7 @@ test.describe("/code composer at 1280×800", () => {
 		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
 		await expect(selector).toBeVisible();
 		await expect(page.getByTestId("permission-mode-note")).toHaveText(
-			"Allow · bash asks (machine limit) · new subagents ask on their first turn"
+			"Allow · bash asks (machine limit)"
 		);
 
 		// The note is one more thing in the pill row: `+` and send must stay on
