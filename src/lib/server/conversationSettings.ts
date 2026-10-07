@@ -4,6 +4,8 @@ import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
+import { baseModelIdFor, conversationOwnerFilter } from "$lib/server/customModels";
+import { isCustomModelId } from "$lib/utils/customModelId";
 
 /** The mutable conversation settings both PATCH endpoints expose. */
 export interface ConversationSettingsUpdate {
@@ -92,7 +94,7 @@ export async function applyConversationSettings(
 	// the mode's fixed set, and a guard that lives in one handler is exactly how
 	// the other one came to bypass it.
 	const current = await collections.conversations.findOne(filter, {
-		projection: { mlAssistant: 1 },
+		projection: { mlAssistant: 1, model: 1, userId: 1, sessionId: 1 },
 	});
 	if (
 		current &&
@@ -103,6 +105,19 @@ export async function applyConversationSettings(
 	}
 
 	const newModel = values.model;
+	// The producer stamped on history is the model that really made it. On a
+	// custom model that is the base (the custom id never reaches the upstream,
+	// and replay compares against the base's id), resolved here because the
+	// pipeline below cannot look a custom row up. Guarded on the stored model
+	// still being the one read here, so a racing switch stamps what it found.
+	const oldModel = current?.model;
+	const oldBase =
+		oldModel && current && isCustomModelId(oldModel)
+			? await baseModelIdFor(oldModel, conversationOwnerFilter(current))
+			: undefined;
+	const producer = oldBase
+		? { $cond: [{ $eq: ["$model", oldModel] }, oldBase, "$model"] }
+		: "$model";
 	return collections.conversations.updateOne(filter, [
 		{
 			$set: {
@@ -133,7 +148,7 @@ export async function applyConversationSettings(
 														$mergeObjects: [
 															{ route: "" },
 															{ $ifNull: ["$$m.routerMetadata", {}] },
-															{ model: "$model" },
+															{ model: producer },
 														],
 													},
 												},

@@ -5,6 +5,9 @@ import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
+import { findCustomModel, ownerFilter } from "$lib/server/customModels";
+import { isCustomModelId } from "$lib/utils/customModelId";
+import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
 import { parseAccent, parseNeutral } from "$lib/utils/palettes";
@@ -31,8 +34,9 @@ const settingsSchema = z.object({
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
-	customPrompts: z.record(z.string()).default({}),
-	customPromptsEnabled: z.record(z.boolean()).default({}),
+	// Unknown keys are stripped, so an old client still posting the retired
+	// per-model `customPrompts` / `customPromptsEnabled` is ignored, not refused.
+	globalSystemPrompt: z.string().max(GLOBAL_SYSTEM_PROMPT_MAX).optional(),
 	multimodalOverrides: z.record(z.boolean()).default({}),
 	toolsOverrides: z.record(z.boolean()).default({}),
 	artifactsOverrides: z.record(z.boolean()).default({}),
@@ -54,7 +58,14 @@ export const GET: RequestHandler = async ({ locals }) => {
 	// Empty catalogue: `validateModel`/`defaultModel` degrade (see models.ts),
 	// so there's no id to fall back to yet — leave the stored value alone
 	// until the operator adds a model and the TTL refresh picks it up.
-	if (defaultModel && settings && !validateModel(models).safeParse(settings?.activeModel).success) {
+	//
+	// A custom model is a valid default when it is this person's own; one that
+	// has gone (deleted behind the app's back) resets like any retired model.
+	const activeIsCustom = isCustomModelId(settings?.activeModel);
+	const activeValid = activeIsCustom
+		? Boolean(await findCustomModel(ownerFilter(locals), settings?.activeModel))
+		: validateModel(models).safeParse(settings?.activeModel).success;
+	if (defaultModel && settings && !activeValid) {
 		settings.activeModel = defaultModel.id;
 		await collections.settings.updateOne(authCondition(locals), {
 			$set: { activeModel: defaultModel.id },
@@ -93,8 +104,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 			settings?.shareConversationsWithModelAuthors ??
 			DEFAULT_SETTINGS.shareConversationsWithModelAuthors,
 
-		customPrompts: settings?.customPrompts ?? {},
-		customPromptsEnabled: settings?.customPromptsEnabled ?? {},
+		globalSystemPrompt: settings?.globalSystemPrompt ?? undefined,
 		// On HuggingChat, tool/multimodal capability comes from the upstream router,
 		// so we hide any per-user overrides (existing or new) instead of letting them apply.
 		multimodalOverrides: config.isHuggingChat ? {} : (settings?.multimodalOverrides ?? {}),

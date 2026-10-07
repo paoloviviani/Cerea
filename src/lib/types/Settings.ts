@@ -17,14 +17,16 @@ export interface Settings extends Timestamps {
 	mlInternOnboardingSeenAt?: Date | null;
 	activeModel: string;
 
-	// model name and system prompts
-	customPrompts?: Record<string, string>;
-
 	/**
-	 * Per-model toggle to enable/disable the custom system prompt
-	 * without deleting its contents. Defaults to `true` (enabled).
+	 * One system prompt applied to every chat turn, ahead of a custom model's
+	 * own prompt and a project's context (`resolvePreprompt`). Chat only: not
+	 * the /code agents, not title generation. Absent or empty means none.
+	 *
+	 * (The per-model `customPrompts` / `customPromptsEnabled` that used to sit
+	 * here are gone; custom models carry their own prompt, and
+	 * `dropPerModelPrompts` removes what was stored.)
 	 */
-	customPromptsEnabled?: Record<string, boolean>;
+	globalSystemPrompt?: string;
 
 	/**
 	 * Per‑model overrides to enable multimodal (image) support
@@ -168,8 +170,6 @@ export const DEFAULT_SETTINGS = {
 	shareConversationsWithModelAuthors: true,
 	// defaultModel is unset during `vite build` (models aren't fetched at build time)
 	activeModel: defaultModel?.id ?? "",
-	customPrompts: {},
-	customPromptsEnabled: {},
 	multimodalOverrides: {},
 	toolsOverrides: {},
 	artifactsOverrides: {},

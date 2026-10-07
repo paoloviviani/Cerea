@@ -45,6 +45,8 @@ import { findRepoRoot } from "./findRepoRoot";
 import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
+import { dropPerModelPrompts } from "$lib/server/dropPerModelPrompts";
+import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
 import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
@@ -293,6 +295,10 @@ export class Database {
 		// read here would drop a fact somebody just saved out of the very next
 		// prompt, which reads as the feature not working.
 		const memories = db.collection<Memory>("memories");
+		// A person's own named variants of catalogue models, owner-only like
+		// `settings`. Resolved on every turn of a conversation that uses one, so
+		// primary reads: a model just edited must not run on its old prompt.
+		const customModels = db.collection<CustomModel>("customModels");
 		// Shared notes a project's members keep for each other, read whole on
 		// every turn in that project's chats; primary for the same reason as
 		// `memories` (see `ProjectMemory`).
@@ -346,6 +352,7 @@ export class Database {
 			projects,
 			skills,
 			memories,
+			customModels,
 			projectMemories,
 			projectDocuments,
 			vectorStores,
@@ -396,6 +403,7 @@ export class Database {
 			knowledgeDocuments,
 			skills,
 			memories,
+			customModels,
 			projectMemories,
 			projectDocuments,
 			mcpConnectors,
@@ -500,6 +508,21 @@ export class Database {
 		skills
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for skills by userId"));
+		// One name per owner, case-insensitively. Two partial indexes because an
+		// owner is a user *or* a session; the API checks first for a readable
+		// error and these close the race between two saves.
+		customModels
+			.createIndex(
+				{ userId: 1, nameKey: 1 },
+				{ unique: true, partialFilterExpression: { userId: { $exists: true } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for customModels by userId and name"));
+		customModels
+			.createIndex(
+				{ sessionId: 1, nameKey: 1 },
+				{ unique: true, partialFilterExpression: { sessionId: { $exists: true } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for customModels by sessionId and name"));
 		// Memory is read whole, per user, on every turn, and written rarely —
 		// so one compound index serves both the prompt build and the screen.
 		// The sort is ascending because oldest-first is the order the block
@@ -728,6 +751,12 @@ export class Database {
 		settings
 			.createIndex({ userId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by userId"));
+		// Per-model system prompts are gone; drop what is still stored. Floats
+		// like the index builds around it: it only has to land eventually, since
+		// nothing reads the fields any more.
+		dropPerModelPrompts(settings)
+			.then((n) => n > 0 && logger.info({ n }, "[settings] Dropped stored per-model prompts"))
+			.catch((e) => logger.error(e, "Error dropping stored per-model prompts"));
 		settings
 			.createIndex({ assistants: 1 })
 			.catch((e) => logger.error(e, "Error creating index for settings by assistants"));

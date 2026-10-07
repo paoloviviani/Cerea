@@ -1,7 +1,7 @@
 import { buildPrompt } from "$lib/buildPrompt";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { models } from "$lib/server/models";
+import { conversationOwnerFilter, resolveConversationModel } from "$lib/server/customModels";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
 import { error } from "@sveltejs/kit";
@@ -30,7 +30,7 @@ export async function GET({ params, locals }) {
 		error(404, "Message not found");
 	}
 
-	const model = models.find((m) => m.id === conv.model);
+	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
 
 	if (!model) {
 		error(404, "Conversation model not found");

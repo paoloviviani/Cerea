@@ -11,6 +11,11 @@ export interface PickerModel {
 	 * never shows one, so callers without one (the /code catalog has none)
 	 * simply omit it. */
 	logoUrl?: string;
+	/**
+	 * Set on a person's own custom model: the catalogue model it runs on. The
+	 * row then reads "name · base" and carries a "custom" mark.
+	 */
+	baseName?: string;
 }
 
 export const SHORT_LIST_MAX = 6;
@@ -46,7 +51,7 @@ export function shortList(
 	const byId = new Map(models.map((m) => [m.id, m]));
 	if (words.length > 0) {
 		const hits = models.filter((m) => {
-			const hay = `${m.id} ${m.name} ${m.description ?? ""}`.toLowerCase();
+			const hay = `${m.id} ${m.name} ${m.baseName ?? ""} ${m.description ?? ""}`.toLowerCase();
 			return words.every((w) => hay.includes(w));
 		});
 		return hits.sort((a, b) => Number(b.id === currentId) - Number(a.id === currentId));

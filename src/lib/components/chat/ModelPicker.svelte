@@ -3,7 +3,7 @@
 	 * Switch the model this conversation runs on.
 	 *
 	 * Deliberately **not** the Models dialog. That one is a management surface:
-	 * it sets the deployment default, edits per-model system prompts, and opens a
+	 * it sets the deployment default, edits per-model settings, and opens a
 	 * detail view. Reaching it from the composer meant the control that looks
 	 * most like a picker — it even draws a caret — was the one thing that could
 	 * not pick, and the only way to move a conversation to another model was to
@@ -62,6 +62,7 @@
 			name: model.displayName || model.name,
 			description: model.description,
 			logoUrl: model.logoUrl,
+			baseName: model.customBase?.displayName,
 		}))
 	);
 
