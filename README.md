@@ -10,8 +10,9 @@ Everything is in this repository, and you can read all of it before running anyt
 the IdP's `authelia/configuration.yml`, and `./configure`, a single
 standard-library Python script that writes `.env` for you.
 
-Licence: Apache-2.0, Copyright 2026 Paolo Viviani ([LICENSE](LICENSE),
-[NOTICE](NOTICE)). This kit contains no third-party code; see
+Licence: Apache-2.0, Copyright 2026 Paolo Viviani
+([LICENSE](https://github.com/paoloviviani/cerea-deploy/blob/main/LICENSE),
+[NOTICE](https://github.com/paoloviviani/cerea-deploy/blob/main/NOTICE)). This kit contains no third-party code; see
 [AI-DISCLOSURE.md](https://github.com/paoloviviani/cerea-deploy/blob/main/AI-DISCLOSURE.md) for how it was written.
 
 ## Third-party software
@@ -83,9 +84,12 @@ docker compose up -d
 Each release of this repository pins the image versions it was tested with,
 inside `compose.yaml`, so you never type one. Back up first (see Backup and restore).
 
-Once a release is tagged, a `git pull` lands on a tested pair of versions:
-check the release notes, then run the three commands. Between releases, `main`
-may pin newer commits.
+A `git pull` lands on a tested pair of versions: check the
+[CHANGELOG](https://github.com/paoloviviani/cerea-deploy/blob/main/CHANGELOG.md),
+then run the three commands. The CHANGELOG also says when a release needs
+something more, such as re-running the install line on each agent machine.
+Between releases, `main` may pin the `sha-…` tag of a commit that has no
+release yet.
 
 ## What runs
 
@@ -97,7 +101,8 @@ may pin newer commits.
 | `gateway`, `migrate`, `valkey` | `gateway` | Pystino: the OpenAI-compatible API at `/v1` and the admin console |
 | `chat`, `chat-mongo` | `chat` | Cerea at `/chat` |
 | `authelia` | `authelia` | the bundled identity provider at `/authelia` (stock image, `authelia/configuration.yml`) |
-| `redaction`, `extractor` | `redaction` | PII redaction and document text extraction for the gateway |
+| `redaction` | `redaction` | PII redaction for the gateway |
+| `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
 | `playwright` | `fetch` | a headless browser for the chat's web fetch |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
@@ -576,7 +581,7 @@ every issuer, group memberships, model access, API keys, spend history, and
 their quota and redaction rules. The target keeps their own profile and
 settings; an identity both accounts hold at one issuer is dropped, and named
 in the preview. The dialog asks you to type the source account's address to
-confirm, plus a reason for the audit trail.
+confirm, and takes an optional reason for the audit trail.
 
 **The merge is irreversible.** There is no split-back: the undo is the backup
 taken before it.
@@ -634,27 +639,59 @@ galopin, a small agent that dials out to your origin over WebSocket, so no
 inbound port is needed on the machine.
 
 The pairing dialog prints **one command** to copy, already filled in with
-this deployment's issuer, gateway and client — install, enroll and run in a
-single line:
+this deployment's issuer, gateway and client: install, enroll and run, one step
+per line, each continuing only if the one before succeeded.
 
 ```sh
-curl -fsSL '<origin>/chat/galopin/install.sh' | sh && \
-  galopin enroll --issuer '<issuer>' --gateway '<origin>' --cerea '<origin>/chat' && \
-  galopin run
+curl -fsSL '<origin>/chat/galopin/install.sh' | sh &&
+curl -fsSL https://opencode.ai/install | bash -s -- --version 1.18.34 &&
+~/.local/bin/galopin enroll \
+  --issuer '<issuer>' \
+  --gateway '<origin>' \
+  --cerea '<origin>/chat' &&
+~/.local/bin/galopin run
 ```
+
+The opencode line is there when the dialog's **Install opencode** checkbox is
+ticked. It installs the opencode release galopin is tested against
+(`agent/packaging/opencode-version` in the Cerea repository, 1.18.34 in this
+release) and not the newest one. A machine keeps whatever opencode it has until
+that line is run again. Checkboxes for the machine's policy add flags to
+`enroll`: terminals, slash commands that run shell and background subagents are
+on by default (`--no-terminal`, `--no-command-shell` and
+`--no-background-subagents` turn them off), and two plain checkboxes allow work
+outside the project folder and reading secret files without asking.
 
 **The browser terminal** has two switches. The deployment's, `--terminal`
 (`CODE_TERMINAL_ENABLED='true'`), is off unless you turn it on; while it is off
 no terminal is offered anywhere, and the pairing dialog says so. Each machine's
-own, the dialog's **Allow terminal** checkbox, adds `--allow-terminal` to the
-command. Together they grant interactive shell access on the machine to whoever
-controls the chat session — no model and no permission rule in the way once a
-terminal is open. The installer
-verifies the binary's checksum; `enroll` signs in through the browser. The
-machine then appears in `/chat/code`, where its owner confirms it. Revoking
+own is the dialog's **Terminals** checkbox, ticked by default; unticking it adds
+`--no-terminal` to the command. Together they grant interactive shell access on
+the machine to whoever controls the chat session — no model and no permission
+rule in the way once a terminal is open. The installer verifies the binary's
+checksum; `enroll` signs in through the browser. The machine then appears in `/chat/code`, where its owner confirms it. Revoking
 it there disconnects it for good. A machine whose identity provider changed,
 or whose access was revoked, shows **Re-enroll this machine** in the device
-list, with the same command.
+list, with the same command. Everything in `/chat/code` needs a sign-in within
+the last 7 days; the machine's own link to the chat is not affected.
+
+### opencode without Cerea
+
+Anyone who uses opencode directly can point it at the gateway. The console's
+Overview shows the line, filled in with this deployment's address, beside the
+API keys:
+
+```sh
+curl -fsSL https://<your-host>/opencode/install.sh | bash
+```
+
+The gateway serves that script itself. It asks for an API key minted in the
+console (from the `PYSTINO_API_KEY` variable or a hidden prompt, never from the
+command line), adds one `pystino` provider to opencode's global config with
+the models that key may use, keeps everything else in that file and writes a
+backup first. `--key-in-env` keeps the key out of the file, and
+`--install-opencode` installs the opencode release the kit was tested with
+(1.18.34).
 
 ## Backup and restore
 
@@ -745,3 +782,8 @@ An image is built only when `local/<name>:sha-<commit>` is missing. The
 first build of the chat image needs about 2 GB of memory. Maintainers
 re-pin a release with `tools/pin --pystino <tag> --cerea <tag>`, and CI
 checks the pins with `tools/pin --check`.
+
+## Changing the kit
+
+Setup, tests, CI and the release procedure for this repository are in
+[CONTRIBUTING.md](https://github.com/paoloviviani/cerea-deploy/blob/main/CONTRIBUTING.md).
