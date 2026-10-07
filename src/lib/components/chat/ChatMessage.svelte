@@ -1075,7 +1075,7 @@
 	>
 		<div class="flex w-full flex-col gap-2">
 			{#if message.files?.length}
-				<div class="flex w-fit gap-4 px-5">
+				<div class="flex w-full flex-wrap justify-end gap-4">
 					{#each message.files as file}
 						<UploadedFile {file} canClose={false} {fileBaseUrl} />
 					{/each}
@@ -1144,7 +1144,7 @@
 					{:else}
 						<CollapsibleUserText
 							text={message.content.trim()}
-							class="disabled w-full appearance-none bg-inherit px-5 py-3.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-600 dark:text-gray-300"
+							class="disabled appearance-none px-3.5 py-2.5 text-wrap wrap-break-word whitespace-break-spaces text-gray-800 sm:px-4 dark:text-gray-100"
 						/>
 					{/if}
 				{:else}

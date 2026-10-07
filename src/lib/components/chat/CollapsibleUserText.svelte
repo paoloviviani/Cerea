@@ -1,5 +1,7 @@
 <!--
-	A user message, folded when it is long: a pasted log or document would
+	A user message: right-aligned in a tinted bubble, so a fast scroll tells
+	the person's turns from the replies (which sit left, in a neutral bubble)
+	by position alone. Folded when it is long: a pasted log or document would
 	otherwise push the conversation off screen. Clipped at a fixed height, with
 	a fade and "Show more"; the full text is always in the DOM, so copy and
 	find-in-page still see every word.
@@ -34,24 +36,28 @@
 	});
 </script>
 
-<div class="relative w-full">
-	<p
-		bind:this={el}
-		class={className}
-		style:max-height={overflows && !expanded ? `${COLLAPSED_PX}px` : undefined}
-		style:overflow={overflows && !expanded ? "hidden" : undefined}
+<div class="flex w-full flex-col items-end">
+	<div
+		class="relative w-fit max-w-[85%] overflow-hidden rounded-[1.1rem] bg-blue-50 dark:bg-accent-subtle"
 	>
-		{text}
-	</p>
-	{#if overflows && !expanded}
-		<div
-			class="pointer-events-none absolute inset-x-0 bottom-8 h-12 bg-linear-to-t from-white dark:from-gray-900"
-		></div>
-	{/if}
+		<p
+			bind:this={el}
+			class={className}
+			style:max-height={overflows && !expanded ? `${COLLAPSED_PX}px` : undefined}
+			style:overflow={overflows && !expanded ? "hidden" : undefined}
+		>
+			{text}
+		</p>
+		{#if overflows && !expanded}
+			<div
+				class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-blue-50 dark:from-accent-subtle"
+			></div>
+		{/if}
+	</div>
 	{#if overflows}
 		<button
 			type="button"
-			class="mx-5 mb-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+			class="mt-1 mr-2 mb-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
 			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
