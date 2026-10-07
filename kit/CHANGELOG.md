@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.5.2 — 2026-10-08
+
+Pins: Cerea `0.5.2`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- The Workspace, Settings and Administration pages no longer have a description line
+  under their title; Administration keeps its link to the Pystino console.
+
 ## v0.5.1 — 2026-10-07
 
 Pins: Cerea `0.5.1`, Pystino `0.3.2`, Authelia 4.39.22.
