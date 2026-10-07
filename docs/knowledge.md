@@ -45,11 +45,11 @@ arrives. The page lists them at the top, in this order:
 1. **Standing instructions**: prepended to the system prompt of every
    conversation in the project (in full).
 2. **Context documents**: files you attach to the project (in full; see below).
-3. **Project memory**: the project's shared [notes](#project-notes) (in full).
+3. **Project memory**: the project's shared notes (in full; see [Project memory](#project-memory)).
 4. **Knowledge bases** attached to the project, searched on every turn (up to
    the project's retrieval limit, six passages by default).
 5. **Past chats**: the project's own earlier conversations, searched, when you
-   turn that on (see [Project memory](#project-memory)).
+   turn that on (see [Past chats](#past-chats)).
 
 The page also holds the project's **name and description**, its **chats** (each
 with a link and **Remove from project**), **sharing** and the **defaults for
@@ -99,24 +99,7 @@ always have in front of it: a call text, a style guide, a contract.
 
 ### Project memory
 
-A project can keep a **memory base**: with **Search this project's own past conversations** on, finished
-exchanges in the project are indexed into a knowledge base, so later chats can
-draw on earlier ones. It is **off by default**, because it copies what was said
-into a searchable store, and that is a decision worth making rather than
-discovering.
-
-- The memory base is an **ordinary knowledge base**, named after its project,
-  visible on the Knowledge tab and deletable there. The transcripts are
-  somewhere you can look.
-- Each conversation is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
-
-This is a different thing from [personal memory](chat.md#memory), a short list
-of facts about you that goes into every conversation, and from the project's
-notes below.
-
-### Project notes
-
-A project also keeps a short **list of notes** that every member shares — a
+A project also keeps a short **list of notes**, its **Project memory**, that every member shares — a
 convention, a decision and its reason, where something lives — and that goes
 into every conversation **in that project** and nowhere else. It is the
 [personal memory](chat.md#memory) list, moved from a person to a project, and
@@ -139,6 +122,23 @@ you.
   people's projects stay, and show their author as "deleted user".
 - A note is read by everyone in the project and goes into everyone's prompt, so
   never keep a password, key or token in one.
+
+### Past chats
+
+A project can search its own earlier conversations. With **Search this project's
+own past conversations** on, finished exchanges in the project are indexed into
+a knowledge base of their own, the **memory base**, so later chats can draw on
+earlier ones. It is **off by default**, because it copies what was said into a
+searchable store, and that is a decision worth making rather than discovering.
+
+- The memory base is an **ordinary knowledge base**, named after its project,
+  visible on the Knowledge tab and deletable there. The transcripts are
+  somewhere you can look.
+- Each conversation is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
+
+This is a different thing from [personal memory](chat.md#memory), a short list
+of facts about you that goes into every conversation, and from the project's
+[memory](#project-memory) above, a short list of shared notes sent in full.
 
 ## Sharing
 

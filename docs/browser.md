@@ -21,7 +21,7 @@ WebKit) on port 3000 of the compose network. The chat reaches it at
 `PLAYWRIGHT_WS_ENDPOINT` (`ws://playwright:3000/`), which `./configure` sets
 while the profile is on and removes when it is off.
 
-The admin screen **Admin → Fetch** shows which backend is selected and whether
+The admin screen **Admin → Fetching** shows which backend is selected and whether
 the renderer answers:
 
 | Status         | Meaning                                                                                 |
