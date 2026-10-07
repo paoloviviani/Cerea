@@ -323,7 +323,7 @@ bash -n dev/build.sh && sh -n get-kit.sh     # the scripts parse
 
 The unit tests cover `./configure` (answers, `--check`, `--break-glass`, the identity-provider
 scopes, the written `.env`), `get-kit.sh` (against a throwaway local repository: install, the
-newest-tag rule, upgrade, migration, every refusal), `tools/diagnose`, the backup sidecar's
+stable-tag default, upgrade, migration, every refusal), `tools/diagnose`, the backup sidecar's
 script, the Authelia configuration and the Caddyfile. The Authelia and Caddyfile tests start
 containers and so pull their images the first time, and one `./configure` test runs `docker
 compose config`; each skips itself when `docker` is not on the PATH. A mocked `docker compose`
@@ -450,9 +450,9 @@ pins the Pystino version it was tested with. Then, in this order:
    `get-kit.sh` is served from `stable`.
 
 If step 4, 5 or 6 fails, `stable` stays where it was: fix forward and release the next patch
-(`vX.Y.Z+1`); do not move or delete the tag. A kit-only fix is a Cerea patch release too. Take
-steps 3 to 7 in one sitting: `get-kit.sh` with no `--version` installs the newest tag, which until
-step 7 has not passed the test.
+(`vX.Y.Z+1`); do not move or delete the tag. A kit-only fix is a Cerea patch release too.
+`get-kit.sh` with no `--version` installs the tag `stable` points at, so a tag that has not yet
+passed step 6 is never picked up by default.
 
 **Versions** are `MAJOR.MINOR.PATCH` in `package.json`, one annotated `vX.Y.Z` tag per release,
 never moved. A change to galopin ships with the image (the image builds it from `agent/`):

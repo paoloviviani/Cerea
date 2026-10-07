@@ -43,7 +43,8 @@ docker compose up -d
 ```
 
 [`get-kit.sh`](https://github.com/paoloviviani/Cerea/blob/stable/kit/get-kit.sh) is a short
-POSIX shell script that needs only `git`. It fetches the newest release of this directory,
+POSIX shell script that needs only `git`. It fetches the current release of this directory
+(the one the `stable` branch points at),
 and nothing else from the repository, into `./cerea` (a shallow, sparse git checkout of a few
 hundred kilobytes), and prints the commands to run next. **You work in `cerea/kit`**: that
 is where `./configure`, `.env` and every `docker compose` command live. Prefer to read it
@@ -95,7 +96,7 @@ change either afterwards.
 
 ```sh
 cd cerea/kit
-sh get-kit.sh --upgrade            # the newest release; --version vX.Y.Z for another
+sh get-kit.sh --upgrade            # the current release; --version vX.Y.Z for another
 docker compose pull
 docker compose up -d
 ```

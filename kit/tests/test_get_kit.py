@@ -96,6 +96,27 @@ class GetKitTest(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((self.work / "inst/kit/VERSION").read_text(), "v1.10.0")  # not v1.9.0, not the rc
 
+    def remote_with_stable_at(self, ref):
+        remote = self.work / "stable.git"
+        git(self.work, "clone", "-q", "--bare", str(self.remote), str(remote))
+        git(remote, "config", "uploadpack.allowFilter", "true")
+        git(remote, "update-ref", "refs/heads/stable", f"{ref}^{{commit}}")
+        return remote
+
+    def test_default_is_the_tag_stable_points_at(self):
+        # stable lags the newest tag between a tag and its checks passing.
+        remote = self.remote_with_stable_at("v1.0.1")
+        p = run("sh", str(SCRIPT), "--repo", str(remote), "--dir", str(self.work / "inst"), cwd=self.work)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((self.work / "inst/kit/VERSION").read_text(), "v1.0.1")  # not v1.10.0
+
+    def test_default_refuses_a_stable_that_is_not_a_release(self):
+        remote = self.remote_with_stable_at("v1.11.0-rc1")
+        p = run("sh", str(SCRIPT), "--repo", str(remote), "--dir", str(self.work / "inst"), cwd=self.work)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("not at a release tag", p.stderr)
+        self.assertFalse((self.work / "inst").exists())
+
     def test_default_dir_is_cerea(self):
         p = self.kit("--version", "v1.0.0")
         self.assertEqual(p.returncode, 0, p.stderr)
