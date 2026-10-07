@@ -2,7 +2,8 @@
 # checked against a real gateway.
 #   - PRs touching the gateway-facing code: the PINNED gateway version only
 #     (deploy/ci/pystino-contract.env);
-#   - weekly: `edge`, non-blocking, to see gateway changes before they land.
+#   - by hand (workflow_dispatch). There is no weekly `edge` run: Pystino
+#     publishes images only for release tags, so no `edge` image exists.
 # The Pystino gateway images are public, so pulling one needs no access grant.
 name: contract
 
@@ -18,8 +19,6 @@ on:
       - src/lib/server/__contract__/**
       - deploy/ci/pystino-contract.env
       - .github/workflows/contract.yml
-  schedule:
-    - cron: "23 5 * * 1"
 
 permissions:
   contents: read
@@ -33,7 +32,6 @@ jobs:
   contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: ${{ github.event_name == 'schedule' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
@@ -47,7 +45,6 @@ jobs:
         run: |
           set -eu
           version=$(sed -n 's/^PYSTINO_CONTRACT_VERSION=//p' deploy/ci/pystino-contract.env)
-          [ "${{ github.event_name }}" = schedule ] && version=edge
           img="ghcr.io/${{ github.repository_owner }}/pystino-gateway:$version"
           docker network create gw
           docker run -d --name pg --network gw -e POSTGRES_USER=gateway -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=gateway pgvector/pgvector:pg18
