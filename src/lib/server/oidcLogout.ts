@@ -5,7 +5,7 @@
  * session and nothing else: the redirect home re-ran the login, Authelia's
  * still-live SSO session answered it without a prompt, and the person was back
  * as themselves. `OPENID_LOGOUT_URL` names the provider's own logout page
- * instead — `<issuer>/logout?rd={redirect}` for Authelia, which cerea-deploy's
+ * instead — `<issuer>/logout?rd={redirect}` for Authelia, which the deploy kit's
  * `./configure` writes — with `{redirect}` replaced by where to land afterwards.
  *
  * And one sign-out covers the whole origin: the console lives beside the chat

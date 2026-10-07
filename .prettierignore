@@ -19,6 +19,10 @@ yarn.lock
 src/styles/tokens.css
 src/styles/fonts/
 
+# The deploy kit has its own conventions (no formatter, compact Markdown tables,
+# a standard-library Python script); kit.yml checks it, Prettier does not.
+kit/
+
 # The documentation site is mkdocs.yml, which Prettier would reflow (the
 # YAML is hand-laid-out, with comments that carry the licence posture).
 mkdocs.yml

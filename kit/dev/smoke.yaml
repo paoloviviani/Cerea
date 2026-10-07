@@ -1,0 +1,30 @@
+# Development and CI only: a fake OpenAI-compatible upstream, so the stack
+# answers /v1 without a real provider. Never part of an install: it needs the
+# Pystino source dev/build.sh cloned, and is listed only by hand:
+#
+#   docker compose -f compose.yaml -f dev/smoke.yaml up -d --wait
+#
+# Paths are relative to the project directory (this repository's root).
+services:
+  fake-upstream:
+    image: ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-local}/pystino-gateway:${PYSTINO_VERSION:?the smoke upstream runs on the gateway image; run dev/build.sh}}
+    volumes:
+      - ${PYSTINO_SRC:-./dev/src/pystino}/scripts:/app/scripts:ro
+    working_dir: /app/scripts
+    command: ["python", "-m", "uvicorn", "_fake_upstream:app", "--host", "0.0.0.0", "--port", "9099"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,urllib.error,sys\ntry:\n urllib.request.urlopen('http://localhost:9099/v1/chat/completions', timeout=3)\nexcept urllib.error.HTTPError:\n sys.exit(0)\nexcept Exception:\n sys.exit(1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  gateway:
+    environment:
+      GATEWAY_UPSTREAM__BASE_URL: http://fake-upstream:9099/v1
+      GATEWAY_UPSTREAM__API_KEY: fake-upstream-key
+    depends_on:
+      fake-upstream:
+        condition: service_healthy
+  migrate:
+    environment:
+      GATEWAY_UPSTREAM__BASE_URL: http://fake-upstream:9099/v1
+      GATEWAY_UPSTREAM__API_KEY: fake-upstream-key

@@ -4,7 +4,7 @@ Thanks for helping. Cerea is small and moves quickly, so a short conversation
 first saves work on both sides.
 
 - **Bugs and ideas:** open an issue. For a bug, include what you did, what you
-  expected, what happened, and your browser and deployment (a cerea-deploy
+  expected, what happened, and your browser and deployment (a deploy-kit
   preset, or your own setup).
 - **Changes:** open a pull request against `main`. Keep it focused on one
   thing, and describe the problem it solves and how you checked it. The
@@ -51,6 +51,7 @@ copies the Pyodide runtime from `node_modules` into `static/pyodide/` (git-ignor
 | `tests/`                             | the Playwright end-to-end specs and their fixtures and mocks                                                                                                                         |
 | `scripts/`                           | the live checks against a running stack, the Pyodide sync, and other tools                                                                                                           |
 | `docs/`                              | this documentation site (`docs/source/` is upstream chat-ui's, kept as written and not part of the site)                                                                             |
+| `kit/`                               | the deploy kit: `compose.yaml`, `./configure`, `get-kit.sh` (see [Deploy kit](#deploy-kit))                                                                                          |
 | `deploy/ci/`                         | the gateway version the contract workflow tests against                                                                                                                              |
 
 The production image fixes SvelteKit's base path at build time and builds
@@ -224,7 +225,7 @@ project context, the knowledge pipeline or the gateway forwarder, because they
 assert on what actually left the gateway, which no unit test can see:
 
 ```sh
-set -a; . /path/to/cerea-deploy/.env; set +a     # the running stack's variables
+set -a; . /path/to/cerea/kit/.env; set +a        # the running stack's variables
 uv run --with httpx python scripts/test_projects_live.py       # projects: context, retrieval, memory
 uv run --with httpx python scripts/test_attachments_live.py    # a document attachment, extracted once
 uv run --with httpx python scripts/test_nav_live.py            # the sidebar tree, and signing out for real
@@ -235,6 +236,138 @@ uv run --with httpx python scripts/test_connectors_live.py     # MCP connector O
 (The first turn of a conversation also generates its title, a second completion
 that overwrites the smoke upstream's last request: an assertion about the prompt
 has to run on a later turn.)
+
+## Deploy kit
+
+`kit/` is the deployment kit for Cerea (the chat) and [Pystino](https://github.com/paoloviviani/Pystino)
+(the gateway and console): one `compose.yaml`, one documented `.env.example`, the proxy and
+identity-provider configuration, `./configure`, and `get-kit.sh`, which installs it. It holds
+no application code. [`kit/README.md`](https://github.com/paoloviviani/Cerea/blob/main/kit/README.md)
+is the operator's runbook; this section is for changing the kit. The kit used to be the
+`cerea-deploy` repository and moved here with its history (`git log --follow kit/<file>`
+reaches back through it). **One version:** a Cerea tag `vX.Y.Z` is the kit's version, and its
+changelog is `kit/CHANGELOG.md`.
+
+The kit has no package manager, no build step, no formatter, no linter and no git hooks of its
+own, and Prettier skips `kit/` (`.prettierignore`). Work from inside `kit/`:
+
+| Tool                       | Version                     | Used for                                                                                       |
+| -------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| Python                     | 3.9 or newer (CI runs 3.10) | `./configure`, `tools/pin`, `tools/diagnose` and the tests: standard library only              |
+| Docker Engine with Compose | Compose 2.24 or newer       | `docker compose config`, the tests that start a container, `dev/build.sh`, running a stack     |
+| `git`, a POSIX `sh`        | any                         | `get-kit.sh` and its tests                                                                     |
+| `openssl`, PyYAML          | any                         | one Authelia test each (skipped without them)                                                  |
+| ShellCheck                 | recent                      | `get-kit.sh` (`docker run --rm -v $PWD:/mnt:ro -w /mnt koalaman/shellcheck:stable get-kit.sh`) |
+
+| Path (under `kit/`)               | What it is                                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `compose.yaml`                    | the whole stack; every service names an image, nothing builds on `up`                                  |
+| `.env.example`                    | every setting, explained; `./configure` fills it in                                                    |
+| `configure`                       | one standard-library Python script: writes `.env`, or checks it (`--check`)                            |
+| `get-kit.sh`                      | installs, upgrades (`--upgrade`) and migrates (`--from`) a kit as a sparse checkout of this repository |
+| `caddy/`, `authelia/`, `proxy.d/` | the proxy's and the identity provider's configuration, mounted read-only into stock images             |
+| `tools/pin`                       | keeps the image pins and the `cerea.config-rev` labels in step (see Releasing)                         |
+| `tools/diagnose`                  | the redacted report operators send with a bug                                                          |
+| `tools/backup/`                   | the optional restic backup sidecar, built on the operator's machine                                    |
+| `dev/build.sh`, `dev/smoke.yaml`  | building the images from source, and a fake upstream for a stack with no real provider                 |
+| `tests/`                          | the unit tests                                                                                         |
+
+**The operator's directory is `<dir>/kit`.** `get-kit.sh` makes `<dir>` a shallow, blob-filtered,
+sparse git checkout (only `kit/` is present) and the operator `cd`s into `<dir>/kit`, where
+`./configure`, `.env` and every `docker compose` command live. Nothing in the kit depends on the
+directory's name: the compose project name is `COMPOSE_PROJECT_NAME` (default `cerea`), never the
+directory's. `.env`, `.env.bak-*`, `compose.override.yaml`, `proxy.d/*.caddy` and
+`first-sign-in.txt` are git-ignored and belong to the operator; an upgrade (a `git checkout` of
+the next tag) never touches them.
+
+`.env.example` and `./configure` are one interface: a new setting goes into both, and
+`tests/test_configure.py` reads `.env.example` as its template. If you change `caddy/` or
+`authelia/`, run `tools/pin` afterwards: compose cannot see a change inside a mounted file, so each
+of those services carries a digest of its directory as a label.
+
+```sh
+cd kit
+./configure                      # asks a few questions, writes .env (mode 0600)
+./configure --check              # reports everything wrong at once; changes nothing
+docker compose up -d
+```
+
+For a throwaway stack on one machine, a scripted run with Caddy's own certificate authority works
+without DNS:
+
+```sh
+./configure --non-interactive --origin https://cerea.example.test:8443 \
+  --admin-email ops@example.test --tls internal --https-port 8443 \
+  --preset homelab --idp authelia --project scratch
+```
+
+The origin's name has to resolve to the machine (an `/etc/hosts` line is enough), and the bundled
+Authelia needs a dotted name or an IP address. Give a scratch stack its own `--project`, and
+remove it (`docker compose down -v`) when you are done. To run commits that have no published
+image yet, `dev/build.sh` clones Pystino and Cerea into `dev/src/`, builds both images and points
+`.env` at them; `dev/build.sh --reset` goes back to the published ones. It builds the chat image
+(about 2 GB of memory) and leaves the images in your local Docker, so prune them when you are
+done. `docker compose -f compose.yaml -f dev/smoke.yaml up -d --wait` adds a fake
+OpenAI-compatible upstream, so the gateway answers `/v1` without a real provider. On a host that
+serialises heavy jobs, set `BUILD_LOCK` to a lock file and `dev/build.sh` takes it around each
+docker build itself; do not wrap the script in a `flock` of the same file, which would deadlock.
+
+**Testing the kit:**
+
+```sh
+cd kit
+python3 -m unittest                          # 167 tests; several minutes (some start containers)
+tools/pin --check                            # exits 1 if a pin or a config label is stale
+bash -n dev/build.sh && sh -n get-kit.sh     # the scripts parse
+```
+
+The unit tests cover `./configure` (answers, `--check`, `--break-glass`, the identity-provider
+scopes, the written `.env`), `get-kit.sh` (against a throwaway local repository: install, the
+stable-tag default, upgrade, migration, every refusal), `tools/diagnose`, the backup sidecar's
+script, the Authelia configuration and the Caddyfile. The Authelia and Caddyfile tests start
+containers and so pull their images the first time, and one `./configure` test runs `docker
+compose config`; each skips itself when `docker` is not on the PATH. A mocked `docker compose`
+call in `./configure`'s tests is deliberate: they check what `./configure` runs, not Docker.
+
+The `kit` workflow runs the same commands, plus two configuration checks you can run by hand
+(run the first block in a scratch copy: it writes `.env`):
+
+```sh
+# compose.yaml resolves with .env.example, for every profile. The example
+# leaves each secret empty, which compose refuses, so fill them in a copy:
+sed -E "s/^([A-Z_]*(PASSWORD|SECRET|KEY|DIGEST)[A-Z_]*)=''$/\1='ci-placeholder'/" .env.example > .env
+COMPOSE_PROFILES=gateway,chat,authelia,redaction,fetch docker compose config -q
+PYSTINO_REGISTRY=local PYSTINO_VERSION=ci docker compose -f compose.yaml -f dev/smoke.yaml config -q
+rm .env
+
+# the Caddyfile is valid in all three TLS modes
+for mode in "https://cerea.example.org|" "https://cerea.example.org|tls internal" "http://:80|"; do
+  docker run --rm -v "$PWD/caddy:/etc/caddy:ro" -v "$PWD/proxy.d:/etc/caddy.d:ro" \
+    -e SITE_ADDRESS="${mode%%|*}" -e TLS_DIRECTIVE="${mode#*|}" -e PROXY_DEFAULT=gateway \
+    caddy:2.11-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+done
+```
+
+A change to `./configure` needs a test in `kit/tests/test_configure.py`; a change to `get-kit.sh`
+one in `kit/tests/test_get_kit.py`; and a change that a stack must prove, such as one to the
+proxy, the identity provider or the bootstrap service, needs a real bring-up, which
+[Releasing](#releasing) runs. A step you could not run is reported as not run, never as passed.
+
+**Conventions for the kit:**
+
+- **Everything the operator needs is in `kit/` and readable before it runs.** No downloads at
+  `up`, nothing built on `up`, no secret in git.
+- **`get-kit.sh` is POSIX `sh` and needs only `git`.** It is served from the `stable` branch
+  (`https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh`), so a bug in it
+  reaches every installer: keep it ShellCheck-clean, never let it run docker, and never let it
+  write into a directory it did not create (the tests hold it to both).
+- **`./configure` never overwrites** an existing `.env`; it keeps secrets and unknown keys, and
+  saves the previous file as `.env.bak-<time>`.
+- **Standard library only** for `./configure`, `tools/pin` and `tools/diagnose`.
+- **`tools/diagnose` must never print a secret.** A new `.env` key shows as `<redacted>` unless it
+  is on the short list of version, profile and flag keys.
+- **A new image or tool** is named, with its licence, in the README's "Third-party software".
+- **The kit's README is also a page of this documentation site** (see [Documentation](#documentation)).
 
 ## Verifying a change
 
@@ -265,15 +398,16 @@ full rules under "Verifying a change". In short:
 
 ## CI
 
-Five workflows in `.github/workflows/`.
+Six workflows in `.github/workflows/`.
 
-| Workflow   | Runs on                                                                                                                                          | What it does                                                                                                                                                                                                                                                                                                                              |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci`       | every push to `main` and every pull request (changes to `docs/**` and `*.md` are ignored), manual runs, and Mondays 04:41 UTC for the client job | **check** (not on the schedule): `npm ci`, `npm run lint`, `npm run check`, then the server and ssr projects against a `mongo:8` service, serially. **go** (not on the schedule): `gofmt`, `go vet`, `go test` in `agent/`. **client** (push, manual and schedule, not on pull requests): the client project in the Playwright container. |
-| `opencode` | a push to `main` touching `agent/**`, weekly (pinned), daily (latest), manual                                                                    | the whole real-opencode suite against the pinned opencode (`pinned`), and against opencode's newest release (`latest`), which opens or updates an issue                                                                                                                                                                                   |
-| `images`   | manual only (`workflow_dispatch`)                                                                                                                | builds the image with `APP_BASE=/chat` and pushes it to `ghcr.io/paoloviviani/cerea`; on a `v*.*.*` tag it publishes `X.Y.Z` and `X.Y`, and refuses to overwrite a version that exists                                                                                                                                                    |
-| `docs`     | a push to `main` touching `docs/**` or `mkdocs.yml`, and manual                                                                                  | `mkdocs build --strict`, published to GitHub Pages at <https://paoloviviani.github.io/Cerea/>                                                                                                                                                                                                                                             |
-| `contract` | a pull request touching the gateway-facing code or the pin, Mondays 05:23 UTC (against `edge`, non-blocking), manual                             | this chat's assumptions about Pystino's API, checked against a gateway image (`deploy/ci/pystino-contract.env` names the version)                                                                                                                                                                                                         |
+| Workflow   | Runs on                                                                                                                                                    | What it does                                                                                                                                                                                                                                                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci`       | every push to `main` and every pull request (changes to `docs/**`, `kit/**` and `*.md` are ignored), manual runs, and Mondays 04:41 UTC for the client job | **check** (not on the schedule): `npm ci`, `npm run lint`, `npm run check`, then the server and ssr projects against a `mongo:8` service, serially. **go** (not on the schedule): `gofmt`, `go vet`, `go test` in `agent/`. **client** (push, manual and schedule, not on pull requests): the client project in the Playwright container. |
+| `opencode` | a push to `main` touching `agent/**`, weekly (pinned), daily (latest), manual                                                                              | the whole real-opencode suite against the pinned opencode (`pinned`), and against opencode's newest release (`latest`), which opens or updates an issue                                                                                                                                                                                   |
+| `images`   | manual only (`workflow_dispatch`)                                                                                                                          | builds the image with `APP_BASE=/chat` and pushes it to `ghcr.io/paoloviviani/cerea`; on a `v*.*.*` tag it publishes `X.Y.Z` and `X.Y`, and refuses to overwrite a version that exists                                                                                                                                                    |
+| `docs`     | a push to `main` touching `docs/**`, `mkdocs.yml` or `kit/README.md`, and manual                                                                           | `mkdocs build --strict`, published to GitHub Pages at <https://paoloviviani.github.io/Cerea/>                                                                                                                                                                                                                                             |
+| `contract` | a pull request touching the gateway-facing code or the pin, Mondays 05:23 UTC (against `edge`, non-blocking), manual                                       | this chat's assumptions about Pystino's API, checked against a gateway image (`deploy/ci/pystino-contract.env` names the version)                                                                                                                                                                                                         |
+| `kit`      | a push to `main` or a pull request touching `kit/**`, and manual                                                                                           | the deploy kit, run from `kit/`: its unit tests, `tools/pin --check`, `bash -n dev/build.sh`, `docker compose config` with `.env.example` for every profile, the Caddyfile in all three TLS modes, and `get-kit.sh` under `sh -n` and ShellCheck. No images are pulled or built                                                           |
 
 End-to-end Playwright is not in CI: run it yourself for UI and flow changes.
 `ci` ignores documentation-only changes, so a Markdown change runs no tests; the
@@ -281,33 +415,52 @@ End-to-end Playwright is not in CI: run it yourself for UI and flow changes.
 
 ## Releasing
 
-A change is released only when all of these pass, in this order. A step that
-cannot run is reported as not run.
+A release of Cerea is a release of the deploy kit: one tag, `vX.Y.Z`. A step that cannot run is
+reported as not run, never as passed. Pystino releases first (see
+[its guide](https://github.com/paoloviviani/Pystino/blob/main/CONTRIBUTING.md#releasing)); the kit
+pins the Pystino version it was tested with. Then, in this order:
 
-1. **CI green** on the commit to be tagged (it runs on every push to `main`: push,
-   then wait).
-2. **Bump and tag.** The release commit (`release: vX.Y.Z`) changes the version in
-   `package.json` and `package-lock.json`. Tag it annotated, `vX.Y.Z`, and push the
-   tag. The `images` workflow does not run on a tag by itself: run it on the tag,
-   `gh workflow run images.yml --ref vX.Y.Z`, and wait for green. It publishes
-   `ghcr.io/paoloviviani/cerea:X.Y.Z` (and `:X.Y`); the package is public.
-3. **The image pulls with no registry login:** a `docker pull` with `DOCKER_CONFIG`
-   pointing at an empty directory.
-4. **In cerea-deploy:** `tools/pin`, `tools/pin --check`, its unit tests, then the
-   **fresh-kit test**: a clean copy of the kit, `./configure`, `docker compose pull`,
-   `up -d --wait`, a check that the running containers carry the new tags, and a
-   real sign-in through the identity provider, the gateway and the chat to
-   `/chat/code`, which must print exactly `E2E_OK`. The test stack is then removed
-   and checked gone. See
-   [cerea-deploy's CONTRIBUTING.md](https://github.com/paoloviviani/cerea-deploy/blob/main/CONTRIBUTING.md#releasing).
-5. **Only then** the cerea-deploy tag and its changelog entry.
+1. **The release commit** (`release: vX.Y.Z`) does three things:
+   - bumps the version in `package.json` and `package-lock.json`;
+   - pins the kit: `kit/tools/pin --cerea X.Y.Z --pystino P.Q.R`, then `kit/tools/pin --check`.
+     It rewrites the version defaults in `kit/compose.yaml`, the commented examples in
+     `kit/.env.example` and the config labels. Run the kit's unit tests too
+     (`cd kit && python3 -m unittest`);
+   - writes the changelog entry in `kit/CHANGELOG.md`: newest first, headed
+     `## vX.Y.Z — YYYY-MM-DD`, with a `Pins:` line (Cerea, Pystino, Authelia), saying what a person
+     running the kit sees and any step an upgrade needs on their side (re-running the install line
+     on agent machines, pressing Save once, and so on).
+2. **CI green** on that commit: `ci` and `kit` run on every push to `main`; push, then wait.
+3. **Tag** it, annotated, `vX.Y.Z` (message `vX.Y.Z — Cerea X.Y.Z, Pystino P.Q.R`), and push the
+   tag. Tags are never moved.
+4. **The `images` workflow** on the tag: `gh workflow run images.yml --ref vX.Y.Z`, then wait for
+   green. It publishes `ghcr.io/paoloviviani/cerea:X.Y.Z` (and `:X.Y`); the package is public.
+5. **Anonymous pull:** `docker pull` of the Cerea image and of the Pystino images the kit pins,
+   with `DOCKER_CONFIG` pointing at an empty directory.
+6. **Fresh-kit end-to-end test**, from the tag, the way an operator gets it:
+   `get-kit.sh --repo <this repository> --version vX.Y.Z --dir <scratch>`, then in `<scratch>/kit`
+   `./configure --non-interactive` with a scratch origin and project name, `docker compose pull`
+   (with the empty Docker login), `up -d --wait`, a check that the running containers carry the new
+   tags, and a real sign-in through the identity provider, the gateway and the chat to
+   `/chat/code`: from a Pystino checkout, `uv run python deploy/ci/e2e_login.py <scratch>/kit
+<first-sign-in password> --chat` must print exactly `E2E_OK`. Then remove the scratch stack with
+   its volumes and check they are gone.
+7. **Fast-forward `stable` to the tag**, only now: `git push origin vX.Y.Z^{}:refs/heads/stable`
+   (a fast-forward; never `--force`). Operators follow `stable` or a tag, **never `main`**, and
+   `get-kit.sh` is served from `stable`.
 
-**Versions** are `MAJOR.MINOR.PATCH` in `package.json`, one annotated `vX.Y.Z` tag
-per release, never moved. A change to galopin ships with the image (the image
-builds it from `agent/`): machines pick it up when their owner re-runs the
-install line from the pairing dialog, and the changelog says when they must.
-When a Pystino release is paired with a Cerea one, Pystino's `deploy/release.env`
-names the Cerea version it was tested with.
+If step 4, 5 or 6 fails, `stable` stays where it was: fix forward and release the next patch
+(`vX.Y.Z+1`); do not move or delete the tag. A kit-only fix is a Cerea patch release too.
+`get-kit.sh` with no `--version` installs the tag `stable` points at, so a tag that has not yet
+passed step 6 is never picked up by default.
+
+**Versions** are `MAJOR.MINOR.PATCH` in `package.json`, one annotated `vX.Y.Z` tag per release,
+never moved. A change to galopin ships with the image (the image builds it from `agent/`):
+machines pick it up when their owner re-runs the install line from the pairing dialog, and the
+changelog says when they must. When a Pystino release is paired with a Cerea one, Pystino's
+`deploy/release.env` names the Cerea version it was tested with. Between releases `main` may pin
+a `sha-<hex>` image (`tools/pin --cerea sha-<hex>`) for a commit that has no release yet; that is
+why operators never follow `main`.
 
 ## Documentation
 
@@ -320,9 +473,11 @@ uv run --with-requirements docs/requirements.txt mkdocs build --strict
 uv run --with-requirements docs/requirements.txt mkdocs serve
 ```
 
-Its **The deploy kit** page includes cerea-deploy's `README.md` from a sibling
-checkout, `../cerea-deploy/README.md`, and the strict build fails if that checkout is
-missing. The `docs` workflow downloads the kit's `main` README at build time.
+Its **The deploy kit** page includes the kit's `README.md` from this repository
+(`kit/README.md`; `pymdownx.snippets` in `mkdocs.yml`), and the strict build fails if the
+file is missing. A change to it republishes the site (the `docs` workflow watches it). Keep
+that README's links absolute for files outside it, because relative ones break on the site, and
+check the sections you link to: strict fails on a broken anchor.
 **Check every claim that names a setting, a variable, a flag, a route, a label or a
 default against the code** before you commit it; write plainly and concretely.
 This page, **Development**, is `CONTRIBUTING.md` included into the site, so write
