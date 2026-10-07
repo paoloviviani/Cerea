@@ -115,9 +115,6 @@ services:
       # Operator and component snippets (*.caddy), imported inside the site
       # block. Git ignores them, so `git pull` never conflicts with yours.
       - ./proxy.d:/etc/caddy.d:ro
-      # The two mkdocs documentation sites, served on /docs/* by a proxy.d
-      # snippet. Built on this box into ./docs-site/; read-only here.
-      - ./docs-site:/srv/cerea/docs-site:ro
     depends_on:
       gateway:
         condition: service_started

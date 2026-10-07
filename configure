@@ -1111,19 +1111,6 @@ def reachable(host: str, port: int, timeout: float = 4.0) -> bool:
         return False
 
 
-def registry_login_state(registry: str) -> str:
-    """ok | missing | unknown (a credential store we cannot see into)."""
-    host = registry.split("/", 1)[0]
-    config = Path(os.environ.get("DOCKER_CONFIG") or Path.home() / ".docker") / "config.json"
-    try:
-        data = json.loads(config.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return "missing"
-    if host in (data.get("auths") or {}) or host in (data.get("credHelpers") or {}):
-        return "ok"
-    return "unknown" if data.get("credsStore") else "missing"
-
-
 def check_values(values: dict, report: Report) -> None:
     """Everything that can be said from .env alone."""
     profiles = {p for p in values.get("COMPOSE_PROFILES", "").split(",") if p}
@@ -1345,17 +1332,6 @@ def check_host(values: dict, report: Report, *, root: Path, network: bool) -> No
                 probe = _run(["docker", "image", "inspect", image], timeout=20)
                 if probe is not None and probe.returncode != 0:
                     report.errors.append(f"{image} is not on this host: run dev/build.sh")
-            registries = {i.split("/", 1)[0] for i in images if i.startswith("ghcr.io/paoloviviani/")}
-            for registry in registries:
-                state = registry_login_state(registry)
-                if state == "missing":
-                    report.warnings.append(
-                        f"this host is not logged in to {registry}. If the images are private, "
-                        "`docker compose pull` answers 'denied': log in once with a token that has "
-                        "read:packages (echo $TOKEN | docker login ghcr.io -u <user> --password-stdin)"
-                    )
-                elif state == "unknown":
-                    report.notes.append(f"a credential store hides whether {registry} is logged in")
 
     if not network:
         report.notes.append("--offline: DNS and port checks skipped")
