@@ -24,8 +24,9 @@ greeting that means both _buongiorno_ and _arrivederci_.
   Authentik and the like).
 - **Web search**, run by the deployment's search backends through the gateway,
   with the backend chosen in Administration → Web search (the gateway can also meter provider-side search where a model offers it).
-- **File upload and extraction**: PDFs, Office documents, images and text,
-  read once at upload by the gateway, which can do it inside your deployment.
+- **File upload and extraction**: PDFs, Office documents (old `.doc` too), images
+  and text, read once at upload by the gateway, which can do it inside your
+  deployment. Scanned PDFs reach a model that sees images as page images.
 - **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no
   network access.
 - **Knowledge bases and projects**, shareable with people or groups, with an
@@ -83,29 +84,24 @@ on the deployment. See [docs/code-panel.md](docs/code-panel.md) (operators),
 ## Development
 
 ```sh
-npm ci
+npm ci                    # also installs the git hooks (husky)
 cp .env .env.local        # then set OPENAI_BASE_URL, OPENAI_API_KEY and friends
 npm run dev               # http://localhost:5173
 npm run check && npm run lint
 ```
 
-**Tests.** Vitest needs a MongoDB; on a CPU without AVX the in-memory one
-cannot start, so point it at a real one (4.4 works):
-
-```sh
-TEST_MONGODB_URL=mongodb://127.0.0.1:27017/ npx vitest run --project=server --project=ssr --no-file-parallelism
-```
-
-End-to-end tests: `npx playwright test`, which builds the app and starts its
-own MongoDB. `E2E_APP_PORT`, `E2E_MONGO_PORT` and `E2E_APP_BASE` move them;
-`E2E_SKIP_BUILD=1` reuses an existing `build/`.
+Tests: `npm run test` (server and ssr Vitest projects; on a CPU without AVX point
+them at a real MongoDB with `TEST_MONGODB_URL` and add `--no-file-parallelism`),
+`npm run test:client` (the component tests, in a real browser), `npx playwright test`
+(end to end; `E2E_SKIP_BUILD=1` reuses `build/`) and `cd agent && go test ./...`
+(galopin, which needs Go 1.24+). Toolchains, git hooks, every test layer, CI,
+releasing and the repository's conventions are in
+[CONTRIBUTING.md](CONTRIBUTING.md), which is also the
+[Development](https://paoloviviani.github.io/Cerea/development/) page of the
+documentation.
 
 **The image** fixes SvelteKit's base path at build time, and builds galopin
 too: `docker build --build-arg APP_BASE=/chat -t cerea .`
-
-**galopin** needs Go 1.24+: `agent/packaging/build-dist.sh ~/galopin-dist`
-writes static Linux and macOS binaries with checksums; `cd agent && go test
-./...` runs its tests.
 
 ## Upstream
 
@@ -127,6 +123,7 @@ The documentation is a [mkdocs](https://www.mkdocs.org) site built from `docs/`:
 [browser](docs/browser.md) · [deploy](docs/deploy.md) ·
 [configuration](docs/configuration.md) · [chat-admin](docs/chat-admin.md) ·
 [code-panel](docs/code-panel.md) · [reference](docs/reference.md) ·
+[development](docs/development.md) ·
 [PRIVACY](PRIVACY.md). Build it with
 `uv run --with-requirements docs/requirements.txt mkdocs build --strict`
 (there is no Python project in this repository; the pins are in
