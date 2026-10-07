@@ -56,6 +56,23 @@ COPY --link --chown=1000 . .
 RUN git config --global --add safe.directory /app && \
     npm run build
 
+# Runtime dependencies only. The builder needs the whole tree (vite, svelte-check,
+# the test tooling); the running server needs only `dependencies`, which is what
+# adapter-node leaves as external imports (devDependencies are bundled into
+# build/). Same base and lockfile as the builder, so native packages (sharp,
+# resvg) resolve to the same binaries. `prepare` runs husky, a dev tool, so it
+# is dropped here; no other install script needs a dev dependency.
+FROM node:24 AS prod-deps
+
+WORKDIR /app
+
+COPY --link --chown=1000 package-lock.json package.json ./
+
+RUN --mount=type=cache,target=/app/.npm \
+    npm set cache /app/.npm && \
+    npm pkg delete scripts.prepare && \
+    npm ci --omit=dev
+
 # galopin, the machine agent (agent/): the four binaries the deployment
 # serves at {base}/galopin/*, built with the same flags as
 # agent/packaging/build-dist.sh (static, CGO off, trimpath, stripped).
@@ -107,7 +124,7 @@ ENV BODY_SIZE_LIMIT=15728640
 
 #import the build & dependencies
 COPY --from=builder --chown=1000 /app/build /app/build
-COPY --from=builder --chown=1000 /app/node_modules /app/node_modules
+COPY --from=prod-deps --chown=1000 /app/node_modules /app/node_modules
 COPY --from=builder --chown=1000 /app/server.js /app/server.js
 COPY --from=galopin --chown=1000 /out /app/galopin-dist
 
