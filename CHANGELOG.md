@@ -4,6 +4,13 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.7 — 2026-10-07
+
+Pins: Cerea `0.4.7`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- Cerea 0.4.7: the image ships only runtime dependencies, 1.75 GB instead of
+  2.15 GB on disk. No behaviour change.
+
 ## v0.4.6 — 2026-10-07
 
 Pins: Cerea `0.4.6`, Pystino `0.3.2`, Authelia 4.39.22.
