@@ -51,7 +51,6 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Settings</h1>
-		<p class="text-sm text-gray-500 dark:text-gray-400">Personal preferences for this chat.</p>
 	</header>
 
 	<nav class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700">
