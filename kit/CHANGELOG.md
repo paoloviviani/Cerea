@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.5.1 — 2026-10-07
+
+Pins: Cerea `0.5.1`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **A wider sidebar on desktop** (300px instead of 260px), so chat titles and /code
+  sessions with subagents read better at the larger text size.
+- **Clicking "Projects"** in the sidebar opens the list of projects; **clicking "Chats"**
+  opens a new full-screen list of every chat, with a search on titles (case- and
+  accent-insensitive). The small arrow next to each still expands and collapses it.
+- The conversations index gains the title (rebuilt once at first start; the old
+  index is dropped after the new one is built).
+
 ## v0.5.0 — 2026-10-07
 
 Pins: Cerea `0.5.0`, Pystino `0.3.2`, Authelia 4.39.22.
