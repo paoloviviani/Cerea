@@ -69,6 +69,17 @@ select {
 }
 
 /*
+ * The desktop sidebar's width, in one place. The layout's grid column, the
+ * collapse handle that rides its edge and the width pinned on the nav's
+ * children all read it, so they cannot disagree. It is not a design token
+ * (`tokens.css` is a vendored copy of the console's) and it only means
+ * anything from `md` up: below that the sidebar is a drawer.
+ */
+:root {
+	--nav-width: 300px;
+}
+
+/*
  * The chat's consumption of the vendored tokens: `@theme inline` generates
  * utilities (`bg-surface`, `text-ink-muted`, `rounded-md`, …) that reference
  * the custom properties instead of copying their values — which is why the
