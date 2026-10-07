@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolvePreprompt as resolveWithClock, type PrepromptInput } from "./preprompt";
+import {
+	composeUserPrompt,
+	resolvePreprompt as resolveWithClock,
+	type PrepromptInput,
+} from "./preprompt";
 import { injectArtifactsPrompt } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
 import {
@@ -274,5 +278,62 @@ describe("resolvePreprompt", () => {
 		});
 		expect(outsideMode).not.toContain("# Session budget");
 		expect(outsideMode).not.toContain("Budget=");
+	});
+});
+
+describe("the person's own prompts: global, then custom model, then the conversation's", () => {
+	it("composes them in that order, blank-line separated", () => {
+		expect(
+			composeUserPrompt({
+				globalPrompt: "GLOBAL",
+				customModelPrompt: "CUSTOM",
+				conversationPreprompt: "CONVERSATION",
+			})
+		).toBe("GLOBAL\n\nCUSTOM\n\nCONVERSATION");
+	});
+
+	it("skips empty, whitespace-only and missing parts, leaving no stray blank lines", () => {
+		expect(composeUserPrompt({ globalPrompt: "", customModelPrompt: "CUSTOM" })).toBe("CUSTOM");
+		expect(
+			composeUserPrompt({
+				globalPrompt: "GLOBAL",
+				customModelPrompt: "   \n ",
+				conversationPreprompt: undefined,
+			})
+		).toBe("GLOBAL");
+		expect(composeUserPrompt({})).toBe("");
+		expect(composeUserPrompt({ conversationPreprompt: "CONVERSATION", globalPrompt: "\t" })).toBe(
+			"CONVERSATION"
+		);
+	});
+
+	it("puts them first in the turn's system prompt, ahead of every contract the turn adds", () => {
+		const resolved =
+			resolvePreprompt({
+				globalPrompt: "GLOBAL",
+				customModelPrompt: "CUSTOM",
+				conversationPreprompt: "CONVERSATION",
+				mlAssistant: false,
+				supportsArtifacts: true,
+				skillsPreprompt: "SKILLS",
+			}) ?? "";
+		const at = (needle: string) => resolved.indexOf(needle);
+		expect(at("GLOBAL")).toBe(0);
+		expect(at("GLOBAL")).toBeLessThan(at("CUSTOM"));
+		expect(at("CUSTOM")).toBeLessThan(at("CONVERSATION"));
+		expect(at("CONVERSATION")).toBeLessThan(at(injectExecutionPrompt("").trim().slice(0, 40)));
+		expect(at("CONVERSATION")).toBeLessThan(at("SKILLS"));
+	});
+
+	it("never reaches the ML Assistant preset, which supplies the whole prompt", () => {
+		const resolved =
+			resolvePreprompt({
+				globalPrompt: "GLOBAL",
+				customModelPrompt: "CUSTOM",
+				mlAssistant: true,
+				username: "pngwn",
+			}) ?? "";
+		expect(resolved).not.toContain("GLOBAL");
+		expect(resolved).not.toContain("CUSTOM");
 	});
 });

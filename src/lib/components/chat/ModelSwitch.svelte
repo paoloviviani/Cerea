@@ -6,6 +6,7 @@
 	import { base } from "$app/paths";
 	import type { Model } from "$lib/types/Model";
 	import { error } from "$lib/stores/errors";
+	import { modelLabel } from "$lib/utils/customModelEntries";
 
 	interface Props {
 		models: Model[];
@@ -64,7 +65,7 @@
 			class="rounded-md bg-gray-100 px-2 py-1 max-sm:max-w-32 dark:bg-gray-900"
 		>
 			{#each models as model (model.id)}
-				<option value={model.id}>{model.name}</option>
+				<option value={model.id}>{modelLabel(model)}</option>
 			{/each}
 		</select>
 		<button

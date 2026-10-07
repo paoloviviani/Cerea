@@ -178,3 +178,47 @@ describe("ModelPicker", () => {
 		expect(onclose).toHaveBeenCalled();
 	});
 });
+
+describe("ModelPicker with custom models", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		document.body.innerHTML = "";
+	});
+
+	it("lists a custom model beside the base models, marked custom and naming its base", async () => {
+		setPage({});
+		const custom = {
+			id: "custom:aaaaaaaaaaaaaaaaaaaaaaaa",
+			name: "Menu helper",
+			displayName: "Menu helper",
+			description: "Plans lunches",
+			customBase: { id: "test/llama-4", displayName: "Llama 4 Maverick" },
+		};
+		const { context } = settingsContext();
+		renderWithApp(
+			ModelPicker,
+			{ models: [...MODELS, custom], currentModel: MODELS[0], onclose: vi.fn() } as never,
+			{
+				context: new Map<unknown, unknown>([
+					...context,
+					[CONVERSATIONS_CONTEXT_KEY, { refresh: vi.fn(async () => {}) }],
+				]),
+			}
+		);
+
+		await vi.waitFor(() => expect(rowNamed("Menu helper")).not.toBeNull());
+		const row = rowNamed("Menu helper");
+		// "Menu helper · Llama 4 Maverick", with the custom mark.
+		expect(row?.textContent).toContain("Menu helper");
+		expect(row?.textContent).toContain("· Llama 4 Maverick");
+		expect(row?.textContent).toContain("custom");
+		// The base models are right there with it, unmarked, and the custom id is not shown.
+		expect(rowNamed("Qwen 3 Coder")?.textContent).not.toContain("custom");
+		expect(row?.textContent).not.toContain("custom:aaaa");
+
+		// Searching by the base's name finds the custom model too.
+		await type("maverick");
+		expect(rowNamed("Menu helper")).not.toBeNull();
+		expect(rowNamed("Llama 4 Maverick")).not.toBeNull();
+	});
+});

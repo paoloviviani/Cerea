@@ -25,6 +25,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	conversations: true,
 	projects: true,
 	skills: true,
+	customModels: true, // a person's own named model variants; owner-keyed like settings
 	memories: true,
 	projectMemories: true, // authored by a user; erased with the owning project
 	projectDocuments: true, // added by a user; erased (rows and stored files) with the owning project
@@ -286,6 +287,56 @@ describe("reassignWithRenameOnConflict (skills: rename, never drop)", () => {
 		expect(row?.name).toBe("recipes");
 
 		await collections.skills.deleteMany({ userId: { $in: [stray, target] } });
+	});
+});
+
+describe("customModels: merge renames, erase removes", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	function customModel(userId: ObjectId, name: string) {
+		return {
+			_id: new ObjectId(),
+			userId,
+			name,
+			nameKey: name.toLowerCase(),
+			baseModelId: "test-org/test-model",
+			systemPrompt: "p",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+	}
+
+	it("renames a stray's model whose name the target already has, moving name and key together", async () => {
+		const stray = new ObjectId();
+		const target = new ObjectId();
+		await collections.customModels.insertMany([
+			customModel(stray, "Helper"),
+			customModel(target, "helper"),
+		]);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "customModels");
+		if (!entry) throw new Error("customModels must be registered");
+		expect(await entry.merge(stray, target)).toBe(1);
+
+		const rows = await collections.customModels.find({ userId: target }).toArray();
+		expect(rows.map((r) => r.nameKey).sort()).toEqual(["helper", "helper (merged)"]);
+		await collections.customModels.deleteMany({ userId: { $in: [stray, target] } });
+	});
+
+	it("erases only the erased person's models", async () => {
+		const gone = new ObjectId();
+		const kept = new ObjectId();
+		await collections.customModels.insertMany([customModel(gone, "A"), customModel(kept, "A")]);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "customModels");
+		if (!entry) throw new Error("customModels must be registered");
+		expect(await entry.erase(gone, NO_CONVERSATIONS)).toBe(1);
+
+		expect(await collections.customModels.countDocuments({ userId: gone })).toBe(0);
+		expect(await collections.customModels.countDocuments({ userId: kept })).toBe(1);
+		await collections.customModels.deleteMany({ userId: kept });
 	});
 });
 

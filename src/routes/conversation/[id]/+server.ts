@@ -2,7 +2,12 @@ import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
-import { models, validModelIdSchema } from "$lib/server/models";
+import { validModelIdSchema } from "$lib/server/models";
+import {
+	conversationOwnerFilter,
+	isSelectableModel,
+	resolveConversationModel,
+} from "$lib/server/customModels";
 import { ERROR_MESSAGES } from "$lib/stores/errors";
 import type { Message } from "$lib/types/Message";
 import { error } from "@sveltejs/kit";
@@ -154,8 +159,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		);
 	}
 
-	// fetch the model
-	const model = models.find((m) => m.id === conv.model);
+	// fetch the model. A conversation on a custom model runs on its base: this
+	// is where `custom:<id>` stops, so everything below (the endpoint, the
+	// capability gates, the metrics) sees a catalogue model. A custom model
+	// that is gone falls back instead of failing the turn.
+	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
 
 	if (!model) {
 		error(410, "Model not available anymore");
@@ -922,7 +930,7 @@ export async function PATCH({ request, locals, params }) {
 	const values = z
 		.object({
 			title: z.string().trim().min(1).max(100).optional(),
-			model: validModelIdSchema.optional(),
+			model: z.string().optional(),
 			webSearch: z.boolean().optional(),
 			toolApprovalOverride: z.enum(["always-allow", "manual"]).optional(),
 			reasoningEffort: z.enum(["low", "medium", "high"]).nullable().optional(),
@@ -946,6 +954,17 @@ export async function PATCH({ request, locals, params }) {
 
 	if (!conv) {
 		error(404, "Conversation not found");
+	}
+
+	if (
+		values.model !== undefined &&
+		!(await isSelectableModel(
+			values.model,
+			conversationOwnerFilter(conv),
+			(id) => validModelIdSchema.safeParse(id).success
+		))
+	) {
+		error(400, "Invalid model ID");
 	}
 
 	await applyConversationSettings(

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
+import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -31,8 +32,9 @@ const settingsSchema = z.object({
 	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
-	customPrompts: z.record(z.string()).default({}),
-	customPromptsEnabled: z.record(z.boolean()).default({}),
+	// Unknown keys are stripped, so an old client still posting the retired
+	// per-model `customPrompts` / `customPromptsEnabled` is ignored, not refused.
+	globalSystemPrompt: z.string().max(GLOBAL_SYSTEM_PROMPT_MAX).optional(),
 	multimodalOverrides: z.record(z.boolean()).default({}),
 	toolsOverrides: z.record(z.boolean()).default({}),
 	artifactsOverrides: z.record(z.boolean()).default({}),

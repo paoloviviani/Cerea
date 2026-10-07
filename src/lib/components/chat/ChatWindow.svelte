@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import type { Message } from "$lib/types/Message";
 	import { onDestroy, untrack } from "svelte";
 
@@ -213,7 +214,7 @@
 			title: conversationTitle,
 			conversationId: id,
 			messages,
-			model: currentModel.displayName,
+			model: modelLabel(currentModel),
 		});
 		downloadMarkdown(exportFilename(conversationTitle, id), markdown);
 	}
@@ -535,20 +536,22 @@
 	});
 
 	const settings = useSettingsStore();
-	let hideRouterExamples = $derived($settings.hidePromptExamples?.[currentModel.id] ?? false);
+	// Per-model settings are the base's: a custom model inherits every knob.
+	let settingsKey = $derived(settingsModelId(currentModel));
+	let hideRouterExamples = $derived($settings.hidePromptExamples?.[settingsKey] ?? false);
 
 	// Respect per‑model multimodal toggle from settings (force enable)
-	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[currentModel.id]);
+	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[settingsKey]);
 	let modelIsMultimodal = $derived((modelIsMultimodalOverride ?? currentModel.multimodal) === true);
 
 	// Determine tool support for the current model (server-provided capability with user override)
 	let modelSupportsTools = $derived(
-		($settings.toolsOverrides?.[currentModel.id] ??
+		($settings.toolsOverrides?.[settingsKey] ??
 			(currentModel as unknown as { supportsTools?: boolean }).supportsTools) === true
 	);
 
 	// Get provider override for the current model (HuggingChat only)
-	let providerOverride = $derived($settings.providerOverrides?.[currentModel.id]);
+	let providerOverride = $derived($settings.providerOverrides?.[settingsKey]);
 	let hasProviderOverride = $derived(
 		providerOverride && providerOverride !== "auto" && !currentModel.isRouter
 	);
@@ -625,14 +628,19 @@
 	let pickerModels = $derived(
 		models
 			.filter((m) => !m.unlisted)
-			.map((m) => ({ id: m.id, name: m.displayName ?? m.id, description: m.description }))
+			.map((m) => ({
+				id: m.id,
+				name: m.displayName ?? m.id,
+				description: m.description,
+				baseName: m.customBase?.displayName,
+			}))
 	);
 	let recentIds = $state<string[]>([]);
 	$effect(() => {
 		recentIds = readRecent(globalThis.localStorage);
 	});
 	let modelThinks = $derived(
-		$settings.reasoningOverrides?.[currentModel.id] ?? currentModel.supportsReasoning ?? false
+		$settings.reasoningOverrides?.[settingsKey] ?? currentModel.supportsReasoning ?? false
 	);
 	let effortLevels = $derived(modelThinks ? ["low", "medium", "high"] : null);
 	// The conversation's choice, as the page loaded it and as picked since.
@@ -645,7 +653,7 @@
 		chatEffort({
 			preset: mlModeOn ? ML_ASSISTANT_EFFORT : undefined,
 			conversation: pickedEffort ? (pickedEffort.value ?? undefined) : conversationEffort,
-			userDefault: $settings.reasoningEffortOverrides?.[currentModel.id],
+			userDefault: $settings.reasoningEffortOverrides?.[settingsKey],
 		})
 	);
 
@@ -682,8 +690,8 @@
 		const convId = page.params?.id;
 		if (!convId) {
 			const next = { ...($settings.reasoningEffortOverrides ?? {}) };
-			if (value === null) delete next[currentModel.id];
-			else next[currentModel.id] = value;
+			if (value === null) delete next[settingsKey];
+			else next[settingsKey] = value;
 			settings.instantSet({ reasoningEffortOverrides: next });
 			return;
 		}
@@ -1300,7 +1308,7 @@
 							     caret and sits under the composer, so it reads as "change what
 							     this chat runs on" — which is what it now does. The Models
 							     dialog is a management surface: it sets the *default* and edits
-							     per-model prompts, so reaching it from here meant the only way
+							     per-model settings, so reaching it from here meant the only way
 							     to move one conversation was to change every future one. -->
 							<ModelEffortPicker
 								models={pickerModels}
@@ -1328,7 +1336,7 @@
 											class="size-3 flex-none rounded-sm border bg-white dark:border-gray-700"
 										/>
 									{/if}
-									<span class="truncate">{currentModel.displayName}</span>
+									<span class="truncate">{modelLabel(currentModel)}</span>
 									{#if hasProviderOverride}
 										{@const hubOrg =
 											PROVIDERS_HUB_ORGS[providerOverride as keyof typeof PROVIDERS_HUB_ORGS]}

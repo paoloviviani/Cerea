@@ -31,8 +31,6 @@ function settingsContext() {
 				"settings",
 				writable({
 					activeModel: "test/model",
-					customPrompts: {},
-					customPromptsEnabled: {},
 					multimodalOverrides: {},
 					toolsOverrides: {},
 					artifactsOverrides: {},
@@ -113,10 +111,29 @@ describe("the workspace panel", () => {
 		);
 		const screen = mountWorkspace("?tab=models&id=test/model");
 
-		// The detail view, not the list: the model's own settings.
+		// The detail view, not the list: the model's own settings. (The per-model
+		// system prompt that used to head it is gone.)
 		await expect
-			.element(screen.getByRole("heading", { name: "System prompt" }))
+			.element(screen.getByRole("heading", { name: "What it may do" }))
 			.toBeInTheDocument();
+		expect(screen.baseElement.textContent).not.toContain("System prompt");
+	});
+
+	it("renders Customize models on ?tab=custom, and links it from the tab bar", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({ data: [] }))
+		);
+		const screen = mountWorkspace("?tab=custom");
+
+		await expect
+			.element(screen.getByRole("heading", { name: "Customize models", level: 2 }))
+			.toBeInTheDocument();
+		expect(screen.baseElement.textContent).toContain("Global system prompt");
+		expect(screen.baseElement.querySelector('a[href="/workspace?tab=custom"]')).not.toBeNull();
+		expect(
+			screen.baseElement.querySelector('a[href="/workspace?tab=custom"][aria-current="page"]')
+		).not.toBeNull();
 	});
 
 	it("the tab bar links the three addresses, marking the active one", () => {

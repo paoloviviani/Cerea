@@ -1,3 +1,4 @@
+import { conversationOwnerFilter, resolveConversationModel } from "$lib/server/customModels";
 import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { randomUUID } from "crypto";
 import { collections } from "$lib/server/database";
@@ -5,7 +6,6 @@ import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { onExit } from "$lib/server/exitHandler";
-import { models } from "$lib/server/models";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { textGeneration } from "$lib/server/textGeneration";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
@@ -218,7 +218,8 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 		return abandon(park, "no parked assistant message to resume");
 	}
 
-	const model = models.find((m) => m.id === conv.model);
+	// A custom model resumes on its base, like a fresh turn (`resolveConversationModel`).
+	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
 	if (!model) return abandon(park, `model ${conv.model} is no longer available`);
 
 	const { locals, settings, tokenExpired } = await rebuildIdentity(park);

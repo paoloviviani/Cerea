@@ -1,5 +1,6 @@
 <!--
 	The workspace: models, MCP servers and knowledge bases as tabs of one page.
+	(Later joined by Customize models, skills and memory.)
 
 	The three managers were overlays, each opened from a different corner of the
 	app (sidebar rows, the composer, the models list) and each mounted wherever
@@ -9,7 +10,7 @@
 	(`overlay/styles.ts`); only the overlay shell is gone, replaced by the card
 	this panel draws around whichever tab is showing.
 
-	**The tab and the item are the address.** `?tab=models|mcp|kb` picks the
+	**The tab and the item are the address.** `?tab=models|custom|mcp|kb|skills|memory` picks the
 	tab, an `?id=` opens one item's own view — so the programmatic openers that
 	used to open an overlay navigate here instead, and old `/knowledge/…` links
 	redirect to `?tab=kb&id=…`. `id` is read once by
@@ -23,6 +24,7 @@
 	import type { LayoutData } from "../../../routes/$types";
 
 	import ModelsManager from "$lib/components/models/ModelsManager.svelte";
+	import CustomModelsManager from "$lib/components/models/CustomModelsManager.svelte";
 	import MCPServerManager from "$lib/components/mcp/MCPServerManager.svelte";
 	import KnowledgeManager from "$lib/components/knowledge/KnowledgeManager.svelte";
 	import SkillsManager from "$lib/components/skills/SkillsManager.svelte";
@@ -32,6 +34,7 @@
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import IconDocument from "~icons/carbon/document";
 	import LucideBrain from "~icons/lucide/brain";
+	import LucideSparkles from "~icons/lucide/sparkles";
 
 	interface Props {
 		data: LayoutData;
@@ -52,6 +55,7 @@
 	// Models.
 	const ALL_TABS = [
 		{ key: "models", label: "Models" },
+		{ key: "custom", label: "Customize models" },
 		{ key: "mcp", label: "MCP Servers" },
 		{ key: "kb", label: "Knowledge" },
 		{ key: "skills", label: "Skills" },
@@ -77,7 +81,7 @@
 	// whichever of the two switches a deployment has turned off.
 	const subtitle = $derived(
 		[
-			"Models, MCP servers",
+			"Models (and your own variants of them), MCP servers",
 			data.knowledgeEnabled !== false ? ", knowledge bases" : "",
 			" and skills",
 			data.memoryEnabled !== false ? ", plus what the assistant remembers about you" : "",
@@ -126,6 +130,8 @@
 			>
 				{#if t.key === "models"}
 					<LucideBoxes class="size-4" />
+				{:else if t.key === "custom"}
+					<LucideSparkles class="size-4" />
 				{:else if t.key === "mcp"}
 					<IconMCP classNames="size-4" />
 				{:else if t.key === "kb"}
@@ -152,6 +158,12 @@
 				<ModelsManager
 					models={data.models}
 					mlAssistantModels={data.mlAssistantModels ?? []}
+					initialId={initialItemId}
+				/>
+			{:else if tab === "custom"}
+				<CustomModelsManager
+					models={data.models}
+					customModels={data.customModels ?? []}
 					initialId={initialItemId}
 				/>
 			{:else if tab === "mcp"}

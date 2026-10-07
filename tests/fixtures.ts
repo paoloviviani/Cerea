@@ -83,6 +83,7 @@ const MUTABLE_COLLECTIONS = [
 	"messageEvents",
 	"reports",
 	"settings",
+	"customModels",
 	"sessions",
 	"users",
 	"codeDevices",

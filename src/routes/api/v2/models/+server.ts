@@ -2,8 +2,8 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { serializeModelSummary } from "$lib/server/api/utils/serializeModel";
 import type { GETModelsResponse } from "$lib/server/api/types";
-import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
+import { visibleModels } from "$lib/server/visibleModels";
 
 /**
  * The models this caller may actually use.
@@ -36,68 +36,10 @@ import { logger } from "$lib/server/logger";
 // way to serve one person's models to another.
 const MODELS_CACHE_HEADERS = { "Cache-Control": "private, max-age=60" };
 
-/**
- * The ids this token can reach, or null if we could not find out.
- *
- * Null and empty are different answers and the caller below treats them
- * differently: empty means the gateway said this person has no models, null
- * means we failed to ask.
- */
-async function reachableIds(bearer: string): Promise<Set<string> | null> {
-	const base = config.OPENAI_BASE_URL?.replace(/\/$/, "");
-	if (!base) return null;
-	try {
-		const response = await fetch(`${base}/models`, {
-			headers: { Authorization: `Bearer ${bearer}` },
-			// A page load is waiting on this. A gateway that has stopped
-			// answering should degrade to the unfiltered list quickly rather
-			// than hold the layout open until the platform's default timeout.
-			signal: AbortSignal.timeout(5_000),
-		});
-		if (!response.ok) {
-			logger.warn(
-				{ status: response.status },
-				"[models] Per-caller catalogue fetch refused; showing the unfiltered list"
-			);
-			return null;
-		}
-		const json = (await response.json()) as { data?: { id?: unknown }[] };
-		const ids = (json.data ?? [])
-			.map((entry) => entry.id)
-			.filter((id): id is string => typeof id === "string");
-		return new Set(ids);
-	} catch (error) {
-		logger.warn(error, "[models] Could not read the per-caller catalogue");
-		return null;
-	}
-}
-
 export const GET: RequestHandler = async ({ locals }) => {
 	try {
-		const { ensureModelsFresh } = await import("$lib/server/models");
-		const catalogue = (await ensureModelsFresh()).filter((model) => model.unlisted == false);
-
-		// No OIDC token means there is nobody to filter *for* — an anonymous or
-		// development session. It sees the deployment's list, which is what
-		// every session saw before this endpoint learned to filter at all.
-		const bearer = locals.token;
-		if (!bearer) {
-			return superjsonResponse(catalogue.map(serializeModelSummary) satisfies GETModelsResponse, {
-				headers: MODELS_CACHE_HEADERS,
-			});
-		}
-
-		const reachable = await reachableIds(bearer);
-		// **Falling back to the unfiltered list is deliberate.** If the gateway
-		// could not be asked, showing everything is a slightly generous answer
-		// that the gateway itself still refuses at send time; showing nothing
-		// would tell somebody they have no models at all, which is the worse
-		// lie and looks like their account has broken.
-		const shown = reachable ? catalogue.filter((model) => reachable.has(model.id)) : catalogue;
-
-		const summaries = shown.map(serializeModelSummary);
-
-		return superjsonResponse(summaries satisfies GETModelsResponse, {
+		const shown = await visibleModels(locals);
+		return superjsonResponse(shown.map(serializeModelSummary) satisfies GETModelsResponse, {
 			headers: MODELS_CACHE_HEADERS,
 		});
 	} catch (error) {

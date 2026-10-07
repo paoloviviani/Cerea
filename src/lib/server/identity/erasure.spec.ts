@@ -278,6 +278,16 @@ describe("runErasure", () => {
 			content: "c",
 			createdAt: new Date(),
 		} as never);
+		await collections.customModels.insertOne({
+			_id: new ObjectId(),
+			userId: user._id,
+			name: "Menu helper",
+			nameKey: "menu helper",
+			baseModelId: "m",
+			systemPrompt: "p",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
 		const deviceId = new ObjectId();
 		await collections.codeDevices.insertOne({
 			_id: deviceId,
@@ -301,10 +311,12 @@ describe("runErasure", () => {
 		expect(result.counts.conversations).toBe(1);
 		expect(result.counts.memories).toBe(1);
 		expect(result.counts.codeDevices).toBe(1);
+		expect(result.counts.customModels).toBe(1);
 		expect(result.counts.users).toBe(1);
 
 		expect(await collections.conversations.findOne({ _id: conversationId })).toBeNull();
 		expect(await collections.memories.findOne({ userId: user._id })).toBeNull();
+		expect(await collections.customModels.findOne({ userId: user._id })).toBeNull();
 		expect(await collections.codeDevices.findOne({ _id: deviceId })).toBeNull();
 		expect(await collections.users.findOne({ _id: user._id })).toBeNull();
 

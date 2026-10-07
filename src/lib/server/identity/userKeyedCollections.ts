@@ -191,6 +191,41 @@ async function reassignWithRenameOnConflict<T extends Document>(
 	return moved;
 }
 
+/** `customModels`: the unique key is `{userId, nameKey}`, so a rename has to
+ * move `nameKey` with `name` (`reassignWithRenameOnConflict` only moves one
+ * field). Content, so a clash is renamed " (merged)", " (merged 2)"… and never
+ * dropped. */
+async function reassignCustomModels(stray: ObjectId, target: ObjectId): Promise<number> {
+	const rows = await collections.customModels.find({ userId: stray }).toArray();
+	let moved = 0;
+	for (const row of rows) {
+		for (let suffix = 0; ; suffix++) {
+			const name =
+				suffix === 0
+					? row.name
+					: suffix === 1
+						? `${row.name} (merged)`
+						: `${row.name} (merged ${suffix})`;
+			try {
+				await collections.customModels.updateOne(
+					{ _id: row._id },
+					{ $set: { userId: target, name, nameKey: name.toLowerCase() } }
+				);
+				moved++;
+				break;
+			} catch (err) {
+				if (!isDuplicateKeyError(err)) throw err;
+				if (suffix > 1000) {
+					throw new Error(
+						`reassignCustomModels: no unique name for "${row.name}" after 1000 attempts`
+					);
+				}
+			}
+		}
+	}
+	return moved;
+}
+
 async function ownedProjectIds(userId: ObjectId): Promise<ObjectId[]> {
 	const rows = await collections.projects
 		.find({ userId })
@@ -522,6 +557,17 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		ownerField: "ownerId",
 		merge: (stray, target) => reassignSimple(collections.vectorStores, "ownerId", stray, target),
 		erase: (userId) => eraseByField(collections.vectorStores, "ownerId", userId),
+	},
+	{
+		name: "customModels",
+		owner: "userId (anonymous sessions: sessionId, never merged)",
+		mergeRule: "reassign-unique-rename",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// Unique on {userId, nameKey}: a stray's model can share a name with one
+		// the target already has. Content, like a skill, so renamed not dropped.
+		merge: (stray, target) => reassignCustomModels(stray, target),
+		erase: (userId) => eraseByField(collections.customModels, "userId", userId),
 	},
 	{
 		name: "skills",

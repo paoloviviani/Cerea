@@ -1,5 +1,6 @@
 import { config } from "$lib/server/config";
 import { generateFromDefaultEndpoint } from "$lib/server/generateFromDefaultEndpoint";
+import { isCustomModelId } from "$lib/utils/customModelId";
 import { logger } from "$lib/server/logger";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import type { Conversation } from "$lib/types/Conversation";
@@ -16,7 +17,13 @@ export async function* generateTitleForConversation(
 		if (conv.title !== "New Chat" || !userMessage) return;
 
 		const prompt = userMessage.content;
-		const modelForTitle = config.TASK_MODEL?.trim() ? config.TASK_MODEL : conv.model;
+		// Never the custom id, which the gateway has not heard of, and never the
+		// person's prompts: a title is an internal completion, not a chat turn.
+		const modelForTitle = config.TASK_MODEL?.trim()
+			? config.TASK_MODEL
+			: isCustomModelId(conv.model)
+				? await baseModelOf(conv)
+				: conv.model;
 		const title = (await generateTitle(prompt, modelForTitle, locals)) ?? "New Chat";
 
 		yield {
@@ -26,6 +33,12 @@ export async function* generateTitleForConversation(
 	} catch (cause) {
 		logger.error(cause, "Failed while generating title for conversation");
 	}
+}
+
+/** Loaded on demand: only a custom model needs the database to name its base. */
+async function baseModelOf(conv: Conversation): Promise<string> {
+	const { baseModelIdFor, conversationOwnerFilter } = await import("$lib/server/customModels");
+	return baseModelIdFor(conv.model, conversationOwnerFilter(conv));
 }
 
 async function generateTitle(

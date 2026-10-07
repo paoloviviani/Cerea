@@ -1,4 +1,5 @@
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import { isCustomModelId } from "$lib/utils/customModelId";
 
 /**
  * Which models the panel may offer and drive on a machine.
@@ -17,6 +18,9 @@ export function isGatewayModel(modelId: string): boolean {
 }
 
 export function allowsModel(device: Pick<CodeDevice, "policy">, modelId: string): boolean {
+	// Custom models are chat-only: a person's own prompt-plus-base variant has no
+	// meaning on a machine, and "free models allowed" must not read as "any id".
+	if (isCustomModelId(modelId)) return false;
 	return device.policy?.allowFreeModels === true || isGatewayModel(modelId);
 }
 

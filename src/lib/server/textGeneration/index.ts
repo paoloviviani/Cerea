@@ -18,6 +18,7 @@ import { modelReadsImages } from "./utils/modelReadsImages";
 import { resolvePreprompt } from "./preprompt";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
+import { userPromptsFor } from "./userPrompts";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -121,8 +122,16 @@ async function* textGenerationWithoutTitle(
 		logger.warn({ err: String(err) }, "[skills] skill context failed; continuing without it");
 	}
 
+	// The person's own prompts for this chat turn. Read here, from the
+	// conversation's owner, rather than passed in: this function is the chat
+	// pipeline (the /code panel and title generation never reach it), and the
+	// parked-turn sweepers resume through it with no request to carry them.
+	const { globalPrompt, customModelPrompt } = await userPromptsFor(conv);
+
 	let preprompt = resolvePreprompt({
 		conversationPreprompt: conv.preprompt,
+		globalPrompt,
+		customModelPrompt,
 		mlAssistant,
 		artifactsOverride: ctx.artifactsOverride,
 		supportsArtifacts: ctx.model.supportsArtifacts,
