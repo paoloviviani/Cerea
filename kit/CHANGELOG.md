@@ -2,7 +2,25 @@
 
 All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
-shipped.
+shipped. Since the kit moved into the Cerea repository (see Unreleased), a
+release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
+
+## Unreleased
+
+- **The kit now lives in the Cerea repository**, in `kit/`, with its history. One Cerea
+  tag `vX.Y.Z` is the kit's version, and `stable` (a branch of the Cerea repository, moved
+  to a release only after its fresh-install test passes) is what operators follow; never
+  `main`. The `cerea-deploy` repository is frozen at v0.4.8.
+- **`kit/get-kit.sh`** installs the kit as a shallow, sparse checkout of just `kit/`
+  (needs only `git` and `sh`): `curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh | sh`.
+  You work in `cerea/kit`. `--upgrade` moves a checkout to a newer release and keeps `.env`,
+  `compose.override.yaml`, `proxy.d/*.caddy`, `first-sign-in.txt` and backups.
+- **Moving from a `cerea-deploy` clone:** `get-kit.sh --from /path/to/cerea-deploy --dir /path/to/cerea`
+  copies your operator files and pins the compose project name, so the same volumes
+  are reused and no data is lost; then `docker compose down` (no `-v`) in the old
+  directory and `docker compose up -d --wait` in the new `kit/`. See "Moving from a
+  `cerea-deploy` install" in the README.
+- `tools/diagnose`'s report names the "deploy kit release" instead of "cerea-deploy describe".
 
 ## v0.4.8 — 2026-10-07
 

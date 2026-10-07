@@ -115,12 +115,18 @@ if [ -d "$REPO" ]; then
 	REPO=file://$(cd "$REPO" && pwd -P)
 fi
 
-# Absolute, without a trailing slash, so messages and cleanup are unambiguous.
+# Absolute, with no trailing slash and no ./ parts, so messages and cleanup are
+# unambiguous.
 absolute() {
 	case $1 in
 	/*) p=$1 ;;
 	*) p=$PWD/$1 ;;
 	esac
+	while :; do
+		q=$(printf '%s\n' "$p" | sed -e 's#/\./#/#g' -e 's#//*#/#g' -e 's#/\.$##')
+		[ "$q" != "$p" ] || break
+		p=$q
+	done
 	while [ "${p%/}" != "$p" ] && [ "$p" != / ]; do p=${p%/}; done
 	printf '%s\n' "$p"
 }
@@ -272,8 +278,13 @@ trap 'exit 1' HUP INT TERM
 
 say "Fetching $VERSION from $REPO into $DIR (only kit/ is checked out) ..."
 started=1
-git clone --quiet --filter=blob:none --no-checkout --depth 1 --branch "$VERSION" "$REPO" "$DIR" ||
+# (git 2.53 warns "refs/tags/vX is not a commit!" for a --no-checkout clone of an
+# annotated tag; the checkout below is fine, so that one line is not shown.)
+if ! out=$(git clone --quiet --filter=blob:none --no-checkout --depth 1 --branch "$VERSION" "$REPO" "$DIR" 2>&1); then
+	printf '%s\n' "$out" >&2
 	die "git clone failed"
+fi
+printf '%s\n' "$out" | grep -v '^warning: refs/tags/.* is not a commit!$' || true
 git -C "$DIR" config --local cerea.getkit 1
 # Non-cone mode on purpose: cone mode also checks out every file in the
 # repository's top directory, and the operator needs kit/ and nothing else.

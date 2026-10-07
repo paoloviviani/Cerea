@@ -1142,7 +1142,7 @@ def check_values(values: dict, report: Report) -> None:
         if values.get(key) and registry != "local":
             report.warnings.append(
                 f"{key}={values[key]} overrides the version compose.yaml pins; upgrades "
-                "by `git pull` will not move it. Remove it unless that is intended"
+                "by get-kit.sh --upgrade will not move it. Remove it unless that is intended"
             )
 
     origin = values.get("PUBLIC_ORIGIN", "")

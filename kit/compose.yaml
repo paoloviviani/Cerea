@@ -6,7 +6,7 @@
 #
 # Every service names an image; nothing here builds. The images this release
 # was tested with are the defaults below, so an install never names a version:
-# upgrading is `git pull && docker compose pull && docker compose up -d`.
+# upgrading is `sh get-kit.sh --upgrade`, then `docker compose pull && docker compose up -d`.
 # dev/build.sh builds the same images from source and points .env at them.
 #
 # Add-ons are compose profiles chosen by COMPOSE_PROFILES in .env: gateway,
@@ -109,11 +109,11 @@ services:
       - caddy-data:/data
       - caddy-config:/config
       # Directories, never single files: a directory mount sees new and
-      # renamed files, so neither `git pull` nor a component adding a route
+      # renamed files, so neither an upgrade nor a component adding a route
       # meets the stale inode a single-file mount pins.
       - ./caddy:/etc/caddy:ro
       # Operator and component snippets (*.caddy), imported inside the site
-      # block. Git ignores them, so `git pull` never conflicts with yours.
+      # block. Git ignores them, so an upgrade never conflicts with yours.
       - ./proxy.d:/etc/caddy.d:ro
     depends_on:
       gateway:

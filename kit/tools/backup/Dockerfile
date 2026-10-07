@@ -12,7 +12,7 @@
 # sqlite (a consistent copy of Authelia's database) and GNU tar.
 #
 # Built by compose, from the override (see the README): `docker compose build
-# backup`, or `docker compose up -d --build backup` after a `git pull`.
+# backup`, or `docker compose up -d --build backup` after an upgrade.
 FROM restic/restic:0.18.1 AS restic
 FROM rclone/rclone:1.73.0 AS rclone
 
@@ -27,7 +27,7 @@ RUN chmod 0755 /usr/local/bin/cerea-backup \
  && ln -s cerea-backup /usr/local/bin/backup-now \
  && ln -s cerea-backup /usr/local/bin/backup-health
 LABEL org.opencontainers.image.title="cerea-backup" \
-      org.opencontainers.image.description="restic backup sidecar for a cerea-deploy stack"
+      org.opencontainers.image.description="restic backup sidecar for a Cerea deploy kit stack"
 ENV RESTIC_CACHE_DIR=/state/cache
 ENTRYPOINT ["cerea-backup"]
 CMD ["daemon"]
