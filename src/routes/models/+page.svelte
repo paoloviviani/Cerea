@@ -14,6 +14,7 @@
 	import IconCheap from "$lib/components/icons/IconCheap.svelte";
 	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import { useSettingsStore } from "$lib/stores/settings";
+	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
 	interface Props {
@@ -149,8 +150,15 @@
 									class:font-bold={isActive}
 									class:dark:text-white={isActive}
 								>
-									{model.displayName}
+									{modelLabel(model)}
 								</h3>
+								{#if model.customBase}
+									<span
+										class="rounded-full bg-blue-500/10 px-1.5 py-px text-[10px] font-medium text-blue-700 dark:text-blue-400"
+									>
+										custom
+									</span>
+								{/if}
 								{#if ((index === 0 && model.isRouter) || (mlModelsOnly && model.id === data.mlAssistantModels[0])) && !isActive}
 									<span
 										class="rounded-sm border border-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 uppercase dark:border-gray-700 dark:text-gray-400"
@@ -199,7 +207,7 @@
 									</div>
 								{/if}
 							{/if}
-							{#if $settings.toolsOverrides?.[model.id] ?? (model as { supportsTools?: boolean }).supportsTools}
+							{#if $settings.toolsOverrides?.[settingsModelId(model)] ?? (model as { supportsTools?: boolean }).supportsTools}
 								<div
 									title="This model supports tool calling (functions)."
 									class="rounded-md bg-gray-100 p-1.5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
@@ -207,7 +215,7 @@
 									<LucideHammer class="size-3 sm:size-3.5" />
 								</div>
 							{/if}
-							{#if $settings.multimodalOverrides?.[model.id] ?? model.multimodal}
+							{#if $settings.multimodalOverrides?.[settingsModelId(model)] ?? model.multimodal}
 								<div
 									title="This model is multimodal and supports image inputs natively."
 									class="rounded-md bg-gray-100 p-1.5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
@@ -226,8 +234,12 @@
 									// The card is itself a link (to the chat-with-model
 									// route), so the gear stops it and navigates to the
 									// model's own settings in the workspace instead.
+									// A custom model is edited on its own tab.
 									void goto(
-										`${base}/workspace?${new URLSearchParams({ tab: "models", id: model.id })}`
+										`${base}/workspace?${new URLSearchParams({
+											tab: model.customBase ? "custom" : "models",
+											id: model.id,
+										})}`
 									);
 								}}
 							>

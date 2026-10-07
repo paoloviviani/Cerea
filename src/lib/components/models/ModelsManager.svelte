@@ -27,12 +27,14 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
+	import { base } from "$app/paths";
+	import { goto } from "$app/navigation";
+	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import Switch from "$lib/components/Switch.svelte";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconSearch from "~icons/carbon/search";
 	import IconSettings from "~icons/carbon/settings";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
-	import IconReset from "~icons/carbon/reset";
 	import LucideHammer from "~icons/lucide/hammer";
 	import LucideImage from "~icons/lucide/image";
 	import LucideBoxes from "~icons/lucide/boxes";
@@ -52,6 +54,8 @@
 		supportsTools?: boolean;
 		supportsReasoning?: boolean;
 		supportsArtifacts?: boolean;
+		/** Set on a person's own custom model: the catalogue model it runs on. */
+		customBase?: { id: string; displayName: string };
 	}
 
 	/** One switch: what it is called, what it does, and where its value lives. */
@@ -113,6 +117,12 @@
 	}
 
 	function open(model: ModelCard) {
+		// A custom model is edited where it is made: its prompt, base and name live
+		// on the Customize models tab, and it has no settings of its own here.
+		if (model.customBase) {
+			goto(`${base}/workspace?tab=custom&id=${encodeURIComponent(model.id)}`);
+			return;
+		}
 		current = model;
 		view = "detail";
 	}
@@ -125,24 +135,9 @@
 	// ---- one model's own settings -------------------------------------------
 	//
 	// Read and written straight through the settings store, per model id, the
-	// same maps the per-model settings page uses. Nothing is cached in local
+	// same maps the per-model settings page used. Nothing is cached in local
 	// state: two editors of one value that disagree is worse than a re-render.
 
-	const promptOf = $derived((id: string) => $settings.customPrompts?.[id] ?? "");
-	const promptEnabledOf = $derived((id: string) => $settings.customPromptsEnabled?.[id] ?? true);
-
-	function setPrompt(id: string, value: string) {
-		settings.update((current) => ({
-			...current,
-			customPrompts: { ...current.customPrompts, [id]: value },
-		}));
-	}
-	function setPromptEnabled(id: string, value: boolean) {
-		settings.update((current) => ({
-			...current,
-			customPromptsEnabled: { ...current.customPromptsEnabled, [id]: value },
-		}));
-	}
 	function setReasoning(id: string, value: boolean) {
 		settings.update((current) => ({
 			...current,
@@ -185,24 +180,27 @@
 				label: "Tool calling",
 				detail: "Let it call tools — MCP servers, and the built-in ones.",
 				advertised: Boolean(model.supportsTools),
-				current: $settings.toolsOverrides?.[model.id] ?? Boolean(model.supportsTools),
-				set: (value) => setTools(model.id, value),
+				current: $settings.toolsOverrides?.[settingsModelId(model)] ?? Boolean(model.supportsTools),
+				set: (value) => setTools(settingsModelId(model), value),
 			},
 			{
 				key: "multimodal",
 				label: "Image input",
 				detail: "Accept image attachments and send them to the model.",
 				advertised: Boolean(model.multimodal),
-				current: $settings.multimodalOverrides?.[model.id] ?? Boolean(model.multimodal),
-				set: (value) => setMultimodal(model.id, value),
+				current:
+					$settings.multimodalOverrides?.[settingsModelId(model)] ?? Boolean(model.multimodal),
+				set: (value) => setMultimodal(settingsModelId(model), value),
 			},
 			{
 				key: "reasoning",
 				label: "Reasoning",
 				detail: "Let it think before answering, and offer the effort selector.",
 				advertised: Boolean(model.supportsReasoning),
-				current: $settings.reasoningOverrides?.[model.id] ?? Boolean(model.supportsReasoning),
-				set: (value) => setReasoning(model.id, value),
+				current:
+					$settings.reasoningOverrides?.[settingsModelId(model)] ??
+					Boolean(model.supportsReasoning),
+				set: (value) => setReasoning(settingsModelId(model), value),
 			},
 			{
 				key: "artifacts",
@@ -214,18 +212,13 @@
 				// read "unset" as "off", which is the bug this replaces.
 				advertised: model.supportsArtifacts ?? Boolean(model.supportsTools),
 				current:
-					$settings.artifactsOverrides?.[model.id] ??
+					$settings.artifactsOverrides?.[settingsModelId(model)] ??
 					model.supportsArtifacts ??
 					Boolean(model.supportsTools),
-				set: (value) => setArtifacts(model.id, value),
+				set: (value) => setArtifacts(settingsModelId(model), value),
 			},
 		];
 	}
-
-	/** Whether the prompt has been changed from the model's own. */
-	const promptIsCustom = $derived(
-		(model: ModelCard) => promptOf(model.id) !== (model.preprompt ?? "")
-	);
 </script>
 
 <!-- The workspace tab's card, where the overlay shell used to be. -->
@@ -233,7 +226,7 @@
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
 			<h2 id="models-panel-title" class={s.TITLE}>
-				{view === "list" ? "Models" : current?.displayName || current?.id}
+				{view === "list" ? "Models" : current ? modelLabel(current) : ""}
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}
@@ -257,7 +250,7 @@
 						</p>
 						<p class={s.STRIP_DETAIL}>
 							{defaultModel
-								? `${defaultModel.displayName || defaultModel.id} is the default`
+								? `${modelLabel(defaultModel)} is the default`
 								: "no default chosen yet"}
 						</p>
 					</div>
@@ -303,7 +296,7 @@
 													{#if model.logoUrl}
 														<img src={model.logoUrl} alt="" class="size-4 shrink-0 rounded-sm" />
 													{/if}
-													<h3 class={s.CARD_TITLE}>{model.displayName || model.id}</h3>
+													<h3 class={s.CARD_TITLE}>{modelLabel(model)}</h3>
 												</div>
 												<p class={s.CARD_SUBTITLE}>
 													{model.isRouter
@@ -323,8 +316,8 @@
 													Default
 												</span>
 											{/if}
-											{#if promptIsCustom(model)}
-												<span class="{s.PILL} {s.PILL_TONES.good}">custom prompt</span>
+											{#if model.customBase}
+												<span class="{s.PILL} {s.PILL_TONES.good}">custom</span>
 											{/if}
 											{#if model.supportsTools}
 												<span
@@ -382,7 +375,10 @@
 						<li>
 							• The default is what a <strong>new</strong> chat starts on; an open chat keeps its own.
 						</li>
-						<li>• <strong>Edit</strong> gives a model its own system prompt, kept per model.</li>
+						<li>
+							• <strong>Custom</strong> models are yours: a base model with its own system prompt,
+							made on the <strong>Customize models</strong> tab.
+						</li>
 						<li>• A router picks a model per message rather than pinning one.</li>
 					</ul>
 				</div>
@@ -412,40 +408,6 @@
 							<button onclick={() => setDefault(model)} class={s.PRIMARY}>
 								<IconCheckmark class="size-4" />
 								Set as default
-							</button>
-						{/if}
-					</div>
-				</div>
-
-				<div>
-					<div class="mb-2 flex items-center justify-between gap-3">
-						<h3 class="{s.SECTION_TITLE} mb-0">System prompt</h3>
-						<Switch
-							name="model-prompt-enabled"
-							bind:checked={
-								() => promptEnabledOf(model.id), (value) => setPromptEnabled(model.id, value)
-							}
-						/>
-					</div>
-					<textarea
-						class="{s.INPUT} min-h-32 font-mono text-xs"
-						placeholder="Instructions this model gets on every new conversation."
-						disabled={!promptEnabledOf(model.id)}
-						value={promptOf(model.id)}
-						oninput={(event) => setPrompt(model.id, event.currentTarget.value)}
-					></textarea>
-					<div class="mt-1 flex items-center justify-between gap-3">
-						<p class={s.HINT}>
-							Yours, kept per model, and applied to conversations you start after saving it. The
-							switch turns it off without losing it.
-						</p>
-						{#if promptIsCustom(model)}
-							<button
-								onclick={() => setPrompt(model.id, model.preprompt ?? "")}
-								class="{s.CARD_ACTION} shrink-0"
-							>
-								<IconReset class="size-3" />
-								Reset
 							</button>
 						{/if}
 					</div>

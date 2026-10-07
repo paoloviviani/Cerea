@@ -44,7 +44,9 @@
 
 	const shown = $derived(
 		models.filter((model) => {
-			const haystack = normalise(`${model.id} ${model.name} ${model.description ?? ""}`);
+			const haystack = normalise(
+				`${model.id} ${model.name} ${model.baseName ?? ""} ${model.description ?? ""}`
+			);
 			return tokens.every((token) => haystack.includes(token));
 		})
 	);
@@ -102,8 +104,19 @@
 						/>
 					{/if}
 					<span class="min-w-0 flex-1">
-						<span class="{s.CARD_TITLE} block">{model.name}</span>
-						<span class="block truncate text-xs text-gray-500 dark:text-gray-400">{model.id}</span>
+						<span class="{s.CARD_TITLE} block">
+							{model.name}{#if model.baseName}
+								<span class="font-normal text-gray-500 dark:text-gray-400">
+									· {model.baseName}</span
+								>
+								<span
+									class="ml-1 rounded-full bg-blue-500/10 px-1.5 py-px align-middle text-[10px] font-medium text-blue-700 dark:text-blue-400"
+									>custom</span
+								>{/if}
+						</span>
+						<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
+							>{model.baseName ? (model.description ?? "Custom model") : model.id}</span
+						>
 					</span>
 					{#if busy === model.id}
 						<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>

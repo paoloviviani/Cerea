@@ -23,6 +23,11 @@ export type GETModelsResponse = Array<{
 	unlisted: boolean;
 	hasInferenceAPI: boolean;
 	isRouter: boolean;
+	/**
+	 * Present only on a person's own custom model (`custom:<id>`), which is
+	 * listed beside the catalogue and inherits everything else from this base.
+	 */
+	customBase?: { id: string; displayName: string };
 }>;
 
 export type GETModelResponse = GETModelsResponse[number] & {

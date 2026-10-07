@@ -77,7 +77,43 @@ The models themselves are managed in the **Workspace** page's **Models** tab.
 There, **Set as default** decides what a _new_ chat starts on: an open
 conversation keeps its own model. The list is the gateway's, and the switches
 for a model's tools, vision and reasoning start from what the gateway
-advertises for it; they are a default you can override, not a gate.
+advertises for it; they are a default you can override, not a gate. (There is
+no per-model system prompt any more: see below. Prompts that were stored per
+model were dropped, not migrated.)
+
+### Customize models
+
+The **Customize models** tab of the Workspace page (`/workspace?tab=custom`)
+holds two things you write yourself.
+
+**A global system prompt.** One text box, saved on your settings and sent with
+**every chat message**, whatever the model. It is for chat only: the
+[Agents panel](code-panel.md) and the titles Cerea generates never get it.
+
+**Custom models.** A custom model is a name, a **base model** (any model you
+can see, but not another custom model), a system prompt and an optional short
+description. Names are unique among your own. Custom models are **private to
+you** and are removed with your account.
+
+- They appear in the model pill and in the models list **beside** the base
+  models, marked _custom_ and named with their base, for example
+  _Menu helper · GLM 5.3 Flash_.
+- They inherit **everything** from the base: vision, tools, reasoning, the
+  effort options and the per-model switches. Your effort choice goes to the base
+  model.
+- **The provider never hears of them.** A chat on a custom model keeps the custom
+  model, but each message is sent to the base model.
+- A custom model can be your **default** for new chats, and you can switch a
+  conversation to or from one like any other model.
+- **Delete** one and its conversations carry on, on its base model. If a base
+  model leaves the gateway's list, a chat on a custom model built on it keeps
+  working on the deployment's default model, and the tab marks the model as
+  unavailable until you pick another base.
+
+**What the model is told, in order:** your global prompt, then the custom
+model's prompt, then the project's standing instructions and context (see
+[projects](knowledge.md)). Empty parts are skipped. Custom models are
+chat-only: the Agents panel ignores them.
 
 ## Attachments
 

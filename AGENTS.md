@@ -289,7 +289,8 @@ Smart routing via Arch-Router model. Configured with:
 - `users` - User accounts (OIDC-backed)
 - `sessions` - Session data
 - `sharedConversations` - Public share links
-- `settings` - User preferences
+- `settings` - User preferences (including the global system prompt)
+- `customModels` - A person's own custom models: a base model plus a system prompt. Owner-keyed like `settings`
 - `codeDevices` - Paired coding-agent machines. Pairing records
   only: name, the machine's own `machineId`, its OIDC `sub`/`iss`, one owner,
   the backends/policy/credential health it last reported. Nothing
@@ -330,36 +331,97 @@ Two consequences worth knowing:
 does tools must be reported by the _chat_ as doing tools. That is the only
 place the mismatch was ever visible.
 
-## Models: one manager, and no per-model page
+## Models: one manager, custom models, and no per-model page
 
-`ModelsManager` is the **only** place models are managed. It lists all of them
-with a search, and opens one to set it as the default or change its settings —
-the system prompt, and reasoning and artifacts where the model supports them.
-`routes/settings/(nav)/[...model]` is **gone**; everything that pointed at it
-now opens the manager.
+`ModelsManager` is the **only** place catalogue models are managed. It lists all
+of them (and the person's custom models, marked) with a search, and opens one to
+set it as the default or change its settings — reasoning, tools, images and
+artifacts. **There is no per-model system prompt**: it was removed, its stored
+values dropped without migration (see below). `routes/settings/(nav)/[...model]`
+is **gone**; everything that pointed at it now opens the manager.
 
 The manager is the Models tab of the **workspace** (`/workspace`), the page
-that hosts models, MCP servers and knowledge bases as tabs. The address is the
-way in from anywhere: `/workspace?tab=models` for the list,
-`/workspace?tab=models&id=<id>` straight onto one model's settings. The
+that hosts models, **Customize models**, MCP servers, knowledge bases, skills and
+memory as tabs. The address is the way in from anywhere: `/workspace?tab=models`
+for the list, `/workspace?tab=models&id=<id>` straight onto one model's
+settings, `/workspace?tab=custom[&id=custom:<id>]` for Customize models. The
 affordances that open it — a routed message's model, the models list's gear —
 navigate to that address (the composer's model name opens the per-chat
-`ModelPicker`, which is a different thing, and the introduction's gear is
-commented-out UI). The `modelsOverlay` store this once needed is deleted; an
-address needs no store.
+`ModelPicker`, which is a different thing). The `modelsOverlay` store this once
+needed is deleted; an address needs no store.
 
 Two things worth knowing:
 
 - **"Default" is what a _new_ chat starts on.** An open conversation keeps the
   model it was started with, so the button says "Set as default" and the pill
-  says "Default", not "Active" — the earlier wording implied changing it would
-  move the conversation you were looking at;
+  says "Default", not "Active";
 - **`providerOverrides` is not in the dialog, and is not a loss.** It picks
   which _HuggingFace Inference Provider_ serves a model — inherited from
   upstream, and meaningless in a gateway deployment, where every call goes to
   the gateway and which upstream serves a model is the gateway's decision. Its UI was already hidden behind `isHuggingChat`. The
   server-side plumbing is deliberately left in place, because it is live on the
   branch this fork came from.
+
+### Customize models: the global prompt and custom models
+
+Two things a person writes, both on the **Customize models** tab
+(`components/models/CustomModelsManager.svelte`):
+
+- **`Settings.globalSystemPrompt`**: one prompt for every _chat_ turn. Chat only:
+  the /code panel never reaches the pipeline that applies it, and title
+  generation is a separate internal completion that does not.
+- **Custom models** (`customModels` collection, `types/CustomModel.ts`,
+  `server/customModels.ts`, routes `api/v2/custom-models`): a name (unique per
+  owner, case-insensitively), a **base** (a catalogue model the caller can see,
+  never another custom model), a system prompt and an optional description.
+  **Private**, owner-keyed exactly like `settings` (`userId`, or `sessionId` for
+  an anonymous session, via `authCondition`); another person's id is a 404.
+  Erased with the account and renamed-not-dropped on a merge
+  (`identity/userKeyedCollections.ts`, which has a spec guarding the roster).
+
+**The id scheme is `custom:<24-hex ObjectId>`** (`utils/customModelId.ts`).
+`conversation.model` holds it, so a conversation stays on its custom model,
+and it is also the id in the picker and in `settings.activeModel` (a custom
+model can be the default). **It never leaves Cerea.** One function turns it into
+a model a turn can run on: `resolveConversationModel` (`server/customModels.ts`).
+Every place that used to do `models.find(m => m.id === conv.model)` goes through
+it — the turn route, the parked-turn and tool-approval sweepers, the
+view-prompt route — and the upstream request, the capability gates, the metrics
+and the per-model settings (`reasoningEffortOverrides`, tools, images,
+artifacts: all keyed by the **base** id) see only the base. A custom model that is
+gone, or whose base left the catalogue, **falls back to the deployment default**
+instead of failing the turn (a deleted one's conversations are moved to its base
+when it is deleted, so that is the safety net).
+
+**The client sees custom models as ordinary catalogue entries.** `+layout.ts`
+loads `GET /api/v2/custom-models` beside the catalogue and appends
+`customModelEntries()` (`utils/customModelEntries.ts`) to `data.models`: each
+copy of its base's entry with a new id, name and `customBase`, so vision, tools,
+reasoning and effort gating carry over with no second code path. They go
+**after** the catalogue so `models[0]` stays the deployment default. A setting
+keyed by model id is read with `settingsModelId(model)` (the base's), never
+`model.id`. The /code panel never sees them: it lists the machine's own models,
+and `allowsModel` refuses a `custom:` id even for a machine that allows free
+models.
+
+**One function composes the prompt**: `composeUserPrompt` (`textGeneration/preprompt.ts`,
+called by `resolvePreprompt`, fed by `textGeneration/userPrompts.ts`): **global,
+then the custom model's, then the conversation's stored prompt**; empty parts are
+skipped; `preprompt.spec.ts` asserts the order. What `resolvePreprompt` and the
+turn append after it (the artifacts and execution contracts, skills, memory, then
+the project's context, whose own order `projectContext` keeps) reads below.
+The ML Assistant preset supplies its whole prompt, so neither reaches it.
+
+**Per-model prompts are gone, and stale ones are neutralised three ways.** The
+settings API no longer reads or writes `customPrompts` / `customPromptsEnabled`
+(an old client posting them is ignored: the schema strips unknown keys);
+`POST /conversation` ignores a body `preprompt` (a stale tab could otherwise
+smuggle one back in; a conversation's prompt is the model's own, or an imported
+share's); and `dropPerModelPrompts` — run once at boot from
+`Database.initDatabase`, idempotent, not a `Migration` routine because that list
+is empty and routines run in a transaction — `$unset`s what is stored.
+Conversations that already stored one keep it: it is that conversation's own
+system message now.
 
 ## The sidebar, and signing out at both ends
 

@@ -7,6 +7,11 @@ import { z } from "zod";
 import type { Message } from "$lib/types/Message";
 import { models, validateModel } from "$lib/server/models";
 import {
+	conversationOwnerFilter,
+	isSelectableModel,
+	resolveConversationModel,
+} from "$lib/server/customModels";
+import {
 	projectAccess,
 	viewerPrincipals,
 	parseAttachedKnowledgeBaseIds,
@@ -29,7 +34,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const parsedBody = z
 		.object({
 			fromShare: z.string().optional(),
-			model: validateModel(models),
+			// A catalogue id or one of this person's own custom models; checked below.
+			model: z.string(),
+			// Accepted for old clients and ignored: the per-model prompts that used to
+			// travel here are gone, and a stale tab must not smuggle one back in. A
+			// conversation's prompt is the model's own, or an imported share's.
 			preprompt: z.string().optional(),
 			mlAssistant: z.boolean().optional(),
 			/** Start this conversation inside a project. */
@@ -70,7 +79,20 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	// Only builds that ship ML Assistant mode can start a conversation in it.
 	const isMlAssistant = ML_ASSISTANT_MODE && values.mlAssistant === true;
 
-	let model = models.find((m) => (m.id || m.name) === values.model);
+	// A custom model starts the conversation on itself (`conversation.model`
+	// keeps the custom id) while the checks below, the preprompt default and the
+	// ML Assistant swap look at its base.
+	const owner = conversationOwnerFilter({ userId: locals.user?._id, sessionId: locals.sessionId });
+	if (
+		!(await isSelectableModel(
+			values.model,
+			owner,
+			(id) => validateModel(models).safeParse(id).success
+		))
+	) {
+		error(400, "Invalid request");
+	}
+	let model = (await resolveConversationModel(values.model, owner))?.model;
 
 	if (!model) {
 		error(400, "Invalid model");
@@ -80,7 +102,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		{
 			id: v4(),
 			from: "system",
-			content: values.preprompt ?? "",
+			content: "",
 			createdAt: new Date(),
 			updatedAt: new Date(),
 			children: [],
@@ -89,6 +111,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	];
 
 	let rootMessageId: Message["id"] = messages[0].id;
+	let fromSharePreprompt: string | undefined;
 
 	if (values.fromShare) {
 		const conversation = await collections.sharedConversations.findOne({
@@ -104,7 +127,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		messages = conversation.messages;
 		rootMessageId = conversation.rootMessageId ?? rootMessageId;
 		values.model = conversation.model;
-		values.preprompt = conversation.preprompt;
+		fromSharePreprompt = conversation.preprompt;
 	}
 
 	// The mode runs on its own fixed set (ML_ASSISTANT_MODELS): whatever was
@@ -136,13 +159,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			}
 		: undefined;
 
-	// use provided preprompt or model preprompt
-	values.preprompt ??= model?.preprompt ?? "";
+	// The model's own preprompt, unless a share brought one. Never the body's.
+	values.preprompt = fromSharePreprompt ?? model?.preprompt ?? "";
 
 	// The ML Assistant preset supplies the whole system prompt at generation time.
-	// Storing nothing here keeps the user's per-model custom prompt out of the
-	// conversation entirely — the endpoint appends a stored system message after
-	// the preprompt, so leaving one would compose the two.
+	// Storing nothing here keeps any stored prompt out of the conversation
+	// entirely — the endpoint appends a stored system message after the
+	// preprompt, so leaving one would compose the two.
 	if (isMlAssistant) {
 		values.preprompt = "";
 	}

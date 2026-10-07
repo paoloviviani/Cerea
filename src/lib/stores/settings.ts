@@ -15,8 +15,7 @@ type SettingsStore = {
 	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;
 	activeModel: string;
-	customPrompts: Record<string, string>;
-	customPromptsEnabled: Record<string, boolean>;
+	globalSystemPrompt?: string;
 	multimodalOverrides: Record<string, boolean>;
 	toolsOverrides: Record<string, boolean>;
 	artifactsOverrides: Record<string, boolean>;
