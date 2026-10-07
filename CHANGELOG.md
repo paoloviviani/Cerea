@@ -4,6 +4,17 @@ All notable changes to this deployment kit are documented here. The
 convention: newest first, one section per release, dated, with the pins it
 shipped.
 
+## v0.4.8 — 2026-10-07
+
+Pins: Cerea `0.4.8`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Palettes:** Settings → Appearance offers an accent colour (Blue, Violet, Teal,
+  Green, Rose, Orange) and a background tone (Gray, Slate, Stone), saved on the
+  account and applied before the page draws. Every combination keeps text and
+  buttons at 4.5:1 contrast or better, in light and dark.
+- Project chats no longer show up under Chats after switching a chat's model
+  (or another in-app list refresh).
+
 ## v0.4.7 — 2026-10-07
 
 Pins: Cerea `0.4.7`, Pystino `0.3.2`, Authelia 4.39.22.
