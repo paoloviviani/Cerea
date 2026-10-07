@@ -19,6 +19,21 @@ the model it was started with. Projects group conversations that share
 standing context and knowledge; each project has a page of its own, opened from
 its row's `⋯` menu (**Project settings**). See [Knowledge and projects](knowledge.md).
 
+In each of the two trees the **name** is a link and the small **chevron** beside
+it opens and closes the list: click **Projects** to see all your projects on a
+page, **Chats** to open the chat list below, and the chevron to fold the
+branch without leaving where you are.
+
+**Finding a chat.** The sidebar lists your recent chats. **Chats** opens a page
+with all of them, newest first: the title, when it was last used, the model,
+and the project it belongs to if it is in one. The search box is ready as soon
+as the page opens; type part of a title and the list narrows. Capitals and
+accents do not matter (`cafe` finds _Café Müller_), and what you type is taken
+literally, so `c++` finds exactly that. Only titles are searched, not what was
+said in the chats. Your own chats in projects are included; a colleague's chats
+in a project shared with you are in that project's page, not here. Click a row
+to open the conversation.
+
 Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
 embedding a passage, searching.

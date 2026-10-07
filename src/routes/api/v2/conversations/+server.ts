@@ -6,6 +6,7 @@ import { authCondition } from "$lib/server/auth";
 import type { Conversation } from "$lib/types/Conversation";
 import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
+import { titleSearchPattern } from "$lib/server/titleSearch";
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	requireAuth(locals);
@@ -13,8 +14,17 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	const pageSize = CONV_NUM_PER_PAGE;
 	const p = parseInt(url.searchParams.get("p") ?? "0") || 0;
 
+	// `q` narrows the same list by title, for the /chats page: the caller's own
+	// conversations only (the filter below is the list's own), project chats
+	// included, newest first, paged as before. Case and accents are ignored; see
+	// `titleSearchPattern`, which also escapes the input and caps its length.
+	const pattern = titleSearchPattern(url.searchParams.get("q") ?? "");
+	const filter = pattern
+		? { ...authCondition(locals), title: { $regex: pattern } }
+		: authCondition(locals);
+
 	const convs = await collections.conversations
-		.find(authCondition(locals))
+		.find(filter)
 		.project<
 			Pick<Conversation, "_id" | "title" | "updatedAt" | "model" | "mlAssistant" | "projectId">
 		>({
