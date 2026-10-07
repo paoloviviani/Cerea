@@ -86,6 +86,110 @@ must have been built with the same `APP_BASE`; on a small machine, build once
 (`npm run build`) and then run the tests with `E2E_SKIP_BUILD=1`, so the build
 and the browsers do not compete for memory.
 
+## Verifying a change
+
+The rules every change follows before it merges, and how a release is proven.
+They exist because each one was skipped once and something shipped broken.
+
+### Before merging
+
+- **Run what the change touches, then the gates.** `npm run check`, `npm run
+lint` (or `npx prettier --check` on the files you changed), the server tests
+  for the area, and the client tests for any component you changed. A change to
+  shared styles (`tokens.css`, `main.css`, text sizes, spacing) touches every
+  component test that measures layout: run the whole `client` project, not one
+  file.
+- **A new test must fail without the fix.** After writing a regression test, put
+  the fix aside (`git stash push <the fixed file>`), run the test, and see it
+  fail; then `git stash pop`. A test that passes either way proves nothing, and
+  this has caught tests that stubbed the wrong layer.
+- **A failure is "pre-existing" only once it fails on main too.** Before
+  dismissing a failure, rebuild main without your change and run the same test
+  there. Same assertion failing on both: pre-existing, say so. Only on your
+  branch: yours, even when it looks unrelated. Two composer-mobile "ring" e2e
+  tests are known pre-existing failures; anything new needs this check.
+- **End-to-end tests run against a fresh build.** `npm run build` first,
+  then `E2E_SKIP_BUILD=1`. A stale `build/` passes or fails for reasons that have
+  nothing to do with the change.
+- **CI runs on every push to main** (`ci.yml`: `check`, `client`, `go`). Push,
+  then wait for it to be green before tagging. Its client job runs in CI's
+  Chromium on slower hardware: timing-sensitive tests fail there first, so fix
+  them at the cause (wait for the state, tap where the element really is)
+  rather than raising timeouts.
+
+### On a small box
+
+- **Heavy runs take the lock:** `flock /tmp/heavy.lock` around builds,
+  Playwright and the full test suites, so two of them never run at once. Never
+  wrap a script that takes the lock itself (`dev/build.sh`) in another flock.
+- **`mongodb-memory-server` dies with `SIGILL` on a CPU without AVX.** Point
+  tests at a real MongoDB (`TEST_MONGODB_URL`, `--no-file-parallelism`), and for
+  e2e `E2E_MONGO_PORT`/`E2E_MONGO_URL`. Running the whole `client` project in
+  one command can hit the same crash; run the affected files instead, and let
+  CI run the whole project.
+- **WebKit may not be installed locally.** "Executable doesn't exist" means the
+  browser, not the change; run `--project=chromium` and leave WebKit to CI.
+- **Root-owned leftovers** (`dist/`, `test-results/` written by a container)
+  break builds with `EACCES`. Build to another `--outDir`, or give the files
+  back with a throwaway container (`docker run --rm -v $PWD:/x alpine chown -R
+$(id -u):$(id -g) /x`).
+
+### Validating UI with screenshots
+
+Tests prove behaviour; screenshots are how a person judges a visual change. The
+rules:
+
+- **Screenshot the real app, not a mock.** Write a throwaway Playwright spec
+  (`tests/_shots.spec.ts`, deleted afterwards, never committed) that seeds the
+  state with the fixtures (`seedConversation` and friends), builds once, and
+  runs with `E2E_SKIP_BUILD=1`.
+- **Wait for the rendered state before shooting.** Markdown renders after the
+  text arrives: wait for a heading or table role, not for the text. A shot taken
+  too early shows raw markdown and misleads whoever reviews it.
+- **Prototype before building.** To compare options without touching code,
+  inject CSS with `page.addStyleTag()` per variant (fonts as data-URL
+  `@font-face`, token overrides with `:root:root` for specificity). Only after a
+  choice is made does the change go into the source, and then it is
+  screenshotted again from the build.
+- **Always both widths, and both themes when colour changes:** desktop 1440 and
+  phone 390 (360 when space is tight); light and dark by adding `dark` to
+  `<html>`. A phone screenshot needs a tall viewport (e.g. 390×1300) to show a
+  whole reply.
+- **Compare side by side.** Stitch before/after (or one cell per variant) into a
+  labelled contact sheet with Pillow (`uv run --with pillow python …`), same
+  crop and scale for every cell. Separate screenshots viewed one after the
+  other hide small differences.
+- **Use element screenshots for details** (`locator.screenshot()`, after
+  `scrollIntoViewIfNeeded()`): a folded long message, a focus ring, a single
+  control.
+- **Check overflow by measurement, not by eye.** A page can scroll sideways
+  inside its own scrolling panel while the window does not; assert that no
+  element's `scrollWidth` exceeds its `clientWidth` across the scroll
+  containers, at both widths (`tests/project-page.spec.ts` does this).
+- **Look at every screenshot yourself before reporting it.** Then save the set
+  under `~/workspace/ai-stack/reports/screenshots/<date>-<topic>/` and point to
+  the files.
+
+### Releasing
+
+A change is released only when all of these pass, in this order:
+
+1. CI green on the commit to be tagged.
+2. Tag (annotated `vX.Y.Z`, version bumped in `package.json`) and the `images`
+   workflow green, which publishes `ghcr.io/paoloviviani/cerea:X.Y.Z`.
+3. The image pulls **with no registry login** (`DOCKER_CONFIG` pointing at an
+   empty config).
+4. In cerea-deploy: `tools/pin`, `tools/pin --check`, its unit tests, then the
+   **fresh-kit test**: a clean copy of the kit, `./configure`, `docker compose
+pull`, `up -d --wait`, a check that the running containers carry the new
+   tags, and a real sign-in through the identity provider, the gateway and the
+   chat to `/chat/code`, which must print exactly `E2E_OK`. The test stack is
+   then removed and checked gone.
+5. Only then the cerea-deploy tag and changelog entry.
+
+A step that cannot run (no browser, no credentials) is reported as not run,
+never as passed.
+
 ## Merging from upstream
 
 Cerea is a fork of huggingface/chat-ui, now mostly a hard fork. Upstream
