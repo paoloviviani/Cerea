@@ -3,14 +3,13 @@
 #   - PRs touching the gateway-facing code: the PINNED gateway version only
 #     (deploy/ci/pystino-contract.env);
 #   - weekly: `edge`, non-blocking, to see gateway changes before they land.
-# Pulling the gateway image needs its private package to grant this
-# repository read access (Pystino package settings → Manage Actions access).
+# The Pystino gateway images are public, so pulling one needs no access grant.
 name: contract
 
-# Manual runs only while publishing is on hold (see images.yml): the contract
-# runs against a published Pystino gateway image. To restore, point
-# deploy/ci/pystino-contract.env at a published tag and replace the two `on:`
-# lines below with this one line:
+# Manual runs only for now: deploy/ci/pystino-contract.env still names a
+# development tag, not a published release. To run it on PRs and weekly,
+# point that file at a published Pystino tag and replace the two `on:` lines
+# below with this one line:
 # on: {workflow_dispatch: {}, pull_request: {paths: [src/lib/server/admin.ts, src/lib/server/gatewaySession.ts, src/lib/server/usage/**, src/lib/server/models.ts, src/routes/api/v2/gateway/**, src/lib/server/__contract__/**, deploy/ci/pystino-contract.env, .github/workflows/contract.yml]}, schedule: [{cron: "23 5 * * 1"}]}
 on:
   workflow_dispatch:

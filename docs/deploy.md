@@ -89,13 +89,13 @@ preset is data — the compose profiles it switches on and the feature
 switches it writes — and you can change either afterwards; switching
 presets never leaves a feature key behind.
 
-| Preset       | Runs                                                            | For                    |
-| ------------ | --------------------------------------------------------------- | ---------------------- |
-| `homelab`    | gateway, console, chat; no ledger, quotas or redaction          | one person or a family |
-| `team`       | homelab + ledger, quotas, pattern-based PII redaction           | a team (the default)   |
-| `enterprise` | team + NER redaction (built locally) and headless-browser fetch | an organisation        |
-| `satellite`  | the chat only, against a central Pystino and its IdP            | a second site          |
-| `generic`    | the chat only, against any OpenAI-compatible endpoint           | no gateway at all      |
+| Preset       | Runs                                                                          | For                    |
+| ------------ | ----------------------------------------------------------------------------- | ---------------------- |
+| `homelab`    | gateway, console, chat, local document reader; no ledger, quotas or redaction | one person or a family |
+| `team`       | homelab + ledger, quotas, pattern-based PII redaction                         | a team (the default)   |
+| `enterprise` | team + NER redaction (built locally) and headless-browser fetch               | an organisation        |
+| `satellite`  | the chat only, against a central Pystino and its IdP                          | a second site          |
+| `generic`    | the chat only, against any OpenAI-compatible endpoint                         | no gateway at all      |
 
 Two presets run the chat alone: `satellite`, against a _central_ Pystino (per-user tokens and quotas still apply, administered at the centre, and `CHAT_CONSOLE_ENABLED` is off because administration lives there), and `generic`, the "without Pystino" path, against any endpoint with one shared key. A central Pystino serves only **one** chat client
 (gateway-side, several satellite chats share the client id, each with its
@@ -107,7 +107,8 @@ The compose **profiles** underneath (chosen by `COMPOSE_PROFILES` in
 `.env`, so you can deviate from any preset): `gateway` (Pystino and the
 console), `chat`, `authelia` (the bundled identity provider — chosen by
 the kit's `--idp` option, not by the preset; skip it with your own IdP),
-`redaction` and `fetch` (the headless-browser fetch backend). Profiles
+`redaction`, `documents` (the local document reader alone, which `homelab`
+runs and `redaction` includes) and `fetch` (the headless-browser fetch backend). Profiles
 select services; they never change what a service is. The proxy, Postgres
 and Valkey carry no profile, so they always run — including under
 `satellite` and `generic`, where Postgres serves the chat's pgvector.

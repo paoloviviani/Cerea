@@ -41,12 +41,33 @@ chats and returns them to your ordinary list. A daily sweep removes files and
 share links left behind by anything that failed or by older versions, after a
 24-hour grace period.
 
+## Appearance
+
+Your messages sit on the right in a light blue bubble (in dark mode a deep shade
+of your accent colour, navy for the default Blue),
+at most 85% of the width, so your turns and the replies are easy to tell apart
+when you scroll; replies stay on the left in a neutral bubble. A long message
+of yours folds behind **Show more**. Text is set in Inter, 16px in the chat.
+
+**Settings → Application settings → Appearance** has three choices, saved on
+your account and applied before the page draws:
+
+- **Theme:** System, Light or Dark.
+- **Accent colour:** Blue, Violet, Teal, Green, Rose or Orange. It colours
+  buttons, links and the selected chat.
+- **Background tone:** Gray, Slate or Stone: cool or warm greys behind the text.
+
+Every combination keeps text and buttons at a contrast of 4.5:1 or better, in
+light and dark.
+
 ## Models and effort
 
-The model pill in the composer opens a short list: the current model and the
-ones you picked recently (at most six), each with a one-line description, and a
-search field. **More models** opens the full searchable picker. Changing the
-model in the composer changes it **for that conversation**.
+The model pill in the composer opens a list of models with a one-line
+description each. With **ten models or fewer** it shows all of them. With more,
+it shows a short list, the current model and the ones you picked recently (at
+most six), with a search field, and **More models** opens the full searchable
+picker. Changing the model in the composer changes it **for that
+conversation**.
 
 For a model that thinks, **Effort** in the same pill offers the levels that
 model takes, plus **Default** (the model's own). Effort is per conversation. A
@@ -101,14 +122,18 @@ limited to **10 MB** each.
 
 - **Images** go to a model that can see them.
 - **PDFs and Office documents** are bytes no model reads, so the gateway's
-  document reader turns each into text. This happens **once, when you attach
+  document reader turns each into text. Word, Excel, PowerPoint, OpenDocument
+  and EPUB files always go to the deployment's own reader, and old Word `.doc`
+  files are read too, even when saved with a `.docx` name; only PDFs go to the
+  reader an administrator chose, and a PDF whose chosen reader fails (a rate
+  limit, say) is read by the local one. This happens **once, when you attach
   the file**, and the text is stored beside it. That is a billing decision:
   the reader is priced per page, so reading again on every turn would charge
   for the same twelve-page PDF on every question about it.
 - **A scanned PDF** (pictures of pages, no text layer) is read **by the model**
   when the deployment's own reader is the one reading PDFs and the
   conversation's model can see images: the reader renders the pages (at most
-  the first 20, so a longer scan says "only the first 20 of N pages"), they are
+  the first 20, or as many as `CHAT_PDF_IMAGE_PAGES` allows, so a longer scan says "only the first 20 of N pages"), they are
   stored as attachments of the conversation, and they are sent to the model
   exactly like images you attached, beside a note ("Scanned PDF name.pdf: pages
   1–N attached as images"). They are deleted with the conversation. A model that
@@ -118,7 +143,10 @@ limited to **10 MB** each.
   remote OCR model is the PDF reader, it reads the scan itself and no pages are
   rendered. Whether a model sees images is its **vision** switch under
   Workspace → Models.
-- **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, so it says so rather than answering as if nothing were attached.
+- **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, and why when the reader said, so it says so rather than answering as if nothing were attached.
+- **Code the assistant runs** finds the conversation's attachments at
+  `/mnt/data/<name>`, with the text read from each beside it as `<name>.md`
+  ([Python in the browser](pyodide.md#files-you-attach)).
 
 Which model reads documents is decided by the **Knowledge** settings (an
 administrator's choice, see [Administering the chat](chat-admin.md)); a
@@ -179,7 +207,8 @@ into a store that outlives the conversation.
 
 For memory that scales beyond a list, use a knowledge base
 ([Knowledge and projects](knowledge.md)); a project can also keep its own
-memory, and its own shared [notes](knowledge.md#project-notes).
+shared [memory](knowledge.md#project-memory) and search its
+[past chats](knowledge.md#past-chats).
 
 ## Skills
 

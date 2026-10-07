@@ -123,7 +123,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | -------------------------------- | ---------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | **Files**                        | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                | `policy set --no-files`, `--file-deny GLOB`           |
 | **Terminals**                    | `--no-terminal`, `--max-terminals N`                       | allowed; at most 8 open at once      | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                              | `policy set --no-terminal`, a lower `--max-terminals` |
-| **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`                           | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it.   |
+| **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`, `session_spawn=ask`      | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it.   |
 | **Machine rules**                | `--permission-rule KEY=ACTION` (repeatable)                | none                                 | Fixed answers for every session on this machine. A deny there always holds; an allow or ask only matters for reading files, working outside the project folder, the stuck-agent brake, and agents starting or messaging sessions. The ceiling still caps them.                                  |
 | **Agent tools**                  | `--no-agent-tools`                                         | installed                            | Whether galopin installs `session_list`, `session_spawn` and `session_send` into the backend (see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)). Denied: no tool at all                                                                                                    | `policy set --no-agent-tools`                         |
 | **Slash-command shell**          | `--no-command-shell`                                       | allowed                              | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                  | `policy set --no-command-shell`                       |
@@ -478,14 +478,13 @@ thing Allow cannot pass: where the machine says `bash` asks, `bash` asks on
 Allow too, and the selector says so (_"Allow · bash asks (machine limit)"_).
 Nothing in the panel can raise the ceiling; loosening it means enrolling again.
 
-**A new subagent's first turn asks, whatever the setting says.** opencode starts
-a subagent before Cerea can hand it your setting, so on **Allow** that first
-turn still asks. The card says so with a _New subagent · first turn asks_ chip,
-and the selector's note under Allow reads _"Allow · new subagents ask on their
-first turn"_ (with a tooltip saying why), so the ask does not look like Allow
-being ignored. The chip is drawn from the subagent's own transcript: it appears
-while that subagent has had only its starting prompt, and not at all when the
-transcript cannot be read.
+**A subagent follows the session's setting from its first turn.** opencode
+starts a subagent before Cerea can hand it your setting, and it judges that
+first turn by its own starting rules, which ask. On **Allow**, galopin answers
+that ask for you when the session's rules allow it, so the subagent runs without
+a card, as the setting says. The machine's limit still holds: where it says
+`bash` asks (the default), the subagent's `bash` asks too, and so does a root
+on **Ask**. Such an ask is an ordinary card.
 
 **The approval card.** When a tool call asks, the card offers **Allow once**,
 **Always allow (this session)** and **Deny**. The panel relays your answer
@@ -536,7 +535,7 @@ machine's own roster. Expanding one fetches its own transcript and renders it
 as a nested read-only conversation.
 
 A subagent may run in the background (the task tool's `background:true`,
-opencode 1.18.32, behind `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`). The
+behind opencode's experimental `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`). The
 machine allows that unless enrolled with `--no-background-subagents`; then
 the flag is never set and a background task fails closed. A
 background child keeps running after its parent turn ends — the parent reads
@@ -552,7 +551,8 @@ limits, never the machine's own allows. They are applied when the subagent
 appears and re-applied to every live subagent whenever you change the main
 session's setting or remove an exception, so Deny stops a running child too.
 Until they land, the machine starts a subagent from an ask floor rather than
-from allow-everything, which is why a new subagent's first turn asks. On a subagent's
+from allow-everything; galopin answers the first turn's asks that the main
+session's rules allow (above). On a subagent's
 own view the selector shows the main session's setting, disabled (opencode
 itself hands a subagent only its parent's _deny_ rules, which is why galopin
 sets the rest explicitly).

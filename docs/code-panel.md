@@ -50,6 +50,11 @@ galopin enroll --issuer <origin>/authelia --gateway <origin> --cerea <origin>/ch
 galopin run
 ```
 
+The pairing dialog prints this as one command, one step per line, calling the
+installed binary as `~/.local/bin/galopin`. With its **Install opencode** box
+ticked it adds opencode's own installer, pinned to the release galopin is tested
+against (`agent/packaging/opencode-version`), before `enroll`.
+
 The installer checks the binary against the deployment's `SHA256SUMS` and
 refuses a mismatch. The machine then appears in the panel as **pending**
 until its owner confirms it.
