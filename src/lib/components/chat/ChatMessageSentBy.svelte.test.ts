@@ -47,9 +47,12 @@ describe("a user message another session wrote", () => {
 		const view = mount({ from: "user", content: "just me" });
 		const bubble = view.baseElement
 			.querySelector('[data-message-type="user"]')
-			?.querySelector("p.bg-inherit");
-		expect(bubble?.className).toContain("text-gray-600");
-		expect(bubble?.className).toContain("dark:text-gray-300");
+			?.querySelector("p.whitespace-break-spaces");
+		expect(bubble?.className).toContain("text-gray-800");
+		expect(bubble?.className).toContain("dark:text-gray-100");
 		expect(bubble?.className).not.toContain("text-gray-500");
+		// Right-aligned in the tinted bubble, so a fast scroll tells it from a reply.
+		expect(bubble?.parentElement?.className).toContain("bg-blue-50");
+		expect(bubble?.parentElement?.parentElement?.className).toContain("items-end");
 	});
 });
