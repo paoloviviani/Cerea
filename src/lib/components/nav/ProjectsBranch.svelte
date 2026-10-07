@@ -296,6 +296,7 @@
 
 <TreeBranch
 	label="Projects"
+	href="{base}/projects"
 	badge={loaded && !failed ? projects.length : undefined}
 	{open}
 	onactivate={toggleBranch}
