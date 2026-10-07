@@ -3,7 +3,7 @@
  * service credential, `CHAT_ERASURE_TOKEN`, minted by `./configure` and
  * passed over the compose network only. Never reachable from the edge —
  * the Caddyfile answers 404 for `/chat/internal/*` and `/internal/*` before
- * any proxying (cerea-deploy's half); this is the chat's own backstop, so a
+ * any proxying (the deploy kit's half); this is the chat's own backstop, so a
  * misconfigured or bypassed proxy still refuses rather than trusts a
  * forwarded request. Both checks apply regardless of which one would have
  * let the request through on its own — a valid token behind a proxy header

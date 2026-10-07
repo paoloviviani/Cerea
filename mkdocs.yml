@@ -72,14 +72,13 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
-  # The deploy-kit page includes cerea-deploy's README from the sibling
-  # checkout (../cerea-deploy, relative to this repository). check_paths
-  # fails the strict build when the checkout is missing, so a stale or
-  # absent kit can never silently render.
+  # The deploy-kit page includes the kit's README from this repository
+  # (kit/README.md, relative to the repository root). check_paths fails the
+  # strict build when the file is missing, so the page can never silently
+  # render without it.
   - pymdownx.snippets:
       base_path:
         - .
-        - ..
       check_paths: true
   - pymdownx.superfences
 

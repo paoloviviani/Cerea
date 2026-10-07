@@ -3,7 +3,7 @@
 !!! info "For operators"
 
     Three ways to run Cerea, one command with the deploy kit, more work
-    without it. This page is the map; the cerea-deploy README is the runbook.
+    without it. This page is the map; the deploy kit's README is the runbook.
 
 Cerea is a chat application: it needs a MongoDB, an OpenAI-compatible
 endpoint to talk to, and an OIDC identity provider to sign people in. How
@@ -19,19 +19,20 @@ three supported answers.
 | **Cerea without Pystino**        | the chat only, against an existing endpoint                                                                                   | the chat and its features; no per-user accounting, quotas, per-caller model access or console of this deployment's own | least, with the least governance               |
 
 **The deploy kit** is how this deployment runs and how Cerea is meant to be
-run: the [cerea-deploy](https://github.com/paoloviviani/cerea-deploy)
-repository holds the whole stack as one `compose.yaml`, one commented
-`.env.example` and a `./configure` script that writes your `.env` and mints
-every secret.
+run: the `kit/` directory of this repository holds the whole stack as one
+`compose.yaml`, one commented `.env.example` and a `./configure` script that
+writes your `.env` and mints every secret. Its installer fetches only that
+directory:
 
 ```sh
-git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
+curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh | sh
+cd cerea/kit
 ./configure
 docker compose up -d
 ```
 
 TLS modes, upgrades, backups, the identity provider and break-glass
-recovery are in cerea-deploy's README — the runbook, included on this
+recovery are in the kit's README — the runbook, included on this
 site as [The deploy kit](deploy-kit.md) — and are deliberately not repeated
 here.
 
@@ -67,7 +68,7 @@ connector credentials at rest — unset, adding a connector fails
 deliberately). The fork's own variables are on
 [Configuration](configuration.md); upstream's container background is in
 [upstream's docker installation docs](https://github.com/huggingface/chat-ui/blob/main/docs/source/installation/docker.md).
-Nothing in the chat requires cerea-deploy; what the kit buys you is the
+Nothing in the chat requires the deploy kit; what the kit buys you is the
 _rest_ of the stack and a `.env` you did not have to research. You take
 on: minting the secrets yourself, wiring your own IdP, and maintaining
 the versions.

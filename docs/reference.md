@@ -42,6 +42,6 @@ at source:
   [documentation site](https://paoloviviani.github.io/Pystino/):
   identity and administrators, accounting and quotas, redaction, the console, and
   what the gateway provides to coding agents.
-- **cerea-deploy**, the deployment, has the
-  [README](https://github.com/paoloviviani/cerea-deploy#readme) that is the
+- **The deploy kit** (`kit/` in this repository) has the
+  [README](deploy-kit.md) that is the
   install and upgrade runbook (see [Deploying](deploy.md)).

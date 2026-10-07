@@ -22,7 +22,7 @@ uv run --with-requirements docs/requirements.txt mkdocs build --strict   # the d
 ### Against a running stack
 
 ```bash
-set -a; . /path/to/cerea-deploy/.env; set +a   # a running stack's variables
+set -a; . /path/to/cerea/kit/.env; set +a      # a running stack's variables
 ./scripts/test_projects_live.py        # projects: context, retrieval, memory
 ./scripts/test_attachments_live.py     # a document attachment, extracted once
 ./scripts/test_nav_live.py             # the sidebar tree, and signing out for real
@@ -172,20 +172,24 @@ rules:
 
 ### Releasing
 
-A change is released only when all of these pass, in this order:
+A Cerea tag `vX.Y.Z` is also the deploy kit's version (`kit/`). A change is
+released only when all of these pass, in this order:
 
-1. CI green on the commit to be tagged.
-2. Tag (annotated `vX.Y.Z`, version bumped in `package.json`) and the `images`
-   workflow green, which publishes `ghcr.io/paoloviviani/cerea:X.Y.Z`.
-3. The image pulls **with no registry login** (`DOCKER_CONFIG` pointing at an
+1. The release commit: version bumped in `package.json`, the kit pinned
+   (`kit/tools/pin --cerea X.Y.Z --pystino P.Q.R`, then `--check`, and the kit's
+   unit tests), and the entry written in `kit/CHANGELOG.md`.
+2. CI green on that commit (`ci` and `kit`).
+3. Tag (annotated `vX.Y.Z`), then the `images` workflow green, which publishes
+   `ghcr.io/paoloviviani/cerea:X.Y.Z`.
+4. The image pulls **with no registry login** (`DOCKER_CONFIG` pointing at an
    empty config).
-4. In cerea-deploy: `tools/pin`, `tools/pin --check`, its unit tests, then the
-   **fresh-kit test**: a clean copy of the kit, `./configure`, `docker compose
-pull`, `up -d --wait`, a check that the running containers carry the new
-   tags, and a real sign-in through the identity provider, the gateway and the
-   chat to `/chat/code`, which must print exactly `E2E_OK`. The test stack is
-   then removed and checked gone.
-5. Only then the cerea-deploy tag and changelog entry.
+5. The **fresh-kit test**: `kit/get-kit.sh --version vX.Y.Z` into a scratch
+   directory, `./configure`, `docker compose pull`, `up -d --wait`, a check that
+   the running containers carry the new tags, and a real sign-in through the
+   identity provider, the gateway and the chat to `/chat/code`, which must print
+   exactly `E2E_OK`. The test stack is then removed and checked gone.
+6. Only then fast-forward the **`stable`** branch to the tag. Operators follow
+   `stable` or a tag, never `main`.
 
 A step that cannot run (no browser, no credentials) is reported as not run,
 never as passed.
