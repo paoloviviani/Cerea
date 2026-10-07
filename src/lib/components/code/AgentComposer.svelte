@@ -668,7 +668,8 @@
 		if (isSubagent) return "Follows the main session";
 		if (permissionMode !== "allow") return "";
 		const held = ceilingNote(ceiling);
-		return ["Allow", ...(held ? [`${held} (machine limit)`] : [])].join(" · ");
+		// Nothing capped: the selected segment already says Allow.
+		return held ? `Allow · ${held} (machine limit)` : "";
 	});
 
 	let modeLabel = $derived.by(() => {
