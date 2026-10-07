@@ -169,8 +169,9 @@ check_ref() {
 # The checkout must really carry the kit: a tag from before the kit moved into
 # this repository checks out to an empty directory.
 check_kit_present() {
-	[ -f "$1/kit/compose.yaml" ] && [ -f "$1/kit/configure" ] ||
+	if ! { [ -f "$1/kit/compose.yaml" ] && [ -f "$1/kit/configure" ]; }; then
 		die "'$2' does not contain the deploy kit (kit/ first appears in the release that moved it here); pick a newer --version"
+	fi
 }
 
 # A checkout this script made carries a marker in its git config. The directory
@@ -265,8 +266,9 @@ fi
 if [ -n "$FROM" ]; then
 	[ -d "$FROM" ] || die "--from $FROM is not a directory"
 	FROM=$(cd "$FROM" && pwd -P)
-	[ -f "$FROM/compose.yaml" ] && [ -f "$FROM/configure" ] ||
+	if ! { [ -f "$FROM/compose.yaml" ] && [ -f "$FROM/configure" ]; }; then
 		die "--from $FROM does not look like a cerea-deploy install (no compose.yaml and configure)"
+	fi
 	[ -f "$FROM/.env" ] || die "--from $FROM has no .env: it was never configured, so there is nothing to migrate; install fresh instead (leave out --from)"
 	[ "$FROM" != "$(absolute "$DIR")" ] || die "--from and --dir are the same directory"
 fi

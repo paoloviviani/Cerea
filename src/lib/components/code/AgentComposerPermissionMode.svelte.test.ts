@@ -146,9 +146,7 @@ describe("the permission selector", () => {
 		const allow = mount(session({ permissionMode: "allow" }), { ceiling: { bash: "ask" } });
 		await expect
 			.element(allow.getByTestId("permission-mode-note"))
-			.toHaveTextContent(
-				"Allow · bash asks (machine limit) · new subagents ask on their first turn"
-			);
+			.toHaveTextContent("Allow · bash asks (machine limit)");
 	});
 
 	it("names several caps, and a denial as a denial", async () => {
@@ -157,22 +155,17 @@ describe("the permission selector", () => {
 		});
 		await expect
 			.element(allow.getByTestId("permission-mode-note"))
-			.toHaveTextContent(
-				"Allow · bash asks, webfetch is denied (machine limit) · new subagents ask on their first turn"
-			);
+			.toHaveTextContent("Allow · bash asks, webfetch is denied (machine limit)");
 	});
 
-	it("under Allow with nothing capped, still says new subagents ask on their first turn, with the reason on hover", async () => {
+	it("under Allow with nothing capped, shows no note, and says subagents follow it", async () => {
 		const screen = mount(session({ permissionMode: "allow" }), { ceiling: {} });
-		const note = screen.getByTestId("permission-mode-note");
-		await expect.element(note).toHaveTextContent(/^Allow · new subagents ask on their first turn$/);
-		const title = note.element().getAttribute("title") ?? "";
-		expect(title).toContain("before Cerea can hand it your permission setting");
-		expect(title).not.toMatch(/turn two|second turn|from turn/i);
-		// And the Allow segment's own tooltip carries it (the note hides on a phone).
-		expect(segment(screen, "allow").element().getAttribute("title")).toContain(
-			"a new subagent's first turn"
-		);
+		await expect.element(segment(screen, "allow")).toHaveAttribute("aria-checked", "true");
+		expect(screen.getByTestId("permission-mode-note").elements()).toHaveLength(0);
+		// The Allow segment's own tooltip says subagents follow it (no first-turn caveat since 0.3.10).
+		const title = segment(screen, "allow").element().getAttribute("title") ?? "";
+		expect(title).toContain("New subagents follow it too");
+		expect(title).not.toContain("first turn");
 	});
 
 	it("does not name the ceiling or the first-turn caveat under Ask", async () => {
