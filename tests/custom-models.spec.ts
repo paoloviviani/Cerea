@@ -40,7 +40,9 @@ test("a custom model is created, picked in a new chat, and runs on its base with
 	await pill.click();
 	const row = page.getByRole("menuitem").filter({ hasText: "Menu helper" });
 	await expect(row).toContainText("custom");
-	await expect(page.getByRole("menuitem").filter({ hasText: "test-org/" })).toHaveCount(5);
+	await expect(
+		page.getByRole("menuitem").filter({ hasText: "test-org/" }).filter({ hasNotText: "custom" })
+	).toHaveCount(5);
 	await row.click();
 	await expect(pill).toContainText("Menu helper");
 
