@@ -363,7 +363,8 @@ if [ -n "$FROM" ]; then
 	say "  1. In the OLD directory, stop the stack WITHOUT -v (-v deletes the data):"
 	say "       cd $FROM && docker compose down"
 	say "  2. In the NEW directory, start it; Docker finds the same volumes by project name '$project':"
-	say "       cd $KIT && ./configure --check && docker compose up -d --wait"
+	say "       cd $KIT && docker compose up -d --wait"
+	say "     then, to see that nothing is off: ./configure --check (it asks the running stack, so it needs it up)."
 	say
 	say "Prefer a clean start instead? 'docker compose down -v' in the old directory deletes its"
 	say "volumes (every conversation, account and key), then run ./configure fresh in $KIT."
