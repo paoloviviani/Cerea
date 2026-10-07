@@ -411,6 +411,22 @@ re-enrolled keeps working with its old settings.
   certificate, and suggests `<ip-with-dashes>.sslip.io` for anyone who
   prefers a name.
 
+## v0.2.1 — 2026-10-02
+
+UX follow-ups on top of v0.2.0. Pins: Cerea `sha-3e562ce9`,
+Pystino `sha-0a03823` (unchanged, stays v0.2.0).
+
+- A failed fresh send puts its text back in the composer for
+  editing; retries, elicitation resumes and aborts never restore
+  (their content lives in the thread with its retry).
+- Signing out in a second tab clears this tab's matching draft;
+  newer typing in this tab survives the event.
+- MCP health checks and tool listings reuse pooled connections
+  instead of a cold handshake every time (per-credential keys, so a
+  check never borrows another caller's connection).
+- The orphan sweep removes document rows whose base is gone,
+  through `deleteDerived` like everything else.
+
 ## v0.2.0 — 2026-10-02
 
 The first published release of the code. Pins: Cerea `sha-11327fc9`,
@@ -535,19 +551,3 @@ in-place waves, each one backed up, pinned and live-checked):
   runs. (The component repos' tips have moved past the pins by
   documentation-and-test commits only: the docs workflows, the docs voice
   pass, and the Postgres test fixture — none of it ships in the images.)
-
-## v0.2.1 — 2026-10-02
-
-UX follow-ups on top of v0.2.0. Pins: Cerea `sha-3e562ce9`,
-Pystino `sha-0a03823` (unchanged, stays v0.2.0).
-
-- A failed fresh send puts its text back in the composer for
-  editing; retries, elicitation resumes and aborts never restore
-  (their content lives in the thread with its retry).
-- Signing out in a second tab clears this tab's matching draft;
-  newer typing in this tab survives the event.
-- MCP health checks and tool listings reuse pooled connections
-  instead of a cold handshake every time (per-credential keys, so a
-  check never borrows another caller's connection).
-- The orphan sweep removes document rows whose base is gone,
-  through `deleteDerived` like everything else.
