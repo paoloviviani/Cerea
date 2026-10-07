@@ -1,19 +1,20 @@
-# cerea-deploy
+# The Cerea deploy kit
 
 Run **Cerea** on your own server: the chat (Cerea), the model gateway and
 admin console (Pystino), a bundled identity provider (Authelia), the reverse
 proxy with automatic TLS (Caddy), and optional add-ons: PII redaction, a
 headless browser for web fetch, and agent machines (`/chat/code`).
 
-Everything is in this repository, and you can read all of it before running anything: one
+Everything is in this directory (`kit/` in the [Cerea repository](https://github.com/paoloviviani/Cerea)), and you can read all of it before running anything: one
 `compose.yaml`, one documented `.env.example`, the proxy's `caddy/Caddyfile`,
 the IdP's `authelia/configuration.yml`, and `./configure`, a single
 standard-library Python script that writes `.env` for you.
 
 Licence: Apache-2.0, Copyright 2026 Paolo Viviani
-([LICENSE](https://github.com/paoloviviani/cerea-deploy/blob/main/LICENSE),
-[NOTICE](https://github.com/paoloviviani/cerea-deploy/blob/main/NOTICE)). This kit contains no third-party code; see
-[AI-DISCLOSURE.md](https://github.com/paoloviviani/cerea-deploy/blob/main/AI-DISCLOSURE.md) for how it was written.
+([LICENSE](https://github.com/paoloviviani/Cerea/blob/main/LICENSE),
+[NOTICE](https://github.com/paoloviviani/Cerea/blob/main/NOTICE)). This kit contains no third-party code; see
+[AI-DISCLOSURE.md](https://github.com/paoloviviani/Cerea/blob/main/AI-DISCLOSURE.md) for how it was written.
+The kit's version is Cerea's: one release tag `vX.Y.Z` of the repository is one tested kit.
 
 ## Third-party software
 
@@ -35,10 +36,27 @@ You need Docker Engine with Compose 2.24 or newer, Python 3.9 or newer (for
 443 open (or a TLS front forwarding to it: see TLS modes).
 
 ```sh
-git clone https://github.com/paoloviviani/cerea-deploy && cd cerea-deploy
+curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh | sh
+cd cerea/kit
 ./configure
 docker compose up -d
 ```
+
+[`get-kit.sh`](https://github.com/paoloviviani/Cerea/blob/stable/kit/get-kit.sh) is a short
+POSIX shell script that needs only `git`. It fetches the newest release of this directory,
+and nothing else from the repository, into `./cerea` (a shallow, sparse git checkout of a few
+hundred kilobytes), and prints the commands to run next. **You work in `cerea/kit`**: that
+is where `./configure`, `.env` and every `docker compose` command live. Prefer to read it
+first? Download it, read it, then run `sh get-kit.sh`.
+
+```sh
+sh get-kit.sh --help
+sh get-kit.sh --version vX.Y.Z --dir /opt/cerea    # a release other than the newest, and another place
+```
+
+Follow a release tag or the `stable` branch, never `main`: `stable` moves to a release only
+after that release has been installed fresh and signed in to, and `main` may name images that
+are not published yet.
 
 The images are public on the GitHub Container Registry
 (`ghcr.io/paoloviviani/cerea`, `pystino-gateway`, `pystino-redaction`); Compose
@@ -76,20 +94,61 @@ change either afterwards.
 ## Upgrading
 
 ```sh
-git pull
+cd cerea/kit
+sh get-kit.sh --upgrade            # the newest release; --version vX.Y.Z for another
 docker compose pull
 docker compose up -d
 ```
 
-Each release of this repository pins the image versions it was tested with,
-inside `compose.yaml`, so you never type one. Back up first (see Backup and restore).
+`--upgrade` fetches the release and checks it out. It never touches a file git does not
+track: `.env`, `compose.override.yaml`, `proxy.d/*.caddy`, `first-sign-in.txt` and your
+backups stay as they are. (From elsewhere, name the checkout: `sh get-kit.sh --upgrade --dir ~/cerea`.)
+It stops, without changing anything, if you edited a file git tracks: put such changes in
+`compose.override.yaml` or `proxy.d/` instead.
 
-A `git pull` lands on a tested pair of versions: check the
-[CHANGELOG](https://github.com/paoloviviani/cerea-deploy/blob/main/CHANGELOG.md),
-then run the three commands. The CHANGELOG also says when a release needs
+Without the script, the same thing by hand, from inside `cerea/kit`:
+
+```sh
+git fetch --depth 1 --filter=blob:none origin tag vX.Y.Z
+git checkout vX.Y.Z
+```
+
+Each release pins the image versions it was tested with, inside `compose.yaml`, so you
+never type one. Back up first (see Backup and restore).
+
+An upgrade lands on a tested pair of versions: check the
+[CHANGELOG](https://github.com/paoloviviani/Cerea/blob/stable/kit/CHANGELOG.md),
+then run the commands. The CHANGELOG also says when a release needs
 something more, such as re-running the install line on each agent machine.
-Between releases, `main` may pin the `sha-…` tag of a commit that has no
-release yet.
+
+## Moving from a `cerea-deploy` install
+
+The kit used to be its own repository, `cerea-deploy`. If you installed it by cloning that,
+`get-kit.sh --from` moves you to the new layout without losing anything:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh |
+  sh -s -- --from /path/to/cerea-deploy --dir /path/to/cerea     # installs; changes nothing in the old directory
+cd /path/to/cerea-deploy && docker compose down                  # step 1, yours: stop the old stack, WITHOUT -v
+cd /path/to/cerea/kit && docker compose up -d --wait             # step 2, yours: start it from the new place
+```
+
+`--from` copies the old
+install's `.env` (and its `.env.bak-*`), `compose.override.yaml`, `proxy.d/*.caddy` and
+`first-sign-in.txt`, and never runs docker. **Docker names the volumes after the compose
+project**, so the new stack finds the old data only if the project name is the same: it keeps
+the `COMPOSE_PROJECT_NAME` in your `.env` (`./configure` always writes one), and for an `.env`
+without one it writes the name the old `compose.yaml` defaulted to (`cerea`), or failing that
+the old directory's name. Check the line it prints before step 2. Backup directories next to
+the old kit are not copied.
+
+Only files git tracks are replaced by the new release: a local edit to `caddy/Caddyfile` or
+another tracked file is not carried over (`--from` warns if there is one). Move such changes
+into `compose.override.yaml` or `proxy.d/*.caddy` first.
+
+Prefer a clean start? Stop the old stack with `docker compose down -v` (this **deletes** its
+volumes: every conversation, account and key), install fresh as above, and run `./configure`
+again. Keep the old directory until the new stack works.
 
 ## What runs
 
@@ -141,7 +200,7 @@ tools/diagnose --lines 500   # more log lines per service
 One text file to attach to a bug report, collected by reading only: nothing is
 restarted or changed. It holds:
 
-- versions and pins: this repository's commit, the Docker and Compose versions, the pins in `compose.yaml` and the image each service runs;
+- versions and pins: the kit's release (or commit), the Docker and Compose versions, the pins in `compose.yaml` and the image each service runs;
 - `docker compose ps`, and each service's state, health, restart count, OOM kill and exit code;
 - the last 200 log lines of `chat`, `gateway` and `extractor`;
 - the quota health: every rule's counter against the ledger, from `pystino quota health` in the gateway container. A gateway image too old to have it gets a SQL and `valkey-cli` listing instead;
@@ -172,7 +231,7 @@ Four files, four owners:
 | File | Owner |
 |---|---|
 | `.env` | `./configure`. It keeps keys it doesn't know in a final "Not in .env.example" section, so your own variables (a setup key, say) survive a re-run |
-| `compose.yaml` | this kit; `git pull` replaces it |
+| `compose.yaml` | this kit; an upgrade replaces it |
 | `compose.override.yaml` | you. Compose merges it into `compose.yaml` by itself, and git ignores it |
 | `proxy.d/*.caddy` | you: extra routes and headers |
 
@@ -254,7 +313,7 @@ The image is built from `tools/backup/` on your machine, because no published
 image carries restic, rclone, a Postgres 18 client and the Mongo tools
 together. It is Alpine, 250 MB, with pinned sources: the official `restic/restic:0.18.1`
 and `rclone/rclone:1.73.0` binaries, `alpine:3.23.6` for the rest. After a
-`git pull` that changes `tools/backup/`, run `docker compose up -d --build backup`.
+upgrade that changes `tools/backup/`, run `docker compose up -d --build backup`.
 
 **Keep the repository password somewhere else.** `.env` is in every snapshot,
 and it holds `RESTIC_PASSWORD`: the backup that explains how to open itself is
@@ -752,7 +811,7 @@ such an install:
 3. Run `./configure --check`. It names the keys that no longer mean anything (`COMPOSE_FILE`, `PYSTINO_DEPLOY_DIR`, the version pins); remove them with `./configure --unset …`.
 4. Run `docker compose up -d --wait`.
 
-The Caddy and Authelia configuration now comes from this repository instead
+The Caddy and Authelia configuration now comes from this kit instead
 of the `pystino-proxy` and `pystino-authelia` images, which are no longer
 needed.
 
@@ -785,5 +844,6 @@ checks the pins with `tools/pin --check`.
 
 ## Changing the kit
 
-Setup, tests, CI and the release procedure for this repository are in
-[CONTRIBUTING.md](https://github.com/paoloviviani/cerea-deploy/blob/main/CONTRIBUTING.md).
+Setup, tests, CI and the release procedure for the kit are in the "Deploy kit" and "Releasing"
+sections of Cerea's
+[CONTRIBUTING.md](https://github.com/paoloviviani/Cerea/blob/main/CONTRIBUTING.md#deploy-kit).

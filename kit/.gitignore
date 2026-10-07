@@ -3,10 +3,10 @@
 .env.bak-*
 # The minted first sign-in (./configure writes it at 0600); delete it after use.
 first-sign-in.txt
-# Your own proxy snippets: git pull never touches them.
+# Your own proxy snippets: an upgrade never touches them.
 proxy.d/*.caddy
 # Your own additions to the stack: Compose merges compose.override.yaml into
-# compose.yaml by itself, and git pull never touches it.
+# compose.yaml by itself, and an upgrade never touches it.
 compose.override.yaml
 compose.override.yml
 # Source checkouts dev/build.sh builds from.

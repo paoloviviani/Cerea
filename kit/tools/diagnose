@@ -288,8 +288,8 @@ def pins_from_compose() -> str:
 
 def versions_section(runner: Runner) -> str:
     parts = [
-        f"cerea-deploy commit: {text_of(runner(['git', 'rev-parse', '--short', 'HEAD'], 20))}",
-        f"cerea-deploy describe: {text_of(runner(['git', 'describe', '--tags', '--always', '--dirty'], 20))}",
+        f"deploy kit commit: {text_of(runner(['git', 'rev-parse', '--short', 'HEAD'], 20))}",
+        f"deploy kit release: {text_of(runner(['git', 'describe', '--tags', '--always', '--dirty'], 20))}",
         f"host: {platform.platform()}",
         f"python: {platform.python_version()}",
         f"docker: {text_of(runner(['docker', '--version'], 20))}",

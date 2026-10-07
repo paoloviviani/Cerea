@@ -12,7 +12,7 @@ Disallow: /" 200
 }
 ```
 
-Git ignores `*.caddy` in this directory, so `git pull` never conflicts with
+Git ignores `*.caddy` in this directory, so an upgrade never conflicts with
 yours. After adding or changing one:
 
 ```sh
