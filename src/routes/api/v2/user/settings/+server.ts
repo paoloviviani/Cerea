@@ -7,7 +7,9 @@ import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
+import { parseAccent, parseNeutral } from "$lib/utils/palettes";
 import { z } from "zod";
+import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 
 const settingsSchema = z.object({
 	shareConversationsWithModelAuthors: z
@@ -42,6 +44,7 @@ const settingsSchema = z.object({
 	hapticsEnabled: z.boolean().default(true),
 	hidePromptExamples: z.record(z.boolean()).default({}),
 	billingOrganization: z.string().optional(),
+	...paletteFields,
 });
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -102,6 +105,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		reasoningEffortOverrides: settings?.reasoningEffortOverrides ?? {},
 		reasoningOverrides: config.isHuggingChat ? {} : (settings?.reasoningOverrides ?? {}),
 		billingOrganization: settings?.billingOrganization ?? undefined,
+		accent: parseAccent(settings?.accent) ?? DEFAULT_SETTINGS.accent,
+		neutral: parseNeutral(settings?.neutral) ?? DEFAULT_SETTINGS.neutral,
 	});
 };
 
@@ -122,7 +127,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			{ status: 400 }
 		);
 	}
-	const { welcomeModalSeen, mlInternOnboardingSeen, ...parsedSettings } = parsed.data;
+	const { welcomeModalSeen, mlInternOnboardingSeen, accent, neutral, ...parsedSettings } =
+		parsed.data;
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	if (config.isHuggingChat) {
@@ -141,6 +147,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		{
 			$set: {
 				...settings,
+				...palettePatch({ accent, neutral }),
 				...(welcomeModalSeen && { welcomeModalSeenAt: new Date() }),
 				...(mlInternOnboardingSeen && { mlInternOnboardingSeenAt: new Date() }),
 				updatedAt: new Date(),

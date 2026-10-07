@@ -1,5 +1,6 @@
 import { collections } from "$lib/server/database";
 import { z } from "zod";
+import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
@@ -43,12 +44,13 @@ const settingsSchema = z.object({
 	hapticsEnabled: z.boolean().default(true),
 	hidePromptExamples: z.record(z.boolean()).default({}),
 	billingOrganization: z.string().optional(),
+	...paletteFields,
 });
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const body = await request.json();
 
-	const { welcomeModalSeen, mlInternOnboardingSeen, ...parsedSettings } =
+	const { welcomeModalSeen, mlInternOnboardingSeen, accent, neutral, ...parsedSettings } =
 		settingsSchema.parse(body);
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
@@ -68,6 +70,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		{
 			$set: {
 				...settings,
+				...palettePatch({ accent, neutral }),
 				...(welcomeModalSeen && { welcomeModalSeenAt: new Date() }),
 				...(mlInternOnboardingSeen && { mlInternOnboardingSeenAt: new Date() }),
 				updatedAt: new Date(),

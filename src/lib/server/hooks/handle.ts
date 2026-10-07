@@ -15,6 +15,7 @@ import { isHostLocalhost } from "$lib/server/isURLLocal";
 import { runWithRequestContext, updateRequestContext } from "$lib/server/requestContext";
 import { config, ready } from "$lib/server/config";
 import { authTimeFresh } from "$lib/server/code/stepUp";
+import { paletteAttributesFor } from "$lib/server/paletteSettings";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 
 type HandleInput = Parameters<Handle>[0];
@@ -357,14 +358,23 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			let replaced = false;
 
 			const response = await resolve(event, {
-				transformPageChunk: (chunk) => {
+				transformPageChunk: async (chunk) => {
+					let html = chunk.html;
+
+					// The person's palette goes on <html> in the first chunk, so the
+					// first paint is already right. Looked up here, not earlier, so that
+					// only requests that render a page pay for it.
+					if (html.includes("%paletteAttrs%")) {
+						html = html.replace("%paletteAttrs%", await paletteAttributesFor(event.locals));
+					}
+
 					// For some reason, Sveltekit doesn't let us load env variables from .env in the app.html template
-					if (replaced || !chunk.html.includes("%gaId%")) {
-						return chunk.html;
+					if (replaced || !html.includes("%gaId%")) {
+						return html;
 					}
 					replaced = true;
 
-					return chunk.html.replace("%gaId%", config.PUBLIC_GOOGLE_ANALYTICS_ID);
+					return html.replace("%gaId%", config.PUBLIC_GOOGLE_ANALYTICS_ID);
 				},
 				filterSerializedResponseHeaders: (header) => {
 					return header.includes("content-type");

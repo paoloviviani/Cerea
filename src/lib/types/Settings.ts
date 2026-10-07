@@ -1,4 +1,5 @@
 import { defaultModel } from "$lib/server/models";
+import type { Accent, Neutral } from "$lib/utils/palettes";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
 
@@ -143,6 +144,15 @@ export interface Settings extends Timestamps {
 	hapticsEnabled: boolean;
 
 	/**
+	 * The person's colour choices (Settings → Appearance), applied as
+	 * `data-accent` / `data-neutral` on `<html>` — see `$lib/utils/palettes`.
+	 * Absent means the default (blue, gray). Stored on the account, not in
+	 * the browser, so they follow the person across devices.
+	 */
+	accent?: Accent;
+	neutral?: Neutral;
+
+	/**
 	 * Organization to bill inference requests to (HuggingChat only).
 	 * Stores the org's preferred_username. If empty/undefined, bills to personal account.
 	 */
@@ -170,4 +180,6 @@ export const DEFAULT_SETTINGS = {
 	streamingMode: "smooth",
 	directPaste: false,
 	hapticsEnabled: true,
+	accent: "blue",
+	neutral: "gray",
 } satisfies SettingsEditable;
