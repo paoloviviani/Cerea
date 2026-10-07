@@ -1,0 +1,267 @@
+#!/bin/sh
+# The backup sidecar's one program. See the README, "Backups with restic".
+#
+#   cerea-backup daemon          the default: run `now` on BACKUP_SCHEDULE (supercronic)
+#   cerea-backup now             one backup, in the foreground (also: backup-now)
+#   cerea-backup restore [SNAP]  restore a snapshot into /restore (default: latest)
+#   cerea-backup health          the healthcheck (also: backup-health)
+#   cerea-backup <anything else> run as a command: `restic snapshots`, `restic check`, `sh`
+#
+# One backup run takes the four parts the README's restore procedure expects,
+# in one pass, into a tmpfs directory:
+#   .env  postgres.sql  chat-mongo.archive.gz  authelia.tgz  (+ backup.info)
+# restic stores that directory as one snapshot, then the directory is deleted.
+# Nothing is written outside the tmpfs and the restic cache in /state.
+set -eu
+umask 077
+
+WORK=/work
+STATE=${BACKUP_STATE_DIR:-/state}
+STACK_ENV=${BACKUP_ENV_FILE:-/stack/.env}
+RUN_DIR=$WORK/cerea            # a fixed path: restic matches parent snapshots by it,
+                               # and `restore` addresses the snapshot by it
+TAG=cerea
+HOST=${BACKUP_HOST:-${COMPOSE_PROJECT_NAME:-cerea}}
+
+PG_HOST=${BACKUP_POSTGRES_HOST:-postgres}
+PG_USER=${POSTGRES_USER:-gateway}
+MONGO_HOST=${BACKUP_MONGO_HOST:-chat-mongo}
+
+export RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR:-$STATE/cache}
+
+log() { printf '%s backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+err() { printf '%s backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die() { err "$*"; exit 1; }
+mask() { sed 's#://[^/@]*@#://***@#'; }
+
+need_repo_env() {
+  [ -n "${RESTIC_REPOSITORY:-}${RESTIC_REPOSITORY_FILE:-}" ] \
+    || die "RESTIC_REPOSITORY is not set: add it to .env (./configure --set RESTIC_REPOSITORY=...)"
+  [ -n "${RESTIC_PASSWORD:-}${RESTIC_PASSWORD_FILE:-}${RESTIC_PASSWORD_COMMAND:-}" ] \
+    || die "no repository password: set RESTIC_PASSWORD (or RESTIC_PASSWORD_FILE) in .env"
+}
+
+# Open the repository; create it if it does not exist. Any other failure (wrong
+# password, unreachable, bad credentials) is reported as it is and stops here:
+# restic exits 10 for "no repository there", and only for that.
+ensure_repo() {
+  rc=0
+  # Bounded: restic retries an unreachable backend for a quarter of an hour.
+  out=$(timeout "${BACKUP_REPO_TIMEOUT:-120}" restic cat config 2>&1 >/dev/null) || rc=$?
+  case $rc in
+    0) return 0 ;;
+    10)
+      log "no repository at ${RESTIC_REPOSITORY:-?}: creating it (restic init)"
+      restic init || return 1
+      log "repository initialised"
+      ;;
+    12) err "$out"; err "restic: wrong password for the repository (exit 12)"; return 1 ;;
+    124|143) err "$out"; err "restic: no answer from the repository in ${BACKUP_REPO_TIMEOUT:-120}s: unreachable? (set BACKUP_REPO_TIMEOUT to wait longer)"; return 1 ;;
+    *) err "$out"; err "restic: cannot open the repository (exit $rc)"; return 1 ;;
+  esac
+}
+
+write_state() { printf '%s\n' "$2" > "$STATE/$1.tmp" && mv "$STATE/$1.tmp" "$STATE/$1"; }
+
+# --- the dumps ------------------------------------------------------------------
+
+dump_postgres() {
+  [ -n "${POSTGRES_PASSWORD:-}" ] || die "POSTGRES_PASSWORD is not in the environment (is .env mounted as env_file?)"
+  log "postgres: pg_dumpall from $PG_HOST as $PG_USER ($(pg_dumpall --version))"
+  PGPASSWORD=$POSTGRES_PASSWORD pg_dumpall -h "$PG_HOST" -U "$PG_USER" > "$RUN_DIR/postgres.sql"
+  tail -n 5 "$RUN_DIR/postgres.sql" | grep -q 'PostgreSQL database cluster dump complete' \
+    || die "postgres: the dump is incomplete"
+}
+
+want_mongo() {
+  case ${BACKUP_MONGO:-auto} in
+    yes|true|1) return 0 ;;
+    no|false|0) return 1 ;;
+  esac
+  case ",$(printf '%s' "${COMPOSE_PROFILES:-}" | tr -d ' ')," in *,chat,*) return 0 ;; *) return 1 ;; esac
+}
+
+dump_mongo() {
+  if ! want_mongo; then
+    log "mongo: skipped (the chat profile is not enabled; BACKUP_MONGO=yes forces it)"
+    return 0
+  fi
+  log "mongo: mongodump from $MONGO_HOST"
+  # Its progress lines would fill the log, and --quiet hides its errors too: keep
+  # the output, show it only when the dump fails.
+  mongodump --host "$MONGO_HOST" --archive="$RUN_DIR/chat-mongo.archive.gz" --gzip 2> "$RUN_DIR/mongodump.log" \
+    || { cat "$RUN_DIR/mongodump.log" >&2; die "mongo: mongodump failed"; }
+  rm -f "$RUN_DIR/mongodump.log"
+  gzip -t "$RUN_DIR/chat-mongo.archive.gz" || die "mongo: the archive is corrupt"
+}
+
+# Authelia's two volumes, tarred with `authelia-config/` and `authelia-data/` at
+# the archive's root. The volumes are mounted read-only, and Authelia keeps
+# running: its files are small and replaced whole, except the SQLite store,
+# which is copied with SQLite's own online backup (a consistent snapshot even
+# while Authelia writes) and put in the archive in place of the live file.
+dump_authelia() {
+  log "authelia: config and data volumes"
+  stage=$RUN_DIR/.stage; mkdir -p "$stage/authelia-data"
+  for db in /authelia-data/*.sqlite3; do
+    [ -f "$db" ] || continue
+    sqlite3 -readonly "$db" ".timeout 20000" ".backup '$stage/authelia-data/$(basename "$db")'"
+    chmod "$(stat -c %a "$db")" "$stage/authelia-data/$(basename "$db")"
+  done
+  tar -cf "$RUN_DIR/authelia.tar" -C / --exclude='authelia-data/*.sqlite3*' authelia-config authelia-data
+  for db in /authelia-data/*.sqlite3; do
+    [ -f "$db" ] || continue
+    tar -rf "$RUN_DIR/authelia.tar" -C "$stage" --owner="$(stat -c %u "$db")" --group="$(stat -c %g "$db")" \
+      "authelia-data/$(basename "$db")"
+  done
+  gzip -c "$RUN_DIR/authelia.tar" > "$RUN_DIR/authelia.tgz"
+  rm -rf "$RUN_DIR/authelia.tar" "$stage"
+  tar tzf "$RUN_DIR/authelia.tgz" | grep -q 'authelia-config/users_database.yml' \
+    || log "authelia: note: no users_database.yml in the archive (an install with an external IdP has none)"
+}
+
+# --- one backup run -------------------------------------------------------------
+
+STEP=start
+cleanup() { rm -rf "$RUN_DIR"; }
+on_exit() {
+  rc=$?
+  cleanup
+  if [ "$rc" -ne 0 ] && [ "$STEP" != done ] && [ "${LOCKED:-0}" = 1 ]; then
+    err "BACKUP FAILED at step '$STEP' (exit $rc): this run left no new snapshot"
+    write_state last-status "fail: $STEP $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
+}
+
+cmd_now() {
+  need_repo_env
+  mkdir -p "$STATE"
+  exec 9>"$STATE/lock"
+  flock -n 9 || { err "another backup is already running: nothing done"; exit 75; }
+  LOCKED=1
+  trap on_exit EXIT
+  started=$(date +%s)
+
+  STEP=repository; ensure_repo || exit 1
+  [ -r "$STACK_ENV" ] || die "cannot read $STACK_ENV: mount .env there (see the override)"
+
+  log "backup starting: repository $(printf '%s' "${RESTIC_REPOSITORY:-}" | mask), host $HOST"
+  cleanup; mkdir -p "$RUN_DIR"
+  STEP=env;       cp "$STACK_ENV" "$RUN_DIR/.env"
+  STEP=postgres;  dump_postgres
+  STEP=mongo;     dump_mongo
+  STEP=authelia;  dump_authelia
+  {
+    echo "taken:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "project:  $HOST"
+    echo "profiles: ${COMPOSE_PROFILES:-}"
+    (cd "$RUN_DIR" && ls -l .env postgres.sql authelia.tgz chat-mongo.archive.gz 2>/dev/null | awk '{print "file:     " $9 " " $5 " bytes"}')
+  } > "$RUN_DIR/backup.info"
+
+  STEP=snapshot
+  log "restic: storing the snapshot"
+  restic backup --host "$HOST" --tag "$TAG" "$RUN_DIR"
+  cleanup
+
+  forget=${RESTIC_FORGET_ARGS---keep-daily 7 --keep-weekly 4 --keep-monthly 6}
+  STEP=forget
+  if [ -n "$forget" ]; then
+    log "retention: restic forget --prune $forget"
+    # shellcheck disable=SC2086
+    restic forget --prune --host "$HOST" --tag "$TAG" $forget
+  else
+    log "retention: RESTIC_FORGET_ARGS is empty: keeping every snapshot"
+  fi
+
+  runs=$(( $(cat "$STATE/runs" 2>/dev/null || echo 0) + 1 ))
+  every=${BACKUP_CHECK_EVERY:-7}
+  STEP=check
+  if [ "$every" -gt 0 ] && [ $((runs % every)) -eq 0 ]; then
+    log "integrity: restic check ${RESTIC_CHECK_ARGS:-} (every $every runs)"
+    # shellcheck disable=SC2086
+    restic check ${RESTIC_CHECK_ARGS:-}
+  fi
+  write_state runs "$runs"
+
+  STEP=done
+  write_state last-success "$(date +%s)"
+  write_state last-status "ok $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  log "BACKUP OK: snapshot stored in $(( $(date +%s) - started ))s (run $runs)"
+}
+
+# --- restore ----------------------------------------------------------------------
+
+cmd_restore() {
+  need_repo_env
+  snap=${1:-latest}
+  target=${BACKUP_RESTORE_DIR:-/restore}
+  [ -d "$target" ] || die "mount a directory at /restore: docker run ... -v \"\$PWD/restore:/restore\" ..."
+  [ -z "$(ls -A "$target")" ] || die "$target is not empty: restore into a new directory"
+  export RESTIC_CACHE_DIR=/tmp/restic-cache   # whoever runs this (--user), whatever is mounted
+  rc=0; out=$(restic cat config 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 0 ] || { err "$out"; die "cannot open the repository (exit $rc): nothing restored"; }
+  filters="--tag $TAG"
+  [ -z "${BACKUP_HOST:-}" ] || filters="$filters --host $BACKUP_HOST"
+  log "snapshots in the repository:"
+  # shellcheck disable=SC2086
+  restic snapshots $filters
+  log "restoring '$snap' into $target"
+  # shellcheck disable=SC2086
+  restic restore "$snap:$RUN_DIR" $filters --target "$target"
+  [ -f "$target/postgres.sql" ] || die "the snapshot has no postgres.sql: not a cerea backup?"
+  [ -f "$target/chat-mongo.archive.gz" ] && { gzip -t "$target/chat-mongo.archive.gz" || die "chat-mongo.archive.gz is corrupt"; }
+  # The repository is root's, so this runs as root; hand the files to whoever asked.
+  [ -z "${BACKUP_RESTORE_CHOWN:-}" ] || chown -R "$BACKUP_RESTORE_CHOWN" "$target"
+  log "restored:"
+  ls -la "$target"
+  [ -f "$target/backup.info" ] && cat "$target/backup.info"
+  log "RESTORE OK: now follow the README, 'Backup and restore', with B=<this directory>"
+}
+
+# --- scheduling and health ----------------------------------------------------------
+
+cmd_daemon() {
+  need_repo_env
+  mkdir -p "$STATE"
+  schedule=${BACKUP_SCHEDULE:-17 3 * * *}
+  printf '%s /usr/local/bin/cerea-backup now\n' "$schedule" > /tmp/crontab
+  supercronic -test /tmp/crontab >/dev/null 2>&1 \
+    || die "BACKUP_SCHEDULE is not a valid cron expression: '$schedule'"
+  write_state started "$(date +%s)"
+  log "scheduler up: '$schedule' ${TZ:+($TZ) }-> repository $(printf '%s' "${RESTIC_REPOSITORY:-}" | mask), host $HOST"
+  log "retention: ${RESTIC_FORGET_ARGS---keep-daily 7 --keep-weekly 4 --keep-monthly 6}; check every ${BACKUP_CHECK_EVERY:-7} runs"
+  # Open (or create) the repository now, so a wrong password or an unreachable
+  # backend shows in the logs at start, not at 03:17. It does not stop the
+  # scheduler: the next run tries again.
+  if ensure_repo; then
+    log "repository OK"
+  else
+    err "PREFLIGHT FAILED: the repository cannot be used (see above); will retry at the next run"
+    write_state last-status "fail: repository $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
+  exec supercronic -passthrough-logs /tmp/crontab
+}
+
+# Unhealthy when the last run failed, or when there has been no success for
+# BACKUP_MAX_AGE_HOURS (counted from container start before the first one).
+cmd_health() {
+  case $(cat "$STATE/last-status" 2>/dev/null || true) in fail*) echo "last backup failed: $(cat "$STATE/last-status")"; exit 1 ;; esac
+  last=$(cat "$STATE/last-success" 2>/dev/null || cat "$STATE/started" 2>/dev/null || date +%s)
+  age=$(( $(date +%s) - last ))
+  max=$(( ${BACKUP_MAX_AGE_HOURS:-36} * 3600 ))
+  [ "$age" -le "$max" ] || { echo "no successful backup for $((age / 3600))h (limit ${BACKUP_MAX_AGE_HOURS:-36}h)"; exit 1; }
+  echo "ok: last success $((age / 60)) min ago"
+}
+
+case $(basename "$0") in
+  backup-now) set -- now ;;
+  backup-health) set -- health ;;
+esac
+
+case ${1:-daemon} in
+  daemon) cmd_daemon ;;
+  now) cmd_now ;;
+  restore) shift; cmd_restore "$@" ;;
+  health) cmd_health ;;
+  *) exec "$@" ;;
+esac
