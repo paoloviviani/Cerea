@@ -163,6 +163,10 @@ type Config struct {
 	// DefaultOpTimeout/SyncOpTimeout bound req handling (default 15s / 20s).
 	DefaultOpTimeout time.Duration
 	SyncOpTimeout    time.Duration
+	// CallTimeout bounds one M→C call (default 20s, PROTOCOL.md §5 "Machine
+	// calls"): a Cerea that predates calls ignores the frame, so a call that
+	// is never answered must end on its own.
+	CallTimeout time.Duration
 
 	// Logf receives lifecycle-only messages (connecting, connected, paired,
 	// reconnecting, giving up) — never frame contents (R6). Defaults to a
@@ -200,6 +204,12 @@ type Link struct {
 	conn    *websocket.Conn
 	connCtx context.Context // valid only while conn != nil; for writes issued from other goroutines
 	sched   *scheduler      // the two-lane writer for the current connection; nil when not connected
+	// machineCalls is welcome.features.machineCalls of the current
+	// connection: the call families this Cerea answers.
+	machineCalls []string
+
+	callSeq uint64
+	pending map[string]chan callResult // call id -> its waiter, for the current connection
 }
 
 func New(cfg Config) *Link {
@@ -218,10 +228,13 @@ func New(cfg Config) *Link {
 	if cfg.SyncOpTimeout == 0 {
 		cfg.SyncOpTimeout = 20 * time.Second
 	}
+	if cfg.CallTimeout == 0 {
+		cfg.CallTimeout = 20 * time.Second
+	}
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
-	return &Link{cfg: cfg}
+	return &Link{cfg: cfg, pending: map[string]chan callResult{}}
 }
 
 // Paired reports whether Cerea has confirmed this machine (PROTOCOL.md §4):
@@ -350,7 +363,9 @@ func (l *Link) runOnce(ctx context.Context) error {
 		l.conn = nil
 		l.sched = nil
 		l.paired = false
+		l.machineCalls = nil
 		l.mu.Unlock()
+		l.failPending("the link to Cerea dropped before it answered")
 	}()
 	go sched.run(connCtx)
 
@@ -373,6 +388,9 @@ func (l *Link) runOnce(ctx context.Context) error {
 		Type     string `json:"type"`
 		DeviceID string `json:"deviceId"`
 		Status   string `json:"status"`
+		Features struct {
+			MachineCalls []string `json:"machineCalls"`
+		} `json:"features"`
 	}
 	if err := l.readFrame(connCtx, &welcome); err != nil {
 		if isRevokedClose(err) {
@@ -384,6 +402,9 @@ func (l *Link) runOnce(ctx context.Context) error {
 		return fmt.Errorf("expected welcome, got %q", welcome.Type)
 	}
 	l.setPaired(welcome.Status == "paired")
+	l.mu.Lock()
+	l.machineCalls = welcome.Features.MachineCalls
+	l.mu.Unlock()
 	l.cfg.Logf("link: connected (device %s, status %s)", welcome.DeviceID, welcome.Status)
 
 	renewalDone := make(chan struct{})
@@ -483,6 +504,8 @@ func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 				continue
 			}
 			go l.handleReq(ctx, req.ID, req.Op, req.Args)
+		case "callres":
+			l.handleCallRes(raw)
 		default:
 			// Unknown frame types are ignored (forward compatibility,
 			// PROTOCOL.md §5).
