@@ -100,6 +100,8 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		// galopin's own tools are installed only with a ToolsDir; opencode
 		// folds a prompt sent mid-turn into the running turn (prompt_async).
 		AgentTools: b.toolsEnabled(), Steer: true,
+		// A grant needs the tools and rules galopin composes itself.
+		CoordinationGrant: b.toolsEnabled() && b.cfg.Permissions != nil,
 		// Probed from the server's own GET /doc (never a version string):
 		// commands exist only when the server lists session.command there.
 		Commands: b.commandsSupported(),

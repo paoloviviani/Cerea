@@ -155,6 +155,16 @@ func (a *auditLogger) permissionMode(session, mode string) {
 	a.write(map[string]any{"action": "permission.mode", "session": session, "mode": mode})
 }
 
+// coordinationGrant records a session.grantCoordination call: the session, the
+// keys asked for (an empty list is a clear) and the outcome — ok, or why it did
+// not take effect. The grant is a decision about what runs without a card.
+func (a *auditLogger) coordinationGrant(session string, keys []string, outcome string) {
+	if keys == nil {
+		keys = []string{}
+	}
+	a.write(map[string]any{"action": "session.grantCoordination", "session": session, "keys": keys, "outcome": outcome})
+}
+
 // permissionTightened records a tightened permission policy being taken in
 // while the agent ran, and that opencode was restarted to apply it.
 func (a *auditLogger) permissionTightened(restarted bool) {

@@ -197,7 +197,7 @@ func TestEnrollFlagsCeilingDefaultsAreEnrollsOwn(t *testing.T) {
 			t.Errorf("ceiling %s: the file says %s, enroll defaults to %s", k.Key, k.Default, want)
 		}
 	}
-	wantKeys := []string{"edit", "bash", "webfetch", "task", "session_spawn", "session_send"}
+	wantKeys := []string{"edit", "bash", "webfetch", "task", "session_spawn", "session_send", "session_read"}
 	if !reflect.DeepEqual(keys, wantKeys) {
 		t.Errorf("ceiling keys = %v, want %v", keys, wantKeys)
 	}

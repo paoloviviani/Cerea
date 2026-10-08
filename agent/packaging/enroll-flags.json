@@ -50,7 +50,8 @@
 			{ "key": "webfetch", "default": "allow" },
 			{ "key": "task", "default": "allow" },
 			{ "key": "session_spawn", "default": "ask" },
-			{ "key": "session_send", "default": "allow" }
+			{ "key": "session_send", "default": "allow" },
+			{ "key": "session_read", "default": "allow" }
 		]
 	},
 	"dialogOnly": [

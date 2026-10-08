@@ -454,7 +454,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 				"worktrees": caps.Worktrees,
 				"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
 				"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
-				"permissions": caps.Permissions,
+				"permissions": caps.Permissions, "coordinationGrant": caps.CoordinationGrant,
 			},
 		}},
 		Machine: link.MachineInfo{Capabilities: map[string]bool{

@@ -11,8 +11,8 @@ import (
 
 // The permission flags shared by `enroll` and `policy set` (PROTOCOL.md §4
 // "Permission"). A permission KEY is opencode's own name for a tool class —
-// edit, bash, webfetch, … — or one of galopin's two coordination tools,
-// session_spawn and session_send.
+// edit, bash, webfetch, … — or one of galopin's coordination tools:
+// session_read, session_send and session_spawn.
 
 // defaultEnrollMax is the ceiling a fresh enroll writes: bash asks. It is the
 // one default that is not about convenience. If the ceiling let bash run, the

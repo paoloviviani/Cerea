@@ -54,8 +54,16 @@ type toolDef struct {
 var galopinTools = []toolDef{
 	{
 		name:        "session_list",
-		description: "List the other coding sessions on this machine (id, title, workspace, mode, status) so you can address one with session_send. Read-only.",
+		description: "List the other coding sessions on this machine (id, title, workspace, mode, status) so you can address one with session_read or session_send. Read-only.",
 		args:        `{ note: { type: "string", description: "Anything, e.g. why you are listing. Ignored." } }`,
+	},
+	{
+		name: "session_read",
+		description: "Read what ANOTHER session on this machine has said recently (by id from session_list): its last user and assistant text messages as plain text, oldest first, each with its role and time. " +
+			"No tool calls, no tool output, no reasoning, no files. Long messages and long answers are cut. Not for yourself. " +
+			"The person is asked to approve every read unless this machine's rules allow it (a rule can also refuse it); a session in another workspace always asks. Limits apply (rate).",
+		args: `{ target: { type: "string", description: "The session id to read, from session_list." },` +
+			` last: { type: "number", description: "How many recent messages: 1 to 50 (0 for the default, 10)." } }`,
 	},
 	{
 		name: "session_spawn",
