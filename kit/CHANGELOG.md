@@ -5,6 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.6.3 — 2026-10-08
+
+Pins: Cerea `0.6.3`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- Fixed: after a model used tools, its final answer could show twice in the chat, and
+  reloading did not help. The saved text was always right (exports were unaffected); the
+  page now shows the answer once.
+
 ## v0.6.2 — 2026-10-08
 
 Pins: Cerea `0.6.2`, Pystino `0.3.2`, Authelia 4.39.22.
