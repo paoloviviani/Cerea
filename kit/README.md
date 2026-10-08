@@ -817,9 +817,11 @@ backup first. `--key-in-env` keeps the key out of the file, and
 
 What to keep:
 - **`.env`**. It holds every secret. `GATEWAY_SECRET_KEY` decrypts the provider keys stored in the database. `AUTHELIA_STORAGE_KEY` decrypts every user's identifier. Without them a database backup is only partly usable.
-- **Postgres**: users, keys, the ledger, the chat's knowledge store.
+- **Postgres**: everything the gateway (Pystino) keeps (users and groups, API keys, quotas and the ledger, providers and models, identity-provider settings) and the chat's knowledge store. `pg_dumpall` takes every database in the cluster at once.
 - **Mongo**: conversations.
-- **The Authelia volumes**: the signing key, the users file, and the subject store.
+- **The Authelia volumes**: the signing key, the users file, and the subject store. Only with the bundled Authelia; with an external identity provider the accounts live there, and these volumes hold nothing to keep.
+
+Not kept, on purpose: Valkey (rate-limit counters and caches, rebuilt as requests arrive) and Caddy's volumes (certificates, fetched again).
 
 ```sh
 B=backup-$(date +%Y%m%d-%H%M%S); mkdir -m 700 "$B"
