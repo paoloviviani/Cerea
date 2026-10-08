@@ -66,3 +66,6 @@ declare module "ws" {
  * with it off the constant folds to `false` and every gate on it is dead code.
  */
 declare const __ML_ASSISTANT_MODE__: boolean;
+
+/** Cerea's version (package.json at build time), inlined by Vite's `define`. */
+declare const __APP_VERSION__: string;

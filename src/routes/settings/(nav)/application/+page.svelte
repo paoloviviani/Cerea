@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { APP_VERSION } from "$lib/utils/appVersion";
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 	import CarbonArrowUpRight from "~icons/carbon/arrow-up-right";
 	import CarbonLogoGithub from "~icons/carbon/logo-github";
@@ -34,6 +35,14 @@
 	import DeleteAllConversationsModal from "$lib/components/DeleteAllConversationsModal.svelte";
 
 	const publicConfig = usePublicConfig();
+
+	const CEREA_REPO = "https://github.com/paoloviviani/Cerea";
+	// The image sets the full commit; a dev build may have "unknown" or nothing.
+	const commitSha = $derived(
+		/^[0-9a-f]{7,40}$/.test(publicConfig.PUBLIC_COMMIT_SHA ?? "")
+			? publicConfig.PUBLIC_COMMIT_SHA
+			: ""
+	);
 	let settings = useSettingsStore();
 
 	// Functional bindings for store fields (Svelte 5): avoid mutating $settings directly
@@ -154,22 +163,21 @@
 			>
 		</div>
 	{/if}
-	{#if !!publicConfig.PUBLIC_COMMIT_SHA}
-		<div
-			class="flex flex-col items-start justify-between text-xl font-semibold text-gray-800 dark:text-gray-200"
-		>
+	<p class="text-sm font-light text-gray-500 dark:text-gray-400" data-testid="app-version">
+		<a
+			href={`${CEREA_REPO}/releases/tag/v${APP_VERSION}`}
+			target="_blank"
+			rel="noreferrer"
+			class="hover:underline">Cerea {APP_VERSION}</a
+		>{#if commitSha}
+			·
 			<a
-				href={`https://github.com/huggingface/chat-ui/commit/${publicConfig.PUBLIC_COMMIT_SHA}`}
+				href={`${CEREA_REPO}/commit/${commitSha}`}
 				target="_blank"
 				rel="noreferrer"
-				class="text-sm font-light text-gray-500 dark:text-gray-400"
-			>
-				Latest deployment <span class="gap-2 font-mono"
-					>{publicConfig.PUBLIC_COMMIT_SHA.slice(0, 7)}</span
-				>
-			</a>
-		</div>
-	{/if}
+				class="font-mono hover:underline">{commitSha.slice(0, 7)}</a
+			>{/if}
+	</p>
 	{#if page.data.isAdmin}
 		<div class="flex items-center gap-2">
 			<p
