@@ -16,6 +16,7 @@ import { isValidTimezone, nextOccurrence, validateRecurrence } from "./recurrenc
 import {
 	SCHEDULE_KINDS,
 	type Schedule,
+	type ScheduleCreator,
 	type ScheduleRun,
 	type ScheduleRunView,
 	type ScheduleView,
@@ -104,7 +105,13 @@ async function checkTarget(
 	return result.target;
 }
 
-export async function createSchedule(userId: ObjectId, body: unknown): Promise<Schedule> {
+/** `createdBy` comes from the caller, never from the body: the person's API
+ * cannot claim an agent made a schedule, nor the reverse. */
+export async function createSchedule(
+	userId: ObjectId,
+	body: unknown,
+	options: { createdBy?: ScheduleCreator } = {}
+): Promise<Schedule> {
 	const parsed = createSchema.safeParse(body);
 	if (!parsed.success) throw new ScheduleError(400, "The schedule is missing a field.");
 	const input = parsed.data;
@@ -135,6 +142,7 @@ export async function createSchedule(userId: ObjectId, body: unknown): Promise<S
 		consecutiveFailures: 0,
 		createdAt: now,
 		updatedAt: now,
+		...(options.createdBy ? { createdBy: options.createdBy } : {}),
 	};
 	await collections.schedules.insertOne(schedule);
 	// Two creates racing past the check above would both land: settle it
@@ -251,6 +259,7 @@ export async function scheduleView(schedule: Schedule): Promise<ScheduleView> {
 		nextRunAt: schedule.nextRunAt,
 		...(schedule.lastRunAt ? { lastRunAt: schedule.lastRunAt } : {}),
 		...(schedule.lastStatus ? { lastStatus: schedule.lastStatus } : {}),
+		...(schedule.createdBy?.kind === "agent" ? { createdBy: schedule.createdBy } : {}),
 		createdAt: schedule.createdAt,
 		updatedAt: schedule.updatedAt,
 	};

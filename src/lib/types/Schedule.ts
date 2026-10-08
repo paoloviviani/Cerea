@@ -39,6 +39,20 @@ export const SCHEDULE_RUN_STATUSES: ScheduleRunStatus[] = [
 	"failed",
 ];
 
+/** Who made a schedule. Absent on a row = a person (every row before agents
+ * could). An agent's schedule names the coding session that created it, so
+ * the list can link back to it. */
+export type ScheduleCreator =
+	| { kind: "person" }
+	| {
+			kind: "agent";
+			deviceId: string;
+			workspaceId: string;
+			sessionId: string;
+			/** The session's title when it made the schedule. */
+			title: string;
+	  };
+
 export interface Schedule extends Timestamps {
 	_id: ObjectId;
 	userId: User["_id"];
@@ -64,6 +78,7 @@ export interface Schedule extends Timestamps {
 	/** The claim: while in the future another instance leaves the schedule alone. */
 	leaseUntil?: Date | null;
 	leaseOwner?: string | null;
+	createdBy?: ScheduleCreator;
 }
 
 /** The result link of a run: where the executor put its output. */
@@ -108,6 +123,8 @@ export interface ScheduleView {
 	nextRunAt: Date | null;
 	lastRunAt?: Date;
 	lastStatus?: ScheduleRunStatus;
+	/** Only for an agent-created schedule; a person's has none. */
+	createdBy?: Extract<ScheduleCreator, { kind: "agent" }>;
 	createdAt: Date;
 	updatedAt: Date;
 }
