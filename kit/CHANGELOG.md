@@ -5,6 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.6.2 — 2026-10-08
+
+Pins: Cerea `0.6.2`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Scheduled runs know they are scheduled.** Each scheduled prompt now starts with one line
+  naming the schedule, its timetable, when it last ran and which coordination tools it was
+  granted, e.g. `[Scheduled run of "Nightly", every day at 02:00 (Europe/Rome); previous run
+  3 h ago; coordination: session_list, session_read, session_send]`, followed by your prompt
+  unchanged.
+- galopin's built-in delegation skill gains a "When you run on a schedule" section: nobody
+  is watching live, look at other sessions before acting, do not repeat a message already
+  sent, reuse an existing session before starting a new one, and end with a short summary.
+  Update galopin on your machines to get it (re-run the install line, then
+  `systemctl --user restart galopin`).
+
 ## v0.6.1 — 2026-10-08
 
 Pins: Cerea `0.6.1`, Pystino `0.3.2`, Authelia 4.39.22.
