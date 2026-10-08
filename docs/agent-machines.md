@@ -659,14 +659,65 @@ machines.
 
 ## Keeping it running
 
-**Linux**, as a systemd user unit:
+**Linux**, as a systemd user service, so galopin starts at boot, restarts if it
+crashes, and keeps running after you log out. Run these as the user that
+enrolled the machine (not root), once `galopin run` works in a terminal:
 
-```sh
-install -D -m 0644 galopin.service ~/.config/systemd/user/galopin.service
-systemctl --user daemon-reload && systemctl --user enable --now galopin
-loginctl enable-linger "$USER"        # keep it up while you are logged out
-journalctl --user -u galopin -f
-```
+1. Stop the `galopin run` you started by hand (Ctrl-C in its terminal), so two
+   copies don't fight over the machine's link.
+2. Write the unit. It's the same file as `agent/packaging/galopin.service` in
+   the Cerea repository:
+
+   ```sh
+   mkdir -p ~/.config/systemd/user
+   cat > ~/.config/systemd/user/galopin.service <<'UNIT'
+   [Unit]
+   Description=galopin: this machine's link to the chat's /code panel
+   After=network-online.target
+   Wants=network-online.target
+
+   [Service]
+   ExecStart=%h/.local/bin/galopin run
+   Restart=on-failure
+   RestartSec=10
+   # 78 = this machine was revoked in the /code panel: restarting cannot fix it.
+   RestartPreventExitStatus=78
+   # opencode must be on this PATH; add its directory if it lives elsewhere
+   # (`command -v opencode` tells you where).
+   Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+
+   [Install]
+   WantedBy=default.target
+   UNIT
+   ```
+
+3. Start it now and at every boot, and keep it running while you're logged out:
+
+   ```sh
+   systemctl --user daemon-reload
+   systemctl --user enable --now galopin
+   loginctl enable-linger "$USER"
+   ```
+
+   `enable-linger` is what lets a user service run with nobody logged in. Some
+   distributions ask for `sudo loginctl enable-linger <user>`.
+
+4. Check it:
+
+   ```sh
+   systemctl --user status galopin       # "active (running)"
+   journalctl --user -u galopin -f       # its log; Ctrl-C to stop following
+   ```
+
+   The machine shows as online in the /code panel within a few seconds.
+
+**After updating galopin** (re-running the install line from the pairing
+dialog), restart the service so it runs the new binary:
+`systemctl --user restart galopin`.
+
+**Over SSH,** if `systemctl --user` answers "Failed to connect to bus", your
+session has no user bus. Log in again, or run
+`export XDG_RUNTIME_DIR=/run/user/$(id -u)` first.
 
 **macOS**, as a LaunchAgent:
 
