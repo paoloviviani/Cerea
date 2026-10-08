@@ -2,6 +2,8 @@ import { config, ready } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { registerMachineUpgrade } from "$lib/server/code/machineServer";
 import { startMachineRevalidationLoop } from "$lib/server/code/machines";
+import "$lib/server/code/scheduleAgentExecutor";
+import { ScheduleRunner } from "$lib/server/schedules/scheduler";
 import { initExitHandler } from "$lib/server/exitHandler";
 import { assertOcrConfigValid } from "$lib/server/files/extractDocument";
 import { configuredBackend } from "$lib/server/fetching";
@@ -78,6 +80,9 @@ export async function initServer(): Promise<void> {
 	// Daily backstop for the knowledge pipeline's deleteDerived: orphan
 	// chunks, unattached uploads, transcripts of deleted conversations.
 	OrphanSweeper.getInstance();
+	// Scheduled actions: the "agent" executor registers itself on import above; the
+	// loop claims due schedules every 30s (off entirely with CHAT_SCHEDULES_ENABLED=false).
+	ScheduleRunner.getInstance();
 	// A restart strands in-flight background ingests with no token to re-drive
 	// them: fail whatever was still pending before this boot began, so the
 	// list says what happened instead of spinning forever. Not awaited — the
