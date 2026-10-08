@@ -267,10 +267,11 @@ test.describe("scheduled actions, hermetic", () => {
 		await editor.getByLabel("Can find, read and message other sessions").check();
 		await editor.getByLabel("Can start new sessions").check();
 		await editor.getByRole("button", { name: "Create schedule" }).click();
+		const row = page.getByTestId("schedule-row").filter({ hasText: "Orchestrator" });
+		await expect(row).toBeVisible();
 		const stored = await db.collection("schedules").findOne({ name: "Orchestrator" });
 		expect(stored?.target).toMatchObject({ canMessage: true, canSpawn: true });
 
-		const row = page.getByTestId("schedule-row").filter({ hasText: "Orchestrator" });
 		await row.getByRole("button", { name: "Run now" }).click();
 		await expect(row.getByTestId("run-notice")).toContainText("Sent");
 
