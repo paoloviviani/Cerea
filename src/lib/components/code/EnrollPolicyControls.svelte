@@ -312,7 +312,7 @@
 				"noAgentTools",
 				"enroll-no-agent-tools",
 				"No agent tools.",
-				"Install none of galopin's session_list, session_read, session_spawn and session_send tools, so sessions cannot find, read, start or message each other."
+				"Install none of galopin's agent tools (session_list, session_read, session_spawn, session_send and the schedule tools), so sessions cannot find, read, start or message each other, or manage your schedules."
 			)}
 			{@render flag(
 				"allowFreeModels",
