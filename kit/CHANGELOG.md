@@ -5,6 +5,22 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.6.0 — 2026-10-08
+
+Pins: Cerea `0.6.0`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Scheduled actions for agents.** In the /code panel, **Schedules** (or "Schedule this…" in
+  a session's menu) sends a prompt to a coding session on one of your machines on a
+  timetable: every N hours, daily, weekdays, weekly, or a cron expression, in your timezone,
+  at most every 15 minutes. You pick the machine, the workspace (or create one) and a new
+  session each run or one existing session, plus the agent mode, model and Deny/Ask/Allow.
+  The machine pays with its own credential, as for any session. Each run is recorded:
+  sent, skipped (the previous run is still going), missed (machine offline, or Cerea was
+  down; at most one catch-up), or failed; three failures in a row switch it off, and so
+  does revoking the machine. On Ask a run waits for your approvals in the Needs-you inbox.
+- New settings: `CHAT_SCHEDULES_ENABLED` (on unless `false`) and
+  `CHAT_SCHEDULES_MAX_PER_USER` (20).
+
 ## v0.5.2 — 2026-10-08
 
 Pins: Cerea `0.5.2`, Pystino `0.3.2`, Authelia 4.39.22.
