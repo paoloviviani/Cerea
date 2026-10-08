@@ -119,10 +119,24 @@ veto that only `enroll` can loosen:
   `once` when the session's word and exceptions allow (audited
   `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps. What **is** the machine's is the **ceiling**
   (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
-  `session_spawn=ask`): the most any key may ever be, whatever a session's
-  word or exceptions say. The old auto-accept toggle and
+  `session_spawn=ask`; the coordination keys `session_read` and
+  `session_send` are ceiling keys too, uncapped by default): the most any key
+  may ever be, whatever a session's word or exceptions say. The old auto-accept toggle and
   `--allow-auto-accept` are gone (the flag is accepted for one more
   release and does nothing).
+- **Agent tools** (on by default; `--no-agent-tools`): `session_list`,
+  `session_read`, `session_send` and `session_spawn`, so a session's model can
+  find, **read** (the other session's user and assistant text only, never its
+  tool output, truncated at 4 KB a message and 32 KB an answer), message and
+  start other sessions on this machine. Each read, send and spawn asks a person
+  unless this machine's own rule for that tool says allow, or the session was
+  **granted** it: `session.grantCoordination {sessionId, keys}` (only those four
+  keys; `[]` clears) is how Cerea's scheduled runs orchestrate other sessions
+  with nobody to answer a card. A grant persists with the session, and is never
+  more than the ceiling, another workspace, the hop limit or the rate limits
+  allow. An older galopin has no such op and answers `unsupported`; Cerea runs
+  the schedule without it and says so. Every read, send, spawn and grant is a
+  row in `audit.log`, never the text. See [PROTOCOL.md](PROTOCOL.md) §6.
 - **A terminal**: a real, interactive shell, **on by default** (as are
   slash commands that run shell and background subagents; `enroll
 --no-terminal`, `--no-command-shell` and `--no-background-subagents`

@@ -256,7 +256,40 @@ func IsUntouched(key string) bool {
 // (Grant), so the blanket must not bury a rule the machine wrote for one. Under
 // Ask or Allow the machine's own rules for them are re-appended after the mode
 // block; under Deny they are not, because the person said Deny.
-var GalopinTools = []string{"session_list", "session_spawn", "session_send"}
+var GalopinTools = []string{"session_list", "session_read", "session_spawn", "session_send"}
+
+// CoordinationKeys are the permission keys session.grantCoordination accepts:
+// the four coordination tools and nothing else. A grant is the one way a
+// caller can make a galopin tool's rule allow, and only for these.
+var CoordinationKeys = []string{"session_list", "session_read", "session_send", "session_spawn"}
+
+// IsCoordinationKey reports whether key may be granted.
+func IsCoordinationKey(key string) bool {
+	for _, k := range CoordinationKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeCoordination validates a grant's keys and returns them de-duplicated
+// and sorted (so equal grants compose to equal rules). When a key is not a
+// coordination key, ok is false and bad is the first such key.
+func NormalizeCoordination(keys []string) (out []string, bad string, ok bool) {
+	seen := map[string]bool{}
+	for _, k := range keys {
+		if !IsCoordinationKey(k) {
+			return nil, k, false
+		}
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out, "", true
+}
 
 func isGalopinTool(key string) bool {
 	for _, k := range GalopinTools {
@@ -283,6 +316,11 @@ type Exception struct {
 type Selector struct {
 	Mode       Action      `json:"mode,omitempty"`
 	Exceptions []Exception `json:"exceptions,omitempty"`
+	// Coordination is the grant session.grantCoordination recorded: coordination
+	// tools (CoordinationKeys) whose rule reads `allow` for this session, where
+	// the machine's own rules and the ceiling say nothing stricter. It is part of
+	// the selector so it persists with it, and a subagent follows its root's.
+	Coordination []string `json:"coordination,omitempty"`
 }
 
 // Effective is the mode in force: what was set, else ask.
@@ -343,6 +381,17 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// coordinationRules is one `allow` per granted coordination tool.
+func (s Selector) coordinationRules() []Rule {
+	var out []Rule
+	for _, k := range s.Coordination {
+		if IsCoordinationKey(k) {
+			out = append(out, Rule{k, "*", Allow})
+		}
+	}
+	return out
 }
 
 // exceptionRules is one allow rule per pattern, in the order given.
@@ -429,6 +478,11 @@ func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 	}
 	cerea = append(cerea, blanketBlock(mode, base)...)
 	if mode != Deny {
+		// A grant sits BEFORE the machine's own rules for these tools, so an
+		// owner's explicit ask or deny for one still beats it, and the ceiling's
+		// tail (below) caps it like every other rule. Under Deny it is kept but
+		// not applied: Deny wins, as it does over an exception.
+		cerea = append(cerea, sel.coordinationRules()...)
 		for _, r := range l.Own {
 			if isGalopinTool(r.Permission) {
 				cerea = append(cerea, r)

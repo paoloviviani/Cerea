@@ -401,6 +401,21 @@ func (b *Backend) Exceptions(sessionID string) []permrules.Exception {
 	return append([]permrules.Exception(nil), b.selectorOf(sessionID).Exceptions...)
 }
 
+// Coordination implements backend.RuleHost.
+func (b *Backend) Coordination(sessionID string) []string {
+	return append([]string(nil), b.selectorOf(sessionID).Coordination...)
+}
+
+// SetCoordination implements backend.RuleHost: the grant is kept in the root's
+// selector (so it is persisted with it and survives a restart) and the rules are
+// re-applied to the root and every subagent under it.
+func (b *Backend) SetCoordination(ctx context.Context, workspaceDir, sessionID string, keys []string) error {
+	return b.updateSelector(ctx, workspaceDir, sessionID, func(s permrules.Selector) (permrules.Selector, error) {
+		s.Coordination = append([]string(nil), keys...)
+		return s, nil
+	})
+}
+
 // SetPermissionMode implements backend.RuleHost.
 func (b *Backend) SetPermissionMode(ctx context.Context, workspaceDir, sessionID string, mode permrules.Action) error {
 	return b.updateSelector(ctx, workspaceDir, sessionID, func(s permrules.Selector) (permrules.Selector, error) {

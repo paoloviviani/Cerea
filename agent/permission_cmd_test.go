@@ -158,3 +158,35 @@ func TestStaticOpencodeConfigCarriesThePermissionBlock(t *testing.T) {
 		t.Errorf("written permission block = %v", got.Permission)
 	}
 }
+
+// session_read is a ceiling key like session_send: enroll takes it, policy set
+// only tightens it, policy show names it, and the default leaves it uncapped.
+func TestSessionReadIsACeilingKeyLikeSessionSend(t *testing.T) {
+	pol, err := enrollPolicy(&enrollOptions{permissionMax: []string{"session_read=ask", "session_send=ask"}, maxTerminals: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pol.Permission.Max["session_read"] != "ask" || pol.Permission.Max["session_send"] != "ask" {
+		t.Fatalf("enroll ceiling = %v", pol.Permission.Max)
+	}
+	if s := permissionPolicySummary(pol); !strings.Contains(s, "session_read≤ask") {
+		t.Errorf("policy show omits the key: %q", s)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	if err := policy.Save(path, pol); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "session_read=deny"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := policy.Load(path); got.Permission.Max["session_read"] != "deny" {
+		t.Errorf("tightened = %v", got.Permission.Max)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "session_read=ask"}); err == nil {
+		t.Error("loosening session_read must be refused")
+	}
+	if got := defaultEnrollMax(); got["session_read"] != got["session_send"] {
+		t.Errorf("session_read default %q != session_send default %q", got["session_read"], got["session_send"])
+	}
+}

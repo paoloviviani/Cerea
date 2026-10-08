@@ -98,6 +98,25 @@ func (r *ruleBackend) RemoveException(_ context.Context, _, sessionID, id string
 	r.sel[sessionID] = next
 	return ok, nil
 }
+func (r *ruleBackend) Coordination(sessionID string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.sel[sessionID].Coordination...)
+}
+func (r *ruleBackend) SetCoordination(_ context.Context, _, sessionID string, keys []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.setErr != nil {
+		return r.setErr
+	}
+	if r.sel == nil {
+		r.sel = map[string]permrules.Selector{}
+	}
+	sel := r.sel[sessionID]
+	sel.Coordination = append([]string(nil), keys...)
+	r.sel[sessionID] = sel
+	return nil
+}
 func (r *ruleBackend) RuleLayers(context.Context, string, string) (backend.RuleLayers, error) {
 	return r.layers, nil
 }

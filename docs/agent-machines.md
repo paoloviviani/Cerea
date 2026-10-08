@@ -56,7 +56,7 @@ means enrolling again; `galopin policy set` on the machine can only tighten."_
 **The cap** is "the most any session may do here": whatever a session's Deny /
 Ask / Allow setting or an "always allow" says, a tool never goes past it. The
 three pills set every tool at once; the per-tool rows (`edit`, `bash`,
-`webfetch`, `task`, `session_spawn`, `session_send`) are under Advanced. **The
+`webfetch`, `task`, `session_spawn`, `session_send`, `session_read`) are under Advanced. **The
 flag replaces `enroll`'s default set rather than adding to it**, so the dialog
 prints either nothing (the cap is as `enroll` has it) or the whole set: change
 one tool and the line carries every tool that is capped, including the defaults
@@ -71,8 +71,8 @@ the printed line carries every changed value whether it is open or not):
 | **Terminals** (amber)                                         | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once                     | the panel may open a real shell on this machine: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way |
 | **Slash commands that run shell** (amber)                     | unticked: `--no-command-shell`                                        | on                                             | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                             |
 | **Background subagents**                                      | unticked: `--no-background-subagents`                                 | on                                             | a task can keep running after its parent turn ends                                                                                                               |
-| **The cap, tool by tool** (six pill rows)                     | `--permission-max KEY=ACTION`, the whole set                          | `bash` and `session_spawn` Ask, the rest Allow | a different cap per tool                                                                                                                                         |
-| **No agent tools**                                            | `--no-agent-tools`                                                    | installed                                      | installs none of `session_list`, `session_spawn` and `session_send`, so sessions cannot start or message each other                                              |
+| **The cap, tool by tool** (seven pill rows)                   | `--permission-max KEY=ACTION`, the whole set                          | `bash` and `session_spawn` Ask, the rest Allow | a different cap per tool                                                                                                                                         |
+| **No agent tools**                                            | `--no-agent-tools`                                                    | installed                                      | installs none of `session_list`, `session_read`, `session_spawn` and `session_send`, so sessions cannot start or message each other                              |
 | **Allow free models**                                         | `--allow-free-models`                                                 | the gateway's models only                      | models from providers other than the gateway's may be listed and used                                                                                            |
 | **Keep opencode's own providers**                             | `--allow-opencode-provider`                                           | gateway only                                   | opencode's built-in providers stay enabled next to the gateway's                                                                                                 |
 | **Workspace folders** (a list)                                | `--workspace-root PATH`, one per entry                                | anywhere                                       | workspaces may only be created under these folders                                                                                                               |
@@ -119,19 +119,19 @@ link**: whatever the panel sends, the machine refuses what its policy denies.
 `galopin policy show` prints what a machine currently allows. `galopin policy
 set` can only **tighten**; loosening anything needs a new `enroll`.
 
-| Policy                           | Enroll flag                                                | Default                              | What it decides                                                                                                                                                                                                                                                                                 | Tighten later                                         |
-| -------------------------------- | ---------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Files**                        | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                | `policy set --no-files`, `--file-deny GLOB`           |
-| **Terminals**                    | `--no-terminal`, `--max-terminals N`                       | allowed; at most 8 open at once      | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                              | `policy set --no-terminal`, a lower `--max-terminals` |
-| **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`, `session_spawn=ask`      | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it.   |
-| **Machine rules**                | `--permission-rule KEY=ACTION` (repeatable)                | none                                 | Fixed answers for every session on this machine. A deny there always holds; an allow or ask only matters for reading files, working outside the project folder, the stuck-agent brake, and agents starting or messaging sessions. The ceiling still caps them.                                  |
-| **Agent tools**                  | `--no-agent-tools`                                         | installed                            | Whether galopin installs `session_list`, `session_spawn` and `session_send` into the backend (see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)). Denied: no tool at all                                                                                                    | `policy set --no-agent-tools`                         |
-| **Slash-command shell**          | `--no-command-shell`                                       | allowed                              | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                  | `policy set --no-command-shell`                       |
-| **A repo's own opencode config** | `--allow-project-config`                                   | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                       | `policy set --no-project-config`                      |
-| **Background subagents**         | `--no-background-subagents`                                | allowed                              | Whether the task tool may run a subagent in the background. While denied, `background:true` fails closed inside opencode; when allowed, a background child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents)) | `policy set --no-background-subagents`                |
-| **Models from elsewhere**        | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                | re-enroll                                             |
-| **opencode's own providers**     | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                        | re-enroll                                             |
-| **Workspace roots**              | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                   | re-enroll                                             |
+| Policy                           | Enroll flag                                                | Default                              | What it decides                                                                                                                                                                                                                                                                                               | Tighten later                                         |
+| -------------------------------- | ---------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Files**                        | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                              | `policy set --no-files`, `--file-deny GLOB`           |
+| **Terminals**                    | `--no-terminal`, `--max-terminals N`                       | allowed; at most 8 open at once      | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                                            | `policy set --no-terminal`, a lower `--max-terminals` |
+| **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`, `session_spawn=ask`      | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, `session_read`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it. |
+| **Machine rules**                | `--permission-rule KEY=ACTION` (repeatable)                | none                                 | Fixed answers for every session on this machine. A deny there always holds; an allow or ask only matters for reading files, working outside the project folder, the stuck-agent brake, and agents starting or messaging sessions. The ceiling still caps them.                                                |
+| **Agent tools**                  | `--no-agent-tools`                                         | installed                            | Whether galopin installs `session_list`, `session_read`, `session_spawn` and `session_send` into the backend (see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)). Denied: no tool at all                                                                                                  | `policy set --no-agent-tools`                         |
+| **Slash-command shell**          | `--no-command-shell`                                       | allowed                              | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                | `policy set --no-command-shell`                       |
+| **A repo's own opencode config** | `--allow-project-config`                                   | ignored                              | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                                     | `policy set --no-project-config`                      |
+| **Background subagents**         | `--no-background-subagents`                                | allowed                              | Whether the task tool may run a subagent in the background. While denied, `background:true` fails closed inside opencode; when allowed, a background child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents))               | `policy set --no-background-subagents`                |
+| **Models from elsewhere**        | `--allow-free-models`                                      | denied: the gateway's models only    | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                              | re-enroll                                             |
+| **opencode's own providers**     | `--allow-opencode-provider`                                | denied                               | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                      | re-enroll                                             |
+| **Workspace roots**              | `--workspace-root PATH` (repeatable)                       | unrestricted                         | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                 | re-enroll                                             |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
 `--group NAME` to preselect the billing group, `--output PATH` for where the
@@ -242,7 +242,7 @@ not run a second permission system next to opencode's. A tool call is allowed,
 refused or asked about by opencode's rules (the last matching rule wins; with
 none, it asks), and an ask appears in the panel as the approval card. The only
 approvals galopin keeps for itself are the ones opencode has no equivalent for
-(`session_spawn` and `session_send`, see
+(`session_read`, `session_spawn` and `session_send`, see
 [Sessions that talk to sessions](#sessions-that-talk-to-sessions)), plus hard
 limits that are not permissions at all (hop and rate limits, the same-workspace
 check on sends).
@@ -559,12 +559,20 @@ sets the rest explicitly).
 
 ### Sessions that talk to sessions
 
-A session's model can start another session on the same machine (`session_spawn`)
-or send a message to one (`session_send`). Both are on by default and turned off
+A session's model can start another session on the same machine (`session_spawn`),
+send a message to one (`session_send`) or read what one has said (`session_read`).
+All are on by default and turned off
 with `--no-agent-tools` at enroll (or `galopin policy set --no-agent-tools`
-later), which installs no tool into the backend at all. There are three:
+later), which installs no tool into the backend at all. There are four:
 
 - `session_list` reads the machine's sessions and needs no approval.
+- `session_read` returns another session's most recent **user and assistant
+  text** as plain text (the last 1 to 50 messages, ten by default, each with its
+  role and time). It never returns tool calls or their output, reasoning or
+  attachments; a message over 4 KB is cut, and the whole answer is capped at
+  32 KB (the oldest messages go first, and the answer says so). It cannot read
+  the session that calls it; a subagent of the caller's own tree is allowed.
+  Its card shows the **target** and how many messages.
 - `session_spawn` starts a new session. Its approval card shows the new
   session's **title**, its **mode** and the **full prompt**.
 - `session_send` sends a message to an existing session. Its card shows the
@@ -574,21 +582,41 @@ later), which installs no tool into the backend at all. There are three:
 Whether a spawn or send asks is decided from the asking session's **effective
 rules as galopin composes them** (the agent's, then the session's: the machine's
 own rules, what you set for it, and the ceiling last), looked up under the names
-`session_spawn` and `session_send`:
+`session_read`, `session_spawn` and `session_send`:
 
 - **allow** — no card, and the card in the transcript carries an **allowed by
   this machine's rules** badge.
 - **deny** — refused.
 - **ask, or no rule** — a card, as for any other ask. Nothing you answer on it is
   remembered: it has no "Always", and answering "once" is the only form.
-- A blanket `"*": allow` never grants these two (otherwise opencode's permissive
-  default would silently switch session traffic on); a blanket `"*": deny`
-  refuses them.
-- A send into another workspace always asks. Prompts and messages over 8 KiB
+- A blanket `"*": allow` never grants these three (otherwise opencode's permissive
+  default would silently switch session traffic on), and neither does a
+  session's **Allow** word; a blanket `"*": deny` refuses them. A transcript
+  can hold secrets, which is why a read is as hard to get as a send.
+- A send or a read into another workspace always asks.
+- A session can also be **granted** them without a rule: see below. Prompts and messages over 8 KiB
   are refused before any card is raised, so a card never shows a truncated text.
 - A chain longer than three messages, sent back and forth, asks at every step
   after the third instead of stopping; the card says why. More than five
-  messages a minute from one session to the same target are refused outright.
+  messages, and separately more than five reads, a minute from one session to the
+  same target are refused outright.
+
+#### Granting a session its coordination tools
+
+A scheduled run has nobody to answer a card. Cerea's schedules therefore have two
+options, both off: **Can find, read and message other sessions**
+(`session_list`, `session_read`, `session_send`) and **Can start new sessions**
+(`session_spawn`). At each run Cerea sends the machine
+`session.grantCoordination {sessionId, keys}` for the session it just created or
+chose, before the prompt. galopin records the grant with the session (it
+survives a restart) and treats those tools as **allowed** for it. It is never
+more than you allowed: the machine's **ceiling** still caps a granted key (at
+Ask the card still appears, in the Needs-you inbox; at Deny it is refused), your
+own `ask`/`deny` rule for the tool beats it, another workspace's sessions still
+ask, the hop limit and the rate limits stand, and Deny on the session wins. A
+galopin from before this op answers `unsupported`: the schedule still runs, and
+its run row says "this machine's galopin is too old to grant coordination; update
+it". Each grant is a row in `audit.log` with its keys and outcome.
 
 Questions always wait for a person, and a rule never answers a handoff. An allowed call is not invisible: the badge shows in the sender's transcript and
 the machine's audit log records it.
@@ -613,7 +641,8 @@ steering applies to your own messages: with a turn running, the composer's
 **Send** sits beside **Stop** (its chevron is stop-and-send), and slash
 commands are still refused mid-turn.
 
-What this means, plainly: where a machine's rules allow `session_send`, a
+What this means, plainly: where a machine's rules allow `session_send` (or a
+session was granted it), a
 session can message others in its workspace without you seeing a card. The cost
 is noise and one agent's text steering another's context, bounded by the hop and
 rate limits and visible in the badges and the audit log. A machine that leaves

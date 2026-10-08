@@ -850,21 +850,33 @@ registerExecutor({
 imports an executor; `hooks/init.ts` imports the executor files for their
 registration.
 
-**The agent executor** (`server/code/scheduleAgentExecutor.ts`) uses only
-`MachineLink` ops the panel already uses (`session.create`,
-`session.setMode`/`setModel`, `session.setPermissionMode`, `session.prompt`);
-**no galopin change**. Its target is `{ deviceId, workspaceId, sessionMode: "new" |
-"existing", sessionId?, modeId?, modelId?, permissionMode, labels }`; the device
-must be the caller's own, paired. Things that bite:
+**The agent executor** (`server/code/scheduleAgentExecutor.ts`) uses `MachineLink`
+ops: the panel's own (`session.create`, `session.setMode`/`setModel`,
+`session.setPermissionMode`, `session.prompt`) and, for the two coordination
+options, galopin's `session.grantCoordination`. Its target is `{ deviceId,
+workspaceId, sessionMode: "new" | "existing", sessionId?, modeId?, modelId?,
+permissionMode, canMessage?, canSpawn?, labels }`; the device must be the
+caller's own, paired. Things that bite:
 
 - a session a schedule starts is titled `<name> · YYYY-MM-DD HH:mm`; the tree
   marks it with a clock by matching that tail (`isScheduledTitle`), not by a wire
   field;
 - the permission word is set **before** the prompt, and for "always this session"
   it is set on that session and stays; the machine's ceiling caps it as everywhere;
-- `session_send` is **not** granted by Allow, and no op can write a
-  `session_send: allow` rule (`session.setRules` is retired), so a schedule cannot
-  be given "find and message other sessions" without a galopin change;
+- **coordination is a grant, not a rule.** `session_list`/`session_read`/
+  `session_send`/`session_spawn` are never granted by Allow, and no op writes a
+  rule (`session.setRules` is retired). The two options (`canMessage`: list,
+  read, send; `canSpawn`: spawn; both off by default, `utils/coordination.ts`
+  maps them) become one `session.grantCoordination` after the session exists
+  and **before the prompt**; galopin composes it as allows beneath the ceiling,
+  so a capped key still asks and another workspace still asks. A machine that
+  cannot take it (`backends[].capabilities.coordinationGrant` absent in its
+  hello, `policy.agentTools: "denied"`, or the op answering `unsupported`) runs
+  the prompt without it and the run row says why; any other error fails the run
+  before the prompt. A pinned session whose options are off has its grant
+  cleared (`keys: []`) on a machine that supports it, so "off" means off. The
+  editor and the executor read `utils/coordination.ts` for the wording, so the
+  warning and the run row cannot disagree;
 - API: `/api/v2/code/schedules` (+ `/[id]`, `/[id]/run`, `/[id]/runs`, `/preview`).
   It is under `/api/v2/code/`, so the 7-day sign-in guard covers it by prefix;
   `stale-guard.spec.ts` lists every route file and fails on a new one.

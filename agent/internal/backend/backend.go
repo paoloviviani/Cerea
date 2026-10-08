@@ -47,6 +47,10 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
+	// CoordinationGrant says session.grantCoordination (PROTOCOL.md §6) works:
+	// the agent tools are installed AND the session's rules are galopin's to
+	// compose, so a grant can be recorded and applied.
+	CoordinationGrant bool `json:"coordinationGrant"`
 	// Permissions says the backend's own permission rules can be read, that a
 	// session carries a Deny/Ask/Allow selector, and that its exceptions can be
 	// listed and removed (permission.rules, session.setPermissionMode,
@@ -320,6 +324,14 @@ type RuleHost interface {
 	// RemoveException withdraws one by id, re-applying likewise; false when the
 	// root holds none by that id.
 	RemoveException(ctx context.Context, workspaceDir, sessionID, id string) (bool, error)
+	// Coordination is the coordination grant on the session's root (sorted,
+	// empty when none).
+	Coordination(sessionID string) []string
+	// SetCoordination records a coordination grant on a ROOT session (keys are
+	// already validated, de-duplicated and sorted; empty clears it) and
+	// re-applies the rules to it and its subagents. It persists with the
+	// selector.
+	SetCoordination(ctx context.Context, workspaceDir, sessionID string, keys []string) error
 	// EnsureRules re-applies the machine's rules to a session if they differ
 	// from what it carries (after the ceiling changed).
 	EnsureRules(ctx context.Context, workspaceDir, sessionID string) error
