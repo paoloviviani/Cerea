@@ -411,6 +411,10 @@ services:
       # The browser terminal in /code: off unless exactly "true", and even then
       # only for machines enrolled with --allow-terminal.
       CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}
+      # Scheduled actions in /code: on with CODE_AGENTS_ENABLED unless exactly
+      # "false" (the kill switch); at most this many schedules per person.
+      CHAT_SCHEDULES_ENABLED: ${CHAT_SCHEDULES_ENABLED:-}
+      CHAT_SCHEDULES_MAX_PER_USER: ${CHAT_SCHEDULES_MAX_PER_USER:-}
       # One issuer for all three clients: the machine link reads the same
       # OIDC_ISSUER, OIDC_AUDIENCE and OIDC_MACHINE_CLIENT_ID as the console
       # and the chat.
