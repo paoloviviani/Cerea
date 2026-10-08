@@ -34,9 +34,10 @@ drives `opencode` and connects to Cerea over WSS.
 ## 2. Rules that are not negotiable
 
 1. **No AI attribution in commits.** No `Co-Authored-By: Claude` (or any AI)
-   trailer, no session links, and never `--author`. A `commit-msg` hook
-   rejects them; do not bypass it. The commit identity is the owner's git
-   config.
+   trailer, no session links, and never `--author`. **No hook checks this**
+   (the only tracked hook is `.husky/pre-commit`, which formats and lints
+   staged files), so read `git log -1` before every push. The commit identity
+   is the owner's git config.
 2. **Licences.** All first-party code is Apache-2.0. Describe the policy as
    "OSI-approved licences". Dependencies: permissive is fine; MPL unmodified is
    fine; GPL/AGPL only as a separate process; anything non-OSI needs the
@@ -73,10 +74,20 @@ drives `opencode` and connects to Cerea over WSS.
 | The deploy kit                                             | `kit/` (`configure`, `compose.yaml`, `get-kit.sh`, `tools/pin`)                                                                                                 | `kit/README.md`, `docs/deploy*.md`, `kit/CHANGELOG.md`                      |
 | Release machinery                                          | `scripts/release/`, `.github/workflows/`                                                                                                                        | AGENTS.md "Releasing"                                                       |
 
-Workflows: `ci.yml` (lint, check, tests, e2e on every push/PR), `kit.yml`
-(kit tests, shellcheck), `opencode.yml` (galopin against real opencode, pinned
-and latest), `images.yml` (run by hand on a tag; publishes the image),
-`contract.yml` (Cerea against a pinned Pystino), `docs.yml`.
+Workflows: `ci.yml` (lint, check, server/ssr tests and galopin's Go checks on
+every push to `main` and every PR; the Svelte `client` tests on pushes,
+weekly and by hand, not on PRs; changes only to `docs/`, `kit/` or Markdown
+run nothing), `kit.yml` (kit tests, compose and Caddyfile checks, shellcheck
+of `get-kit.sh`), `opencode.yml` (galopin against real opencode, pinned and
+latest), `images.yml` (run by hand on a tag; publishes the image),
+`contract.yml` (Cerea against a pinned Pystino), `docs.yml` (the strict docs
+build, published to GitHub Pages). **End-to-end Playwright tests are not in
+CI**: run them yourself for UI and flow changes.
+
+Two docs pages are includes, so edit their source: the site's _Development_
+page is `CONTRIBUTING.md` and _The deploy kit_ is `kit/README.md` (write
+links in both as absolute URLs). `docs/source/` is upstream chat-ui's
+documentation, kept as written and not part of the site.
 
 ## 4. Making a change, step by step
 
@@ -118,7 +129,8 @@ by hand. So:
   its `welcome`. The other side treats "absent" as "not supported" and shows a
   clear message ("update galopin on this machine") instead of failing.
 - **Cerea's `hello` schema drops unknown keys.** A new capability must be added
-  to that zod schema too, or Cerea never sees it.
+  to that zod schema (`src/lib/types/machineProtocol.ts`) too, or Cerea never
+  sees it.
 - An unknown op is answered `unsupported`; unknown frames are ignored. Test
   both directions: new Cerea with old galopin, and the reverse.
 - The release note must say whether machines need the galopin update (re-run
@@ -130,8 +142,11 @@ by hand. So:
 galopin pins one opencode release (`agent/packaging/opencode-version`).
 `opencode.yml` runs the whole real-opencode suite against the pin and against
 the latest release and reports when latest passes. Follow `agent/README.md`
-("opencode releases") to bump: change the pin, run the suite, update the docs that name
-the version (also Pystino's `docs/coding-agents.md`).
+("opencode releases") to bump: `agent/packaging/bump-opencode.sh <version>`
+changes the pin and its copy in `src/lib/codeEnrollCommand.ts`; run the
+suite it prints, then update the docs that name the version. Pystino names the
+same release in `apps/gateway/src/gateway/client_scripts/opencode-install.sh`
+and `docs/coding-agents.md`: change both there too.
 
 ## 5. Releasing
 
@@ -183,7 +198,8 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
 - **Files written by containers are root-owned** and later break `npm ci` or
   builds with `EACCES`: give them back with
   `docker run --rm -v "$PWD":/x alpine chown -R "$(id -u):$(id -g)" /x/<dir>`.
-- **Shell scripts:** CI uses shellcheck v0.9.0; run that exact version
+- **Shell scripts:** CI runs the runner's own shellcheck, and only on
+  `kit/get-kit.sh`; run v0.9.0 on every script you touch
   (`docker run --rm -v "$PWD":/mnt -w /mnt koalaman/shellcheck:v0.9.0 <files>`).
   In scripts, check every step explicitly; `set -e` does not stop on a failure
   inside `a && b` or a pipeline.
@@ -196,6 +212,22 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
 - **The `client` test project can fail to load a file under load** ("Failed to
   fetch dynamically imported module"). Rerun that file alone before treating
   it as a failure.
+- **A fresh clone or worktree has no git hooks until `npm ci`.** `prepare`
+  (husky) creates `.husky/_`, which `core.hooksPath` points at; before that the
+  pre-commit formatting silently does not run.
+- **Generated files:** `src/styles/palettes.css` comes from
+  `scripts/generate-palettes.mjs` (edit the tables there), and `static/pyodide/`
+  from `npm run sync-pyodide` (git-ignored). Never edit either by hand.
+- **Not everything specified is built.** `agent/PROTOCOL.md` §9 specifies file
+  search, watching and writing (`files.find|grep|watch|write`, `fileWrite`,
+  `CODE_FILE_WRITE_ENABLED`); none of it exists, and building it is a new feature, so the owner's call.
+  Read §9's status line before assuming an op is there.
+- **The image build script for the kit is `kit/dev/build.sh`** (docs inside
+  `kit/` call it `dev/build.sh`). With `BUILD_LOCK` set it takes that lock
+  itself: never wrap it in a `flock` on the same file.
+- **galopin's delegation skill is code** (`agent/internal/backend/opencode/skill.go`):
+  it describes the agent tools and the `[Scheduled run …]` header that
+  `src/lib/server/schedules/runHeader.ts` writes. Change it with them.
 
 ## 7. Open items (as of v0.7.0, 2026-10-08)
 
