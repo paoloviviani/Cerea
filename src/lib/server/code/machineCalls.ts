@@ -67,6 +67,10 @@ class CallError extends Error {
 	}
 }
 
+/** The opencode agent mode a run starts in: the executor's `modeId`. Not
+ * bounded by the caller — the permission word bounds what a run may do. */
+const AGENT_MODES = ["plan", "build"] as const;
+
 const RANK: Record<PermissionMode, number> = { deny: 0, ask: 1, allow: 2 };
 const WORD: Record<PermissionMode, string> = { deny: "Deny", ask: "Ask", allow: "Allow" };
 
@@ -81,6 +85,7 @@ const createArgs = z.object({
 	session: z.enum(["new", "this"]),
 	permissionMode: z.enum(["deny", "ask", "allow"]),
 	coordination: coordinationArg.optional(),
+	agentMode: z.enum(AGENT_MODES).optional(),
 });
 
 const updateArgs = z.object({
@@ -92,6 +97,7 @@ const updateArgs = z.object({
 	workspaceId: z.string().min(1).max(256).optional(),
 	permissionMode: z.enum(["deny", "ask", "allow"]).optional(),
 	coordination: coordinationArg.optional(),
+	agentMode: z.enum(AGENT_MODES).optional(),
 	paused: z.boolean().optional(),
 });
 
@@ -210,6 +216,8 @@ function listItem(schedule: Schedule, self: boolean) {
 		workspace: { id: target.workspaceId, name: target.labels?.workspace ?? "" },
 		session: target.sessionMode === "existing" ? (target.sessionId ?? "new") : "new",
 		permissionMode: target.permissionMode,
+		// No stored mode: the executor's own default for a new session.
+		agentMode: target.modeId ?? "plan",
 		coordination: coordinationKeys(target),
 		createdBy:
 			by?.kind === "agent"
@@ -338,6 +346,7 @@ async function opCreate(ctx: CallContext) {
 		workspaceId: args.workspaceId ?? ctx.frame.caller.workspaceId,
 		sessionMode: args.session === "this" ? "existing" : "new",
 		...(args.session === "this" ? { sessionId: ctx.frame.rootSessionId } : {}),
+		modeId: args.agentMode ?? "build",
 		permissionMode: args.permissionMode,
 		...optionsFromKeys(args.coordination ?? []),
 		labels: { machine: "", workspace: "" },
@@ -397,6 +406,7 @@ async function opUpdate(ctx: CallContext) {
 
 	const before = parseTargetOf(existing);
 	const targetChanged =
+		args.agentMode !== undefined ||
 		args.workspaceId !== undefined ||
 		args.permissionMode !== undefined ||
 		args.coordination !== undefined;
@@ -409,6 +419,7 @@ async function opUpdate(ctx: CallContext) {
 		target = {
 			...rest,
 			workspaceId: args.workspaceId ?? before.workspaceId,
+			...(args.agentMode ? { modeId: args.agentMode } : {}),
 			permissionMode: args.permissionMode ?? before.permissionMode,
 			...optionsFromKeys(keys),
 		};
@@ -421,7 +432,12 @@ async function opUpdate(ctx: CallContext) {
 	}
 	// What the schedule will do when it next runs must be within the caller:
 	// a new prompt, a new target, or switching it back on all hand it over.
-	if (args.prompt !== undefined || targetChanged || paused === false) {
+	// The agent mode alone is not bounded by the caller.
+	const boundChanged =
+		args.workspaceId !== undefined ||
+		args.permissionMode !== undefined ||
+		args.coordination !== undefined;
+	if (args.prompt !== undefined || boundChanged || paused === false) {
 		checkWithinCaller(ctx.frame, target ?? before);
 	}
 	if (paused === false && !existing.enabled && existing.createdBy?.kind === "agent") {
