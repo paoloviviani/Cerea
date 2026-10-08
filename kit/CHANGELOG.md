@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.7.2 — 2026-10-08
+
+Pins: Cerea `0.7.2`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- Settings → Application settings shows the running version ("Cerea 0.7.2 · <commit>"),
+  linking to its GitHub release. No galopin update needed.
+
 ## v0.7.1 — 2026-10-08
 
 Pins: Cerea `0.7.1`, Pystino `0.3.2`, Authelia 4.39.22.
