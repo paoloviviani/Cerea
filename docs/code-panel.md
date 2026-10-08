@@ -322,7 +322,9 @@ A new prompt, a new target or switching a schedule back on is checked against
 the caller too, so an Ask session cannot rewrite a person's Allow schedule. A
 created schedule's timezone defaults to that of the person's most recent
 schedule (there is no per-person setting), else UTC; `session: "this"` pins the
-caller's root session. The row records `createdBy: {kind: "agent", deviceId,
+caller's root session. `agentMode` (`plan` or `build`, the executor's `modeId`)
+defaults to `build` on create and is not bounded by the caller: the permission
+word is what bounds a run. The row records `createdBy: {kind: "agent", deviceId,
 workspaceId, sessionId, title}`, the list and the editor show **Created by an
 agent in ‹session›** linking to it, and each change is a `schedule.create` /
 `schedule.update` / `schedule.delete` row in `codeAudit` with the session id

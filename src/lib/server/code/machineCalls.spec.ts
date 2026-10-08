@@ -243,6 +243,7 @@ describe("schedule.create", () => {
 			workspace: { id: "ws1", name: "repo" },
 			session: "new",
 			permissionMode: "ask",
+			agentMode: "build",
 			coordination: ["session_spawn"],
 			createdBy: { kind: "agent", sessionId: session.id, title: "Refactor the parser" },
 			self: false,
@@ -253,6 +254,7 @@ describe("schedule.create", () => {
 			deviceId,
 			workspaceId: "ws1",
 			sessionMode: "new",
+			modeId: "build",
 			permissionMode: "ask",
 			canSpawn: true,
 			labels: { machine: "build box", workspace: "repo" },
@@ -273,6 +275,34 @@ describe("schedule.create", () => {
 			scheduleId: item.id,
 			name: "Check CI",
 		});
+	});
+
+	it("takes an agent mode, build by default, not bounded by the caller", async () => {
+		const plan = await createViaCall(
+			{ agentMode: "plan", permissionMode: "deny" },
+			{ caller: { permissionMode: "deny" } }
+		);
+		expect(plan.agentMode).toBe("plan");
+		expect((await getSchedule(person.user._id, plan.id)).target.modeId).toBe("plan");
+		refused(
+			await machine.call("schedule.create", createArgs({ agentMode: "yolo" })),
+			"invalid",
+			/agentMode/
+		);
+		// Update: a Deny session may switch an Allow schedule to build.
+		const theirs = await personSchedule(deviceId);
+		const res = ok(
+			await machine.call(
+				"schedule.update",
+				{ id: theirs._id.toString(), agentMode: "build" },
+				{ caller: { permissionMode: "deny" } }
+			)
+		);
+		expect(res.schedule).toMatchObject({ agentMode: "build", permissionMode: "allow" });
+		refused(
+			await machine.call("schedule.update", { id: theirs._id.toString(), agentMode: "edit" }),
+			"invalid"
+		);
 	});
 
 	it("defaults the timezone to the person's own, and takes an explicit one", async () => {

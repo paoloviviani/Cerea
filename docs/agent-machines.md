@@ -656,7 +656,7 @@ uncapped by default):
 - A ceiling of `schedule=ask` or `schedule=deny` wins over all of the above.
 
 The card shows the whole schedule (name, timetable, timezone, workspace,
-session, mode, coordination and the full prompt), the changed fields for an
+session, agent mode (`plan` or `build`, default `build`), permission mode, coordination and the full prompt), the changed fields for an
 update, the name for a delete.
 
 Cerea then holds every call to its own rules, whatever the card said: the store's

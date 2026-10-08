@@ -883,7 +883,8 @@ caller's own, paired. Things that bite:
   `validateTarget`, with the agent's own refusals on top (mode no looser and
   coordination no wider than the caller's, 5 running agent-made schedules per
   machine, 10 changes per machine per hour with pause/delete exempt, this
-  machine's schedules only). `createdBy` is passed by the caller of
+  machine's schedules only). Its `agentMode` is the target's `modeId`
+  (default `build`, not bounded by the caller). `createdBy` is passed by the caller of
   `createSchedule`, never read from a body; the welcome advertises
   `features.machineCalls`. Specs: `machineCalls.spec.ts`, and `FakeMachine.call()`
   sends a `call` from tests;
