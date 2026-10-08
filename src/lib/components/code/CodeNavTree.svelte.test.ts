@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { flushSync } from "svelte";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { appNavigation, renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import CodeNavTree from "./CodeNavTree.svelte";
 import { livePage } from "./codeNavPage.svelte";
 import { CODE_TREE_COLLAPSE_KEY } from "$lib/utils/codeTreeCollapse";
@@ -335,5 +335,74 @@ describe("CodeNavTree legacy machines", () => {
 		const screen = mount();
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
 		expect(screen.getByTestId("legacy-machine-row-flag").elements()).toHaveLength(0);
+	});
+});
+
+describe("CodeNavTree scheduled actions", () => {
+	function withSchedules(on: boolean) {
+		Object.assign(livePage.data, { codeSchedulesEnabled: on });
+	}
+
+	it("offers a Schedules row under the devices only when the deployment has them on", async () => {
+		withSchedules(false);
+		go("");
+		const off = mount();
+		await expect.element(off.getByText("Box d1")).toBeVisible();
+		expect(off.getByTestId("schedules-link").elements()).toHaveLength(0);
+		off.unmount();
+
+		withSchedules(true);
+		const on = mount();
+		const link = on.getByTestId("schedules-link");
+		await expect.element(link).toBeVisible();
+		await expect.element(link).toHaveAttribute("href", "/code?view=schedules");
+		withSchedules(false);
+	});
+
+	it("highlights the Schedules row alone while the schedules pages are open, whatever they prefill", async () => {
+		withSchedules(true);
+		go("?view=schedules&new=1&device=d1&ws=w1&agent=a1");
+		const screen = mount();
+		await expect.element(screen.getByText("Agent a1")).toBeVisible();
+		expect(screen.getByTestId("schedules-link").element().className).toContain("font-semibold");
+		const row = screen.getByRole("link", { name: "Agent a1" }).element();
+		expect(row.className).not.toContain("font-semibold");
+		withSchedules(false);
+	});
+
+	it("opens the editor prefilled with machine, workspace and session from a session's menu", async () => {
+		withSchedules(true);
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Agent a1")).toBeVisible();
+		appNavigation().goto.mockClear();
+		await screen.getByRole("button", { name: "Session actions" }).first().click();
+		await screen.getByRole("menuitem", { name: "Schedule this…" }).click();
+		expect(appNavigation().goto).toHaveBeenCalledWith(
+			"/code?view=schedules&new=1&device=d1&ws=w1&agent=a1"
+		);
+		withSchedules(false);
+	});
+
+	it("has no Schedule this… item when they are off", async () => {
+		withSchedules(false);
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Agent a1")).toBeVisible();
+		await screen.getByRole("button", { name: "Session actions" }).first().click();
+		await expect.element(screen.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+		expect(screen.getByRole("menuitem", { name: "Schedule this…" }).elements()).toHaveLength(0);
+	});
+
+	it("marks a session a schedule started, and no other", async () => {
+		AGENTS.d1 = [
+			{ ...agent("a1", "w1"), title: "Nightly · 2026-10-08 09:00" },
+			{ ...agent("a2", "w1"), title: "Fix the thing" },
+		];
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Fix the thing")).toBeVisible();
+		expect(screen.getByTestId("scheduled-badge").elements()).toHaveLength(1);
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
 	});
 });

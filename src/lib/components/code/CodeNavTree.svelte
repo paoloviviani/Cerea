@@ -39,6 +39,7 @@
 	import IconCheck from "~icons/carbon/checkmark";
 	import IconClose from "~icons/carbon/close";
 	import IconChevronRight from "~icons/carbon/chevron-right";
+	import IconTime from "~icons/carbon/time";
 	import {
 		listWorkspaces,
 		listAgents,
@@ -49,7 +50,11 @@
 		archiveWorkspace,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
-	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
+	import {
+		isScheduledTitle,
+		type CodeAgentSession,
+		type CodeWorkspace,
+	} from "$lib/types/CodeAgent";
 	import {
 		codeDeviceList,
 		refreshCodeDevices,
@@ -110,9 +115,12 @@
 		| null
 	>(null);
 
-	const selectedDeviceId = $derived(page.url.searchParams.get("device"));
-	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws"));
-	const selectedAgentId = $derived(page.url.searchParams.get("agent"));
+	// On the Schedules pages `device`/`ws`/`agent` prefill the editor instead of
+	// naming a selection, so the tree highlights the Schedules row alone.
+	const schedulesActive = $derived(page.url.searchParams.get("view") === "schedules");
+	const selectedDeviceId = $derived(schedulesActive ? null : page.url.searchParams.get("device"));
+	const selectedWorkspaceId = $derived(schedulesActive ? null : page.url.searchParams.get("ws"));
+	const selectedAgentId = $derived(schedulesActive ? null : page.url.searchParams.get("agent"));
 
 	// The same one-liner the pairing dialog prints (§12): a device flagged
 	// `reenroll` shows it too, rather than a bare "go re-pair" pointer with
@@ -865,6 +873,13 @@
 														>
 															<IconCode class="size-3 shrink-0" />
 															<span class="min-w-0 flex-1 truncate">{agent.title}</span>
+															{#if isScheduledTitle(agent.title)}
+																<IconTime
+																	class="size-3 shrink-0 text-gray-400"
+																	title="Started by a schedule"
+																	data-testid="scheduled-badge"
+																/>
+															{/if}
 															{#if sub}
 																<span
 																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
@@ -998,6 +1013,18 @@
 																	onCloseAutoFocus={(e) => e.preventDefault()}
 																	interactOutsideBehavior="defer-otherwise-close"
 																>
+																	{#if page.data.codeSchedulesEnabled === true}
+																		<DropdownMenu.Item
+																			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+																			onSelect={() =>
+																				goto(
+																					`${base}/code?view=schedules&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
+																				)}
+																		>
+																			<IconTime class="size-4 opacity-90 dark:opacity-80" />
+																			Schedule this…
+																		</DropdownMenu.Item>
+																	{/if}
 																	<DropdownMenu.Item
 																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 																		onSelect={() => (renameAgentFor = { device, agent })}
@@ -1084,6 +1111,20 @@
 				{/if}
 			</div>
 		{/each}
+	{/if}
+	{#if page.data.codeSchedulesEnabled === true && codeDeviceList.devices.length > 0}
+		<!-- Under the devices: one address, not a branch. The pane it opens holds
+		     the list, the editor and each schedule's history. -->
+		<a
+			href="{base}/code?view=schedules"
+			class="mt-1 flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm {schedulesActive
+				? 'bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white'
+				: 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}"
+			data-testid="schedules-link"
+		>
+			<IconTime class="size-3.5 shrink-0" />
+			Schedules
+		</a>
 	{/if}
 </div>
 
