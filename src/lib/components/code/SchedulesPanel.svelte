@@ -16,6 +16,7 @@
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
+	import ScheduleCreatedBy from "./ScheduleCreatedBy.svelte";
 	import IconTime from "~icons/carbon/time";
 	import IconAdd from "~icons/carbon/add";
 	import IconEdit from "~icons/carbon/edit";
@@ -211,6 +212,7 @@
 											<p class="text-sm break-words text-ink-muted" data-testid="schedule-target">
 												{schedule.targetLabel}
 											</p>
+											<ScheduleCreatedBy createdBy={schedule.createdBy} class="mt-0.5" />
 										</div>
 										<button
 											type="button"

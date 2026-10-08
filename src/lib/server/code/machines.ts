@@ -32,6 +32,7 @@ import {
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
 	type Backend,
+	type CallResFrame,
 	type CoordinationKey,
 	type Directory,
 	type Command,
@@ -53,6 +54,7 @@ import {
 	type Notice,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import { handleMachineCall, MACHINE_CALL_FEATURES } from "$lib/server/code/machineCalls";
 
 const HELLO_TIMEOUT_MS = 10_000;
 const PING_INTERVAL_MS = 20_000;
@@ -708,6 +710,20 @@ function touchDeviceRow(deviceId: string, patch: Partial<CodeDevice>): void {
 		.catch((err) => logger.warn({ err, deviceId }, "machine link: device row update failed"));
 }
 
+function isCallShaped(raw: unknown): raw is { type: "call"; id: string } {
+	const frame = raw as { type?: unknown; id?: unknown } | null;
+	return frame?.type === "call" && typeof frame.id === "string" && frame.id.length <= 128;
+}
+
+function sendCallRes(state: ConnectionState, res: CallResFrame): void {
+	if (registry.get(state.deviceId) !== state) return; // the link was replaced or closed
+	try {
+		state.ws.send(JSON.stringify(res));
+	} catch (err) {
+		logger.warn({ err, deviceId: state.deviceId }, "machine link: failed to answer a call");
+	}
+}
+
 /**
  * The connection's whole lifecycle, from the first frame after upgrade to
  * its close. Called once per accepted WebSocket, after `machineAuth` has
@@ -753,6 +769,17 @@ export function acceptMachineConnection(
 			return; // malformed JSON: ignored, not fatal (forward-compat rule)
 		}
 		const frame = parseMachineFrame(parsed);
+		if (!frame && state && isCallShaped(parsed)) {
+			// A call that fails validation still gets an answer, so the machine's
+			// tool says why at once instead of after its 20 s timeout.
+			sendCallRes(state, {
+				type: "callres",
+				id: parsed.id,
+				ok: false,
+				error: { code: "invalid", message: "The call frame did not match the protocol." },
+			});
+			return;
+		}
 		if (!frame) {
 			// Dropping unknown frames is the forward-compat rule, but a first frame
 			// that claims to be a hello and fails validation is a contract break
@@ -817,6 +844,11 @@ export function acceptMachineConnection(
 				};
 				if (listeners) for (const listener of listeners) listener(envelope);
 				for (const listener of treeListeners) listener(envelope);
+				return;
+			}
+			case "call": {
+				const current = state;
+				void handleMachineCall(current.deviceId, frame).then((res) => sendCallRes(current, res));
 				return;
 			}
 			case "credential": {
@@ -986,7 +1018,14 @@ async function onHello(
 	}, PING_INTERVAL_MS);
 
 	try {
-		ws.send(JSON.stringify({ type: "welcome", deviceId, status }));
+		ws.send(
+			JSON.stringify({
+				type: "welcome",
+				deviceId,
+				status,
+				features: { machineCalls: MACHINE_CALL_FEATURES },
+			})
+		);
 	} catch (err) {
 		logger.warn({ err, deviceId }, "machine link: failed to send welcome");
 	}

@@ -397,4 +397,38 @@ describe("ScheduleEditor coordination options", () => {
 			.element(screen.getByTestId("coordination-ceiling"))
 			.toHaveTextContent("messaging and starting sessions at Ask");
 	});
+
+	it("says an agent made the schedule, linking its session; a person's says nothing", async () => {
+		const base = {
+			id: "sch1",
+			name: "Check CI",
+			prompt: "p",
+			enabled: true,
+			timezone: "UTC",
+			recurrence: { type: "daily", at: "09:00" },
+			target: { deviceId: "d1", workspaceId: "w1", sessionMode: "new", permissionMode: "ask" },
+		};
+		const { screen } = mount({
+			editing: {
+				...base,
+				createdBy: {
+					kind: "agent",
+					deviceId: "d1",
+					workspaceId: "w1",
+					sessionId: "ses_42",
+					title: "Refactor the parser",
+				},
+			},
+		});
+		const tag = screen.getByTestId("schedule-created-by");
+		await expect.element(tag).toHaveTextContent("Created by an agent in Refactor the parser");
+		await expect
+			.element(tag.getByRole("link", { name: "Refactor the parser" }))
+			.toHaveAttribute("href", "/code?device=d1&ws=w1&agent=ses_42");
+		screen.unmount();
+
+		const person = mount({ editing: base });
+		await expect.element(person.screen.getByLabelText("Name")).toHaveValue("Check CI");
+		expect(person.screen.getByTestId("schedule-created-by").elements()).toHaveLength(0);
+	});
 });

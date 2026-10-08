@@ -21,6 +21,7 @@
 -->
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
+	import ScheduleCreatedBy from "./ScheduleCreatedBy.svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconTime from "~icons/carbon/time";
 	import {
@@ -331,6 +332,7 @@
 				<p class={s.SUBTITLE}>
 					Sends a prompt to a coding session on one of your machines, on a timetable.
 				</p>
+				<ScheduleCreatedBy createdBy={editing?.createdBy} class="mt-2" />
 			</div>
 
 			{#if failure}

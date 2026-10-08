@@ -49,6 +49,9 @@ export interface Backend {
 		 * running turn (steering) rather than refused. Older machines omit
 		 * it: read as false. */
 		steer?: boolean;
+		/** galopin installed the schedule tools (`schedule_list`, `_create`,
+		 * `_update`, `_delete`), which reach Cerea as `call` frames (§5). */
+		scheduleTools?: boolean;
 	};
 }
 
@@ -637,6 +640,9 @@ export interface WelcomeFrame {
 	type: "welcome";
 	deviceId: string;
 	status: "pending" | "paired";
+	/** What this Cerea answers beyond the ops it sends: `machineCalls` lists
+	 * the `call` op families (§5) it serves. Absent on an older Cerea. */
+	features?: { machineCalls: string[] };
 }
 
 /** C→M, sent once the browser confirms a pending machine. */
@@ -671,6 +677,33 @@ export interface EventFrame {
 	event: NormalizedEvent;
 }
 
+/** M→C, a request the machine makes of Cerea on behalf of one of its
+ * sessions (§5): Cerea acts as the device's owner and answers `callres`. */
+export interface CallFrame {
+	type: "call";
+	id: string;
+	op: string;
+	sessionId: string;
+	rootSessionId: string;
+	caller: CallCaller;
+	args: Record<string, unknown>;
+}
+
+/** The calling session's facts as galopin knows them (its root's selector). */
+export interface CallCaller {
+	workspaceId: string;
+	permissionMode: PermissionMode;
+	coordination: CoordinationKey[];
+}
+
+export type CallErrorCode =
+	"invalid" | "forbidden" | "not_found" | "limit" | "unavailable" | "unsupported";
+
+/** C→M, answering a `call` by id. */
+export type CallResFrame =
+	| { type: "callres"; id: string; ok: true; result: unknown }
+	| { type: "callres"; id: string; ok: false; error: { code: CallErrorCode; message: string } };
+
 /** M→C, the gateway/enrollment credential's health. */
 export interface CredentialFrame {
 	type: "credential";
@@ -685,7 +718,7 @@ export interface AuthFrame {
 }
 
 export type MachineToCereaFrame =
-	HelloFrame | ResFrame | EventFrame | CredentialFrame | AuthFrame | NoticeFrame;
+	HelloFrame | ResFrame | EventFrame | CredentialFrame | AuthFrame | NoticeFrame | CallFrame;
 
 // -- zod parsing for frames arriving from the machine ------------------------
 //
@@ -709,6 +742,7 @@ const backendSchema = z.object({
 		agentTools: z.boolean().optional(),
 		coordinationGrant: z.boolean().optional(),
 		steer: z.boolean().optional(),
+		scheduleTools: z.boolean().optional(),
 	}),
 });
 
@@ -786,6 +820,20 @@ export const eventFrameSchema: z.ZodType<EventFrame> = z.object({
 	event: normalizedEventSchema,
 });
 
+export const callFrameSchema: z.ZodType<CallFrame> = z.object({
+	type: z.literal("call"),
+	id: z.string().min(1).max(128),
+	op: z.string().min(1).max(64),
+	sessionId: z.string().min(1).max(256),
+	rootSessionId: z.string().min(1).max(256),
+	caller: z.object({
+		workspaceId: z.string().max(256),
+		permissionMode: z.enum(["deny", "ask", "allow"]),
+		coordination: z.array(z.enum(COORDINATION_KEYS)).max(COORDINATION_KEYS.length),
+	}),
+	args: z.record(z.string(), z.unknown()),
+});
+
 export const credentialFrameSchema: z.ZodType<CredentialFrame> = z.object({
 	type: z.literal("credential"),
 	state: z.enum(["ok", "expiring", "expired"]),
@@ -843,6 +891,10 @@ export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 			return authFrameSchema.safeParse(raw).success ? (raw as unknown as AuthFrame) : null;
 		case "notice":
 			return noticeFrameSchema.safeParse(raw).success ? (raw as unknown as NoticeFrame) : null;
+		case "call": {
+			const parsed = callFrameSchema.safeParse(raw);
+			return parsed.success ? parsed.data : null;
+		}
 		default:
 			return null;
 	}
