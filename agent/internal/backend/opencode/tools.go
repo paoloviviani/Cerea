@@ -82,6 +82,39 @@ var galopinTools = []toolDef{
 			"Not for your own subagents (use task) or yourself. Limits apply (hops, rate).",
 		args: `{ target: { type: "string", description: "The target session id, from session_list." },` +
 			` text: { type: "string", description: "The message." } }`,
+	}, {
+		name:        "schedule_list",
+		description: "List this machine's scheduled actions (the person's schedules that run a prompt in a session here): id, name, timetable, timezone, paused, status, next and last run, workspace, session, mode, coordination grant, who created it, and self (true when you are a run of that schedule). Read-only; asks nothing. Use it before creating one, so you update an existing schedule instead of duplicating it.",
+		args:        `{ note: { type: "string", description: "Anything, e.g. why you are listing. Ignored." } }`,
+	},
+	{
+		name: "schedule_create",
+		description: "Create a scheduled action: a prompt Cerea runs on this machine on a timetable, long after this session ends. " +
+			"It follows this session's Deny / Ask / Allow like other tools (Ask shows the person a card with the whole schedule, prompt included; Deny refuses); when you are yourself a scheduled run, every create asks the person. " +
+			"The schedule's mode can be no looser than yours, its coordination no wider than yours; at most 5 active agent-created schedules per machine, runs at least 15 minutes apart. Name it clearly: the person will see it in their Schedules list. " +
+			"Pass \"\" for a string you want defaulted and [] for no coordination.",
+		args: `{ name: { type: "string", description: "Short, clear name: what it does and why (it outlives you)." },` +
+			` prompt: { type: "string", description: "What each run is told: everything it needs, a run cannot see this conversation." },` +
+			` recurrence: { type: "object", description: "When it runs, one of: {\"type\":\"hours\",\"every\":N} (every N elapsed hours, 1 to 720); {\"type\":\"daily\",\"at\":\"HH:MM\"}; {\"type\":\"weekdays\",\"at\":\"HH:MM\"} (Monday to Friday); {\"type\":\"weekly\",\"day\":D,\"at\":\"HH:MM\"} (D: 0 Sunday to 6 Saturday); {\"type\":\"cron\",\"expr\":\"m h dom mon dow\"} (five fields, or @daily/@hourly). Times are 24-hour wall clock in the timezone. Runs must be at least 15 minutes apart.", properties: { type: { type: "string", enum: ["hours", "daily", "weekdays", "weekly", "cron"] }, every: { type: "number" }, at: { type: "string" }, day: { type: "number" }, expr: { type: "string" } }, required: ["type"] },` +
+			` timezone: { type: "string", description: "IANA timezone such as Europe/Rome; \"\" for the person's saved timezone (else UTC)." },` +
+			` workspaceId: { type: "string", description: "Workspace id to run in; \"\" for this session's workspace." },` +
+			` session: { type: "string", description: "\"this\" to run each time as a new prompt in this session (best for follow-ups on this work), \"new\" for a fresh session per run." },` +
+			` permissionMode: { type: "string", description: "The runs' permission mode: \"deny\", \"ask\" or \"allow\"; no looser than yours." },` +
+			` coordination: { type: "array", items: { type: "string" }, description: "Coordination tools the runs may use without a card (session_list, session_read, session_send, session_spawn), within your own grant; [] for none." } }`,
+	},
+	{
+		name:        "schedule_update",
+		description: "Change one of this machine's schedules (id from schedule_list). Pausing or deleting a schedule you are a run of (self:true) goes through without a card — do that when its job is done. Any other change asks the person, whatever this session's mode is.",
+		args: `{ id: { type: "string", description: "The schedule id, from schedule_list." },` +
+			` changes: { type: "object", description: "Only the fields to change. {\"paused\":true} pauses it, {\"paused\":false} resumes it.", properties: {` +
+			` name: { type: "string" }, prompt: { type: "string" }, recurrence: { type: "object", description: "New timetable, one of: {\"type\":\"hours\",\"every\":N} (every N elapsed hours, 1 to 720); {\"type\":\"daily\",\"at\":\"HH:MM\"}; {\"type\":\"weekdays\",\"at\":\"HH:MM\"} (Monday to Friday); {\"type\":\"weekly\",\"day\":D,\"at\":\"HH:MM\"} (D: 0 Sunday to 6 Saturday); {\"type\":\"cron\",\"expr\":\"m h dom mon dow\"} (five fields, or @daily/@hourly). Times are 24-hour wall clock in the timezone. Runs must be at least 15 minutes apart.", properties: { type: { type: "string", enum: ["hours", "daily", "weekdays", "weekly", "cron"] }, every: { type: "number" }, at: { type: "string" }, day: { type: "number" }, expr: { type: "string" } }, required: ["type"] },` +
+			` timezone: { type: "string" }, workspaceId: { type: "string" }, permissionMode: { type: "string", enum: ["deny", "ask", "allow"] },` +
+			` coordination: { type: "array", items: { type: "string" } }, paused: { type: "boolean" } } } }`,
+	},
+	{
+		name:        "schedule_delete",
+		description: "Delete one of this machine's schedules (id from schedule_list). Deleting a schedule you are a run of (self:true) goes through without a card; deleting any other asks the person.",
+		args:        `{ id: { type: "string", description: "The schedule id, from schedule_list." } }`,
 	},
 }
 

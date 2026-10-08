@@ -251,12 +251,13 @@ func IsUntouched(key string) bool {
 	return false
 }
 
-// GalopinTools are galopin's own coordination tools. They have no opencode
-// permission of their own: galopin reads the machine's rules for their names
-// (Grant), so the blanket must not bury a rule the machine wrote for one. Under
-// Ask or Allow the machine's own rules for them are re-appended after the mode
-// block; under Deny they are not, because the person said Deny.
-var GalopinTools = []string{"session_list", "session_read", "session_spawn", "session_send"}
+// GalopinTools are the permission keys of galopin's own tools: the four
+// coordination tools by name, and `schedule` for the mutating schedule tools.
+// They have no opencode permission of their own: galopin reads the machine's
+// rules for them, so the blanket must not bury a rule the machine wrote for
+// one. Under Ask or Allow the machine's own rules for them are re-appended
+// after the mode block; under Deny they are not, because the person said Deny.
+var GalopinTools = []string{"session_list", "session_read", "session_spawn", "session_send", "schedule"}
 
 // CoordinationKeys are the permission keys session.grantCoordination accepts:
 // the four coordination tools and nothing else. A grant is the one way a

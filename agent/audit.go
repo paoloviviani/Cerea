@@ -130,6 +130,19 @@ func (a *auditLogger) agentTool(tool, from, to, decision, reason string) {
 	a.write(entry)
 }
 
+// agentToolSchedule is agentTool for a schedule tool: the subject is a
+// schedule (its id, or the name of one being created), never its prompt.
+func (a *auditLogger) agentToolSchedule(tool, from, schedule, decision, reason string) {
+	entry := map[string]any{"action": "agent_tool", "tool": tool, "from": from, "decision": decision}
+	if schedule != "" {
+		entry["schedule"] = schedule
+	}
+	if reason != "" {
+		entry["reason"] = reason
+	}
+	a.write(entry)
+}
+
 // permission records one answer to a permission ask (PROTOCOL.md §6
 // "Permissions"): the session, the request, the tool class, the decision that
 // took effect and who gave it — "user" for a person's permission.reply. The
