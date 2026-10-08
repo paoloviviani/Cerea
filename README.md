@@ -33,8 +33,13 @@ greeting that means both _buongiorno_ and _arrivederci_.
   optional project memory ([docs/knowledge.md](docs/knowledge.md)).
 - **Python in your browser**, in a WebAssembly sandbox with the scientific and
   office libraries ([docs/pyodide.md](docs/pyodide.md)).
+- **Your own models and look**: a global system prompt and private custom
+  models (a base model plus a prompt) under Workspace → Customize models, a
+  searchable list of every chat at `/chats`, and accent and background palettes
+  ([docs/chat.md](docs/chat.md)).
 - **The `/code` agents panel**: coding agents on your own machines through
-  **galopin**, with a file explorer and, off by default, a browser terminal.
+  **galopin**, with a file explorer, scheduled actions (a prompt sent to a
+  session on a timetable) and, off by default, a browser terminal.
 
 ## Quick start
 

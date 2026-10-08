@@ -111,8 +111,9 @@ the kit's `--idp` option, not by the preset; skip it with your own IdP),
 `redaction`, `documents` (the local document reader alone, which `homelab`
 runs and `redaction` includes) and `fetch` (the headless-browser fetch backend). Profiles
 select services; they never change what a service is. The proxy, Postgres
-and Valkey carry no profile, so they always run — including under
-`satellite` and `generic`, where Postgres serves the chat's pgvector.
+and its one-shot `bootstrap` carry no profile, so they always run — including
+under `satellite` and `generic`, where Postgres serves the chat's pgvector.
+Valkey and the gateway's `migrate` job belong to the `gateway` profile.
 
 Once it is running, the variables Cerea itself adds are on
 [Configuration](configuration.md), and the optional pieces have their own

@@ -61,6 +61,12 @@ The installer checks the binary against the deployment's `SHA256SUMS` and
 refuses a mismatch. The machine then appears in the panel as **pending**
 until its owner confirms it.
 
+`galopin run` in a terminal stops when the terminal closes. To keep it running,
+the machine's owner installs it as a systemd user unit on Linux or a
+LaunchAgent on macOS ([Keeping it running](agent-machines.md#keeping-it-running));
+after updating galopin, `systemctl --user restart galopin` picks up the new
+binary.
+
 ## Two vetoes: the machine's and the deployment's
 
 The machine's owner decides at enroll time what the machine allows (files,
@@ -258,7 +264,9 @@ Every scheduled prompt starts with one line the person did not write:
 `[Scheduled run of "<name>", <timetable> (<timezone>); previous run <3 h ago | none>; coordination: <keys granted | none>]`,
 then a blank line and the prompt as written. It tells the agent nobody is
 watching live, when it last ran and which session tools it may use without a
-card, so it can avoid repeating itself across runs.
+card, so it can avoid repeating itself across runs. galopin's
+[delegation skill](agent-machines.md#the-delegation-skill) tells the model how
+to read that line (`src/lib/server/schedules/runHeader.ts` writes it).
 
 **Rules the operator should know.**
 
