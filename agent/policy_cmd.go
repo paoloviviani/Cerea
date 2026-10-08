@@ -25,7 +25,7 @@ refuses and names the 'enroll' re-run that does it instead.
   --no-terminal       Turn the terminal off.
   --no-command-shell  Refuse every command whose template expands shell,
                       and every command whose shell is unknown.
-  --no-agent-tools    Stop installing session_list/session_spawn/session_send
+  --no-agent-tools    Stop installing session_list/session_read/session_spawn/session_send
                       into opencode (takes effect at the next 'run').
    --no-project-config  Stop loading a repo's own opencode config (the default
                        on a fresh enroll; takes effect at the next 'run').
@@ -34,7 +34,7 @@ refuses and names the 'enroll' re-run that does it instead.
    --no-auto-accept    Does nothing (accepted for one more release): auto-accept
                        no longer exists.
    --permission-max KEY=ACTION  Lower the ceiling for KEY (edit, bash, webfetch,
-                       session_spawn, …) to ask or deny (repeatable). Takes
+                       session_read, session_send, session_spawn, …) to ask or deny (repeatable). Takes
                        effect on a running machine within seconds: opencode is
                        restarted so nothing it kept in memory outlives it.
    --permission-rule KEY=ACTION  Lower this machine's own rule for KEY, or add
