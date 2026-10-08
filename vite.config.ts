@@ -4,6 +4,7 @@ import Icons from "unplugin-icons/vite";
 import { promises } from "fs";
 import { defineConfig } from "vitest/config";
 import { config } from "dotenv";
+import { readFileSync } from "fs";
 
 config({ path: "./.env.local" });
 config({ path: "./.env" });
@@ -61,6 +62,11 @@ export default defineConfig({
 		// runtime config so a build either ships the feature or cannot turn it on.
 		// Read it via `ML_ASSISTANT_MODE` in $lib/utils/mlAssistantFlag.
 		__ML_ASSISTANT_MODE__: JSON.stringify(process.env.ML_ASSISTANT_MODE === "true"),
+		// The release version, from package.json at build time: the runtime env of
+		// the image does not carry it (PUBLIC_VERSION is only set under `npm run`).
+		__APP_VERSION__: JSON.stringify(
+			JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version
+		),
 	},
 	plugins: [
 		tailwindcss(),
