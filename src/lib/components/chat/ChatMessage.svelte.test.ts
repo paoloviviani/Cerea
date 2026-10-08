@@ -227,3 +227,35 @@ describe("a row arriving inside a streaming text part", () => {
 		expect(text.indexOf("Subagent Dummy sleep test")).toBeLessThan(text.indexOf("Second part."));
 	});
 });
+
+describe("a final answer after tools", () => {
+	const stream = (token: string) => ({ type: "stream", token });
+
+	it("renders the answer once when the stream has a step break the final text lacks", () => {
+		// Narration, a tool, then the answer streamed after the server's step
+		// break; the provider's final text is the answer without that break.
+		const answer = "## In sintesi\n\n- **Sì**, puoi fruire dei riposi dalla nascita.";
+		const { baseElement } = render(ChatMessage, {
+			message: {
+				id: "m1",
+				from: "assistant",
+				content: "",
+				children: [],
+				updates: [
+					stream("Verifico le fonti."),
+					call("u1"),
+					result("u1"),
+					stream("\n\nHo completato la ricerca.\n\n" + answer),
+					{ type: "finalAnswer", text: "Ho completato la ricerca." + answer },
+				],
+			},
+			loading: false,
+			isLast: true,
+			isAuthor: true,
+			readOnly: false,
+		} as never);
+		const text = baseElement.textContent ?? "";
+		expect(text.split("puoi fruire dei riposi").length - 1).toBe(1);
+		expect(text.split("Ho completato la ricerca").length - 1).toBe(1);
+	});
+});
