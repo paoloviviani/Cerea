@@ -5,6 +5,23 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.6.1 — 2026-10-08
+
+Pins: Cerea `0.6.1`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Schedules can coordinate other sessions.** A schedule has two new options, both off by
+  default: "Can find, read and message other sessions" and "Can start new sessions". With
+  them a run can look at what other sessions on the machine are doing and steer them
+  without stopping at an approval card. The machine's own limits still apply: a session in
+  another workspace, a long chain of agent messages, and anything the machine caps at Ask
+  still ask in the Needs-you inbox.
+- New agent tool `session_read`: an agent can read the recent messages of another session
+  on its machine (text only), gated like `session_send`; it is a new row in the pairing
+  dialog's limits.
+- **Update galopin on your machines** to use these: re-run the install line from the
+  pairing dialog, then `systemctl --user restart galopin` (or restart `galopin run`). An
+  older galopin keeps working; schedules then run without the grant and say so.
+
 ## v0.6.0 — 2026-10-08
 
 Pins: Cerea `0.6.0`, Pystino `0.3.2`, Authelia 4.39.22.
