@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { mergeFinalAnswerContent } from "./mergeFinalAnswer";
+import { finalAnswerAddition, mergeFinalAnswerContent } from "./mergeFinalAnswer";
 
 const merge = mergeFinalAnswerContent;
 
@@ -183,5 +183,51 @@ describe("mergeFinalAnswerContent — tools (case C: distinct, join with a gap)"
 		expect(
 			merge({ existing: "", finalText: "Only the caption.", hadTools: true, isInterrupted: false })
 		).toBe("Only the caption.");
+	});
+});
+
+describe("finalAnswerAddition — what a message view appends after its streamed blocks", () => {
+	test("nothing when the final answer is the streamed tail with the step break inside it", () => {
+		// The view's text blocks hold the narration plus the last step, with the
+		// paragraph break the server inserts after a tool right after </think>;
+		// the provider's final text has no such break.
+		const streamed =
+			"Perfetto, verifico le fonti.Ho completato la ricerca.</think>\n\n## In sintesi\n\n- Sì.";
+		const finalText = "Ho completato la ricerca.</think>## In sintesi\n\n- Sì.";
+		expect(finalAnswerAddition(streamed, finalText)).toBe("");
+	});
+
+	test("nothing when only line endings or Unicode normalization differ", () => {
+		expect(finalAnswerAddition("Perché sì.\n", "Perché sì.\r\n")).toBe("");
+	});
+
+	test("only the unstreamed tail when the final text extends the stream", () => {
+		expect(finalAnswerAddition("Intro.", "Intro. More.")).toBe(" More.");
+		// The same, with a whitespace difference at the seam inside the prefix.
+		expect(finalAnswerAddition("Intro.\n\nStep two", "Intro.Step two, done.")).toBe(", done.");
+	});
+
+	test("the whole final text after a paragraph break when it is new", () => {
+		expect(finalAnswerAddition("Before the tool.", "After the tool.")).toBe("\n\nAfter the tool.");
+		expect(finalAnswerAddition("", "Only final.")).toBe("Only final.");
+		expect(finalAnswerAddition("Streamed.", "")).toBe("");
+	});
+
+	test("agrees with the stored content for every case", () => {
+		const cases: Array<[string, string]> = [
+			["Narration.Answer.</think>\n\nBody", "Answer.</think>Body"],
+			["Intro.", "Intro. More."],
+			["Before the tool.", "After the tool."],
+		];
+		for (const [streamed, finalText] of cases) {
+			const stored = mergeFinalAnswerContent({
+				existing: streamed,
+				finalText,
+				hadTools: true,
+				isInterrupted: false,
+			});
+			const rendered = streamed + finalAnswerAddition(streamed, finalText);
+			expect(rendered.replace(/\s+/g, "")).toBe(stored.replace(/\s+/g, ""));
+		}
 	});
 });
