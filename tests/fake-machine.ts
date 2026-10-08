@@ -18,6 +18,9 @@ import { randomUUID } from "node:crypto";
 import { COORDINATION_KEYS, OpError } from "../src/lib/types/machineProtocol";
 import type {
 	Backend,
+	CallCaller,
+	CallFrame,
+	CallResFrame,
 	Command,
 	Directory,
 	Envelope,
@@ -194,6 +197,9 @@ export class FakeMachine {
 	private channelTerminal = new Map<string, string>();
 	deviceId: string | null = null;
 	status: "pending" | "paired" | null = null;
+	/** `welcome.features` as Cerea sent it (absent from an older Cerea). */
+	features: { machineCalls?: string[] } | undefined;
+	private callWaiters = new Map<string, (res: CallResFrame) => void>();
 
 	constructor(
 		url: string,
@@ -246,6 +252,7 @@ export class FakeMachine {
 		const result = await welcome;
 		this.deviceId = result.deviceId;
 		this.status = result.status;
+		this.features = (result as { features?: { machineCalls?: string[] } }).features;
 		return result;
 	}
 
@@ -292,6 +299,50 @@ export class FakeMachine {
 		};
 		this.ws.send(JSON.stringify({ type: "event", ...envelope }));
 		return envelope;
+	}
+
+	/**
+	 * Send a `call` (PROTOCOL.md §5) as galopin's schedule tools do, on behalf
+	 * of `sessionId`, and wait for Cerea's `callres`. `caller` defaults to a
+	 * session on Allow with no coordination in the first workspace.
+	 */
+	call(
+		op: string,
+		args: Record<string, unknown> = {},
+		options: {
+			sessionId?: string;
+			rootSessionId?: string;
+			caller?: Partial<CallCaller>;
+			timeoutMs?: number;
+		} = {}
+	): Promise<CallResFrame> {
+		const id = randomUUID();
+		const sessionId = options.sessionId ?? this.model.sessions[0]?.id ?? "ses_unknown";
+		const frame: CallFrame = {
+			type: "call",
+			id,
+			op,
+			sessionId,
+			rootSessionId: options.rootSessionId ?? sessionId,
+			caller: {
+				workspaceId: this.model.workspaces[0]?.id ?? "",
+				permissionMode: "allow",
+				coordination: [],
+				...options.caller,
+			},
+			args,
+		};
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.callWaiters.delete(id);
+				reject(new Error(`no callres for ${op}`));
+			}, options.timeoutMs ?? 10_000);
+			this.callWaiters.set(id, (res) => {
+				clearTimeout(timer);
+				resolve(res);
+			});
+			this.ws.send(JSON.stringify(frame));
+		});
 	}
 
 	/** Push a `credential` frame. */
@@ -425,6 +476,13 @@ export class FakeMachine {
 		}
 		if (frame.type === "req") {
 			void this.handleReq(parsed as ReqFrame);
+			return;
+		}
+		if (frame.type === "callres") {
+			const res = parsed as CallResFrame;
+			const waiter = this.callWaiters.get(res.id);
+			this.callWaiters.delete(res.id);
+			waiter?.(res);
 			return;
 		}
 		if (frame.type === "auth" || frame.type === "status") {
