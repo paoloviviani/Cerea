@@ -199,9 +199,15 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
 
 ## 7. Open items (as of v0.7.0, 2026-10-08)
 
-- Five e2e tests fail on one development machine but pass in CI:
-  `code-device-revoke` (2), `code-machine-p0`, `code-machine-parity` (line 693) and `code-tree-reactivity` (line 95). Not yet explained; start by
-  running them alone against a fresh build.
+- Six e2e tests fail on one development machine but pass in CI:
+  `code-device-revoke` (2), `code-machine-p0`, `code-machine-parity` (line
+  693), `code-tree-reactivity` (line 95) and `code-machine-terminal` (the
+  typed command never echoes). They fail the same way on builds from before
+  the latest changes, so they are about that machine, not the code; still
+  unexplained. Start by running one alone against a fresh build. When running
+  e2e against an external MongoDB, set both `E2E_MONGO_URL` and
+  `E2E_MONGO_PORT`, or the test database launcher exits at once ("Process
+  from config.webServer exited early").
 - Offered to the owner, not decided: a drag-to-resize sidebar; running each
   scheduled run in its own git worktree (galopin already has
   `workspace.create {worktree}` and `workspace.archive {removeWorktree}`).
