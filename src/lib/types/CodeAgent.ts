@@ -433,8 +433,11 @@ export interface CodeAuditEntry {
 	/** How many rules a `permission.rules.set` carried — only on rows written
 	 * before that action was retired. */
 	count?: number;
-	/** "removed" or "refused" for a permission action. */
+	/** "removed" or "refused" for a permission action; "ok" or the refusal
+	 * code for an agent's `schedule.*` call. */
 	outcome?: string;
+	/** The schedule an agent's `schedule.*` call touched. */
+	scheduleId?: string;
 	ip?: string;
 	userAgent?: string;
 	at: Date;
