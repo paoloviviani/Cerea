@@ -534,6 +534,52 @@ out of the IdP.
 Arguments on the command line are visible to other users of the machine;
 interactive `./configure` asks for secrets without echoing them.
 
+The chat client's secret (`OIDC_CHAT_CLIENT_SECRET`) also reaches the gateway,
+as `GATEWAY_OIDC__CHAT_CLIENT_SECRET`: an IdP whose access tokens are opaque
+rather than JWTs (GitLab) can only be asked about a token at its introspection
+endpoint, and the gateway does that authenticated as the chat client.
+`./configure` already writes the value; there is nothing extra to set.
+
+### Groups from the identity provider
+
+A directory reports every group a person is in: one GitLab sign-in used to
+create 67 groups in the console, one per GitLab group. So, with an external
+IdP, `./configure` asks:
+
+```text
+Groups from the identity provider:
+  manual      import by hand (recommended): the console lists them to import
+  auto        import automatically: every group name becomes a group
+```
+
+or takes `--group-import manual|auto` (default `manual`), written as
+`OIDC_GROUP_IMPORT`. With **manual**, a sign-in creates no group: the names it
+carries are listed on the console's **Groups** page under *Seen from your
+identity provider*, with how many people carry each and when it was last
+seen. **Import** creates the group and gives it to those people at once (at
+their next sign-in if `OIDC_GROUP_SYNC` is not `every_login`); **Dismiss**
+stops listing it. A group that already exists is granted from the claim in
+both modes, as before. **auto** is the old behaviour: every name becomes a
+group at first sight. The bundled Authelia is unaffected: its groups are the
+console's.
+
+`OIDC_GROUP_ALLOWLIST` (advanced, optional; comma-separated) limits which IdP
+group names are considered at all, in either mode.
+
+**Everyone joins `users`.** Each person is put in one default group at their
+first sign-in, with any IdP (`OIDC_DEFAULT_GROUP`, `users`; existing people at
+their next sign-in), so a new account has a group to bill and can use the
+public models before anything is imported. It grants no model by itself:
+restrict models by group on the Models screen, or keep them public. Someone
+an administrator removes from it stays removed. Set `OIDC_DEFAULT_GROUP=''` to
+turn it off. With the bundled Authelia it is the same `users` group its
+accounts always had.
+
+**Cleaning up groups created before** (an upgrade from an `auto` install): in
+the console's **Groups** page, delete the ones you do not want. Under
+`manual` they are not recreated: their names come back to the *Seen* list at
+the next sign-in, to import again or dismiss.
+
 ### Providers that don't offer a groups scope (e.g. Infomaniak)
 
 Some providers publish a `groups` *claim* but no `groups` *scope*, and answer a

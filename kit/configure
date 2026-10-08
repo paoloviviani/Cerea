@@ -694,6 +694,9 @@ class Answers:
     link_by_email: bool | None = None
     machine_client_id: str | None = None
     group_sync: str | None = None
+    # External IdP: import the group names it reports by hand (manual, the
+    # default) or create them on first sight (auto).
+    group_import: str | None = None
     # Mail: quota notices, "send test", and (bundled Authelia) its own
     # self-service reset.
     smtp_host: str | None = None
@@ -1042,6 +1045,11 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         # here, unless a claim rule was given instead.
         if not values.get("OIDC_ADMIN_CLAIM"):
             values["OIDC_ADMIN_EMAIL"] = admin_email
+        if answers.group_import is not None:
+            values["OIDC_GROUP_IMPORT"] = answers.group_import
+        # An older .env has no such line: the gateway's own default (manual)
+        # is what it gets, written down so the operator can see it.
+        values["OIDC_GROUP_IMPORT"] = values.get("OIDC_GROUP_IMPORT") or "manual"
         if not values.get("OIDC_ADMIN_EMAIL") and not values.get("OIDC_ADMIN_CLAIM"):
             raise ConfigError(
                 "an external identity provider needs an admin rule: --admin-email, or "
@@ -1226,6 +1234,10 @@ def check_values(values: dict, report: Report) -> None:
         report.errors.append(
             "OIDC_GROUP_SYNC must be every_login, first_login or never, got "
             f"{values.get('OIDC_GROUP_SYNC')!r}"
+        )
+    if values.get("OIDC_GROUP_IMPORT", "manual") not in ("manual", "auto"):
+        report.errors.append(
+            f"OIDC_GROUP_IMPORT must be manual or auto, got {values.get('OIDC_GROUP_IMPORT')!r}"
         )
     if values.get("OIDC_LINK_BY_EMAIL", "false") == "true":
         report.warnings.append(
@@ -1528,6 +1540,15 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             answers.oidc_chat_client_id = ask("  client id", existing.get("OIDC_CHAT_CLIENT_ID", "cerea"))
             answers.oidc_chat_client_secret = ask(
                 "  client secret", existing.get("OIDC_CHAT_CLIENT_SECRET", ""), secret=True
+            )
+        if "group_import" not in given:
+            answers.group_import = choose(
+                "Groups from the identity provider:",
+                {
+                    "manual": "import by hand (recommended): the console lists them to import",
+                    "auto": "import automatically: every group name becomes a group",
+                },
+                existing.get("OIDC_GROUP_IMPORT") or "manual",
             )
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
@@ -1863,6 +1884,9 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--machine-client-id", help="galopin's public client id (default opencode-enrollment)")
     o.add_argument("--group-sync", choices=("every_login", "first_login", "never"),
                    help="how often the directory's answer about groups is applied")
+    o.add_argument("--group-import", choices=("manual", "auto"),
+                   help="external IdP: import its groups by hand in the console (manual, the "
+                        "default) or create each on first sight (auto)")
     o.add_argument("--smtp-host")
     o.add_argument("--smtp-port", type=int)
     o.add_argument("--smtp-username")
