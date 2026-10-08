@@ -19,7 +19,7 @@ const delegationSkillName = "delegation"
 
 const delegationSkill = `---
 name: delegation
-description: Use when a job splits into independent parts, or when you might start or message another coding session (task, session_spawn, session_send, session_read). How to delegate without editing behind the person's back.
+description: Use when a job splits into independent parts, when you might start or message another coding session (task, session_spawn, session_send, session_read), or when work should happen later or repeatedly (schedule_list, schedule_create, schedule_update, schedule_delete). How to delegate without editing behind the person's back.
 ---
 
 # Delegating work
@@ -62,9 +62,22 @@ These reach other sessions the person can see and read. Each **call raises an ap
 - Before ` + "`session_spawn`" + `, check ` + "`session_list`" + ` for a session with the same job or title and message it instead; start a new one only when none fits. Give a spawned session a title that names the schedule, so later runs can find it.
 - End the turn with a short summary of what this run checked, sent and started, and what is waiting on the person. That summary is what they read.
 
+## Scheduling work
+
+The schedule tools manage the person's scheduled actions on this machine: a prompt Cerea runs in a session here on a timetable, long after this turn.
+
+- Schedule only what must happen later or again (a nightly check, a follow-up tomorrow morning) and that the person asked for or would clearly want. Work you can finish now, do now.
+- **List first.** ` + "`schedule_list`" + ` asks nothing. If a schedule already does the job, ` + "`schedule_update`" + ` it instead of creating a duplicate.
+- For a follow-up on this work, prefer ` + "`session: \"this\"`" + `: each run lands in this session, with this conversation as context. Use ` + "`\"new\"`" + ` for an independent recurring job.
+- A run cannot see this conversation unless it runs here: the prompt must say what to check, where, and what to report.
+- Mode and coordination can be no looser than your own. ` + "`agentMode`" + ` is ` + "`\"build\"`" + ` (the default) or ` + "`\"plan\"`" + ` for read-only runs. Coordination comes in two options only: ` + "`session_list`, `session_read` and `session_send`" + ` all together (or none of them), and ` + "`session_spawn`" + ` on its own.
+- Creating follows this session's Deny / Ask / Allow; when you are yourself a scheduled run, every create asks the person.
+- **Schedules outlive you.** Name each one so the person knows from the name alone what it does and why. When the job is done, pause or delete the schedule you are a run of (` + "`self: true`" + ` in the list): ` + "`schedule_update {id, changes: {paused: true}}`" + ` or ` + "`schedule_delete {id}`" + ` go through without a card, whatever this session's mode (Deny included). Changing or deleting any other schedule always asks the person.
+- If Cerea refuses (a limit, the 15-minute floor, a mode too loose), say so; do not retry around it.
+
 ## What not to promise
 
-- No "I will check on it later" by watching: on a machine without background subagents nothing outlives the turn, so say what you can finish inside it.
+- No "I will check on it later" by watching: on a machine without background subagents nothing outlives the turn, so say what you can finish inside it — or create a schedule for it, as above.
 - No messages between sessions without an approval, except in the narrow case above where the machine's rules allow it.
 - No starting sessions by any route other than ` + "`session_spawn`" + `. In particular, do not launch agents from a shell command to get around an approval.
 - If the person asked for none of this, do the work yourself.

@@ -251,12 +251,17 @@ func IsUntouched(key string) bool {
 	return false
 }
 
-// GalopinTools are galopin's own coordination tools. They have no opencode
-// permission of their own: galopin reads the machine's rules for their names
-// (Grant), so the blanket must not bury a rule the machine wrote for one. Under
-// Ask or Allow the machine's own rules for them are re-appended after the mode
-// block; under Deny they are not, because the person said Deny.
-var GalopinTools = []string{"session_list", "session_read", "session_spawn", "session_send"}
+// GalopinTools are the permission keys of galopin's own tools: the four
+// coordination tools by name, and `schedule` for the mutating schedule tools.
+// They have no opencode permission of their own: galopin reads the machine's
+// rules for them, so the blanket must not bury a rule the machine wrote for
+// one. Under Ask or Allow the machine's own rules for them are re-appended
+// after the mode block; under Deny they are not, because the person said Deny.
+var GalopinTools = []string{"session_list", "session_read", "session_spawn", "session_send", "schedule"}
+
+// DenyVisibleTools are galopin's tools a session on Deny still sees: the ones
+// a scheduled run needs to find and stop its own schedule.
+var DenyVisibleTools = []string{"schedule_list", "schedule_update", "schedule_delete"}
 
 // CoordinationKeys are the permission keys session.grantCoordination accepts:
 // the four coordination tools and nothing else. A grant is the one way a
@@ -477,6 +482,17 @@ func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 		cerea = append(cerea, sel.exceptionRules()...)
 	}
 	cerea = append(cerea, blanketBlock(mode, base)...)
+	if mode == Deny {
+		// Deny hides every tool its word matches, galopin's included, but a
+		// scheduled run must still be able to stop its own schedule ("stop
+		// when done"): the three tools that find and stop one stay visible.
+		// opencode never asks for a custom tool, so `ask` here only keeps the
+		// name; galopin's own gate decides each call (and refuses all but a
+		// run pausing or deleting its own schedule).
+		for _, k := range DenyVisibleTools {
+			cerea = append(cerea, Rule{k, "*", Ask})
+		}
+	}
 	if mode != Deny {
 		// A grant sits BEFORE the machine's own rules for these tools, so an
 		// owner's explicit ask or deny for one still beats it, and the ceiling's
