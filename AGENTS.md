@@ -125,8 +125,10 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
 - **`mongodb-memory-server` dies with `SIGILL` on a CPU without AVX.** Point
   tests at a real MongoDB (`TEST_MONGODB_URL`, `--no-file-parallelism`), and for
   e2e `E2E_MONGO_PORT`/`E2E_MONGO_URL`. Running the whole `client` project in
-  one command can hit the same crash; run the affected files instead, and let
-  CI run the whole project.
+  one command can hit the same crash: give the Playwright container the real
+  database too (`--network host -e MONGODB_URL=mongodb://localhost:<port>
+-e MONGODB_DB_NAME=cerea-client-test`), or run the affected files and let CI
+  run the whole project.
 - **WebKit may not be installed locally.** "Executable doesn't exist" means the
   browser, not the change; run `--project=chromium` and leave WebKit to CI.
 - **Root-owned leftovers** (`dist/`, `test-results/` written by a container)
@@ -167,8 +169,9 @@ rules:
   element's `scrollWidth` exceeds its `clientWidth` across the scroll
   containers, at both widths (`tests/project-page.spec.ts` does this).
 - **Look at every screenshot yourself before reporting it.** Then save the set
-  under `~/workspace/ai-stack/reports/screenshots/<date>-<topic>/` and point to
-  the files.
+  outside the repository, in a reports directory the owner reads (for example
+  `reports/screenshots/<date>-<topic>/` next to the checkout), never committed,
+  and point to the files.
 
 ### Releasing
 
@@ -190,6 +193,23 @@ released only when all of these pass, in this order:
    exactly `E2E_OK`. The test stack is then removed and checked gone.
 6. Only then fast-forward the **`stable`** branch to the tag. Operators follow
    `stable` or a tag, never `main`.
+
+Steps 2–6 and the GitHub release are scripted: after pushing the release
+commit to `main`, run
+
+```bash
+scripts/release/release.sh X.Y.Z
+```
+
+It refuses unless `origin/main` carries `package.json` at X.Y.Z and a
+`## vX.Y.Z` changelog entry, waits for `ci` and `kit` on that commit, tags,
+dispatches `images` and waits for it, checks the anonymous pull, runs
+`scripts/release/fresh-kit-check.sh vX.Y.Z` (needs ports 80/443 free, docker,
+`uv`; `KEEP=1` leaves the stack up), moves `stable`, and creates the GitHub
+release from the changelog entry. It stops at the first failed step and says
+which; a GitHub 5xx on the tag push falls back to the API. Each step's outcome
+is printed: read them, a release is done only when the script prints
+`released vX.Y.Z`.
 
 A step that cannot run (no browser, no credentials) is reported as not run,
 never as passed.
