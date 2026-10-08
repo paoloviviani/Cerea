@@ -638,6 +638,27 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.codeAudit, "userId", userId),
 	},
 	{
+		name: "schedules",
+		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// No unique index on a person's schedules (a name may repeat), so a merge
+		// is a plain move; their devices move with them, so the targets still resolve.
+		merge: (stray, target) => reassignSimple(collections.schedules, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.schedules, "userId", userId),
+	},
+	{
+		name: "scheduleRuns",
+		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// The record of what a schedule did stays with the person it ran for.
+		merge: (stray, target) => reassignSimple(collections.scheduleRuns, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.scheduleRuns, "userId", userId),
+	},
+	{
 		name: "codeExecutionOutputs",
 		owner: "userId",
 		mergeRule: "reassign",

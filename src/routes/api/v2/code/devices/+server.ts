@@ -23,6 +23,7 @@ import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { dropMachineConnection, notifyDevicePaired } from "$lib/server/code/machines";
 import { getOwnedDevice, listDevices, requireCodeAgents } from "$lib/server/codeDevices";
 import { deleteCodeDeviceAttachments } from "$lib/server/codeAttachments";
+import { disableSchedulesForDevice } from "$lib/server/code/scheduleAgentExecutor";
 import { logger } from "$lib/server/logger";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -89,6 +90,10 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 	// has happened, and a retry would 404 on the missing row.
 	await deleteCodeDeviceAttachments(objectId.toHexString()).catch((err) =>
 		logger.error({ err, deviceId: id.data }, "failed to delete a revoked device's attachments")
+	);
+	// A schedule pointed at it would only fail at its next run: switch it off now.
+	await disableSchedulesForDevice(locals.user?._id, id.data).catch((err) =>
+		logger.error({ err, deviceId: id.data }, "failed to switch off a revoked device's schedules")
 	);
 	return json({ revoked: true });
 };

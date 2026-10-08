@@ -11,7 +11,12 @@
  * the link and nothing else — the panel's own gate still decides.
  */
 import { callerIdentity } from "$lib/server/admin";
-import { codeAgentsEnabled, codeFilesEnabled, codeTerminalEnabled } from "$lib/server/codeEnabled";
+import {
+	codeAgentsEnabled,
+	codeFilesEnabled,
+	codeSchedulesEnabled,
+	codeTerminalEnabled,
+} from "$lib/server/codeEnabled";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
 import type { LayoutServerLoad } from "./$types";
 
@@ -36,5 +41,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// The /code terminal's deployment switch (default off, ADR 0090 §6.1);
 		// the Terminal tab reads it to hide entirely rather than show vetoed.
 		codeTerminalEnabled: codeTerminalEnabled(),
+		// Scheduled actions (the kill switch is `CHAT_SCHEDULES_ENABLED=false`): the
+		// sidebar's Schedules row reads it, and the API answers 404 when it is off.
+		codeSchedulesEnabled: codeSchedulesEnabled(),
 	};
 };

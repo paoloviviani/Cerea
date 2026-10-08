@@ -43,7 +43,10 @@ import type {
 	CodeWorkspace,
 } from "$lib/types/CodeAgent";
 
+import type { Recurrence, ScheduleRunView, ScheduleView } from "$lib/types/Schedule";
+
 export type { CodeCommand, CodeProviderMode, CodeProviderModel };
+export type { Recurrence, ScheduleRunView, ScheduleView };
 
 export type { CodeDeviceView };
 
@@ -946,4 +949,68 @@ export function terminalSocketUrl(ticket: string, from?: number): string {
 	url.searchParams.set("ticket", ticket);
 	if (from !== undefined) url.searchParams.set("from", String(from));
 	return url.toString();
+}
+
+// ── Scheduled actions ─────────────────────────────────────────────────────
+// `/api/v2/code/schedules`: the caller's own timetable. Under the /code prefix,
+// so a stale sign-in answers `reauth_required` here like everywhere else.
+
+/** What the editor sends; the server validates all of it again. */
+export interface ScheduleInput {
+	name: string;
+	prompt: string;
+	recurrence: Recurrence;
+	timezone: string;
+	enabled?: boolean;
+	target: Record<string, unknown>;
+}
+
+const jsonInit = (method: string, body?: unknown): RequestInit => ({
+	method,
+	headers: { "content-type": "application/json" },
+	...(body === undefined ? {} : { body: JSON.stringify(body) }),
+});
+
+export async function listSchedules(): Promise<{ schedules: ScheduleView[]; limit: number }> {
+	return unwrap(await fetch(`${root()}/schedules`));
+}
+
+export async function createSchedule(input: ScheduleInput): Promise<{ schedule: ScheduleView }> {
+	return unwrap(await fetch(`${root()}/schedules`, jsonInit("POST", input)));
+}
+
+export async function updateSchedule(
+	id: string,
+	patch: Partial<ScheduleInput>
+): Promise<{ schedule: ScheduleView }> {
+	return unwrap(
+		await fetch(`${root()}/schedules/${encodeURIComponent(id)}`, jsonInit("PATCH", patch))
+	);
+}
+
+export async function deleteSchedule(id: string): Promise<{ deleted: boolean }> {
+	return unwrap(await fetch(`${root()}/schedules/${encodeURIComponent(id)}`, jsonInit("DELETE")));
+}
+
+/** One immediate run; the executor's overlap rule applies, so the answer may be a skip. */
+export async function runScheduleNow(id: string): Promise<{ run: ScheduleRunView }> {
+	return unwrap(
+		await fetch(`${root()}/schedules/${encodeURIComponent(id)}/run`, jsonInit("POST", {}))
+	);
+}
+
+export async function listScheduleRuns(
+	id: string
+): Promise<{ schedule: ScheduleView; runs: ScheduleRunView[] }> {
+	return unwrap(await fetch(`${root()}/schedules/${encodeURIComponent(id)}/runs`));
+}
+
+/** The editor's preview: the next three run times, or why the recurrence is refused. */
+export async function previewRecurrence(
+	recurrence: Recurrence,
+	timezone: string
+): Promise<{ ok: true; description: string; next: Date[] } | { ok: false; error: string }> {
+	return unwrap(
+		await fetch(`${root()}/schedules/preview`, jsonInit("POST", { recurrence, timezone }))
+	);
 }

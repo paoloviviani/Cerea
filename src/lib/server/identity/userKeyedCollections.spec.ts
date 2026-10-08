@@ -38,6 +38,8 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	mcpOauthPending: true,
 	codeDevices: true,
 	codeAudit: true,
+	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
+	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
 	conversationStats: false,
 	assistants: true,
 	reports: true,
@@ -337,6 +339,84 @@ describe("customModels: merge renames, erase removes", () => {
 		expect(await collections.customModels.countDocuments({ userId: gone })).toBe(0);
 		expect(await collections.customModels.countDocuments({ userId: kept })).toBe(1);
 		await collections.customModels.deleteMany({ userId: kept });
+	});
+});
+
+describe("schedules and scheduleRuns: a schedule goes with its person", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	const schedule = (userId: ObjectId) => ({
+		_id: new ObjectId(),
+		userId,
+		kind: "agent" as const,
+		name: "Nightly",
+		target: {},
+		prompt: "p",
+		recurrence: { type: "daily" as const, at: "02:00" },
+		timezone: "UTC",
+		anchorAt: new Date(),
+		enabled: true,
+		nextRunAt: new Date(),
+		consecutiveFailures: 0,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	});
+	const run = (userId: ObjectId, scheduleId: ObjectId) => ({
+		_id: new ObjectId(),
+		scheduleId,
+		userId,
+		kind: "agent" as const,
+		scheduledFor: new Date(),
+		firedAt: new Date(),
+		status: "sent" as const,
+		trigger: "schedule" as const,
+		scheduleName: "Nightly",
+	});
+
+	it("erases only the erased person's schedules and their run rows", async () => {
+		const gone = new ObjectId();
+		const kept = new ObjectId();
+		const goneSchedule = schedule(gone);
+		const keptSchedule = schedule(kept);
+		await collections.schedules.insertMany([goneSchedule, keptSchedule]);
+		await collections.scheduleRuns.insertMany([
+			run(gone, goneSchedule._id),
+			run(kept, keptSchedule._id),
+		]);
+
+		const schedulesEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "schedules");
+		const runsEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "scheduleRuns");
+		if (!schedulesEntry || !runsEntry) throw new Error("both must be registered");
+		expect(await schedulesEntry.erase(gone, NO_CONVERSATIONS)).toBe(1);
+		expect(await runsEntry.erase(gone, NO_CONVERSATIONS)).toBe(1);
+
+		expect(await collections.schedules.countDocuments({ userId: gone })).toBe(0);
+		expect(await collections.scheduleRuns.countDocuments({ userId: gone })).toBe(0);
+		expect(await collections.schedules.countDocuments({ userId: kept })).toBe(1);
+		expect(await collections.scheduleRuns.countDocuments({ userId: kept })).toBe(1);
+		await collections.schedules.deleteMany({ userId: kept });
+		await collections.scheduleRuns.deleteMany({ userId: kept });
+	});
+
+	it("moves a stray's schedules and runs onto the target on a merge", async () => {
+		const stray = new ObjectId();
+		const target = new ObjectId();
+		const row = schedule(stray);
+		await collections.schedules.insertOne(row);
+		await collections.scheduleRuns.insertOne(run(stray, row._id));
+
+		for (const name of ["schedules", "scheduleRuns"]) {
+			const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === name);
+			if (!entry) throw new Error(`${name} must be registered`);
+			expect(await entry.merge(stray, target)).toBe(1);
+		}
+		expect(await collections.schedules.countDocuments({ userId: target })).toBe(1);
+		expect(await collections.scheduleRuns.countDocuments({ userId: target })).toBe(1);
+		expect(await collections.schedules.countDocuments({ userId: stray })).toBe(0);
+		await collections.schedules.deleteMany({ userId: target });
+		await collections.scheduleRuns.deleteMany({ userId: target });
 	});
 });
 

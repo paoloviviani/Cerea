@@ -633,6 +633,36 @@ in — with the session's file changes, rendered by the same diff machinery the
 artifact panel uses. The before/after pairs come from the machine; nothing is
 reconstructed here.
 
+### Scheduled actions
+
+**Schedules** (under the devices in the sidebar) send a prompt to one of your
+sessions on a timetable. Pick the **machine** (online or offline), then a
+**workspace** on it (or **New workspace…**, created when you save, under the
+machine's own `workspaceRoots`), then **a new session each run** (titled
+"name · date", and marked with a clock in the tree) or **one existing session**.
+Then the mode, model and permission word, the prompt, and when: every N hours,
+daily, weekdays, weekly, or a cron expression, never closer than 15 minutes, in
+the timezone you choose with the next three run times shown as you edit. "Schedule
+this…" in a session's ⋯ menu starts the editor on that machine, workspace and
+session.
+
+- **The machine pays.** Cerea only sends the prompt over the link you already
+  have; the run uses the machine's own credential and policy, and the machine's
+  ceiling caps the permission word you pick.
+- **Ask stalls.** Nobody is watching a scheduled run. On Ask it stops at its
+  first approval and waits; the card is in the **Needs-you inbox**. Pick Allow
+  for work that must finish unattended (a key your machine caps at Ask still asks).
+  For "always this session", the word is set on that session each run and stays.
+- **Missed runs.** Machine offline: recorded as missed, not queued. Previous
+  run's session still working (or waiting on an approval): skipped. Chat down:
+  one late run is made up only if it is under half the interval late (at most an
+  hour), otherwise recorded as missed. The workspace or session is gone:
+  the run fails with that reason, and three failures in a row switch the schedule
+  off. A revoked machine switches its schedules off at once.
+- **History.** Every occurrence is a row in the schedule's history, with why, and
+  a link to the session it reached. **Run now** fires one run immediately (the
+  skip rule applies).
+
 ### Archiving and revoking
 
 Archiving a session or a workspace confirms first, then asks the machine and
