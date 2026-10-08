@@ -120,7 +120,8 @@ veto that only `enroll` can loosen:
   `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps. What **is** the machine's is the **ceiling**
   (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
   `session_spawn=ask`; the coordination keys `session_read` and
-  `session_send` are ceiling keys too, uncapped by default): the most any key
+  `session_send` are ceiling keys too, and so is `schedule`, all uncapped by
+  default): the most any key
   may ever be, whatever a session's word or exceptions say. The old auto-accept toggle and
   `--allow-auto-accept` are gone (the flag is accepted for one more
   release and does nothing).
@@ -137,6 +138,17 @@ veto that only `enroll` can loosen:
   allow. An older galopin has no such op and answers `unsupported`; Cerea runs
   the schedule without it and says so. Every read, send, spawn and grant is a
   row in `audit.log`, never the text. See [PROTOCOL.md](PROTOCOL.md) §6.
+- **Schedule tools** (installed with the agent tools): `schedule_list`,
+  `schedule_create`, `schedule_update` and `schedule_delete` let a session's
+  model manage its owner's scheduled actions on this machine, through Cerea
+  (a machine call over the link; a Cerea too old for it is named in the
+  refusal). Creating one follows the session's Deny / Ask / Allow — the
+  blanket Allow covers it — except from a scheduled run, which always asks;
+  a run pausing or deleting its own schedule needs no card; any other change
+  or delete always asks. The ceiling key `schedule`
+  (`--permission-max schedule=ask|deny`) caps all of it. Audited by schedule
+  id or name, never the prompt. See [PROTOCOL.md](PROTOCOL.md) §5 "Machine
+  calls" and §6 "Schedule tools".
 - **A terminal**: a real, interactive shell, **on by default** (as are
   slash commands that run shell and background subagents; `enroll
 --no-terminal`, `--no-command-shell` and `--no-background-subagents`
