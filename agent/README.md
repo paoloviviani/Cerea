@@ -75,6 +75,7 @@ galopin enroll   sign in, pick a billing group, write opencode.json,
 galopin serve    the local refreshing proxy shim alone (opencode with no /code panel)
 galopin run      serve, plus supervise opencode (or an ACP agent) and dial out to Cerea
 galopin policy   show, or locally tighten, this machine's policy.json
+galopin licenses the third-party licence notices compiled into the binary
 ```
 
 ```sh
@@ -90,9 +91,22 @@ galopin run
 flag is needed. A machine enrolled before the path was recorded gets a warning
 from `run`: re-run `enroll`, or pass `run --opencode-config PATH`.
 
-Full flag reference, keeping it running as a systemd user unit or a
-macOS LaunchAgent, revocation and re-enrollment: `docs/agent-machines.md` at
-the Cerea repository root.
+To keep `run` up, install it as a systemd user unit (Linux) or a
+LaunchAgent (macOS). The files are `packaging/galopin.service` and
+`packaging/org.cerea.galopin.plist`, and each says how to install it in its
+header comment:
+
+```sh
+install -D -m 0644 packaging/galopin.service ~/.config/systemd/user/galopin.service
+systemctl --user daemon-reload && systemctl --user enable --now galopin
+loginctl enable-linger "$USER"     # keep it up while logged out
+```
+
+The unit runs `~/.local/bin/galopin run` and does not restart after exit
+code 78 (the machine was revoked). After installing a new binary,
+`systemctl --user restart galopin`. Full flag reference, the same steps in
+more detail, revocation and re-enrollment: `docs/agent-machines.md` at the
+Cerea repository root.
 
 ## Machine powers: files and a terminal (PROTOCOL.md §9)
 
@@ -149,6 +163,12 @@ veto that only `enroll` can loosen:
   (`--permission-max schedule=ask|deny`) caps all of it. Audited by schedule
   id or name, never the prompt. See [PROTOCOL.md](PROTOCOL.md) §5 "Machine
   calls" and §6 "Schedule tools".
+- **The delegation skill** (written with the agent tools, never without
+  them): `skills/delegation/SKILL.md` in the opencode config directory galopin
+  owns (`internal/backend/opencode/skill.go`). It tells the model when to use
+  `task`, the session tools and the schedule tools, what to do when its prompt
+  starts with Cerea's `[Scheduled run …]` header, and how to schedule work.
+  It must describe only what the tools do today: change it with them.
 - **A terminal**: a real, interactive shell, **on by default** (as are
   slash commands that run shell and background subagents; `enroll
 --no-terminal`, `--no-command-shell` and `--no-background-subagents`

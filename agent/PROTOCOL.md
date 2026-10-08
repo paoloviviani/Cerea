@@ -66,9 +66,9 @@ We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent 
     - There is no `responders` any more: auto-accept (a client-side responder answering asks `once`) was replaced by the per-session Deny / Ask / Allow selector (§6 "Permissions"), which a person sets and which is never a machine setting. An older `policy.json` may still carry `permission.responders` or the legacy `autoAccept`; both are ignored on read and dropped on the next save. `enroll --allow-auto-accept` and `policy set --no-auto-accept` are accepted for one more release as no-ops that print a warning, then deleted. The machine's **ceiling** (`max`) is the only thing a session's selector can never go past.
   - `workspaceRoots`: absolute paths; if non-empty, `workspace.create` outside them is refused.
   - `allowFreeModels`: bool (default false). When false the agent lists and accepts only gateway (`pystino/*`) models; Cerea filters as well (defence in depth).
-  - Machine powers (ADR 0090, §9; specified, not built yet; they exist only when `hello.machine.capabilities` says so):
+  - Machine powers (ADR 0090, §9; partly built, see the status line at the top of §9; each exists only when `hello.machine.capabilities` says so):
     - `files`: `"read" | "off"` (default `"read"`; `enroll --no-files`). `off` answers every `files.*` op `forbidden`.
-    - `fileWrite`: `"allowed" | "denied"` (default `denied`; `enroll --allow-file-write`). Gates `files.write`.
+    - `fileWrite`: `"allowed" | "denied"` (default `denied`; `enroll --allow-file-write`). Gates `files.write`. **Specified, not built:** no such policy field or flag exists yet.
     - `fileDeny`: glob list (default: the §9.4 list; `enroll --file-deny GLOB` adds, `--no-default-file-deny` drops the defaults). Matching entries are listed with `redacted: true`, reading them is `forbidden`, and search skips them.
     - `terminal`: `"allowed" | "denied"` (`enroll` writes `allowed` unless `--no-terminal`; a file without the field, from an older enroll, reads `denied`). Gates every `terminal.*` op.
     - `maxTerminals`: int (default 8). `terminal.open` beyond it is `invalid`; a terminal kept around only for exit-retention display does not count against it.
@@ -354,7 +354,7 @@ Known limit: a broken image is what a person sees for an image the machine no lo
 
 ## 9. Machine powers: files and terminals (specified by ADR 0090; F1 and T1 build it)
 
-**Implemented so far (F1a):** `files.list`, `files.stat`, `files.read` and `files.status`; the `files` and `fileDeny` policy fields with `enroll --no-files`, `--file-deny GLOB` and `--no-default-file-deny`; `hello.machine.capabilities.files: true` (the rest false). The error codes `conflict` and `too_large` are in both halves.
+**Implemented:** `files.list`, `files.stat`, `files.read` and `files.status`; the `files` and `fileDeny` policy fields with `enroll --no-files`, `--file-deny GLOB` and `--no-default-file-deny`; every `terminal.*` op, the binary frames and flow control (§9.2), with the `terminal` and `maxTerminals` policy fields. `hello.machine.capabilities` reports `files: true`, `terminal` where the OS supports it, and `fileSearch`, `fileWatch` and `fileWrite` false. The error codes `conflict` and `too_large` are in both halves. **Specified, not built:** `files.find`, `files.grep`, `files.watch`, `files.unwatch` and `files.write` (they answer `unsupported`), the `fileWrite` policy field and `CODE_FILE_WRITE_ENABLED`.
 
 Additive only: `protocol` stays `1`. Everything here exists only when `hello.machine.capabilities` says so, and an unknown op still answers `unsupported`, so an old Cerea paired with a new galopin works unchanged, and so does the reverse. These are **machine ops**: galopin dispatches `files.*` and `terminal.*` before the backend switch, and they never call opencode or an ACP agent. opencode's own `/file*`, `/find*` and `/pty` are deliberately not used.
 
