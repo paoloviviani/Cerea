@@ -180,7 +180,12 @@ describe("includeSkillLoadBuiltin", () => {
 
 	it("offers nothing when every seed is kill-switched and the user has no skill", async () => {
 		const previous = process.env.CHAT_SKILLS_DISABLED;
-		process.env.CHAT_SKILLS_DISABLED = "csv-shaping,report-writing,json-shaping";
+		// Every built-in by name — the inline seeds and the directory skills
+		// alike — so the assertion stays about the kill switch, not about
+		// which seeds exist.
+		process.env.CHAT_SKILLS_DISABLED = listAdminSkills()
+			.map((skill) => skill.name)
+			.join(",");
 		resetAdminSkillCache();
 		try {
 			const tools: (typeof skillLoadBuiltin)[] = [];
