@@ -189,6 +189,13 @@ func TestAgentToolsIntegration(t *testing.T) {
 		machineRules = m
 		rulesMu.Unlock()
 	}
+	// The machine's ceiling, changed by the coordination-grant subtests.
+	var machineCeiling map[string]permrules.Action
+	setMachineCeiling := func(m map[string]permrules.Action) {
+		rulesMu.Lock()
+		machineCeiling = m
+		rulesMu.Unlock()
+	}
 	oc := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: dirs["state"],
 		OverlayPath:    filepath.Join(dirs["state"], "opencode-overlay.json"),
@@ -197,7 +204,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		Permissions: func() permrules.Layers {
 			rulesMu.Lock()
 			defer rulesMu.Unlock()
-			return permrules.Layers{Own: permrules.OwnRules(machineRules)}
+			return permrules.Layers{Own: permrules.OwnRules(machineRules), Ceiling: permrules.Ceiling{Max: machineCeiling}}
 		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -354,7 +361,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if !caps.AgentTools || !caps.Steer {
 			t.Fatalf("capabilities = %+v, want agentTools and steer", caps)
 		}
-		for _, name := range []string{"session_list", "session_spawn", "session_send"} {
+		for _, name := range []string{"session_list", "session_read", "session_spawn", "session_send"} {
 			if _, err := os.Stat(filepath.Join(dirs["state"], "opencode-tools", "tools", name+".js")); err != nil {
 				t.Errorf("tool file %s: %v", name, err)
 			}
@@ -1114,6 +1121,168 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 		hub.waitIdle(t, mark, caller.ID)
 		setMachineRules(nil)
+	})
+
+	// grantCoordination plays session.grantCoordination through the machine's
+	// own dispatcher, the way Cerea's schedule executor does.
+	grantCoordination := func(t *testing.T, sessionID string, keys []string) {
+		t.Helper()
+		if _, operr := mc.Handle(ctx, "session.grantCoordination", mustJSONArgs(t, map[string]any{"sessionId": sessionID, "keys": keys})); operr != nil {
+			t.Fatalf("session.grantCoordination: %+v", operr)
+		}
+	}
+	runTool := func(t *testing.T, from backend.Session, ws workspaces.Workspace, trigger, tool string) (backend.Part, []backend.PermissionRequest) {
+		t.Helper()
+		mark := hub.mark()
+		prompt(from, ws, trigger)
+		part := hub.toolDone(t, mark, from.ID, tool)
+		hub.waitIdle(t, mark, from.ID)
+		return part, hub.asks(mark, from.ID)
+	}
+
+	t.Run("grant: a granted session reads another session's text and messages it with no card", func(t *testing.T) {
+		// Nobody is there to answer: a card would leave the call pending and the
+		// subtest would time out instead of passing.
+		hub.setApprove(func(*backend.PermissionRequest) string { return "" })
+		a := newSession(ws1, "it-grant-a", "build")
+		b := newSession(ws1, "it-grant-b", "build")
+		prompt(b, ws1, "it-grant-b-seed: the staging deploy is blocked on the migration")
+		settle(b.ID)
+
+		grantCoordination(t, a.ID, []string{"session_list", "session_read", "session_send"})
+		route("trigger-grant-read", "session_read", mustJSON2(map[string]any{"target": b.ID, "last": 10}))
+		route("trigger-grant-send", "session_send", mustJSON2(map[string]any{"target": b.ID, "text": "it-grant-message: please retry the migration"}))
+		publish()
+
+		part, asks := runTool(t, a, ws1, "trigger-grant-read", "session_read")
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("session_read = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		for _, want := range []string{"[user · ", "it-grant-b-seed: the staging deploy is blocked", "[assistant · "} {
+			if !strings.Contains(part.Output, want) {
+				t.Errorf("read output lacks %q:\n%s", want, part.Output)
+			}
+		}
+		if len(asks) != 0 {
+			t.Errorf("a granted read raised a card: %+v", asks)
+		}
+
+		part, asks = runTool(t, a, ws1, "trigger-grant-send", "session_send")
+		if part.ToolStatus != backend.ToolCompleted || part.Output != `{"autoApproved":true}` {
+			t.Fatalf("session_send = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if len(asks) != 0 {
+			t.Errorf("a granted send raised a card: %+v", asks)
+		}
+		hub.waitIdle(t, 0, b.ID)
+		if !strings.Contains(mockPrompts(), "it-grant-message: please retry the migration") {
+			t.Error("the message never reached b's model")
+		}
+		reads, sends := 0, 0
+		for _, r := range auditRows() {
+			if r["from"] == a.ID && r["decision"] == "allow" && r["reason"] == "rule" {
+				switch r["tool"] {
+				case "session_read":
+					reads++
+				case "session_send":
+					sends++
+				}
+			}
+		}
+		if reads != 1 || sends != 1 {
+			t.Errorf("audit allow rows: reads=%d sends=%d, want 1 and 1: %v", reads, sends, auditRows())
+		}
+		raw, _ := os.ReadFile(filepath.Join(dirs["state"], "audit.log"))
+		if strings.Contains(string(raw), "the staging deploy is blocked") {
+			t.Error("what a read returned reached the audit log")
+		}
+
+		// The same read without a grant asks.
+		c := newSession(ws1, "it-grant-c", "build")
+		route("trigger-grant-ungranted", "session_read", mustJSON2(map[string]any{"target": b.ID, "last": 5}))
+		publish()
+		mark := hub.mark()
+		prompt(c, ws1, "trigger-grant-ungranted")
+		hub.wait(t, mark, 60*time.Second, "an ungranted session's read card", func(e sessions.Envelope) bool {
+			return e.SessionID == c.ID && e.Event.Kind == backend.EventPermissionAsked && e.Event.Request != nil && e.Event.Request.Tool == "session_read"
+		})
+		hub.setApprove(rejectAll)
+		for _, env := range hub.since(mark) {
+			if env.SessionID == c.ID && env.Event.Kind == backend.EventPermissionAsked && env.Event.Request != nil {
+				raw, _ := json.Marshal(map[string]any{"sessionId": c.ID, "requestId": env.Event.Request.ID, "decision": "reject"})
+				_, _ = mc.Handle(ctx, "permission.reply", raw)
+			}
+		}
+		hub.waitIdle(t, mark, c.ID)
+
+		// Clearing the grant puts a's calls back behind a card.
+		grantCoordination(t, a.ID, []string{})
+		hub.setApprove(func(*backend.PermissionRequest) string { return "" })
+		route("trigger-grant-cleared", "session_read", mustJSON2(map[string]any{"target": b.ID, "last": 3}))
+		publish()
+		mark = hub.mark()
+		prompt(a, ws1, "trigger-grant-cleared")
+		card := hub.wait(t, mark, 60*time.Second, "a card once the grant is cleared", func(e sessions.Envelope) bool {
+			return e.SessionID == a.ID && e.Event.Kind == backend.EventPermissionAsked && e.Event.Request != nil && e.Event.Request.Tool == "session_read"
+		})
+		raw, _ = json.Marshal(map[string]any{"sessionId": a.ID, "requestId": card.Event.Request.ID, "decision": "reject"})
+		_, _ = mc.Handle(ctx, "permission.reply", raw)
+		hub.waitIdle(t, mark, a.ID)
+	})
+
+	t.Run("grant: a ceiling at ask still produces a card, and another workspace still asks", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		setMachineCeiling(map[string]permrules.Action{"session_send": permrules.Ask})
+		defer setMachineCeiling(nil)
+		a := newSession(ws1, "it-ceil-a", "build")
+		b := newSession(ws1, "it-ceil-b", "build")
+		x := newSession(ws2, "it-ceil-x", "build")
+		grantCoordination(t, a.ID, []string{"session_read", "session_send"})
+		route("trigger-ceil-send", "session_send", mustJSON2(map[string]any{"target": b.ID, "text": "ceiling hello"}))
+		route("trigger-ceil-read", "session_read", mustJSON2(map[string]any{"target": b.ID}))
+		route("trigger-ceil-xread", "session_read", mustJSON2(map[string]any{"target": x.ID}))
+		publish()
+
+		part, asks := runTool(t, a, ws1, "trigger-ceil-send", "session_send")
+		if part.ToolStatus != backend.ToolCompleted || part.Output != "{}" {
+			t.Errorf("a capped send = %s / %q / %q, want a carded one ({})", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if len(asks) != 1 || asks[0].Tool != "session_send" || !strings.HasPrefix(asks[0].ID, "gp_") {
+			t.Errorf("a send under a ceiling of ask must raise exactly one galopin card, got %+v", asks)
+		}
+
+		// The key the ceiling does not cap runs with no card in the same workspace...
+		part, asks = runTool(t, a, ws1, "trigger-ceil-read", "session_read")
+		if part.ToolStatus != backend.ToolCompleted || len(asks) != 0 {
+			t.Errorf("a granted, uncapped read = %s / %q, asks %+v", part.ToolStatus, part.ToolError, asks)
+		}
+		// ...and asks for a session in another workspace.
+		part, asks = runTool(t, a, ws1, "trigger-ceil-xread", "session_read")
+		if part.ToolStatus != backend.ToolCompleted || len(asks) != 1 || asks[0].Tool != "session_read" {
+			t.Errorf("a cross-workspace read = %s / %q, asks %+v, want one card", part.ToolStatus, part.ToolError, asks)
+		}
+
+		// A ceiling of deny leaves nothing to grant: opencode drops a tool whose
+		// every pattern is denied from the model's tool list (the unit tests
+		// cover the refusal text galopin gives when the call does arrive), so the
+		// call never runs and no card is raised.
+		setMachineCeiling(map[string]permrules.Action{"session_read": permrules.Deny})
+		route("trigger-ceil-deny", "session_read", mustJSON2(map[string]any{"target": b.ID}))
+		publish()
+		mark := hub.mark()
+		prompt(a, ws1, "trigger-ceil-deny")
+		hub.waitIdle(t, mark, a.ID)
+		for _, env := range hub.since(mark) {
+			if env.SessionID != a.ID {
+				continue
+			}
+			if p := env.Event.Part; p != nil && p.Tool == "session_read" && p.ToolStatus == backend.ToolCompleted {
+				t.Errorf("a read ran under a ceiling of deny: %q", p.Output)
+			}
+			if env.Event.Kind == backend.EventPermissionAsked {
+				t.Errorf("a ceiling of deny raised a card: %+v", env.Event.Request)
+			}
+		}
 	})
 }
 
