@@ -34,10 +34,11 @@ drives `opencode` and connects to Cerea over WSS.
 ## 2. Rules that are not negotiable
 
 1. **No AI attribution in commits.** No `Co-Authored-By: Claude` (or any AI)
-   trailer, no session links, and never `--author`. **No hook checks this**
-   (the only tracked hook is `.husky/pre-commit`, which formats and lints
-   staged files), so read `git log -1` before every push. The commit identity
-   is the owner's git config.
+   trailer, no session links, no "Generated with" lines, and never
+   `--author`. The tracked `.husky/commit-msg` hook rejects them (hooks are
+   installed by `npm ci`; in a fresh clone or worktree run it first). Do not
+   bypass it with `--no-verify`. The commit identity is the owner's git
+   config.
 2. **Licences.** All first-party code is Apache-2.0. Describe the policy as
    "OSI-approved licences". Dependencies: permissive is fine; MPL unmodified is
    fine; GPL/AGPL only as a separate process; anything non-OSI needs the
