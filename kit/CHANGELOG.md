@@ -5,6 +5,26 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.7.0 — 2026-10-08
+
+Pins: Cerea `0.7.0`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- **Agents can schedule work.** A coding session can list, create, change, pause and
+  delete your scheduled actions on its own machine with four new tools (`schedule_list`,
+  `schedule_create`, `schedule_update`, `schedule_delete`). What it creates is never broader
+  than the session itself: same machine, a permission word no looser than its own, no
+  coordination options it does not have, and at most 5 active agent-made schedules per
+  machine. The Schedules list marks them "Created by an agent in ‹session›", with a link.
+- **When it asks:** creating a schedule follows the session's Deny / Ask / Allow word
+  (Allow creates without a card). A scheduled run that wants to create another schedule
+  always asks. A run may always pause or delete its own schedule without a card ("stop when
+  done"). Any other change or deletion asks. A new machine limit, `schedule`, caps all of it.
+- Agent-made schedules run in build mode by default (`agentMode`).
+- **Update galopin on your machines** to get the tools: re-run the install line from the
+  pairing dialog, then `systemctl --user restart galopin`. An older galopin keeps working
+  without them.
+- The release machinery now lives in the repository (`scripts/release/`).
+
 ## v0.6.3 — 2026-10-08
 
 Pins: Cerea `0.6.3`, Pystino `0.3.2`, Authelia 4.39.22.
