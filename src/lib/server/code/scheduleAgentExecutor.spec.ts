@@ -453,7 +453,7 @@ describe("the run header", () => {
 		const row = await make({ prompt: "line one\n\nline two" });
 		await runNow(person.user._id, row._id.toString());
 		expect(sent()).toBe(
-			'[Scheduled run of "Nightly", Every day at 02:00 (Europe/Rome); previous run none; coordination: none]\n\nline one\n\nline two'
+			'[Scheduled run of "Nightly", every day at 02:00 (Europe/Rome); previous run none; coordination: none]\n\nline one\n\nline two'
 		);
 		expect((await listRuns(person.user._id, row._id.toString()))[0].detail).not.toContain(
 			"Scheduled"
