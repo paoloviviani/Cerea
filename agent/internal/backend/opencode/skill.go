@@ -50,7 +50,7 @@ These reach other sessions the person can see and read. Each **call raises an ap
 ## Background work (when the machine allows it)
 
 - ` + "`task`" + ` with ` + "`background: true`" + ` starts a subagent that **keeps running after your turn ends**: you do not wait, and when the child finishes its result is injected back to you automatically as a synthetic message the panel shows as an automatic marker — that is how work pings back to you across turns. Use it for long work (a big test suite, a long build) instead of blocking the turn. Tell the person what is running and that you will report when it lands.
-- This exists only when the machine was enrolled with ` + "`--allow-background-subagents`" + `; on a machine without it, ` + "`background: true`" + ` fails closed — do not promise it, and do not retry it as a workaround. A plain ` + "`task`" + ` (the default) blocks until the child finishes: several plain ` + "`task`" + ` calls in one message still run side by side, but none of them frees your turn.
+- This is on by default; a machine enrolled with ` + "`--no-background-subagents`" + ` (or switched off later with ` + "`galopin policy set --no-background-subagents`" + `) does not have it, and there ` + "`background: true`" + ` fails closed — do not promise it, and do not retry it as a workaround. A plain ` + "`task`" + ` (the default) blocks until the child finishes: several plain ` + "`task`" + ` calls in one message still run side by side, but none of them frees your turn.
 - A ` + "`task_id`" + ` given to a follow-up ` + "`task`" + ` call reaches a child that is still running, background or not.
 
 ## When you run on a schedule
