@@ -877,6 +877,16 @@ caller's own, paired. Things that bite:
   cleared (`keys: []`) on a machine that supports it, so "off" means off. The
   editor and the executor read `utils/coordination.ts` for the wording, so the
   warning and the run row cannot disagree;
+- **agents make schedules too**: `server/code/machineCalls.ts` answers the
+  machine's `call` frames (`schedule.context|list|create|update|delete`) as the
+  device's owner, through `createSchedule`/`updateSchedule` and this executor's
+  `validateTarget`, with the agent's own refusals on top (mode no looser and
+  coordination no wider than the caller's, 5 running agent-made schedules per
+  machine, 10 changes per machine per hour with pause/delete exempt, this
+  machine's schedules only). `createdBy` is passed by the caller of
+  `createSchedule`, never read from a body; the welcome advertises
+  `features.machineCalls`. Specs: `machineCalls.spec.ts`, and `FakeMachine.call()`
+  sends a `call` from tests;
 - API: `/api/v2/code/schedules` (+ `/[id]`, `/[id]/run`, `/[id]/runs`, `/preview`).
   It is under `/api/v2/code/`, so the 7-day sign-in guard covers it by prefix;
   `stale-guard.spec.ts` lists every route file and fails on a new one.

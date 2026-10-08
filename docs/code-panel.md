@@ -296,6 +296,38 @@ enrolled with `--no-agent-tools` says so instead). A schedule pinned to one
 session sends the grant each run, and when its options are turned off the next
 run takes the grant back (`keys: []`).
 
+**Schedules made by agents.** A coding session can list, create, update, pause
+and delete schedules on its own machine through galopin's schedule tools (see
+[Scheduling work](agent-machines.md#scheduling-work) for when those ask). They
+are `call` frames on the machine link, answered by `server/code/machineCalls.ts`
+as the machine's owner: Cerea's `welcome` advertises
+`features.machineCalls: ["schedule"]`, and a galopin with the tools reports
+`scheduleTools` among its backend capabilities. The ops are `schedule.context`
+(is the caller's session, or its root, a run of a schedule: looked up in the
+run records), `schedule.list`, `schedule.create`, `schedule.update` and
+`schedule.delete`. On top of the store's rules (floor, cap, timezone, switch),
+Cerea refuses:
+
+| Refused                                                                  | Answer        |
+| ------------------------------------------------------------------------ | ------------- |
+| another machine as the target, or a workspace not on this one            | `invalid`     |
+| a permission mode looser than the calling session's (deny < ask < allow) | `forbidden`   |
+| coordination the calling session does not have itself                    | `forbidden`   |
+| a sixth running agent-made schedule on the machine                       | `limit`       |
+| an eleventh change in an hour from the machine (pause and delete exempt) | `limit`       |
+| updating or deleting another machine's schedule                          | `not_found`   |
+| anything but `schedule.context` while `CHAT_SCHEDULES_ENABLED=false`     | `unavailable` |
+
+A new prompt, a new target or switching a schedule back on is checked against
+the caller too, so an Ask session cannot rewrite a person's Allow schedule. A
+created schedule's timezone defaults to that of the person's most recent
+schedule (there is no per-person setting), else UTC; `session: "this"` pins the
+caller's root session. The row records `createdBy: {kind: "agent", deviceId,
+workspaceId, sessionId, title}`, the list and the editor show **Created by an
+agent in ‹session›** linking to it, and each change is a `schedule.create` /
+`schedule.update` / `schedule.delete` row in `codeAudit` with the session id
+(refusals as `<op>.refused` with the code). A person's schedules look as before.
+
 **Limits and the switch.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a
 person's schedules. `CHAT_SCHEDULES_ENABLED` is on unless exactly `false`, and
 only matters where `CODE_AGENTS_ENABLED=true`: a deployment that has turned on
