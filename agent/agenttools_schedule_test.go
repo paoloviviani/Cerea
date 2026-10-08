@@ -24,17 +24,17 @@ func TestScheduleDecisionTable(t *testing.T) {
 			return scheduleRefuse
 		case f.tool == "schedule_list":
 			return scheduleAuto
-		case f.grant == pD:
+		case f.machineDeny:
 			return scheduleRefuse
 		case f.ceiling == pK:
 			return scheduleAsk
+		case f.tool != "schedule_create" && f.selfStop:
+			return scheduleAuto
+		case f.grant == pD:
+			return scheduleRefuse
 		case f.tool == "schedule_create" && f.scheduledRun:
 			return scheduleAsk
 		case f.tool == "schedule_create" && f.grant == pA:
-			return scheduleAuto
-		case f.tool == "schedule_create":
-			return scheduleAsk
-		case f.selfStop:
 			return scheduleAuto
 		}
 		return scheduleAsk
@@ -45,15 +45,17 @@ func TestScheduleDecisionTable(t *testing.T) {
 			for _, grant := range []permrules.Action{pA, pK, pD} {
 				for _, run := range []bool{false, true} {
 					for _, self := range []bool{false, true} {
-						f := scheduleFacts{tool: tool, ceiling: ceiling, grant: grant, scheduledRun: run, selfStop: self}
-						got, reason := decideSchedule(f)
-						if got != want(f) {
-							t.Errorf("%+v: got %s (%s), want %s", f, got, reason, want(f))
+						for _, machineDeny := range []bool{false, true} {
+							f := scheduleFacts{tool: tool, ceiling: ceiling, grant: grant, machineDeny: machineDeny, scheduledRun: run, selfStop: self}
+							got, reason := decideSchedule(f)
+							if got != want(f) {
+								t.Errorf("%+v: got %s (%s), want %s", f, got, reason, want(f))
+							}
+							if got == scheduleRefuse && reason == "" {
+								t.Errorf("%+v: a refusal without a reason", f)
+							}
+							n++
 						}
-						if got == scheduleRefuse && reason == "" {
-							t.Errorf("%+v: a refusal without a reason", f)
-						}
-						n++
 					}
 				}
 			}
@@ -78,6 +80,12 @@ func TestScheduleDecisionTable(t *testing.T) {
 		{"ceiling ask beats Allow create", scheduleFacts{tool: "schedule_create", ceiling: pK, grant: pA}, scheduleAsk},
 		{"ceiling deny beats self delete", scheduleFacts{tool: "schedule_delete", ceiling: pD, grant: pA, selfStop: true}, scheduleRefuse},
 		{"ceiling deny refuses list", scheduleFacts{tool: "schedule_list", ceiling: pD}, scheduleRefuse},
+		{"self pause under the session's Deny: no card", scheduleFacts{tool: "schedule_update", ceiling: pA, grant: pD, selfStop: true}, scheduleAuto},
+		{"self delete under the session's Deny: no card", scheduleFacts{tool: "schedule_delete", ceiling: pA, grant: pD, selfStop: true}, scheduleAuto},
+		{"other update under the session's Deny: refused", scheduleFacts{tool: "schedule_update", ceiling: pA, grant: pD}, scheduleRefuse},
+		{"a machine deny refuses self pause", scheduleFacts{tool: "schedule_update", ceiling: pA, grant: pA, machineDeny: true, selfStop: true}, scheduleRefuse},
+		{"a machine deny refuses self delete", scheduleFacts{tool: "schedule_delete", ceiling: pA, grant: pD, machineDeny: true, selfStop: true}, scheduleRefuse},
+		{"ceiling ask cards a self pause under Deny", scheduleFacts{tool: "schedule_update", ceiling: pK, grant: pD, selfStop: true}, scheduleAsk},
 		{"list under Deny asks nothing", scheduleFacts{tool: "schedule_list", ceiling: pA, grant: pD}, scheduleAuto},
 	}
 	for _, c := range cases {
@@ -85,7 +93,7 @@ func TestScheduleDecisionTable(t *testing.T) {
 			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
 		}
 	}
-	if n != 4*3*3*2*2 {
+	if n != 4*3*3*2*2*2 {
 		t.Fatalf("covered %d rows", n)
 	}
 }
@@ -128,6 +136,21 @@ func TestScheduleGrantComposed(t *testing.T) {
 	}
 }
 
+// earlyRefusal refuses only what the full facts would refuse: under the
+// session's Deny an update/delete waits for self (it may be a run stopping
+// itself), a create does not.
+func TestScheduleEarlyRefusal(t *testing.T) {
+	if earlyRefusal(scheduleFacts{tool: "schedule_delete", ceiling: pA, grant: pD}) != nil {
+		t.Error("a delete under Deny was refused before knowing whether it is the caller's own")
+	}
+	if earlyRefusal(scheduleFacts{tool: "schedule_create", ceiling: pA, grant: pD}) == nil {
+		t.Error("a create under Deny must be refused before Cerea is asked")
+	}
+	if earlyRefusal(scheduleFacts{tool: "schedule_update", ceiling: pA, grant: pA, machineDeny: true}) == nil {
+		t.Error("a machine deny must refuse before Cerea is asked")
+	}
+}
+
 func TestScheduleArgsDecoding(t *testing.T) {
 	m, err := decodeObject([]byte(`{"name":"n","prompt":"p","recurrence":{"type":"daily","at":"09:00"},"timezone":"","workspaceId":"","session":"this","permissionMode":"ask","coordination":[]}`),
 		"the arguments", "name", "prompt", "recurrence", "timezone", "workspaceId", "session", "permissionMode", "coordination")
@@ -145,10 +168,10 @@ func TestScheduleArgsDecoding(t *testing.T) {
 		t.Fatalf("fields: %+v", f)
 	}
 	for _, bad := range []string{
-		`{"permissionMode":"yolo"}`, `{"session":"other"}`, `{"recurrence":"daily"}`, `{"paused":"yes"}`,
+		`{"permissionMode":"yolo"}`, `{"agentMode":"general"}`, `{"session":"other"}`, `{"recurrence":"daily"}`, `{"paused":"yes"}`,
 		`{"coordination":"session_list"}`, `{"name":` + mustJSON(strings.Repeat("x", 201)) + `}`,
 	} {
-		m, err := decodeObject([]byte(bad), "x", "name", "permissionMode", "session", "recurrence", "paused", "coordination")
+		m, err := decodeObject([]byte(bad), "x", "name", "permissionMode", "agentMode", "session", "recurrence", "paused", "coordination")
 		if err == nil {
 			_, err = readFields(m)
 		}

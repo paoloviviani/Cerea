@@ -59,9 +59,20 @@ func (f *fakeScheduleCerea) answer(call map[string]any) map[string]any {
 		}
 		return ok(map[string]any{"scheduledRunOf": of, "enabled": true})
 	case "schedule.list":
+		item := func(id, name, text string, self bool, by map[string]any) map[string]any {
+			return map[string]any{
+				"id": id, "name": name, "recurrenceText": text, "timezone": "UTC", "paused": false, "status": "active",
+				"nextRunAt": "2026-10-09T02:00:00.000Z", "lastRunAt": nil,
+				"workspace": map[string]any{"id": "ws-x", "name": "ws-one"}, "session": "new",
+				"permissionMode": "ask", "coordination": []string{}, "agentMode": "build",
+				"prompt": "the stored prompt", "recurrence": map[string]any{"type": "daily", "at": "02:00"},
+				"createdBy": by, "self": self,
+			}
+		}
 		return ok(map[string]any{"schedules": []map[string]any{
-			{"id": "sched-self", "name": "nightly check", "recurrenceText": "every day at 02:00", "timezone": "UTC", "self": root == f.selfRoot},
-			{"id": "sched-other", "name": "someone else's", "recurrenceText": "every hour", "timezone": "UTC", "self": false},
+			item("sched-self", "nightly check", "every day at 02:00", root == f.selfRoot,
+				map[string]any{"kind": "agent", "sessionId": f.selfRoot, "title": "it-sched-self"}),
+			item("sched-other", "someone else's", "every hour", false, map[string]any{"kind": "person"}),
 		}})
 	case "schedule.create":
 		return ok(map[string]any{"schedule": map[string]any{"id": "sched-new", "name": args["name"]}})
@@ -287,7 +298,8 @@ func TestScheduleToolsIntegration(t *testing.T) {
 	createArgs := func(name string) map[string]any {
 		return map[string]any{
 			"name": name, "prompt": "check the nightly build and report", "recurrence": map[string]any{"type": "daily", "at": "09:00"},
-			"timezone": "", "workspaceId": "", "session": "this", "permissionMode": "ask", "coordination": []string{},
+			"timezone": "", "workspaceId": "", "session": "this", "permissionMode": "ask", "agentMode": "plan",
+			"coordination": []string{"session_list", "session_read", "session_send"},
 		}
 	}
 
@@ -338,7 +350,8 @@ func TestScheduleToolsIntegration(t *testing.T) {
 			t.Fatalf("ops = %v", ops)
 		}
 		args := cerea.last("schedule.create")["args"].(map[string]any)
-		if args["workspaceId"] != ws1.ID || args["session"] != "this" || args["permissionMode"] != "ask" || args["timezone"] != nil {
+		if args["workspaceId"] != ws1.ID || args["session"] != "this" || args["permissionMode"] != "ask" || args["timezone"] != nil ||
+			args["agentMode"] != "plan" || fmt.Sprint(args["coordination"]) != "[session_list session_read session_send]" {
 			t.Fatalf("create args = %v", args)
 		}
 		if rec, _ := args["recurrence"].(map[string]any); rec["type"] != "daily" || rec["at"] != "09:00" {
@@ -386,9 +399,9 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("a run pausing its own schedule needs no card", func(t *testing.T) {
+	t.Run("a run pausing its own schedule needs no card, even under the session's Deny", func(t *testing.T) {
 		hub.setApprove(rejectAll)
-		s := newSession("it-sched-self", permrules.Ask)
+		s := newSession("it-sched-self", permrules.Deny)
 		cerea.mu.Lock()
 		cerea.selfRoot = s.ID
 		cerea.mu.Unlock()
@@ -405,6 +418,22 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		}
 		if args := cerea.last("schedule.update")["args"].(map[string]any); args["id"] != "sched-self" || args["paused"] != true || len(args) != 2 {
 			t.Fatalf("update args = %v", args)
+		}
+	})
+
+	t.Run("changing a schedule that is not its own under the session's Deny is refused", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		s := newSession("it-sched-deny-other", permrules.Deny)
+		route("trigger-sched-deny-other", "schedule_update", map[string]any{"id": "sched-other", "changes": map[string]any{"paused": true}})
+		part, mark, cmark := run(s, "trigger-sched-deny-other", "schedule_update")
+		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "Deny") {
+			t.Fatalf("schedule_update = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if n := len(hub.asks(mark, s.ID)); n != 0 {
+			t.Fatalf("a refused update raised %d cards", n)
+		}
+		if ops := cerea.opsFrom(cmark, s.ID); strings.Join(ops, ",") != "schedule.list" {
+			t.Fatalf("ops = %v", ops)
 		}
 	})
 

@@ -144,7 +144,7 @@ veto that only `enroll` can loosen:
   (a machine call over the link; a Cerea too old for it is named in the
   refusal). Creating one follows the session's Deny / Ask / Allow — the
   blanket Allow covers it — except from a scheduled run, which always asks;
-  a run pausing or deleting its own schedule needs no card; any other change
+  a run pausing or deleting its own schedule needs no card, even on Deny; any other change
   or delete always asks. The ceiling key `schedule`
   (`--permission-max schedule=ask|deny`) caps all of it. Audited by schedule
   id or name, never the prompt. See [PROTOCOL.md](PROTOCOL.md) §5 "Machine

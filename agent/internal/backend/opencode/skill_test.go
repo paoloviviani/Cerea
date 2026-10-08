@@ -41,6 +41,8 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		"Schedules outlive you.",          // name them clearly
 		"paused: true",                    // stop your own when done
 		"every create asks the person",    // the runaway guard, so the model expects the card
+		"all together (or none of them)",  // the coordination options Cerea stores
+		"Deny included",                   // stopping your own schedule always works
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("skill does not mention %q", want)

@@ -100,20 +100,22 @@ var galopinTools = []toolDef{
 			` workspaceId: { type: "string", description: "Workspace id to run in; \"\" for this session's workspace." },` +
 			` session: { type: "string", description: "\"this\" to run each time as a new prompt in this session (best for follow-ups on this work), \"new\" for a fresh session per run." },` +
 			` permissionMode: { type: "string", description: "The runs' permission mode: \"deny\", \"ask\" or \"allow\"; no looser than yours." },` +
-			` coordination: { type: "array", items: { type: "string" }, description: "Coordination tools the runs may use without a card (session_list, session_read, session_send, session_spawn), within your own grant; [] for none." } }`,
+			` agentMode: { type: "string", description: "The runs' agent: \"build\" (can edit; the default for \"\") or \"plan\" (read-only)." },` +
+			` coordination: { type: "array", items: { type: "string" }, description: "Coordination tools the runs may use without a card, within your own grant; [] for none. Two options only: session_list, session_read and session_send TOGETHER (all three or none), and session_spawn on its own." } }`,
 	},
 	{
 		name:        "schedule_update",
-		description: "Change one of this machine's schedules (id from schedule_list). Pausing or deleting a schedule you are a run of (self:true) goes through without a card — do that when its job is done. Any other change asks the person, whatever this session's mode is.",
+		description: "Change one of this machine's schedules (id from schedule_list). Pausing or deleting a schedule you are a run of (self:true) goes through without a card, whatever this session's mode — do that when its job is done. Any other change asks the person (and this session's Deny refuses it).",
 		args: `{ id: { type: "string", description: "The schedule id, from schedule_list." },` +
 			` changes: { type: "object", description: "Only the fields to change. {\"paused\":true} pauses it, {\"paused\":false} resumes it.", properties: {` +
 			` name: { type: "string" }, prompt: { type: "string" }, recurrence: { type: "object", description: "New timetable, one of: {\"type\":\"hours\",\"every\":N} (every N elapsed hours, 1 to 720); {\"type\":\"daily\",\"at\":\"HH:MM\"}; {\"type\":\"weekdays\",\"at\":\"HH:MM\"} (Monday to Friday); {\"type\":\"weekly\",\"day\":D,\"at\":\"HH:MM\"} (D: 0 Sunday to 6 Saturday); {\"type\":\"cron\",\"expr\":\"m h dom mon dow\"} (five fields, or @daily/@hourly). Times are 24-hour wall clock in the timezone. Runs must be at least 15 minutes apart.", properties: { type: { type: "string", enum: ["hours", "daily", "weekdays", "weekly", "cron"] }, every: { type: "number" }, at: { type: "string" }, day: { type: "number" }, expr: { type: "string" } }, required: ["type"] },` +
 			` timezone: { type: "string" }, workspaceId: { type: "string" }, permissionMode: { type: "string", enum: ["deny", "ask", "allow"] },` +
-			` coordination: { type: "array", items: { type: "string" } }, paused: { type: "boolean" } } } }`,
+			` agentMode: { type: "string", enum: ["plan", "build"] },` +
+			` coordination: { type: "array", items: { type: "string" }, description: "The whole new set: session_list+session_read+session_send together or not at all, session_spawn on its own." }, paused: { type: "boolean" } } } }`,
 	},
 	{
 		name:        "schedule_delete",
-		description: "Delete one of this machine's schedules (id from schedule_list). Deleting a schedule you are a run of (self:true) goes through without a card; deleting any other asks the person.",
+		description: "Delete one of this machine's schedules (id from schedule_list). Deleting a schedule you are a run of (self:true) goes through without a card, whatever this session's mode; deleting any other asks the person (and this session's Deny refuses it).",
 		args:        `{ id: { type: "string", description: "The schedule id, from schedule_list." } }`,
 	},
 }

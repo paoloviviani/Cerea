@@ -740,3 +740,24 @@ func TestChildFollowsTheRootsGrant(t *testing.T) {
 		t.Errorf("an uncapped child = %s, want the root's grant", got)
 	}
 }
+
+// Under Deny a session still sees the tools a scheduled run needs to stop its
+// own schedule (galopin's gate decides each call), and nothing else.
+func TestDenyKeepsTheScheduleStopToolsVisible(t *testing.T) {
+	agent := []Rule{{"*", "*", Allow}}
+	rules := append(append([]Rule(nil), agent...), Compose(Layers{}, Selector{Mode: Deny}, agent)...)
+	for _, k := range []string{"schedule_list", "schedule_update", "schedule_delete"} {
+		if got := Evaluate(rules, k, "*"); got != Ask {
+			t.Errorf("%s under Deny = %s, want ask (visible)", k, got)
+		}
+	}
+	for _, k := range []string{"schedule_create", "session_spawn", "bash", "edit"} {
+		if got := Evaluate(rules, k, "*"); got != Deny {
+			t.Errorf("%s under Deny = %s, want deny", k, got)
+		}
+	}
+	rules = append(append([]Rule(nil), agent...), Compose(Layers{}, Selector{Mode: Ask}, agent)...)
+	if got := Evaluate(rules, "schedule_update", "*"); got != Ask {
+		t.Errorf("schedule_update under Ask = %s", got)
+	}
+}
