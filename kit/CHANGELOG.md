@@ -5,6 +5,19 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.7.1 — 2026-10-08
+
+Pins: Cerea `0.7.1`, Pystino `0.3.2`, Authelia 4.39.22.
+
+- Corrected texts: galopin's built-in delegation skill no longer tells agents that
+  background subagents need a flag (they are on by default); `galopin policy -h` and
+  `galopin enroll -h` state the real defaults; the pairing dialog's "No agent tools" option
+  names the schedule tools too.
+- Documentation checked page by page against the code, and a handoff guide for maintainers
+  (`MAINTAINING.md`).
+- If you are updating galopin for v0.7.0, take this one instead: re-run the install line,
+  then `systemctl --user restart galopin`.
+
 ## v0.7.0 — 2026-10-08
 
 Pins: Cerea `0.7.0`, Pystino `0.3.2`, Authelia 4.39.22.
