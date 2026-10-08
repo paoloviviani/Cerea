@@ -22,6 +22,7 @@
 	import AgentView from "./AgentView.svelte";
 	import NeedsYouInbox from "./NeedsYouInbox.svelte";
 	import CodeReauthCard from "./CodeReauthCard.svelte";
+	import SchedulesPanel from "./SchedulesPanel.svelte";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import { loadCodeStatus } from "$lib/codeApi";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
@@ -43,6 +44,11 @@
 	const selectedAgentId = $derived(page.url.searchParams.get("agent") ?? undefined);
 	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws") ?? undefined);
 	const selected = $derived(codeDeviceList.devices.find((d) => d.id === selectedDeviceId));
+	// `?view=schedules` swaps the pane for the scheduled actions (list, editor,
+	// history); the address still says everything, so the tree stays in step.
+	const schedulesView = $derived(
+		page.data.codeSchedulesEnabled === true && page.url.searchParams.get("view") === "schedules"
+	);
 
 	// The device list is the shared poll `CodeNavTree` already runs
 	// (`codeDeviceList.svelte.ts`, X4) — this pane used to run its own
@@ -95,8 +101,10 @@
 	{:else if codeReauth.required}
 		<CodeReauthCard />
 	{:else}
-		{#key `${selectedDeviceId ?? ""}:${selectedAgentId ?? ""}`}
-			{#if selectedAgentId && selectedDeviceId}
+		{#key schedulesView ? "schedules" : `${selectedDeviceId ?? ""}:${selectedAgentId ?? ""}`}
+			{#if schedulesView}
+				<SchedulesPanel />
+			{:else if selectedAgentId && selectedDeviceId}
 				<AgentView
 					deviceId={selectedDeviceId}
 					agentId={selectedAgentId}

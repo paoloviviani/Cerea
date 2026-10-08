@@ -87,6 +87,8 @@ const MUTABLE_COLLECTIONS = [
 	"sessions",
 	"users",
 	"codeDevices",
+	"schedules",
+	"scheduleRuns",
 ];
 
 // ── Test database ─────────────────────────────────────────────────────────────

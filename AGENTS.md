@@ -803,6 +803,72 @@ changing the code:
   live updates arrive by construction; a bespoke stack here would be a second
   thing to keep working.
 
+## Scheduled actions: the framework and the executor contract
+
+A schedule is a row someone owns that says "at these times, do this". **The core
+is kind-agnostic** (`src/lib/server/schedules/`); only `kind: "agent"` exists,
+and **a "chat" runner must be one new file plus its registration, with no change
+to the core.** The pieces:
+
+- `recurrence.ts`: presets (every N hours, daily, weekdays, weekly) and a cron
+  expression, validated and iterated with **croner** (MIT, no dependencies;
+  wall-clock times in an IANA zone, DST: a skipped time runs once at the first
+  instant that exists, a repeated one once at the first). The **15-minute floor**
+  is enforced here only: a cron expression is sampled and refused if any two of its
+  next 400 occurrences are closer, and a seconds field is refused. "Every N hours"
+  counts elapsed hours from `anchorAt`, not clock hours.
+- `scheduler.ts`: the loop (30s, started in `hooks/init.ts` like the sweepers).
+  `claimDue` takes one due row with a single `findOneAndUpdate` whose filter pins
+  the `nextRunAt` it read and a free lease, and whose update **advances
+  `nextRunAt` first** and sets the lease; two instances cannot both win. Lateness
+  past 2 minutes is downtime: one catch-up if under half the interval late (cap
+  1h), else a `missed-downtime` row. Three consecutive `failed` runs disable the
+  schedule (the core counts, executors do not). `runNow` takes the same lease.
+- `store.ts`: owner-scoped CRUD. Another person's id is a 404, never a 403. The
+  per-user cap (`CHAT_SCHEDULES_MAX_PER_USER`, 20) is settled after the insert, so
+  racing creates cannot exceed it. `limits.ts` holds the kill switch
+  (`CHAT_SCHEDULES_ENABLED`, on unless exactly `false`).
+- Two collections: `schedules` and `scheduleRuns` (a row per occurrence
+  _considered_, fired or not: the audit record, TTL 90 days). Both are in
+  `identity/userKeyedCollections.ts` (erased with the account, moved on a merge).
+
+**The executor contract** (header of `executors.ts`, the source of truth):
+
+```ts
+registerExecutor({
+  kind: "agent",
+  available?: () => boolean,          // false: the core leaves its rows alone
+  validateTarget(target, { userId }), // -> { ok, target } | { ok: false, error }; check what the CALLER owns
+  describeTarget(target, { userId }), // -> short label for a list; cheap, never throws
+  run({ schedule, scheduledFor, trigger, previousRun, now }), // -> { status, detail?, result?, disable? }
+});
+```
+
+`target` is opaque to the core. `run` returns what happened (`sent`,
+`skipped-still-running` after looking at `previousRun`'s output, `missed-offline`,
+`failed`) and `disable` switches the schedule off with a reason. The core never
+imports an executor; `hooks/init.ts` imports the executor files for their
+registration.
+
+**The agent executor** (`server/code/scheduleAgentExecutor.ts`) uses only
+`MachineLink` ops the panel already uses (`session.create`,
+`session.setMode`/`setModel`, `session.setPermissionMode`, `session.prompt`);
+**no galopin change**. Its target is `{ deviceId, workspaceId, sessionMode: "new" |
+"existing", sessionId?, modeId?, modelId?, permissionMode, labels }`; the device
+must be the caller's own, paired. Things that bite:
+
+- a session a schedule starts is titled `<name> · YYYY-MM-DD HH:mm`; the tree
+  marks it with a clock by matching that tail (`isScheduledTitle`), not by a wire
+  field;
+- the permission word is set **before** the prompt, and for "always this session"
+  it is set on that session and stays; the machine's ceiling caps it as everywhere;
+- `session_send` is **not** granted by Allow, and no op can write a
+  `session_send: allow` rule (`session.setRules` is retired), so a schedule cannot
+  be given "find and message other sessions" without a galopin change;
+- API: `/api/v2/code/schedules` (+ `/[id]`, `/[id]/run`, `/[id]/runs`, `/preview`).
+  It is under `/api/v2/code/`, so the 7-day sign-in guard covers it by prefix;
+  `stale-guard.spec.ts` lists every route file and fails on a new one.
+
 ## Environment Setup
 
 Copy `.env` to `.env.local` and configure:

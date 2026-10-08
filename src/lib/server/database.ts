@@ -46,6 +46,7 @@ import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
 import { dropPerModelPrompts } from "$lib/server/dropPerModelPrompts";
+import type { Schedule, ScheduleRun } from "$lib/types/Schedule";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
@@ -319,6 +320,10 @@ export class Database {
 		// explorer's raw reads and refusals, later terminals and writes.
 		// Never content. Kept 90 days.
 		const codeAudit = db.collection<CodeAuditEntry>("codeAudit");
+		// Scheduled actions (`server/schedules/`): the timetable a person set, and
+		// one row per occurrence considered — fired or not — which is the record.
+		const schedules = db.collection<Schedule>("schedules");
+		const scheduleRuns = db.collection<ScheduleRun>("scheduleRuns");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
 		// The bucket's own file documents, for indexing only — reads and
 		// deletes go through `bucket`, which also handles the chunks.
@@ -364,6 +369,8 @@ export class Database {
 			mcpOauthPending,
 			codeDevices,
 			codeAudit,
+			schedules,
+			scheduleRuns,
 			conversationStats,
 			assistants,
 			reports,
@@ -411,6 +418,8 @@ export class Database {
 			mcpOauthPending,
 			codeDevices,
 			codeAudit,
+			schedules,
+			scheduleRuns,
 			conversationStats,
 			assistants,
 			reports,
@@ -972,6 +981,26 @@ export class Database {
 		codeAudit
 			.createIndex({ userId: 1, at: -1 })
 			.catch((e) => logger.error(e, "Error creating index for codeAudit by userId"));
+
+		// A person's schedules, in creation order (the list and the per-user cap).
+		schedules
+			.createIndex({ userId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for schedules by userId"));
+		// The scheduler's due scan: enabled rows whose next run has come.
+		schedules
+			.createIndex({ enabled: 1, nextRunAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for schedules by nextRunAt"));
+		// A schedule's history, newest first; erasure and merge go by owner.
+		scheduleRuns
+			.createIndex({ scheduleId: 1, firedAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for scheduleRuns by schedule"));
+		scheduleRuns
+			.createIndex({ userId: 1 })
+			.catch((e) => logger.error(e, "Error creating index for scheduleRuns by userId"));
+		// Run rows are the audit record, kept 90 days like codeAudit.
+		scheduleRuns
+			.createIndex({ firedAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for scheduleRuns"));
 
 		// A person's paired machines, newest first.
 		codeDevices
