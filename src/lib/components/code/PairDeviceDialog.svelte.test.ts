@@ -269,11 +269,19 @@ describe("the ceiling", () => {
 		expect(policyPart(screen)).toBe("");
 	});
 
-	it("has the six rows under Advanced, with enroll's defaults: bash and session_spawn ask", async () => {
+	it("has the seven rows under Advanced, with enroll's defaults: bash and session_spawn ask", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		const keys = ["edit", "bash", "webfetch", "task", "session_spawn", "session_send"];
-		const expected = ["Allow", "Ask", "Allow", "Allow", "Ask", "Allow"];
+		const keys = [
+			"edit",
+			"bash",
+			"webfetch",
+			"task",
+			"session_spawn",
+			"session_send",
+			"session_read",
+		];
+		const expected = ["Allow", "Ask", "Allow", "Allow", "Ask", "Allow", "Allow"];
 		for (const [i, key] of keys.entries()) expect(pressed(screen, key), key).toBe(expected[i]);
 		expect(policyPart(screen)).toBe("");
 	});
@@ -284,7 +292,8 @@ describe("the ceiling", () => {
 		expect(pressed(screen, "all")).toBe("Ask");
 		expect(policyPart(screen)).toBe(
 			"--permission-max edit=ask --permission-max bash=ask --permission-max webfetch=ask " +
-				"--permission-max task=ask --permission-max session_spawn=ask --permission-max session_send=ask"
+				"--permission-max task=ask --permission-max session_spawn=ask --permission-max session_send=ask " +
+				"--permission-max session_read=ask"
 		);
 		await pick(screen, "all", "Allow");
 		expect(policyPart(screen)).toBe(

@@ -443,6 +443,149 @@ describe("when the workspace is gone", () => {
 	});
 });
 
+describe("coordination", () => {
+	const grants = () => ops("session.grantCoordination");
+	const order = () => machine.opLog.map((o) => o.op);
+
+	it("stores the two options, and leaves a schedule that never set them as it was", async () => {
+		const on = await make({}, { canMessage: true, canSpawn: true });
+		expect(on.target).toMatchObject({ canMessage: true, canSpawn: true });
+		const off = await make({ name: "Plain" }, { canMessage: false });
+		expect(off.target).not.toHaveProperty("canMessage");
+		expect(off.target).not.toHaveProperty("canSpawn");
+	});
+
+	it("does not touch coordination when neither option is on (a new session has nothing to clear)", async () => {
+		const row = await make();
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("sent");
+		expect(grants()).toHaveLength(0);
+		expect(run.detail).toBe(
+			'Sent to "' + machine.model.sessions[0].title + '" with Allow permissions.'
+		);
+	});
+
+	it("grants find, read and message before the prompt, on the session the run just created", async () => {
+		const row = await make({}, { canMessage: true });
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("sent");
+		const session = machine.model.sessions[0];
+		expect(grants()).toHaveLength(1);
+		expect(grants()[0].args).toEqual({
+			sessionId: session.id,
+			keys: ["session_list", "session_read", "session_send"],
+		});
+		expect(machine.model.coordination.get(session.id)).toEqual([
+			"session_list",
+			"session_read",
+			"session_send",
+		]);
+		// After the session and its permission word exist, before the prompt.
+		expect(order().indexOf("session.grantCoordination")).toBeGreaterThan(
+			order().indexOf("session.create")
+		);
+		expect(order().indexOf("session.grantCoordination")).toBeGreaterThan(
+			order().indexOf("session.setPermissionMode")
+		);
+		expect(order().indexOf("session.grantCoordination")).toBeLessThan(
+			order().indexOf("session.prompt")
+		);
+		expect(run.detail).toMatch(/find, read and message other sessions/);
+		expect(run.detail).not.toMatch(/start new sessions/);
+	});
+
+	it("grants session_spawn alone, and all four when both are on", async () => {
+		const spawn = await make({ name: "Spawner" }, { canSpawn: true });
+		await runNow(person.user._id, spawn._id.toString());
+		expect(grants()[0].args).toMatchObject({ keys: ["session_spawn"] });
+		machine.opLog.length = 0;
+		const both = await make({ name: "Both" }, { canMessage: true, canSpawn: true });
+		const run = await runNow(person.user._id, both._id.toString());
+		expect(grants()[0].args).toMatchObject({
+			keys: ["session_list", "session_read", "session_send", "session_spawn"],
+		});
+		expect(run.detail).toMatch(/find, read and message other sessions and start new sessions/);
+	});
+
+	it("grants a pinned session each run, and takes the grant back when the options are turned off", async () => {
+		machine.model.sessions.push(sessionRow("s1", "ws1", "Long-running"));
+		const row = await make({}, { sessionMode: "existing", sessionId: "s1", canMessage: true });
+		await runNow(person.user._id, row._id.toString());
+		expect(machine.model.coordination.get("s1")).toEqual([
+			"session_list",
+			"session_read",
+			"session_send",
+		]);
+		// The person turns the option off: the next run clears what is still there.
+		machine.opLog.length = 0;
+		await collections.schedules.updateOne(
+			{ _id: row._id },
+			{ $set: { target: { ...(row.target as object), canMessage: false } } }
+		);
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("sent");
+		expect(grants()[0].args).toEqual({ sessionId: "s1", keys: [] });
+		expect(machine.model.coordination.has("s1")).toBe(false);
+		expect(order().indexOf("session.grantCoordination")).toBeLessThan(
+			order().indexOf("session.prompt")
+		);
+	});
+
+	it("runs without the grant, and says why, when this galopin's hello does not report the feature", async () => {
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(deviceId) },
+			{ $set: { "backends.0.capabilities.coordinationGrant": false } }
+		);
+		const row = await make({}, { canMessage: true, canSpawn: true });
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("sent");
+		expect(grants()).toHaveLength(0);
+		expect(ops("session.prompt")).toHaveLength(1);
+		expect(run.detail).toContain(
+			"this machine's galopin is too old to grant coordination; update it"
+		);
+	});
+
+	it("runs without the grant when the machine answers the op unsupported", async () => {
+		machine.onOp("session.grantCoordination", () => {
+			throw new OpError("unsupported", 'unknown op "session.grantCoordination"');
+		});
+		const row = await make({}, { canMessage: true });
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("sent");
+		expect(ops("session.prompt")).toHaveLength(1);
+		expect(run.detail).toContain(
+			"this machine's galopin is too old to grant coordination; update it"
+		);
+		const stored = await getSchedule(person.user._id, row._id.toString());
+		expect(stored.consecutiveFailures).toBe(0);
+	});
+
+	it("says agent tools are off, rather than 'too old', for a machine enrolled without them", async () => {
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(deviceId) },
+			{ $set: { "policy.agentTools": "denied" } }
+		);
+		const row = await make({}, { canMessage: true });
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("sent");
+		expect(grants()).toHaveLength(0);
+		expect(run.detail).toContain("enrolled without agent tools");
+		expect(run.detail).not.toContain("too old");
+	});
+
+	it("fails the run, without sending the prompt, when the machine refuses the grant", async () => {
+		machine.onOp("session.grantCoordination", () => {
+			throw new OpError("backend", "could not apply the rules");
+		});
+		const row = await make({}, { canMessage: true });
+		const run = await runNow(person.user._id, row._id.toString());
+		expect(run.status).toBe("failed");
+		expect(run.detail).toMatch(/granting coordination: could not apply the rules/);
+		expect(ops("session.prompt")).toHaveLength(0);
+	});
+});
+
 describe("the deployment switch for /code", () => {
 	it("holds a run's kind unavailable while coding agents are off", () => {
 		flags.codeAgents = false;

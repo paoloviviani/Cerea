@@ -37,7 +37,28 @@ const send = request("session_send", {
 	hop: 1,
 });
 
+const read = request("session_read", {
+	galopin: true,
+	target: { sessionId: "s2", title: "Docs agent", workspaceId: "w1" },
+	last: 5,
+});
+
 describe("ToolApprovalCard, galopin approvals", () => {
+	it("shows whose messages a read asks for and how many, and offers no Always allow", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: read,
+			onanswer: async () => ({ ok: true }),
+		});
+		const facts = screen.getByTestId("galopin-approval");
+		await expect.element(facts).toHaveTextContent("Docs agent");
+		await expect.element(facts).toHaveTextContent("last 5 text messages");
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+		).toHaveLength(0);
+	});
+
 	it("shows a spawn's title, mode and the whole prompt, and offers no Always allow", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
