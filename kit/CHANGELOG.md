@@ -5,9 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.8.0 — 2026-10-08
 
-Needs the Pystino release that adds group import (pin it with `kit/tools/pin --pystino`).
+Pins: Cerea `0.8.0`, Pystino `0.4.0`, Authelia 4.39.22.
+
+- **GitLab works for the chat.** The gateway checks identity-provider access tokens that
+  are not JWTs (GitLab's) with the provider's introspection endpoint, using the chat
+  client's credentials, and caches the answer for up to 60 s. Every refused token is now
+  logged by the gateway with its reason (`docker compose logs gateway`). The chat
+  application in GitLab needs the scopes `openid profile email`.
 
 - **Groups from an external identity provider are imported by hand by default.** A sign-in
   no longer creates a group for every name the IdP reports (one GitLab sign-in made 67):
