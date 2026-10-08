@@ -5,6 +5,28 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+Needs the Pystino release that adds group import (pin it with `kit/tools/pin --pystino`).
+
+- **Groups from an external identity provider are imported by hand by default.** A sign-in
+  no longer creates a group for every name the IdP reports (one GitLab sign-in made 67):
+  the console's Groups page lists them under "Seen from your identity provider", with
+  Import and Dismiss. `./configure` asks, or takes `--group-import manual|auto`
+  (`OIDC_GROUP_IMPORT`, default `manual`). **On upgrade an existing install becomes
+  `manual`**: groups that already exist keep being granted from the claim, only new names
+  stop becoming groups. To keep the old behaviour: `./configure --group-import auto`.
+  Groups created before can be deleted in the console; under `manual` they are not
+  recreated. No effect with the bundled Authelia.
+- **Everyone joins `users`.** `OIDC_DEFAULT_GROUP` (default `users`, empty turns it off):
+  every person joins it once, at their first sign-in (existing people at their next),
+  with any IdP, so a new account can bill and use the public models. It grants no model
+  by itself. With the bundled Authelia it is the same `users` group as before.
+- `OIDC_GROUP_ALLOWLIST` (advanced, optional): only these IdP group names are considered.
+- The gateway now receives the chat client's secret (`OIDC_CHAT_CLIENT_SECRET`, already in
+  `.env`) to introspect opaque access tokens (GitLab).
+- No galopin update needed.
+
 ## v0.7.2 — 2026-10-08
 
 Pins: Cerea `0.7.2`, Pystino `0.3.2`, Authelia 4.39.22.

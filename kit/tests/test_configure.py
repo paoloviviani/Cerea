@@ -363,6 +363,64 @@ class TestFreshInstall(unittest.TestCase):
         self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "true")
         self.assertEqual(v["OIDC_MACHINE_CLIENT_ID"], "my-agent")
 
+    _EXTERNAL = dict(idp="external", oidc_issuer="https://gitlab.example.org",
+                     oidc_console_client_secret="a", oidc_chat_client_secret="b")
+
+    def test_external_idp_imports_groups_by_hand_by_default(self):
+        v = build(**self._EXTERNAL).values
+        self.assertEqual(v["OIDC_GROUP_IMPORT"], "manual")
+        self.assertEqual(v["OIDC_DEFAULT_GROUP"], "users")
+        self.assertEqual(v["OIDC_GROUP_ALLOWLIST"], "")
+
+    def test_group_import_auto_is_written_and_kept_on_a_rerun(self):
+        first = dict(build(group_import="auto", **self._EXTERNAL).values)
+        self.assertEqual(first["OIDC_GROUP_IMPORT"], "auto")
+        self.assertEqual(build(existing=first, **self._EXTERNAL).values["OIDC_GROUP_IMPORT"], "auto")
+        back = build(existing=first, group_import="manual", **self._EXTERNAL).values
+        self.assertEqual(back["OIDC_GROUP_IMPORT"], "manual")
+
+    def test_an_older_env_without_the_line_gets_manual(self):
+        older = dict(build(**self._EXTERNAL).values)
+        del older["OIDC_GROUP_IMPORT"]
+        self.assertEqual(build(existing=older, **self._EXTERNAL).values["OIDC_GROUP_IMPORT"], "manual")
+
+    def test_a_hand_set_allowlist_and_default_group_survive_a_rerun(self):
+        first = dict(build(**self._EXTERNAL).values)
+        first["OIDC_GROUP_ALLOWLIST"] = "eng,ops"
+        first["OIDC_DEFAULT_GROUP"] = ""
+        v = build(existing=first, **self._EXTERNAL).values
+        self.assertEqual(v["OIDC_GROUP_ALLOWLIST"], "eng,ops")
+        self.assertEqual(v["OIDC_DEFAULT_GROUP"], "")
+
+    def test_the_interview_asks_about_group_import_for_an_external_idp(self):
+        prompts = []
+
+        def fake_input(prompt):
+            prompts.append(prompt)
+            return "auto" if prompt.startswith("choice") and any(
+                "Groups from the identity provider" in p for p in printed) else ""
+
+        printed = []
+        a = answers(**self._EXTERNAL)
+        given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
+                 "oidc_console_client_secret", "oidc_chat_client_secret"}
+        with mock.patch("builtins.input", side_effect=fake_input), \
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+            result = cfg.interview(a, given, {})
+        self.assertEqual(result.group_import, "auto")
+        self.assertTrue(any("import by hand (recommended)" in p for p in printed), printed)
+
+    def test_the_interview_does_not_ask_with_the_bundled_authelia(self):
+        printed = []
+        a = answers(idp="authelia")
+        given = {"origin", "admin_email", "preset", "tls", "idp"}
+        with mock.patch("builtins.input", return_value=""), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+            result = cfg.interview(a, given, {})
+        self.assertIsNone(result.group_import)
+        self.assertFalse(any("Groups from the identity provider" in p for p in printed))
+
     def test_smtp_host_turns_mail_on_and_clearing_it_turns_mail_off(self):
         v = build(smtp_host="smtp.example.org", smtp_port=465, smtp_username="u",
                    smtp_password="p", smtp_from="noreply@example.org", smtp_security="tls").values
@@ -550,6 +608,22 @@ class TestCommands(Deploy):
         report = cfg.Report()
         cfg.check_values(values, report)
         self.assertTrue(any("OIDC_GROUP_SYNC" in e for e in report.errors), report.errors)
+
+    def test_check_flags_a_bad_group_import(self):
+        self.configure()
+        values = self.env()
+        values["OIDC_GROUP_IMPORT"] = "sometimes"
+        report = cfg.Report()
+        cfg.check_values(values, report)
+        self.assertTrue(any("OIDC_GROUP_IMPORT" in e for e in report.errors), report.errors)
+
+    def test_the_group_import_flag_writes_env(self):
+        code, _, err = self.configure(
+            "--idp", "external", "--oidc-issuer", "https://gitlab.example.org",
+            "--oidc-console-client-secret", "a", "--oidc-chat-client-secret", "b",
+            "--group-import", "auto")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["OIDC_GROUP_IMPORT"], "auto")
 
     def test_check_warns_link_by_email_on(self):
         self.configure()
@@ -940,6 +1014,16 @@ class TestScopes(Deploy):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
         self.assertIn("GATEWAY_OIDC__SCOPES: ${OIDC_SCOPES_JSON:-", compose)
         self.assertIn("OPENID_SCOPES: ${OIDC_SCOPES:-", compose)
+
+    def test_compose_passes_the_group_settings_and_chat_secret_to_the_gateway(self):
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        self.assertIn("GATEWAY_OIDC__GROUP_IMPORT: ${OIDC_GROUP_IMPORT:-manual}", compose)
+        # `[]`, not empty: a gateway older than the comma-list parsing refuses
+        # an empty list setting at start.
+        self.assertIn("GATEWAY_OIDC__GROUP_ALLOWLIST: ${OIDC_GROUP_ALLOWLIST:-[]}", compose)
+        # `-`, not `:-`: an explicitly empty OIDC_DEFAULT_GROUP turns it off.
+        self.assertIn("GATEWAY_OIDC__DEFAULT_GROUP: ${OIDC_DEFAULT_GROUP-users}", compose)
+        self.assertIn("GATEWAY_OIDC__CHAT_CLIENT_SECRET: ${OIDC_CHAT_CLIENT_SECRET:-}", compose)
 
 
 if __name__ == "__main__":
