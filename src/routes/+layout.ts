@@ -128,6 +128,7 @@ export const load = async ({ fetch, url, data }) => {
 		webSearchAvailable: data.webSearchAvailable,
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
+		codeSchedulesEnabled: data.codeSchedulesEnabled,
 		settings: {
 			...settings,
 			welcomeModalSeenAt: settings.welcomeModalSeenAt

@@ -364,6 +364,18 @@ export function forkedFromTitle(title: string | undefined | null): string | null
 	return prefix ? title.slice(prefix.length) : null;
 }
 
+/**
+ * A session a schedule started is titled "<schedule name> · <YYYY-MM-DD HH:mm>"
+ * (`code/scheduleAgentExecutor.ts`). No field on the wire says so, and none is
+ * needed for a marker: the tree draws a clock on a title with that tail. A
+ * renamed session loses it, which is the right way round.
+ */
+const SCHEDULED_TITLE = / · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
+export function isScheduledTitle(title: string | undefined | null): boolean {
+	return Boolean(title && SCHEDULED_TITLE.test(title));
+}
+
 /** A coding session on a device. Lives on the daemon; never mirrored here. */
 export interface CodeAgentSession {
 	id: string;

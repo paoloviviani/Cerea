@@ -1,4 +1,5 @@
 import { config } from "$lib/server/config";
+import { schedulesEnabled } from "$lib/server/schedules/limits";
 
 /**
  * The deployment switch for the `/code` remote-agent panel
@@ -36,4 +37,13 @@ export function codeFilesEnabled(): boolean {
  */
 export function codeTerminalEnabled(): boolean {
 	return codeAgentsEnabled() && config.CODE_TERMINAL_ENABLED === "true";
+}
+
+/**
+ * Scheduled actions in /code (`server/schedules/`): on with the panel, unless
+ * `CHAT_SCHEDULES_ENABLED=false` (the kill switch, see `schedules/limits.ts`
+ * for why its default is on).
+ */
+export function codeSchedulesEnabled(): boolean {
+	return codeAgentsEnabled() && schedulesEnabled();
 }
