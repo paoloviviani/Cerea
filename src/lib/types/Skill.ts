@@ -71,6 +71,16 @@ export interface Skill extends Timestamps {
 	content: string;
 	/** Per-skill on/off. On at creation. */
 	enabled: boolean;
+	/**
+	 * Sha256 of the built-in definition this row was last seeded from
+	 * (`builtinSkills.ts`). Only present on seeded rows. The upgrade rule
+	 * compares the row's current definition hash against it: still equal
+	 * means nobody has edited the row since it was seeded, so a newer
+	 * built-in may replace it; anything else (or the field's absence on rows
+	 * seeded before it existed) means the row is left alone. See
+	 * `ensureDeploymentSeeds`.
+	 */
+	seedHash?: string;
 	/** Bundled `scripts/`/`references/`/`assets/` files, imported from a zip. Empty for a SKILL.md-only skill. */
 	files?: SkillFile[];
 }
