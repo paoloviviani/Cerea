@@ -56,19 +56,24 @@ const (
 // scheduleFacts are the inputs of the decision (PROTOCOL.md §6 "Schedule
 // tools"): the tool, the ceiling's word for `schedule`, the rule's word
 // (the session's Deny/Ask/Allow, which covers it, and the machine's own
-// rules), whether the calling session is a scheduled run, and whether the
-// call only stops one of that run's own schedules.
+// rules), whether the machine's own rules deny `schedule` outright, whether
+// the calling session is a scheduled run, and whether the call only stops one
+// of that run's own schedules.
 type scheduleFacts struct {
 	tool         string
 	ceiling      permrules.Action
 	grant        permrules.Action
+	machineDeny  bool
 	scheduledRun bool
 	selfStop     bool
 }
 
 // decideSchedule is the whole decision table. Its order matters, and the
-// tests pin it: a deny anywhere refuses, a ceiling of ask always shows the
-// card, and only then do the tool's own rules apply.
+// tests pin it: the ceiling's deny and the machine's own deny refuse, a
+// ceiling of ask always shows the card, a run stopping its own schedule goes
+// through (even under the session's Deny: stopping only reduces activity),
+// the session's Deny refuses the rest, and only then do the tool's own rules
+// apply.
 //
 //   - schedule_list: never a card; refused only when the ceiling denies.
 //   - schedule_create: like an ordinary tool (Allow covers it, Ask cards, Deny
@@ -84,11 +89,17 @@ func decideSchedule(f scheduleFacts) (scheduleOutcome, string) {
 	if f.tool == "schedule_list" {
 		return scheduleAuto, ""
 	}
-	if f.grant == permrules.Deny {
-		return scheduleRefuse, "this machine's rules (or this session's Deny) do not allow schedule changes"
+	if f.machineDeny {
+		return scheduleRefuse, "this machine's rules do not allow schedule changes"
 	}
 	if f.ceiling == permrules.Ask {
 		return scheduleAsk, "ceiling"
+	}
+	if f.tool != "schedule_create" && f.selfStop {
+		return scheduleAuto, "own schedule"
+	}
+	if f.grant == permrules.Deny {
+		return scheduleRefuse, "this session's permissions (Deny) do not allow schedule changes"
 	}
 	switch f.tool {
 	case "schedule_create":
@@ -100,10 +111,27 @@ func decideSchedule(f scheduleFacts) (scheduleOutcome, string) {
 		}
 		return scheduleAsk, "rule"
 	default:
-		if f.selfStop {
-			return scheduleAuto, "own schedule"
-		}
 		return scheduleAsk, "not own schedule"
+	}
+}
+
+// earlyRefusal is decideSchedule's refusal before Cerea is asked anything:
+// with what is not yet known (a scheduled run, self) read in the caller's
+// favour, so a refusal here is one the full facts would give too.
+func earlyRefusal(f scheduleFacts) error {
+	f.scheduledRun = false
+	f.selfStop = f.tool != "schedule_create"
+	if outcome, reason := decideSchedule(f); outcome == scheduleRefuse {
+		return refuse("%s", reason)
+	}
+	return nil
+}
+
+// scheduleFactsFor is the facts known before any machine call.
+func (at *agentTools) scheduleFactsFor(ctx context.Context, tc *toolCaller, tool string) scheduleFacts {
+	return scheduleFacts{
+		tool: tool, ceiling: at.scheduleCeiling(), grant: at.scheduleGrant(ctx, tc),
+		machineDeny: at.mc.pol.Permission.Rules[scheduleKey] == string(permrules.Deny),
 	}
 }
 
@@ -246,6 +274,7 @@ type scheduleFields struct {
 	WorkspaceID    *string          `json:"workspaceId,omitempty"`
 	Session        *string          `json:"session,omitempty"`
 	PermissionMode *string          `json:"permissionMode,omitempty"`
+	AgentMode      *string          `json:"agentMode,omitempty"`
 	Coordination   *[]string        `json:"coordination,omitempty"`
 	Paused         *bool            `json:"paused,omitempty"`
 }
@@ -293,7 +322,7 @@ func readFields(m map[string]json.RawMessage) (scheduleFields, error) {
 	}
 	for key, dst := range map[string]**string{
 		"name": &f.Name, "prompt": &f.Prompt, "timezone": &f.Timezone, "workspaceId": &f.WorkspaceID,
-		"session": &f.Session, "permissionMode": &f.PermissionMode,
+		"session": &f.Session, "permissionMode": &f.PermissionMode, "agentMode": &f.AgentMode,
 	} {
 		if err := str(key, dst); err != nil {
 			return f, err
@@ -329,6 +358,9 @@ func readFields(m map[string]json.RawMessage) (scheduleFields, error) {
 	}
 	if f.PermissionMode != nil && !permrules.Action(*f.PermissionMode).Valid() {
 		return f, refuse("permissionMode must be deny, ask or allow")
+	}
+	if f.AgentMode != nil && *f.AgentMode != "plan" && *f.AgentMode != "build" {
+		return f, refuse("agentMode must be \"plan\" (read-only runs) or \"build\"")
 	}
 	if f.Session != nil && *f.Session != "new" && *f.Session != "this" {
 		return f, refuse("session must be \"new\" or \"this\"")
@@ -401,6 +433,9 @@ func (at *agentTools) cardFields(tc *toolCaller, f scheduleFields) map[string]an
 	if f.PermissionMode != nil {
 		out["permissionMode"] = *f.PermissionMode
 	}
+	if f.AgentMode != nil {
+		out["agentMode"] = *f.AgentMode
+	}
 	if f.Coordination != nil {
 		out["coordination"] = *f.Coordination
 	}
@@ -470,7 +505,7 @@ func (at *agentTools) scheduleList(ctx context.Context, tc *toolCaller, call bac
 // schedule's name for the audit row.
 func (at *agentTools) scheduleCreate(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, string, error) {
 	m, err := decodeObject(call.Args, "the arguments",
-		"name", "prompt", "recurrence", "timezone", "workspaceId", "session", "permissionMode", "coordination")
+		"name", "prompt", "recurrence", "timezone", "workspaceId", "session", "permissionMode", "agentMode", "coordination")
 	if err != nil {
 		return "", "", err
 	}
@@ -498,9 +533,9 @@ func (at *agentTools) scheduleCreate(ctx context.Context, tc *toolCaller, call b
 	if f.WorkspaceID == nil {
 		f.WorkspaceID = &tc.workspaceID
 	}
-	facts := scheduleFacts{tool: call.Tool, ceiling: at.scheduleCeiling(), grant: at.scheduleGrant(ctx, tc)}
-	if outcome, reason := decideSchedule(facts); outcome == scheduleRefuse {
-		return "", ref, refuse("%s", reason)
+	facts := at.scheduleFactsFor(ctx, tc, call.Tool)
+	if err := earlyRefusal(facts); err != nil {
+		return "", ref, err
 	}
 	runOf, err := at.scheduleContext(ctx, tc)
 	if err != nil {
@@ -524,6 +559,9 @@ func (at *agentTools) scheduleCreate(ctx context.Context, tc *toolCaller, call b
 	if f.Timezone != nil {
 		args["timezone"] = *f.Timezone
 	}
+	if f.AgentMode != nil {
+		args["agentMode"] = *f.AgentMode
+	}
 	if f.Coordination != nil && len(*f.Coordination) > 0 {
 		args["coordination"] = *f.Coordination
 	}
@@ -545,7 +583,7 @@ func (at *agentTools) scheduleUpdate(ctx context.Context, tc *toolCaller, call b
 		return "", "", refuse("id is required (a schedule id from schedule_list)")
 	}
 	cm, err := decodeObject(m["changes"], "changes",
-		"name", "prompt", "recurrence", "timezone", "workspaceId", "permissionMode", "coordination", "paused")
+		"name", "prompt", "recurrence", "timezone", "workspaceId", "permissionMode", "agentMode", "coordination", "paused")
 	if err != nil {
 		return "", id, err
 	}
@@ -568,9 +606,9 @@ func (at *agentTools) scheduleUpdate(ctx context.Context, tc *toolCaller, call b
 	if len(changes) == 0 {
 		return "", id, refuse("changes is empty: give at least one field to change (or paused)")
 	}
-	facts := scheduleFacts{tool: call.Tool, ceiling: at.scheduleCeiling(), grant: at.scheduleGrant(ctx, tc)}
-	if outcome, reason := decideSchedule(facts); outcome == scheduleRefuse {
-		return "", id, refuse("%s", reason)
+	facts := at.scheduleFactsFor(ctx, tc, call.Tool)
+	if err := earlyRefusal(facts); err != nil {
+		return "", id, err
 	}
 	target, err := at.findSchedule(ctx, tc, id)
 	if err != nil {
@@ -605,9 +643,9 @@ func (at *agentTools) scheduleDelete(ctx context.Context, tc *toolCaller, call b
 	if id == "" {
 		return "", "", refuse("id is required (a schedule id from schedule_list)")
 	}
-	facts := scheduleFacts{tool: call.Tool, ceiling: at.scheduleCeiling(), grant: at.scheduleGrant(ctx, tc)}
-	if outcome, reason := decideSchedule(facts); outcome == scheduleRefuse {
-		return "", id, refuse("%s", reason)
+	facts := at.scheduleFactsFor(ctx, tc, call.Tool)
+	if err := earlyRefusal(facts); err != nil {
+		return "", id, err
 	}
 	target, err := at.findSchedule(ctx, tc, id)
 	if err != nil {
