@@ -209,7 +209,7 @@ describe("the link", () => {
 
 	it("answers a malformed call invalid rather than leaving it to time out", async () => {
 		const res = await new Promise<CallResFrame>((resolve) => {
-			machine.ws.on("message", (raw: Buffer) => {
+			machine.ws.on("message", (raw: Buffer | string) => {
 				const frame = JSON.parse(raw.toString()) as CallResFrame;
 				if (frame.type === "callres" && frame.id === "bad-1") resolve(frame);
 			});
