@@ -71,7 +71,7 @@ Usage:
                --permission-max — is what no session can go past.
   --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
                session_read, session_send, session_spawn, schedule, …) may ever be — allow, ask or deny — whatever any
-               rule, session selector or "always allow" says (repeatable; default bash=ask; a list you give
+               rule, session selector or "always allow" says (repeatable; default bash=ask and session_spawn=ask; a list you give
                replaces that default, so --permission-max edit=ask alone leaves
                bash uncapped). Because
                bash can read opencode's server password out of its own
@@ -627,7 +627,7 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 
 // enrollPolicy is the policy.json a fresh enroll writes from its flags: the
 // machine's own veto (PROTOCOL.md §4). Everything defaults closed except what
-// the flags open; the permission ceiling defaults to bash=ask.
+// the flags open; the permission ceiling defaults to bash=ask and session_spawn=ask.
 func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	pol := policy.Default()
 	pol.Permission.Max = defaultEnrollMax()

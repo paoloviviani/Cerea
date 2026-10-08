@@ -29,8 +29,8 @@ refuses and names the 'enroll' re-run that does it instead.
                       into opencode (takes effect at the next 'run').
    --no-project-config  Stop loading a repo's own opencode config (the default
                        on a fresh enroll; takes effect at the next 'run').
-   --no-background-subagents  Stop allowing background subagents (the default
-                       on a fresh enroll; takes effect at the next 'run').
+   --no-background-subagents  Stop allowing background subagents (they are
+                       allowed on a fresh enroll; takes effect at the next 'run').
    --no-auto-accept    Does nothing (accepted for one more release): auto-accept
                        no longer exists.
    --permission-max KEY=ACTION  Lower the ceiling for KEY (edit, bash, webfetch,
