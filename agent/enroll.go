@@ -70,13 +70,16 @@ Usage:
                (new sessions start on Ask), and this machine's ceiling —
                --permission-max — is what no session can go past.
   --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
-               session_read, session_send, session_spawn, …) may ever be — allow, ask or deny — whatever any
+               session_read, session_send, session_spawn, schedule, …) may ever be — allow, ask or deny — whatever any
                rule, session selector or "always allow" says (repeatable; default bash=ask; a list you give
                replaces that default, so --permission-max edit=ask alone leaves
                bash uncapped). Because
                bash can read opencode's server password out of its own
                environment, a ceiling that lets bash run lets a hijacked
                session widen its own rules, which is why bash asks by default.
+               schedule caps the agent's schedule_create/_update/_delete
+               (ask: every change shows a card, even a run pausing itself;
+               deny: no schedule tool works at all).
   --permission-rule KEY=ACTION  This machine's own rule for KEY (repeatable;
                default none). Applied as a session rule, so it beats the
                opencode.json written here; a session's Deny / Ask / Allow
@@ -109,7 +112,8 @@ Usage:
                 are code from the repo. Plain slash commands work either way.
                 --allow-command-shell restates the default.
    --no-agent-tools  Install none of galopin's agent-coordination tools
-                (session_list/session_read/session_spawn/session_send) into opencode, and
+                (session_list/session_read/session_spawn/session_send, and
+                schedule_list/schedule_create/schedule_update/schedule_delete) into opencode, and
                 leave OPENCODE_CONFIG_DIR alone (default: installed; every
                 read, spawn and send needs a person's approval each time unless a
                 rule for session_read / session_spawn / session_send says allow, or
@@ -585,9 +589,9 @@ func terminalPolicySummary(pol policy.Policy) string {
 // agent-coordination tools on this machine.
 func agentToolsPolicySummary(pol policy.Policy) string {
 	if !pol.AgentToolsAllowed() {
-		return "Agent tools: OFF — no session_list/session_read/session_spawn/session_send is installed into the agent."
+		return "Agent tools: OFF — no session_* or schedule_* tool is installed into the agent."
 	}
-	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here, each read, spawn and send only after a person approves it (the Allow selector never does), unless a rule for session_read / session_spawn / session_send says allow or the session was granted it (session.grantCoordination; this machine's ceiling still caps a grant)."
+	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here, each read, spawn and send only after a person approves it (the Allow selector never does), unless a rule for session_read / session_spawn / session_send says allow or the session was granted it (session.grantCoordination; this machine's ceiling still caps a grant). Schedule tools: creating a schedule follows the session's Deny / Ask / Allow (a scheduled run always asks); changing or deleting one asks unless a run stops its own; the ceiling key schedule caps all of it."
 }
 
 // projectConfigPolicySummary says, in plain words, what a workspace's own

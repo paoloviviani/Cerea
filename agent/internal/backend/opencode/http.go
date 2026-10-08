@@ -102,6 +102,8 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		AgentTools: b.toolsEnabled(), Steer: true,
 		// A grant needs the tools and rules galopin composes itself.
 		CoordinationGrant: b.toolsEnabled() && b.cfg.Permissions != nil,
+		// The schedule tools are installed with the others.
+		ScheduleTools: b.toolsEnabled(),
 		// Probed from the server's own GET /doc (never a version string):
 		// commands exist only when the server lists session.command there.
 		Commands: b.commandsSupported(),
