@@ -183,6 +183,7 @@ export async function ensureDeploymentSeeds(): Promise<void> {
 			// write, the filter no longer matches and the edit stands.
 			const set: Record<string, unknown> = {
 				content: builtin.content,
+				description: builtin.description,
 				seedHash: builtin.hash,
 				updatedAt: new Date(),
 			};
