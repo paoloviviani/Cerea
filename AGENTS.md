@@ -2,6 +2,11 @@
 
 This file provides guidance to coding agents working with code in this repository.
 
+**Start with [MAINTAINING.md](MAINTAINING.md)**: the rules that are not
+negotiable, how a change is made, verified and released, the traps that have
+already cost time, and the open items. This file is the detailed reference
+for each subsystem.
+
 ## Overview
 
 Cerea is a SvelteKit application that provides a chat interface for LLMs. A fork of huggingface/chat-ui (the engine behind HuggingChat). The app speaks exclusively to OpenAI-compatible APIs via `OPENAI_BASE_URL`.
