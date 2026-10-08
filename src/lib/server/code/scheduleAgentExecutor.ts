@@ -52,6 +52,7 @@ import { collections } from "$lib/server/database";
 import { codeAgentsEnabled } from "$lib/server/codeEnabled";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
 import { allowsModel } from "$lib/server/code/modelPolicy";
+import { scheduledRunHeader } from "$lib/server/schedules/runHeader";
 import { registerExecutor, type ExecutorOutcome } from "$lib/server/schedules/executors";
 import { OpError, type Session } from "$lib/types/machineProtocol";
 import { coordinationKeys, coordinationSupport, TOO_OLD_DETAIL } from "$lib/utils/coordination";
@@ -329,7 +330,7 @@ registerExecutor({
 			ids: { deviceId: target.deviceId, workspaceId: target.workspaceId, sessionId: session.id },
 			label: session.title,
 		};
-		let coordination = "";
+		let coordination: Coordination = { tail: ".", header: "none" };
 		try {
 			if (session.permissionMode !== target.permissionMode) {
 				try {
@@ -355,7 +356,15 @@ registerExecutor({
 		try {
 			await link.sessionPrompt({
 				sessionId: session.id,
-				text: schedule.prompt,
+				// One header line, then the person's prompt untouched.
+				text: `${scheduledRunHeader({
+					name: schedule.name,
+					recurrence: schedule.recurrence,
+					timezone: schedule.timezone,
+					previousRunAt: previousRun?.firedAt,
+					now,
+					coordination: coordination.header,
+				})}\n\n${schedule.prompt}`,
 				clientMessageId: randomUUID(),
 			});
 		} catch (err) {
@@ -371,7 +380,7 @@ registerExecutor({
 		return {
 			status: "sent",
 			result,
-			detail: `Sent to "${session.title}" with ${word} permissions${coordination}`,
+			detail: `Sent to "${session.title}" with ${word} permissions${coordination.tail}`,
 		};
 	},
 });
@@ -383,12 +392,19 @@ registerExecutor({
  * could not be. A machine that cannot take a grant is not an error: the run
  * goes ahead without it.
  */
+interface Coordination {
+	/** The tail of the run row's detail. */
+	tail: string;
+	/** What the prompt's header says: the keys granted, or "none (why)". */
+	header: string;
+}
+
 async function applyCoordination(
 	link: MachineLink,
 	device: CodeDevice,
 	target: AgentTarget,
 	sessionId: string
-): Promise<string> {
+): Promise<Coordination> {
 	const keys = coordinationKeys(target);
 	const support = coordinationSupport(device);
 	if (keys.length === 0) {
@@ -401,14 +417,17 @@ async function applyCoordination(
 				if (!(err instanceof OpError && err.code === "unsupported")) throw err;
 			}
 		}
-		return ".";
+		return { tail: ".", header: "none" };
 	}
-	if (!support.ok) return `, but ${support.detail}.`;
+	if (!support.ok) {
+		const why = support.reason === "tools-off" ? "agent tools are off" : "galopin is too old";
+		return { tail: `, but ${support.detail}.`, header: `none (${why})` };
+	}
 	try {
 		await link.sessionGrantCoordination({ sessionId, keys });
 	} catch (err) {
 		if (err instanceof OpError && err.code === "unsupported") {
-			return `, but ${TOO_OLD_DETAIL}.`;
+			return { tail: `, but ${TOO_OLD_DETAIL}.`, header: "none (galopin is too old)" };
 		}
 		throw err;
 	}
@@ -416,7 +435,10 @@ async function applyCoordination(
 		...(target.canMessage ? ["find, read and message other sessions"] : []),
 		...(target.canSpawn ? ["start new sessions"] : []),
 	];
-	return `. It may ${can.join(" and ")}, within what the machine allows.`;
+	return {
+		tail: `. It may ${can.join(" and ")}, within what the machine allows.`,
+		header: keys.join(", "),
+	};
 }
 
 /**

@@ -254,6 +254,12 @@ coordination tools, send the prompt. **Nothing runs in the chat**; the session
 is the machine's, and it pays for the run with its own credential, as for any
 other prompt.
 
+Every scheduled prompt starts with one line the person did not write:
+`[Scheduled run of "<name>", <timetable> (<timezone>); previous run <3 h ago | none>; coordination: <keys granted | none>]`,
+then a blank line and the prompt as written. It tells the agent nobody is
+watching live, when it last ran and which session tools it may use without a
+card, so it can avoid repeating itself across runs.
+
 **Rules the operator should know.**
 
 | Situation                                   | What is recorded                                                                                  |

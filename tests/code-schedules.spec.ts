@@ -139,8 +139,8 @@ test.describe("scheduled actions, hermetic", () => {
 			(o) => (o.args as { sessionId: string }).sessionId === created.id
 		);
 		expect(prompts).toHaveLength(1);
-		expect((prompts[0].args as { text: string }).text).toBe(
-			"Run the suite and summarise failures."
+		expect((prompts[0].args as { text: string }).text).toMatch(
+			/^\[Scheduled run of "[^\]]*", .*; coordination: none\]\n\nRun the suite and summarise failures\.$/
 		);
 		expect(ops(fake, "session.setPermissionMode").pop()?.args).toEqual({
 			sessionId: created.id,
