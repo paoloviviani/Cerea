@@ -32,6 +32,7 @@ export const CEILING_KEYS = [
 	"session_spawn",
 	"session_send",
 	"session_read",
+	"schedule",
 ] as const;
 export type CeilingKey = (typeof CEILING_KEYS)[number];
 
@@ -45,6 +46,7 @@ export const DEFAULT_CEILING: Readonly<Record<CeilingKey, CeilingAction>> = {
 	session_spawn: "ask",
 	session_send: "allow",
 	session_read: "allow",
+	schedule: "allow",
 };
 
 /** `enroll`'s own default for `--max-terminals`. */
