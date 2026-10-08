@@ -28,13 +28,15 @@ In the deploy kit: `./configure --agents` at install time, or
 `./configure --set CODE_AGENTS_ENABLED=true` on an existing install, then
 `docker compose up -d`.
 
-| Variable                 | What                                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------------------- |
-| `CODE_AGENTS_ENABLED`    | `true` shows the Agents switch and serves `/code`; anything else hides it and `/code` answers 404 |
-| `CODE_TERMINAL_ENABLED`  | `true` allows browser terminals on machines that also allow them (below); off by default          |
-| `CODE_MACHINE_ISSUER`    | the issuer a machine's token must come from; defaults to the chat's own (`OPENID_PROVIDER_URL`)   |
-| `CODE_MACHINE_AUDIENCE`  | the audience a machine's token must carry; default `pystino-api`                                  |
-| `CODE_MACHINE_CLIENT_ID` | the client a machine's token must be issued to; default `opencode-enrollment`                     |
+| Variable                      | What                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `CODE_AGENTS_ENABLED`         | `true` shows the Agents switch and serves `/code`; anything else hides it and `/code` answers 404 |
+| `CODE_TERMINAL_ENABLED`       | `true` allows browser terminals on machines that also allow them (below); off by default          |
+| `CHAT_SCHEDULES_ENABLED`      | on with the panel; exactly `false` is the kill switch for scheduled actions (below)               |
+| `CHAT_SCHEDULES_MAX_PER_USER` | how many schedules one person may have; default `20`                                              |
+| `CODE_MACHINE_ISSUER`         | the issuer a machine's token must come from; defaults to the chat's own (`OPENID_PROVIDER_URL`)   |
+| `CODE_MACHINE_AUDIENCE`       | the audience a machine's token must carry; default `pystino-api`                                  |
+| `CODE_MACHINE_CLIENT_ID`      | the client a machine's token must be issued to; default `opencode-enrollment`                     |
 
 The last three only need setting when machine tokens come from somewhere
 unusual; the deploy kit's defaults match its bundled Authelia.
@@ -235,6 +237,52 @@ A machine can run an ACP agent instead of opencode (`galopin run --backend acp
 adapters, or `opencode acp`. Those report fewer capabilities (no usage,
 compaction or subagents), and the panel hides the matching controls.
 
+## Scheduled actions
+
+People can put a prompt on a timetable: **Schedules**, under the devices in the
+Agents sidebar. A schedule names a machine, a workspace on it and either "a new
+session each run" or one existing session, and sends its prompt at the times
+set (every N hours, daily, weekdays, weekly, or a cron expression; at least 15
+minutes apart; read in the schedule's timezone, DST included).
+
+**What runs where.** The scheduler is a loop inside the chat process (every 30
+seconds). It claims a due schedule atomically in MongoDB, so two chat instances
+never fire the same run, and it moves the next run forward _before_ it runs
+anything. The run itself is the panel's own operations over the machine link:
+create a session, set its Deny / Ask / Allow word, send the prompt. **Nothing
+runs in the chat and no new machine operation exists**; the session is the
+machine's, and it pays for the run with its own credential, as for any other
+prompt.
+
+**Rules the operator should know.**
+
+| Situation                                   | What is recorded                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| the machine is offline at run time          | `missed-offline`; nothing is queued                                                               |
+| the machine was revoked                     | the schedule is switched off, with the reason shown on it                                         |
+| the previous run's session is still working | `skipped-still-running`                                                                           |
+| the workspace or pinned session is gone     | `failed` with that reason; three failures in a row switch the schedule off                        |
+| the chat was down when a run was due        | one catch-up if it is under half the interval late (at most an hour); otherwise `missed-downtime` |
+
+Every occurrence, fired or not, is a row in `scheduleRuns`: that is the
+history people see per schedule and the audit record. Rows are kept 90 days.
+
+**The Ask warning.** Unattended, a session on **Ask** stops at its first
+approval and waits. The approval card appears in the Needs-you inbox. The
+editor says so beside the selector. **Allow** is for work that must finish on
+its own, and it is still capped by the machine's own ceiling (a key the machine
+caps at Ask still asks).
+
+**Limits and the switch.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a
+person's schedules. `CHAT_SCHEDULES_ENABLED` is on unless exactly `false`, and
+only matters where `CODE_AGENTS_ENABLED=true`: a deployment that has turned on
+remote agents has already accepted what agents can do, each schedule is
+something a person built, and the default permission word is Ask. Off stops the
+loop, answers the API 404 and hides the sidebar entry; schedules are kept, and
+whatever came due meanwhile is judged by the downtime rule above rather than
+replayed. Schedules are owner-only, erased with the account and moved on a merge.
+The API is under `/api/v2/code/schedules`, so the 7-day sign-in rule covers it.
+
 ## When it does not work
 
 | Symptom                                                | Where to look                                                                                                                                                                                                                                |
@@ -245,6 +293,7 @@ compaction or subagents), and the panel hides the matching controls.
 | a machine appears `pending` forever                    | its owner hasn't clicked **Confirm** yet; only the owner can, from their own signed-in panel                                                                                                                                                 |
 | every call to a paired machine answers "not connected" | the machine's process is not running, or its WSS dial to this origin is failing (check its own logs)                                                                                                                                         |
 | a machine that was working now gets `4401` closes      | its access token stopped renewing — re-run its enrollment                                                                                                                                                                                    |
+| a schedule never fires                                 | `CHAT_SCHEDULES_ENABLED=false`, or `CODE_AGENTS_ENABLED` is off; or its history says why (offline, skipped, switched off after three failures)                                                                                               |
 | a terminal will not open                               | the deployment lacks `CODE_TERMINAL_ENABLED=true`, the machine was enrolled with `--no-terminal` (or before terminals were on by default), or the person's last sign-in is older than 7 days (which blocks all of /code, not only terminals) |
 
 ## For developers
