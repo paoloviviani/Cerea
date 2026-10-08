@@ -89,7 +89,7 @@ describe("capabilityRows", () => {
 			"Start subagents",
 			"Read files",
 			"Work outside the project folder",
-			"Start or message other sessions",
+			"Start, message or read other sessions",
 			"Ask you questions",
 		]);
 		expect(rows.every((row) => row.action === "ask")).toBe(true);
@@ -134,6 +134,23 @@ describe("capabilityRows", () => {
 		expect(rowOf(rows, "sessions:session_send")).toMatchObject({
 			label: "Message other sessions",
 			action: "deny",
+		});
+		expect(rowOf(rows, "sessions:session_read")).toMatchObject({
+			label: "Read other sessions",
+			action: "allow",
+		});
+	});
+
+	it("shows a granted read as its own row, held by the machine's ceiling", () => {
+		const rows = capabilityRows(
+			result([rule("*", "*", "allow", "cerea"), rule("session_read", "*", "ask", "ceiling")], {
+				ceiling: { session_read: "ask" },
+			})
+		);
+		expect(rowOf(rows, "sessions:session_read")).toMatchObject({
+			label: "Read other sessions",
+			action: "ask",
+			capped: true,
 		});
 	});
 

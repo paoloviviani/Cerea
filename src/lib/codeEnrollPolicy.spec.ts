@@ -45,6 +45,7 @@ describe("defaults emit nothing", () => {
 			task: "allow",
 			session_spawn: "ask",
 			session_send: "allow",
+			session_read: "allow",
 		});
 		expect([...CEILING_KEYS]).toEqual([
 			"edit",
@@ -53,6 +54,7 @@ describe("defaults emit nothing", () => {
 			"task",
 			"session_spawn",
 			"session_send",
+			"session_read",
 		]);
 	});
 

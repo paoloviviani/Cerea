@@ -8,9 +8,13 @@ import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
 import { test, expect, E2E_APP_BASE, E2E_APP_URL, MOCK_OIDC_ISSUER } from "./fixtures";
 import { seedUser } from "./machineHarness";
-import { FakeMachine } from "./fake-machine";
+import { FakeMachine, type FakeMachineOptions } from "./fake-machine";
 
-async function connectFakeMachine(sub: string, name: string): Promise<FakeMachine> {
+async function connectFakeMachine(
+	sub: string,
+	name: string,
+	options: FakeMachineOptions = {}
+): Promise<FakeMachine> {
 	const res = await fetch(`${MOCK_OIDC_ISSUER}/__control/mint`, {
 		method: "POST",
 		body: JSON.stringify({ sub }),
@@ -23,7 +27,7 @@ async function connectFakeMachine(sub: string, name: string): Promise<FakeMachin
 			"x-pystino-machine-id": randomUUID(),
 			"x-pystino-machine-name": name,
 		},
-		{ policy: { workspaceRoots: [], allowFreeModels: false } }
+		{ policy: { workspaceRoots: [], allowFreeModels: false }, ...options }
 	);
 	await fake.hello();
 	return fake;
@@ -226,6 +230,131 @@ test.describe("scheduled actions, hermetic", () => {
 		await editor.getByRole("radio", { name: "Allow" }).click();
 		await expect(editor.getByTestId("ask-warning")).toHaveCount(0);
 		await expect(editor).toContainText("never past the machine's own ceiling");
+	});
+
+	/** Fill the editor for a fresh schedule on the machine's one workspace. */
+	async function newScheduleOn(page: Page, name: string, scheduleName: string) {
+		await page.goto(`${E2E_APP_BASE}/code?view=schedules&new=1`);
+		const editor = page.getByTestId("schedule-editor");
+		await editor.getByLabel("1. Machine").selectOption({ label: `${name} · online` });
+		await expect(
+			editor.getByLabel("2. Workspace").locator("option", { hasText: "repo" })
+		).toBeAttached();
+		await editor.getByLabel("2. Workspace").selectOption({ label: "repo" });
+		await editor.getByLabel("Name").fill(scheduleName);
+		await editor.getByLabel("Prompt").fill("Check on the other sessions and report.");
+		return editor;
+	}
+
+	test("the coordination options are off by default, and a run grants them before its prompt", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `coord-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+		await pairAndStartSession(page, name);
+
+		const editor = await newScheduleOn(page, name, "Orchestrator");
+		await expect(editor.getByLabel("Can find, read and message other sessions")).not.toBeChecked();
+		await expect(editor.getByLabel("Can start new sessions")).not.toBeChecked();
+		// This machine can take a grant and caps nothing: no warning.
+		await expect(editor.getByTestId("coordination-unsupported")).toHaveCount(0);
+		await expect(editor.getByTestId("coordination-ceiling")).toHaveCount(0);
+
+		await editor.getByLabel("Can find, read and message other sessions").check();
+		await editor.getByLabel("Can start new sessions").check();
+		await editor.getByRole("button", { name: "Create schedule" }).click();
+		const stored = await db.collection("schedules").findOne({ name: "Orchestrator" });
+		expect(stored?.target).toMatchObject({ canMessage: true, canSpawn: true });
+
+		const row = page.getByTestId("schedule-row").filter({ hasText: "Orchestrator" });
+		await row.getByRole("button", { name: "Run now" }).click();
+		await expect(row.getByTestId("run-notice")).toContainText("Sent");
+
+		const created = fake.model.sessions[fake.model.sessions.length - 1];
+		expect(fake.model.coordination.get(created.id)).toEqual([
+			"session_list",
+			"session_read",
+			"session_send",
+			"session_spawn",
+		]);
+		const order = fake.opLog.map((o) => o.op);
+		expect(order.lastIndexOf("session.grantCoordination")).toBeLessThan(
+			order.lastIndexOf("session.prompt")
+		);
+		expect(order.lastIndexOf("session.grantCoordination")).toBeGreaterThan(
+			order.lastIndexOf("session.create")
+		);
+
+		await row.getByRole("link", { name: "History" }).click();
+		await expect(page.getByTestId("run-row").first()).toContainText(
+			"find, read and message other sessions"
+		);
+	});
+
+	test("an old galopin: the editor warns, and the run goes ahead without the grant", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `old-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name, { coordinationGrant: false });
+		await pairAndStartSession(page, name);
+
+		const editor = await newScheduleOn(page, name, "Old machine");
+		await expect(editor.getByTestId("coordination-unsupported")).toContainText(
+			"galopin is too old to grant coordination; update it"
+		);
+		await editor.getByLabel("Can find, read and message other sessions").check();
+		await editor.getByRole("button", { name: "Create schedule" }).click();
+
+		const row = page.getByTestId("schedule-row").filter({ hasText: "Old machine" });
+		await row.getByRole("button", { name: "Run now" }).click();
+		await expect(row.getByTestId("run-notice")).toContainText("Sent");
+		expect(ops(fake, "session.grantCoordination")).toHaveLength(0);
+		const created = fake.model.sessions[fake.model.sessions.length - 1];
+		expect(
+			ops(fake, "session.prompt").filter(
+				(o) => (o.args as { sessionId: string }).sessionId === created.id
+			)
+		).toHaveLength(1);
+		expect(fake.model.coordination.size).toBe(0);
+
+		await row.getByRole("link", { name: "History" }).click();
+		await expect(page.getByTestId("run-row").first()).toContainText(
+			"this machine's galopin is too old to grant coordination; update it"
+		);
+	});
+
+	test("the editor says what the machine's ceiling still holds at Ask", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `ceil-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name, {
+			policy: {
+				workspaceRoots: [],
+				allowFreeModels: false,
+				permission: { max: { session_send: "ask", session_spawn: "ask" } },
+			},
+		});
+		await pairAndStartSession(page, name);
+
+		const editor = await newScheduleOn(page, name, "Capped");
+		await expect(editor.getByTestId("coordination-ceiling")).toHaveCount(0);
+		await editor.getByLabel("Can find, read and message other sessions").check();
+		await expect(editor.getByTestId("coordination-ceiling")).toContainText(
+			"messaging sessions at Ask"
+		);
+		await expect(editor.getByTestId("coordination-ceiling")).toContainText("Needs-you inbox");
 	});
 
 	test("the list, the editor and the history fit a phone", async ({ page, db, session }) => {
