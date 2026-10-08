@@ -162,6 +162,75 @@ test.describe("scheduled actions, hermetic", () => {
 		await expect(page.getByTestId("scheduled-badge").first()).toBeAttached();
 	});
 
+	test("an agent creates a schedule over the machine link, it shows as the agent's, then pauses itself", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `sched-agent-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+		expect(fake.features).toEqual({ machineCalls: ["schedule"] });
+		await pairAndStartSession(page, name);
+		const agent = fake.model.sessions[0];
+		agent.title = "Refactor the parser";
+
+		const created = await fake.call(
+			"schedule.create",
+			{
+				name: "Check CI after the refactor",
+				prompt: "See whether CI is green on main and fix it if not.",
+				recurrence: { type: "weekdays", at: "08:00" },
+				timezone: "Europe/Rome",
+				session: "this",
+				permissionMode: "ask",
+			},
+			{ sessionId: agent.id, caller: { workspaceId: agent.workspaceId, permissionMode: "ask" } }
+		);
+		expect(created.ok).toBe(true);
+		const id = created.ok ? (created.result as { schedule: { id: string } }).schedule.id : "";
+
+		await page.goto(`${E2E_APP_BASE}/code?view=schedules`);
+		const row = page.getByTestId("schedule-row").filter({ hasText: "Check CI after the refactor" });
+		await expect(row.getByTestId("schedule-target")).toHaveText(
+			`${name} › repo › Refactor the parser`
+		);
+		const tag = row.getByTestId("schedule-created-by");
+		await expect(tag).toHaveText("Created by an agent in Refactor the parser");
+		await expect(tag.getByRole("link")).toHaveAttribute(
+			"href",
+			new RegExp(`device=${fake.deviceId}&ws=${agent.workspaceId}&agent=${agent.id}`)
+		);
+		await expect(row.getByRole("switch")).toHaveAttribute("aria-checked", "true");
+
+		// The editor carries the same line.
+		await row.getByRole("link", { name: "Edit" }).click();
+		await expect(page.getByTestId("schedule-editor").getByTestId("schedule-created-by")).toHaveText(
+			"Created by an agent in Refactor the parser"
+		);
+
+		// Done: the agent pauses its own schedule, and the list shows it off.
+		const paused = await fake.call(
+			"schedule.update",
+			{ id, paused: true },
+			{ sessionId: agent.id }
+		);
+		expect(paused.ok).toBe(true);
+		await page.goto(`${E2E_APP_BASE}/code?view=schedules`);
+		await expect(row.getByRole("switch")).toHaveAttribute("aria-checked", "false");
+		await expect(row.getByTestId("next-run")).toHaveText("Off");
+		const audit = await db
+			.collection("codeAudit")
+			.find({ scheduleId: id })
+			.project({ action: 1, sessionId: 1, _id: 0 })
+			.toArray();
+		expect(audit).toEqual([
+			{ action: "schedule.create", sessionId: agent.id },
+			{ action: "schedule.update", sessionId: agent.id },
+		]);
+	});
+
 	test("a new workspace is made on save, and the machine's refusal is shown inline", async ({
 		page,
 		db,
