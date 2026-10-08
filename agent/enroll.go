@@ -70,7 +70,7 @@ Usage:
                (new sessions start on Ask), and this machine's ceiling —
                --permission-max — is what no session can go past.
   --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
-               session_spawn, …) may ever be — allow, ask or deny — whatever any
+               session_read, session_send, session_spawn, …) may ever be — allow, ask or deny — whatever any
                rule, session selector or "always allow" says (repeatable; default bash=ask; a list you give
                replaces that default, so --permission-max edit=ask alone leaves
                bash uncapped). Because
@@ -109,11 +109,12 @@ Usage:
                 are code from the repo. Plain slash commands work either way.
                 --allow-command-shell restates the default.
    --no-agent-tools  Install none of galopin's agent-coordination tools
-                (session_list/session_spawn/session_send) into opencode, and
+                (session_list/session_read/session_spawn/session_send) into opencode, and
                 leave OPENCODE_CONFIG_DIR alone (default: installed; every
-                spawn and send needs a person's approval each time unless a
-                rule for session_spawn / session_send says allow; the Allow
-                selector never answers one).
+                read, spawn and send needs a person's approval each time unless a
+                rule for session_read / session_spawn / session_send says allow, or
+                the session was granted it through session.grantCoordination; the
+                Allow selector never answers one).
    --yes        Overwrite existing files without asking.
 `
 
@@ -584,9 +585,9 @@ func terminalPolicySummary(pol policy.Policy) string {
 // agent-coordination tools on this machine.
 func agentToolsPolicySummary(pol policy.Policy) string {
 	if !pol.AgentToolsAllowed() {
-		return "Agent tools: OFF — no session_list/session_spawn/session_send is installed into the agent."
+		return "Agent tools: OFF — no session_list/session_read/session_spawn/session_send is installed into the agent."
 	}
-	return "Agent tools: ON — a session's agent can list, spawn and message other sessions here, each spawn and send only after a person approves it (the Allow selector never does), unless a rule for session_spawn / session_send says allow."
+	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here, each read, spawn and send only after a person approves it (the Allow selector never does), unless a rule for session_read / session_spawn / session_send says allow or the session was granted it (session.grantCoordination; this machine's ceiling still caps a grant)."
 }
 
 // projectConfigPolicySummary says, in plain words, what a workspace's own

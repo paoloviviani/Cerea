@@ -140,7 +140,7 @@
 	}
 
 	/**
-	 * galopin's own approvals (`session_spawn`, `session_send`; PROTOCOL.md §6
+	 * galopin's own approvals (`session_spawn`, `session_send`, `session_read`; PROTOCOL.md §6
 	 * "Agent tools") are recognised by the request itself, never by the tool's
 	 * name, exactly as the machine does. They read as a person-facing summary
 	 * of what the model is about to do — the whole prompt or message, since a
@@ -190,6 +190,14 @@
 			facts.push({ label: "Mode", value: text(args.modeId) });
 			facts.push({ label: "Model", value: text(args.modelId) || "this session's model" });
 			facts.push({ label: "Prompt", value: text(args.prompt), long: true });
+		} else if (toolApproval?.tool === "session_read") {
+			const target = args.target as { title?: unknown } | undefined;
+			facts.push({ label: "Session", value: text(target?.title) });
+			if (typeof args.last === "number")
+				facts.push({
+					label: "Reads",
+					value: `its last ${args.last} text messages (not tool calls or output)`,
+				});
 		} else if (toolApproval?.tool === "session_send") {
 			const target = args.target as { title?: unknown } | undefined;
 			facts.push({ label: "To", value: text(target?.title) });

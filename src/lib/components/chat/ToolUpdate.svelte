@@ -27,7 +27,7 @@
 	let isOpen = $state(false);
 
 	// Between-session tools of a coding-agent transcript (`session_spawn`,
-	// `session_send`) read as what they did, with a link to the other session.
+	// `session_send`, `session_read`) read as what they did, with a link to the other session.
 	// Only where an agent view provides the lookup; a refused call keeps the
 	// plain card.
 	const sessionLinks = getCodeSessionLinks();
@@ -54,9 +54,21 @@
 		if (!read || read.state === "refused") return null;
 		const known = read.sessionId ? sessionLinks.title(read.sessionId) : undefined;
 		const title = read.title ?? known ?? "another session";
-		const label = read.kind === "send" ? "Sent to" : read.state === "done" ? "Spawned" : "Spawning";
+		const pending = read.state === "pending";
+		const label =
+			read.kind === "send"
+				? pending
+					? "Sending to"
+					: "Sent to"
+				: read.kind === "read"
+					? pending
+						? "Reading"
+						: "Read"
+					: pending
+						? "Spawning"
+						: "Spawned";
 		return {
-			label: read.kind === "send" && read.state === "pending" ? "Sending to" : label,
+			label,
 			title,
 			href: read.sessionId ? sessionLinks.href(read.sessionId) : undefined,
 			autoApproved: read.autoApproved === true,

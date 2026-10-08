@@ -41,12 +41,26 @@ export interface Backend {
 		/** galopin installed its agent-coordination tools into the backend
 		 * (§6 "Agent tools"): `session_list`/`session_spawn`/`session_send`. */
 		agentTools?: boolean;
+		/** `session.grantCoordination` works on this machine (§6): the agent tools
+		 * are installed and the session's rules are galopin's to compose. A
+		 * galopin older than the op omits it, and answers the op `unsupported`. */
+		coordinationGrant?: boolean;
 		/** A `session.prompt` sent mid-turn is accepted and folded into the
 		 * running turn (steering) rather than refused. Older machines omit
 		 * it: read as false. */
 		steer?: boolean;
 	};
 }
+
+/** The coordination tools `session.grantCoordination` accepts (§6): the only
+ * keys it takes, in the order Cerea lists them. */
+export const COORDINATION_KEYS = [
+	"session_list",
+	"session_read",
+	"session_send",
+	"session_spawn",
+] as const;
+export type CoordinationKey = (typeof COORDINATION_KEYS)[number];
 
 export interface Policy {
 	/** Retired. The machine still sends the constant "denied" for one
@@ -70,6 +84,10 @@ export interface Policy {
 	terminal?: "allowed" | "denied";
 	/** `terminal.open` beyond this count answers `invalid` (default 8). */
 	maxTerminals?: number;
+	/** The agent-coordination tools' opt-out (§4): "denied" installs none of
+	 * session_list/session_read/session_send/session_spawn. Older machines
+	 * omit it: read as allowed. */
+	agentTools?: "allowed" | "denied";
 	/** Whether opencode may run background subagents (task background:true):
 	 * "allowed" (enroll's default) or "denied" (--no-background-subagents; also what an absent field means).
 	 * Older machines omit it: read as denied. */
@@ -539,6 +557,7 @@ export type OpName =
 	| "session.setMode"
 	| "session.setModel"
 	| "session.setPermissionMode"
+	| "session.grantCoordination"
 	| "permission.reply"
 	| "permission.rules"
 	| "permission.saved.remove"
@@ -688,6 +707,7 @@ const backendSchema = z.object({
 		questions: z.boolean(),
 		toolImages: z.boolean().optional(),
 		agentTools: z.boolean().optional(),
+		coordinationGrant: z.boolean().optional(),
 		steer: z.boolean().optional(),
 	}),
 });
@@ -707,6 +727,7 @@ const policySchema = z.object({
 	fileWrite: z.enum(["allowed", "denied"]).optional(),
 	terminal: z.enum(["allowed", "denied"]).optional(),
 	maxTerminals: z.number().optional(),
+	agentTools: z.enum(["allowed", "denied"]).optional(),
 	backgroundSubagents: z.enum(["allowed", "denied"]).optional(),
 });
 

@@ -78,9 +78,9 @@ const CAPABILITIES: CapabilitySpec[] = [
 	{ id: "external", label: "Work outside the project folder", keys: ["external_directory"] },
 	{
 		id: "sessions",
-		label: "Start or message other sessions",
-		keys: ["session_spawn", "session_send"],
-		split: ["Start other sessions", "Message other sessions"],
+		label: "Start, message or read other sessions",
+		keys: ["session_spawn", "session_send", "session_read"],
+		split: ["Start other sessions", "Message other sessions", "Read other sessions"],
 	},
 	{ id: "question", label: "Ask you questions", keys: ["question"] },
 ];

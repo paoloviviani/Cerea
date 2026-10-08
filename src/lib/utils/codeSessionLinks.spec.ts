@@ -2,6 +2,39 @@ import { describe, expect, it } from "vitest";
 import { coordinationCall, referencedSessionIds } from "./codeSessionLinks";
 import type { Message } from "$lib/types/Message";
 
+describe("coordinationCall, session_read", () => {
+	const params = { target: "ses_b", last: 5 };
+
+	it("is pending, then done with the plain transcript text, naming the session read", () => {
+		expect(coordinationCall("session_read", params, undefined)).toMatchObject({
+			kind: "read",
+			state: "pending",
+			sessionId: "ses_b",
+		});
+		expect(
+			coordinationCall("session_read", params, {
+				text: "Transcript of session…\n[user · 2026-10-08T09:00:00Z]\nhi",
+				failed: false,
+			})
+		).toMatchObject({ kind: "read", state: "done", sessionId: "ses_b" });
+	});
+
+	it("is refused on an error result, a refusal object or an empty answer", () => {
+		expect(
+			coordinationCall("session_read", params, { text: undefined, failed: true })
+		).toMatchObject({ state: "refused" });
+		expect(
+			coordinationCall("session_read", params, {
+				text: '{"refused":"you cannot read your own session"}',
+				failed: false,
+			})
+		).toMatchObject({ state: "refused" });
+		expect(coordinationCall("session_read", params, { text: "", failed: false })).toMatchObject({
+			state: "refused",
+		});
+	});
+});
+
 describe("coordinationCall", () => {
 	it("ignores every other tool", () => {
 		expect(coordinationCall("bash", { command: "ls" }, undefined)).toBeNull();

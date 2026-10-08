@@ -32,6 +32,7 @@ import {
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
 	type Backend,
+	type CoordinationKey,
 	type Directory,
 	type Command,
 	type Envelope,
@@ -396,6 +397,20 @@ export class MachineLink {
 		mode: "deny" | "ask" | "allow";
 	}): Promise<Record<string, never>> {
 		return this.call("session.setPermissionMode", args);
+	}
+	/**
+	 * Let the session's agent use galopin's coordination tools without a card
+	 * (PROTOCOL.md §6): `keys` is any of `session_list`, `session_read`,
+	 * `session_send`, `session_spawn`; `[]` clears the grant. The machine's
+	 * ceiling, the cross-workspace rule and the hop and rate limits still
+	 * apply. `unsupported` from a galopin that predates the op (or has no agent
+	 * tools), `invalid` for a key outside the four or a subagent's id.
+	 */
+	sessionGrantCoordination(args: {
+		sessionId: string;
+		keys: CoordinationKey[];
+	}): Promise<{ keys: CoordinationKey[] }> {
+		return this.call("session.grantCoordination", args);
 	}
 	permissionReply(args: {
 		sessionId: string;

@@ -15,7 +15,7 @@
  */
 import { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
-import { OpError } from "../src/lib/types/machineProtocol";
+import { COORDINATION_KEYS, OpError } from "../src/lib/types/machineProtocol";
 import type {
 	Backend,
 	Command,
@@ -97,6 +97,12 @@ export interface FakeMachineModel {
 	 * behind), listed by `permission.rules` as `savedApprovals` and deleted
 	 * by id through `permission.saved.remove`. */
 	savedApprovals: SavedApproval[];
+	/** The grant `session.grantCoordination` recorded, per session: the
+	 * coordination keys (sorted) the session may use without a card. A session
+	 * with none is absent. Like galopin, it is never more than the ceiling
+	 * (`permissionCeiling`), which this fake does not apply — a spec asserts
+	 * what was granted, not what the machine would then allow. */
+	coordination: Map<string, string[]>;
 }
 
 export function emptyModel(): FakeMachineModel {
@@ -117,6 +123,7 @@ export function emptyModel(): FakeMachineModel {
 		permissionRules: [],
 		permissionCeiling: {},
 		savedApprovals: [],
+		coordination: new Map(),
 	};
 }
 
@@ -128,6 +135,11 @@ export interface FakeMachineOptions {
 	credentialState?: "ok" | "expiring" | "expired";
 	agentVersion?: string;
 	hostname?: string;
+	/** Whether this galopin knows `session.grantCoordination` (default true):
+	 * false answers it `unsupported`, as a galopin from before the op does. The
+	 * hello's `coordinationGrant` capability is the backend's own, set by
+	 * `backends` (the default backend reports it unless this is false). */
+	coordinationGrant?: boolean;
 }
 
 const DEFAULT_BACKEND: Backend = {
@@ -142,7 +154,15 @@ const DEFAULT_BACKEND: Backend = {
 		files: true,
 		worktrees: false,
 		questions: true,
+		coordinationGrant: true,
 	},
+};
+
+/** The default backend as a galopin from before `session.grantCoordination`
+ * reports it: no `coordinationGrant`. */
+export const BACKEND_WITHOUT_COORDINATION: Backend = {
+	...DEFAULT_BACKEND,
+	capabilities: { ...DEFAULT_BACKEND.capabilities, coordinationGrant: undefined },
 };
 
 const DEFAULT_POLICY: Policy = {
@@ -212,7 +232,9 @@ export class FakeMachine {
 				arch: "amd64",
 				hostname: this.options.hostname ?? "fake-machine",
 			},
-			backends: this.options.backends ?? [DEFAULT_BACKEND],
+			backends: this.options.backends ?? [
+				this.options.coordinationGrant === false ? BACKEND_WITHOUT_COORDINATION : DEFAULT_BACKEND,
+			],
 			...(this.options.machine ? { machine: this.options.machine } : {}),
 			policy: this.options.policy ?? DEFAULT_POLICY,
 			credential: { state: this.options.credentialState ?? "ok" },
@@ -581,6 +603,28 @@ export class FakeMachine {
 				}
 				session.permissionMode = mode;
 				return {};
+			}
+			// The narrow grant (PROTOCOL.md §6): only the four coordination keys, a
+			// root session, `[]` clears. The real galopin composes it beneath the
+			// ceiling; this fake only records it.
+			case "session.grantCoordination": {
+				if (this.options.coordinationGrant === false) {
+					throw new OpError("unsupported", `unknown op "${op}"`);
+				}
+				const { sessionId, keys } = args as { sessionId: string; keys: unknown };
+				if (!Array.isArray(keys)) throw new OpError("invalid", "keys must be a list");
+				for (const key of keys) {
+					if (!(COORDINATION_KEYS as readonly string[]).includes(String(key))) {
+						throw new OpError("invalid", `${String(key)} cannot be granted`);
+					}
+				}
+				const session = model.sessions.find((x) => x.id === sessionId);
+				if (!session) throw new OpError("not_found", "No such session.");
+				if (session.parentId) throw new OpError("invalid", "a subagent follows its root");
+				const granted = [...new Set(keys as string[])].sort();
+				if (granted.length > 0) model.coordination.set(sessionId, granted);
+				else model.coordination.delete(sessionId);
+				return { keys: granted };
 			}
 			case "permission.rules": {
 				const { sessionId } = args as { sessionId: string };

@@ -618,3 +618,125 @@ func TestSelectorKeepsTheMachinesRulesForGalopinsTools(t *testing.T) {
 		t.Errorf("Deny: session_spawn grant = %s, want deny (the person's Deny beats the machine's allow)", got)
 	}
 }
+
+// grantOf is Grant over the agent's rules and what Compose gave the session:
+// the answer a coordination tool call gets.
+func grantOf(l Layers, sel Selector, tool string) Action {
+	return Grant(append(append([]Rule(nil), buildAgent...), Compose(l, sel, buildAgent)...), tool)
+}
+
+func TestNormalizeCoordinationAcceptsOnlyTheFourKeys(t *testing.T) {
+	got, bad, ok := NormalizeCoordination([]string{"session_spawn", "session_read", "session_read", "session_list", "session_send"})
+	if !ok || bad != "" || len(got) != 4 || got[0] != "session_list" || got[1] != "session_read" || got[2] != "session_send" || got[3] != "session_spawn" {
+		t.Errorf("got %v bad=%q, want the four, de-duplicated and sorted", got, bad)
+	}
+	for _, key := range []string{"bash", "edit", "*", "session_*", "task", "", "SESSION_SEND", "external_directory"} {
+		if _, bad, ok := NormalizeCoordination([]string{"session_send", key}); ok || bad != key {
+			t.Errorf("%q: bad = %q, want it refused", key, bad)
+		}
+	}
+	if got, bad, ok := NormalizeCoordination(nil); got != nil || bad != "" || !ok {
+		t.Errorf("an empty list is a clear: got %v %q", got, bad)
+	}
+}
+
+// A grant allows exactly the keys it names, on Ask and on Allow, and nothing else:
+// not the keys it leaves out, and not the opencode tools a blanket moves.
+func TestGrantAllowsOnlyTheNamedCoordinationKeys(t *testing.T) {
+	for _, mode := range []Action{Ask, Allow} {
+		sel := Selector{Mode: mode, Coordination: []string{"session_list", "session_read", "session_send"}}
+		for _, k := range []string{"session_list", "session_read", "session_send"} {
+			if got := grantOf(Layers{}, sel, k); got != Allow {
+				t.Errorf("%s: %s = %s, want allow", mode, k, got)
+			}
+		}
+		if got := grantOf(Layers{}, sel, "session_spawn"); got != Ask {
+			t.Errorf("%s: session_spawn = %s, want ask (not granted)", mode, got)
+		}
+		all := append(append([]Rule(nil), buildAgent...), Compose(Layers{}, sel, buildAgent)...)
+		if got := Evaluate(all, "bash", "ls"); got == Allow && mode == Ask {
+			t.Errorf("a coordination grant moved bash to allow")
+		}
+	}
+	// A grant of nothing is no grant.
+	if got := grantOf(Layers{}, Selector{Coordination: []string{}}, "session_send"); got != Ask {
+		t.Errorf("an empty grant = %s, want ask", got)
+	}
+}
+
+// The machine's ceiling caps a grant like every other rule: ask still asks and
+// deny still refuses; a key the ceiling does not name is allowed.
+func TestGrantNeverPassesTheCeiling(t *testing.T) {
+	sel := Selector{Coordination: []string{"session_read", "session_send", "session_spawn"}}
+	l := Layers{Ceiling: Ceiling{Max: map[string]Action{"session_send": Ask, "session_spawn": Deny}}}
+	if got := grantOf(l, sel, "session_read"); got != Allow {
+		t.Errorf("an uncapped key = %s, want allow", got)
+	}
+	if got := grantOf(l, sel, "session_send"); got != Ask {
+		t.Errorf("a key capped at ask = %s, want ask", got)
+	}
+	if got := grantOf(l, sel, "session_spawn"); got != Deny {
+		t.Errorf("a key capped at deny = %s, want deny", got)
+	}
+}
+
+// The owner's own rule for a tool is more specific than a caller's grant: an
+// ask or deny written on the machine still wins.
+func TestGrantDoesNotLoosenTheMachinesOwnRule(t *testing.T) {
+	sel := Selector{Coordination: []string{"session_send", "session_read", "session_spawn"}}
+	l := Layers{Own: []Rule{{"session_send", "*", Ask}, {"session_read", "*", Deny}}}
+	if got := grantOf(l, sel, "session_send"); got != Ask {
+		t.Errorf("own ask = %s, want ask", got)
+	}
+	if got := grantOf(l, sel, "session_read"); got != Deny {
+		t.Errorf("own deny = %s, want deny", got)
+	}
+	if got := grantOf(l, sel, "session_spawn"); got != Allow {
+		t.Errorf("no own rule = %s, want the grant's allow", got)
+	}
+}
+
+// Deny is the person's word: a grant is kept but not applied, and comes back
+// with Ask. Clearing it restores ask.
+func TestGrantYieldsToDenyAndComesBack(t *testing.T) {
+	sel := Selector{Mode: Deny, Coordination: []string{"session_send"}}
+	if got := grantOf(Layers{}, sel, "session_send"); got != Deny {
+		t.Errorf("under Deny = %s, want deny", got)
+	}
+	sel.Mode = Ask
+	if got := grantOf(Layers{}, sel, "session_send"); got != Allow {
+		t.Errorf("back on Ask = %s, want the kept grant", got)
+	}
+	sel.Coordination = nil
+	if got := grantOf(Layers{}, sel, "session_send"); got != Ask {
+		t.Errorf("cleared = %s, want ask", got)
+	}
+}
+
+// A later block beats an earlier one: replacing a grant with a smaller one (or
+// none) leaves nothing of the first allowed, even though opencode only appends.
+func TestAReplacedGrantLeavesNothingOfTheOldOne(t *testing.T) {
+	first := Compose(Layers{}, Selector{Coordination: []string{"session_send", "session_read"}}, buildAgent)
+	second := Compose(Layers{}, Selector{Coordination: []string{"session_read"}}, buildAgent)
+	all := append(append(append([]Rule(nil), buildAgent...), first...), second...)
+	if got := Grant(all, "session_send"); got != Ask {
+		t.Errorf("session_send after the grant shrank = %s, want ask", got)
+	}
+	if got := Grant(all, "session_read"); got != Allow {
+		t.Errorf("session_read = %s, want allow", got)
+	}
+}
+
+// A subagent follows its root's grant, under the child ceiling.
+func TestChildFollowsTheRootsGrant(t *testing.T) {
+	root := Selector{Coordination: []string{"session_read"}}
+	l := Layers{Ceiling: Ceiling{Max: map[string]Action{"session_read": Ask}}}
+	child := ChildRules(l, root, buildAgent)
+	if got := Grant(append(append([]Rule(nil), buildAgent...), child...), "session_read"); got != Ask {
+		t.Errorf("a capped child = %s, want ask", got)
+	}
+	child = ChildRules(Layers{}, root, buildAgent)
+	if got := Grant(append(append([]Rule(nil), buildAgent...), child...), "session_read"); got != Allow {
+		t.Errorf("an uncapped child = %s, want the root's grant", got)
+	}
+}

@@ -2,7 +2,13 @@
 	Create or edit a schedule. The target is an ordered picker — machine, then a
 	workspace on it (or a new one, made when the schedule is saved), then a new
 	session each run or one existing session — followed by mode, model and the
-	permission word, the prompt and the timetable.
+	permission word, whether the run may work with the machine's other
+	sessions, the prompt and the timetable.
+
+	The two coordination options (both off) become `session.grantCoordination` at
+	each run (see the agent executor). The editor says what the machine will make
+	of them: a galopin too old to grant them, or a ceiling that holds a granted
+	tool at Ask, which then still waits in the Needs-you inbox.
 
 	The workspace and session lists come from the same /code listings the tree
 	uses (`listWorkspaces`, `listWorkspaceAgents`); an offline machine can be
@@ -46,6 +52,7 @@
 		WEEKDAY_NAMES,
 	} from "$lib/utils/scheduleFormat";
 	import * as s from "$lib/components/overlay/styles";
+	import { ceilingNote, coordinationKeys, coordinationSupport } from "$lib/utils/coordination";
 
 	interface Props {
 		/** The schedule being edited; absent for a new one. */
@@ -67,6 +74,8 @@
 		modeId?: string;
 		modelId?: string;
 		permissionMode?: "deny" | "ask" | "allow";
+		canMessage?: boolean;
+		canSpawn?: boolean;
 		labels?: { machine?: string; workspace?: string; session?: string };
 	};
 	const stored = (untrack(() => editing?.target) ?? {}) as Target;
@@ -82,6 +91,8 @@
 	let modeId = $state(stored.modeId ?? "");
 	let modelId = $state(stored.modelId ?? "");
 	let permissionMode = $state<"deny" | "ask" | "allow">(stored.permissionMode ?? "ask");
+	let canMessage = $state(stored.canMessage === true);
+	let canSpawn = $state(stored.canSpawn === true);
 	let enabled = $state(untrack(() => editing?.enabled) ?? true);
 
 	const initialRecurrence: Recurrence = untrack(() => editing?.recurrence) ?? {
@@ -121,6 +132,13 @@
 	const makingWorkspace = $derived(workspaceChoice === NEW);
 	const knownWorkspace = $derived(workspaces.find((w) => w.id === workspaceChoice));
 	const timezones = allTimezones();
+	// What the chosen machine will make of the coordination options.
+	const coordination = $derived(device ? coordinationSupport(device) : null);
+	const coordinationCeiling = $derived(
+		device && coordination?.ok
+			? ceilingNote(device, coordinationKeys({ canMessage, canSpawn }))
+			: null
+	);
 
 	const recurrence = $derived<Recurrence>(
 		preset === "hours"
@@ -274,6 +292,8 @@
 				...(modeId ? { modeId } : {}),
 				...(modelId ? { modelId } : {}),
 				permissionMode,
+				...(canMessage ? { canMessage: true } : {}),
+				...(canSpawn ? { canSpawn: true } : {}),
 				labels: {
 					...(workspaceName ? { workspace: workspaceName } : {}),
 					...(existing ? { session: sessionTitle(sessionChoice) ?? stored.labels?.session } : {}),
@@ -530,6 +550,34 @@
 					</p>
 				{:else}
 					<p class={s.HINT}>The agent can read but is refused anything that changes or runs.</p>
+				{/if}
+			</div>
+
+			<div class="mt-4" data-testid="coordination-options">
+				<span class={s.LABEL} id="sched-coord-label">Other sessions on this machine</span>
+				<div class="space-y-2" role="group" aria-labelledby="sched-coord-label">
+					<label class="flex items-start gap-2 text-sm text-ink">
+						<input type="checkbox" class="mt-1" bind:checked={canMessage} disabled={busy} />
+						<span>Can find, read and message other sessions</span>
+					</label>
+					<label class="flex items-start gap-2 text-sm text-ink">
+						<input type="checkbox" class="mt-1" bind:checked={canSpawn} disabled={busy} />
+						<span>Can start new sessions</span>
+					</label>
+				</div>
+				<p class={s.HINT}>
+					Lets a run orchestrate the machine's other sessions without stopping at an approval card.
+					Never past the machine's own limits: a session in another workspace, a long chain of agent
+					messages and anything the machine caps at Ask still ask.
+				</p>
+				{#if coordination && !coordination.ok}
+					<p class="{s.NOTICE} mt-2" data-testid="coordination-unsupported">
+						{coordination.reason === "too-old"
+							? "This machine's galopin is too old to grant coordination; update it. The schedule still runs, without these options."
+							: "This machine was enrolled without agent tools, so these options cannot be granted. The schedule still runs, without them."}
+					</p>
+				{:else if coordinationCeiling}
+					<p class="{s.NOTICE} mt-2" data-testid="coordination-ceiling">{coordinationCeiling}</p>
 				{/if}
 			</div>
 

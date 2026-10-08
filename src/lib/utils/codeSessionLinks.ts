@@ -1,9 +1,10 @@
 /**
  * How the agent transcript names other sessions (PROTOCOL.md §6 "Agent
- * tools"): `session_spawn` and `session_send` are tool calls the model makes
- * between sessions of one machine, and the transcript renders them as what
- * they did — "Spawned ‹title›", "Sent to ‹title›" — each with a link to the
- * other session, rather than as a bare tool card.
+ * tools"): `session_spawn`, `session_send` and `session_read` are tool calls
+ * the model makes between sessions of one machine, and the transcript renders
+ * them as what they did — "Spawned ‹title›", "Sent to ‹title›", "Read
+ * ‹title›" — each with a link to the other session, rather than as a bare tool
+ * card.
  *
  * `AgentView` provides the lookup through context; the tool card and the
  * "From agent" bubble read it. Outside an agent view there is no provider, and
@@ -28,7 +29,7 @@ export function getCodeSessionLinks(): CodeSessionLinks | undefined {
 }
 
 export type CoordinationCall = {
-	kind: "spawn" | "send";
+	kind: "spawn" | "send" | "read";
 	/** `pending` until the call closes; `done` only on a result that says the
 	 * action happened; `refused` for anything else (a decline, a gate). */
 	state: "pending" | "done" | "refused";
@@ -43,10 +44,11 @@ export type CoordinationCall = {
 };
 
 /**
- * Read a `session_spawn` / `session_send` tool call. A refusal reaches the
- * model as text (a declined approval, a gate), not as an error, so "done"
- * is claimed only when the result carries what success returns: a spawn's
- * `{sessionId}`, a send's `{}` (either may carry `autoApproved`). Anything else is shown as the plain tool card,
+ * Read a `session_spawn` / `session_send` / `session_read` tool call. A
+ * refusal reaches the model as text (a declined approval, a gate), not as an
+ * error, so "done" is claimed only when the result carries what success
+ * returns: a spawn's `{sessionId}`, a send's `{}` (either may carry
+ * `autoApproved`), a read's plain transcript text. Anything else is shown as the plain tool card,
  * where the refusal text is one tap away, rather than labelled as an action
  * that did not happen.
  */
@@ -55,13 +57,27 @@ export function coordinationCall(
 	parameters: Record<string, unknown> | undefined,
 	result: { text: string | undefined; failed: boolean } | undefined
 ): CoordinationCall | null {
-	if (name !== "session_spawn" && name !== "session_send") return null;
-	const kind = name === "session_spawn" ? "spawn" : "send";
+	if (name !== "session_spawn" && name !== "session_send" && name !== "session_read") return null;
+	const kind = name === "session_spawn" ? "spawn" : name === "session_read" ? "read" : "send";
 	const asText = (value: unknown) => (typeof value === "string" ? value : undefined);
-	const target = kind === "send" ? asText(parameters?.target) : undefined;
+	const target = kind === "spawn" ? undefined : asText(parameters?.target);
 	const title = kind === "spawn" ? asText(parameters?.title) : undefined;
 	if (!result) return { kind, state: "pending", sessionId: target, title };
 	if (result.failed) return { kind, state: "refused", sessionId: target, title };
+	if (kind === "read") {
+		// A read answers plain text; only a `{"refused": …}` object is not one.
+		const text = (result.text ?? "").trim();
+		if (text.startsWith("{")) {
+			try {
+				const object = JSON.parse(text) as Record<string, unknown>;
+				if (object && typeof object === "object" && "refused" in object)
+					return { kind, state: "refused", sessionId: target };
+			} catch {
+				/* plain text that happens to start with a brace */
+			}
+		}
+		return text ? { kind, state: "done", sessionId: target } : { kind, state: "refused" };
+	}
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse((result.text ?? "").trim() || "{}");

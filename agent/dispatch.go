@@ -250,6 +250,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionSetPermissionMode(ctx, args)
 	case "permission.saved.remove":
 		return mc.opPermissionSavedRemove(ctx, args)
+	case "session.grantCoordination":
+		return mc.opSessionGrantCoordination(ctx, args)
 
 	case "question.reply":
 		return mc.opQuestionReply(ctx, args)

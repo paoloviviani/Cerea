@@ -97,6 +97,8 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		out, to, err = at.spawn(ctx, tc, call)
 	case "session_send":
 		out, to, err = at.send(ctx, tc, call)
+	case "session_read":
+		out, to, err = at.read(ctx, tc, call)
 	default:
 		err = refuse("unknown tool %q", call.Tool)
 	}
