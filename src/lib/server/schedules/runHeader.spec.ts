@@ -34,7 +34,7 @@ describe("scheduledRunHeader", () => {
 			coordination: "session_list, session_read",
 		});
 		expect(line).toBe(
-			'[Scheduled run of "Nightly", Every day at 02:00 (Europe/Rome); previous run 3 h ago; coordination: session_list, session_read]'
+			'[Scheduled run of "Nightly", every day at 02:00 (Europe/Rome); previous run 3 h ago; coordination: session_list, session_read]'
 		);
 	});
 });

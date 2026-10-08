@@ -42,8 +42,13 @@ export function scheduledRunHeader(input: {
 	coordination: string;
 }): string {
 	return (
-		`[Scheduled run of "${headerName(input.name)}", ${recurrenceText(input.recurrence)} ` +
+		`[Scheduled run of "${headerName(input.name)}", ${lowerFirst(recurrenceText(input.recurrence))} ` +
 		`(${headerName(input.timezone)}); previous run ${relativeAgo(input.previousRunAt, input.now)}; ` +
 		`coordination: ${input.coordination}]`
 	);
+}
+
+/** "Every day at 02:00" reads mid-sentence as "every day at 02:00". */
+function lowerFirst(text: string): string {
+	return text.charAt(0).toLowerCase() + text.slice(1);
 }
