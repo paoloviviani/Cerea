@@ -51,6 +51,10 @@ type Capabilities struct {
 	// the agent tools are installed AND the session's rules are galopin's to
 	// compose, so a grant can be recorded and applied.
 	CoordinationGrant bool `json:"coordinationGrant"`
+	// ScheduleTools says galopin installed its schedule tools (schedule_list,
+	// schedule_create, schedule_update, schedule_delete; PROTOCOL.md §6 "Agent
+	// tools"), which reach Cerea through machine calls (§5).
+	ScheduleTools bool `json:"scheduleTools"`
 	// Permissions says the backend's own permission rules can be read, that a
 	// session carries a Deny/Ask/Allow selector, and that its exceptions can be
 	// listed and removed (permission.rules, session.setPermissionMode,

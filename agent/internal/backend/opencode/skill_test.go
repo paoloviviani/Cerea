@@ -35,12 +35,19 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		"Needs-you inbox",                 // pending approvals do not block a run
 		"a schedule's coordination grant", // a second reason a call carries no card
 		"you a message when it is done",   // spawn CAN ping back via send (approvals still apply)
+		"## Scheduling work",              // the schedule tools' section
+		"**List first.**",                 // update instead of duplicating
+		"session: \"this\"",               // follow-ups land in this session
+		"Schedules outlive you.",          // name them clearly
+		"paused: true",                    // stop your own when done
+		"every create asks the person",    // the runaway guard, so the model expects the card
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("skill does not mention %q", want)
 		}
 	}
-	for _, name := range []string{"session_list", "session_spawn", "session_send"} {
+	for _, name := range []string{"session_list", "session_spawn", "session_send",
+		"schedule_list", "schedule_create", "schedule_update", "schedule_delete"} {
 		if _, err := os.Stat(filepath.Join(dir, "tools", name+".js")); err != nil {
 			t.Errorf("tool %s: %v", name, err)
 		}

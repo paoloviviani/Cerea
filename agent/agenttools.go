@@ -52,6 +52,12 @@ type agentTools struct {
 	spawnLog map[string][]time.Time // root session -> spawn attempts
 	sendLog  map[string][]time.Time // "from>to" -> sends
 	born     map[string]time.Time   // spawned session -> when
+	// scheduleLog is the schedule tools' rate window: root session -> changes.
+	scheduleLog map[string][]time.Time
+
+	// calls stands in for the link's machine calls in tests; nil means the
+	// machine's live link (agenttools_schedule.go).
+	calls machineCaller
 }
 
 // installAgentTools wires the tools when the backend has them.
@@ -63,6 +69,7 @@ func (mc *machine) installAgentTools() {
 	at := &agentTools{
 		mc: mc, host: host, now: time.Now,
 		spawnLog: map[string][]time.Time{}, sendLog: map[string][]time.Time{}, born: map[string]time.Time{},
+		scheduleLog: map[string][]time.Time{},
 	}
 	mc.agentTools = at
 	host.SetToolHandler(at.handle)
@@ -99,12 +106,26 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		out, to, err = at.send(ctx, tc, call)
 	case "session_read":
 		out, to, err = at.read(ctx, tc, call)
+	case "schedule_list":
+		out, err = at.scheduleList(ctx, tc, call)
+	case "schedule_create":
+		out, to, err = at.scheduleCreate(ctx, tc, call)
+	case "schedule_update":
+		out, to, err = at.scheduleUpdate(ctx, tc, call)
+	case "schedule_delete":
+		out, to, err = at.scheduleDelete(ctx, tc, call)
 	default:
 		err = refuse("unknown tool %q", call.Tool)
 	}
+	// A schedule tool's subject is a schedule (its id, or a new one's name),
+	// not a session: it goes in the row's schedule field.
+	audit := at.mc.audit.agentTool
+	if strings.HasPrefix(call.Tool, "schedule_") {
+		audit = at.mc.audit.agentToolSchedule
+	}
 	switch {
 	case err == nil:
-		at.mc.audit.agentTool(call.Tool, call.SessionID, to, "done", "")
+		audit(call.Tool, call.SessionID, to, "done", "")
 	default:
 		if r, ok := err.(*backend.ToolRefusal); ok {
 			reason = r.Message
@@ -114,7 +135,7 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		if ctx.Err() != nil {
 			reason = "aborted"
 		}
-		at.mc.audit.agentTool(call.Tool, call.SessionID, to, "refused", reason)
+		audit(call.Tool, call.SessionID, to, "refused", reason)
 	}
 	return out, err
 }
