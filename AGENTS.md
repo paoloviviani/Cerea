@@ -48,8 +48,9 @@ from the smoke upstream's recorded request, which no unit test can see.
 Two things about running the suites in a container:
 
 - **`npm run test` is not the whole suite.** It is
-  `vitest --project=server --project=ssr`, so the **`client`** project — 18
-  files, 234 tests, every Svelte component test — does not run. It needs a real
+  `vitest --project=server --project=ssr`, so the **`client`** project — about
+  80 files and 790 tests in October 2026, every Svelte component test — does
+  not run. It needs a real
   Chromium through Playwright, and the image's browsers must match the
   _installed_ Playwright rather than the caret range in `package.json`
   (`node_modules/playwright` was 1.61.1 while the range said `^1.55.1`, and the
@@ -126,7 +127,8 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
 
 - **Heavy runs take the lock:** `flock /tmp/heavy.lock` around builds,
   Playwright and the full test suites, so two of them never run at once. Never
-  wrap a script that takes the lock itself (`dev/build.sh`) in another flock.
+  wrap a script that takes the lock itself (`kit/dev/build.sh` with
+  `BUILD_LOCK` set) in another flock.
 - **`mongodb-memory-server` dies with `SIGILL` on a CPU without AVX.** Point
   tests at a real MongoDB (`TEST_MONGODB_URL`, `--no-file-parallelism`), and for
   e2e `E2E_MONGO_PORT`/`E2E_MONGO_URL`. Running the whole `client` project in
@@ -276,10 +278,12 @@ src/
 │   │   ├── router/       # Smart model routing (Omni)
 │   │   ├── database.ts   # MongoDB collections
 │   │   ├── models.ts     # Model registry from OPENAI_BASE_URL/models
-│   │   └── auth.ts       # OpenID Connect authentication
+│   │   ├── auth.ts       # OpenID Connect authentication
+│   │   ├── code/         # the /code panel's server side: machine link, forwarder, schedules executor
+│   │   ├── schedules/    # the kind-agnostic scheduled-actions core
+│   │   ├── codeDevices.ts  # pairing records, and the per-person scope on them
+│   │   └── codeEnabled.ts  # the CODE_AGENTS_ENABLED gate (and files, terminal, schedules)
 │   ├── types/            # TypeScript interfaces (Conversation, Message, User, Model, etc.)
-│   │   codeDevices.ts    # pairing records, and the per-person scope on them
-│   │   codeEnabled.ts    # the CODE_AGENTS_ENABLED gate
 │   ├── stores/           # Svelte stores for reactive state
 │   └── utils/            # Helpers (tree/, marked.ts, auth.ts, etc.)
 ├── routes/               # SvelteKit file-based routing
@@ -305,11 +309,12 @@ MCP servers are configured via `MCP_SERVERS` env var. When enabled, tools are ex
 
 ### LLM Router (Omni)
 
-Smart routing via Arch-Router model. Configured with:
-
-- `LLM_ROUTER_ROUTES_PATH`: JSON file defining routes
-- `LLM_ROUTER_ARCH_BASE_URL`: Router endpoint
-- Shortcuts: multimodal routes bypass router if `LLM_ROUTER_ENABLE_MULTIMODAL=true`
+Upstream's routing alias. Routes come from `LLM_ROUTER_ROUTES_PATH` (a JSON
+file); the route is picked by local heuristics (`router/heuristics.ts`), not
+by a call to an Arch-Router model, and the chosen model is called through
+`OPENAI_BASE_URL` like any other. `LLM_ROUTER_ENABLE_MULTIMODAL` and
+`LLM_ROUTER_ENABLE_TOOLS` send image and tool turns straight to their models.
+A gateway deployment does not configure it.
 
 ### Database Collections
 
@@ -462,8 +467,8 @@ The split is the point, and it was arrived at by getting it wrong first: every
 top-level entry was a branch, and a disclosure triangle revealing a list you
 then clicked to open a dialog anyway was worse. Only **Projects and Chats**
 have contents worth expanding. The rows at the foot are single addresses —
-**Workspace** (the tabbed page hosting models, MCP servers and knowledge
-bases), **Settings**, and **Admin** for administrators (gated on
+**Workspace** (the tabbed page hosting models, Customize models, MCP servers,
+knowledge bases, skills and memory), **Settings**, and **Admin** for administrators (gated on
 `gatewayIsAdmin`, the gateway's answer, not the chat's own flag) — and the
 **footer** is static: the user's tag and name, a theme switch, and a sign-out
 button, all inline, with no popup. (Models, Knowledge and MCP Servers were
@@ -623,6 +628,29 @@ the list now, and the overlay is gone). The one trap that caused — **a page bo
 on the server**, so a manager that fetched in its component body answered 502
 with `Failed to parse URL from /chat/api/v2/...`. Every manager loads in
 `onMount`, which the workspace tabs also rely on.
+
+## Palettes: accent and background tone
+
+**Settings → Application settings → Appearance** offers an accent (Blue,
+Violet, Teal, Green, Rose, Orange) and a background tone (Gray, Slate, Stone),
+stored as `Settings.accent` / `Settings.neutral` (`utils/palettes.ts`). The
+theme (System, Light, Dark) is separate and stays in `localStorage`. Three
+things to know:
+
+- **The defaults are the absence of an attribute.** `paletteAttributes()` emits
+  `data-accent` / `data-neutral` on `<html>` only for a non-default choice, so
+  a person who never picked one, and a page drawn before settings load, is the
+  unthemed app. `hooks/handle.ts` fills `%paletteAttrs%` in `app.html` from the
+  stored settings (`server/paletteSettings.ts`), so there is no flash.
+- **`src/styles/palettes.css` is generated** by `scripts/generate-palettes.mjs`
+  (then `npx prettier --write` on it): edit the tables in the script, never the
+  CSS. Every shade is the sRGB hex Tailwind's oklch value clips to, because
+  `palettes.contrast.test.ts` measures what the browser paints and Tailwind 4
+  emits no `--color-teal-*` variable that nothing uses. The contrast test holds
+  every combination to 4.5:1 in light and dark.
+- **Palettes are Cerea-only.** `tokens.css` stays a byte copy of Pystino's; the
+  palettes override it from their own file. The swatch colours in
+  `utils/palettes.ts` are checked against the CSS by a test.
 
 ## Projects and knowledge bases
 
@@ -913,6 +941,13 @@ caller's own, paired. Things that bite:
   `createSchedule`, never read from a body; the welcome advertises
   `features.machineCalls`. Specs: `machineCalls.spec.ts`, and `FakeMachine.call()`
   sends a `call` from tests;
+- **every scheduled prompt starts with one header line**
+  (`schedules/runHeader.ts`): `[Scheduled run of "<name>", <timetable>
+(<timezone>); previous run <ago | none>; coordination: <keys | none>]`, a
+  blank line, then the prompt as written. It is not stored on the schedule.
+  galopin's `delegation` skill (`agent/internal/backend/opencode/skill.go`) has
+  a "When you run on a schedule" and a "Scheduling work" section that read it;
+  change the header and the skill together;
 - API: `/api/v2/code/schedules` (+ `/[id]`, `/[id]/run`, `/[id]/runs`, `/preview`).
   It is under `/api/v2/code/`, so the 7-day sign-in guard covers it by prefix;
   `stale-guard.spec.ts` lists every route file and fails on a new one.

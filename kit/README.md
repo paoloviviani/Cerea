@@ -735,6 +735,20 @@ or whose access was revoked, shows **Re-enroll this machine** in the device
 list, with the same command. Everything in `/chat/code` needs a sign-in within
 the last 7 days; the machine's own link to the chat is not affected.
 
+`galopin run` stops with its terminal. On Linux the machine's owner keeps it
+running as a systemd user unit, on macOS as a LaunchAgent (both files ship in
+`agent/packaging/`; the steps are in
+[Keeping it running](https://paoloviviani.github.io/Cerea/agent-machines/#keeping-it-running)).
+After re-running the install line, `systemctl --user restart galopin` starts
+the new binary.
+
+**Scheduled actions** come with `--agents`: people can have a prompt sent to a
+session on one of their machines on a timetable, and agents can make schedules
+on their own machine. `CHAT_SCHEDULES_ENABLED='false'` is the kill switch (on
+otherwise) and `CHAT_SCHEDULES_MAX_PER_USER` caps each person's schedules
+(default 20); see
+[Scheduled actions](https://paoloviviani.github.io/Cerea/code-panel/#scheduled-actions).
+
 ### opencode without Cerea
 
 Anyone who uses opencode directly can point it at the gateway. The console's

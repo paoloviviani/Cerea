@@ -64,13 +64,16 @@ at most 85% of the width, so your turns and the replies are easy to tell apart
 when you scroll; replies stay on the left in a neutral bubble. A long message
 of yours folds behind **Show more**. Text is set in Inter, 16px in the chat.
 
-**Settings → Application settings → Appearance** has three choices, saved on
-your account and applied before the page draws:
+**Settings → Application settings → Appearance** has three choices:
 
-- **Theme:** System, Light or Dark.
+- **Theme:** System, Light or Dark. Kept in this browser, so each device can
+  differ.
 - **Accent colour:** Blue, Violet, Teal, Green, Rose or Orange. It colours
   buttons, links and the selected chat.
 - **Background tone:** Gray, Slate or Stone: cool or warm greys behind the text.
+
+The accent colour and the background tone are saved on your account and
+applied before the page draws, so they follow you to every device.
 
 Every combination keeps text and buttons at a contrast of 4.5:1 or better, in
 light and dark.

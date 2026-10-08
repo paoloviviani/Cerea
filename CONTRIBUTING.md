@@ -316,7 +316,7 @@ docker build itself; do not wrap the script in a `flock` of the same file, which
 
 ```sh
 cd kit
-python3 -m unittest                          # 167 tests; several minutes (some start containers)
+python3 -m unittest                          # about 170 tests; several minutes (some start containers)
 tools/pin --check                            # exits 1 if a pin or a config label is stale
 bash -n dev/build.sh && sh -n get-kit.sh     # the scripts parse
 ```
@@ -420,7 +420,7 @@ reported as not run, never as passed. Pystino releases first (see
 [its guide](https://github.com/paoloviviani/Pystino/blob/main/CONTRIBUTING.md#releasing)); the kit
 pins the Pystino version it was tested with. Then, in this order:
 
-1. **The release commit** (`release: vX.Y.Z`) does three things:
+1. **The release commit** (`Release vX.Y.Z`) does three things:
    - bumps the version in `package.json` and `package-lock.json`;
    - pins the kit: `kit/tools/pin --cerea X.Y.Z --pystino P.Q.R`, then `kit/tools/pin --check`.
      It rewrites the version defaults in `kit/compose.yaml`, the commented examples in
@@ -431,8 +431,9 @@ pins the Pystino version it was tested with. Then, in this order:
      running the kit sees and any step an upgrade needs on their side (re-running the install line
      on agent machines, pressing Save once, and so on).
 2. **CI green** on that commit: `ci` and `kit` run on every push to `main`; push, then wait.
-3. **Tag** it, annotated, `vX.Y.Z` (message `vX.Y.Z — Cerea X.Y.Z, Pystino P.Q.R`), and push the
-   tag. Tags are never moved.
+3. **Tag** it, annotated, `vX.Y.Z`, and push the tag. Tags are never moved. (`release.sh`
+   uses the message `vX.Y.Z`; when five pushes fail with a GitHub 5xx it creates the tag through
+   the API instead, which makes a lightweight tag.)
 4. **The `images` workflow** on the tag: `gh workflow run images.yml --ref vX.Y.Z`, then wait for
    green. It publishes `ghcr.io/paoloviviani/cerea:X.Y.Z` (and `:X.Y`); the package is public.
 5. **Anonymous pull:** `docker pull` of the Cerea image and of the Pystino images the kit pins,
@@ -442,12 +443,20 @@ pins the Pystino version it was tested with. Then, in this order:
    `./configure --non-interactive` with a scratch origin and project name, `docker compose pull`
    (with the empty Docker login), `up -d --wait`, a check that the running containers carry the new
    tags, and a real sign-in through the identity provider, the gateway and the chat to
-   `/chat/code`: from a Pystino checkout, `uv run python deploy/ci/e2e_login.py <scratch>/kit
-<first-sign-in password> --chat` must print exactly `E2E_OK`. Then remove the scratch stack with
-   its volumes and check they are gone.
+   `/chat/code`, which must print exactly `E2E_OK` (`scripts/release/signin_check.py`). Then
+   remove the scratch stack with its volumes and check they are gone.
 7. **Fast-forward `stable` to the tag**, only now: `git push origin vX.Y.Z^{}:refs/heads/stable`
    (a fast-forward; never `--force`). Operators follow `stable` or a tag, **never `main`**, and
    `get-kit.sh` is served from `stable`.
+
+Steps 2 to 7 and the GitHub release are one script: after pushing the release commit to
+`main`, run `scripts/release/release.sh X.Y.Z`. It refuses unless `origin/main` carries
+`package.json` at X.Y.Z and a `## vX.Y.Z` changelog entry, waits for `ci` and `kit`, tags,
+dispatches `images`, checks the anonymous pull, runs `scripts/release/fresh-kit-check.sh vX.Y.Z`
+(step 6; it fetches `get-kit.sh` from GitHub at the tag, and needs Docker, `uv`, `python3`, `curl`
+and ports 80/443 free; `KEEP=1` leaves the stack up), moves `stable` and creates the GitHub
+release from the changelog entry. It stops at the first failed step and says which; a release is
+done only when it prints `released vX.Y.Z`.
 
 If step 4, 5 or 6 fails, `stable` stays where it was: fix forward and release the next patch
 (`vX.Y.Z+1`); do not move or delete the tag. A kit-only fix is a Cerea patch release too.
