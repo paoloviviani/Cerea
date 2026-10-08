@@ -3,6 +3,7 @@
 	import { goto } from "$app/navigation";
 	import type { Message } from "$lib/types/Message";
 	import { tick } from "svelte";
+	import { finalAnswerAddition } from "$lib/utils/mergeFinalAnswer";
 
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	const publicConfig = usePublicConfig();
@@ -561,13 +562,10 @@
 					.map((b) => (b as { type: "text"; content: string }).content)
 					.join("");
 
-				let addedText = "";
-				if (finalText.startsWith(currentText)) {
-					addedText = finalText.slice(currentText.length);
-				} else if (!currentText.endsWith(finalText)) {
-					const needsGap = !/\n\n$/.test(currentText) && !/^\n/.test(finalText);
-					addedText = (needsGap ? "\n\n" : "") + finalText;
-				}
+				// Same rules as the stored content (mergeFinalAnswerContent), so a
+				// whitespace-only difference — the paragraph break the server puts
+				// at each step after a tool — cannot render the answer twice.
+				const addedText = finalAnswerAddition(currentText, finalText);
 
 				if (addedText) {
 					const last = res.at(-1);
