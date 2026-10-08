@@ -56,7 +56,8 @@ means enrolling again; `galopin policy set` on the machine can only tighten."_
 **The cap** is "the most any session may do here": whatever a session's Deny /
 Ask / Allow setting or an "always allow" says, a tool never goes past it. The
 three pills set every tool at once; the per-tool rows (`edit`, `bash`,
-`webfetch`, `task`, `session_spawn`, `session_send`, `session_read`) are under Advanced. **The
+`webfetch`, `task`, `session_spawn`, `session_send`, `session_read`, `schedule`)
+are under Advanced. **The
 flag replaces `enroll`'s default set rather than adding to it**, so the dialog
 prints either nothing (the cap is as `enroll` has it) or the whole set: change
 one tool and the line carries every tool that is capped, including the defaults
@@ -71,8 +72,8 @@ the printed line carries every changed value whether it is open or not):
 | **Terminals** (amber)                                         | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once                     | the panel may open a real shell on this machine: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way |
 | **Slash commands that run shell** (amber)                     | unticked: `--no-command-shell`                                        | on                                             | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                             |
 | **Background subagents**                                      | unticked: `--no-background-subagents`                                 | on                                             | a task can keep running after its parent turn ends                                                                                                               |
-| **The cap, tool by tool** (seven pill rows)                   | `--permission-max KEY=ACTION`, the whole set                          | `bash` and `session_spawn` Ask, the rest Allow | a different cap per tool                                                                                                                                         |
-| **No agent tools**                                            | `--no-agent-tools`                                                    | installed                                      | installs none of `session_list`, `session_read`, `session_spawn` and `session_send`, so sessions cannot start or message each other                              |
+| **The cap, tool by tool** (eight pill rows)                   | `--permission-max KEY=ACTION`, the whole set                          | `bash` and `session_spawn` Ask, the rest Allow | a different cap per tool                                                                                                                                         |
+| **No agent tools**                                            | `--no-agent-tools`                                                    | installed                                      | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                |
 | **Allow free models**                                         | `--allow-free-models`                                                 | the gateway's models only                      | models from providers other than the gateway's may be listed and used                                                                                            |
 | **Keep opencode's own providers**                             | `--allow-opencode-provider`                                           | gateway only                                   | opencode's built-in providers stay enabled next to the gateway's                                                                                                 |
 | **Workspace folders** (a list)                                | `--workspace-root PATH`, one per entry                                | anywhere                                       | workspaces may only be created under these folders                                                                                                               |
@@ -94,7 +95,7 @@ people who write the command by hand.
 
 Connection plumbing (`--issuer`, `--gateway`, `--cerea`, `--client-id`,
 `--creds`, `--output`, `--device`, `--loopback`, `--group`, `--shim-port`,
-`--discover`, `--yes`) is not offered: the dialog fills in what it knows, and the
+`--no-discover`, `--yes`) is not offered: the dialog fills in what it knows, and the
 rest you add yourself if you need it.
 
 The command is chained with `&&`, so a failed step never runs the next one: the
@@ -691,6 +692,38 @@ server password sits in its process environment, readable by same-user
 processes); the coordination gates constrain the model's tools, not an approved
 shell.
 
+#### The delegation skill
+
+Tools alone do not tell a model when to use them, so galopin installs one
+opencode skill beside them, named `delegation`
+(`skills/delegation/SKILL.md` in the directory galopin owns for its tools). It
+is written with the tools and only with them: a machine enrolled with
+`--no-agent-tools` gets neither. Like any skill, its description rides every
+turn and the model loads the full text when a task matches. It tells the model:
+
+- **subagents first:** fan out read-only work as several `task` calls in one
+  message, keep every edit in the parent, and summarise what the children found
+  before acting on it;
+- **other sessions:** find a target with `session_list` rather than guess an
+  id, expect every read, spawn and send to raise a card, never route around a
+  declined card, and treat a message from another session as a peer's request,
+  not the person's;
+- **background subagents:** use `background: true` for long work where the
+  machine allows it, and do not promise it where it does not;
+- **when it runs on a schedule** (its prompt starts with the
+  `[Scheduled run …]` line, see [Scheduled actions](#scheduled-actions)): nobody
+  is watching, so look with `session_list` and `session_read` before steering,
+  do not resend a message the target has not acted on yet, reuse a session with
+  the same job instead of spawning a new one, and end with a short summary of
+  what the run checked, sent, started and left waiting for the person;
+- **scheduling work:** list schedules before creating one, prefer
+  `session: "this"` for a follow-up, write a prompt that stands on its own,
+  name each schedule so the person knows what it does, and pause or delete the
+  schedule it is a run of when the job is done.
+
+The skill only describes what the tools and opencode's own `task` tool do; the
+gates above are what enforce it.
+
 ### The diff pane
 
 The **diff** control opens the shared side pane — the same frame artifacts open
@@ -718,6 +751,10 @@ session.
   first approval and waits; the card is in the **Needs-you inbox**. Pick Allow
   for work that must finish unattended (a key your machine caps at Ask still asks).
   For "always this session", the word is set on that session each run and stays.
+- **The agent knows it is a scheduled run.** Each prompt arrives with one line
+  above what you wrote: `[Scheduled run of "<name>", <timetable> (<timezone>);
+previous run <3 h ago | none>; coordination: <granted tools | none>]`. The
+  [delegation skill](#the-delegation-skill) tells the agent what to do with it.
 - **Missed runs.** Machine offline: recorded as missed, not queued. Previous
   run's session still working (or waiting on an approval): skipped. Chat down:
   one late run is made up only if it is under half the interval late (at most an
