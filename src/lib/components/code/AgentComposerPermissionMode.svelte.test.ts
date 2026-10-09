@@ -14,14 +14,23 @@ import type { CodeAgentSession } from "$lib/types/CodeAgent";
  * - on a subagent it is disabled, saying it follows the main session;
  * - it is absent without a word to show (an older machine) and while the
  *   sign-in is stale;
- * - it writes no rule: the one call is `setPermissionMode`.
+ * - it writes no rule: the one call is `setPermissionMode`;
+ * - the details button beside it carries the exceptions count and opens the
+ *   dialog for this session (which reads the rules itself), and is hidden
+ *   on a subagent too.
  *
  * MOCK: `permissionMode` and the ceiling are the panel's reading of the frozen
  * contract with the agent half (feat/permission-selector-agent).
  */
 const api = vi.hoisted(() => ({
 	setPermissionMode: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
-	getPermissionRules: vi.fn(async () => ({ rules: [], savedApprovals: [], ceiling: {} })),
+	getPermissionRules: vi.fn(
+		async (): Promise<{
+			rules: unknown[];
+			savedApprovals: Array<Record<string, unknown>>;
+			ceiling: Record<string, string>;
+		}> => ({ rules: [], savedApprovals: [], ceiling: {} })
+	),
 	removeSavedApproval: vi.fn(async () => ({ ok: true })),
 	respondPermission: vi.fn(async () => ({ ok: true })),
 }));
@@ -55,6 +64,7 @@ function mount(
 	agent: CodeAgentSession | null,
 	extra: {
 		ceiling?: Record<string, "ask" | "deny">;
+		permissionExceptions?: number;
 		onchanged?: () => void;
 		onpermissionchanged?: () => void;
 	} = {}
@@ -221,5 +231,69 @@ describe("the permission selector", () => {
 		expect(screen.getByRole("button", { name: /auto-accept/i }).elements()).toHaveLength(0);
 		const text = screen.container.textContent ?? "";
 		expect(text).not.toMatch(/auto-accept|responder/i);
+	});
+});
+
+describe("the permission details button", () => {
+	const oneApproval = {
+		rules: [],
+		savedApprovals: [{ id: "ex_1", permission: "bash", patterns: ["ls"], removable: true }],
+		ceiling: {},
+	};
+
+	it("sits beside the selector, carries the exceptions count, and opens the dialog for this session", async () => {
+		api.getPermissionRules.mockResolvedValueOnce(oneApproval);
+		const screen = mount(session(), { permissionExceptions: 2 });
+		const button = screen.getByRole("button", { name: "Permission details for this session" });
+		await expect.element(button).toBeVisible();
+		await expect.element(button).toHaveTextContent("2");
+
+		await button.click();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		await expect
+			.element(screen.getByRole("heading", { name: "Permissions — Build it" }))
+			.toBeVisible();
+		// The dialog read THIS session's rules itself.
+		await vi.waitFor(() => expect(api.getPermissionRules).toHaveBeenCalledWith("d1", "a1"));
+	});
+
+	it("carries no count without exceptions", async () => {
+		const screen = mount(session(), { permissionExceptions: 0 });
+		const button = screen.getByRole("button", { name: "Permission details for this session" });
+		await expect.element(button).toBeVisible();
+		expect(button.element().textContent?.trim()).toBe("");
+	});
+
+	it("is hidden on a subagent", async () => {
+		const screen = mount(session({ parentId: "root-1" }), { permissionExceptions: 1 });
+		await expect.element(screen.getByTestId("permission-mode")).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Permission details for this session" }).elements()
+		).toHaveLength(0);
+	});
+
+	it("is hidden while the /code sign-in is stale", async () => {
+		const screen = mount(session(), { permissionExceptions: 1 });
+		await expect.element(screen.getByTestId("permission-details")).toBeVisible();
+		flagCodeReauth();
+		await vi.waitFor(() =>
+			expect(screen.getByTestId("permission-details").elements()).toHaveLength(0)
+		);
+	});
+
+	it("after a Remove the dialog re-reads and the parent re-reads with it", async () => {
+		const onpermissionchanged = vi.fn();
+		api.getPermissionRules.mockResolvedValueOnce(oneApproval);
+		const screen = mount(session(), { permissionExceptions: 1, onpermissionchanged });
+		await screen.getByTestId("permission-details").click();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		await screen.getByRole("button", { name: "Remove exception for bash" }).click();
+
+		await vi.waitFor(() =>
+			expect(api.removeSavedApproval).toHaveBeenCalledWith("d1", "a1", "ex_1")
+		);
+		await vi.waitFor(() => expect(onpermissionchanged).toHaveBeenCalledTimes(1));
+		// One read on open, one after the removal: the dialog's own re-read.
+		await vi.waitFor(() => expect(api.getPermissionRules).toHaveBeenCalledTimes(2));
 	});
 });

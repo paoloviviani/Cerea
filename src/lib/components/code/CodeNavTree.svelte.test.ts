@@ -410,78 +410,64 @@ describe("CodeNavTree scheduled actions", () => {
 	});
 });
 
-describe("CodeNavTree Permissions item", () => {
-	const ASK_RULES = {
-		mode: "ask",
-		rules: [{ permission: "*", pattern: "*", action: "ask", source: "cerea" }],
-		savedApprovals: [],
-		ceiling: {},
-	};
-
-	function withSchedules(on: boolean) {
-		Object.assign(livePage.data, { codeSchedulesEnabled: on });
+describe("CodeNavTree session Permissions menu", () => {
+	function rulesFor(approvals: number) {
+		return {
+			mode: "ask",
+			rules: [{ permission: "*", pattern: "*", action: "ask", source: "cerea" }],
+			savedApprovals: Array.from({ length: approvals }, (_, i) => ({
+				id: `ex_${i}`,
+				permission: "bash",
+				patterns: ["npm test"],
+				removable: true,
+			})),
+			ceiling: {},
+		};
 	}
 
-	it("shows the item only with a selected session whose machine answers permission.rules", async () => {
-		withSchedules(true);
-		apiMock.getPermissionRules.mockResolvedValue(ASK_RULES);
-
-		go("?device=d1&ws=w1");
-		const bare = mount();
-		await expect.element(bare.getByText("Box d1")).toBeVisible();
-		expect(bare.getByTestId("permissions-item").elements()).toHaveLength(0);
-		bare.unmount();
-
+	it("opens the dialog for the row whose menu it came from, selected or not", async () => {
+		// a1 is the selection; the menu is a2's.
+		apiMock.getPermissionRules.mockImplementation(async (_device: string, agentId: string) =>
+			rulesFor(agentId === "a2" ? 2 : 0)
+		);
 		go("?device=d1&ws=w1&agent=a1");
 		const screen = mount();
-		const item = screen.getByTestId("permissions-item");
-		await expect.element(item).toBeVisible();
-		await expect.element(item).toHaveTextContent("Permissions");
-		withSchedules(false);
+		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
+
+		await screen.getByRole("button", { name: "Session actions" }).nth(1).click();
+		await screen.getByRole("menuitem", { name: "Permissions…" }).click();
+		await expect
+			.element(screen.getByRole("heading", { name: "Permissions — Agent a2" }))
+			.toBeVisible();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		// The dialog read THAT session's rules, not the selection's.
+		expect(apiMock.getPermissionRules).toHaveBeenCalledWith("d1", "a2");
+		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(2);
+
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await expect.element(screen.getByTestId("permissions-detail")).not.toBeInTheDocument();
 	});
 
-	it("stays hidden when the machine predates the op (404), and on the schedules pages", async () => {
-		withSchedules(true);
+	it("has no Permissions… item on a subagent row", async () => {
+		AGENTS.d1 = [agent("a1", "w1"), { ...agent("a2", "w1"), parentId: "a1" }];
 		go("?device=d1&ws=w1&agent=a1");
-		const stale = mount();
-		await expect.element(stale.getByText("Agent a1")).toBeVisible();
-		expect(stale.getByTestId("permissions-item").elements()).toHaveLength(0);
-		stale.unmount();
+		const screen = mount();
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
 
-		go("?view=schedules&device=d1&ws=w1&agent=a1");
-		const prefilled = mount();
-		await expect.element(prefilled.getByText("Agent a1")).toBeVisible();
-		expect(prefilled.getByTestId("permissions-item").elements()).toHaveLength(0);
-		withSchedules(false);
-	});
+		await screen.getByRole("button", { name: "Session actions" }).nth(1).click();
+		expect(screen.getByRole("menuitem", { name: "Permissions…" }).elements()).toHaveLength(0);
+		screen.unmount();
 
-	it("carries the session's switch word and the exceptions count", async () => {
-		withSchedules(true);
-		AGENTS.d1 = [{ ...agent("a1", "w1"), permissionMode: "allow" }, agent("a2", "w1")];
-		apiMock.getPermissionRules.mockResolvedValue({
-			...ASK_RULES,
-			savedApprovals: [
-				{ id: "ex_1", permission: "bash", patterns: ["npm test"], removable: true },
-				{ id: "ex_2", permission: "edit", patterns: ["src/**"], removable: true },
-			],
-		});
-		const enrolled = {
-			workspaceRoots: [],
-			allowFreeModels: false,
-			permission: { max: { bash: "ask" } },
-		};
-		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount([device("d1", { policy: enrolled }), device("d2")]);
-		const item = screen.getByTestId("permissions-item");
-		await expect.element(item).toBeVisible();
-		await expect.element(item).toHaveTextContent("Allow");
-		await expect.element(item).toHaveTextContent("2");
+		// The ordinary session's own menu still carries it.
 		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
-		withSchedules(false);
+		const second = mount();
+		await expect.element(second.getByText("Agent a1", { exact: true })).toBeVisible();
+		await second.getByRole("button", { name: "Session actions" }).first().click();
+		await expect.element(second.getByRole("menuitem", { name: "Permissions…" })).toBeVisible();
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
 	});
 
-	it("flags a pre-ceilings machine with the amber warning instead of the switch", async () => {
-		withSchedules(true);
+	it("shows the re-enroll content for a machine that predates ceilings", async () => {
 		apiMock.getPermissionRules.mockResolvedValue({
 			rules: [{ permission: "*", pattern: "*", action: "allow", source: "opencode" }],
 			savedApprovals: [],
@@ -490,27 +476,13 @@ describe("CodeNavTree Permissions item", () => {
 		const legacyPolicy = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
 		go("?device=d1&ws=w1&agent=a1");
 		const screen = mount([device("d1", { policy: legacyPolicy }), device("d2")]);
-		const item = screen.getByTestId("permissions-item");
-		await expect.element(item).toBeVisible();
-		await expect.element(screen.getByTitle("Re-enroll this machine to set limits.")).toBeVisible();
-		withSchedules(false);
-	});
+		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
 
-	it("opens the detail in a dialog and closes it again", async () => {
-		withSchedules(true);
-		apiMock.getPermissionRules.mockResolvedValue(ASK_RULES);
-		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount();
-		const item = screen.getByTestId("permissions-item");
-		await expect.element(item).toBeVisible();
-		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
-		await item.click();
-		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		await expect.element(screen.getByTestId("permission-rows")).toBeVisible();
-		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-		await expect.element(screen.getByTestId("permissions-detail")).not.toBeInTheDocument();
-		// The row stays, closed.
-		await expect.element(screen.getByTestId("permissions-item")).toBeVisible();
-		withSchedules(false);
+		await screen.getByRole("button", { name: "Session actions" }).first().click();
+		await screen.getByRole("menuitem", { name: "Permissions…" }).click();
+		await expect.element(screen.getByTestId("legacy-machine-flag")).toBeVisible();
+		await expect
+			.element(screen.getByTestId("legacy-machine-flag"))
+			.toHaveTextContent("Re-enroll this machine to set limits");
 	});
 });
