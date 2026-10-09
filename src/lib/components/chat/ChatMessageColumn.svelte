@@ -38,6 +38,16 @@
 		readOnly?: boolean;
 		/** The caller's pending-placeholder decision (`shouldShowPendingPlaceholder`). */
 		showPlaceholder?: boolean;
+		/** The initial history is still folding (the agent panel: a fresh
+		 * subscription replays the machine's whole transcript before tailing).
+		 * While true the turns stay unmounted — the caller's `loading` snippet
+		 * renders instead — and the fold runs without a render per burst; when it
+		 * flips false the whole transcript mounts in one flush and the view lands
+		 * at the bottom before paint. */
+		historyPending?: boolean;
+		/** What the person sees while `historyPending` (the agent panel's
+		 * "Loading conversation…" skeleton). */
+		historyLoading?: Snippet;
 		/** Identity the scroll controller re-initializes on — a conversation id,
 		 * or any stable key for a non-conversation surface. */
 		conversationKey?: string;
@@ -83,6 +93,8 @@
 		isAuthor = true,
 		readOnly = false,
 		showPlaceholder = false,
+		historyPending = false,
+		historyLoading,
 		conversationKey = undefined,
 		onretry,
 		onshowAlternateMsg,
@@ -174,6 +186,21 @@
 		chatScroll.notifyContentChanged();
 	});
 
+	// Landing after a gated history: run when the gate FLIPS closed, not on
+	// mount (chat never gates; the agent panel opens with the gate up). The
+	// microtask defers the write past this flush's DOM update — the turns
+	// mount in the same flush the flag flips — while paint still waits on
+	// the microtask checkpoint, so the first frame the person sees is the
+	// transcript already at its newest message. A person cannot have
+	// scrolled during the load: the skeleton leaves nothing to scroll.
+	let wasHistoryPending = false;
+	$effect(() => {
+		const pending = historyPending;
+		const landed = wasHistoryPending;
+		wasHistoryPending = pending;
+		if (landed && !pending) queueMicrotask(() => chatScroll.landAtBottom());
+	});
+
 	$effect(() => {
 		chatScroll.setComposerHeight(composerHeight);
 	});
@@ -207,7 +234,12 @@
 			class="@container mx-auto flex h-full max-w-3xl flex-col gap-6 px-3 pt-6 sm:gap-8 sm:px-5 xl:max-w-4xl xl:pt-10"
 		>
 			{@render head?.()}
-			{#if messages.length > 0}
+			{#if historyPending}
+				<!-- The history is still folding: nothing of the transcript is
+				     rendered yet (the caller's skeleton stands in), so the
+				     whole thing mounts once, when the gate opens below. -->
+				{@render historyLoading?.()}
+			{:else if messages.length > 0}
 				<!-- padding-bottom is the composer clearance (content never hides
 				     behind the composer overlay); the SSR-rendered value equals the
 				     historical clearance. The anchored turn's min-height is the

@@ -327,6 +327,20 @@ export class ChatScroll {
 		this.controller?.jumpToBottom();
 	}
 
+	/**
+	 * A gated history just became visible (the agent panel's first paint of a
+	 * long transcript): land at the newest message, engaged — the same state
+	 * `attach` leaves, so live growth keeps following while the late layout
+	 * of markdown and images is absorbed. Callers must run this AFTER the
+	 * messages are in the DOM (defer one microtask from the effect that saw
+	 * the gate flip), so the write measures the final layout and lands before
+	 * paint — the first frame the person sees is already at the bottom, never
+	 * a jump from the top.
+	 */
+	landAtBottom() {
+		this.controller?.jumpToBottom();
+	}
+
 	// --- buttons ----------------------------------------------------------------------
 
 	scrollToBottom() {
