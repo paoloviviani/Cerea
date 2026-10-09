@@ -38,7 +38,7 @@
  * box, no server isolation), not by omission.
  */
 
-import { ObjectId } from "mongodb";
+import { ObjectId, type UpdateFilter } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { AdminSkillView, Skill, SkillFile, SkillView } from "$lib/types/Skill";
@@ -181,24 +181,16 @@ export async function ensureDeploymentSeeds(): Promise<void> {
 			// The content-and-files equality filter closes the race with a
 			// concurrent edit: if the row changed between the read and this
 			// write, the filter no longer matches and the edit stands.
-			const set: Record<string, unknown> = {
+			const set: Partial<Skill> & { updatedAt: Date } = {
 				content: builtin.content,
 				description: builtin.description,
 				seedHash: builtin.hash,
 				updatedAt: new Date(),
 			};
-			const unset: Record<string, unknown> = {};
+			const update: UpdateFilter<Skill> = { $set: set };
 			if (builtin.files.length) set.files = builtin.files;
-			else unset.files = "";
-			const result = await collections.skills.updateOne(
-				{
-					_id: row._id,
-					scope: "deployment",
-					content: row.content,
-					files: row.files ?? null,
-				},
-				Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set }
-			);
+			else update.$unset = { files: "" };
+			const result = await collections.skills.updateOne(unchangedFilter(row), update);
 			if (result.matchedCount === 1) {
 				logger.info(
 					{ name: builtin.name },
@@ -211,15 +203,30 @@ export async function ensureDeploymentSeeds(): Promise<void> {
 			// A row from before `seedHash` existed whose content still matches
 			// the current definition: stamp the hash so later upgrades can
 			// track it. No content change — it is already this definition.
-			await collections.skills.updateOne(
-				{ _id: row._id, scope: "deployment", content: row.content, files: row.files ?? null },
-				{ $set: { seedHash: builtin.hash } }
-			);
+			await collections.skills.updateOne(unchangedFilter(row), {
+				$set: { seedHash: builtin.hash },
+			});
 			continue;
 		}
 		// Anything else — an administrator's edit, or a diverged pre-hash row —
 		// is the administrator's version now. Leave it alone.
 	}
+}
+
+/**
+ * The race guard the upgrade writes ride on: the filter matches only the
+ * row exactly as it was read, so an edit that lands between the read and
+ * the write makes the filter stop matching and the edit stands. Rows never
+ * store `files: null` — the writers omit the field — so "no files" is
+ * matched as the field's absence.
+ */
+function unchangedFilter(row: Pick<Skill, "_id" | "content" | "files">) {
+	return {
+		_id: row._id,
+		scope: "deployment" as const,
+		content: row.content,
+		...(row.files ? { files: row.files } : { files: { $exists: false } }),
+	};
 }
 
 /**

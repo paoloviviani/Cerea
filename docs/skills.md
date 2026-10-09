@@ -27,17 +27,17 @@ vendored by the deployment, and the files the code writes come back as
 downloadable artifacts. The honest limits are listed with each skill — they
 come from the browser sandbox, not from missing effort.
 
-| Skill | What it is for |
-| ----------------- | -------------------------------------------------------- |
-| `word` | Creating and editing Word documents with python-docx |
-| `excel` | Workbooks with formulas, formatting and native charts |
-| `pdf` | Creating PDF documents with reportlab |
-| `pdf-tools` | Working with existing PDFs: merge, split, forms, encryption |
-| `powerpoint` | Decks from a markdown outline, on a template's real layouts |
-| `charts` | Publication-minded figures with matplotlib and seaborn |
-| `data-analysis` | Profiling data and testing hypotheses, with the caveats stated |
-| `business-writing` | Internal communications in the usual formats |
-| `themes` | Colour and font themes applied across documents and decks |
+| Skill              | What it is for                                                 |
+| ------------------ | -------------------------------------------------------------- |
+| `word`             | Creating and editing Word documents with python-docx           |
+| `excel`            | Workbooks with formulas, formatting and native charts          |
+| `pdf`              | Creating PDF documents with reportlab                          |
+| `pdf-tools`        | Working with existing PDFs: merge, split, forms, encryption    |
+| `powerpoint`       | Decks from a markdown outline, on a template's real layouts    |
+| `charts`           | Publication-minded figures with matplotlib and seaborn         |
+| `data-analysis`    | Profiling data and testing hypotheses, with the caveats stated |
+| `business-writing` | Internal communications in the usual formats                   |
+| `themes`           | Colour and font themes applied across documents and decks      |
 
 Three more built-ins handle data shaping: `csv-shaping`, `json-shaping` and
 `report-writing`.
