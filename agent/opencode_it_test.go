@@ -44,13 +44,11 @@ func itFreePort(t *testing.T) int {
 // itTmpDir is a per-test TMPDIR on disk, removed when the test ends.
 // opencode (a Bun binary) extracts ~5 MB of native libraries into TMPDIR on
 // every start and never removes them; on a box whose /tmp is tmpfs, the ITs
-// would otherwise leave that in RAM run after run.
+// would otherwise leave that in RAM run after run — so the base is /var/tmp,
+// real disk wherever the box caches anything else.
 func itTmpDir(t *testing.T) string {
 	t.Helper()
-	base, err := os.UserCacheDir()
-	if err != nil {
-		base = os.TempDir()
-	}
+	base := "/var/tmp"
 	if err := os.MkdirAll(filepath.Join(base, "galopin-it"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -120,11 +118,13 @@ func isIdle(ev backend.Event) bool {
 }
 
 // TestOpencodeIntegration spawns a real, pinned opencode (1.18.31) against
-// a mock OpenAI-compatible upstream and proves the three things PROTOCOL.md
+// a mock OpenAI-compatible upstream and proves the four things PROTOCOL.md
 // promises the opencode backend delivers: a prompt streams text deltas to
 // idle; a tool call surfaces a permission ask that, once replied "once",
-// lets the tool run; and a cancel mid-stream reaches idle well before the
-// scripted stream would finish on its own. Gated behind
+// lets the tool run; a cancel mid-stream reaches idle well before the
+// scripted stream would finish on its own; and a session.compact posts the
+// body opencode requires (an empty body is a 400) and yields a compaction
+// part with auto:false. Gated behind
 // GALOPIN_OPENCODE_IT=1 (alias: PYSTINO_AGENT_OPENCODE_IT) — it needs the
 // opencode and node binaries, and a sibling thin-cerea checkout for the
 // mock's script.
@@ -331,6 +331,22 @@ func TestOpencodeIntegration(t *testing.T) {
 		drainEvents(t, mat, sess.ID, 10*time.Second, isIdle)
 		if elapsed := time.Since(start); elapsed > 8*time.Second {
 			t.Errorf("idle took %s after cancel; expected well under the scripted stream's 12s", elapsed)
+		}
+	})
+
+	t.Run("compact sends the model and yields a compaction part", func(t *testing.T) {
+		setMockScenario(t, mockOrigin, "plainText")
+		// The session ran turns above, so its newest assistant message names
+		// the model the summarize goes out on. Before the body was sent,
+		// opencode answered 400 {"kind":"Payload"} here.
+		if err := ocBackend.Compact(ctx, workDir, sess.ID); err != nil {
+			t.Fatalf("compact: %v", err)
+		}
+		events := drainEvents(t, mat, sess.ID, 60*time.Second, func(ev backend.Event) bool {
+			return ev.Kind == backend.EventPart && ev.Part != nil && ev.Part.Type == backend.PartCompaction
+		})
+		if last := events[len(events)-1]; last.Part.Auto {
+			t.Error("compaction part carries auto:true; a person's Compact now must arrive as auto:false")
 		}
 	})
 }
