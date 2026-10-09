@@ -94,3 +94,63 @@ test.describe("a fresh /code sign-in", () => {
 		await expect(page.getByTestId("code-reauth-card")).toHaveCount(0);
 	});
 });
+
+test.describe("a session that died mid-page", () => {
+	// The hourly expiry of a chat without a refresh token: the row is gone
+	// (or its token expired) while a tab sits open. The panel's way back is
+	// the plain sign-in — the provider's own SSO session answers it
+	// silently — never the forced `reauth=1` prompt.
+	test("the page leaves for the plain sign-in, and never the forced one", async ({
+		page,
+		db,
+		session,
+	}) => {
+		await signInWith(db, session.sessionId, new Date(Date.now() - 1 * DAY));
+		await page.unroute(CODE_STATUS_GLOB);
+		await page.goto(`${E2E_APP_BASE}/code`);
+		await expect(page.getByText("No paired devices").first()).toBeVisible();
+
+		await db.collection("sessions").deleteOne({ sessionId: session.sessionId });
+		// Returning to the tab re-asks /status; a reload folds the same way.
+		// The signed-out answer navigates the page itself:
+		await page.reload();
+		await page.waitForURL(/\/login\?/);
+		expect(page.url()).toContain("next=");
+		expect(page.url()).not.toContain("reauth=1");
+	});
+
+	test("with the loop guard holding the redirect, the signed-out card stays, with the plain link", async ({
+		page,
+		db,
+		session,
+	}) => {
+		await signInWith(db, session.sessionId, new Date(Date.now() - 1 * DAY));
+		await page.unroute(CODE_STATUS_GLOB);
+		// A redirect that already happened in the last minute is not
+		// repeated: the card shows instead. Seed the guard so this test can
+		// see that card — it is what a person whose sign-in is not coming
+		// back (cookies blocked, provider down) is left looking at.
+		await page.addInitScript(() => {
+			try {
+				window.sessionStorage.setItem("code-signedout-redirect-at", String(Date.now()));
+			} catch {
+				/* private mode: the guard degrades to always-redirect */
+			}
+		});
+		await page.goto(`${E2E_APP_BASE}/code`);
+		await expect(page.getByText("No paired devices").first()).toBeVisible();
+
+		await db.collection("sessions").deleteOne({ sessionId: session.sessionId });
+		await page.reload();
+
+		const card = page.getByTestId("code-reauth-card");
+		await expect(card).toBeVisible();
+		await expect(card).toHaveAttribute("data-variant", "signed-out");
+		await expect(
+			page.getByText("You were signed out. Sign in again to see your machines.")
+		).toBeVisible();
+		const signIn = page.getByRole("link", { name: "Sign in" });
+		await expect(signIn).toHaveAttribute("href", `${E2E_APP_BASE}/login?next=${E2E_APP_BASE}/code`);
+		await expect(signIn).not.toHaveAttribute("href", /reauth=1/);
+	});
+});

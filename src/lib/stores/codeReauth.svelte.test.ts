@@ -4,8 +4,11 @@ import {
 	applyCodeStatus,
 	codeReauth,
 	flagCodeReauth,
+	flagCodeSignedOut,
+	maybeRedirectSignedOut,
 	onCodeReauth,
 	resetCodeReauth,
+	signOutRedirect,
 } from "./codeReauth.svelte";
 import { CodeApiError, loadCodeStatus, listDevices, mintTerminalTicket } from "$lib/codeApi";
 import { TerminalReauthRequired } from "$lib/codeApi";
@@ -41,6 +44,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 	resetCodeReauth();
 });
@@ -186,6 +190,117 @@ describe("codeApi and the flag", () => {
 	});
 });
 
+describe("signed out is not stale", () => {
+	const SIGNIN_PATH = "/login?next=/code";
+
+	beforeEach(() => {
+		window.sessionStorage.removeItem("code-signedout-redirect-at");
+		vi.restoreAllMocks();
+	});
+
+	it("a signed-out status flags signed-out (not stale) and leaves for the plain sign-in", () => {
+		const go = vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		const listener = vi.fn();
+		const off = onCodeReauth(listener);
+		applyCodeStatus({
+			enabled: true,
+			signedIn: false,
+			fresh: false,
+			reauthPath: REAUTH_PATH,
+			signInPath: SIGNIN_PATH,
+		});
+		expect(codeReauth.required).toBe(true);
+		expect(codeReauth.signedOut).toBe(true);
+		expect(codeReauth.checked).toBe(true);
+		expect(codeReauth.signInPath).toBe(SIGNIN_PATH);
+		// The forced path is untouched: nothing here may send reauth=1.
+		expect(codeReauth.reauthPath).toBe(REAUTH_PATH);
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(go).toHaveBeenCalledTimes(1);
+		expect(go).toHaveBeenCalledWith(SIGNIN_PATH);
+		off();
+	});
+
+	it("a signed-in stale status is still the stale flag, with no redirect", () => {
+		const go = vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		applyCodeStatus({
+			enabled: true,
+			signedIn: true,
+			fresh: false,
+			reauthPath: REAUTH_PATH,
+			signInPath: SIGNIN_PATH,
+		});
+		expect(codeReauth.required).toBe(true);
+		expect(codeReauth.signedOut).toBe(false);
+		expect(go).not.toHaveBeenCalled();
+	});
+
+	it("a status without signedIn (an older server) keeps the old behaviour", () => {
+		const go = vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		applyCodeStatus({ enabled: true, fresh: false, reauthPath: REAUTH_PATH });
+		expect(codeReauth.required).toBe(true);
+		expect(codeReauth.signedOut).toBe(false);
+		expect(go).not.toHaveBeenCalled();
+	});
+
+	it("a fresh status clears a signed-out panel, like a stale one", () => {
+		flagCodeSignedOut(SIGNIN_PATH);
+		expect(codeReauth.signedOut).toBe(true);
+		applyCodeStatus({
+			enabled: true,
+			signedIn: true,
+			fresh: true,
+			reauthPath: REAUTH_PATH,
+			signInPath: SIGNIN_PATH,
+			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+		expect(codeReauth.required).toBe(false);
+		expect(codeReauth.signedOut).toBe(false);
+	});
+
+	it("a stale answer after signed-out is stale again, not signed out", () => {
+		flagCodeSignedOut(SIGNIN_PATH);
+		flagCodeReauth(REAUTH_PATH);
+		expect(codeReauth.required).toBe(true);
+		expect(codeReauth.signedOut).toBe(false);
+	});
+
+	it("does not redirect twice within a minute (a sign-in that is not working)", () => {
+		const go = vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		applyCodeStatus({
+			enabled: true,
+			signedIn: false,
+			fresh: false,
+			reauthPath: REAUTH_PATH,
+			signInPath: SIGNIN_PATH,
+		});
+		expect(go).toHaveBeenCalledTimes(1);
+		// The person is back (or never left): the card stays instead.
+		applyCodeStatus({
+			enabled: true,
+			signedIn: false,
+			fresh: false,
+			reauthPath: REAUTH_PATH,
+			signInPath: SIGNIN_PATH,
+		});
+		expect(go).toHaveBeenCalledTimes(1);
+		expect(codeReauth.signedOut).toBe(true);
+		expect(maybeRedirectSignedOut(Date.now() + 61_000)).toBe(true);
+		expect(go).toHaveBeenCalledTimes(2);
+	});
+
+	it("flagCodeSignedOut notifies listeners once and is idempotent", () => {
+		const listener = vi.fn();
+		const off = onCodeReauth(listener);
+		flagCodeSignedOut(SIGNIN_PATH);
+		flagCodeSignedOut(SIGNIN_PATH);
+		expect(codeReauth.required).toBe(true);
+		expect(codeReauth.signedOut).toBe(true);
+		expect(listener).toHaveBeenCalledTimes(1);
+		off();
+	});
+});
+
 describe("what the machines told us is dropped", () => {
 	it("empties the device list on a stale sign-in, and the poll stops asking", async () => {
 		const fetchSpy = vi.fn(async (_input: RequestInfo | URL) =>
@@ -199,5 +314,12 @@ describe("what the machines told us is dropped", () => {
 		await refreshCodeDevices();
 		expect(fetchSpy).not.toHaveBeenCalled();
 		expect(codeDeviceList.devices).toEqual([]);
+	});
+
+	it("empties the device list on a signed-out status too", () => {
+		codeDeviceList.devices = [{ id: "d1", name: "Box" } as never];
+		flagCodeSignedOut();
+		expect(codeDeviceList.devices).toEqual([]);
+		expect(codeDeviceList.loading).toBe(false);
 	});
 });
