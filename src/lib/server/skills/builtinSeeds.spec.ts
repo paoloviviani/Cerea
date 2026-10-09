@@ -100,11 +100,12 @@ describe("the built-in definitions", () => {
 		expect(definition("powerpoint").files.map((file) => file.path)).toEqual(
 			expect.arrayContaining(["scripts/generate.py", "scripts/edit.py", "scripts/validate.py"])
 		);
-		// The deck template is embedded inside generate.py itself, because
-		// bundled files must be UTF-8 text.
-		expect(
-			definition("powerpoint").files.find((file) => file.path === "scripts/generate.py")?.content
-		).toContain("BUNDLED_TEMPLATE_B64");
+		// generate.py must stay under the load_skill_file truncation cap —
+		// a file past it arrives elided to the model.
+		const generateScript = definition("powerpoint").files.find(
+			(file) => file.path === "scripts/generate.py"
+		);
+		expect(generateScript?.content.length ?? 0).toBeLessThan(20_000);
 		expect(definition("themes").files.map((file) => file.path)).toContain(
 			"references/themes/modern-minimalist.md"
 		);

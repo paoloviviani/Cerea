@@ -29,23 +29,29 @@ January 2026
 ## Slide Separator Modes
 
 **Explicit Headers Mode** (recommended):
+
 ```markdown
 # Slide 5: Research Findings
+
 ...content...
 ---
 
 # Slide 6: Recommendations
+
 ...content...
 ---
 ```
 
 **Legacy Mode** (auto-numbered, no `# Slide N:` headers):
+
 ```markdown
 ## Introduction
+
 ...content...
 ---
 
 ## Key Findings
+
 ...content...
 ---
 ```
@@ -78,21 +84,21 @@ When auto-detection picks wrong layout:
 
 ## Content Detection
 
-| Element | Marker | Example |
-|---------|--------|---------|
-| Slide header | `# Slide N: Label` | `# Slide 5: Methodology` |
-| Slide separator | `---` | Finalizes current slide |
-| Visual type | `**Visual: type**` | `**Visual: process-4-phase**` |
-| Layout override | `**Layout: name**` | `**Layout: column-4-centered**` |
-| Column block | `[Column N: Header]` | `[Column 1: Discover]` |
-| Card block | `[Card N: Title]` | `[Card 1: Framework]` |
-| Table block | `[Table N: Header]` | `[Table 1: Option A]` |
-| Image placeholder | `[Image: description]` | `[Image: customer interview]` |
-| Background image | `[Background: description]` | `[Background: cozy workspace]` |
-| Timeline entry | `[Date] Activity` | `[Week 1] Kickoff` |
-| Headline | First `**bold**` line | `**This is the key point.**` |
-| Quote | `>` blockquote | `> "Quoted text"` |
-| Appendix | `## Appendix` | Stops parsing |
+| Element           | Marker                      | Example                         |
+| ----------------- | --------------------------- | ------------------------------- |
+| Slide header      | `# Slide N: Label`          | `# Slide 5: Methodology`        |
+| Slide separator   | `---`                       | Finalizes current slide         |
+| Visual type       | `**Visual: type**`          | `**Visual: process-4-phase**`   |
+| Layout override   | `**Layout: name**`          | `**Layout: column-4-centered**` |
+| Column block      | `[Column N: Header]`        | `[Column 1: Discover]`          |
+| Card block        | `[Card N: Title]`           | `[Card 1: Framework]`           |
+| Table block       | `[Table N: Header]`         | `[Table 1: Option A]`           |
+| Image placeholder | `[Image: description]`      | `[Image: customer interview]`   |
+| Background image  | `[Background: description]` | `[Background: cozy workspace]`  |
+| Timeline entry    | `[Date] Activity`           | `[Week 1] Kickoff`              |
+| Headline          | First `**bold**` line       | `**This is the key point.**`    |
+| Quote             | `>` blockquote              | `> "Quoted text"`               |
+| Appendix          | `## Appendix`               | Stops parsing                   |
 
 ## FORBIDDEN
 

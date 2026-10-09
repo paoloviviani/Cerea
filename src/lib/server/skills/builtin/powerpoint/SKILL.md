@@ -27,8 +27,9 @@ Three scripts ship with this skill. Load each with `load_skill_file` (skill
 `powerpoint`), write it into the working directory, and import it — no
 command line, every function takes paths:
 
-- `scripts/generate.py` — outline → deck. Also carries the bundled default
-  template inside itself (used when no template is given).
+- `scripts/generate.py` — outline → deck. Without a template it uses
+  python-pptx's built-in one (standard layouts, real placeholders); with an
+  attached `.pptx` it uses the person's own.
 - `scripts/edit.py` — inventory an existing deck, retype paragraphs, reorder slides.
 - `scripts/validate.py` — the quality gate: empty placeholders, estimated
   text overflow, off-slide shapes, unfilled picture slots.
@@ -65,46 +66,49 @@ Slides are separated by `---`. Each slide:
 **Level-set the reader in one line.**
 
 [Column 1: Discover]
+
 - Stakeholder interviews
 - Competitive audit
 
 [Column 2: Define]
+
 - Workshop facilitation
 - Persona development
 
 [Column 3: Deliver]
+
 - Solution architecture
 - Training & handover
 ```
 
 Markers the parser knows:
 
-| Element | Marker |
-|---|---|
-| Slide header | `# Slide N: Label` (or plain `## Title`) |
-| Separator | `---` — never inside slide content |
-| Visual type | `**Visual: type**` |
-| Layout override | `**Layout: layout-name**` (exact name in the template) |
-| Column / card | `[Column N: Header]`, `[Card N: Title]` |
-| Headline | first `**bold**` line |
-| Quote | `> quoted text` |
-| Timeline entry | `[Week 1] Kickoff` |
-| Table | markdown `\| a \| b \|` rows |
-| Image note | `[Image: description]` / `[Background: description]` |
-| Typography | `{bold}…{/bold}`, `{italic}`, `{blue}`, `{question}`, `{signpost}LABEL{/signpost}` |
+| Element         | Marker                                                                             |
+| --------------- | ---------------------------------------------------------------------------------- |
+| Slide header    | `# Slide N: Label` (or plain `## Title`)                                           |
+| Separator       | `---` — never inside slide content                                                 |
+| Visual type     | `**Visual: type**`                                                                 |
+| Layout override | `**Layout: layout-name**` (exact name in the template)                             |
+| Column / card   | `[Column N: Header]`, `[Card N: Title]`                                            |
+| Headline        | first `**bold**` line                                                              |
+| Quote           | `> quoted text`                                                                    |
+| Timeline entry  | `[Week 1] Kickoff`                                                                 |
+| Table           | markdown `\| a \| b \|` rows                                                       |
+| Image note      | `[Image: description]` / `[Background: description]`                               |
+| Typography      | `{bold}…{/bold}`, `{italic}`, `{blue}`, `{question}`, `{signpost}LABEL{/signpost}` |
 
 ## Visual types — decide, don't default to bullets
 
-| Type | Use when |
-|---|---|
-| `process-N-phase` | sequential steps (N = 2–5) |
-| `comparison-N` | side-by-side options (N = 2–5) |
-| `cards-N` | discrete parallel items (N = 2–5) |
-| `data-contrast` | two opposing metrics |
-| `quote-hero` | a powerful quote |
-| `hero-statement` | a single punchy statement only |
-| `table` | genuinely tabular data |
-| `bullets` | default, last resort |
+| Type              | Use when                          |
+| ----------------- | --------------------------------- |
+| `process-N-phase` | sequential steps (N = 2–5)        |
+| `comparison-N`    | side-by-side options (N = 2–5)    |
+| `cards-N`         | discrete parallel items (N = 2–5) |
+| `data-contrast`   | two opposing metrics              |
+| `quote-hero`      | a powerful quote                  |
+| `hero-statement`  | a single punchy statement only    |
+| `table`           | genuinely tabular data            |
+| `bullets`         | default, last resort              |
 
 Decision order: sequence → comparison → parallel items → data contrast →
 quote → table → hero → bullets. Full reference with length limits:
@@ -135,7 +139,7 @@ belong to regeneration — **never** edit those by hand.
   onto it automatically).
 - **The person's own template**: they attach the `.pptx`; write it to the
   working directory and pass `template_path=generate("outline.md",
-  "deck.pptx", template_path="their-template.pptx")`. Layout selection falls
+"deck.pptx", template_path="their-template.pptx")`. Layout selection falls
   back to matching body-placeholder counts; `**Layout: name**` picks an exact
   layout — `edit.inventory` on the template shows what layouts exist.
   `references/rules/bring-your-own-template.md` describes the upstream
@@ -154,6 +158,9 @@ belong to regeneration — **never** edit those by hand.
 
 ## Rules
 
+- The deck is the deliverable: the file must exist when you finish —
+  run generate() yourself rather than leaving a script for the person to
+  run.
 - There is no renderer here: validation is structural (placeholders, overflow
   estimate, geometry), and the person opens the deck for the visual verdict —
   say so once, briefly.
