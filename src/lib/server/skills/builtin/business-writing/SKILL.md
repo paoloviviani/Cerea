@@ -4,7 +4,9 @@ description: Write internal communications in the formats companies actually use
 ---
 
 ## When to use this skill
+
 Use this skill to write internal communications:
+
 - 3P updates (Progress, Plans, Problems)
 - Company newsletters
 - FAQ responses
@@ -19,10 +21,10 @@ To write any internal communication:
 
 1. **Identify the communication type** from the request
 2. **Load the appropriate guideline file** with the `load_skill_file` tool (skill `business-writing`):
-    - `references/examples/3p-updates.md` — for Progress/Plans/Problems team updates
-    - `references/examples/company-newsletter.md` — for company-wide newsletters
-    - `references/examples/faq-answers.md` — for answering frequently asked questions
-    - `references/examples/general-comms.md` — for anything else that doesn't explicitly match one of the above
+   - `references/examples/3p-updates.md` — for Progress/Plans/Problems team updates
+   - `references/examples/company-newsletter.md` — for company-wide newsletters
+   - `references/examples/faq-answers.md` — for answering frequently asked questions
+   - `references/examples/general-comms.md` — for anything else that doesn't explicitly match one of the above
 3. **Follow the specific instructions** in that file for formatting, tone, and content gathering
 
 If the communication type doesn't match any existing guideline, ask for clarification or more context about the desired format.
@@ -43,4 +45,5 @@ base64. When the person asks for the text in the chat instead, write it inline.
 - Mark anything uncertain as uncertain in the text.
 
 ## Keywords
+
 3P updates, company newsletter, company comms, weekly update, faqs, common questions, updates, internal comms

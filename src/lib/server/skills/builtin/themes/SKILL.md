@@ -15,7 +15,7 @@ matplotlib chart, or an HTML page.
 
 1. **Show the options briefly**: list the ten themes below with one line each,
    in the chat — no file preview is needed to choose. When the person wants to
-   *see* a theme before committing, render a small preview with matplotlib:
+   _see_ a theme before committing, render a small preview with matplotlib:
    a row of colour swatches plus a title styled in the theme (the colors are
    in the theme file; DejaVu Sans is always available to matplotlib).
 2. **Ask for their choice**, and wait for an explicit answer. If none of the
@@ -29,18 +29,18 @@ matplotlib chart, or an HTML page.
 Each is defined in a bundled file loaded with `load_skill_file`
 (skill `themes`), which carries its exact palette, font pairing, and best use:
 
-| Theme | File |
-|---|---|
-| Arctic Frost | `references/themes/arctic-frost.md` |
-| Botanical Garden | `references/themes/botanical-garden.md` |
-| Desert Rose | `references/themes/desert-rose.md` |
-| Forest Canopy | `references/themes/forest-canopy.md` |
-| Golden Hour | `references/themes/golden-hour.md` |
-| Midnight Galaxy | `references/themes/midnight-galaxy.md` |
+| Theme             | File                                     |
+| ----------------- | ---------------------------------------- |
+| Arctic Frost      | `references/themes/arctic-frost.md`      |
+| Botanical Garden  | `references/themes/botanical-garden.md`  |
+| Desert Rose       | `references/themes/desert-rose.md`       |
+| Forest Canopy     | `references/themes/forest-canopy.md`     |
+| Golden Hour       | `references/themes/golden-hour.md`       |
+| Midnight Galaxy   | `references/themes/midnight-galaxy.md`   |
 | Modern Minimalist | `references/themes/modern-minimalist.md` |
-| Ocean Depths | `references/themes/ocean-depths.md` |
-| Sunset Boulevard | `references/themes/sunset-boulevard.md` |
-| Tech Innovation | `references/themes/tech-innovation.md` |
+| Ocean Depths      | `references/themes/ocean-depths.md`      |
+| Sunset Boulevard  | `references/themes/sunset-boulevard.md`  |
+| Tech Innovation   | `references/themes/tech-innovation.md`   |
 
 ## Applying a theme
 
