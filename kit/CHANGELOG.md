@@ -5,7 +5,9 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.9.2 — 2026-10-09
+
+Pins: Cerea `0.9.2`, Pystino `0.4.0`, Authelia 4.39.22.
 
 - The agents panel no longer asks for a password when the chat sign-in
   merely expired: an open tab whose session died (the ordinary hourly
