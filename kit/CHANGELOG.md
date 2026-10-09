@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- `docker compose pull` no longer fails on a kit with restic backups: the
+  `backup` service now carries `pull_policy: never`, since
+  `cerea-backup:1` is built on the machine and published nowhere. An
+  override copied from an older kit needs the two words added by hand.
+
 ## v0.9.3 — 2026-10-09
 
 Pins: Cerea `0.9.3`, Pystino `0.4.0`, Authelia 4.39.22.

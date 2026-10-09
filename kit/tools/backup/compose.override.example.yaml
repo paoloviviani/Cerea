@@ -6,6 +6,10 @@ services:
   backup:
     build: ./tools/backup
     image: cerea-backup:1
+    # Built on this machine (see the README) and published nowhere, so a
+    # plain `docker compose pull` in the upgrade flow must skip it: without
+    # this, the pull fails on "pull access denied" and stops the upgrade.
+    pull_policy: never
     restart: unless-stopped
     # RESTIC_*, the backend's credentials (AWS_*, B2_*, AZURE_*, RCLONE_CONFIG_*,
     # ...) and BACKUP_* are read from .env. The container mounts .env anyway, to
