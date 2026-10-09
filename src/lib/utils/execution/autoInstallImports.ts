@@ -10,6 +10,8 @@ export const VENDORED_PACKAGE_BY_IMPORT: Record<string, string> = {
 	pptx: "python-pptx",
 	openpyxl: "openpyxl",
 	pypdf: "pypdf",
+	reportlab: "reportlab",
+	seaborn: "seaborn",
 };
 
 /**

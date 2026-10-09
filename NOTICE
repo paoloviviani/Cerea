@@ -36,6 +36,42 @@ The galopin agent binaries (agent/) include the Go standard library
 (MIT); the licence texts are in agent/THIRD_PARTY_LICENSES and travel with
 every binary (`galopin licenses` prints them).
 
+The built-in office skills under src/lib/server/skills/builtin/ are adapted
+from third-party skills, each carrying its upstream licence file verbatim
+beside its SKILL.md and a SOURCE.md recording the exact source and changes:
+
+  word, excel, pdf — adapted from OpenAI's curated skills
+  (https://github.com/openai/skills, skills/.curated/doc, spreadsheet and
+  pdf), Apache License 2.0. The doc and spreadsheet skills were removed from
+  that repository's main branch; they are taken from its own git history
+  (doc at commit 77963424cd7687fd52e5fcfdd3f08d826ab9b1ab, spreadsheet at
+  7b54889398822db28c72aeec8e95be7c20418d1a; pdf at
+  49f948faa9258a0c61caceaf225e179651397431).
+
+  powerpoint — a distilled adaptation of pptx-from-layouts
+  (https://github.com/tristan-mcinnis/pptx-from-layouts-skill, commit
+  46e7c6638305bcb424f257b5c49dcd2603dc71ea), MIT License, Copyright (c)
+  2026 Tristan. The bundled Inner Chapter template embedded in the skill's
+  generate.py comes from that repository.
+
+  charts, data-analysis — adapted from K-Dense's scientific-agent-skills
+  (https://github.com/K-Dense-AI/scientific-agent-skills, skills/
+  scientific-visualization, exploratory-data-analysis and
+  statistical-analysis, commit 92ace75ac21efe19a620434e0ca4e356081fe807),
+  MIT License, Copyright (c) 2025 K-Dense Inc.
+
+  business-writing, themes — adapted from Anthropic's skills
+  (https://github.com/anthropics/skills, skills/internal-comms and
+  skills/theme-factory, commit 683bc88e56f3e09ba94f7055977f3d3aa499f202),
+  Apache License 2.0. No part of Anthropic's proprietary document skills
+  (docx, xlsx, pptx, pdf) is used.
+
+The reportlab (BSD-3-Clause, ReportLab Inc.) and seaborn (BSD-3-Clause,
+Copyright (c) 2012-2026, Michael L. Waskom) wheels vendored for those skills
+are pinned by sha256 in scripts/sync_pyodide_wheels.mjs alongside the other
+document wheels, with their licences listed in
+static/pyodide/wheels/NOTICE.txt.
+
 Served to browsers unmodified: Pyodide (MPL-2.0) and its package
 distribution; each wheel carries its own licence, including the LGPL
 components (gmpy2 with GMP and MPFR; GDAL), which are unmodified upstream

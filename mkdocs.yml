@@ -100,6 +100,7 @@ nav:
       - Chat: chat.md
       - Artifacts: artifacts.md
       - "Python in the browser": pyodide.md
+      - Skills: skills.md
       - "Knowledge and projects": knowledge.md
       - Connectors: connectors.md
       - "Agent machines": agent-machines.md
