@@ -16,7 +16,8 @@ runs on the deployment, and the files the code opens never leave your browser.
 
 - **Ask for calculations and analysis.** The assistant's code can use `numpy`,
   `pandas` and the rest of Pyodide's scientific set, plus the office libraries
-  (`python-docx`, `openpyxl`, `pypdf`, `python-pptx`, `XlsxWriter`).
+  (`python-docx`, `openpyxl`, `pypdf`, `python-pptx`, `XlsxWriter`,
+  `reportlab`, `seaborn`).
 - **Ask about your files.** Attach a file, or use a knowledge base, and the
   code can read it (it sees it under `/mnt/data/<filename>`). A knowledge-base
   document arrives as its indexed text, not the original file; an attachment
@@ -139,8 +140,9 @@ knowledge base therefore cannot turn an artifact into a way to send data out.
   Pyodide's attribution.
 - **Imports.** Before a run, Cerea scans its imports: packages in Pyodide's own
   set load automatically, and the office libraries the deployment ships
-  (`python-docx`, `python-pptx`, `openpyxl`, `pypdf`) are installed on the spot,
-  so `from docx import Document` works with no `micropip.install`. It is best
+  (`python-docx`, `python-pptx`, `openpyxl`, `pypdf`, `reportlab`, `seaborn`)
+  are installed on the spot, so `from docx import Document` works with no
+  `micropip.install`. It is best
   effort: an import it cannot resolve raises its ordinary `ModuleNotFoundError`,
   and a package is installed once per interpreter. `micropip.install(...)` works
   for everything shipped with the deployment.
