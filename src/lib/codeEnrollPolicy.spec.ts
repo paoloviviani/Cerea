@@ -37,13 +37,13 @@ describe("defaults emit nothing", () => {
 		);
 	});
 
-	it("its default ceiling is enroll's own: bash and session_spawn ask, the rest uncapped", () => {
+	it("its default ceiling is enroll's own: bash asks, the rest uncapped", () => {
 		expect(DEFAULT_CEILING).toEqual({
 			edit: "allow",
 			bash: "ask",
 			webfetch: "allow",
 			task: "allow",
-			session_spawn: "ask",
+			session_spawn: "allow",
 			session_send: "allow",
 			session_read: "allow",
 			schedule: "allow",
@@ -62,7 +62,7 @@ describe("defaults emit nothing", () => {
 
 	it("the machine the defaults promise is the one a plain enroll writes", () => {
 		expect(promisedPolicy(defaultPolicyChoices())).toEqual({
-			permission: { max: { bash: "ask", session_spawn: "ask" }, rules: {} },
+			permission: { max: { bash: "ask" }, rules: {} },
 			workspaceRoots: [],
 			allowFreeModels: false,
 			files: "read",
@@ -177,20 +177,18 @@ describe("the ceiling table", () => {
 	it("one changed row emits the FULL set, defaults included", () => {
 		const ceiling = { ...DEFAULT_CEILING, edit: "ask" as const };
 		expect(ceilingChanged(ceiling)).toBe(true);
-		expect(ceilingPairs(ceiling)).toEqual(["edit=ask", "bash=ask", "session_spawn=ask"]);
+		expect(ceilingPairs(ceiling)).toEqual(["edit=ask", "bash=ask"]);
 		expect(flags({ ceiling })).toEqual([
 			"--permission-max",
 			"edit=ask",
 			"--permission-max",
 			"bash=ask",
-			"--permission-max",
-			"session_spawn=ask",
 		]);
 	});
 
 	it("a default row set to Allow is named explicitly: that is how an owner opts out", () => {
 		const ceiling = { ...DEFAULT_CEILING, bash: "allow" as const };
-		expect(ceilingPairs(ceiling)).toEqual(["bash=allow", "session_spawn=ask"]);
+		expect(ceilingPairs(ceiling)).toEqual(["bash=allow"]);
 	});
 
 	it("every row Allow still emits something, so the default does not come back", () => {
@@ -198,14 +196,13 @@ describe("the ceiling table", () => {
 			(typeof CEILING_KEYS)[number],
 			"allow"
 		>;
-		expect(ceilingPairs(allOpen)).toEqual(["bash=allow", "session_spawn=allow"]);
+		expect(ceilingPairs(allOpen)).toEqual(["bash=allow"]);
 	});
 
 	it("a Deny row is carried as deny", () => {
 		expect(ceilingPairs({ ...DEFAULT_CEILING, webfetch: "deny" })).toEqual([
 			"bash=ask",
 			"webfetch=deny",
-			"session_spawn=ask",
 		]);
 	});
 
@@ -219,10 +216,10 @@ describe("the ceiling table", () => {
 	it("promises the ceiling the flags write, and the default when nothing is emitted", () => {
 		expect(
 			promisedPolicy(choose({ ceiling: { ...DEFAULT_CEILING, bash: "allow" } })).permission.max
-		).toEqual({ bash: "allow", session_spawn: "ask" });
+		).toEqual({ bash: "allow" });
 		expect(
 			promisedPolicy(choose({ ceiling: { ...DEFAULT_CEILING, edit: "deny" } })).permission.max
-		).toEqual({ edit: "deny", bash: "ask", session_spawn: "ask" });
+		).toEqual({ edit: "deny", bash: "ask" });
 	});
 });
 
@@ -337,7 +334,7 @@ describe("the promised policy.json", () => {
 		);
 		expect(promised).toEqual({
 			permission: {
-				max: { bash: "ask", session_spawn: "ask" },
+				max: { bash: "ask" },
 				rules: { external_directory: "allow", read: "allow" },
 			},
 			workspaceRoots: ["/a b"],

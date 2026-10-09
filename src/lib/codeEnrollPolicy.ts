@@ -8,8 +8,7 @@
  *
  * - a default emits **nothing**: the printed command carries a flag only for
  *   a choice that differs from what `enroll` does on its own;
- * - the ceiling flag **replaces** enroll's default set (bash and
- *   session_spawn ask) rather than adding to it, so one changed row emits the
+ * - the ceiling flag **replaces** enroll's default set (bash asks) rather than adding to it, so one changed row emits the
  *   whole set, and an unchanged table emits nothing;
  * - every value a person types is shell-quoted (`quoteShellArg`), so a path
  *   with spaces or a glob with `*` reaches `enroll` as one argument.
@@ -37,13 +36,13 @@ export const CEILING_KEYS = [
 export type CeilingKey = (typeof CEILING_KEYS)[number];
 
 /** What each row reads when the person touches nothing: `enroll`'s own default
- * ceiling (bash and session_spawn ask), everything else uncapped. */
+ * ceiling (bash asks), everything else uncapped. */
 export const DEFAULT_CEILING: Readonly<Record<CeilingKey, CeilingAction>> = {
 	edit: "allow",
 	bash: "ask",
 	webfetch: "allow",
 	task: "allow",
-	session_spawn: "ask",
+	session_spawn: "allow",
 	session_send: "allow",
 	session_read: "allow",
 	schedule: "allow",
@@ -129,7 +128,7 @@ export function ceilingChanged(ceiling: Record<CeilingKey, CeilingAction>): bool
 }
 
 /** The one action every row of the ceiling holds, or null when they differ
- * (as enroll's own default does: bash and session_spawn ask, the rest allow).
+ * (enroll's own default is bash asking, the rest allowing).
  * The dialog's "All tools" row shows it and sets every row at once. */
 export function uniformCeiling(ceiling: Record<CeilingKey, CeilingAction>): CeilingAction | null {
 	const first = ceiling[CEILING_KEYS[0]];

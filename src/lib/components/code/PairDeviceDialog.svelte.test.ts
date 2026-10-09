@@ -269,7 +269,7 @@ describe("the ceiling", () => {
 		expect(policyPart(screen)).toBe("");
 	});
 
-	it("has the eight rows under Advanced, with enroll's defaults: bash and session_spawn ask", async () => {
+	it("has the eight rows under Advanced, with enroll's default: bash asks", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		const keys = [
@@ -282,7 +282,7 @@ describe("the ceiling", () => {
 			"session_read",
 			"schedule",
 		];
-		const expected = ["Allow", "Ask", "Allow", "Allow", "Ask", "Allow", "Allow", "Allow"];
+		const expected = ["Allow", "Ask", "Allow", "Allow", "Allow", "Allow", "Allow", "Allow"];
 		for (const [i, key] of keys.entries()) expect(pressed(screen, key), key).toBe(expected[i]);
 		expect(policyPart(screen)).toBe("");
 	});
@@ -297,9 +297,7 @@ describe("the ceiling", () => {
 				"--permission-max session_read=ask --permission-max schedule=ask"
 		);
 		await pick(screen, "all", "Allow");
-		expect(policyPart(screen)).toBe(
-			"--permission-max bash=allow --permission-max session_spawn=allow"
-		);
+		expect(policyPart(screen)).toBe("--permission-max bash=allow");
 		await expect.element(screen.getByTestId("enroll-bash-allow-warning")).toBeVisible();
 	});
 
@@ -307,9 +305,7 @@ describe("the ceiling", () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		await pick(screen, "edit", "Ask");
-		expect(policyPart(screen)).toBe(
-			"--permission-max edit=ask --permission-max bash=ask --permission-max session_spawn=ask"
-		);
+		expect(policyPart(screen)).toBe("--permission-max edit=ask --permission-max bash=ask");
 		await expect.element(screen.getByTestId("enroll-ceiling-edited")).toBeVisible();
 		// Back to the default: nothing again.
 		await pick(screen, "edit", "Allow");
@@ -322,9 +318,7 @@ describe("the ceiling", () => {
 		await openAdvanced(screen);
 		expect(screen.getByTestId("enroll-bash-allow-warning").elements()).toHaveLength(0);
 		await pick(screen, "bash", "Allow");
-		expect(policyPart(screen)).toBe(
-			"--permission-max bash=allow --permission-max session_spawn=ask"
-		);
+		expect(policyPart(screen)).toBe("--permission-max bash=allow");
 		await expect.element(screen.getByTestId("enroll-bash-allow-warning")).toBeVisible();
 	});
 

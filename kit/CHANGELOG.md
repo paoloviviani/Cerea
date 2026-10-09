@@ -5,6 +5,31 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.9.1 — 2026-10-09
+
+Pins: Cerea `0.9.1`, Pystino `0.4.0`, Authelia 4.39.22.
+
+- **Permissions in the sidebar, not over the chat.** The /code panel's
+  Permissions row moved into the Agents sidebar beside Schedules: it shows
+  the session's Deny/Ask/Allow word and its exceptions count (or an amber
+  warning on a machine enrolled before ceilings), and opens the capability
+  rows, exceptions with Remove, and the raw rules in a dialog that keeps the
+  transcript and its approval cards in view. Nothing else about permissions
+  changed. Machines need no galopin update for this one.
+- **Spawned sessions inherit their spawner's word and grant.** An Allow
+  session's blanket now covers spawning and messaging too (reads stay
+  grant-gated), so coordinating through spawned sessions stops asking for
+  every command — still under the machine's ceiling, which caps the child
+  exactly as it caps the caller. Fresh machines enroll with `session_spawn`
+  uncapped; machines enrolled before this keep `session_spawn=ask` in their
+  own file until re-enrolled. **`bash` stays capped at `ask`**: unattended
+  commands still need a deliberate `--permission-max bash=allow` per
+  machine, because a command that may run can read the agent's own server
+  password and widen its rules past the ceiling. This release **does** need
+  the galopin update on every machine (re-run the install line from the
+  pairing dialog, then `systemctl --user restart galopin`) — mixed versions
+  work, but only updated machines spawn and message without the extra cards.
+
 ## v0.9.0 — 2026-10-09
 
 Pins: Cerea `0.9.0`, Pystino `0.4.0`, Authelia 4.39.22.
