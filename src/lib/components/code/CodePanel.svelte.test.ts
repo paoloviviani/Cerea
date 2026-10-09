@@ -4,7 +4,12 @@ import superjson from "superjson";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import CodePanel from "./CodePanel.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
-import { codeReauth, flagCodeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
+import {
+	codeReauth,
+	flagCodeReauth,
+	resetCodeReauth,
+	signOutRedirect,
+} from "$lib/stores/codeReauth.svelte";
 
 /**
  * While the sign-in is older than 7 days the panel shows ONE card and nothing
@@ -59,6 +64,8 @@ function mount(url = "/code") {
 
 beforeEach(async () => {
 	resetCodeReauth();
+	// A signed-out status navigates the page away: stay here instead.
+	vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
 	// `loadCodeStatus` remembers it asked: force a fresh ask per test.
 	calls.statusCalls = 0;
 	calls.listDevices.mockReset();
@@ -79,6 +86,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	resetCodeReauth();
 });
 
@@ -113,6 +121,46 @@ describe("CodePanel with a stale sign-in", () => {
 		expect(calls.listDevices).not.toHaveBeenCalled();
 		// Let the answer land before the test ends, or it applies in the next one.
 		await expect.element(screen.getByTestId("code-reauth-card")).toBeVisible();
+	});
+});
+
+describe("CodePanel signed out (no session at all)", () => {
+	beforeEach(() => {
+		statusBody = {
+			enabled: true,
+			signedIn: false,
+			fresh: false,
+			reauthPath: "/login?reauth=1&next=/code",
+			signInPath: "/login?next=/code",
+		};
+	});
+
+	it("shows the signed-out card, whose link never forces a re-login", async () => {
+		const screen = mount();
+		const card = screen.getByTestId("code-reauth-card");
+		await expect.element(card).toBeVisible();
+		await expect.element(card).toHaveAttribute("data-variant", "signed-out");
+		await expect
+			.element(screen.getByText("You were signed out. Sign in again to see your machines."))
+			.toBeVisible();
+		const link = screen.getByRole("link", { name: "Sign in" });
+		await expect.element(link).toHaveAttribute("href", "/login?next=/code");
+	});
+
+	it("the stale card keeps its variant and its forced link", async () => {
+		statusBody = {
+			enabled: true,
+			signedIn: true,
+			fresh: false,
+			reauthPath: "/login?reauth=1&next=/code",
+			signInPath: "/login?next=/code",
+		};
+		const screen = mount();
+		const card = screen.getByTestId("code-reauth-card");
+		await expect.element(card).toBeVisible();
+		await expect.element(card).toHaveAttribute("data-variant", "stale");
+		const link = screen.getByRole("link", { name: "Sign in" });
+		await expect.element(link).toHaveAttribute("href", "/login?reauth=1&next=/code");
 	});
 });
 
