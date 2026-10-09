@@ -40,6 +40,11 @@
 	import IconClose from "~icons/carbon/close";
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
+	import IconPermissions from "~icons/carbon/security";
+	import * as s from "$lib/components/overlay/styles";
+	import type { PermissionRulesResult } from "$lib/types/machineProtocol";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
+	import { isLegacyMachine } from "$lib/utils/permissionRules";
 	import {
 		listWorkspaces,
 		listAgents,
@@ -48,6 +53,7 @@
 		archiveAgent,
 		deleteAgent,
 		archiveWorkspace,
+		getPermissionRules,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
 	import {
@@ -65,6 +71,7 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
+	import PermissionsDialog from "./PermissionsDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
 	import WorktreeDialog from "./WorktreeDialog.svelte";
@@ -96,6 +103,17 @@
 		off: boolean;
 	}
 
+	/**
+	 * The stand-alone rows under the devices (Schedules, Permissions): one
+	 * address or action, same shape as the branch, so the two can never
+	 * drift. A button uses the same classes; block layout comes from the
+	 * caller (`w-full` for a full-width row).
+	 */
+	const SIDEBAR_ITEM =
+		"flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700";
+	const SIDEBAR_ITEM_ACTIVE =
+		"flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white";
+
 	let trees = $state<Record<string, DeviceSubtree>>({});
 	let pairingOpen = $state(false);
 	let workspaceDialogFor = $state<string | null>(null);
@@ -121,6 +139,66 @@
 	const selectedDeviceId = $derived(schedulesActive ? null : page.url.searchParams.get("device"));
 	const selectedWorkspaceId = $derived(schedulesActive ? null : page.url.searchParams.get("ws"));
 	const selectedAgentId = $derived(schedulesActive ? null : page.url.searchParams.get("agent"));
+
+	/**
+	 * The Permissions sidebar item: shown only while an agent session is
+	 * selected and its machine answers `permission.rules` (a 404 means a
+	 * galopin that predates the op; a stale sign-in hides it with the rest
+	 * of the tree). The row opens the detail in a dialog so the transcript
+	 * and its approval cards stay in view.
+	 */
+	let permissionsOpen = $state(false);
+	let permissionRules = $state<PermissionRulesResult | null>(null);
+	let permissionRulesFor = $state("");
+
+	const selectedAgent = $derived(
+		selectedDeviceId && selectedAgentId
+			? (trees[selectedDeviceId]?.agents.find((agent) => agent.id === selectedAgentId) ?? null)
+			: null
+	);
+	const selectedDevice = $derived(
+		selectedDeviceId
+			? (codeDeviceList.devices.find((device) => device.id === selectedDeviceId) ?? null)
+			: null
+	);
+	const permissionExceptions = $derived(permissionRules?.savedApprovals ?? []);
+	const permissionLegacy = $derived(isLegacyMachine(selectedDevice?.policy, permissionRules));
+	const permissionSwitchWord = $derived(
+		selectedAgent?.permissionMode === "deny"
+			? "Deny"
+			: selectedAgent?.permissionMode === "allow"
+				? "Allow"
+				: "Ask"
+	);
+
+	async function loadTreePermissionRules(deviceId: string, agentId: string, key: string) {
+		try {
+			const rules = await getPermissionRules(deviceId, agentId);
+			if (key === permissionRulesFor) permissionRules = rules;
+		} catch {
+			// A machine that predates the op answers 404; anything else is a
+			// transient failure while switching sessions. Either way the row
+			// clears rather than showing another session's rules.
+			if (key === permissionRulesFor) permissionRules = null;
+		}
+	}
+
+	$effect(() => {
+		const deviceId = selectedDeviceId;
+		const agentId = selectedAgentId;
+		if (!deviceId || !agentId || codeReauth.required) {
+			permissionRules = null;
+			permissionRulesFor = "";
+			permissionsOpen = false;
+			return;
+		}
+		const key = `${deviceId}|${agentId}`;
+		if (key === permissionRulesFor) return;
+		permissionRules = null;
+		permissionRulesFor = key;
+		permissionsOpen = false;
+		untrack(() => void loadTreePermissionRules(deviceId, agentId, key));
+	});
 
 	// The same one-liner the pairing dialog prints (§12): a device flagged
 	// `reenroll` shows it too, rather than a bare "go re-pair" pointer with
@@ -666,7 +744,7 @@
 					</div>
 				{/if}
 				{#if !device.reenroll && !isDead && codeLegacyMachines[device.id]}
-					<!-- Learned from a session's rules (`PermissionsLine`): this machine's
+					<!-- Learned from a session's rules (the Permissions dialog): this machine's
 					     policy predates ceilings and its opencode.json has no ask block, so
 					     it allows everything until re-enrolled. The same one-liner as the
 					     `reenroll` banner above, since it is the same fix. -->
@@ -1113,13 +1191,42 @@
 		{/each}
 	{/if}
 	{#if page.data.codeSchedulesEnabled === true && codeDeviceList.devices.length > 0}
+		<!-- The Permissions item: same block, directly above Schedules. Only
+		     while an agent session is selected and its machine answered
+		     permission.rules (a 404 leaves permissionRules null); the detail
+		     opens in a dialog, so the transcript and its approval cards stay
+		     in view while the person reads it. -->
+		{#if selectedDeviceId && selectedAgentId && selectedAgent && permissionRules && !codeReauth.required}
+			<button
+				type="button"
+				class="mt-1 w-full {permissionsOpen ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
+				data-testid="permissions-item"
+				aria-expanded={permissionsOpen}
+				title="What this session will do about its tool calls."
+				onclick={() => (permissionsOpen = !permissionsOpen)}
+			>
+				<IconPermissions class="size-3.5 shrink-0" />
+				<span class="min-w-0 flex-1 truncate text-left">Permissions</span>
+				{#if permissionLegacy}
+					<IconWarning
+						class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+						title="Re-enroll this machine to set limits."
+					/>
+				{:else}
+					<span class="shrink-0 text-xs text-gray-500 dark:text-gray-400"
+						>{permissionSwitchWord}</span
+					>
+					{#if permissionExceptions.length > 0}
+						<span class="{s.PILL} {s.PILL_TONES.neutral}">{permissionExceptions.length}</span>
+					{/if}
+				{/if}
+			</button>
+		{/if}
 		<!-- Under the devices: one address, not a branch. The pane it opens holds
 		     the list, the editor and each schedule's history. -->
 		<a
 			href="{base}/code?view=schedules"
-			class="mt-1 flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm {schedulesActive
-				? 'bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white'
-				: 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}"
+			class="mt-1 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
 			data-testid="schedules-link"
 		>
 			<IconTime class="size-3.5 shrink-0" />
@@ -1130,6 +1237,28 @@
 
 {#if pairingOpen}
 	<PairDeviceDialog onclose={() => (pairingOpen = false)} onpaired={handlePaired} />
+{/if}
+
+{#if permissionsOpen && selectedDeviceId && selectedAgentId && permissionRules}
+	<!-- The Permissions detail renders as a dialog over the panel: the person
+	     usually opens it mid-turn and keeps the transcript and its approval
+	     cards in view. On a phone the drawer's own tree holds the item, and
+	     the dialog overlays the open drawer. -->
+	<PermissionsDialog
+		deviceId={selectedDeviceId}
+		agentId={selectedAgentId}
+		result={permissionRules}
+		onchanged={() => {
+			if (selectedDeviceId && selectedAgentId) {
+				const key = `${selectedDeviceId}|${selectedAgentId}`;
+				permissionRulesFor = key;
+				void loadTreePermissionRules(selectedDeviceId, selectedAgentId, key);
+			}
+		}}
+		policy={selectedDevice?.policy}
+		onreenroll={() => (pairingOpen = true)}
+		onclose={() => (permissionsOpen = false)}
+	/>
 {/if}
 
 {#if workspaceDialogFor}

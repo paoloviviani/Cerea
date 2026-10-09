@@ -257,7 +257,7 @@ session's **exceptions**, and the machine's **ceiling** last. The ceiling is
 appended last on every apply, so **it always wins a tie**: nothing the selector
 or an exception asks for can go past it. A rule in the person's own opencode
 config that a later rule replaces is not deleted: the raw list behind the
-[Permissions line](#permissions) shows it as _overridden by Cerea_ (or by the
+[Permissions item](#permissions) shows it as _overridden by Cerea_ (or by the
 machine's rules, floor or limits).
 
 **What `enroll` and `run` put where.** `enroll` writes `edit`, `bash` and
@@ -280,10 +280,10 @@ fetch runs without asking, in subagents too. It does **not** need a re-enroll to
 ask by default: every session starts on **Ask**, on every machine, enrolled
 earlier or not. The panel does not show such a machine a clean bill. When the
 machine's `hello` reports an empty ceiling and its rules (read through a
-session's Permissions line) carry no rules from the file, the Permissions line
+session's Permissions item) carry no rules from the file, the dialog
 says up front _"Re-enroll this machine to set limits…"_ with a button into the
 enroll flow, and the machine's row in the sidebar carries the same notice with
-the one-line enroll command. One re-enroll sets a ceiling, and the notice goes
+the one-line enroll command and an amber warning on the item. One re-enroll sets a ceiling, and the notice goes
 away when the machine reports one. A machine that reports a ceiling, or whose
 file carries the ask block, is never flagged.
 
@@ -502,12 +502,14 @@ unchanged: **opencode's rules decide**.
 
 **Exceptions** are kept while the setting is **Deny** and blocked then: Deny
 beats them. Switching back to **Ask** restores them, and on **Allow** they are
-redundant but harmless. They are removed one by one from the Permissions line.
+redundant but harmless. They are removed one by one from the Permissions
+dialog.
 
-**The Permissions line** sits under the session header and is **read-only**: it
-shows, and the selector and **Remove** are the only controls. Collapsed it says
-what the session does in a breath: _Edits ask · commands ask · web ask_ (or
-_allowed_, or _blocked_ under Deny). Opening it gives one row per capability
+**The Permissions item** sits in the Agents sidebar beside Schedules while an
+agent session is selected, and opens the same content in a dialog so the
+transcript and its approval cards stay in view. It is **read-only**: it shows,
+and the selector and **Remove** are the only controls. It gives one row per
+capability
 (edit and write files, run commands, fetch from the web, start subagents, read
 files, work outside the project folder, start or message other sessions, ask you
 questions) with the **final answer**: _Allowed_, _Asks first_ or _Blocked_.
@@ -520,13 +522,15 @@ come the session's **exceptions**, each _Allowed for this session: `git status *
 with a **Remove** that makes that command ask again. Remove can only tighten,
 and the machine records each removal. An exception the machine marks as not
 removable shows "held by the machine" instead. The full rule list, in evaluation
-order, stays behind _Show the raw rules (for troubleshooting)_, height-capped and
-scrolling; there a rule from the person's own opencode config that Cerea or the
-machine replace is struck through and labelled _overridden by Cerea_ (or _by this
+order, stays behind _Show the raw rules (for troubleshooting)_; there a rule
+from the person's own opencode config that Cerea or the machine replace is
+struck through and labelled _overridden by Cerea_ (or _by this
 machine's rules / floor / limits_); the match behind that label is literal, so a
 rule that a broader glob in fact replaced can still be listed as in force. While
-the sign-in is [stale](#the-7-day-sign-in) the line, the selector and Remove are
-hidden, and the server refuses them anyway.
+the sign-in is [stale](#the-7-day-sign-in) the item, the selector and Remove are
+hidden, and the server refuses them anyway. The item carries the session's
+switch word and its exceptions count; a machine enrolled before ceilings shows
+an amber warning instead.
 
 ### Subagents
 
