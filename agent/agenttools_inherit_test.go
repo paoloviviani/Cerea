@@ -3,8 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"galopin/internal/backend"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
 )
@@ -79,6 +83,143 @@ func TestSpawnFromAskStaysAsk(t *testing.T) {
 	}
 	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_spawn" {
 		t.Errorf("asks = %+v, want the one spawn card", asks)
+	}
+}
+
+func addException(t *testing.T, r *coordRig, session, permission, pattern string) permrules.Exception {
+	t.Helper()
+	e, err := r.cb.AddException(context.Background(), "", session, permrules.Exception{
+		Permission: permission,
+		Patterns:   []string{pattern},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+func TestSpawnInheritsCallerExceptions(t *testing.T) {
+	r := newCoordRig(t, nil)
+	allowCaller(t, r)
+	addException(t, r, "caller", "external_directory", "/tmp/*")
+	addException(t, r, "caller", "external_directory", "/home/ubuntu/*")
+
+	child, _ := spawnChild(t, r)
+	got := r.cb.Exceptions(child)
+	if len(got) != 2 {
+		t.Fatalf("child exceptions = %+v, want the caller's two", got)
+	}
+	if got[0].Permission != "external_directory" || len(got[0].Patterns) != 1 || got[0].Patterns[0] != "/tmp/*" {
+		t.Errorf("child exception 0 = %+v, want external_directory /tmp/*", got[0])
+	}
+	if got[1].Patterns[0] != "/home/ubuntu/*" {
+		t.Errorf("child exception 1 = %+v, want /home/ubuntu/*", got[1])
+	}
+	// The composition carries them: a path the caller was allowed the child
+	// is allowed too, without a card.
+	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := permrules.Evaluate(rules, "external_directory", "/tmp/scratch/x"); got != permrules.Allow {
+		t.Errorf("child external_directory /tmp/scratch/x = %s, want allow", got)
+	}
+	if n := len(r.asks()); n != 0 {
+		t.Errorf("an allow spawn with inherited exceptions raised %d cards: %+v", n, r.asks())
+	}
+}
+
+func TestSpawnFromAskInheritsExceptionsToo(t *testing.T) {
+	r := newCoordRig(t, nil)
+	addException(t, r, "caller", "external_directory", "/tmp/*")
+
+	child, _ := spawnChild(t, r)
+	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_spawn" {
+		t.Fatalf("asks = %+v, want the one spawn card", asks)
+	}
+	if got := r.cb.Exceptions(child); len(got) != 1 || got[0].Patterns[0] != "/tmp/*" {
+		t.Errorf("child exceptions = %+v, want the caller's /tmp/*", got)
+	}
+	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := permrules.Evaluate(rules, "external_directory", "/tmp/x"); got != permrules.Allow {
+		t.Errorf("child external_directory /tmp/x = %s, want allow", got)
+	}
+}
+
+func TestSpawnedExceptionsStayCappedByCeiling(t *testing.T) {
+	// The ceiling composes last, so an exception the caller holds for a
+	// capped key must not soften the child's copy past it.
+	r := newCoordRig(t, func(p *policy.Policy) { withMax("bash", "ask")(p) })
+	allowCaller(t, r)
+	addException(t, r, "caller", "bash", "git *")
+	addException(t, r, "caller", "external_directory", "/tmp/*")
+
+	child, _ := spawnChild(t, r)
+	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := permrules.Evaluate(rules, "bash", "git status"); got != permrules.Ask {
+		t.Errorf("child bash git status = %s, want the ceiling's ask", got)
+	}
+	if got := permrules.Evaluate(rules, "external_directory", "/tmp/x"); got != permrules.Allow {
+		t.Errorf("child external_directory /tmp/x = %s, want allow", got)
+	}
+}
+
+func TestSpawnRefusesWhenExceptionCopyFails(t *testing.T) {
+	r := newCoordRig(t, nil)
+	allowCaller(t, r)
+	addException(t, r, "caller", "external_directory", "/tmp/*")
+	r.cb.mu.Lock()
+	r.cb.failAddException = true
+	r.cb.mu.Unlock()
+
+	_, err := r.call("caller", "session_spawn", map[string]any{"title": "worker", "prompt": "do it", "mode": "inherit"})
+	if err == nil {
+		t.Fatal("a failed exception copy must refuse the spawn")
+	}
+	refusal, ok := err.(*backend.ToolRefusal)
+	if !ok {
+		t.Fatalf("error is %T, want a ToolRefusal: %v", err, err)
+	}
+	if !strings.Contains(refusal.Message, "its exceptions were not inherited") {
+		t.Errorf("refusal = %q, want the not-inherited message", refusal.Message)
+	}
+}
+
+func TestSpawnAuditRowCarriesInheritedCount(t *testing.T) {
+	r := newCoordRig(t, nil)
+	allowCaller(t, r)
+	addException(t, r, "caller", "external_directory", "/tmp/*")
+	addException(t, r, "caller", "external_directory", "/home/ubuntu/*")
+
+	child, _ := spawnChild(t, r)
+	raw, err := os.ReadFile(filepath.Join(r.stateDir, "audit.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var row map[string]any
+		if json.Unmarshal([]byte(line), &row) != nil {
+			continue
+		}
+		if row["tool"] == "session_spawn" && row["to"] == child {
+			if row["decision"] != "done" {
+				t.Fatalf("spawn row decision = %v, want done", row["decision"])
+			}
+			if row["reason"] != "inherited 2 exceptions" {
+				t.Errorf("spawn row reason = %v, want the inherited count", row["reason"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no audit row for the spawn of %s in: %s", child, raw)
 	}
 }
 

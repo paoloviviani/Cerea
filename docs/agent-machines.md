@@ -646,11 +646,14 @@ Spawning is bounded so a session cannot fork without end: a spawn chain is at
 most two deep (a spawned session can spawn once more, its child cannot), at most
 three spawned sessions are live under one root, and a root that has started six
 in ten minutes is refused. A spawned session runs in the spawner's own
-workspace and inherits its permission word and coordination grant, never more
-(an Allow spawner makes a child that runs without a card; a read-only child
-comes from `mode: "plan"`) — still under the machine's ceiling,
-which caps the child exactly as it caps the caller. It appears as its own
-top-level row with a "spawned by" link, not inside the spawner's tree.
+workspace and inherits its permission word, coordination grant and exceptions,
+never more (an Allow spawner makes a child that runs without a card; a
+read-only child comes from `mode: "plan"`) — still under the machine's ceiling,
+which caps the child exactly as it caps the caller. The exceptions are the
+"always" answers the person gave the spawner, copied as they are; removing one
+from the spawner later does not remove it from children already spawned. It
+appears as its own top-level row with a "spawned by" link, not inside the
+spawner's tree.
 
 #### Scheduling work
 
