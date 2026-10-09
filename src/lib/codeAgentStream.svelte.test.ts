@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import superjson from "superjson";
 import { codeAgentStream } from "./codeAgentStream";
-import { codeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
+import { codeReauth, resetCodeReauth, signOutRedirect } from "$lib/stores/codeReauth.svelte";
 
 /**
  * The agent stream's two ways of learning the sign-in lapsed: the server's
@@ -38,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 	resetCodeReauth();
 });
 
@@ -81,6 +82,37 @@ describe("codeAgentStream and the sign-in", () => {
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 		expect(String(fetchSpy.mock.calls[0][0])).toContain("/api/v2/code/status");
 		await vi.waitFor(() => expect(codeReauth.required).toBe(true));
+	});
+
+	it("a signed-out status at open hides the panel without the stale flag", async () => {
+		// The redirect is a page navigation: stay here and assert the state.
+		vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		const fetchSpy = vi.fn(
+			async (_input: RequestInfo | URL) =>
+				new Response(
+					superjson.stringify({
+						enabled: true,
+						signedIn: false,
+						fresh: false,
+						reauthPath: "/login?reauth=1&next=/code",
+						signInPath: "/login?next=/code",
+					}),
+					{ status: 200 }
+				)
+		);
+		vi.stubGlobal("fetch", fetchSpy);
+		const abort = new AbortController();
+		const done = (async () => {
+			for await (const frame of codeAgentStream("d1", "a1", abort.signal)) void frame;
+		})();
+		const source = FakeSource.last as FakeSource;
+		source.readyState = FakeSource.CLOSED;
+		source.emit("error");
+		await done;
+		await vi.waitFor(() => expect(codeReauth.required).toBe(true));
+		// Hidden like stale, but the card is the signed-out one: no forced
+		// password prompt for an ordinary hourly expiry.
+		expect(codeReauth.signedOut).toBe(true);
 	});
 
 	it("leaves an ordinary reconnecting error alone", async () => {

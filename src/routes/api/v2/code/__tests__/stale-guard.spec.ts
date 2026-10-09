@@ -357,33 +357,62 @@ describe("GET /api/v2/code/status", () => {
 
 	it("is open to a stale session and says only that it is stale, and where to go", async () => {
 		const body = await status(await withAuthTime(new Date(Date.now() - 9 * DAY)));
-		expect(Object.keys(body).sort()).toEqual(["enabled", "fresh", "reauthPath"]);
+		expect(Object.keys(body).sort()).toEqual([
+			"enabled",
+			"fresh",
+			"reauthPath",
+			"signInPath",
+			"signedIn",
+		]);
+		expect(body.signedIn).toBe(true);
 		expect(body.fresh).toBe(false);
 		expect(body.reauthPath).toBe("/login?reauth=1&next=/code");
 		expect(sanitizeReturnPath(body.reauthPath as string)).toBe(body.reauthPath);
+		expect(body.signInPath).toBe("/login?next=/code");
+		expect(sanitizeReturnPath(body.signInPath as string)).toBe(body.signInPath);
 	});
 
 	it("treats a session with no authTime as stale", async () => {
-		expect((await status(await withAuthTime(null))).fresh).toBe(false);
+		const body = await status(await withAuthTime(null));
+		expect(body.signedIn).toBe(true);
+		expect(body.fresh).toBe(false);
 	});
 
 	it("says fresh, with when it stops being fresh, for a current sign-in", async () => {
 		const authTime = new Date(Date.now() - 2 * DAY);
 		const body = await status(await withAuthTime(authTime));
+		expect(body.signedIn).toBe(true);
 		expect(body.fresh).toBe(true);
-		expect(Object.keys(body).sort()).toEqual(["enabled", "fresh", "freshUntil", "reauthPath"]);
+		expect(Object.keys(body).sort()).toEqual([
+			"enabled",
+			"fresh",
+			"freshUntil",
+			"reauthPath",
+			"signInPath",
+			"signedIn",
+		]);
 		expect(body.freshUntil).toBe(new Date(authTime.getTime() + STEP_UP_WINDOW_MS).toISOString());
 	});
 
-	it("is not fresh for no session at all", async () => {
-		expect((await status()).fresh).toBe(false);
+	it("tells signed-out apart from stale for no session at all", async () => {
+		const body = await status();
+		expect(body.signedIn).toBe(false);
+		expect(body.fresh).toBe(false);
+		expect(body.signInPath).toBe("/login?next=/code");
 	});
 
 	it("carries nothing derived from a machine, even with one paired", async () => {
 		const machine = await connectAndPair();
 		const body = await status(await withAuthTime(new Date()));
 		expect(JSON.stringify(body)).not.toContain(machine.deviceId as string);
-		expect(Object.keys(body).sort()).toEqual(["enabled", "fresh", "freshUntil", "reauthPath"]);
+		expect(Object.keys(body).sort()).toEqual([
+			"enabled",
+			"fresh",
+			"freshUntil",
+			"reauthPath",
+			"signInPath",
+			"signedIn",
+		]);
 		machine.close();
 	});
 });

@@ -103,10 +103,20 @@ protected without anyone remembering to; the guard spec fails if one appears
 that it has not been told about.
 
 `/status` is the one open route. It returns only
-`{enabled, fresh, reauthPath}` plus `freshUntil` when fresh, and nothing derived
-from a machine: no names, counts or inbox badge. `reauthPath` is a
-`/login?reauth=1&next=/code` path (with the app base) for the **Sign in**
-button.
+`{enabled, signedIn, fresh, reauthPath, signInPath}` plus `freshUntil` when
+fresh, and nothing derived from a machine: no names, counts or inbox badge.
+`reauthPath` is a `/login?reauth=1&next=/code` path (with the app base) for the
+**Sign in** button; `signInPath` is the same destination without the force, for
+a caller with no session at all. A session can be unusable two ways, and the
+panel says which: **stale** (signed in, older than 7 days) gets the forced
+re-login, **signed out** (no session at all — the ordinary expiry of a chat
+without a refresh token) gets the plain sign-in, which the identity provider's
+own SSO session answers silently. A signed-out open tab leaves for that plain
+sign-in by itself (guarded against a loop: a redirect that already happened in
+the last minute is not repeated, and the card shows instead); with
+Authelia's bundled session settings, ticking **Remember me** at sign-in is what
+makes that re-login silent — without it the provider asks for the password
+again after an hour regardless of Cerea.
 
 Three things the hook cannot see, each handled where it lives: the machine link
 and the terminal socket are WebSocket upgrades that bypass hooks (the terminal
