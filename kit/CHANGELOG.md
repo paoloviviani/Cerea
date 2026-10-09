@@ -16,6 +16,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   summarize call, which requires the model to summarize with, so "Compact
   now" always failed with a 400. It sends the session's model now. Machines
   need the galopin update.
+- Agent tool cards show their input while the call runs, not only after a
+  reload.
 
 ## v0.9.1 — 2026-10-09
 

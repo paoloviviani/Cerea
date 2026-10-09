@@ -36,6 +36,20 @@ const call = (uuid: string, name = "bash"): AgentStreamUpdate => ({
 	uuid,
 	call: { name, parameters: { command: "ls" } },
 });
+/** opencode's `pending` state: the name is known, the arguments are still
+ * streaming, so the input is empty. */
+const pendingCall = (uuid: string, name = "bash"): AgentStreamUpdate => ({
+	type: MessageUpdateType.Tool,
+	subtype: MessageToolUpdateType.Call,
+	uuid,
+	call: { name, parameters: {} },
+});
+const filledCall = (uuid: string, name = "bash", command: string): AgentStreamUpdate => ({
+	type: MessageUpdateType.Tool,
+	subtype: MessageToolUpdateType.Call,
+	uuid,
+	call: { name, parameters: { command } },
+});
 const result = (uuid: string, name = "bash"): AgentStreamUpdate => ({
 	type: MessageUpdateType.Tool,
 	subtype: MessageToolUpdateType.Result,
@@ -124,6 +138,49 @@ describe("consumeAgentUpdates", () => {
 		expect(toolFrames).toHaveLength(2);
 		expect(toolFrames[0]).toMatchObject({ subtype: "call" });
 		expect(toolFrames[1]).toMatchObject({ subtype: "result" });
+	});
+
+	it("a filled Call replaces the pending Call's empty input, in place", async () => {
+		const messages = await run([
+			user("run it"),
+			running(),
+			pendingCall("t1"),
+			filledCall("t1", "bash", "ls -la"),
+			result("t1"),
+			done(),
+		]);
+		const toolFrames = (messages[1].updates ?? []).filter((u) => u.type === MessageUpdateType.Tool);
+		expect(toolFrames).toHaveLength(2);
+		expect(toolFrames[0]).toMatchObject({
+			subtype: "call",
+			call: { name: "bash", parameters: { command: "ls -la" } },
+		});
+		expect(toolFrames[1]).toMatchObject({ subtype: "result" });
+	});
+
+	it("an empty later Call never regresses a filled one", async () => {
+		const messages = await run([
+			user("run it"),
+			pendingCall("t1"),
+			filledCall("t1", "bash", "git status"),
+			pendingCall("t1"),
+			done(),
+		]);
+		const toolFrames = (messages[1].updates ?? []).filter((u) => u.type === MessageUpdateType.Tool);
+		expect(toolFrames).toHaveLength(1);
+		expect(toolFrames[0]).toMatchObject({
+			call: { name: "bash", parameters: { command: "git status" } },
+		});
+	});
+
+	it("a Result with no prior Call still synthesizes one", async () => {
+		const messages = await run([user("run it"), result("t1"), done()]);
+		const toolFrames = (messages[1].updates ?? []).filter((u) => u.type === MessageUpdateType.Tool);
+		expect(toolFrames).toHaveLength(2);
+		expect(toolFrames[0]).toMatchObject({
+			subtype: "call",
+			call: { name: "bash", parameters: { command: "ls" } },
+		});
 	});
 
 	it("ignores a re-derived call for a tool that already closed", async () => {

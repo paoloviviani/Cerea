@@ -4,6 +4,7 @@ import {
 	MessageToolUpdateType,
 	MessageUpdateType,
 	type MessageBackgroundTaskUpdate,
+	type MessageToolCallUpdate,
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import type { Message } from "$lib/types/Message";
@@ -395,7 +396,38 @@ export async function consumeAgentUpdates(
 			case MessageUpdateType.Tool: {
 				openAssistant();
 				if (update.subtype === MessageToolUpdateType.Call) {
-					if (toolOpen.has(update.uuid)) break;
+					if (toolOpen.has(update.uuid)) {
+						// opencode emits a Call while the model is still streaming
+						// the arguments — the `pending` state, with an empty input
+						// — and again once they have arrived. Keeping only the
+						// first froze the card's Input on `{}` until a reload. A
+						// filled Call replaces the stored one in place (same
+						// position, new object so the reactive swap is seen); an
+						// empty one never overwrites a filled one.
+						let index = -1;
+						for (let i = updatesBuffer.length - 1; i >= 0; i -= 1) {
+							const entry = updatesBuffer[i];
+							if (
+								entry.type === MessageUpdateType.Tool &&
+								entry.subtype === MessageToolUpdateType.Call &&
+								entry.uuid === update.uuid
+							) {
+								index = i;
+								break;
+							}
+						}
+						if (index !== -1 && Object.keys(update.call.parameters ?? {}).length > 0) {
+							const stored = updatesBuffer[index] as MessageToolCallUpdate;
+							updatesBuffer = [
+								...updatesBuffer.slice(0, index),
+								{ ...stored, call: update.call },
+								...updatesBuffer.slice(index + 1),
+							];
+							updatesDirty = true;
+							scheduleFrameFlush();
+						}
+						break;
+					}
 					toolOpen.add(update.uuid);
 					pushUpdate(update);
 					scheduleFrameFlush();
