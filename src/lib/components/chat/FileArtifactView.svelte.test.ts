@@ -117,3 +117,26 @@ describe("FileArtifactView — actual bytes, not just recorded metadata", () => 
 		}
 	});
 });
+
+describe("FileArtifactView — image preview", () => {
+	// The object URL the image branch creates must not re-trigger the preview
+	// effect: when it did, every arriving image restarted the download, so
+	// the panel sat on "Loading preview…" forever for every PNG and SVG.
+	it.each(["chart.png", "chart.svg"])(
+		"shows %s after one fetch instead of reloading it forever",
+		async (name) => {
+			const bytes = new Uint8Array([137, 80, 78, 71]);
+			const fetchMock = vi.fn(async () => new Response(bytes.buffer as ArrayBuffer));
+			vi.stubGlobal("fetch", fetchMock);
+			const screen = render(FileArtifactView, {
+				version: { name, size: bytes.length, sha256: "abc", version: 1, messageId: "m1" },
+				conversationId: "conv1",
+			});
+			await expect.element(screen.getByAltText(`Preview of ${name}`)).toBeInTheDocument();
+			// Give a re-triggered effect time to show itself before counting.
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(screen.getByAltText(`Preview of ${name}`).query()).not.toBeNull();
+		}
+	);
+});

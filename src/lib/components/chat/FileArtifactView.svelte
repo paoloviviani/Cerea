@@ -54,7 +54,11 @@
 	let status = $state<"idle" | "loading" | "ready" | "error">("idle");
 	let payload = $state<Payload | null>(null);
 	let error = $state<string | null>(null);
-	let objectUrl = $state<string | null>(null);
+	// Plain, not $state: the template shows `payload.url`, and the effect
+	// below reads this through revokeObjectUrl(). As state it became the
+	// effect's dependency, so setting it after a fetch restarted the effect:
+	// every image re-downloaded forever and never left "Loading preview…".
+	let objectUrl: string | null = null;
 
 	function revokeObjectUrl() {
 		if (objectUrl) {

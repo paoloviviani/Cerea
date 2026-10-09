@@ -18,6 +18,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   need the galopin update.
 - Agent tool cards show their input while the call runs, not only after a
   reload.
+- Opening a generated image (PNG, SVG, …) in the side panel shows it
+  instead of hanging on "Loading preview…": the preview re-downloaded the
+  image in a loop.
 
 ## v0.9.1 — 2026-10-09
 
