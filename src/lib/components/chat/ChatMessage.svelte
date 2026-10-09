@@ -120,12 +120,20 @@
 		fileBaseUrl?: string;
 		/**
 		 * Extra per-message actions in the assistant footer, next to Copy and
-		 * Retry — the coding-agent panel's "Hand off…" (see `AgentView`). Shown
-		 * only once the message's own turn is done, the same "completed"
-		 * reading `turnStateOf` already gives the rest of this footer. Absent,
-		 * the footer is exactly what it always was; chat itself stays unchanged.
+		 * Retry — the coding-agent panel's "Fork from here" (see `AgentView`).
+		 * Absent, the footer is exactly what it always was; chat itself stays
+		 * unchanged.
 		 */
 		messageActions?: Snippet<[Message]>;
+		/**
+		 * The caller's own visibility rule for `messageActions`, for a surface
+		 * that decides from its own facts — the agent panel offers the fork on
+		 * every message it can name on the machine's transcript, not only the
+		 * one a turn's ending happened to land on (`utils/codeFork.ts`).
+		 * Absent, the footer keeps the default reading: the message's own
+		 * turn is done, the same completed state `turnStateOf` gives it.
+		 */
+		messageActionsWhen?: (message: Message) => boolean;
 		/**
 		 * Elicitation/question/wait-banner channel id, for a surface whose page
 		 * path is not a conversation's (the coding-agent panel's agent id) — the
@@ -153,6 +161,7 @@
 		subagentCard,
 		fileBaseUrl,
 		messageActions,
+		messageActionsWhen,
 		conversationId,
 	}: Props = $props();
 
@@ -1041,7 +1050,7 @@
 							<CarbonRotate360 />
 						</button>
 					{/if}
-					{#if messageActions && turnStateOf(message)?.state === "done"}
+					{#if messageActions && (messageActionsWhen ? messageActionsWhen(message) : turnStateOf(message)?.state === "done")}
 						{@render messageActions(message)}
 					{/if}
 					{#if alternatives.length > 1 && editMsdgId === null}

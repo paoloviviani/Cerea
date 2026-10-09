@@ -51,6 +51,7 @@
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
+	import { forkableMessageIds } from "$lib/utils/codeFork";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
 	import { codeAgentStream } from "$lib/codeAgentStream";
@@ -698,6 +699,18 @@
 	let latestTasks = $derived(latestPlan(messages));
 	let tasksProgress = $derived(planProgress(latestTasks));
 	let sessionBusy = $derived(shownState === "running" || shownState === "waiting-permission");
+
+	// ── Fork from here ────────────────────────────────────────────────────
+	//
+	// Offered on every assistant message the machine can name
+	// (`machineMessageId` is the boundary the handoff route cuts at) that is
+	// not part of the turn still running — see `forkableMessageIds` for why
+	// the message's own TurnState is the wrong fact to decide with.
+	let forkableIds = $derived(forkableMessageIds(messages, sessionBusy));
+	/** ChatMessage's per-message gate for the "Fork from here" action. */
+	function messageActionsWhen(message: Message): boolean {
+		return forkableIds.has(message.id);
+	}
 	// A list that has just become active opens the pane on its own, once,
 	// on a screen with room for it, and only into an empty slot.
 	$effect(() => {
@@ -979,9 +992,9 @@
 	<SubagentCard {anchor} activity={childActivity[anchor.subagent?.id ?? ""] ?? 0} />
 {/snippet}
 
-<!-- The "Fork from here" action ChatMessage opens per completed assistant
-     message (an optional prop/snippet, so chat itself stays unchanged) —
-     opens this view's own HandoffDialog below. -->
+<!-- The "Fork from here" action ChatMessage opens per forkable assistant
+     message (an optional prop/snippet pair, so chat itself stays
+     unchanged) — opens this view's own HandoffDialog below. -->
 {#snippet messageActions(message: Message)}
 	<button
 		class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
@@ -1164,6 +1177,7 @@
 			{subagentFor}
 			{subagentCard}
 			{messageActions}
+			{messageActionsWhen}
 			bind:this={column}
 		>
 			{#snippet introduction()}
