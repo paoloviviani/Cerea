@@ -385,3 +385,92 @@ describe("AgentView background banner", () => {
 			.not.toBeInTheDocument();
 	});
 });
+
+describe("AgentView fork action", () => {
+	const boundary = (role: "user" | "assistant", messageId: string) => ({
+		type: "messageBoundary",
+		role,
+		messageId,
+	});
+	const echo = (text: string) => ({ type: "user", text });
+	const stream = (token: string, partId: string) => ({
+		type: MessageUpdateType.Stream,
+		token,
+		partId,
+	});
+	const turnState = (state: "running" | "done" | "failed") => ({
+		type: MessageUpdateType.TurnState,
+		state,
+		serverNow: 0,
+	});
+	const forkButtons = (screen: { baseElement: HTMLElement }) =>
+		screen.baseElement.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]');
+
+	it("offers the fork on every named assistant message of a finished multi-turn session", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		// A snapshot of a finished three-turn session; the first turn ran two
+		// steps (two wire assistant messages, folded into one bubble).
+		await arrive([
+			boundary("user", "u1"),
+			echo("first"),
+			boundary("assistant", "a1"),
+			stream("Step one. ", "p1"),
+			boundary("assistant", "a1b"),
+			stream("Step two.", "p2"),
+			boundary("user", "u2"),
+			echo("second"),
+			boundary("assistant", "a2"),
+			stream("Second.", "p3"),
+			boundary("user", "u3"),
+			echo("third"),
+			boundary("assistant", "a3"),
+			stream("Third.", "p4"),
+			turnState("done"),
+		]);
+		await expect.element(screen.getByText("Third.")).toBeVisible();
+		expect(forkButtons(screen)).toHaveLength(3);
+	});
+
+	it("still offers the fork when a later turn dies without an answer", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		// The next turn's busy beats its echo (the captured opencode order), so
+		// the fold adopts turn one's finished message and sticks it at running
+		// after its own done; the turn then dies before producing any part, and
+		// the failure parks on that same message. The message's own turn state
+		// now reads neither done nor done — the fork must still be offered.
+		await arrive([
+			boundary("user", "u1"),
+			echo("first"),
+			boundary("assistant", "a1"),
+			stream("Answer one.", "p1"),
+			turnState("done"),
+			turnState("running"),
+			boundary("user", "u2"),
+			echo("second"),
+			turnState("failed"),
+		]);
+		await expect.element(screen.getByText("Answer one.")).toBeVisible();
+		expect(forkButtons(screen)).toHaveLength(1);
+	});
+
+	it("offers nothing while the turn still runs", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await arrive([
+			boundary("user", "u1"),
+			echo("first"),
+			boundary("assistant", "a1"),
+			stream("First.", "p1"),
+			turnState("done"),
+			boundary("user", "u2"),
+			echo("second"),
+			boundary("assistant", "a2"),
+			stream("Working...", "p2"),
+			turnState("running"),
+		]);
+		await expect.element(screen.getByText("Working...")).toBeVisible();
+		expect(forkButtons(screen)).toHaveLength(0);
+	});
+});
