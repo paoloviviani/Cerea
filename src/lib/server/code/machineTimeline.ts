@@ -579,6 +579,52 @@ function turnStateUpdate(
 	};
 }
 
+/** The HTTP statuses an error event's `code` may carry (PROTOCOL.md §7) — an
+ * ACP backend's JSON-RPC code is negative, a command failure has none, and
+ * neither is a provider's answer. */
+function isHttpStatus(code: string | undefined): boolean {
+	if (!code) return false;
+	const status = Number(code);
+	return Number.isInteger(status) && status >= 400 && status <= 599;
+}
+
+/** A provider refusal's one-line fix, for the statuses that mean the account
+ * or the key, not the request. */
+const PROVIDER_CREDIT_HINT = " Check the provider's credit or key, or switch model.";
+
+/** The reason a failed turn shows on itself (PROTOCOL.md §7): the provider's
+ * own text, framed for a person, plus the one fix worth trying when the
+ * provider answered with an auth/payment status. The stored error and the
+ * error event are the model/provider's failures by construction, so both get
+ * the framing; an empty message (an older galopin) stays empty, which is
+ * today's look. */
+export function providerRefusalReason(
+	message: string | undefined,
+	code?: string
+): string | undefined {
+	if (!message) return undefined;
+	const hint = code === "401" || code === "402" || code === "403" ? PROVIDER_CREDIT_HINT : "";
+	return `The model's provider refused the request: ${message}${hint}`;
+}
+
+/** One live `error` event's reason. A code that reads as an HTTP status marks
+ * a provider refusal; anything else (a command that would not run, an ACP
+ * failure) already says what happened and shows as it is. */
+function errorEventReason(message: string | undefined, code?: string): string | undefined {
+	if (!message) return undefined;
+	if (isHttpStatus(code)) return providerRefusalReason(message, code);
+	return message;
+}
+
+/** The reason a provider-refusal `error` event leaves in the caller's tracked
+ * `lastAssistantError`, so the `idle` that follows the error event ends the
+ * turn on the same framed text the event itself emitted (undefined: nothing
+ * to upgrade — other failures stay with whatever the transcript carries). */
+export function trackedErrorReason(event: { message: string; code?: string }): string | undefined {
+	if (!isHttpStatus(event.code) || !event.message) return undefined;
+	return providerRefusalReason(event.message, event.code);
+}
+
 /** `status` → turn state (spec §8): `busy`/`retry` are running, `idle` is
  * done unless the turn's last assistant message carries an error — that one
  * bit of context the caller supplies, since a bare `status` event does not
@@ -713,7 +759,7 @@ function liveFrames(
 		case "session":
 			return []; // metadata changed; the panel re-reads via its own poll.
 		case "error":
-			return [turnStateUpdate("failed", event.message)];
+			return [turnStateUpdate("failed", errorEventReason(event.message, event.code))];
 		case "todo":
 			return [todoToUpdate(event.todos, sessionId)];
 		case "question.asked":
@@ -870,7 +916,9 @@ export function snapshotToUpdates(
 				...answeredQuestionFromPart(part)
 			);
 		}
-		if (message.role === "assistant") lastAssistantError = message.error;
+		if (message.role === "assistant") {
+			lastAssistantError = providerRefusalReason(message.error);
+		}
 	}
 	for (const permission of transcript.permissions ?? []) {
 		updates.push(permissionRequestToUpdate(permission));
@@ -896,11 +944,12 @@ export function snapshotToUpdates(
  * live connection open past this snapshot should seed its own tracked
  * `lastAssistantError` with (spec §8), so a `status: "idle"` event arriving
  * later without a fresh `message` event still maps to the right terminal
- * state. */
+ * state. Returned as the failed turn shows it (`providerRefusalReason`), the
+ * same shape the fold's own tracking carries. */
 export function lastAssistantErrorOf(transcript: Transcript): string | undefined {
 	let lastAssistantError: string | undefined;
 	for (const { message } of transcript.messages ?? []) {
-		if (message.role === "assistant") lastAssistantError = message.error;
+		if (message.role === "assistant") lastAssistantError = providerRefusalReason(message.error);
 	}
 	return lastAssistantError;
 }
@@ -968,13 +1017,19 @@ export function foldEnvelopeEvents(
 		const child = childOf?.(sessionId);
 		if (!child && event.kind === "message") {
 			if (event.message.role === "assistant") {
-				lastAssistantError = event.message.error;
+				lastAssistantError = providerRefusalReason(event.message.error);
 			} else if (event.message.clientMessageId) {
 				userMessageIds.set(event.message.id, event.message.clientMessageId);
 			}
 			if (event.message.role === "user" && event.message.command) {
 				commandMarkers.set(event.message.id, event.message.command);
 			}
+		}
+		// A provider refusal says so with an HTTP status (PROTOCOL.md §7):
+		// remembering its framed reason here is what keeps the hint on the
+		// failed turn through the `idle` that follows the error event.
+		if (!child && event.kind === "error") {
+			lastAssistantError = trackedErrorReason(event) ?? lastAssistantError;
 		}
 		updates.push(
 			...eventToUpdates(
