@@ -34,6 +34,9 @@ type coordBackend struct {
 	answer      func(backend.PermissionRequest) (backend.Decision, string)
 	layers      func() permrules.Layers
 	handler     backend.ToolHandler
+	// failAddException makes every AddException fail, for the spawn
+	// inheritance tests' copy-failure case.
+	failAddException bool
 }
 
 type coordPrompt struct {
@@ -184,8 +187,16 @@ func (c *coordBackend) Exceptions(id string) []permrules.Exception {
 	defer c.mu.Unlock()
 	return c.sel[id].Exceptions
 }
-func (c *coordBackend) AddException(context.Context, string, string, permrules.Exception) (permrules.Exception, error) {
-	panic("not used")
+func (c *coordBackend) AddException(_ context.Context, _, id string, e permrules.Exception) (permrules.Exception, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.failAddException {
+		return permrules.Exception{}, fmt.Errorf("injected AddException failure")
+	}
+	sel := c.sel[id]
+	next, kept := sel.With(e)
+	c.sel[id] = next
+	return kept, nil
 }
 func (c *coordBackend) RemoveException(context.Context, string, string, string) (bool, error) {
 	panic("not used")

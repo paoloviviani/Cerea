@@ -11,6 +11,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   `backup` service now carries `pull_policy: never`, since
   `cerea-backup:1` is built on the machine and published nowhere. An
   override copied from an older kit needs the two words added by hand.
+- **Spawned sessions inherit the spawner's "always" answers.** A spawned
+  session used to start without the spawner's permission exceptions and
+  re-asked for things the person had already allowed (external directories
+  above all). The spawner's exceptions are copied to the child as they are,
+  still capped by the machine's ceiling; later changes do not propagate.
+  Machines need the galopin update.
 
 ## v0.9.3 — 2026-10-09
 

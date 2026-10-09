@@ -55,6 +55,12 @@ type agentTools struct {
 	// scheduleLog is the schedule tools' rate window: root session -> changes.
 	scheduleLog map[string][]time.Time
 
+	// doneDetail is the reason of the next "done" audit row, set by a tool
+	// handler that has something to say about its own success (the spawn's
+	// inherited-exception count) and taken by the dispatch loop right after.
+	// Tools run one at a time through here, so a plain field cannot cross.
+	doneDetail string
+
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
 	calls machineCaller
@@ -125,7 +131,7 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 	}
 	switch {
 	case err == nil:
-		audit(call.Tool, call.SessionID, to, "done", "")
+		audit(call.Tool, call.SessionID, to, "done", at.takeDoneDetail())
 	default:
 		if r, ok := err.(*backend.ToolRefusal); ok {
 			reason = r.Message
@@ -138,6 +144,16 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		audit(call.Tool, call.SessionID, to, "refused", reason)
 	}
 	return out, err
+}
+
+// takeDoneDetail returns and clears the pending "done" reason, empty when the
+// tool had nothing to add.
+func (at *agentTools) takeDoneDetail() string {
+	at.mu.Lock()
+	defer at.mu.Unlock()
+	detail := at.doneDetail
+	at.doneDetail = ""
+	return detail
 }
 
 type toolCaller struct {
@@ -476,6 +492,28 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 			if err := rh.SetCoordination(ctx, tc.dir, child.ID, keys); err != nil {
 				return "", child.ID, refuse("the new session %q was created but its coordination grant was not inherited: %v", child.ID, err)
 			}
+		}
+		// The person's "always" answers ride along, exactly as the caller's
+		// root holds them — same permission, same patterns, same action —
+		// never more than the caller has (the ceiling caps them as it caps
+		// the caller, composed last), and for an Ask caller too: its
+		// exceptions are the person's own answers, not a licence the word
+		// implies. Later changes are not propagated: removing one from the
+		// parent leaves the child's copy in place.
+		exceptions := rh.Exceptions(tc.session.ID)
+		for _, e := range exceptions {
+			if _, err := rh.AddException(ctx, tc.dir, child.ID, e); err != nil {
+				return "", child.ID, refuse("the new session %q was created but its exceptions were not inherited: %v", child.ID, err)
+			}
+		}
+		if len(exceptions) > 0 {
+			at.mu.Lock()
+			if len(exceptions) == 1 {
+				at.doneDetail = "inherited 1 exception"
+			} else {
+				at.doneDetail = fmt.Sprintf("inherited %d exceptions", len(exceptions))
+			}
+			at.mu.Unlock()
 		}
 	}
 	at.mu.Lock()
