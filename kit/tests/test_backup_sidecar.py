@@ -48,6 +48,10 @@ class SidecarFiles(unittest.TestCase):
         self.assertNotIn("docker.sock", text, "the sidecar must never get the Docker socket")
         for needle in ("read_only: true", "cap_drop: [ALL]", "no-new-privileges:true"):
             self.assertIn(needle, text)
+        # The image is local-built and published nowhere: the upgrade flow's
+        # `docker compose pull` must skip the service, or it fails the whole
+        # pull with "pull access denied".
+        self.assertRegex(text, r"pull_policy:\s*never")
         # Everything it reads from the stack is mounted read-only.
         for mount in ("./.env:/stack/.env:ro", "authelia-config:/authelia-config:ro", "authelia-data:/authelia-data:ro"):
             self.assertIn(mount, text)

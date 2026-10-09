@@ -315,6 +315,10 @@ image carries restic, rclone, a Postgres 18 client and the Mongo tools
 together. It is Alpine, 250 MB, with pinned sources: the official `restic/restic:0.18.1`
 and `rclone/rclone:1.73.0` binaries, `alpine:3.23.6` for the rest. After a
 upgrade that changes `tools/backup/`, run `docker compose up -d --build backup`.
+The service carries `pull_policy: never`, so the `docker compose pull` of the
+upgrade flow skips it — the image exists only here, and pulling it would fail
+the whole pull. (An override copied before this line needs the two words added
+by hand.)
 
 **Keep the repository password somewhere else.** `.env` is in every snapshot,
 and it holds `RESTIC_PASSWORD`: the backup that explains how to open itself is
