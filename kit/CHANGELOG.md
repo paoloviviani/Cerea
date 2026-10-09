@@ -5,11 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- "Fork from here" is back on finished agent messages.
+
 ## v0.9.4 — 2026-10-09
 
 Pins: Cerea `0.9.4`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the
 galopin update** (spawned sessions inherit exceptions).
 
+- **Spawned sessions inherit the spawner's "always" answers.** A spawned
+  session used to start without the spawner's permission exceptions and
+  re-asked for things the person had already allowed (external directories
+  above all). The spawner's exceptions are copied to the child as they are,
+  still capped by the machine's ceiling; later changes do not propagate.
+- `docker compose pull` no longer fails on a kit with restic backups: the
+  `backup` service now carries `pull_policy: never`, since
+  `cerea-backup:1` is built on the machine and published nowhere. An
+  override copied from an older kit needs the two words added by hand.
 - **Spawned sessions inherit the spawner's "always" answers.** A spawned
   session used to start without the spawner's permission exceptions and
   re-asked for things the person had already allowed (external directories
