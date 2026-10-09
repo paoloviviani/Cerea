@@ -322,6 +322,19 @@ when the window closes finds out by itself: its event stream ends with a
 timer, with no request. Composer drafts stay in the browser but are not shown
 until you are back.
 
+A tab whose chat session merely **expired** (no session at all — the ordinary
+hourly expiry of a chat without a refresh token) shows a different card —
+_"You were signed out. Sign in again to see your machines."_ — and its
+**Sign in** goes through a plain `/login?next=/code`, never the forced
+`reauth=1` prompt: with the provider's SSO session alive (tick **Remember
+me** at the bundled Authelia) the re-login is silent and the panel comes
+back on its own; an open tab even leaves for that sign-in by itself, once
+per minute at most. Only the 7-day staleness forces the password.
+
+Your machines keep working while you are signed out of the panel. The machine's
+link to Cerea is its own credential and is not part of this; what stops is
+you seeing and driving them from the browser.
+
 Your machines keep working while you are signed out of the panel. The machine's
 link to Cerea is its own credential and is not part of this; what stops is
 you seeing and driving them from the browser.
