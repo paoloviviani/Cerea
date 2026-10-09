@@ -26,3 +26,6 @@ kit/
 # The documentation site is mkdocs.yml, which Prettier would reflow (the
 # YAML is hand-laid-out, with comments that carry the licence posture).
 mkdocs.yml
+
+# The generated docs build output (mkdocs), like .svelte-kit above.
+site/
