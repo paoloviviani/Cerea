@@ -49,7 +49,7 @@ means enrolling again; `galopin policy set` on the machine can only tighten."_
 
 | Control                                                                                       | What it adds to the printed command                                                                                                                                        | Default                                                      | Use it when                                                                                                               |
 | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| **The most any session may do here** (three pills: Allow · Ask · Deny, for all tools at once) | `--permission-max KEY=ACTION` for every tool                                                                                                                               | none pressed: `bash` and `session_spawn` Ask, the rest Allow | you want one cap for every tool (see below). Allow shows a warning about `bash`                                           |
+| **The most any session may do here** (three pills: Allow · Ask · Deny, for all tools at once) | `--permission-max KEY=ACTION` for every tool                                                                                                                               | none pressed: `bash` Asks, the rest Allow | you want one cap for every tool (see below). Allow shows a warning about `bash`                                           |
 | **Trust the repos this machine opens** (amber)                                                | `--allow-project-config`                                                                                                                                                   | off                                                          | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
 | **Install opencode**                                                                          | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.18.34`), before `enroll` | off                                                          | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
@@ -61,7 +61,7 @@ are under Advanced. **The
 flag replaces `enroll`'s default set rather than adding to it**, so the dialog
 prints either nothing (the cap is as `enroll` has it) or the whole set: change
 one tool and the line carries every tool that is capped, including the defaults
-you left alone (`bash=ask`, `session_spawn=ask`), and names a default you set to
+you left alone (`bash=ask`), and names a default you set to
 Allow (`bash=allow`) explicitly, which is how an owner opts out of it.
 
 **Advanced**, collapsed until opened (its summary counts what you changed, and
@@ -72,7 +72,7 @@ the printed line carries every changed value whether it is open or not):
 | **Terminals** (amber)                                         | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once                     | the panel may open a real shell on this machine: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way |
 | **Slash commands that run shell** (amber)                     | unticked: `--no-command-shell`                                        | on                                             | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                             |
 | **Background subagents**                                      | unticked: `--no-background-subagents`                                 | on                                             | a task can keep running after its parent turn ends                                                                                                               |
-| **The cap, tool by tool** (eight pill rows)                   | `--permission-max KEY=ACTION`, the whole set                          | `bash` and `session_spawn` Ask, the rest Allow | a different cap per tool                                                                                                                                         |
+| **The cap, tool by tool** (eight pill rows)                   | `--permission-max KEY=ACTION`, the whole set                          | `bash` Asks, the rest Allow | a different cap per tool                                                                                                                                         |
 | **No agent tools**                                            | `--no-agent-tools`                                                    | installed                                      | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                |
 | **Allow free models**                                         | `--allow-free-models`                                                 | the gateway's models only                      | models from providers other than the gateway's may be listed and used                                                                                            |
 | **Keep opencode's own providers**                             | `--allow-opencode-provider`                                           | gateway only                                   | opencode's built-in providers stay enabled next to the gateway's                                                                                                 |
@@ -124,7 +124,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | -------------------------------- | ---------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | **Files**                        | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny` | read-only browsing, secrets redacted | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                                          | `policy set --no-files`, `--file-deny GLOB`           |
 | **Terminals**                    | `--no-terminal`, `--max-terminals N`                       | allowed; at most 8 open at once      | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                                                        | `policy set --no-terminal`, a lower `--max-terminals` |
-| **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`, `session_spawn=ask`      | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, `session_read`, `schedule`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it. |
+| **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                 | `bash=ask`      | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, `session_read`, `schedule`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it. |
 | **Machine rules**                | `--permission-rule KEY=ACTION` (repeatable)                | none                                 | Fixed answers for every session on this machine. A deny there always holds; an allow or ask only matters for reading files, working outside the project folder, the stuck-agent brake, and agents starting or messaging sessions. The ceiling still caps them.                                                            |
 | **Agent tools**                  | `--no-agent-tools`                                         | installed                            | Whether galopin installs `session_list`, `session_read`, `session_spawn` and `session_send`, and the schedule tools (`schedule_list`, `schedule_create`, `schedule_update`, `schedule_delete`), into the backend (see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)). Denied: no tool at all          | `policy set --no-agent-tools`                         |
 | **Slash-command shell**          | `--no-command-shell`                                       | allowed                              | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                            | `policy set --no-command-shell`                       |
@@ -590,10 +590,11 @@ own rules, what you set for it, and the ceiling last), looked up under the names
 - **deny** — refused.
 - **ask, or no rule** — a card, as for any other ask. Nothing you answer on it is
   remembered: it has no "Always", and answering "once" is the only form.
-- A blanket `"*": allow` never grants these three (otherwise opencode's permissive
-  default would silently switch session traffic on), and neither does a
-  session's **Allow** word; a blanket `"*": deny` refuses them. A transcript
-  can hold secrets, which is why a read is as hard to get as a send.
+- A blanket `"*": allow` never grants a **read** (otherwise opencode's permissive
+  default would let any session read any transcript), but under the session's
+  **Allow** word it grants a **spawn or a send**, like any other tool; a blanket
+  `"*": deny` refuses them. A transcript can hold secrets, which is why a read
+  stays as hard to get as a send.
 - A send or a read into another workspace always asks.
 - A session can also be **granted** them without a rule: see below. Prompts and messages over 8 KiB
   are refused before any card is raised, so a card never shows a truncated text.
@@ -628,9 +629,11 @@ Spawning is bounded so a session cannot fork without end: a spawn chain is at
 most two deep (a spawned session can spawn once more, its child cannot), at most
 three spawned sessions are live under one root, and a root that has started six
 in ten minutes is refused. A spawned session runs in the spawner's own
-workspace and starts on **Ask**, whatever setting the session that spawned it
-had. It appears as its own top-level row with a "spawned by" link, not inside the
-spawner's tree.
+workspace and inherits its permission word and coordination grant, never more
+(an Allow spawner makes a child that runs without a card; a read-only child
+comes from `mode: "plan"`) — still under the machine's ceiling,
+which caps the child exactly as it caps the caller. It appears as its own
+top-level row with a "spawned by" link, not inside the spawner's tree.
 
 #### Scheduling work
 

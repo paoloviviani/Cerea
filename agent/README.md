@@ -144,10 +144,15 @@ veto that only `enroll` can loosen:
   find, **read** (the other session's user and assistant text only, never its
   tool output, truncated at 4 KB a message and 32 KB an answer), message and
   start other sessions on this machine. Each read, send and spawn asks a person
-  unless this machine's own rule for that tool says allow, or the session was
-  **granted** it: `session.grantCoordination {sessionId, keys}` (only those four
-  keys; `[]` clears) is how Cerea's scheduled runs orchestrate other sessions
-  with nobody to answer a card. A grant persists with the session, and is never
+  unless this machine's own rule for that tool says allow, the session was
+  **granted** it (`session.grantCoordination {sessionId, keys}`, only those four
+  keys; `[]` clears), or — for a spawn or a send, never a read — the session's
+  own word is **Allow** and the ceiling leaves the tool alone (like `schedule`
+  create; the default ceiling caps `session_spawn` at `ask`, so a fresh
+  machine's spawns still ask until the owner raises it). A spawned session
+  inherits its spawner's word and grant, never more (`permission: "ask"` pins
+  it stricter); Cerea's scheduled runs orchestrate other sessions
+  with nobody to answer a card this way. A grant persists with the session, and is never
   more than the ceiling, another workspace, the hop limit or the rate limits
   allow. An older galopin has no such op and answers `unsupported`; Cerea runs
   the schedule without it and says so. Every read, send, spawn and grant is a
