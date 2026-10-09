@@ -8,6 +8,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - "Fork from here" is back on finished agent messages.
+- **A failed agent turn says why, on the turn itself.** When a provider
+  refuses a turn (Cortecs answering `Insufficient Balance.` with HTTP 401,
+  for example), the panel showed only a generic error; the provider's own
+  text now appears on the failed turn, with a hint to check the credit or
+  key for the auth/payment statuses. **A GALOPIN UPDATE IS NEEDED**: Cerea
+  alone still shows the generic error (the machines' agent forwards the
+  detail; re-run the install line from the pairing dialog, then
+  `systemctl --user restart galopin`).
 
 ## v0.9.4 — 2026-10-09
 

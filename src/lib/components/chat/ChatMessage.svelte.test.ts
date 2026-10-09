@@ -259,3 +259,31 @@ describe("a final answer after tools", () => {
 		expect(text.split("Ho completato la ricerca").length - 1).toBe(1);
 	});
 });
+
+describe("a failed turn says why, on the turn itself", () => {
+	const turnState = (state: string, reason?: string) => ({
+		type: "turnState",
+		state,
+		serverNow: 0,
+		...(reason ? { reason } : {}),
+	});
+
+	it("shows the framed provider refusal, hint included, where the turn died", () => {
+		const { baseElement } = mount([
+			turnState(
+				"failed",
+				"The model's provider refused the request: AuthenticationError: Insufficient Balance." +
+					" Check the provider's credit or key, or switch model."
+			),
+		]);
+		const banner = baseElement.querySelector('[data-testid="turn-failed-reason"]');
+		expect(banner).toBeTruthy();
+		expect(banner?.textContent).toContain("AuthenticationError: Insufficient Balance.");
+		expect(banner?.textContent).toContain("Check the provider's credit or key, or switch model.");
+	});
+
+	it("an older galopin's empty reason keeps today's look", () => {
+		const { baseElement } = mount([turnState("failed")]);
+		expect(baseElement.querySelector('[data-testid="turn-failed-reason"]')).toBeNull();
+	});
+});
