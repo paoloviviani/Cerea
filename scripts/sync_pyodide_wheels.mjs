@@ -98,6 +98,28 @@ const PYPI_WHEELS = [
 		sha256: "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3",
 		license: "BSD-2-Clause",
 	},
+	{
+		// The pdf skill's creation path: reportlab builds PDFs; its Pillow and
+		// charset-normalizer dependencies are Pyodide lock packages. pdfplumber
+		// (reads) pins Pillow >= 12.2 against Pyodide's and has no WASM story
+		// for its pdfminer.six deps' needs — pypdf covers reads instead.
+		name: "reportlab",
+		version: "5.0.1",
+		filename: "reportlab-5.0.1-py3-none-any.whl",
+		url: "https://files.pythonhosted.org/packages/db/cb/dacbc268cb68d0428ea2cbd85266195a9ab3e677449589ddae59bd7542ac/reportlab-5.0.1-py3-none-any.whl",
+		sha256: "1c36e6bb0e71780c72331eba60da7f602e8d4389a8723825af71342e49d791e8",
+		license: "BSD-3-Clause",
+	},
+	{
+		// The charts skill's statistical plotting layer over matplotlib/pandas
+		// (both lock packages). Pure Python; no compiled dependencies.
+		name: "seaborn",
+		version: "0.13.2",
+		filename: "seaborn-0.13.2-py3-none-any.whl",
+		url: "https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl",
+		sha256: "636f8336facf092165e27924f223d3c62ca560b1f2bb5dff7ab7fad265361987",
+		license: "BSD-3-Clause",
+	},
 ];
 
 /** PEP 503: lowercase, runs of `-_.` collapsed to a single `-`. */

@@ -31,6 +31,8 @@ describe("VENDORED_PACKAGE_BY_IMPORT", () => {
 			pptx: "python-pptx",
 			openpyxl: "openpyxl",
 			pypdf: "pypdf",
+			reportlab: "reportlab",
+			seaborn: "seaborn",
 		});
 	});
 });

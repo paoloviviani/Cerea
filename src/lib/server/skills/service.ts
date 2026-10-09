@@ -38,11 +38,12 @@
  * box, no server isolation), not by omission.
  */
 
-import { ObjectId } from "mongodb";
+import { ObjectId, type UpdateFilter } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { AdminSkillView, Skill, SkillFile, SkillView } from "$lib/types/Skill";
-import { ADMIN_SKILL_CONTENTS, adminDisabledSkillNames } from "./adminSkills";
+import { adminDisabledSkillNames } from "./adminSkills";
+import { builtinSkillHash, listBuiltinSkills, resetBuiltinSkillCache } from "./builtinSkills";
 import { isParsedSkill, parseSkill, type ParsedSkill } from "./parse";
 import { parseSkillZip } from "./archive";
 import type { BuiltinTool } from "$lib/server/textGeneration/builtinTools/types";
@@ -78,19 +79,19 @@ interface AdminSkill {
 let cachedAdminSkills: AdminSkill[] | undefined;
 
 /**
- * The seeded definitions, parsed and validated once. A seed that fails to
- * parse is dropped with a logged reason — a broken seed must never fail a
- * turn — which is also what the seed spec pins.
+ * The built-in definitions, parsed once and reduced to the body-only shape
+ * the turn-time code fallback serves. A definition that failed validation
+ * was already dropped with a logged reason by `listBuiltinSkills` — a
+ * broken seed must never fail a turn — which is also what the seed spec
+ * pins.
  */
 export function listAdminSkills(): AdminSkill[] {
 	if (!cachedAdminSkills) {
-		const parsed: AdminSkill[] = [];
-		for (const content of ADMIN_SKILL_CONTENTS) {
-			const result = parseSkill(content);
-			if (!isParsedSkill(result)) continue;
-			parsed.push({ name: result.name, description: result.description, body: result.body });
-		}
-		cachedAdminSkills = parsed;
+		cachedAdminSkills = listBuiltinSkills().map((skill) => ({
+			name: skill.name,
+			description: skill.description,
+			body: skillBody(skill.content) ?? skill.content,
+		}));
 	}
 	const disabled = adminDisabledSkillNames();
 	return cachedAdminSkills.filter((skill) => !disabled.has(skill.name));
@@ -99,6 +100,7 @@ export function listAdminSkills(): AdminSkill[] {
 /** Test hook: forget the parsed seeds so env changes take effect. */
 export function resetAdminSkillCache(): void {
 	cachedAdminSkills = undefined;
+	resetBuiltinSkillCache();
 }
 
 export function adminSkillViews(): AdminSkillView[] {
@@ -124,47 +126,107 @@ export function resetSeedEnsured(): void {
 }
 
 /**
- * Seed-once bootstrap: insert the three code definitions as
- * deployment-scope rows when absent. Idempotent — an existing row (possibly
- * edited by an administrator) is never overwritten, and the unique
- * `{scope, name}` index makes a raced double-insert a caught duplicate
- * rather than a duplicate row. Runs once per process; turn-time callers
- * that arrive before any listing still resolve through the code fallback
- * below, so a fresh deployment answers turns correctly from boot.
+ * Seed-once bootstrap with a bounded upgrade path. Every built-in
+ * definition (`listBuiltinSkills`) is inserted as a deployment-scope row
+ * when absent; the unique `{scope, name}` index makes a raced double-insert
+ * a caught duplicate rather than a duplicate row. The row records the
+ * definition's hash as `seedHash`, and a later boot with a newer built-in
+ * may replace the row's definition under one condition: the row's current
+ * content and files must still hash to the `seedHash` stored on it —
+ * meaning nobody has edited it since it was seeded. An administrator's edit
+ * (or a row seeded before `seedHash` existed whose content has since
+ * diverged) is never touched; `enabled` is the administrator's toggle and
+ * is never touched either. Runs once per process; turn-time callers that
+ * arrive before any listing still resolve through the code fallback below,
+ * so a fresh deployment answers turns correctly from boot.
  */
 export async function ensureDeploymentSeeds(): Promise<void> {
 	if (seedsEnsured) return;
 	seedsEnsured = true;
-	for (const content of ADMIN_SKILL_CONTENTS) {
-		const parsed = parseSkill(content);
-		if (!isParsedSkill(parsed)) continue;
-		const existing = await collections.skills.findOne(
-			{ scope: "deployment", name: parsed.name },
-			{ projection: { _id: 1 } }
+	for (const builtin of listBuiltinSkills()) {
+		const row = await collections.skills.findOne(
+			{ scope: "deployment", name: builtin.name },
+			{ projection: { content: 1, files: 1, seedHash: 1 } }
 		);
-		if (existing) continue;
-		const now = new Date();
-		try {
-			await collections.skills.insertOne({
-				_id: new ObjectId(),
-				userId: new ObjectId(),
-				scope: "deployment" as const,
-				name: parsed.name,
-				description: parsed.description,
-				content,
-				enabled: true,
-				createdAt: now,
-				updatedAt: now,
-			});
-		} catch (err) {
-			// A raced bootstrap inserting the same name: the row exists now,
-			// which is the outcome wanted. Anything else is real.
-			if (err instanceof Error && /duplicate key/i.test(err.message)) {
-				continue;
+		if (!row) {
+			const now = new Date();
+			try {
+				await collections.skills.insertOne({
+					_id: new ObjectId(),
+					userId: new ObjectId(),
+					scope: "deployment" as const,
+					name: builtin.name,
+					description: builtin.description,
+					content: builtin.content,
+					enabled: true,
+					createdAt: now,
+					updatedAt: now,
+					seedHash: builtin.hash,
+					...(builtin.files.length ? { files: builtin.files } : {}),
+				});
+			} catch (err) {
+				// A raced bootstrap inserting the same name: the row exists now,
+				// which is the outcome wanted. Anything else is real.
+				if (err instanceof Error && /duplicate key/i.test(err.message)) {
+					continue;
+				}
+				throw err;
 			}
-			throw err;
+			continue;
 		}
+		if (row.seedHash === builtin.hash) continue;
+		const rowHash = builtinSkillHash(row.content, row.files ?? []);
+		if (rowHash === row.seedHash) {
+			// Seeded by us and untouched since — deliver the newer definition.
+			// The content-and-files equality filter closes the race with a
+			// concurrent edit: if the row changed between the read and this
+			// write, the filter no longer matches and the edit stands.
+			const set: Partial<Skill> & { updatedAt: Date } = {
+				content: builtin.content,
+				description: builtin.description,
+				seedHash: builtin.hash,
+				updatedAt: new Date(),
+			};
+			const update: UpdateFilter<Skill> = { $set: set };
+			if (builtin.files.length) set.files = builtin.files;
+			else update.$unset = { files: "" };
+			const result = await collections.skills.updateOne(unchangedFilter(row), update);
+			if (result.matchedCount === 1) {
+				logger.info(
+					{ name: builtin.name },
+					"[skills] built-in skill upgraded to the shipped definition"
+				);
+			}
+			continue;
+		}
+		if (row.seedHash === undefined && rowHash === builtin.hash) {
+			// A row from before `seedHash` existed whose content still matches
+			// the current definition: stamp the hash so later upgrades can
+			// track it. No content change — it is already this definition.
+			await collections.skills.updateOne(unchangedFilter(row), {
+				$set: { seedHash: builtin.hash },
+			});
+			continue;
+		}
+		// Anything else — an administrator's edit, or a diverged pre-hash row —
+		// is the administrator's version now. Leave it alone.
 	}
+}
+
+/**
+ * The race guard the upgrade writes ride on: the filter matches only the
+ * row exactly as it was read, so an edit that lands between the read and
+ * the write makes the filter stop matching and the edit stands. Rows never
+ * store `files: null` — the writers omit the field — so "no files" is
+ * matched as the field's absence.
+ */
+function unchangedFilter(row: Pick<Skill, "_id" | "content" | "files">) {
+	return {
+		_id: row._id,
+		scope: "deployment" as const,
+		content: row.content,
+		...(row.files ? { files: row.files } : { files: { $exists: false } }),
+	};
 }
 
 /**
@@ -612,13 +674,18 @@ export async function findSkillFile(
 		if (row && !adminDisabledSkillNames().has(row.name)) {
 			return row.files?.find((file) => file.path === path);
 		}
+		if (row) return undefined;
 	} catch (err) {
 		logger.warn(
 			{ err: String(err), skillName, path },
 			"[skills] deployment skill file lookup failed"
 		);
 	}
-	return undefined;
+	// No deployment row (store unreadable, or the row was never seeded): the
+	// in-memory definition stands in, the same stand-in `findSkillBody` uses
+	// for the body. A disabled row above already returned undefined.
+	const builtin = listBuiltinSkills().find((skill) => skill.name === skillName);
+	return builtin?.files.find((file) => file.path === path);
 }
 
 /** The markdown body of a stored document (frontmatter stripped). */
