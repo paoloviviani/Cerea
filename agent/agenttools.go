@@ -391,6 +391,15 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 		return "", "", refuse("model %q is not a gateway model, and this machine does not allow free models", tc.session.ModelID)
 	}
 
+	// The child's starting word: the caller's. Backends without a selector
+	// (ACP) have no word to read — the child keeps the backend's default.
+	childWord := permrules.Ask
+	if rh, ok := at.mc.back.(backend.RuleHost); ok {
+		if word := rh.PermissionMode(tc.session.ID); word.Valid() {
+			childWord = word
+		}
+	}
+
 	// Fork-bomb limits, all before any ask is raised.
 	marks := at.host.SpawnMarks()
 	depth, root := spawnChain(marks, tc.session.ID)
@@ -419,11 +428,12 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	at.mu.Unlock()
 
 	// An allow skips the card unless the child could be less restricted than
-	// its caller: then a person decides, seeing both modes.
+	// its caller: then a person decides, seeing both modes and the word the
+	// child starts with.
 	auto := grant == permrules.Allow && !escalates
 	meta := map[string]any{
 		"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(tc.session.ModelID),
-		"workspaceId": tc.workspaceID, "prompt": prompt,
+		"workspaceId": tc.workspaceID, "prompt": prompt, "permissionMode": string(childWord),
 	}
 	if escalates {
 		meta["escalates"] = true
@@ -451,15 +461,33 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	}
 	at.mc.trackSession(w, child)
 	at.mc.auditProjectConfig(w, child.ID)
-	// The child starts on Ask, whatever the caller's mode is: it is a fresh
-	// top-level session with a selector of its own, and nothing sets one here.
+	// Apply the inherited word and grant: never more than the caller has —
+	// an Allow spawner makes a child that runs without a card, an Ask
+	// spawner a child that asks, and the machine's ceiling caps both the
+	// same way it caps the caller (it is composed last when the rules are
+	// re-applied). Both stay unset for backends without a selector.
+	if rh, ok := at.mc.back.(backend.RuleHost); ok {
+		if childWord == permrules.Allow {
+			if err := rh.SetPermissionMode(ctx, tc.dir, child.ID, childWord); err != nil {
+				return "", child.ID, refuse("the new session %q was created but its permission word was not inherited: %v", child.ID, err)
+			}
+		}
+		if keys := rh.Coordination(tc.session.ID); len(keys) > 0 {
+			if err := rh.SetCoordination(ctx, tc.dir, child.ID, keys); err != nil {
+				return "", child.ID, refuse("the new session %q was created but its coordination grant was not inherited: %v", child.ID, err)
+			}
+		}
+	}
 	at.mu.Lock()
 	at.born[child.ID] = at.now()
 	at.mu.Unlock()
 	if err := at.mc.back.Prompt(ctx, tc.dir, child.ID, backend.Prompt{Text: prompt}); err != nil {
 		return "", child.ID, refuse("the new session %q was created but its first prompt was not accepted: %v", child.ID, err)
 	}
-	result := map[string]any{"sessionId": child.ID, "title": title, "mode": modeLabel(childMode)}
+	result := map[string]any{
+		"sessionId": child.ID, "title": title, "mode": modeLabel(childMode),
+		"permissionMode": string(childWord),
+	}
 	if auto {
 		result["autoApproved"] = true
 	}
@@ -509,6 +537,16 @@ func (at *agentTools) grant(ctx context.Context, tc *toolCaller, tool string) (p
 	}
 	if permrules.Grant(rules, tool) == permrules.Deny {
 		return permrules.Deny, refuse("this machine's rules do not allow %s", tool)
+	}
+	if rh.PermissionMode(tc.session.ID) == permrules.Allow {
+		// The owner's choice: an Allow session's blanket covers the mutating
+		// session tools the way it already covers `schedule` — the rules read
+		// as they are, the wildcard included. Unreadable rules took the Ask
+		// path above, and the ceiling's tail is last in these rules, so a
+		// ceiling at ask still forces the card and a ceiling at deny the
+		// refusal above; the machine's own literal rule still beats the
+		// blanket. Reads stay grant-gated whatever the word is.
+		return permrules.GrantAllowBlanket(rules, tool), nil
 	}
 	return permrules.Grant(rules, tool), nil
 }

@@ -20,12 +20,14 @@ import (
 // widen its own session's rules past the ceiling; an ask in front of bash is
 // what keeps that off by default (the honest gap, PROTOCOL.md §6).
 //
-// session_spawn asks as well, so that no spawn goes through unseen unless the
-// owner says so: with no mode ordering to compare by, a spawn that could be an
-// escalation (a plan session starting a build one) must be a card naming the
-// mode, and a ceiling of ask is what keeps even an allow rule from skipping it.
+// session_spawn is deliberately NOT capped by default: a spawn is bounded
+// (depth, live count, rate), audited with both sessions named, and the child
+// is capped by the same ceiling as its caller — so an Allow session spawns
+// with no card out of the box, while bash still asks per command. Machines
+// enrolled before this default carry session_spawn=ask in their own file and
+// keep it; re-enroll (or an explicit --permission-max list) adopts the new one.
 func defaultEnrollMax() map[string]string {
-	return map[string]string{"bash": string(permrules.Ask), "session_spawn": string(permrules.Ask)}
+	return map[string]string{"bash": string(permrules.Ask)}
 }
 
 // staticPermission is what a fresh enroll writes into the opencode.json it

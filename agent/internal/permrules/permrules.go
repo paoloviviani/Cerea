@@ -259,6 +259,26 @@ func IsUntouched(key string) bool {
 // after the mode block; under Deny they are not, because the person said Deny.
 var GalopinTools = []string{"session_list", "session_read", "session_spawn", "session_send", "schedule"}
 
+// BlanketCoveredTools are the coordination tools an Allow session's blanket
+// may cover, like any other tool: the two mutating session tools. Reads
+// (session_list, session_read) stay grant-gated whatever the word is — a
+// transcript can hold secrets, so a read is as hard to get as a send. See
+// Grant: a wildcard allow is skipped for every other tool name, and the
+// ceiling's tail is last in every composition, so a ceiling at ask or deny
+// still forces the card or the refusal.
+var BlanketCoveredTools = []string{"session_spawn", "session_send"}
+
+// IsBlanketCovered reports whether an Allow session's own blanket may grant
+// the tool, without a coordination grant for it.
+func IsBlanketCovered(tool string) bool {
+	for _, k := range BlanketCoveredTools {
+		if k == tool {
+			return true
+		}
+	}
+	return false
+}
+
 // DenyVisibleTools are galopin's tools a session on Deny still sees: the ones
 // a scheduled run needs to find and stop its own schedule.
 var DenyVisibleTools = []string{"schedule_list", "schedule_update", "schedule_delete"}
@@ -541,7 +561,9 @@ func ChildRules(l Layers, root Selector, agent []Rule) []Rule {
 // agent's rules for their names. A wildcard ALLOW says nothing about them —
 // opencode's default is `"*": allow`, and reading that as consent would
 // silently enable session traffic on every machine — while a wildcard deny
-// refuses them like everything else it denies.
+// refuses them like everything else it denies. The one exception is an Allow
+// session's blanket over IsBlanketCovered tools (GrantAllowBlanket): the
+// owner's standing choice, which the ceiling still caps.
 func Grant(rules []Rule, tool string) Action {
 	var kept []Rule
 	for _, r := range rules {
@@ -551,6 +573,20 @@ func Grant(rules []Rule, tool string) Action {
 		kept = append(kept, r)
 	}
 	return Evaluate(kept, tool, "*")
+}
+
+// GrantAllowBlanket is Grant for a caller whose own word is Allow and whose
+// tool the blanket may cover (IsBlanketCovered): the rules read as they are,
+// the blanket's wildcard allow included — the same reading the `schedule`
+// tools already get. The ceiling's tail is last in every composition, so it
+// still caps (a ceiling at ask forces the card); the machine's own literal
+// rule for the tool still beats the blanket (last match wins); anything the
+// caller of this function passes for an uncovered tool is Grant, unchanged.
+func GrantAllowBlanket(rules []Rule, tool string) Action {
+	if !IsBlanketCovered(tool) {
+		return Grant(rules, tool)
+	}
+	return Evaluate(rules, tool, "*")
 }
 
 // Fingerprint is a stable identity for a ruleset, so "re-send only on

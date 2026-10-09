@@ -71,7 +71,7 @@ Usage:
                --permission-max — is what no session can go past.
   --permission-max KEY=ACTION  The ceiling: the most KEY (edit, bash, webfetch,
                session_read, session_send, session_spawn, schedule, …) may ever be — allow, ask or deny — whatever any
-               rule, session selector or "always allow" says (repeatable; default bash=ask and session_spawn=ask; a list you give
+               rule, session selector or "always allow" says (repeatable; default bash=ask; a list you give
                replaces that default, so --permission-max edit=ask alone leaves
                bash uncapped). Because
                bash can read opencode's server password out of its own
@@ -114,11 +114,11 @@ Usage:
    --no-agent-tools  Install none of galopin's agent-coordination tools
                 (session_list/session_read/session_spawn/session_send, and
                 schedule_list/schedule_create/schedule_update/schedule_delete) into opencode, and
-                leave OPENCODE_CONFIG_DIR alone (default: installed; every
-                read, spawn and send needs a person's approval each time unless a
-                rule for session_read / session_spawn / session_send says allow, or
-                the session was granted it through session.grantCoordination; the
-                Allow selector never answers one).
+                leave OPENCODE_CONFIG_DIR alone (default: installed; a read needs
+                a person's approval each time unless a rule for session_read says
+                allow or the session was granted it; a spawn or a send asks unless
+                a rule says allow, the session was granted it, or its own word is
+                Allow with the ceiling leaving the tool alone).
    --yes        Overwrite existing files without asking.
 `
 
@@ -591,7 +591,7 @@ func agentToolsPolicySummary(pol policy.Policy) string {
 	if !pol.AgentToolsAllowed() {
 		return "Agent tools: OFF — no session_* or schedule_* tool is installed into the agent."
 	}
-	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here, each read, spawn and send only after a person approves it (the Allow selector never does), unless a rule for session_read / session_spawn / session_send says allow or the session was granted it (session.grantCoordination; this machine's ceiling still caps a grant). Schedule tools: creating a schedule follows the session's Deny / Ask / Allow (a scheduled run always asks); changing or deleting one asks unless a run stops its own; the ceiling key schedule caps all of it."
+	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here. A read asks unless a rule for session_read says allow or the session was granted it; a spawn or a send asks unless a rule says allow, the session was granted it, or the session's own word is Allow and the ceiling leaves the tool alone (reads stay grant-gated whatever the word). Spawned sessions inherit the spawner's word and grant, never more. Schedule tools: creating a schedule follows the session's Deny / Ask / Allow (a scheduled run always asks); changing or deleting one asks unless a run stops its own; the ceiling key schedule caps all of it."
 }
 
 // projectConfigPolicySummary says, in plain words, what a workspace's own
@@ -627,7 +627,7 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 
 // enrollPolicy is the policy.json a fresh enroll writes from its flags: the
 // machine's own veto (PROTOCOL.md §4). Everything defaults closed except what
-// the flags open; the permission ceiling defaults to bash=ask and session_spawn=ask.
+// the flags open; the permission ceiling defaults to bash=ask (session_spawn is uncapped, so Allow spawns with no card).
 func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	pol := policy.Default()
 	pol.Permission.Max = defaultEnrollMax()

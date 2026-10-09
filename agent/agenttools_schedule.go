@@ -135,12 +135,12 @@ func (at *agentTools) scheduleFactsFor(ctx context.Context, tc *toolCaller, tool
 	}
 }
 
-// scheduleGrant is the session's word for `schedule`. Unlike the session_*
-// tools, the blanket Allow covers it (the owner's choice): under Allow the
-// rules are read as they are, the blanket's `*: allow` included; under Ask or
-// Deny a wildcard allow says nothing (permrules.Grant), so only the machine's
-// own `schedule` rule can lift it. Either way the ceiling's tail, last in the
-// rules, caps it. Unreadable rules are not consent.
+// scheduleGrant is the session's word for `schedule`. The blanket Allow covers
+// it (the owner's choice), as it does `session_spawn` and `session_send`:
+// under Allow the rules are read as they are, the blanket's `*: allow`
+// included; under Ask or Deny a wildcard allow says nothing (permrules.Grant),
+// so only the machine's own `schedule` rule can lift it. Either way the
+// ceiling's tail, last in the rules, caps it. Unreadable rules are not consent.
 func (at *agentTools) scheduleGrant(ctx context.Context, tc *toolCaller) permrules.Action {
 	rh, ok := at.mc.back.(backend.RuleHost)
 	if !ok {
