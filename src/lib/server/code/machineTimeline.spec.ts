@@ -18,6 +18,8 @@ import {
 	newThinkingState,
 	parseBackgroundTaskXml,
 	permissionRequestToUpdate,
+	providerRefusalReason,
+	trackedErrorReason,
 	questionRequestedToUpdate,
 	snapshotToUpdates,
 	userMessageIdsOf,
@@ -131,7 +133,7 @@ describe("snapshotToUpdates", () => {
 		expect(result).toBeTruthy();
 	});
 
-	it("maps status idle with a trailing assistant error to a failed turn state", () => {
+	it("maps status idle with a trailing assistant error to a failed turn state, framed as a provider refusal", () => {
 		const transcript: Transcript = {
 			messages: [{ message: assistantMessage("m3", "boom"), parts: [] }],
 			permissions: [],
@@ -141,7 +143,10 @@ describe("snapshotToUpdates", () => {
 		};
 		const updates = snapshotToUpdates(transcript);
 		const turnState = updates.find((u) => u.type === MessageUpdateType.TurnState);
-		expect(turnState).toMatchObject({ state: "failed", reason: "boom" });
+		expect(turnState).toMatchObject({
+			state: "failed",
+			reason: "The model's provider refused the request: boom",
+		});
 	});
 
 	it("maps status idle with no error to a done turn state", () => {
@@ -382,8 +387,11 @@ describe("a permission raised during a reconnect gap must appear", () => {
 		const { updates, lastAssistantError, userMessageIds } = foldEnvelopeEvents(envelopes);
 		expect(updates).toContainEqual({ type: "user", text: "are you there?", messageId: "cmid-9" });
 		const turnState = updates.find((u) => u.type === MessageUpdateType.TurnState);
-		expect(turnState).toMatchObject({ state: "failed", reason: "provider timed out" });
-		expect(lastAssistantError).toBe("provider timed out");
+		expect(turnState).toMatchObject({
+			state: "failed",
+			reason: "The model's provider refused the request: provider timed out",
+		});
+		expect(lastAssistantError).toBe("The model's provider refused the request: provider timed out");
 		expect(userMessageIds.get("u1")).toBe("cmid-9");
 	});
 });
@@ -404,6 +412,109 @@ describe("eventToUpdates: one live event at a time", () => {
 				reason: "provider unavailable",
 			},
 		]);
+	});
+
+	it("frames a provider refusal with an HTTP status on the failed turn, hinting on auth/payment ones", () => {
+		const refusal = "AuthenticationError: Insufficient Balance.";
+		for (const [code, hint] of [
+			["401", " Check the provider's credit or key, or switch model."],
+			["402", " Check the provider's credit or key, or switch model."],
+			["403", " Check the provider's credit or key, or switch model."],
+			["429", ""],
+			["500", ""],
+		] as const) {
+			expect(providerRefusalReason(refusal, code)).toBe(
+				`The model's provider refused the request: ${refusal}${hint}`
+			);
+			expect(eventToUpdates({ kind: "error", message: refusal, code })).toEqual([
+				{
+					type: MessageUpdateType.TurnState,
+					state: "failed",
+					serverNow: expect.any(Number),
+					reason: `The model's provider refused the request: ${refusal}${hint}`,
+				},
+			]);
+		}
+	});
+
+	it("shows a non-provider failure's message as it is, and an older galopin's empty one as nothing", () => {
+		// An ACP backend's JSON-RPC code is not an HTTP status.
+		expect(eventToUpdates({ kind: "error", message: "agent refused", code: "-32000" })).toEqual([
+			{
+				type: MessageUpdateType.TurnState,
+				state: "failed",
+				serverNow: expect.any(Number),
+				reason: "agent refused",
+			},
+		]);
+		// A command that would not run arrives uncoded, self-describing.
+		expect(eventToUpdates({ kind: "error", message: 'The command "x" failed: boom' })).toEqual([
+			{
+				type: MessageUpdateType.TurnState,
+				state: "failed",
+				serverNow: expect.any(Number),
+				reason: 'The command "x" failed: boom',
+			},
+		]);
+		// An older galopin forwards an empty message: today's look.
+		expect(eventToUpdates({ kind: "error", message: "" })).toEqual([
+			{
+				type: MessageUpdateType.TurnState,
+				state: "failed",
+				serverNow: expect.any(Number),
+			},
+		]);
+	});
+
+	it("keeps the hint on the failed turn through the idle that follows the error event", () => {
+		// The real order (pinned by the real-opencode IT): the error event, then
+		// the idle. The caller tracks the framed reason the event left behind,
+		// so the idle's own failed state says the same thing.
+		const refusal = "AuthenticationError: Insufficient Balance.";
+		const framed =
+			"The model's provider refused the request: " +
+			refusal +
+			" Check the provider's credit or key, or switch model.";
+		const fromEvent = trackedErrorReason({ message: refusal, code: "401" });
+		expect(fromEvent).toBe(framed);
+		const envelopes: Envelope[] = [
+			{
+				sessionId: "s1",
+				epoch: "e1",
+				seq: 1,
+				event: { kind: "error", message: refusal, code: "401" },
+			},
+			{ sessionId: "s1", epoch: "e1", seq: 2, event: { kind: "status", status: "idle" } },
+		];
+		const { updates, lastAssistantError } = foldEnvelopeEvents(envelopes, fromEvent);
+		const states = updates.filter((u) => u.type === MessageUpdateType.TurnState);
+		expect(states).toHaveLength(2);
+		expect(states[1]).toMatchObject({ state: "failed", reason: framed });
+		expect(lastAssistantError).toBe(framed);
+	});
+
+	it("a reloaded session frames the stored error without the hint (the snapshot carries no status)", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: assistantMessage("a1", "AuthenticationError: Insufficient Balance."),
+					parts: [],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const updates = snapshotToUpdates(transcript);
+		expect(updates.find((u) => u.type === MessageUpdateType.TurnState)).toMatchObject({
+			state: "failed",
+			reason:
+				"The model's provider refused the request: AuthenticationError: Insufficient Balance.",
+		});
+		expect(lastAssistantErrorOf(transcript)).toBe(
+			"The model's provider refused the request: AuthenticationError: Insufficient Balance."
+		);
 	});
 
 	it("carries the sender of a session_send message on the boundary, live and in a snapshot", () => {

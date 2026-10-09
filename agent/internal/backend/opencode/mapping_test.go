@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"strings"
 	"testing"
 
 	"galopin/internal/backend"
@@ -252,6 +253,53 @@ func TestAbortedMessageIsNotAnError(t *testing.T) {
 		"error": map[string]any{"name": "APIError", "message": "upstream 500"}})
 	if failed.Error == "" {
 		t.Error("a real provider error must still be reported")
+	}
+}
+
+// The transcript's stored error carries the same object as session.error
+// (verified against 1.18.34): the provider's own text must survive a reload,
+// not just the error's name, and the response body must not.
+func TestMessageErrorCarriesProviderDetail(t *testing.T) {
+	m := messageFromMap(map[string]any{"id": "m", "role": "assistant",
+		"error": map[string]any{
+			"name": "APIError",
+			"data": map[string]any{
+				"message":      "AuthenticationError: Insufficient Balance.",
+				"statusCode":   float64(401),
+				"responseBody": `{"detail":"account_secret"}`,
+			},
+		}})
+	if m.Error != "AuthenticationError: Insufficient Balance." {
+		t.Errorf("Error = %q", m.Error)
+	}
+	if strings.Contains(m.Error, "account_secret") {
+		t.Errorf("the response body leaked into the transcript: %q", m.Error)
+	}
+}
+
+// An error object without a message keeps the name fallback, so an unmapped
+// error still says something on a reloaded session.
+func TestMessageErrorFallsBackToName(t *testing.T) {
+	m := messageFromMap(map[string]any{"id": "m", "role": "assistant",
+		"error": map[string]any{"name": "UnknownError", "data": map[string]any{"ref": "x"}}})
+	if m.Error != "UnknownError" {
+		t.Errorf("Error = %q, want the name fallback", m.Error)
+	}
+}
+
+// A provider that echoes its whole request payload must not flood a
+// turn-state line: the forwarded text is clipped.
+func TestErrorDetailClipsLongMessages(t *testing.T) {
+	long := strings.Repeat("x", 1000)
+	message, code := errorDetail(map[string]any{
+		"name": "APIError",
+		"data": map[string]any{"message": long, "statusCode": float64(429)},
+	})
+	if len([]rune(message)) != maxErrorMessage+1 || !strings.HasSuffix(message, "…") {
+		t.Errorf("clipped message = %d runes, want %d plus the ellipsis", len([]rune(message)), maxErrorMessage)
+	}
+	if code != "429" {
+		t.Errorf("code = %q, want 429", code)
 	}
 }
 

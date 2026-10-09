@@ -35,6 +35,8 @@ import {
 	eventToUpdates,
 	foldEnvelopeEvents,
 	lastAssistantErrorOf,
+	providerRefusalReason,
+	trackedErrorReason,
 	newThinkingState,
 	seedThinking,
 	permissionRequestToUpdate,
@@ -391,13 +393,20 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						const child = childOf(next.sessionId);
 						if (!child && next.event.kind === "message") {
 							if (next.event.message.role === "assistant") {
-								lastAssistantError = next.event.message.error;
+								lastAssistantError = providerRefusalReason(next.event.message.error);
 							} else if (next.event.message.clientMessageId) {
 								userMessageIds.set(next.event.message.id, next.event.message.clientMessageId);
 							}
 							if (next.event.message.role === "user" && next.event.message.command) {
 								commandMarkers.set(next.event.message.id, next.event.message.command);
 							}
+						}
+						// A provider refusal (an HTTP status, PROTOCOL.md §7) leaves
+						// its framed reason here, so the `idle` that follows the
+						// error event ends the turn on the same text the event
+						// emitted — hint included.
+						if (!child && next.event.kind === "error") {
+							lastAssistantError = trackedErrorReason(next.event) ?? lastAssistantError;
 						}
 						// A re-announced ask this connection already carded
 						// folds once — its resolutions still flow, only the

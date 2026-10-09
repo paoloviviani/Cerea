@@ -12,6 +12,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   lands on its newest message instead of rendering itself from the top
   (measured: ~120 s to first content for 1,000 messages before, ~12 s
   after; ~287 s → ~53 s on a throttled phone).
+- **A failed agent turn says why, on the turn itself.** When a provider
+  refuses a turn (Cortecs answering `Insufficient Balance.` with HTTP 401,
+  for example), the panel showed only a generic error; the provider's own
+  text now appears on the failed turn, with a hint to check the credit or
+  key for the auth/payment statuses. **A GALOPIN UPDATE IS NEEDED**: Cerea
+  alone still shows the generic error (the machines' agent forwards the
+  detail; re-run the install line from the pairing dialog, then
+  `systemctl --user restart galopin`).
 
 ## v0.9.4 — 2026-10-09
 
