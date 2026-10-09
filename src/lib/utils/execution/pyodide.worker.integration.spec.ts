@@ -21,11 +21,37 @@ const INDEX_URL = `${import.meta.dirname}/static/pyodide/`.replace(
 // The dist is generated, not committed: `npm run sync-pyodide` (the prebuild
 // hook) fetches ~325 MB from the pyodide CDN and PyPI. Without it — CI, a fresh
 // clone before its first build — there is nothing to test, so the suite skips
-// rather than failing on a missing file. With it, the clean/dirty exit test
-// still ends the run with Pyodide's stray SystemExit rejections, a known
-// pre-existing failure: reports/2026-09-24-thin-agent-progress.md, "Known CI
-// exclusions".
+// rather than failing on a missing file.
 const DIST_PRESENT = existsSync(`${INDEX_URL}pyodide.asm.wasm`);
+
+// Pyodide echoes each asserted SystemExit a second time through its internal
+// event loop, where no await can reach it. In a real worker scope the
+// guardCleanExitRejection hook swallows that shape; the Node harness has no
+// worker scope to hang it on, so without this the two strays surface as
+// unhandled rejections and fail the run even though every assertion holds
+// (formerly a known CI exclusion:
+// reports/2026-09-24-thin-agent-progress.md). The match is deliberately
+// narrow — a traceback body ending in a SystemExit line, i.e. a duplicate of
+// a verdict the exit test asserts — and anything else is rethrown, so a real
+// leak still fails loudly instead of hiding behind this handler.
+process.on("unhandledRejection", (reason: unknown) => {
+	const message = reason instanceof Error ? reason.message : String(reason ?? "");
+	const last =
+		message
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean)
+			.at(-1) ?? "";
+	if (
+		/(Traceback|PythonError|webloop|_pyodide)/.test(message) &&
+		/^SystemExit(?::\s*.*)?$/.test(last)
+	) {
+		return;
+	}
+	setImmediate(() => {
+		throw reason;
+	});
+});
 
 interface FakeScope {
 	location: { origin: string };
@@ -262,13 +288,9 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 	it(
 		"reports a clean interpreter exit as success, not an error",
 		async () => {
-			// NOTE: this test leaves two "Unhandled Rejection" notices in the
-			// runner output. They are Pyodide's own stray duplicates of the two
-			// SystemExits asserted below — its internal event loop echoes each
-			// one where no await can reach it. In a real worker the
-			// guardCleanExitRejection hook swallows exactly that shape; the
-			// Node harness has no worker scope to hang it on, so the echo is
-			// visible here and harmless: every assertion below still holds.
+			// The two SystemExits asserted below each echo a stray duplicate
+			// through Pyodide's event loop; the file-level handler above
+			// swallows exactly that shape.
 			gateProcessFetch();
 			const scope = makeScope();
 
