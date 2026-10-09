@@ -6,16 +6,18 @@
 
 ```markdown
 [Column 1: Discover]
+
 - Stakeholder interviews
 - Competitive audit
-**Output:** Insight synthesis
-[Image: research in progress]
+  **Output:** Insight synthesis
+  [Image: research in progress]
 
 [Column 2: Define]
+
 - Workshop facilitation
 - Persona development
-**Output:** Strategic framework
-[Image: workshop activity]
+  **Output:** Strategic framework
+  [Image: workshop activity]
 ```
 
 ## Card Syntax
@@ -50,25 +52,28 @@ Actionable personas with targeting recommendations
 **Visual: comparison-tables**
 
 [Table 1: Option A]
-| Category | Investment |
-|----------|------------|
-| Management | $20,000 |
-| **Total** | **$323,512** |
+
+| Category   | Investment   |
+| ---------- | ------------ |
+| Management | $20,000      |
+| **Total**  | **$323,512** |
 
 [Table 2: Option B]
-| Category | Investment |
-|----------|------------|
-| Management | $12,000 |
-| **Total** | **$158,788** |
+
+| Category   | Investment   |
+| ---------- | ------------ |
+| Management | $12,000      |
+| **Total**  | **$158,788** |
 ```
 
 ## Image Placeholders
 
 ```markdown
 [Column 1: Phase Name]
+
 - Activity 1
 - Activity 2
-[Image: description of needed image]
+  [Image: description of needed image]
 ```
 
 Images can appear inside columns or at slide level.

@@ -347,11 +347,11 @@ assert result["out_path"] == "/deck.pptx"
 
 report = validate.validate("/deck.pptx")
 assert report["errors"] == [], report
-assert report["slides"] == 5  # the template's branding slide first, then the four outline slides
+assert report["slides"] == 4  # exactly the outline's slides — the default template carries none
 
 from pptx import Presentation
 deck = Presentation("/deck.pptx")
-assert len(deck.slides._sldIdLst) == 5
+assert len(deck.slides._sldIdLst) == 4
 titles = []
 for slide in deck.slides:
     for shape in slide.shapes:
@@ -370,9 +370,9 @@ assert changed, "no editable paragraph found"
 applied = edit.replace("/deck.pptx", changed, "/deck-edited.pptx")
 assert applied["applied"] >= 1 and applied["missing"] == [], applied
 
-edit.reorder("/deck-edited.pptx", [5, 1, 2, 3, 4], "/deck-reordered.pptx")
+edit.reorder("/deck-edited.pptx", [4, 1, 2, 3], "/deck-reordered.pptx")
 reordered = Presentation("/deck-reordered.pptx")
-assert len(reordered.slides._sldIdLst) == 5
+assert len(reordered.slides._sldIdLst) == 4
 after = validate.validate("/deck-reordered.pptx")
 assert after["errors"] == [], after
 "generate 4 slides + validate clean + edit applied + reorder"

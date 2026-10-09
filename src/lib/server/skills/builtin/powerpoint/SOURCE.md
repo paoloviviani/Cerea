@@ -28,7 +28,10 @@ editing — sized for the model to read and run in `execute_code`. They are
 Apache-2.0 like the rest of Cerea, and this skill as shipped is a derivative
 work of the upstream MIT skill.
 
-The bundled Inner Chapter template (`templates/inner-chapter.pptx` upstream)
-is embedded base64 inside `scripts/generate.py`, because Cerea bundled skill
-files must be UTF-8 text; it is the template the SKILL.md's default path
-uses, and carries the upstream project's branding.
+The bundled Inner Chapter template is not carried: Cerea's `load_skill_file`
+returns a bundled file truncated past ~20k characters, so a script carrying
+a 264 KB base64 blob could never reach the model intact — the real-model run
+showed exactly that. Without a template the engine uses python-pptx's
+built-in template (standard layouts, real placeholders — the doctrine holds),
+and with an attached `.pptx` the person's own; `references/layouts.md`
+(the Inner Chapter catalog) went with it.

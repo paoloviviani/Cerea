@@ -35,12 +35,14 @@ Is the change structural?
 ## Structural vs Non-Structural
 
 **Structural changes** (regenerate):
+
 - Different layout template
 - Adding/removing columns
 - Changing visual type (e.g., bullets to table)
 - Adding new slides
 
 **Non-structural changes** (edit mode):
+
 - Fixing typos
 - Updating values
 - Shortening overflow text
@@ -48,31 +50,32 @@ Is the change structural?
 
 ## Cost Comparison
 
-| Approach | Speed | Risk |
-|----------|-------|------|
-| Single slide edit | Fast | Low |
-| Multiple slide edits | Medium | Medium |
-| Full regeneration | Medium | Medium |
-| Regenerate + validate | Slower | Low |
+| Approach              | Speed  | Risk   |
+| --------------------- | ------ | ------ |
+| Single slide edit     | Fast   | Low    |
+| Multiple slide edits  | Medium | Medium |
+| Full regeneration     | Medium | Medium |
+| Regenerate + validate | Slower | Low    |
 
 For 4+ slide changes, regeneration is often faster and safer.
 
 ## User Request Mapping
 
-| User Says | Action |
-|-----------|--------|
-| "Fix the typo on slide 3" | `edit.py --replace` |
-| "Change 2025 to 2026 everywhere" | `edit.py --replace` (with replace_all) |
-| "This slide has too much text" | `edit.py --replace` (shorten) |
-| "Move the summary to the end" | `edit.py --reorder` |
-| "Use a different layout for slide 4" | Regenerate that slide |
-| "Add a new section after slide 2" | Regenerate |
-| "Split this slide into two" | Regenerate |
-| "Fix all the broken slides" | Check count, then decide |
+| User Says                            | Action                                 |
+| ------------------------------------ | -------------------------------------- |
+| "Fix the typo on slide 3"            | `edit.py --replace`                    |
+| "Change 2025 to 2026 everywhere"     | `edit.py --replace` (with replace_all) |
+| "This slide has too much text"       | `edit.py --replace` (shorten)          |
+| "Move the summary to the end"        | `edit.py --reorder`                    |
+| "Use a different layout for slide 4" | Regenerate that slide                  |
+| "Add a new section after slide 2"    | Regenerate                             |
+| "Split this slide into two"          | Regenerate                             |
+| "Fix all the broken slides"          | Check count, then decide               |
 
 ## Edit Workflow
 
 1. **Extract inventory first** (this is the schema `--replace` consumes):
+
    ```bash
    python edit.py deck.pptx --inventory -o inv.json
    ```
@@ -80,6 +83,7 @@ For 4+ slide changes, regeneration is often faster and safer.
 2. **Review shape IDs and content in `inv.json`**. Each slide/shape has a `paragraphs` array; the text you want to change lives under `paragraphs[i].text`.
 
 3. **Apply targeted replacements** (edit the `text` field(s), then pass the file back):
+
    ```bash
    python edit.py deck.pptx --replace inv.json -o edited.pptx
    ```
