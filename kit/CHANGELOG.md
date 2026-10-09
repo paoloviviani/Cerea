@@ -12,6 +12,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   expiry) now says "You were signed out" and goes through a plain sign-in
   that the identity provider's own SSO session answers silently — the
   forced re-login stays for the 7-day staleness only.
+- **Compact now works with opencode.** Galopin sent no body to opencode's
+  summarize call, which requires the model to summarize with, so "Compact
+  now" always failed with a 400. It sends the session's model now. Machines
+  need the galopin update.
 
 ## v0.9.1 — 2026-10-09
 
