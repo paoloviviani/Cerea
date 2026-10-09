@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"strconv"
 	"time"
 
 	"galopin/internal/backend"
@@ -113,6 +114,44 @@ func asStrings(v any) []string {
 	return out
 }
 
+// maxErrorMessage caps one forwarded error message: a provider that echoes
+// its whole request payload must not flood a turn-state line.
+const maxErrorMessage = 300
+
+func clip(s string) string {
+	runes := []rune(s)
+	if len(runes) <= maxErrorMessage {
+		return s
+	}
+	return string(runes[:maxErrorMessage]) + "…"
+}
+
+// errorDetail reads one of opencode's error objects ({name, data: {message,
+// statusCode?, isRetryable, responseHeaders?, responseBody?, …}}, verified
+// against 1.18.34's GET /doc) into the normalized error's message and code
+// (PROTOCOL.md §7): the provider's own text under data.message, falling back
+// to the object's name, and the HTTP status as the code when present.
+// responseHeaders and responseBody may carry account details and are never
+// read. Used by both the session.error event mapping and the transcript's
+// message error, so a live failure and a reloaded session agree.
+func errorDetail(e map[string]any) (message, code string) {
+	data := getMap(e, "data")
+	message = clip(getStr(data, "message"))
+	if message == "" {
+		message = clip(getStr(e, "message", "name"))
+	}
+	if s := getFloat(data, "statusCode"); s >= 100 {
+		code = strconv.Itoa(int(s))
+	}
+	return message, code
+}
+
+// isAbortedError reports whether an error object is opencode's record of a
+// person pressing Stop: not a failure, and never forwarded as one.
+func isAbortedError(e map[string]any) bool {
+	return getStr(e, "name") == "MessageAbortedError"
+}
+
 // sessionFromMap builds a backend.Session from one entry of GET /session,
 // POST /session, or GET /session/:id. WorkspaceID is left empty: opencode
 // only knows a filesystem "directory", not the agent's own workspace
@@ -149,8 +188,8 @@ func messageFromMap(m map[string]any) backend.Message {
 	// An abort is how opencode records a person pressing Stop (session.cancel),
 	// not a failure: surfacing it as an error would show a failed turn for a
 	// deliberate stop, so it ends the message like a normal finish.
-	if e := getMap(m, "error"); e != nil && getStr(e, "name") != "MessageAbortedError" {
-		msg.Error = getStr(e, "message", "name")
+	if e := getMap(m, "error"); e != nil && !isAbortedError(e) {
+		msg.Error, _ = errorDetail(e)
 	}
 	return msg
 }

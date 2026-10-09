@@ -221,10 +221,18 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})}
 
 	case "session.error":
+		errObj := getMap(props, "error")
+		// A Stop is not a failure (PROTOCOL.md §7): opencode records the abort
+		// on the message, the transcript mapping drops it there too, and the
+		// idle that follows ends the turn like a normal finish.
+		if isAbortedError(errObj) {
+			return nil
+		}
+		message, code := errorDetail(errObj)
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{
 			Kind:         backend.EventError,
-			ErrorMessage: getStr(props, "message"),
-			ErrorCode:    getStr(props, "code"),
+			ErrorMessage: message,
+			ErrorCode:    code,
 		})}
 
 	case "session.diff":

@@ -29,12 +29,18 @@ type ToolCall struct {
 // messages contain Contains, that route's Scenario answers instead of the
 // top level (e.g. the parent's prompt gets a task tool call, while the
 // child's own prompt — which echoes the task text — gets a bash call).
+// Status, when set, answers the completion with that raw HTTP status and
+// Body instead of a completion — how a real provider refuses a request
+// (401 on an empty account, 429 on a rate limit), which is what the
+// provider-error tests drive opencode against.
 type Scenario struct {
 	Content      []string   `json:"content"`
 	ChunkDelayMs int        `json:"chunkDelayMs"`
 	ToolCalls    []ToolCall `json:"toolCalls"`
 	FinishReason string     `json:"finishReason"`
 	Routes       []Route    `json:"routes"`
+	Status       int        `json:"status"`
+	Body         string     `json:"body"`
 }
 
 // Route is one content-based override inside a Scenario.
@@ -190,6 +196,16 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Unlock()
+
+	// A scripted upstream failure: answer with the raw status and body, the
+	// way a real provider refuses a request, so the client sees the failure
+	// itself rather than a scripted completion.
+	if sc.Status != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(sc.Status)
+		fmt.Fprint(w, sc.Body)
+		return
+	}
 
 	calls := sc.ToolCalls
 	if toolResultSeen {

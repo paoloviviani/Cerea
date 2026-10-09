@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"strings"
 	"testing"
 
 	"galopin/internal/backend"
@@ -125,5 +126,80 @@ func TestTranslateEventQuestionResolved(t *testing.T) {
 	ev2 := rejected[0].Event
 	if ev2.Kind != backend.EventQuestionResolved || ev2.QuestionRequestID != "que_2" || ev2.QuestionDecision != "rejected" {
 		t.Fatalf("rejected event = %+v", ev2)
+	}
+}
+
+// session.error carries the error object under properties.error, not
+// flattened properties (verified against 1.18.34): an APIError's message and
+// HTTP status live in data. The event must carry the provider's own text and
+// the status — and never the response headers or body, which can hold
+// account details. Real payload from a Cortecs 401.
+func TestTranslateEventSessionErrorCarriesProviderDetail(t *testing.T) {
+	b := New(Config{})
+	events := b.translateEvent("/ws", "session.error", map[string]any{
+		"sessionID": "ses_1",
+		"error": map[string]any{
+			"name": "APIError",
+			"data": map[string]any{
+				"message":         "AuthenticationError: Insufficient Balance.",
+				"statusCode":      float64(401),
+				"isRetryable":     false,
+				"responseHeaders": map[string]any{"x-request-id": "req_secret"},
+				"responseBody":    `{"detail":"account_secret"}`,
+			},
+		},
+	})
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	ev := events[0].Event
+	if ev.Kind != backend.EventError {
+		t.Fatalf("Kind = %v, want EventError", ev.Kind)
+	}
+	if ev.ErrorMessage != "AuthenticationError: Insufficient Balance." {
+		t.Errorf("ErrorMessage = %q", ev.ErrorMessage)
+	}
+	if ev.ErrorCode != "401" {
+		t.Errorf("ErrorCode = %q, want 401", ev.ErrorCode)
+	}
+	if strings.Contains(ev.ErrorMessage, "secret") || strings.Contains(ev.ErrorCode, "secret") {
+		t.Errorf("response headers/body leaked into the event: %q / %q", ev.ErrorMessage, ev.ErrorCode)
+	}
+}
+
+// An error object without a statusCode (UnknownError) still carries its
+// message, with no code invented for it.
+func TestTranslateEventSessionErrorWithoutStatus(t *testing.T) {
+	b := New(Config{})
+	events := b.translateEvent("/ws", "session.error", map[string]any{
+		"sessionID": "ses_1",
+		"error": map[string]any{
+			"name": "UnknownError",
+			"data": map[string]any{"message": "Something went wrong", "ref": "evt_1"},
+		},
+	})
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	ev := events[0].Event
+	if ev.ErrorMessage != "Something went wrong" || ev.ErrorCode != "" {
+		t.Errorf("event = %+v, want the message and no code", ev)
+	}
+}
+
+// A Stop is not a failure: opencode records the abort as MessageAbortedError
+// and the idle that follows ends the turn, so the event must not reach Cerea
+// as a failed turn.
+func TestTranslateEventSessionErrorAbortedIsDropped(t *testing.T) {
+	b := New(Config{})
+	events := b.translateEvent("/ws", "session.error", map[string]any{
+		"sessionID": "ses_1",
+		"error": map[string]any{
+			"name": "MessageAbortedError",
+			"data": map[string]any{"message": "Aborted"},
+		},
+	})
+	if len(events) != 0 {
+		t.Fatalf("got %d events, want none for an abort", len(events))
 	}
 }
