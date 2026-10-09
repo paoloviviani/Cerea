@@ -68,7 +68,7 @@ var galopinTools = []toolDef{
 	{
 		name: "session_spawn",
 		description: "Start a NEW top-level session in this same workspace and give it a first prompt; it runs on its own, and its transcript is the person's to read. " +
-			"Whether the person is asked first follows your own Deny / Ask / Allow and this machine's rules: an Allow session spawns with no card unless the ceiling or an explicit rule asks, and every spawn is audited with both sessions named. The new session inherits your permission word (an Allow spawner makes a child that runs without a card) and your coordination grant, never more; " +
+			"Whether the person is asked first follows your own Deny / Ask / Allow and this machine's rules: an Allow session spawns with no card unless the ceiling or an explicit rule asks, and every spawn is audited with both sessions named. The new session inherits your permission word (an Allow spawner makes a child that runs without a card), your coordination grant and your exceptions, never more; " +
 			"mode may be your own or \"plan\" (read-only), and it uses your model. You get its id, not its result; " +
 			"it has the same tools, so it can session_send you a message when its work is done (each send follows the same Allow coverage). Limits apply (chain depth, live sessions, rate).",
 		args: `{ title: { type: "string", description: "Short title for the new session." },` +

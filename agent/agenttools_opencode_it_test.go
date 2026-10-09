@@ -484,6 +484,92 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("spawn: the child inherits the caller's exceptions", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		caller := newSession(ws1, "it-caller-exc", "")
+		// The caller on Allow: the spawn itself needs no card, so the only
+		// asks in this subtest are the child's own tool ones.
+		if err := oc.SetPermissionMode(ctx, ws1.Path, caller.ID, permrules.Allow); err != nil {
+			t.Fatal(err)
+		}
+		// The caller's own "always" for /tmp, recorded the way a card's
+		// always does: an exception on the caller's root.
+		if _, err := oc.AddException(ctx, ws1.Path, caller.ID, permrules.Exception{
+			Permission: "external_directory",
+			Patterns:   []string{"/tmp/*"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		secret := fmt.Sprintf("/tmp/galopin-it-exc-%d.txt", time.Now().UnixNano())
+		if err := os.WriteFile(secret, []byte("outside-ok"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(secret) })
+		// Two routes: the caller spawns, the child then reads the file
+		// outside its workspace — and /etc/hostname, which nothing allows,
+		// as the control that the ask machinery fires at all. The control
+		// route is registered FIRST: routes are prepended, and the exc turn
+		// must match its own route before the older trigger still sitting
+		// in the child's history matches the control one.
+		route("trigger-child-ctl", "read", `{"filePath":"/etc/hostname"}`)
+		route("trigger-child-exc", "read", fmt.Sprintf(`{"filePath":%q}`, secret))
+		route("trigger-spawn-exc", "session_spawn", spawnArgs("it-child-exc", "child-exc first prompt", "inherit"))
+		publish()
+		mark := hub.mark()
+		prompt(caller, ws1, "trigger-spawn-exc")
+		part := hub.toolDone(t, mark, caller.ID, "session_spawn")
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("session_spawn = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if asks := hub.asks(mark, caller.ID); len(asks) != 0 {
+			t.Fatalf("an allow spawn with an exception to inherit raised a card: %+v", asks)
+		}
+		kids := allTitled("it-child-exc")
+		if len(kids) != 1 {
+			t.Fatalf("child sessions = %d, want 1", len(kids))
+		}
+		child := getSession(kids[0].ID)
+		hub.waitIdle(t, mark, child.ID)
+		got := oc.Exceptions(child.ID)
+		if len(got) != 1 || got[0].Permission != "external_directory" || len(got[0].Patterns) != 1 || got[0].Patterns[0] != "/tmp/*" {
+			t.Fatalf("child exceptions = %+v, want the caller's external_directory /tmp/*", got)
+		}
+		auditFound := false
+		for _, row := range auditRows() {
+			if row["tool"] == "session_spawn" && row["from"] == caller.ID && row["to"] == child.ID && row["decision"] == "done" {
+				if row["reason"] != "inherited 1 exception" {
+					t.Errorf("spawn done row reason = %v, want the inherited count", row["reason"])
+				}
+				auditFound = true
+			}
+		}
+		if !auditFound {
+			t.Errorf("no done audit row naming the spawn: %v", auditRows())
+		}
+		// The control: something outside the workspace that nothing allows
+		// still asks the child, so the empty card count above means the
+		// exception, not a broken ask path.
+		mark2 := hub.mark()
+		prompt(child, ws1, "trigger-child-ctl")
+		if ctl := hub.toolDone(t, mark2, child.ID, "read"); ctl.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("the control read did not complete: %+v", ctl)
+		}
+		ctlAsks := hub.asks(mark2, child.ID)
+		if len(ctlAsks) == 0 || ctlAsks[0].Tool != "external_directory" {
+			t.Errorf("the control read outside the workspace raised %+v, want an external_directory ask", ctlAsks)
+		}
+		// The point: the inherited exception covers /tmp, so the same read
+		// there runs with no ask at all.
+		mark3 := hub.mark()
+		prompt(child, ws1, "trigger-child-exc")
+		if p := hub.toolDone(t, mark3, child.ID, "read"); p.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("the /tmp read did not complete: %+v", p)
+		}
+		if asks := hub.asks(mark3, child.ID); len(asks) != 0 {
+			t.Errorf("the child asked for /tmp despite the inherited exception: %+v", asks)
+		}
+	})
+
 	t.Run("spawn: declined by the person creates nothing", func(t *testing.T) {
 		hub.setApprove(rejectAll)
 		caller := newSession(ws1, "it-caller-r", "")
