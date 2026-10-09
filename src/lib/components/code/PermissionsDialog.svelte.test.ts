@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
 import { get } from "svelte/store";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
-import PermissionsLine from "./PermissionsLine.svelte";
+import PermissionsDialog from "./PermissionsDialog.svelte";
 import { error as errorToast } from "$lib/stores/errors";
 import { flagCodeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
 import * as s from "$lib/components/overlay/styles";
@@ -61,25 +61,19 @@ const RESULT: PermissionRulesResult = {
 
 function mount(
 	result: PermissionRulesResult | null = RESULT,
-	extra: { policy?: Record<string, unknown>; onreenroll?: () => void; onchanged?: () => void } = {}
+	extra: {
+		policy?: Record<string, unknown>;
+		onreenroll?: () => void;
+		onchanged?: () => void;
+	} = {}
 ) {
-	return renderWithApp(PermissionsLine, {
+	return renderWithApp(PermissionsDialog, {
 		deviceId: "d1",
 		agentId: "a1",
 		result,
+		onclose: () => {},
 		...(extra as object),
 	});
-}
-
-async function openDetail(screen: ReturnType<typeof mount>) {
-	await screen.getByRole("button", { name: /Permissions/ }).click();
-	await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-}
-
-async function openRaw(screen: ReturnType<typeof mount>) {
-	await openDetail(screen);
-	await screen.getByText("Show the raw rules (for troubleshooting)").click();
-	await expect.element(screen.getByTestId("permission-rules")).toBeVisible();
 }
 
 const rowText = (screen: ReturnType<typeof mount>, id: string) =>
@@ -99,61 +93,31 @@ beforeEach(async () => {
 	await browserPage.viewport(1200, 800);
 });
 
-describe("Permissions line summary", () => {
-	it("says the answer for edits, commands and web in plain words, with the exceptions counted", async () => {
+describe("Permissions dialog heading", () => {
+	it("names the dialog and carries the capability rows in plain words", async () => {
 		const screen = mount();
 		// edit: Cerea's ask block replaces opencode's deny; bash: the ceiling's ask; webfetch: the machine's deny.
-		await expect
-			.element(screen.getByTestId("permission-summary"))
-			.toHaveTextContent("Edits ask · commands ask · web blocked");
-		await expect
-			.element(screen.getByTestId("permission-exceptions-count"))
-			.toHaveTextContent("3 exceptions");
+		await expect.element(screen.getByRole("heading", { name: "Permissions" })).toBeVisible();
+		expect(rowText(screen, "edit")).toBe("Edit and write files Asks first");
+		expect(rowText(screen, "bash")).toBe("Run commands Asks first");
+		expect(rowText(screen, "web")).toBe("Fetch from the web Blocked");
+		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(3);
 	});
 
-	it("falls back to the catch-all, and to ask when nothing matches", async () => {
-		const allowed = mount({
-			rules: [{ permission: "*", pattern: "*", action: "allow" }],
-			savedApprovals: [],
-			ceiling: {},
-		});
-		await expect
-			.element(allowed.getByTestId("permission-summary"))
-			.toHaveTextContent("Edits allowed · commands allowed · web allowed");
-
-		const bare = mount({ rules: [], savedApprovals: [], ceiling: {} });
-		await expect
-			.element(bare.getByTestId("permission-summary").last())
-			.toHaveTextContent("Edits ask · commands ask · web ask");
-		expect(bare.getByTestId("permission-exceptions-count").elements()).toHaveLength(0);
-	});
-
-	it("says blocked for all three under Deny", async () => {
-		const screen = mount({
-			rules: [{ permission: "*", pattern: "*", action: "deny", source: "cerea" }],
-			savedApprovals: [],
-			ceiling: {},
-		});
-		await expect
-			.element(screen.getByTestId("permission-summary"))
-			.toHaveTextContent("Edits blocked · commands blocked · web blocked");
-	});
-
-	it("draws nothing without a reading (a machine that does not have the op)", async () => {
+	it("says the detail is unavailable without a reading (a machine that does not have the op)", async () => {
 		const screen = mount(null);
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(screen.getByTestId("permissions-line").elements()).toHaveLength(0);
+		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
+		await expect.element(screen.getByTestId("permissions-unavailable")).toBeVisible();
 	});
 
-	it("says '1 exception' in the singular", async () => {
+	it("lists a single exception by itself", async () => {
 		const screen = mount({
 			rules: [],
 			savedApprovals: [{ id: "ex_1", permission: "bash", patterns: ["ls"], removable: true }],
 			ceiling: {},
 		});
-		await expect
-			.element(screen.getByTestId("permission-exceptions-count"))
-			.toHaveTextContent("1 exception");
+		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(1);
 	});
 });
 
@@ -170,7 +134,7 @@ describe("Permissions line detail", () => {
 			savedApprovals: [],
 			ceiling: {},
 		});
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(rowText(screen, "question")).toBe("Ask you questions Allowed");
 		expect(rowText(screen, "edit")).toBe("Edit and write files Blocked");
 		// Nothing says anything about bash: opencode asks.
@@ -188,7 +152,7 @@ describe("Permissions line detail", () => {
 			savedApprovals: [],
 			ceiling: {},
 		});
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		const pill = (id: string) =>
 			screen
 				.getByTestId("permission-row")
@@ -209,7 +173,7 @@ describe("Permissions line detail", () => {
 			savedApprovals: [],
 			ceiling: {},
 		});
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(rowText(screen, "read")).toBe("Read files Allowed except secret files like .env: ask");
 	});
 
@@ -223,7 +187,7 @@ describe("Permissions line detail", () => {
 			savedApprovals: [],
 			ceiling: { bash: "ask" },
 		});
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(rowText(screen, "bash")).toBe("Run commands Asks first limited by this machine");
 		expect(rowText(screen, "edit")).toBe("Edit and write files Allowed");
 		expect(screen.getByTestId("permission-capped").elements()).toHaveLength(1);
@@ -231,7 +195,7 @@ describe("Permissions line detail", () => {
 
 	it("says what drives it, and keeps the raw rules closed until asked", async () => {
 		const screen = mount();
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await expect
 			.element(screen.getByText(/Set by this session's Deny \/ Ask \/ Allow switch/))
 			.toHaveTextContent("within the limits this machine was enrolled with");
@@ -240,7 +204,9 @@ describe("Permissions line detail", () => {
 
 	it("shows a rule Cerea's block replaces as overridden in the raw list, and an unreplaced one with its source", async () => {
 		const screen = mount();
-		await openRaw(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		await screen.getByText("Show the raw rules (for troubleshooting)").click();
+		await expect.element(screen.getByTestId("permission-rules")).toBeVisible();
 		const overridden = screen.getByText("overridden by Cerea");
 		await expect.element(overridden.first()).toBeVisible();
 		// Two: opencode's own `* allow` and `edit deny`, which Cerea's `* ask`
@@ -270,7 +236,9 @@ describe("Permissions line detail", () => {
 			savedApprovals: [],
 			ceiling: {},
 		});
-		await openRaw(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		await screen.getByText("Show the raw rules (for troubleshooting)").click();
+		await expect.element(screen.getByTestId("permission-rules")).toBeVisible();
 		await expect.element(screen.getByText("overridden by this machine's floor")).toBeVisible();
 		await expect.element(screen.getByText("overridden by this machine's limits")).toBeVisible();
 	});
@@ -284,7 +252,9 @@ describe("Permissions line detail", () => {
 			savedApprovals: [],
 			ceiling: {},
 		});
-		await openRaw(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		await screen.getByText("Show the raw rules (for troubleshooting)").click();
+		await expect.element(screen.getByTestId("permission-rules")).toBeVisible();
 		const rows = screen.getByTestId("permission-rule").elements();
 		expect(rows).toHaveLength(2);
 		expect(rows[0].getAttribute("data-overridden")).toBe("false");
@@ -292,7 +262,7 @@ describe("Permissions line detail", () => {
 		expect(screen.getByText(/overridden by/).elements()).toHaveLength(0);
 	});
 
-	it("scrolls inside its own box, so a session with hundreds of rules cannot push the composer away", async () => {
+	it("scrolls inside the dialog shell, so a session with hundreds of rules cannot push past the viewport", async () => {
 		const screen = mount({
 			...RESULT,
 			rules: Array.from({ length: 300 }, (_, i) => ({
@@ -301,16 +271,16 @@ describe("Permissions line detail", () => {
 				action: "ask" as const,
 			})),
 		});
-		await openRaw(screen);
-		const root = screen.getByTestId("permissions-detail").element();
-		expect(root.scrollHeight).toBeGreaterThan(root.clientHeight);
-		expect(root.clientHeight).toBeLessThanOrEqual(window.innerHeight * 0.4 + 1);
-		expect(getComputedStyle(root).overflowY).toBe("auto");
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		const dialog = screen.getByRole("dialog").element();
+		expect(getComputedStyle(dialog).overflowY).toBe("auto");
+		expect(dialog.scrollHeight).toBeGreaterThanOrEqual(dialog.clientHeight);
+		expect(dialog.clientHeight).toBeLessThanOrEqual(window.innerHeight + 1);
 	});
 
 	it("is read-only: no field, no select, and the only buttons are the exceptions' Remove", async () => {
 		const screen = mount();
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		const root = screen.getByTestId("permissions-detail").element();
 		expect(root.querySelectorAll("input, select, textarea").length).toBe(0);
 		expect([...root.querySelectorAll("button")].map((el) => el.getAttribute("aria-label"))).toEqual(
@@ -320,17 +290,16 @@ describe("Permissions line detail", () => {
 
 	it("has no free-form rules editor, no Apply, and no word of auto-accept or a responder", async () => {
 		const screen = mount();
-		await openDetail(screen);
-		const text = screen.getByTestId("permissions-line").element().textContent ?? "";
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		const text = screen.getByRole("dialog").element().textContent ?? "";
 		expect(text).not.toMatch(/auto-accept|responder|Apply to this session|Add rule/i);
-		expect(screen.getByTestId("permission-session-rules").elements()).toHaveLength(0);
 	});
 });
 
 describe("the Exceptions list", () => {
 	it("lists each exception with what it covers, Remove only where the machine will withdraw it", async () => {
 		const screen = mount();
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		const items = screen.getByTestId("permission-exception-item").elements();
 		expect(items.map((el) => el.textContent?.replace(/\s+/g, " ").trim())).toEqual([
 			"Allowed for this session: npm test Remove",
@@ -342,7 +311,7 @@ describe("the Exceptions list", () => {
 
 	it("says exceptions last for this session, that Deny blocks them and that Ask restores them", async () => {
 		const screen = mount();
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await expect
 			.element(screen.getByText(/Exceptions last for this session only/))
 			.toHaveTextContent(
@@ -352,14 +321,14 @@ describe("the Exceptions list", () => {
 
 	it("with none, says how one is made", async () => {
 		const screen = mount({ rules: [], savedApprovals: [], ceiling: {} });
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await expect.element(screen.getByText(/Always allow \(this session\)/)).toBeVisible();
 	});
 
 	it("removes an exception by id, then asks the parent to re-read", async () => {
 		const onchanged = vi.fn();
 		const screen = mount(RESULT, { onchanged });
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await screen.getByRole("button", { name: "Remove exception for bash" }).first().click();
 
 		await vi.waitFor(() => expect(fake.removed).toEqual([{ agent: "a1", id: "ex_1" }]));
@@ -368,7 +337,7 @@ describe("the Exceptions list", () => {
 
 	it("removes the second one by its own id", async () => {
 		const screen = mount();
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await screen.getByRole("button", { name: "Remove exception for bash" }).nth(1).click();
 		await vi.waitFor(() => expect(fake.removed).toEqual([{ agent: "a1", id: "ex_2" }]));
 	});
@@ -377,29 +346,27 @@ describe("the Exceptions list", () => {
 		fake.failRemove = "No such exception.";
 		const onchanged = vi.fn();
 		const screen = mount(RESULT, { onchanged });
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await screen.getByRole("button", { name: "Remove exception for bash" }).first().click();
 
 		await vi.waitFor(() => expect(get(errorToast)).toBe("No such exception."));
 		expect(fake.removed).toEqual([]);
 		expect(onchanged).not.toHaveBeenCalled();
-		await expect
-			.element(screen.getByTestId("permission-exceptions-count"))
-			.toHaveTextContent("3 exceptions");
+		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(3);
 	});
 });
 
 describe("while the /code sign-in is stale", () => {
 	it("the whole line goes, Remove with it", async () => {
 		const screen = mount();
-		await openDetail(screen);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await expect
 			.element(screen.getByRole("button", { name: "Remove exception for bash" }).first())
 			.toBeVisible();
 
 		flagCodeReauth();
 		await vi.waitFor(() =>
-			expect(screen.getByTestId("permissions-line").elements()).toHaveLength(0)
+			expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0)
 		);
 		expect(screen.getByRole("button", { name: /Remove exception/ }).elements()).toHaveLength(0);
 		expect(fake.removed).toEqual([]);
@@ -409,7 +376,9 @@ describe("while the /code sign-in is stale", () => {
 		flagCodeReauth();
 		const screen = mount();
 		await new Promise((resolve) => setTimeout(resolve, 100));
-		expect(screen.getByTestId("permissions-line").elements()).toHaveLength(0);
+		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
+		expect(screen.getByTestId("permissions-unavailable").elements()).toHaveLength(0);
+		await expect.element(screen.getByRole("heading", { name: "Permissions" })).toBeVisible();
 	});
 });
 
@@ -435,7 +404,7 @@ describe("a machine that predates ceilings", () => {
 		await expect.element(flag).toHaveTextContent("Re-enroll this machine to set limits");
 		await expect.element(flag).toHaveTextContent("predates ceilings");
 		await expect.element(flag).toHaveTextContent("nothing caps Allow");
-		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await screen.getByRole("button", { name: "Re-enroll this machine" }).click();
 		expect(onreenroll).toHaveBeenCalledTimes(1);
 		// Remembered for the machine's row in the tree.
@@ -444,7 +413,7 @@ describe("a machine that predates ceilings", () => {
 
 	it("is not flagged for a properly enrolled machine", async () => {
 		const screen = mount(RESULT, { policy: ENROLLED_POLICY });
-		await expect.element(screen.getByTestId("permission-summary")).toBeVisible();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(screen.getByTestId("legacy-machine-flag").elements()).toHaveLength(0);
 		await vi.waitFor(() => expect(codeLegacyMachines.d1).toBe(false));
 	});
@@ -461,7 +430,7 @@ describe("a machine that predates ceilings", () => {
 			},
 			{ policy: LEGACY_POLICY }
 		);
-		await expect.element(screen.getByTestId("permission-summary")).toBeVisible();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(screen.getByTestId("legacy-machine-flag").elements()).toHaveLength(0);
 	});
 

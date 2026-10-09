@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
 	listDevices: vi.fn(),
 	listWorkspaces: vi.fn(),
 	listAgents: vi.fn(),
+	getPermissionRules: vi.fn(),
 }));
 
 vi.mock("$app/state", async () => {
@@ -32,6 +33,7 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	listDevices: apiMock.listDevices,
 	listWorkspaces: apiMock.listWorkspaces,
 	listAgents: apiMock.listAgents,
+	getPermissionRules: apiMock.getPermissionRules,
 }));
 
 function device(id: string, over: Record<string, unknown> = {}) {
@@ -85,6 +87,7 @@ beforeEach(() => {
 	apiMock.listAgents.mockReset().mockImplementation(async (id: string) => ({
 		agents: AGENTS[id] ?? [],
 	}));
+	apiMock.getPermissionRules.mockReset().mockRejectedValue({ status: 404 });
 });
 
 describe("CodeNavTree collapse", () => {
@@ -404,5 +407,110 @@ describe("CodeNavTree scheduled actions", () => {
 		await expect.element(screen.getByText("Fix the thing")).toBeVisible();
 		expect(screen.getByTestId("scheduled-badge").elements()).toHaveLength(1);
 		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+	});
+});
+
+describe("CodeNavTree Permissions item", () => {
+	const ASK_RULES = {
+		mode: "ask",
+		rules: [{ permission: "*", pattern: "*", action: "ask", source: "cerea" }],
+		savedApprovals: [],
+		ceiling: {},
+	};
+
+	function withSchedules(on: boolean) {
+		Object.assign(livePage.data, { codeSchedulesEnabled: on });
+	}
+
+	it("shows the item only with a selected session whose machine answers permission.rules", async () => {
+		withSchedules(true);
+		apiMock.getPermissionRules.mockResolvedValue(ASK_RULES);
+
+		go("?device=d1&ws=w1");
+		const bare = mount();
+		await expect.element(bare.getByText("Box d1")).toBeVisible();
+		expect(bare.getByTestId("permissions-item").elements()).toHaveLength(0);
+		bare.unmount();
+
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount();
+		const item = screen.getByTestId("permissions-item");
+		await expect.element(item).toBeVisible();
+		await expect.element(item).toHaveTextContent("Permissions");
+		withSchedules(false);
+	});
+
+	it("stays hidden when the machine predates the op (404), and on the schedules pages", async () => {
+		withSchedules(true);
+		go("?device=d1&ws=w1&agent=a1");
+		const stale = mount();
+		await expect.element(stale.getByText("Agent a1")).toBeVisible();
+		expect(stale.getByTestId("permissions-item").elements()).toHaveLength(0);
+		stale.unmount();
+
+		go("?view=schedules&device=d1&ws=w1&agent=a1");
+		const prefilled = mount();
+		await expect.element(prefilled.getByText("Agent a1")).toBeVisible();
+		expect(prefilled.getByTestId("permissions-item").elements()).toHaveLength(0);
+		withSchedules(false);
+	});
+
+	it("carries the session's switch word and the exceptions count", async () => {
+		withSchedules(true);
+		AGENTS.d1 = [{ ...agent("a1", "w1"), permissionMode: "allow" }, agent("a2", "w1")];
+		apiMock.getPermissionRules.mockResolvedValue({
+			...ASK_RULES,
+			savedApprovals: [
+				{ id: "ex_1", permission: "bash", patterns: ["npm test"], removable: true },
+				{ id: "ex_2", permission: "edit", patterns: ["src/**"], removable: true },
+			],
+		});
+		const enrolled = {
+			workspaceRoots: [],
+			allowFreeModels: false,
+			permission: { max: { bash: "ask" } },
+		};
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount([device("d1", { policy: enrolled }), device("d2")]);
+		const item = screen.getByTestId("permissions-item");
+		await expect.element(item).toBeVisible();
+		await expect.element(item).toHaveTextContent("Allow");
+		await expect.element(item).toHaveTextContent("2");
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+		withSchedules(false);
+	});
+
+	it("flags a pre-ceilings machine with the amber warning instead of the switch", async () => {
+		withSchedules(true);
+		apiMock.getPermissionRules.mockResolvedValue({
+			rules: [{ permission: "*", pattern: "*", action: "allow", source: "opencode" }],
+			savedApprovals: [],
+			ceiling: {},
+		});
+		const legacyPolicy = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount([device("d1", { policy: legacyPolicy }), device("d2")]);
+		const item = screen.getByTestId("permissions-item");
+		await expect.element(item).toBeVisible();
+		await expect.element(screen.getByTitle("Re-enroll this machine to set limits.")).toBeVisible();
+		withSchedules(false);
+	});
+
+	it("opens the detail in a dialog and closes it again", async () => {
+		withSchedules(true);
+		apiMock.getPermissionRules.mockResolvedValue(ASK_RULES);
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount();
+		const item = screen.getByTestId("permissions-item");
+		await expect.element(item).toBeVisible();
+		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
+		await item.click();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		await expect.element(screen.getByTestId("permission-rows")).toBeVisible();
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await expect.element(screen.getByTestId("permissions-detail")).not.toBeInTheDocument();
+		// The row stays, closed.
+		await expect.element(screen.getByTestId("permissions-item")).toBeVisible();
+		withSchedules(false);
 	});
 });
