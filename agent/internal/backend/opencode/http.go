@@ -514,7 +514,54 @@ func (b *Backend) Children(ctx context.Context, _ string, sessionID string) ([]b
 }
 
 func (b *Backend) Compact(ctx context.Context, _ string, sessionID string) error {
-	return b.doJSON(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/summarize", nil, nil)
+	providerID, modelID, err := b.summarizeModel(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	// auto:false marks a person's "Compact now" (PROTOCOL.md §7's compaction
+	// part distinguishes it from opencode's own context-overflow trigger).
+	body := map[string]any{"providerID": providerID, "modelID": modelID, "auto": false}
+	return b.doJSON(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/summarize", body, nil)
+}
+
+// summarizeModel picks the model a summarize runs on. Found live (1.18.34):
+// POST /session/:id/summarize requires a JSON body {providerID, modelID,
+// auto?} and answers 400 {"kind":"Payload"} without one — opencode keeps no
+// session model of its own to fall back on. In order: the session overlay's
+// model (the one this session's prompts go out on, as Prompt sends it), else
+// the most recent assistant message's model (the session has run on
+// something), else opencode's configured default.
+func (b *Backend) summarizeModel(ctx context.Context, sessionID string) (providerID, modelID string, _ error) {
+	if ov := b.getOverlay(sessionID); ov.ModelID != "" {
+		providerID, modelID = splitModelID(ov.ModelID)
+		return providerID, modelID, nil
+	}
+	var raw []any
+	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message", nil, &raw); err == nil {
+		for _, entry := range asMaps(raw) {
+			info := getMap(entry, "info")
+			if info == nil {
+				info = entry
+			}
+			if getStr(info, "role") != "assistant" {
+				continue
+			}
+			if p, m := getStr(info, "providerID", "providerId"), getStr(info, "modelID", "modelId"); p != "" && m != "" {
+				providerID, modelID = p, m
+			}
+		}
+	}
+	if providerID != "" && modelID != "" {
+		return providerID, modelID, nil
+	}
+	var cfg map[string]any
+	if err := b.doJSON(ctx, http.MethodGet, "/config", nil, &cfg); err == nil {
+		if id := getStr(cfg, "model"); id != "" {
+			providerID, modelID = splitModelID(id)
+			return providerID, modelID, nil
+		}
+	}
+	return "", "", fmt.Errorf("no model known for this session; send a message first")
 }
 
 // ReplyQuestion answers a pending question.asked (the user-question tool
