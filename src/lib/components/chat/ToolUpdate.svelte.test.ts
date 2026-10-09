@@ -98,6 +98,49 @@ describe("a tool result's images", () => {
 	});
 });
 
+describe("the card's Input when the Call's parameters are empty", () => {
+	/** The Input block is the expanded card's first `pre`. */
+	async function inputOf(tool: MessageToolUpdate[]) {
+		const view = renderWithApp(ToolUpdate, { tool });
+		const header = view.baseElement.querySelector<HTMLButtonElement>("button[aria-label='Expand']");
+		header?.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		return view.baseElement.querySelector("pre")?.textContent;
+	}
+
+	const callWith = (parameters: Record<string, unknown>): MessageToolUpdate =>
+		({
+			...call,
+			call: { name: "bash", parameters },
+		}) as MessageToolUpdate;
+	const resultWith = (parameters: Record<string, unknown>): MessageToolUpdate =>
+		({
+			...resultOf([{ text: "done" }]),
+			result: {
+				status: ToolResultStatus.Success,
+				call: { name: "bash", parameters },
+				outputs: [{ text: "done" }],
+				display: true,
+			},
+		}) as MessageToolUpdate;
+
+	it("the Result's parameters stand in for a Call that arrived empty", async () => {
+		await expect(inputOf([callWith({}), resultWith({ command: "ls -la" })])).resolves.toBe(
+			'{\n  "command": "ls -la"\n}'
+		);
+	});
+
+	it("a filled Call keeps its own parameters", async () => {
+		await expect(
+			inputOf([callWith({ command: "git status" }), resultWith({ command: "ls -la" })])
+		).resolves.toBe('{\n  "command": "git status"\n}');
+	});
+
+	it("no parameters on either side stays an empty object", async () => {
+		await expect(inputOf([callWith({}), resultWith({})])).resolves.toBe("{}");
+	});
+});
+
 describe("the collapsed card's thumbnail strip", () => {
 	const device = "b".repeat(24);
 	const urlOf = (n: number) =>
