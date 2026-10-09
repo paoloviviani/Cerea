@@ -5,7 +5,9 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.9.0 — 2026-10-09
+
+Pins: Cerea `0.9.0`, Pystino `0.4.0`, Authelia 4.39.22.
 
 - **Built-in office skills.** The chat now ships twelve deployment-wide skills
   the assistant loads when a request matches: Word, Excel, PDF, PDF tools,
