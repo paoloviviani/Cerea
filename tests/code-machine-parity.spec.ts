@@ -232,18 +232,24 @@ test.describe("owned machine agent: parity", () => {
 		await expect(transcriptCard(page).getByText("Second done.")).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByText("wants to call")).toHaveCount(0);
 
-		// The Permissions line lists it, and Remove takes it away.
+		// The Permissions dialog lists it, from the details button beside the
+		// selector, and Remove takes it away.
 		// The exception reads "bash echo *": opencode scopes a bash
 		// "always" to "<command> *", and galopin stores its patterns
 		// verbatim (probed live: "echo same" arrives as always ["echo *"],
 		// "git status" as ["git status *"]) — the panel shows what is in
 		// force, never a narrower promise.
-		await page.getByRole("button", { name: /^Permissions/ }).click();
+		await page.getByRole("button", { name: "Permission details for this session" }).click();
 		const item = page.getByTestId("permission-exception-item");
 		await expect(item).toHaveCount(1, { timeout: 30_000 });
 		await expect(item).toContainText("echo *");
 		await item.getByRole("button", { name: /Remove exception/ }).click();
 		await expect(page.getByTestId("permission-exception-item")).toHaveCount(0, { timeout: 30_000 });
+
+		// The dialog is a modal: closed before the next turn, the way the
+		// panel is used — the transcript must be back for the send.
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("dialog")).toHaveCount(0);
 
 		// Removed: that command asks again.
 		await mockOpenAI.setDefaultScenario(bashScenario("call_c", "c", ["Third", " done", "."]));

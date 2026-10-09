@@ -8,15 +8,16 @@
 	instead of listing them. A row the machine's limits hold below what the
 	session's setting would give says so.
 
-	Opened from the Permissions item in the agents sidebar (CodeNavTree), so
-	the transcript and its approval cards stay in view while the person
-	reads it. It is read-only. The one setting is the composer's Deny / Ask
-	/ Allow selector; the one write here is Remove on an exception, which
-	can only tighten (that command asks again). What it shows is always the
-	machine's last word: the rules and the exceptions arrive from the
-	`permission.rules` read (`result`) and are re-read after every change.
-	The ceiling, the machine's own rules and its policy have no control here
-	at all.
+	Opened from a session's ⋯ menu in the agents sidebar (CodeNavTree) or
+	from the details button beside the composer's Deny / Ask / Allow
+	selector (AgentComposer), so the transcript and its approval cards stay
+	in view while the person reads it. It is read-only. The one setting is
+	the composer's Deny / Ask / Allow selector; the one write here is Remove
+	on an exception, which can only tighten (that command asks again). What
+	it shows is always the machine's last word: the dialog reads the rules
+	and the exceptions itself, for the session it was opened for, and
+	re-reads after every change. The ceiling, the machine's own rules and
+	its policy have no control here at all.
 
 	An exception is what the card's "Always allow" leaves behind: one command
 	or pattern allowed for this session, on top of the selector. Switching to
@@ -26,12 +27,12 @@
 	for troubleshooting. There a rule from the person's own opencode config
 	that Cerea or the machine replace is struck through and labelled, rather
 	than listed as if it were in force. A machine whose galopin predates the
-	op answers 404, and the sidebar item that opens this dialog is simply
-	not drawn.
+	op answers 404, and the dialog says so instead of listing rules.
 -->
 <script lang="ts">
+	import { untrack } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
-	import { removeSavedApproval } from "$lib/codeApi";
+	import { CodeApiError, getPermissionRules, removeSavedApproval } from "$lib/codeApi";
 	import type { PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import {
@@ -51,10 +52,11 @@
 	interface Props {
 		deviceId: string;
 		agentId: string;
-		/** The machine's `permission.rules` answer for this session, read by
-		 * the tree; null until it lands and on a machine that predates it. */
-		result: PermissionRulesResult | null;
-		/** Called after an exception is removed: the tree re-reads. */
+		/** The session's title, for the heading: the dialog is one session's
+		 * and can be opened for a row that is not the one on screen. */
+		sessionTitle: string;
+		/** Called after an exception is removed (the dialog re-reads itself);
+		 * a parent showing the exceptions count re-reads with it. */
 		onchanged?: () => void;
 		/** The machine's `hello` policy, to tell a machine that predates
 		 * ceilings from one that has none to report yet. */
@@ -64,9 +66,43 @@
 		onclose: () => void;
 	}
 
-	let { deviceId, agentId, result, onchanged, policy, onreenroll, onclose }: Props = $props();
+	let { deviceId, agentId, sessionTitle, onchanged, policy, onreenroll, onclose }: Props = $props();
 
 	let removing = $state<string | null>(null);
+
+	/** The machine's `permission.rules` answer for this session, read here:
+	 * the dialog owns its read, so it can be opened for any session's row,
+	 * selected or not. A failed read keeps the last good answer; a 404 (a
+	 * galopin that predates the op) is said, not retried. */
+	let result = $state<PermissionRulesResult | null>(null);
+	let missing = $state(false);
+	let loading = $state(true);
+	let loadToken = 0;
+
+	async function load() {
+		const token = ++loadToken;
+		loading = true;
+		try {
+			const read = await getPermissionRules(deviceId, agentId);
+			if (token === loadToken) {
+				result = read;
+				missing = false;
+			}
+		} catch (err) {
+			if (token === loadToken) {
+				missing = err instanceof CodeApiError && err.status === 404;
+				if (missing) result = null;
+			}
+		} finally {
+			if (token === loadToken) loading = false;
+		}
+	}
+
+	$effect(() => {
+		void deviceId;
+		void agentId;
+		untrack(() => void load());
+	});
 
 	let rules = $derived(annotateRules(result?.rules ?? []));
 	let rows = $derived(result ? capabilityRows(result) : []);
@@ -92,6 +128,7 @@
 		removing = id;
 		try {
 			await removeSavedApproval(deviceId, agentId, id);
+			await load();
 			onchanged?.();
 		} catch (err) {
 			errorToast.set(err instanceof Error ? err.message : "Could not remove that exception.");
@@ -108,7 +145,9 @@
 				<IconShield class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="permissions-dialog-title" class={s.TITLE}>Permissions</h2>
+				<h2 id="permissions-dialog-title" class="{s.TITLE} truncate">
+					Permissions — {sessionTitle}
+				</h2>
 				<p class="{s.SUBTITLE} break-words">
 					What this session will do about its tool calls, and the exceptions you have allowed.
 				</p>
@@ -253,10 +292,20 @@
 					{/if}
 				</details>
 			</div>
-		{:else if !result}
-			<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
-				The machine has not answered yet. Close and open this again in a moment.
-			</p>
+		{:else if !codeReauth.required}
+			{#if loading}
+				<p class="text-sm text-ink-muted" data-testid="permissions-loading">
+					Reading the session's rules…
+				</p>
+			{:else if missing}
+				<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
+					This machine's galopin is too old to report permissions; update it to see them.
+				</p>
+			{:else}
+				<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
+					The machine has not answered yet. Close and open this again in a moment.
+				</p>
+			{/if}
 		{/if}
 		<!-- While the sign-in is stale the detail goes, with the fallback:
 		     the server refuses every call anyway, and what it held was
