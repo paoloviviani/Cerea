@@ -282,6 +282,44 @@ describe("consumeAgentUpdates", () => {
 		expect(messages[1].content).toBe("half ");
 	});
 
+	describe("the bridge's historyDone marker", () => {
+		it("commits the buffered tail before the callback, and leaves the transcript untouched", async () => {
+			const messages: Message[] = [];
+			const seen: number[] = [];
+			await consumeAgentUpdates(
+				of([user("go"), token("tail"), { type: "historyDone" }]),
+				messages,
+				{
+					isAborted: () => false,
+					onAbort: vi.fn(),
+					onTurnEvent: vi.fn(),
+					onHistoryDone: () => seen.push(messages.length),
+				}
+			);
+			// The callback fires once, with the last token already on the
+			// message: the view renders a whole transcript, never one that is
+			// missing its final buffered burst.
+			expect(seen).toEqual([2]);
+			expect(messages[1]).toMatchObject({ from: "assistant", content: "tail" });
+		});
+
+		it("is a silent no-op without the callback, and fires again on a reconnect", async () => {
+			const messages: Message[] = [];
+			const onHistoryDone = vi.fn();
+			await consumeAgentUpdates(
+				of([{ type: "historyDone" }, user("hello"), token("hi"), done(), { type: "historyDone" }]),
+				messages,
+				{ isAborted: () => false, onAbort: vi.fn(), onTurnEvent: vi.fn(), onHistoryDone }
+			);
+			// The marker never opens or closes a turn; the view decides what
+			// a repeat means (a reconnected stream already showing the
+			// transcript, so usually nothing).
+			expect(onHistoryDone).toHaveBeenCalledTimes(2);
+			expect(messages).toHaveLength(2);
+			expect(messages[1].content).toBe("hi");
+		});
+	});
+
 	describe("usage and compaction: a side channel that never touches turn structure (M3)", () => {
 		it("calls onUsage without opening a turn, disturbing the pending message, or affecting the transcript", async () => {
 			const messages: Message[] = [];

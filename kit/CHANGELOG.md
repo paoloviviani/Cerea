@@ -7,6 +7,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Long agent sessions show a loading state and open at the newest message:
+  the `/code` transcript used to fold the machine's whole log while
+  progressively rendering it from the top — on a long session (1,000+
+  messages) that read as a frozen, empty pane that finally landed wherever
+  the reader had been left. The first snapshot now folds behind a
+  "Loading conversation…" skeleton and the transcript renders once, at the
+  bottom; scrolling while it loads does nothing, so the landing is never
+  yanked. No machine change; Cerea only.
 - `docker compose pull` no longer fails on a kit with restic backups: the
   `backup` service now carries `pull_policy: never`, since
   `cerea-backup:1` is built on the machine and published nowhere. An

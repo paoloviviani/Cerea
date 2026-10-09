@@ -161,6 +161,20 @@ export interface AgentChildActivityUpdate {
 	childId: string;
 }
 
+/**
+ * The bridge-internal end of a connection's history replay: everything
+ * before it on that connection is the snapshot (`session.sync`) plus the
+ * frames buffered while it was in flight, everything after it is the live
+ * tail. The view gates its first paint on it (a loading state while the
+ * history folds, then one render landed at the newest message), so a long
+ * transcript never renders progressively from the top. Like `reset`, it
+ * travels the ordinary `update` channel and is Cerea's own — no machine
+ * ever sends it, and it is not part of PROTOCOL.md.
+ */
+export interface AgentHistoryDoneUpdate {
+	type: "historyDone";
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
 	| AgentResetUpdate
@@ -168,6 +182,7 @@ export type AgentStreamUpdate =
 	| AgentCompactionUpdate
 	| AgentMessageBoundaryUpdate
 	| AgentChildActivityUpdate
+	| AgentHistoryDoneUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -186,6 +201,7 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"compaction",
 	"messageBoundary",
 	"childActivity",
+	"historyDone",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.BackgroundTask,
