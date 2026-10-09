@@ -271,19 +271,21 @@ func TestAgentToolsIntegration(t *testing.T) {
 		all := append(append([]map[string]any{}, routes...), tail...)
 		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"ok"}, "chunkDelayMs": 5, "finishReason": "stop", "routes": all})
 	}
-	// settle waits for a session that has started a turn to finish it.
-	settle := func(sessionID string) {
-		t.Helper()
-		hub.wait(t, 0, 60*time.Second, sessionID+" to have run", func(e sessions.Envelope) bool {
+	// settle waits for a session that has started a turn to finish it. It
+	// takes the calling subtest's own t: a Fatalf on the parent test's t
+	// would abort the whole run and hide which subtest actually failed.
+	settle := func(st *testing.T, sessionID string) {
+		st.Helper()
+		hub.wait(st, 0, 60*time.Second, sessionID+" to have run", func(e sessions.Envelope) bool {
 			return e.SessionID == sessionID && e.Event.Kind == backend.EventStatus && e.Event.Status == backend.StatusBusy
 		})
 		deadline := time.Now().Add(90 * time.Second)
 		for {
-			if st, _ := mat.Status(sessionID); st == backend.StatusIdle {
+			if stt, _ := mat.Status(sessionID); stt == backend.StatusIdle {
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("%s never finished its turn", sessionID)
+				st.Fatalf("%s never finished its turn", sessionID)
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -431,13 +433,13 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("spawn: allowed by the machine's rules goes through with no card; child starts on Ask", func(t *testing.T) {
+	t.Run("spawn: allowed by the machine's rules goes through with no card; the child inherits the caller's allow", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		setMachineRules(map[string]permrules.Action{"session_spawn": permrules.Allow})
 		defer setMachineRules(nil)
 		caller := newSession(ws1, "it-caller-auto", "")
-		// The caller on Allow is beside the point: the spawned child is a fresh
-		// top-level session and starts on Ask whatever the caller's mode is.
+		// The caller on Allow is the point: the spawned child inherits the
+		// caller's word rather than starting on Ask.
 		if err := oc.SetPermissionMode(ctx, ws1.Path, caller.ID, permrules.Allow); err != nil {
 			t.Fatal(err)
 		}
@@ -456,13 +458,16 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if err := json.Unmarshal([]byte(part.Output), &out); err != nil || out["autoApproved"] != true {
 			t.Errorf("result %q does not carry autoApproved: %v", part.Output, err)
 		}
+		if out["permissionMode"] != "allow" {
+			t.Errorf("result %q does not carry the inherited permissionMode: %v", part.Output, err)
+		}
 		kids := allTitled("it-child-auto")
 		if len(kids) != 1 {
 			t.Fatalf("child sessions = %d, want 1", len(kids))
 		}
 		child := getSession(kids[0].ID)
-		if child.PermissionMode != "ask" {
-			t.Errorf("the child of an Allow-mode spawner is on %q, want ask", child.PermissionMode)
+		if child.PermissionMode != "allow" {
+			t.Errorf("the child of an Allow-mode spawner is on %q, want allow", child.PermissionMode)
 		}
 		if child.SpawnedBy == nil || child.SpawnedBy.SessionID != caller.ID {
 			t.Errorf("spawnedBy = %+v", child.SpawnedBy)
@@ -601,7 +606,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		settleTitles := func(ids ...int) {
 			for _, i := range ids {
 				for _, s := range allTitled(fmt.Sprintf("it-lim-%d", i)) {
-					settle(s.ID)
+					settle(t, s.ID)
 				}
 			}
 		}
@@ -845,7 +850,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("send: an allow rule skips the card whatever the modes; without one every send asks", func(t *testing.T) {
+	t.Run("send: an allow rule skips the card whatever the modes; without one an Ask session's every send asks", func(t *testing.T) {
 		hub.setApprove(approveAll)
 		setMachineRules(map[string]permrules.Action{"session_send": permrules.Allow})
 		defer setMachineRules(nil)
@@ -916,6 +921,48 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 		if autos != 4 {
 			t.Errorf("decision:allow audit rows = %d, want 4: %v", autos, auditRows())
+		}
+	})
+
+	t.Run("send: an Allow-word session sends with no card and no rule", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		setMachineRules(nil)
+		defer setMachineRules(nil)
+		a := newSession(ws1, "it-word-a", "build")
+		b := newSession(ws1, "it-word-b", "build")
+		if err := oc.SetPermissionMode(ctx, ws1.Path, a.ID, permrules.Allow); err != nil {
+			t.Fatal(err)
+		}
+		route("trigger-word-ab", "session_send", mustJSON2(map[string]any{"target": b.ID, "text": "blanket hello"}))
+		publish()
+		mark := hub.mark()
+		prompt(a, ws1, "trigger-word-ab")
+		part := hub.toolDone(t, mark, a.ID, "session_send")
+		hub.waitIdle(t, mark, a.ID)
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("send = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if asks := hub.asks(mark, a.ID); len(asks) != 0 {
+			t.Errorf("an Allow-word send with no rule raised a card: %+v", asks)
+		}
+		if part.Output != `{"autoApproved":true}` {
+			t.Errorf("result = %q, want the autoApproved marker", part.Output)
+		}
+		// The same send from an Ask-word session still asks.
+		if err := oc.SetPermissionMode(ctx, ws1.Path, b.ID, permrules.Ask); err != nil {
+			t.Fatal(err)
+		}
+		route("trigger-word-ba", "session_send", mustJSON2(map[string]any{"target": a.ID, "text": "blanket no"}))
+		publish()
+		mark = hub.mark()
+		prompt(b, ws1, "trigger-word-ba")
+		part = hub.toolDone(t, mark, b.ID, "session_send")
+		hub.waitIdle(t, mark, b.ID)
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("send = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if asks := hub.asks(mark, b.ID); len(asks) != 1 || asks[0].Tool != "session_send" {
+			t.Errorf("an Ask-word send with no rule must raise exactly one card, got %+v", asks)
 		}
 	})
 
@@ -1147,7 +1194,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		a := newSession(ws1, "it-grant-a", "build")
 		b := newSession(ws1, "it-grant-b", "build")
 		prompt(b, ws1, "it-grant-b-seed: the staging deploy is blocked on the migration")
-		settle(b.ID)
+		settle(t, b.ID)
 
 		grantCoordination(t, a.ID, []string{"session_list", "session_read", "session_send"})
 		route("trigger-grant-read", "session_read", mustJSON2(map[string]any{"target": b.ID, "last": 10}))

@@ -150,6 +150,64 @@ func TestGrantNeverReadsAWildcardAllowAsConsent(t *testing.T) {
 	}
 }
 
+// An Allow session's blanket covers the two mutating session tools — the
+// owner's standing choice — while reads stay grant-gated whatever the word is.
+func TestGrantAllowBlanketCoversSpawnAndSendOnly(t *testing.T) {
+	blanket := []Rule{{"*", "*", Allow}}
+	for _, tool := range []string{"session_spawn", "session_send"} {
+		if got := GrantAllowBlanket(blanket, tool); got != Allow {
+			t.Errorf("%s: GrantAllowBlanket = %s, want allow", tool, got)
+		}
+	}
+	for _, tool := range []string{"session_list", "session_read", "bash", "schedule", "edit"} {
+		if got := GrantAllowBlanket(blanket, tool); got != Ask {
+			t.Errorf("%s: GrantAllowBlanket = %s, want ask (not covered)", tool, got)
+		}
+	}
+}
+
+// The ceiling still caps under the blanket reading: a tail at ask forces the
+// card, at deny the refusal; the machine's own literal rule still beats the
+// blanket; an explicit literal allow still reads allow.
+func TestGrantAllowBlanketStillCappedAndBeaten(t *testing.T) {
+	cases := []struct {
+		name  string
+		tool  string
+		rules []Rule
+		want  Action
+	}{
+		{"ceiling ask tail", "session_spawn", []Rule{{"*", "*", Allow}, {"session_spawn", "*", Ask}}, Ask},
+		{"ceiling deny tail", "session_spawn", []Rule{{"*", "*", Allow}, {"session_spawn", "*", Deny}}, Deny},
+		{"machine deny", "session_send", []Rule{{"session_send", "*", Deny}}, Deny},
+		{"machine ask over blanket", "session_send", []Rule{{"*", "*", Allow}, {"session_send", "*", Ask}}, Ask},
+		{"explicit allow", "session_spawn", []Rule{{"*", "*", Allow}, {"session_spawn", "*", Allow}}, Allow},
+		{"no rule at all", "session_spawn", nil, Ask},
+		{"uncovered tool keeps its literal rule", "session_read", []Rule{{"*", "*", Allow}, {"session_read", "*", Allow}}, Allow},
+	}
+	for _, c := range cases {
+		if got := GrantAllowBlanket(c.rules, c.tool); got != c.want {
+			t.Errorf("%s: GrantAllowBlanket(%s) = %s, want %s", c.name, c.tool, got, c.want)
+		}
+	}
+}
+
+// End to end through the real composition: an Allow session with no grant
+// reads allow for spawn/send, and a ceiling at ask forces the card.
+func TestGrantAllowBlanketThroughComposition(t *testing.T) {
+	sel := Selector{Mode: Allow}
+	all := append(append([]Rule(nil), buildAgent...), Compose(Layers{}, sel, buildAgent)...)
+	if got := GrantAllowBlanket(all, "session_spawn"); got != Allow {
+		t.Errorf("uncapped Allow = %s, want allow", got)
+	}
+	if got := GrantAllowBlanket(all, "session_send"); got != Allow {
+		t.Errorf("uncapped Allow = %s, want allow", got)
+	}
+	capped := append(append([]Rule(nil), buildAgent...), Compose(Layers{Ceiling: Ceiling{Max: map[string]Action{"session_spawn": Ask}}}, sel, buildAgent)...)
+	if got := GrantAllowBlanket(capped, "session_spawn"); got != Ask {
+		t.Errorf("capped at ask = %s, want ask", got)
+	}
+}
+
 func TestCeilingMeetAndTighter(t *testing.T) {
 	a := Ceiling{Max: map[string]Action{"bash": Ask, "edit": Ask}}
 	b := Ceiling{Max: map[string]Action{"bash": Deny, "webfetch": Ask}}

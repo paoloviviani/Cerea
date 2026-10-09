@@ -43,13 +43,13 @@
 	],
 	"ceiling": {
 		"flag": "permission-max",
-		"note": "The flag REPLACES enroll's default set when given: a dialog that changes any row must emit the full set (every row that differs from allow, including the defaults bash=ask and session_spawn=ask unless changed); with nothing changed it emits nothing. A key absent from the set is not capped (allow).",
+		"note": "The flag REPLACES enroll's default set when given: a dialog that changes any row must emit the full set (every row that differs from allow, including the default bash=ask unless changed); with nothing changed it emits nothing. A key absent from the set is not capped (allow).",
 		"keys": [
 			{ "key": "edit", "default": "allow" },
 			{ "key": "bash", "default": "ask" },
 			{ "key": "webfetch", "default": "allow" },
 			{ "key": "task", "default": "allow" },
-			{ "key": "session_spawn", "default": "ask" },
+			{ "key": "session_spawn", "default": "allow" },
 			{ "key": "session_send", "default": "allow" },
 			{ "key": "session_read", "default": "allow" },
 			{ "key": "schedule", "default": "allow" }
