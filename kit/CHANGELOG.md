@@ -5,6 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- Opening a generated image (PNG, SVG, …) in the side panel shows it
+  instead of hanging on "Loading preview…": the preview re-downloaded the
+  image in a loop.
+
 ## v0.9.2 — 2026-10-09
 
 Pins: Cerea `0.9.2`, Pystino `0.4.0`, Authelia 4.39.22.
