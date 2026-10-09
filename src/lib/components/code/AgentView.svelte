@@ -1252,6 +1252,8 @@
 					{agentId}
 					{agent}
 					{ceiling}
+					permissionExceptions={permissionRules?.savedApprovals.length ?? 0}
+					policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
 					{modes}
 					{modesFailure}
 					{models}

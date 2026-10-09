@@ -256,8 +256,8 @@ sets, below it the agent's own rules for what the selector leaves alone), the
 session's **exceptions**, and the machine's **ceiling** last. The ceiling is
 appended last on every apply, so **it always wins a tie**: nothing the selector
 or an exception asks for can go past it. A rule in the person's own opencode
-config that a later rule replaces is not deleted: the raw list behind the
-[Permissions item](#permissions) shows it as _overridden by Cerea_ (or by the
+config that a later rule replaces is not deleted: the raw list in the
+[Permissions dialog](#permissions) shows it as _overridden by Cerea_ (or by the
 machine's rules, floor or limits).
 
 **What `enroll` and `run` put where.** `enroll` writes `edit`, `bash` and
@@ -280,10 +280,10 @@ fetch runs without asking, in subagents too. It does **not** need a re-enroll to
 ask by default: every session starts on **Ask**, on every machine, enrolled
 earlier or not. The panel does not show such a machine a clean bill. When the
 machine's `hello` reports an empty ceiling and its rules (read through a
-session's Permissions item) carry no rules from the file, the dialog
+session's Permissions dialog) carry no rules from the file, the dialog
 says up front _"Re-enroll this machine to set limits…"_ with a button into the
 enroll flow, and the machine's row in the sidebar carries the same notice with
-the one-line enroll command and an amber warning on the item. One re-enroll sets a ceiling, and the notice goes
+the one-line enroll command. One re-enroll sets a ceiling, and the notice goes
 away when the machine reports one. A machine that reports a ceiling, or whose
 file carries the ask block, is never flagged.
 
@@ -384,6 +384,9 @@ Inside the prompt box, in the chat's own pill idiom:
   what the machine's limits still hold back, e.g. _"Allow · bash asks (machine
   limit)"_. On a **subagent**'s view it is disabled, showing its main session's
   setting: _"Follows the main session"_. It is hidden while the sign-in is stale.
+  Beside it a shield button, hidden on a subagent and while the sign-in is
+  stale, opens this session's [Permissions dialog](#permissions) and shows the
+  exceptions count when there is one.
   What each setting means is under [Permissions](#permissions).
 
 Mode, model and the permission setting apply **to the whole session**, not only to the next message, and stay in force until you switch again.
@@ -518,10 +521,14 @@ beats them. Switching back to **Ask** restores them, and on **Allow** they are
 redundant but harmless. They are removed one by one from the Permissions
 dialog.
 
-**The Permissions item** sits in the Agents sidebar beside Schedules while an
-agent session is selected, and opens the same content in a dialog so the
-transcript and its approval cards stay in view. It is **read-only**: it shows,
-and the selector and **Remove** are the only controls. It gives one row per
+**The Permissions dialog** opens from a session's ⋯ menu (the
+**Permissions…** item, not offered on a subagent, which follows its main
+session) or from the details button beside the **Deny · Ask · Allow** selector
+in the composer; the transcript and its approval cards stay in view while you
+read it. It is titled _Permissions — <session title>_ and reads that session's
+rules itself, so it can be opened for any row, selected or not. It is
+**read-only**: the selector and **Remove** are the only controls that change
+anything. It gives one row per
 capability
 (edit and write files, run commands, fetch from the web, start subagents, read
 files, work outside the project folder, start or message other sessions, ask you
@@ -540,10 +547,11 @@ from the person's own opencode config that Cerea or the machine replace is
 struck through and labelled _overridden by Cerea_ (or _by this
 machine's rules / floor / limits_); the match behind that label is literal, so a
 rule that a broader glob in fact replaced can still be listed as in force. While
-the sign-in is [stale](#the-7-day-sign-in) the item, the selector and Remove are
-hidden, and the server refuses them anyway. The item carries the session's
-switch word and its exceptions count; a machine enrolled before ceilings shows
-an amber warning instead.
+the sign-in is [stale](#the-7-day-sign-in) the details button and Remove are
+hidden, and the server refuses them anyway. The details button carries the
+session's exceptions count; a machine enrolled before ceilings is answered with
+the re-enroll notice instead of a clean bill. A machine whose galopin predates
+permission reporting says so in the dialog instead of listing rules.
 
 ### Subagents
 

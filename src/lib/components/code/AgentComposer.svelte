@@ -64,9 +64,10 @@
 		runAgentCommand,
 		CodeApiError,
 	} from "$lib/codeApi";
-	import type { PermissionMode } from "$lib/types/machineProtocol";
+	import type { PermissionMode, Policy } from "$lib/types/machineProtocol";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import { ceilingNote } from "$lib/utils/permissionRules";
+	import * as s from "$lib/components/overlay/styles";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
 	import { resolveActiveModel } from "$lib/utils/activeModel";
 	import ModelEffortPicker from "$lib/components/chat/ModelEffortPicker.svelte";
@@ -91,6 +92,8 @@
 	import type { CodeCommand } from "$lib/types/CodeAgent";
 	import ContextMeter from "./ContextMeter.svelte";
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
+	import PermissionsDialog from "./PermissionsDialog.svelte";
+	import IconShield from "~icons/lucide/shield";
 	import { codeDraftKey } from "$lib/utils/composerDraft";
 
 	interface Props {
@@ -104,6 +107,12 @@
 		 * -> the most it may ever be. The selector's note names what it still
 		 * holds back under Allow. Empty until the read lands. */
 		ceiling?: Record<string, "ask" | "deny">;
+		/** How many exceptions ("Always allow" cards) the session has, for
+		 * the details button's badge; the dialog reads the rules itself. */
+		permissionExceptions?: number;
+		/** The machine's `hello` policy, for the dialog's legacy-machine
+		 * flag (the composer has no other use for it). */
+		policy?: Policy;
 		/** Whether a turn is live on the transcript — the send button's spot
 		 * carries the stop control while it is, permission prompts included. */
 		running?: boolean;
@@ -188,6 +197,8 @@
 		agentId,
 		agent,
 		ceiling = {},
+		permissionExceptions = 0,
+		policy,
 		running = false,
 		enrollmentExpired = false,
 		offline = false,
@@ -724,6 +735,9 @@
 	let modelPickerOpen = $state(false);
 	/** The mode pill's menu, same reason: `/mode` with no argument opens it. */
 	let modeMenuOpen = $state(false);
+	/** The session's Permissions dialog, opened from the details button
+	 * beside the selector; the dialog reads the rules itself. */
+	let permissionDetailsOpen = $state(false);
 
 	// Below `sm` the pill row is one nowrap, scrolling line, and the layout
 	// (the ring's width, which of two rows carries the model picker) follows.
@@ -904,6 +918,36 @@
 								</button>
 							{/each}
 						</div>
+						{#if showPermissionSelector && !isSubagent}
+							<!-- The session's permission details, one click beside the
+						     selector: the dialog reads this session's rules itself.
+						     The count is the exceptions' pill; on a phone the
+						     button is an icon circle like the segments and the
+						     count a dot badge, so the row stays one line. -->
+							<button
+								type="button"
+								class={composerPillClass({ compact: true })}
+								aria-label="Permission details for this session"
+								title="What this session will do about its tool calls"
+								data-testid="permission-details"
+								onclick={() => (permissionDetailsOpen = true)}
+							>
+								<span class="relative flex items-center">
+									<IconShield class="size-3.5" />
+									{#if permissionExceptions > 0}
+										<span
+											class="absolute -top-1.5 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-gray-200 px-0.5 text-[9px] font-semibold text-gray-700 sm:hidden dark:bg-gray-600 dark:text-gray-200"
+											>{permissionExceptions}</span
+										>
+									{/if}
+								</span>
+								{#if permissionExceptions > 0}
+									<span class="max-sm:hidden {s.PILL} {s.PILL_TONES.neutral}"
+										>{permissionExceptions}</span
+									>
+								{/if}
+							</button>
+						{/if}
 						{#if permissionNote}
 							<span
 								class="flex min-w-0 flex-none items-center gap-1 text-xs text-gray-500 max-sm:hidden dark:text-gray-400"
@@ -1076,6 +1120,22 @@
 		command={confirming.command}
 		onconfirm={() => confirmBackendCommand()}
 		onclose={() => (confirming = null)}
+	/>
+{/if}
+
+{#if permissionDetailsOpen}
+	<!-- The session's permission details (the button beside the selector):
+	     read-only, opened over the transcript so the approval cards stay in
+	     view. A Remove re-reads here and asks the parent to do the same, so
+	     the count badge moves with the machine's word. -->
+	<PermissionsDialog
+		{deviceId}
+		{agentId}
+		sessionTitle={agent?.title ?? ""}
+		{policy}
+		onchanged={() => (onpermissionchanged ?? onchanged)()}
+		{onreenroll}
+		onclose={() => (permissionDetailsOpen = false)}
 	/>
 {/if}
 

@@ -7,15 +7,17 @@ import { error as errorToast } from "$lib/stores/errors";
 import { flagCodeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
 import * as s from "$lib/components/overlay/styles";
 import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
+import { CodeApiError } from "$lib/codeApi";
 import type { PermissionRulesResult } from "$lib/types/machineProtocol";
 
 /**
- * The Permissions line is read-only: it shows what the machine says is in
+ * The Permissions dialog is read-only: it shows what the machine says is in
  * force as one plain row per capability (the final answer, worked out from
  * the rules), the session's exceptions with Remove on each, and the raw rule
- * list behind a disclosure. The one write, removing an exception by id, goes through
- * `removeSavedApproval`; everything else arrives as the `result` prop, which
- * the parent view reads from `permission.rules`.
+ * list behind a disclosure. It reads the session's `permission.rules` itself
+ * — that is what lets a session's ⋯ menu open it for a row that is not the
+ * selection — and re-reads after the one write, removing an exception by id
+ * through `removeSavedApproval`.
  *
  * MOCK: the rule lists below are the panel's reading of the frozen contract
  * with the agent half (feat/permission-selector-agent), not galopin's output.
@@ -23,6 +25,10 @@ import type { PermissionRulesResult } from "$lib/types/machineProtocol";
 const fake = vi.hoisted(() => ({
 	removed: [] as Array<{ agent: string; id: string }>,
 	failRemove: null as string | null,
+}));
+const api = vi.hoisted(() => ({
+	getPermissionRules: vi.fn(),
+	removeSavedApproval: vi.fn(),
 }));
 
 vi.mock("$env/dynamic/public", () => ({
@@ -33,11 +39,8 @@ vi.mock("$lib/codeApi", async (importOriginal) => {
 	const original = await importOriginal<typeof import("$lib/codeApi")>();
 	return {
 		...original,
-		removeSavedApproval: async (_device: string, agent: string, id: string) => {
-			if (fake.failRemove) throw new Error(fake.failRemove);
-			fake.removed.push({ agent, id });
-			return { ok: true };
-		},
+		getPermissionRules: api.getPermissionRules,
+		removeSavedApproval: api.removeSavedApproval,
 	};
 });
 
@@ -60,17 +63,21 @@ const RESULT: PermissionRulesResult = {
 };
 
 function mount(
-	result: PermissionRulesResult | null = RESULT,
+	result: PermissionRulesResult | "404" | "stalled" = RESULT,
 	extra: {
 		policy?: Record<string, unknown>;
 		onreenroll?: () => void;
 		onchanged?: () => void;
+		agentId?: string;
 	} = {}
 ) {
+	if (result === "404") api.getPermissionRules.mockRejectedValue(new CodeApiError("gone", 404));
+	else if (result === "stalled") api.getPermissionRules.mockRejectedValue(new Error("timed out"));
+	else api.getPermissionRules.mockResolvedValue(result);
 	return renderWithApp(PermissionsDialog, {
 		deviceId: "d1",
-		agentId: "a1",
-		result,
+		agentId: extra.agentId ?? "a1",
+		sessionTitle: "Build it",
 		onclose: () => {},
 		...(extra as object),
 	});
@@ -90,25 +97,65 @@ beforeEach(async () => {
 	fake.removed = [];
 	fake.failRemove = null;
 	errorToast.set(undefined);
+	api.getPermissionRules.mockReset().mockResolvedValue(RESULT);
+	api.removeSavedApproval
+		.mockReset()
+		.mockImplementation(async (_device: string, agent: string, id: string) => {
+			if (fake.failRemove) throw new Error(fake.failRemove);
+			fake.removed.push({ agent, id });
+			return { ok: true };
+		});
 	await browserPage.viewport(1200, 800);
 });
 
 describe("Permissions dialog heading", () => {
-	it("names the dialog and carries the capability rows in plain words", async () => {
+	it("names the session and carries the capability rows in plain words", async () => {
 		const screen = mount();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		// edit: Cerea's ask block replaces opencode's deny; bash: the ceiling's ask; webfetch: the machine's deny.
-		await expect.element(screen.getByRole("heading", { name: "Permissions" })).toBeVisible();
+		await expect
+			.element(screen.getByRole("heading", { name: "Permissions — Build it" }))
+			.toBeVisible();
 		expect(rowText(screen, "edit")).toBe("Edit and write files Asks first");
 		expect(rowText(screen, "bash")).toBe("Run commands Asks first");
 		expect(rowText(screen, "web")).toBe("Fetch from the web Blocked");
 		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(3);
 	});
 
-	it("says the detail is unavailable without a reading (a machine that does not have the op)", async () => {
-		const screen = mount(null);
+	it("reads the rules for the session it was opened for, itself", async () => {
+		const screen = mount();
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		expect(api.getPermissionRules).toHaveBeenCalledWith("d1", "a1");
+	});
+
+	it("says it is reading while the machine has not answered", async () => {
+		let settle: (value: PermissionRulesResult) => void = () => {};
+		api.getPermissionRules.mockImplementation(
+			() => new Promise<PermissionRulesResult>((resolve) => (settle = resolve))
+		);
+		const screen = mount();
+		await expect.element(screen.getByTestId("permissions-loading")).toBeVisible();
+		settle(RESULT);
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+	});
+
+	it("says the machine's agent is too old when the read 404s (a machine without the op)", async () => {
+		const screen = mount("404");
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
 		await expect.element(screen.getByTestId("permissions-unavailable")).toBeVisible();
+		await expect
+			.element(screen.getByTestId("permissions-unavailable"))
+			.toHaveTextContent(/too old to report permissions/);
+	});
+
+	it("says the machine did not answer on any other failed read", async () => {
+		const screen = mount("stalled");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
+		await expect
+			.element(screen.getByTestId("permissions-unavailable"))
+			.toHaveTextContent(/has not answered yet/);
 	});
 
 	it("lists a single exception by itself", async () => {
@@ -117,6 +164,7 @@ describe("Permissions dialog heading", () => {
 			savedApprovals: [{ id: "ex_1", permission: "bash", patterns: ["ls"], removable: true }],
 			ceiling: {},
 		});
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(1);
 	});
 });
@@ -325,7 +373,7 @@ describe("the Exceptions list", () => {
 		await expect.element(screen.getByText(/Always allow \(this session\)/)).toBeVisible();
 	});
 
-	it("removes an exception by id, then asks the parent to re-read", async () => {
+	it("removes an exception by id, then re-reads the rules itself and tells the parent", async () => {
 		const onchanged = vi.fn();
 		const screen = mount(RESULT, { onchanged });
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
@@ -333,6 +381,8 @@ describe("the Exceptions list", () => {
 
 		await vi.waitFor(() => expect(fake.removed).toEqual([{ agent: "a1", id: "ex_1" }]));
 		await vi.waitFor(() => expect(onchanged).toHaveBeenCalledTimes(1));
+		// One read on open, one after the removal: the dialog's own re-read.
+		expect(api.getPermissionRules).toHaveBeenCalledTimes(2);
 	});
 
 	it("removes the second one by its own id", async () => {
@@ -352,6 +402,7 @@ describe("the Exceptions list", () => {
 		await vi.waitFor(() => expect(get(errorToast)).toBe("No such exception."));
 		expect(fake.removed).toEqual([]);
 		expect(onchanged).not.toHaveBeenCalled();
+		expect(api.getPermissionRules).toHaveBeenCalledTimes(1);
 		expect(screen.getByTestId("permission-exception-item").elements()).toHaveLength(3);
 	});
 });
@@ -437,17 +488,21 @@ describe("a machine that predates ceilings", () => {
 	it("clears when a re-enroll gives the machine a ceiling", async () => {
 		const screen = mount(ALLOW_ALL, { policy: LEGACY_POLICY });
 		await expect.element(screen.getByTestId("legacy-machine-flag")).toBeVisible();
+		// The machine re-enrolled: its next read carries the ceiling. The
+		// dialog re-reads whenever the session it is open for changes, so
+		// this is one reopen away.
+		api.getPermissionRules.mockResolvedValue({
+			rules: [
+				{ permission: "*", pattern: "*", action: "allow", source: "opencode" },
+				{ permission: "bash", pattern: "*", action: "ask", source: "ceiling" },
+			],
+			savedApprovals: [],
+			ceiling: { bash: "ask" },
+		});
 		await screen.rerender({
 			deviceId: "d1",
-			agentId: "a1",
-			result: {
-				rules: [
-					{ permission: "*", pattern: "*", action: "allow", source: "opencode" },
-					{ permission: "bash", pattern: "*", action: "ask", source: "ceiling" },
-				],
-				savedApprovals: [],
-				ceiling: { bash: "ask" },
-			},
+			agentId: "a2",
+			sessionTitle: "Build it",
 			policy: ENROLLED_POLICY,
 		});
 		await vi.waitFor(() =>

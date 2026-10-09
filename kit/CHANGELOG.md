@@ -7,6 +7,13 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Permissions belong to the session, visibly.** The sidebar's Permissions
+  item read as machine-wide but was the selected session's; it is gone.
+  A session's ⋯ menu now has **Permissions…** (not on subagents), and the
+  composer has a shield button beside the Deny · Ask · Allow selector that
+  carries the exceptions count. Both open the dialog for that session —
+  titled _Permissions — <session title>_ — which reads the session's rules
+  itself. Cerea only; no galopin update.
 - "Fork from here" is back on finished agent messages.
 - A long agent session opens behind a "Loading conversation…" skeleton and
   lands on its newest message instead of rendering itself from the top
