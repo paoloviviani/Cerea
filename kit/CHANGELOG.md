@@ -5,6 +5,23 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Built-in office skills.** The chat now ships twelve deployment-wide skills
+  the assistant loads when a request matches: Word, Excel, PDF, PDF tools,
+  PowerPoint, charts, data analysis, business writing and themes (plus the
+  existing csv/json shaping and report writing). They produce real files —
+  .docx, .xlsx, .pdf, .pptx, images — from the browser sandbox, with the
+  packages they need (reportlab, seaborn joining the already-vendored document
+  wheels, ~2 MB more in `static/pyodide/`) served same-origin. Skills are
+  visible to everyone on the Workspace → Skills tab; administrators can edit
+  or disable them there, and a shipped skill updates itself on upgrade unless
+  an administrator has edited it. `CHAT_SKILLS_DISABLED` (comma-separated
+  names) turns any of them off deployment-wide. Machines need no galopin
+  update. See docs/skills.md for what each skill does — and what it honestly
+  cannot (no formula recalculation, no rendered previews, RC4-only PDF
+  encryption).
+
 ## v0.8.0 — 2026-10-08
 
 Pins: Cerea `0.8.0`, Pystino `0.4.0`, Authelia 4.39.22.
