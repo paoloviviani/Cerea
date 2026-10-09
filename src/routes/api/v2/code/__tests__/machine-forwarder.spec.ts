@@ -835,6 +835,11 @@ describe("the SSE bridge over a live machine link", () => {
 		const first = await readOneFrame(reader);
 		expect(first.event).toBe("update");
 
+		// The replay ends with the bridge's own marker (Cerea-internal, like
+		// reset): everything after it is the live tail.
+		const marker = await readOneFrame(reader);
+		expect(JSON.parse(marker.data).type).toBe("historyDone");
+
 		// A live permission event, pushed after the snapshot — the tail.
 		machine.pushEvent(agent.id, {
 			kind: "permission.asked",
