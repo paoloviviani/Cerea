@@ -51,10 +51,16 @@ export interface AgentConsumeContext {
 	/** A `compaction` side-channel frame arrived. Same discipline as `onUsage`. */
 	onCompaction?: (update: AgentCompactionUpdate) => void;
 	/** A `childActivity` side-channel frame arrived: a subagent of this
-	 * transcript did something its card may want to show. Never touches
-	 * turn structure — the subagent card re-syncs the child's own
-	 * timeline on it, throttled. */
+	 * transcript did something its card may want to show. Never touches turn
+	 * structure — the subagent card re-syncs the child's own timeline on it,
+	 * throttled. */
 	onChildActivity?: (childId: string) => void;
+	/** The bridge's `historyDone` marker: the connection's history replay is
+	 * fully folded and the live tail starts here. The view uses it to swap
+	 * its loading state for the rendered transcript, landed at the bottom.
+	 * Fires with the buffer committed, so the last message is whole; fires
+	 * again on every SSE reconnect (the replay re-runs per connection). */
+	onHistoryDone?: () => void;
 }
 
 export async function consumeAgentUpdates(
@@ -375,6 +381,15 @@ export async function consumeAgentUpdates(
 			// output streams live.
 			case "childActivity": {
 				ctx.onChildActivity?.(update.childId);
+				break;
+			}
+			// The bridge's own marker (never from a machine): the history
+			// replay is done. Commit the buffer first so the caller reads a
+			// whole transcript — the last frame before it can be a stream
+			// token whose RAF flush has not run yet.
+			case "historyDone": {
+				flushBuffer();
+				ctx.onHistoryDone?.();
 				break;
 			}
 			case MessageUpdateType.Stream: {

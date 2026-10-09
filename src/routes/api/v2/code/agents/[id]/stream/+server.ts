@@ -354,6 +354,13 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 					if (closed) return;
 					emit(openId, await withFiles(update));
 				}
+				// The history is fully out: everything above was this
+				// connection's replay (the snapshot plus what buffered while it
+				// was in flight), everything below is the live tail. The client
+				// gates its first paint on this marker — a long transcript
+				// renders once, landed at the newest message, rather than
+				// progressively from the top (see `AgentHistoryDoneUpdate`).
+				emit(openId, { type: "historyDone" });
 				// Live tail: every subsequent envelope gets its own id. An
 				// epoch change here means the machine's process restarted —
 				// its session state (and every seq before this point) is

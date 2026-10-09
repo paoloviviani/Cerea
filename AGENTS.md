@@ -879,6 +879,15 @@ changing the code:
   the _same_ update channel `consumeAgentUpdates.ts` already parses, and the
   connection's listeners migrate across a machine reconnect
   (`machines.ts`'s `onHello`) rather than going silently stale.
+- **The bridge ends its history replay with a `historyDone` frame**
+  (snapshot + seam, before the live tail). It is Cerea-internal — no machine
+  ever sends it, PROTOCOL.md does not know it — and the agent view gates its
+  first paint on it (`ChatMessageColumn`'s `historyPending`): the transcript
+  folds behind a loading skeleton with the turns unmounted, then mounts once
+  and lands at the bottom before paint. Folding into the rendered list was
+  the real cost of opening a long session (1,000 messages: ~2 minutes to
+  first content, measured); the gate also makes the landing independent of
+  whatever the reader did while waiting, because a skeleton cannot scroll.
 - **Tool-output images are references, never bytes on the stream.** A tool
   part lists `attachments` (`sha256`, `mime`, `size`); `machineTimeline.ts`
   maps them to `{type:"image", url}` blocks pointing at the forwarder's

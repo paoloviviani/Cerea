@@ -157,6 +157,12 @@
 	let messages = $state<Message[]>([]);
 	let pending = $state(false);
 	let failure = $state<string | null>(null);
+	/** The machine's whole transcript is still replaying into `messages`
+	 * (a fresh subscription's history, or a rollback's re-replay): the
+	 * transcript area shows a loading state instead of the turns, and the
+	 * first paint of the real transcript lands at the bottom (see
+	 * `ChatMessageColumn`'s historyPending). */
+	let historyPending = $state(false);
 	/** The latest usage/compaction side-channel frames (M3) — the fold's
 	 * onUsage/onCompaction never touch `messages`, so these track separately. */
 	let usage = $state<AgentUsageUpdate["usage"] | null>(null);
@@ -514,6 +520,11 @@
 		pending = false;
 		usage = null;
 		lastCompaction = null;
+		// The replay this effect opens IS the history fetch: the transcript
+		// stays gated on it until the stream's historyDone marker (or its
+		// end), so a long session opens on the loading state rather than a
+		// half-built transcript rendered from the top.
+		historyPending = true;
 		const abort = new AbortController();
 		untrack(() => {
 			(async () => {
@@ -525,6 +536,7 @@
 						onUsage: (u) => (usage = keepReportedUsage(usage, u)),
 						onCompaction: (c) => (lastCompaction = c),
 						onChildActivity: (childId) => noteChildActivity(childId),
+						onHistoryDone: () => (historyPending = false),
 						onReset: () => {
 							usage = null;
 							lastCompaction = null;
@@ -534,6 +546,15 @@
 					if (!abort.signal.aborted) {
 						failure = err instanceof Error ? err.message : "The agent stream failed.";
 					}
+				} finally {
+					// A stream that ended on its own (the machine went away, the
+					// sign-in lapsed) must not leave the pane on a skeleton
+					// forever: show whatever folded, under the banner this view
+					// already draws. An ABORTED fold is the re-run path instead
+					// (rollback, device switch): its end lands as a microtask
+					// after the new run already raised the gate, and clearing
+					// here would open it while the new history is still folding.
+					if (!abort.signal.aborted) historyPending = false;
 				}
 			})();
 		});
@@ -1163,6 +1184,7 @@
 			{messages}
 			{loading}
 			{pending}
+			{historyPending}
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
 			conversationId={agentId}
@@ -1180,6 +1202,33 @@
 			{messageActionsWhen}
 			bind:this={column}
 		>
+			{#snippet historyLoading()}
+				<!-- The transcript's first snapshot is still folding (see
+				     `historyPending`): same shape as the introduction below,
+				     so the pane never reads blank or as an empty session. -->
+				<div
+					class="flex h-full flex-col items-center justify-center gap-2 pb-24 text-center"
+					data-testid="transcript-loading"
+				>
+					<IconRenew class="size-7 animate-spin text-ink-faint" aria-hidden="true" />
+					<p class="text-sm font-medium text-ink">Loading conversation…</p>
+					<!-- Two turns' worth of skeleton rows, the shape of what is
+					     about to land: a prompt, then its reply. -->
+					<div class="mt-4 flex w-full max-w-lg flex-col gap-4" aria-hidden="true">
+						<div
+							class="ml-auto h-2.5 w-1/3 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800"
+						></div>
+						<div class="flex flex-col gap-2">
+							<div
+								class="h-2.5 w-5/6 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800"
+							></div>
+							<div
+								class="h-2.5 w-2/3 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800"
+							></div>
+						</div>
+					</div>
+				</div>
+			{/snippet}
 			{#snippet introduction()}
 				<div class="flex h-full flex-col items-center justify-center gap-2 pb-24 text-center">
 					<IconCode class="size-10 text-ink-faint" />

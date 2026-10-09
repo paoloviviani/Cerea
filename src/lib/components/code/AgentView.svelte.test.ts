@@ -29,6 +29,9 @@ const fake = vi.hoisted(() => ({
 	snapshotReads: 0,
 	/** A background child counts as running until this many snapshot reads. */
 	childRunningUntilRead: 0,
+	/** End the mocked stream after the frames (no live tail, no marker):
+	 * the `reauth_required`/`end` path a real EventSource can take. */
+	endStream: false,
 }));
 
 // The composer's MCP stores read `$env/dynamic/public` at module scope and
@@ -46,6 +49,11 @@ vi.mock("$lib/codeAgentStream", () => ({
 			signal.addEventListener("abort", () => resolve());
 		});
 		for (const frame of fake.frames) yield frame as AgentStreamUpdate;
+		// The real bridge ends its history replay with this marker before
+		// tailing (see the stream endpoint); the view gates its first paint
+		// on it, so a test's frames are the history and need it too.
+		yield { type: "historyDone" };
+		if (fake.endStream) return;
 		await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
 	},
 }));
@@ -145,6 +153,7 @@ beforeEach(() => {
 	fake.ruleReads = 0;
 	fake.snapshotReads = 0;
 	fake.childRunningUntilRead = 0;
+	fake.endStream = false;
 	sidePane.reset();
 });
 
@@ -472,5 +481,39 @@ describe("AgentView fork action", () => {
 		]);
 		await expect.element(screen.getByText("Working...")).toBeVisible();
 		expect(forkButtons(screen)).toHaveLength(0);
+	});
+});
+
+describe("AgentView transcript loading", () => {
+	it("shows a loading state until the history lands, then the whole transcript", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		// The stream is held: nothing has arrived yet, and the pane must say
+		// so — not the empty-session introduction, and not a blank pane.
+		await expect.element(screen.getByTestId("transcript-loading")).toBeVisible();
+		await expect.element(screen.getByText("Loading conversation…")).toBeVisible();
+		await expect.element(screen.getByText("Ready when you are")).not.toBeInTheDocument();
+		// Folded while gated: no half-built transcript leaks either.
+		await arrive([
+			{ type: "user", text: "the first prompt" },
+			{ type: "stream", token: "an answer" },
+			{ type: "turnState", state: "done", serverNow: 0 },
+			{ type: "historyDone" },
+		]);
+		await expect.element(screen.getByTestId("transcript-loading")).not.toBeInTheDocument();
+		await expect.element(screen.getByText("the first prompt")).toBeVisible();
+		await expect.element(screen.getByText("an answer")).toBeVisible();
+	});
+
+	it("clears the loading state when the stream ends without the marker", async () => {
+		await browserPage.viewport(1200, 800);
+		fake.endStream = true;
+		const screen = mount();
+		await expect.element(screen.getByTestId("transcript-loading")).toBeVisible();
+		// The connection ended (a 7-day sign-in lapse closes it): whatever
+		// folded is shown, never a skeleton left forever.
+		await arrive([{ type: "user", text: "partial" }]);
+		await expect.element(screen.getByTestId("transcript-loading")).not.toBeInTheDocument();
+		await expect.element(screen.getByText("partial")).toBeVisible();
 	});
 });

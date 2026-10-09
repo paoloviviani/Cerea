@@ -8,6 +8,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - "Fork from here" is back on finished agent messages.
+- A long agent session opens behind a "Loading conversation…" skeleton and
+  lands on its newest message instead of rendering itself from the top
+  (measured: ~120 s to first content for 1,000 messages before, ~12 s
+  after; ~287 s → ~53 s on a throttled phone).
 
 ## v0.9.4 — 2026-10-09
 
@@ -19,6 +23,16 @@ galopin update** (spawned sessions inherit exceptions).
   re-asked for things the person had already allowed (external directories
   above all). The spawner's exceptions are copied to the child as they are,
   still capped by the machine's ceiling; later changes do not propagate.
+=======
+- Long agent sessions show a loading state and open at the newest message:
+  the `/code` transcript used to fold the machine's whole log while
+  progressively rendering it from the top — on a long session (1,000+
+  messages) that read as a frozen, empty pane that finally landed wherever
+  the reader had been left. The first snapshot now folds behind a
+  "Loading conversation…" skeleton and the transcript renders once, at the
+  bottom; scrolling while it loads does nothing, so the landing is never
+  yanked. No machine change; Cerea only.
+>>>>>>> feat/transcript-loading
 - `docker compose pull` no longer fails on a kit with restic backups: the
   `backup` service now carries `pull_policy: never`, since
   `cerea-backup:1` is built on the machine and published nowhere. An
