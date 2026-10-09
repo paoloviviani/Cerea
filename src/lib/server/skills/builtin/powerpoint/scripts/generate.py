@@ -246,6 +246,8 @@ def _pick_layout(slide: dict, prs: Presentation, result: dict, first: bool):
 	blocks = len(slide["columns"]) or (1 if (slide["bullets"] or slide["paragraphs"] or slide["table"] or slide["quote"] or slide["timeline"]) else 0)
 	if not blocks:
 		return layouts[LAYOUT_MAP["title_cover" if first else "title_centered"]]
+	# A slide with a title needs a layout that has one — an auto-picked
+	# layout without a title placeholder would silently drop the title.
 	best = None
 	for index, layout in enumerate(layouts):
 		count = sum(
@@ -253,7 +255,8 @@ def _pick_layout(slide: dict, prs: Presentation, result: dict, first: bool):
 			for ph in layout.placeholders
 			if ph.placeholder_format.type == 2 and ph.placeholder_format.idx not in (0, 12)
 		)
-		if count >= blocks and (best is None or count < best[0]):
+		has_title = any(ph.placeholder_format.idx == 0 for ph in layout.placeholders)
+		if count >= blocks and (slide["title"] == "" or has_title) and (best is None or count < best[0]):
 			best = (count, index)
 	if best is not None:
 		return layouts[best[1]]
@@ -346,8 +349,20 @@ def generate(outline_path: str, out_path: str, template_path: str | None = None)
 		with open(source, "wb") as fh:
 			fh.write(template_bytes())
 	prs = Presentation(source)
+	# A template ships layouts, not slides — but files in the wild (the
+	# bundled one included) carry a demo or branding slide. The deck starts
+	# from the outline alone, with the template's branding layout first when
+	# it defines one ("always Slide 1", as the bundled template's config
+	# puts it) — the same rule the upstream engine follows.
+	xml = prs.slides._sldIdLst
+	for element in list(xml):
+		xml.remove(element)
+	branding = next((layout for layout in prs.slide_master.slide_layouts if layout.name == "master-base"), None)
+	if branding is not None:
+		prs.slides.add_slide(branding)
 	result: dict = {"out_path": out_path, "slides": len(slides), "warnings": [], "picture_slots": []}
 	for index, slide in enumerate(slides):
 		_fill_slide(slide, prs, result, first=(index == 0))
+	prs.save(out_path)
 	result["picture_slots"] = list(dict.fromkeys(result["picture_slots"]))
 	return result

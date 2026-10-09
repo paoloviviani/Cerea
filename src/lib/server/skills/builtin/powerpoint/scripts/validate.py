@@ -64,27 +64,30 @@ def validate(path: str, template_path: str | None = None) -> dict:
 		title_filled = False
 		body_filled = 0
 		pictures_empty = 0
+		decorated = False  # non-placeholder shapes: branding, tables, logos
 		for shape in slide.shapes:
 			text = _frame_text(shape) if shape.has_text_frame else ""
-			if shape.is_placeholder:
-				kind = shape.placeholder_format.type
-				idx = shape.placeholder_format.idx
-				if kind == 13 or idx == 12:  # slide number
-					continue
-				if kind == 1:  # title
-					if text.strip():
-						title_filled = True
-					continue
-				if kind == 2:  # body
-					if text.strip():
-						body_filled += 1
-					continue
-				if kind == 18:  # picture
-					try:
-						_ = shape.image
-					except (ValueError, AttributeError):
-						pictures_empty += 1
-					continue
+			if not shape.is_placeholder:
+				decorated = True
+				continue
+			kind = shape.placeholder_format.type
+			idx = shape.placeholder_format.idx
+			if kind == 13 or idx == 12:  # slide number
+				continue
+			if kind == 1:  # title
+				if text.strip():
+					title_filled = True
+				continue
+			if kind == 2:  # body
+				if text.strip():
+					body_filled += 1
+				continue
+			if kind == 18:  # picture
+				try:
+					_ = shape.image
+				except (ValueError, AttributeError):
+					pictures_empty += 1
+				continue
 			if text.strip():
 				ratio = _estimate_overflow(shape)
 				if ratio is not None and ratio > 1.05:
@@ -98,9 +101,18 @@ def validate(path: str, template_path: str | None = None) -> dict:
 					errors.append(f"slide {s}: `{shape.name}` sits partly off the slide")
 			except TypeError:
 				pass
-		if not title_filled and body_filled == 0:
+		# A design slide (branding, divider) carries its look in the layout,
+		# so the slide itself is legitimately empty; "empty" is only an
+		# error on a layout that offers content placeholders.
+		content_layout = any(
+			shape.is_placeholder
+			and shape.placeholder_format.type in (1, 2)
+			and shape.placeholder_format.idx not in (12,)
+			for shape in slide.shapes
+		)
+		if not title_filled and body_filled == 0 and not decorated and content_layout:
 			errors.append(f"slide {s}: no title and no filled body — an empty slide")
-		elif not title_filled:
+		elif not title_filled and content_layout:
 			warnings.append(f"slide {s}: the title placeholder is empty")
 		if pictures_empty:
 			info.append(
