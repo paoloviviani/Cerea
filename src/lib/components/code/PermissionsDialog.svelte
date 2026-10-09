@@ -1,32 +1,36 @@
 <!--
-	The Permissions line: what this session will do about each kind of tool
-	call, in plain words, read from the machine. The collapsed line says it in
-	a breath ("Edits ask · commands ask · web ask"); opening it gives one row
-	per capability (edit files, run commands, fetch from the web, ...) with the
-	FINAL answer: Allowed, Asks first or Blocked. opencode's rules are
+	The Permissions dialog: what this session will do about each kind of tool
+	call, in plain words, read from the machine. One row per capability
+	(edit files, run commands, fetch from the web, ...) with the FINAL
+	answer: Allowed, Asks first or Blocked. opencode's rules are
 	last-match-wins and the same permission repeats in the raw list with
 	contradictory answers, so the rows work the answer out (`capabilityRows`)
 	instead of listing them. A row the machine's limits hold below what the
 	session's setting would give says so.
 
-	It is read-only. The one setting is the composer's Deny / Ask / Allow
-	selector; the one write here is Remove on an exception, which can only
-	tighten (that command asks again). What it shows is always the machine's
-	last word: the rules and the exceptions arrive from the parent view's
-	`permission.rules` read (`result`) and are re-read after every change. The
-	ceiling, the machine's own rules and its policy have no control here at all.
+	Opened from the Permissions item in the agents sidebar (CodeNavTree), so
+	the transcript and its approval cards stay in view while the person
+	reads it. It is read-only. The one setting is the composer's Deny / Ask
+	/ Allow selector; the one write here is Remove on an exception, which
+	can only tighten (that command asks again). What it shows is always the
+	machine's last word: the rules and the exceptions arrive from the
+	`permission.rules` read (`result`) and are re-read after every change.
+	The ceiling, the machine's own rules and its policy have no control here
+	at all.
 
 	An exception is what the card's "Always allow" leaves behind: one command
 	or pattern allowed for this session, on top of the selector. Switching to
 	Deny blocks it without deleting it; switching back to Ask restores it.
 
 	The raw rule list, in evaluation order, is kept behind a small disclosure
-	for troubleshooting. There a rule from the person's own opencode config that
-	Cerea or the machine replace is struck through and labelled, rather than
-	listed as if it were in force. A machine whose galopin predates the op
-	answers 404, and the line simply is not drawn.
+	for troubleshooting. There a rule from the person's own opencode config
+	that Cerea or the machine replace is struck through and labelled, rather
+	than listed as if it were in force. A machine whose galopin predates the
+	op answers 404, and the sidebar item that opens this dialog is simply
+	not drawn.
 -->
 <script lang="ts">
+	import Modal from "$lib/components/Modal.svelte";
 	import { removeSavedApproval } from "$lib/codeApi";
 	import type { PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
@@ -35,14 +39,12 @@
 		annotateRules,
 		capabilityRows,
 		isLegacyMachine,
-		overriddenLabel,
-		permissionSummary,
 		sourceLabel,
+		overriddenLabel,
 		type RuleAction,
 	} from "$lib/utils/permissionRules";
 	import { error as errorToast } from "$lib/stores/errors";
 	import IconShield from "~icons/lucide/shield";
-	import IconChevron from "~icons/carbon/chevron-down";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -50,25 +52,24 @@
 		deviceId: string;
 		agentId: string;
 		/** The machine's `permission.rules` answer for this session, read by
-		 * the parent; null until it lands and on a machine that predates it. */
+		 * the tree; null until it lands and on a machine that predates it. */
 		result: PermissionRulesResult | null;
-		/** Called after an exception is removed: the parent re-reads. */
+		/** Called after an exception is removed: the tree re-reads. */
 		onchanged?: () => void;
 		/** The machine's `hello` policy, to tell a machine that predates
 		 * ceilings from one that has none to report yet. */
 		policy?: Policy;
 		/** Opens the enroll flow, for a machine flagged as legacy. */
 		onreenroll?: () => void;
+		onclose: () => void;
 	}
 
-	let { deviceId, agentId, result, onchanged, policy, onreenroll }: Props = $props();
+	let { deviceId, agentId, result, onchanged, policy, onreenroll, onclose }: Props = $props();
 
-	let open = $state(false);
 	let removing = $state<string | null>(null);
 
 	let rules = $derived(annotateRules(result?.rules ?? []));
 	let rows = $derived(result ? capabilityRows(result) : []);
-	let summary = $derived(permissionSummary(rows));
 	let exceptions = $derived(result?.savedApprovals ?? []);
 
 	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
@@ -76,7 +77,7 @@
 	let legacy = $derived(isLegacyMachine(policy, result));
 	$effect(() => {
 		// Remembered per machine, so its row in the tree carries the flag after
-		// this screen is closed. Cleared again if a re-enroll makes it go away.
+		// this dialog is closed. Cleared again if a re-enroll makes it go away.
 		if (result) codeLegacyMachines[deviceId] = legacy;
 	});
 
@@ -100,55 +101,42 @@
 	}
 </script>
 
-<!-- While the sign-in is stale the whole line goes, with its Remove: the
-     server refuses every call anyway, and what it held was machine-derived. -->
-{#if result && !codeReauth.required}
-	<div class="pointer-events-auto flex flex-col gap-1 pl-6 text-xs" data-testid="permissions-line">
-		<button
-			type="button"
-			class="flex min-w-0 flex-wrap items-center gap-1.5 text-left text-ink-muted hover:text-ink"
-			aria-expanded={open}
-			aria-controls="permissions-detail-{agentId}"
-			title="What this session will do about its tool calls, and the exceptions you have allowed."
-			onclick={() => (open = !open)}
-		>
-			<IconShield class="size-3.5 shrink-0" />
-			<span class="font-medium">Permissions</span>
-			<span data-testid="permission-summary">{summary}</span>
-			{#if exceptions.length > 0}
-				<span class="{s.PILL} {s.PILL_TONES.neutral}" data-testid="permission-exceptions-count">
-					{exceptions.length}
-					{exceptions.length === 1 ? "exception" : "exceptions"}
-				</span>
-			{/if}
-			<IconChevron class="size-3.5 shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
-		</button>
-
-		{#if legacy}
-			<div
-				class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
-				data-testid="legacy-machine-flag"
-			>
-				<span class="min-w-0 flex-1">
-					<span class="font-medium">Re-enroll this machine to set limits.</span> Its policy predates ceilings,
-					so nothing caps Allow: on Allow, edits, commands and fetches run without asking, subagents too.
-				</span>
-				{#if onreenroll}
-					<button
-						type="button"
-						class="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-transparent dark:text-amber-200"
-						onclick={onreenroll}>Re-enroll this machine</button
-					>
-				{/if}
+<Modal width="max-w-xl" closeButton labelledBy="permissions-dialog-title" {onclose}>
+	<div class="p-4 sm:p-6">
+		<div class="mb-6 flex items-center gap-3">
+			<div class="{s.STRIP_TILE} shrink-0">
+				<IconShield class="size-5 text-blue-600" />
 			</div>
-		{/if}
+			<div class="min-w-0 pr-8">
+				<h2 id="permissions-dialog-title" class={s.TITLE}>Permissions</h2>
+				<p class="{s.SUBTITLE} break-words">
+					What this session will do about its tool calls, and the exceptions you have allowed.
+				</p>
+			</div>
+		</div>
 
-		{#if open}
-			<div
-				id="permissions-detail-{agentId}"
-				class="scrollbar-custom flex max-h-[40vh] flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-surface p-3"
-				data-testid="permissions-detail"
-			>
+		{#if result && !codeReauth.required}
+			<div class="flex flex-col gap-2 text-sm" data-testid="permissions-detail">
+				{#if legacy}
+					<div
+						class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+						data-testid="legacy-machine-flag"
+					>
+						<span class="min-w-0 flex-1">
+							<span class="font-medium">Re-enroll this machine to set limits.</span> Its policy predates
+							ceilings, so nothing caps Allow: on Allow, edits, commands and fetches run without asking,
+							subagents too.
+						</span>
+						{#if onreenroll}
+							<button
+								type="button"
+								class="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-transparent dark:text-amber-200"
+								onclick={onreenroll}>Re-enroll this machine</button
+							>
+						{/if}
+					</div>
+				{/if}
+
 				<ul class="flex flex-col gap-1" data-testid="permission-rows">
 					{#each rows as row (row.id)}
 						<li
@@ -265,6 +253,13 @@
 					{/if}
 				</details>
 			</div>
+		{:else if !result}
+			<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
+				The machine has not answered yet. Close and open this again in a moment.
+			</p>
 		{/if}
+		<!-- While the sign-in is stale the detail goes, with the fallback:
+		     the server refuses every call anyway, and what it held was
+		     machine-derived. -->
 	</div>
-{/if}
+</Modal>

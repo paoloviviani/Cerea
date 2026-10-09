@@ -97,7 +97,6 @@
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
-	import PermissionsLine from "./PermissionsLine.svelte";
 	import CodeFiles from "./CodeFiles.svelte";
 	import CodeTerminals from "./CodeTerminals.svelte";
 	import CodeTasks from "./CodeTasks.svelte";
@@ -1121,16 +1120,9 @@
 				</span>
 			</span>
 		{/if}
-		{#if agent && !skipMachineFetches}
-			<PermissionsLine
-				{deviceId}
-				{agentId}
-				result={permissionRules}
-				onchanged={() => (permissionsKey += 1)}
-				policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
-				onreenroll={() => (showReenroll = true)}
-			/>
-		{/if}
+		<!-- The Permissions line lived here; it is a sidebar item now
+		     (CodeNavTree's "Permissions", opening the detail in a dialog),
+		     so the transcript keeps this height. -->
 	</div>
 
 	{#if deviceOffline}
