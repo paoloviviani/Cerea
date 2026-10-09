@@ -73,6 +73,9 @@ print(reader.pages[0].extract_text()[:500])
 
 ## Rules
 
+- The PDF is the deliverable: the file must exist when you finish — run
+  the code yourself or write one complete runnable block; a script the
+  person still has to run is not the file.
 - `pdfplumber`, `pdftoppm`/Poppler, LibreOffice, and image-based rendering do
   not exist here and no install makes them appear — use pypdf for reads and
   reportlab for writes.

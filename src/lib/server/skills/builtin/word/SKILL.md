@@ -19,6 +19,10 @@ import docx  # python-docx
 
 ## Reading a document
 
+- A document the person attached is at `/mnt/data/<its filename>` in the
+  sandbox; one produced earlier in the conversation is in the working
+  directory.
+
 - Load it with `docx.Document(path)` and inspect before changing: read the
   paragraph styles, the tables' shape, and the section setup (page size,
   margins, orientation). Report briefly what you found so the person can
@@ -68,6 +72,9 @@ reading it back, not by looking at a picture:
 
 ## Rules
 
+- The document is the deliverable: the file must exist when you finish —
+  run the code yourself or write one complete runnable block; a script the
+  person still has to run is not the file.
 - Edit the file the person attached in place (read it, modify, save under a
   new name unless asked to overwrite) — never rebuild an edited document from
   scratch unless they asked for a redesign.

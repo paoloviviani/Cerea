@@ -59,6 +59,10 @@ Formula requirements:
 
 ## Editing an existing workbook
 
+- A workbook the person attached is at `/mnt/data/<its filename>` in the
+  sandbox; one produced earlier in the conversation is in the working
+  directory.
+
 - Inspect first: sheet names, used range, existing formulas, number formats.
   Report briefly what you found.
 - Preserve existing formatting and style exactly; match styles for any newly
@@ -117,6 +121,9 @@ exact visual layout).
 
 ## Rules
 
+- The workbook is the deliverable: the file must exist when you finish —
+  run the code yourself or write one complete runnable block; a script the
+  person still has to run is not the file.
 - The app's Python cannot recalculate formulas and there is no spreadsheet
   renderer — say so once if it matters, then deliver the workbook.
 - Files are written to the working directory by a code block under a clear

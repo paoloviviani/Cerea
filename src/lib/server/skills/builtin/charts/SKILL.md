@@ -124,6 +124,9 @@ sns.lineplot(
 
 ## Rules
 
+- Data the person attached (CSV, JSON) is readable at `/mnt/data/<its
+filename>`; figures you save go to the working directory.
+
 - The sandbox has matplotlib, seaborn, numpy and pandas; no Plotly, no
   interactive backends, no LaTeX/PGF, no network for fonts or data.
 - Do not claim a DPI value or palette makes a figure "journal-compliant";

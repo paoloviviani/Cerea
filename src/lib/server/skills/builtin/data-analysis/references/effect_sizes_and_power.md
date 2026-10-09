@@ -21,19 +21,23 @@ This document provides guidance on calculating, interpreting, and reporting effe
 #### Cohen's d (Standardized Mean Difference)
 
 **Formula**:
+
 - Independent groups: d = (M₁ - M₂) / SD_pooled
 - Paired groups: specify the standardizer. d_z = M_diff / SD_diff; d_av = M_diff / sqrt((SD_pre² + SD_post²)/2). These are different effects.
 
 **Interpretation** (Cohen, 1988):
+
 - Small: |d| = 0.20
 - Medium: |d| = 0.50
 - Large: |d| = 0.80
 
 **Context-dependent interpretation**:
+
 - Justify a smallest scientifically meaningful effect from the outcome, intervention and context; no discipline-wide threshold is universally meaningful.
 - In medicine: Small effect sizes can be clinically important
 
 **Python calculation**:
+
 ```python
 import pingouin as pg
 import numpy as np
@@ -56,6 +60,7 @@ d_z = pg.compute_effsize(pre, post, paired=True, eftype='cohen_dz')
 ```
 
 **Confidence intervals for independent pooled d** (approximate parametric interval; supply analyzed, non-missing sample sizes; do not reuse this formula for d_av or assume unequal-variance validity):
+
 ```python
 import pingouin as pg
 
@@ -75,12 +80,14 @@ ci = pg.compute_esci(stat=d, nx=len(group1), ny=len(group2),
 **Formula**: g = d × correction_factor, where correction_factor = 1 - 3/(4df - 1)
 
 **Python calculation**:
+
 ```python
 # pg.ttest output has no Hedges' g column; compute it directly
 hedges_g = pg.compute_effsize(group1, group2, eftype='hedges')
 ```
 
 **Use Hedges' g when**:
+
 - Sample sizes are small (n < 20 per group)
 - Conducting meta-analyses (standard in meta-analysis)
 
@@ -93,6 +100,7 @@ hedges_g = pg.compute_effsize(group1, group2, eftype='hedges')
 **Formula**: Δ = (M₁ - M₂) / SD_control
 
 **Use cases**:
+
 - Clinical trials (use control group SD)
 - When treatment affects variability
 
@@ -107,6 +115,7 @@ hedges_g = pg.compute_effsize(group1, group2, eftype='hedges')
 **Formula**: η² = SS_effect / SS_total
 
 **Interpretation**:
+
 - Small: η² = 0.01 (1% of variance)
 - Medium: η² = 0.06 (6% of variance)
 - Large: η² = 0.14 (14% of variance)
@@ -114,6 +123,7 @@ hedges_g = pg.compute_effsize(group1, group2, eftype='hedges')
 **Limitation**: In multi-factor designs each effect's η² shrinks as other factors are added (orthogonal decompositions give additive shares; Type II/III sums in unbalanced designs need not add to total SS); it is partial η² that can sum to > 1.0 across factors
 
 **Python calculation**:
+
 ```python
 import pingouin as pg
 
@@ -141,6 +151,7 @@ partial_eta_sq = aov['np2'][0]
 **Limitation**: Across factors, partial η² values can sum to > 1.0 — they are not additive shares of total variance
 
 **Python calculation**:
+
 ```python
 aov = pg.anova(dv='value', between=['factor1', 'factor2'], data=df)
 # pingouin reports partial eta-squared by default
@@ -160,6 +171,7 @@ partial_eta_sq = aov['np2']
 **Interpretation**: Same benchmarks as η², but typically smaller values
 
 **Python calculation** (one-way table with effect row first and residual row last; the estimator can be negative, so state any truncation convention):
+
 ```python
 def omega_squared(aov_table):
     ss_effect = aov_table.loc[0, 'SS']
@@ -180,11 +192,13 @@ def omega_squared(aov_table):
 **Formula**: f = √(η² / (1 - η²))
 
 **Interpretation**:
+
 - Small: f = 0.10
 - Medium: f = 0.25
 - Large: f = 0.40
 
 **Python calculation**:
+
 ```python
 eta_squared = 0.06  # From ANOVA
 cohens_f = np.sqrt(eta_squared / (1 - eta_squared))
@@ -199,16 +213,19 @@ cohens_f = np.sqrt(eta_squared / (1 - eta_squared))
 #### Pearson's r / Spearman's ρ
 
 **Interpretation**:
+
 - Small: |r| = 0.10
 - Medium: |r| = 0.30
 - Large: |r| = 0.50
 
 **Important notes**:
+
 - For Pearson correlation in simple OLS with an intercept, r² equals R². Spearman ρ² concerns ranks and is not raw-outcome variance explained.
 - Pearson r = 0.30 gives r² = 0.09; association is not causal explanation.
 - Consider direction (positive/negative) and context
 
 **Python calculation**:
+
 ```python
 import pingouin as pg
 
@@ -231,14 +248,17 @@ rho = result['r'].values[0]
 **What it measures**: Proportion of variance in Y explained by model
 
 **Interpretation**:
+
 - Small: R² = 0.02
 - Medium: R² = 0.13
 - Large: R² = 0.26
 
 **Context-dependent**:
+
 - Interpret R² relative to outcome variability, measurement error and purpose; no field-wide cutoff establishes fit or predictive performance. Evaluate predictions on held-out data when prediction is the goal.
 
 **Python calculation**:
+
 ```python
 import statsmodels.api as sm
 
@@ -270,6 +290,7 @@ r_squared = 1 - (SS_residual / SS_total)
 **Interpretation**: Conditional on all included predictors and their coding; β has no universal small/medium/large thresholds and is not Cohen's d.
 
 **Python calculation**:
+
 ```python
 import statsmodels.api as sm
 
@@ -290,15 +311,18 @@ beta = model.params
 **Formula**: f² = (R²_AB - R²_A) / (1 - R²_AB)
 
 Where:
+
 - R²_AB = R² for full model with predictor
 - R²_A = R² for reduced model without predictor
 
 **Interpretation**:
+
 - Small: f² = 0.02
 - Medium: f² = 0.15
 - Large: f² = 0.35
 
 **Python calculation**:
+
 ```python
 # Compare two nested models
 import statsmodels.api as sm
@@ -326,15 +350,16 @@ Where k = min(rows, columns)
 
 **Interpretation** (benchmarks depend on df* = min(rows, columns) − 1):
 
-| df* | Small | Medium | Large |
-|-----|-------|--------|-------|
-| 1 (2×2) | 0.10 | 0.30 | 0.50 |
-| 2 | 0.07 | 0.21 | 0.35 |
-| 3 | 0.06 | 0.17 | 0.29 |
+| df*     | Small | Medium | Large |
+| ------- | ----- | ------ | ----- |
+| 1 (2×2) | 0.10  | 0.30   | 0.50  |
+| 2       | 0.07  | 0.21   | 0.35  |
+| 3       | 0.06  | 0.17   | 0.29  |
 
 **For 2×2 tables**: Use phi coefficient (φ)
 
 **Python calculation**:
+
 ```python
 import numpy as np
 from scipy.stats.contingency import association
@@ -355,13 +380,14 @@ phi = (a * d - b * c) / np.sqrt((a + b) * (c + d) * (a + c) * (b + d))  # signed
 **For 2×2 contingency tables**:
 
 |           | Outcome + | Outcome - |
-|-----------|-----------|-----------|
+| --------- | --------- | --------- |
 | Exposed   | a         | b         |
 | Unexposed | c         | d         |
 
 **Odds Ratio**: OR = (a/b) / (c/d) = ad / bc
 
 **Interpretation**:
+
 - OR = 1: No association
 - OR > 1: Positive association (increased odds)
 - OR < 1: Negative association (decreased odds)
@@ -371,11 +397,13 @@ phi = (a * d - b * c) / np.sqrt((a + b) * (c + d) * (a + c) * (b + d))  # signed
 **Risk Ratio**: RR = (a/(a+b)) / (c/(c+d))
 
 **When to use**:
+
 - Cohort studies: Use RR (more interpretable)
 - Case-control studies: Use OR (RR not available)
 - Logistic regression: OR is natural output
 
 **Python calculation**:
+
 ```python
 import numpy as np
 from scipy import stats
@@ -412,6 +440,7 @@ ci = np.exp(model.conf_int())  # Exponentiate CIs
 **Epsilon-squared (ε²)**: Effect size for Kruskal-Wallis: ε² = H × (n + 1) / (n² − 1).
 
 **Python calculation**:
+
 ```python
 import numpy as np
 import pandas as pd
@@ -438,6 +467,7 @@ epsilon_sq = H * (n + 1) / (n**2 - 1)
 **What it measures**: Ratio of evidence for alternative vs. null hypothesis
 
 **Interpretation**:
+
 - BF₁₀ = 1: Equal evidence for H₁ and H₀
 - BF₁₀ = 3: the data have 3× greater marginal likelihood under H₁ than H₀ (moderate evidence)
 - BF₁₀ = 10: the data have 10× greater marginal likelihood under H₁ than H₀ (strong evidence)
@@ -448,6 +478,7 @@ epsilon_sq = H * (n + 1) / (n**2 - 1)
 Posterior odds = Bayes factor × prior odds; BF alone is not posterior model probability. For the full Jeffreys interpretation table and BF reporting language, see `bayesian_statistics.md`.
 
 **Python calculation**:
+
 ```python
 import pingouin as pg
 
@@ -488,10 +519,12 @@ Resample the sampling unit: correlations and paired effects require `paired=True
 **Statistical power**: Probability of rejecting a specified null under a specified alternative effect, variance and design (1 - β).
 
 **Conventional standards**:
+
 - Power = 0.80 (80% chance of detecting effect)
 - α = 0.05 (5% Type I error rate)
 
 **Four interconnected parameters** (given 3, can solve for 4th):
+
 1. Sample size (n)
 2. Effect size (d, f, etc.)
 3. Significance level (α)
@@ -504,12 +537,14 @@ Resample the sampling unit: correlations and paired effects require `paired=True
 **Purpose**: Determine required sample size before study
 
 **Steps**:
+
 1. Specify expected effect size (from literature, pilot data, or minimum meaningful effect)
 2. Set α level (typically 0.05)
 3. Set desired power (typically 0.80)
 4. Calculate required n
 
 **Python implementation**:
+
 ```python
 from statsmodels.stats.power import (
     tt_ind_solve_power,
@@ -553,17 +588,20 @@ n_required = power_corr(r=0.30, power=0.80, alpha=0.05)
 **⚠️ CAUTION**: Post hoc power is controversial and often not recommended
 
 **Why it's problematic**:
+
 - Observed power is a direct function of p-value
 - If p > 0.05, power is always low
 - Provides no additional information beyond p-value
 - Can be misleading
 
 **When it might be acceptable**:
+
 - Study planning for future research
 - Using effect size from multiple studies (not just your own)
 - Explicit goal is sample size for replication
 
 **Better alternatives**:
+
 - Report confidence intervals for effect sizes
 - Conduct sensitivity analysis
 - Report minimum detectable effect size
@@ -577,6 +615,7 @@ n_required = power_corr(r=0.30, power=0.80, alpha=0.05)
 **When to use**: After study is complete, to understand study's capability
 
 **Python implementation**:
+
 ```python
 # What effect size could we detect with n=50 per group?
 detectable_effect = tt_ind_solve_power(
@@ -600,15 +639,19 @@ Numerical prose templates below are illustrative, not computed study results; us
 ### APA Style Guidelines
 
 **T-test example**:
+
 > "Group A (M = 75.2, SD = 8.5) scored significantly higher than Group B (M = 68.3, SD = 9.2), t(98) = 3.82, p < .001, d = 0.77, 95% CI [0.36, 1.18]."
 
 **ANOVA example**:
+
 > "There was a significant main effect of treatment condition on test scores, F(2, 87) = 8.45, p < .001, η²p = .16. Post hoc comparisons using Tukey's HSD revealed..."
 
 **Correlation example**:
+
 > "There was a moderate positive correlation between study time and exam scores, r(148) = .42, p < .001, 95% CI [.27, .55]."
 
 **Regression example**:
+
 > "The regression model significantly predicted exam scores, F(3, 146) = 45.2, p < .001, R² = .48. Study hours (β = .52, p < .001) and prior GPA (β = .31, p < .001) were significant predictors."
 
 **Bayesian example**: See `bayesian_statistics.md` (Reporting Bayesian Results) for Bayes Factor and posterior reporting templates.
@@ -629,19 +672,19 @@ Numerical prose templates below are illustrative, not computed study results; us
 
 ## Quick Reference Table
 
-| Analysis | Effect Size | Small | Medium | Large |
-|----------|-------------|-------|--------|-------|
-| T-test | Cohen's d | 0.20 | 0.50 | 0.80 |
-| ANOVA | η², ω² | 0.01 | 0.06 | 0.14 |
-| ANOVA | Cohen's f | 0.10 | 0.25 | 0.40 |
-| Correlation | r, ρ | 0.10 | 0.30 | 0.50 |
-| Regression | R² | 0.02 | 0.13 | 0.26 |
-| Regression | f² | 0.02 | 0.15 | 0.35 |
-| Chi-square (df* = 1, 2×2) | Cramér's V, φ | 0.10 | 0.30 | 0.50 |
-| Chi-square (df* = 2) | Cramér's V | 0.07 | 0.21 | 0.35 |
-| Chi-square (df* = 3) | Cramér's V | 0.06 | 0.17 | 0.29 |
+| Analysis                  | Effect Size   | Small | Medium | Large |
+| ------------------------- | ------------- | ----- | ------ | ----- |
+| T-test                    | Cohen's d     | 0.20  | 0.50   | 0.80  |
+| ANOVA                     | η², ω²        | 0.01  | 0.06   | 0.14  |
+| ANOVA                     | Cohen's f     | 0.10  | 0.25   | 0.40  |
+| Correlation               | r, ρ          | 0.10  | 0.30   | 0.50  |
+| Regression                | R²            | 0.02  | 0.13   | 0.26  |
+| Regression                | f²            | 0.02  | 0.15   | 0.35  |
+| Chi-square (df* = 1, 2×2) | Cramér's V, φ | 0.10  | 0.30   | 0.50  |
+| Chi-square (df* = 2)      | Cramér's V    | 0.07  | 0.21   | 0.35  |
+| Chi-square (df* = 3)      | Cramér's V    | 0.06  | 0.17   | 0.29  |
 
-*Note*: df* = min(rows, columns) − 1.
+_Note_: df* = min(rows, columns) − 1.
 
 ---
 
@@ -651,6 +694,6 @@ Reviewed 2026-10-01: [Pingouin effect sizes](https://pingouin-stats.org/generate
 
 ## Resources
 
-- Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences* (2nd ed.)
+- Cohen, J. (1988). _Statistical Power Analysis for the Behavioral Sciences_ (2nd ed.)
 - Lakens, D. (2013). Calculating and reporting effect sizes
-- Ellis, P. D. (2010). *The Essential Guide to Effect Sizes*
+- Ellis, P. D. (2010). _The Essential Guide to Effect Sizes_

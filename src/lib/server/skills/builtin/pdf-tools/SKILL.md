@@ -58,6 +58,10 @@ a fill request doesn't match them exactly — do not guess field names.
 
 ## Rules
 
+- An attached PDF is readable in the sandbox at `/mnt/data/<its filename>` —
+  pass that path to the toolkit; outputs you write go to the working
+  directory and come back as downloads.
+
 - `pdfplumber`, `pdftoppm`/Poppler, LibreOffice and image rendering do not
   exist here and no install makes them appear — pypdf is the tool for all of
   the above.
