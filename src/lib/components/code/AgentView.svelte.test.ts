@@ -199,17 +199,14 @@ describe("AgentView Tasks pane", () => {
 	});
 });
 
-describe("AgentView Permissions line", () => {
-	it("shows what opencode will do about the session's tools, beside the strip", async () => {
+describe("AgentView Permissions strip", () => {
+	it("no longer holds the permissions line: the strip has no permission rows at all", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
-		await expect.element(screen.getByTestId("permissions-line")).toBeVisible();
-		await expect
-			.element(screen.getByTestId("permission-summary"))
-			.toHaveTextContent("Edits ask · commands blocked · web allowed");
-		await expect
-			.element(screen.getByTestId("permission-exceptions-count"))
-			.toHaveTextContent("1 exception");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(screen.getByTestId("permissions-line").elements()).toHaveLength(0);
+		expect(screen.getByTestId("permission-summary").elements()).toHaveLength(0);
+		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
 	});
 });
 
