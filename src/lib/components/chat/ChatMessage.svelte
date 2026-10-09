@@ -25,6 +25,7 @@
 	import { requireAuthUser } from "$lib/utils/auth";
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
+	import TurnFailedBanner from "./TurnFailedBanner.svelte";
 	import { turnStateOf } from "$lib/utils/generationState";
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
@@ -409,6 +410,14 @@
 		if (!isLast) return undefined;
 		const state = turnStateOf(message);
 		return state?.state === "waiting" && state.until !== undefined ? state : undefined;
+	});
+
+	// Why a failed turn died, shown on the turn itself. The machine's error
+	// event frames the provider's own text (PROTOCOL.md §7); an empty reason
+	// (an older galopin) renders nothing, which is today's look.
+	let failedReason = $derived.by(() => {
+		const state = turnStateOf(message);
+		return state?.state === "failed" && state.reason ? state.reason : undefined;
 	});
 
 	let blocks = $derived.by(() => {
@@ -963,6 +972,8 @@
 					messageId={message.id}
 					canWake={isAuthor && !readOnly}
 				/>
+			{:else if failedReason}
+				<TurnFailedBanner reason={failedReason} />
 			{/if}
 		</div>
 
