@@ -226,6 +226,16 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
 - **The image build script for the kit is `kit/dev/build.sh`** (docs inside
   `kit/` call it `dev/build.sh`). With `BUILD_LOCK` set it takes that lock
   itself: never wrap it in a `flock` on the same file.
+- **The timeout wraps the command, not the lock:** `flock /tmp/heavy.lock
+timeout -s KILL 900 <cmd>`, never `timeout -s KILL 900 flock …`. In the
+  wrong order the lock WAIT counts against the limit, and a busy box kills a
+  job that never started — reported as a failure that has nothing to do with
+  the code.
+- **opencode unpacks libraries into TMPDIR on every start, and /tmp is tmpfs
+  (RAM) on this box.** When an integration test or an agent starts an
+  opencode, point TMPDIR at disk (e.g. a per-run directory under `/var/tmp`,
+  removed afterwards) and stop the process when done — a leaked `opencode
+serve` holds hundreds of MB of RSS and the extraction lands in RAM.
 - **galopin's delegation skill is code** (`agent/internal/backend/opencode/skill.go`):
   it describes the agent tools and the `[Scheduled run …]` header that
   `src/lib/server/schedules/runHeader.ts` writes. Change it with them.

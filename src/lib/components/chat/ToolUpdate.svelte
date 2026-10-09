@@ -26,6 +26,21 @@
 
 	let isOpen = $state(false);
 
+	// The card's input display. The fold normally keeps the Call's own
+	// parameters current (a later Call with the real arguments replaces the
+	// empty `pending` one), but a transcript that reached the card through a
+	// path without that fold — a replay seam, an older client — can still
+	// hold the empty Call beside a Result that names them. Where so, the
+	// Result's parameters stand in: the input the call actually ran with.
+	const callUpdate = $derived(tool.find(isMessageToolCallUpdate));
+	const resultCall = $derived(tool.find(isMessageToolResultUpdate)?.result.call);
+	const inputParameters = $derived.by(() => {
+		const own = callUpdate?.call.parameters as Record<string, unknown> | undefined;
+		if (own && Object.keys(own).length > 0) return own;
+		const fromResult = resultCall?.parameters as Record<string, unknown> | undefined;
+		return fromResult && Object.keys(fromResult).length > 0 ? fromResult : own;
+	});
+
 	// Between-session tools of a coding-agent transcript (`session_spawn`,
 	// `session_send`, `session_read`) read as what they did, with a link to the other session.
 	// Only where an agent view provides the lookup; a refused call keeps the
@@ -38,7 +53,7 @@
 		const error = tool.find(isMessageToolErrorUpdate);
 		const read = coordinationCall(
 			call?.call.name,
-			call?.call.parameters as Record<string, unknown> | undefined,
+			inputParameters,
 			error
 				? { text: undefined, failed: true }
 				: result
@@ -391,7 +406,7 @@
 							</div>
 							<pre
 								class="rounded-lg bg-gray-100 p-2 font-mono text-xs break-all whitespace-pre-wrap dark:bg-gray-800/70">{formatValue(
-									update.call.parameters
+									inputParameters
 								)}</pre>
 						</div>
 					{:else if update.subtype === MessageToolUpdateType.Error}
