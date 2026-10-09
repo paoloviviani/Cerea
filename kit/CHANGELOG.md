@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- "Fork from here" is back on finished agent messages.
 - `docker compose pull` no longer fails on a kit with restic backups: the
   `backup` service now carries `pull_policy: never`, since
   `cerea-backup:1` is built on the machine and published nowhere. An

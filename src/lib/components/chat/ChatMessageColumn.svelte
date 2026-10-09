@@ -61,6 +61,8 @@
 		fileBaseUrl?: string;
 		/** Extra per-message actions in the assistant footer, threaded to ChatMessage (see it). */
 		messageActions?: Snippet<[Message]>;
+		/** The visibility rule for those actions, threaded to ChatMessage (see it). */
+		messageActionsWhen?: (message: Message) => boolean;
 		/** Elicitation/question channel id, threaded to ChatMessage (see it). */
 		conversationId?: string;
 		/** Absolutely positioned chrome inside the column (header buttons, toasts). */
@@ -91,6 +93,7 @@
 		subagentCard,
 		fileBaseUrl,
 		messageActions,
+		messageActionsWhen,
 		conversationId,
 		overlay,
 		head,
@@ -245,6 +248,7 @@
 									{subagentCard}
 									{fileBaseUrl}
 									{messageActions}
+									{messageActionsWhen}
 									{conversationId}
 									onretry={onretry
 										? (payload) => {
