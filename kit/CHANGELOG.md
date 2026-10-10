@@ -38,30 +38,10 @@ galopin update** (spawned sessions inherit exceptions).
   re-asked for things the person had already allowed (external directories
   above all). The spawner's exceptions are copied to the child as they are,
   still capped by the machine's ceiling; later changes do not propagate.
-=======
-- Long agent sessions show a loading state and open at the newest message:
-  the `/code` transcript used to fold the machine's whole log while
-  progressively rendering it from the top — on a long session (1,000+
-  messages) that read as a frozen, empty pane that finally landed wherever
-  the reader had been left. The first snapshot now folds behind a
-  "Loading conversation…" skeleton and the transcript renders once, at the
-  bottom; scrolling while it loads does nothing, so the landing is never
-  yanked. No machine change; Cerea only.
->>>>>>> feat/transcript-loading
 - `docker compose pull` no longer fails on a kit with restic backups: the
   `backup` service now carries `pull_policy: never`, since
   `cerea-backup:1` is built on the machine and published nowhere. An
   override copied from an older kit needs the two words added by hand.
-- **Spawned sessions inherit the spawner's "always" answers.** A spawned
-  session used to start without the spawner's permission exceptions and
-  re-asked for things the person had already allowed (external directories
-  above all). The spawner's exceptions are copied to the child as they are,
-  still capped by the machine's ceiling; later changes do not propagate.
-- `docker compose pull` no longer fails on a kit with restic backups: the
-  `backup` service now carries `pull_policy: never`, since
-  `cerea-backup:1` is built on the machine and published nowhere. An
-  override copied from an older kit needs the two words added by hand.
-
 ## v0.9.3 — 2026-10-09
 
 Pins: Cerea `0.9.3`, Pystino `0.4.0`, Authelia 4.39.22.
