@@ -144,8 +144,8 @@ veto that only `enroll` can loosen:
   short, and `galopin policy set --no-safe-dir PATH` may only remove from
   it. The ceiling key `external_directory` still caps every one of them.
   What **is** the machine's is the **ceiling**
-  (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
-  `session_spawn=ask`; the coordination keys `session_read` and
+  (`enroll --permission-max KEY=ACTION`, default `bash=ask`
+  alone; the coordination keys `session_spawn`, `session_read` and
   `session_send` are ceiling keys too, and so is `schedule`, all uncapped by
   default): the most any key
   may ever be, whatever a session's word or exceptions say. The old auto-accept toggle and
@@ -160,10 +160,11 @@ veto that only `enroll` can loosen:
   **granted** it (`session.grantCoordination {sessionId, keys}`, only those four
   keys; `[]` clears), or — for a spawn or a send, never a read — the session's
   own word is **Allow** and the ceiling leaves the tool alone (like `schedule`
-  create; the default ceiling caps `session_spawn` at `ask`, so a fresh
-  machine's spawns still ask until the owner raises it). A spawned session
-  inherits its spawner's word and grant, never more (`permission: "ask"` pins
-  it stricter); Cerea's scheduled runs orchestrate other sessions
+  create; the default ceiling leaves `session_spawn` uncapped, so on a fresh
+  machine an Allow session spawns with no card). A spawned session
+  inherits its spawner's exceptions and grant, and its word only as Allow (an
+  Allow spawner starts an Allow child, any other starts on Ask), never more;
+  Cerea's scheduled runs orchestrate other sessions
   with nobody to answer a card this way. A grant persists with the session, and is never
   more than the ceiling, another workspace, the hop limit or the rate limits
   allow. An older galopin has no such op and answers `unsupported`; Cerea runs

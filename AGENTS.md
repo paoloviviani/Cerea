@@ -49,7 +49,7 @@ Two things about running the suites in a container:
 
 - **`npm run test` is not the whole suite.** It is
   `vitest --project=server --project=ssr`, so the **`client`** project — about
-  80 files and 790 tests in October 2026, every Svelte component test — does
+  85 files in October 2026, every Svelte component test — does
   not run. It needs a real
   Chromium through Playwright, and the image's browsers must match the
   _installed_ Playwright rather than the caret range in `package.json`
@@ -106,9 +106,12 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
   component test that measures layout: run the whole `client` project, not one
   file.
 - **A new test must fail without the fix.** After writing a regression test, put
-  the fix aside (`git stash push <the fixed file>`), run the test, and see it
-  fail; then `git stash pop`. A test that passes either way proves nothing, and
-  this has caught tests that stubbed the wrong layer.
+  the fix aside (copy the fixed file somewhere outside the tree, then restore
+  the old version: `git restore --source=HEAD -- <the fixed file>` while the
+  fix is uncommitted, `--source=<the base commit>` once it is; do not use
+  `git stash`, whose stack is shared by every worktree of the clone), run the
+  test, and see it fail; then copy the fixed file back. A test that passes either way proves
+  nothing, and this has caught tests that stubbed the wrong layer.
 - **A failure is "pre-existing" only once it fails on main too.** Before
   dismissing a failure, rebuild main without your change and run the same test
   there. Same assertion failing on both: pre-existing, say so. Only on your
@@ -188,7 +191,8 @@ released only when all of these pass, in this order:
 1. The release commit: version bumped in `package.json`, the kit pinned
    (`kit/tools/pin --cerea X.Y.Z --pystino P.Q.R`, then `--check`, and the kit's
    unit tests), and the entry written in `kit/CHANGELOG.md`.
-2. CI green on that commit (`ci` and `kit`).
+2. CI green on that commit (`ci` and `kit`). When `agent/` changed, also the
+   `opencode` workflow: `release.sh` does not wait for it.
 3. Tag (annotated `vX.Y.Z`), then the `images` workflow green, which publishes
    `ghcr.io/paoloviviani/cerea:X.Y.Z`.
 4. The image pulls **with no registry login** (`DOCKER_CONFIG` pointing at an
@@ -350,9 +354,10 @@ router where the nested one is all there is.
 Two consequences worth knowing:
 
 - **a model's row can legitimately declare nothing.** `benchmark-live` was
-  created by `scripts/benchmark_live.py` through `/api/admin/models` with the
-  three fields omitted, so it advertised nothing while its upstream declares
-  `tools` and `json_mode`. The script sets them now. An operator sets them for
+  created by a live-benchmark script (`benchmark_live.py`, not in this
+  repository) through `/api/admin/models` with the three fields omitted, so it
+  advertised nothing while its upstream declares `tools` and `json_mode`. The
+  script sets them now. An operator sets them for
   any model through the console's `CapabilityPicker`;
 - **the switches are not gated on advertised support.** The advertised value is
   the default and the switch overrides it — the same judgement the gateway
@@ -882,14 +887,31 @@ changing the code:
   connection's listeners migrate across a machine reconnect
   (`machines.ts`'s `onHello`) rather than going silently stale.
 - **The bridge ends its history replay with a `historyDone` frame**
-  (snapshot + seam, before the live tail). It is Cerea-internal — no machine
-  ever sends it, PROTOCOL.md does not know it — and the agent view gates its
+  (snapshot + seam, before the live tail), and, just before it, a
+  `historyMeta` frame when the snapshot was paged (below). Both are
+  Cerea-internal — no machine ever sends them, PROTOCOL.md does not know them —
+  and the agent view gates its
   first paint on it (`ChatMessageColumn`'s `historyPending`): the transcript
   folds behind a loading skeleton with the turns unmounted, then mounts once
   and lands at the bottom before paint. Folding into the rendered list was
   the real cost of opening a long session (1,000 messages: ~2 minutes to
   first content, measured); the gate also makes the landing independent of
   whatever the reader did while waiting, because a skeleton cannot scroll.
+- **A long session arrives as its newest page, and older pages load on
+  scroll.** When the machine advertises `historyPaging`, the bridge asks
+  `session.sync` for only the newest 40 messages (`SNAPSHOT_PAGE_LIMIT` in
+  `agents/[id]/stream/+server.ts`) and sends `{type:"historyMeta", hasMore,
+before?}` ahead of `historyDone`; without the capability (an older galopin,
+  or an ACP backend) the snapshot is whole and no frame is sent, so nothing
+  pages. `AgentView.svelte` keeps `historyHasMore`/`historyBefore` from it and,
+  when the reader scrolls within about a screen of the top, fetches
+  `GET v1/agents/:id/history?before=&limit=` (the forwarder's `session.history`
+  route, pages of 40, converted by the same per-message code as the snapshot)
+  and prepends the page through the column's anchored prepend, so the visible
+  message does not move. One fetch at a time; one started before a rebuild
+  (rollback, new epoch) is discarded. The head of the list says "Loading
+  earlier messages…", "Couldn't load earlier messages. Retry" or "Start of the
+  session".
 - **Recent sessions reopen from an in-memory cache, then refresh.**
   `stores/agentTranscriptCache.ts` keeps the last 8 sessions (newest 400
   messages each, plain snapshots, memory only, never localStorage) saved on
@@ -900,6 +922,13 @@ changing the code:
   swap the copy is display-only: no paging, retry/edit or fork, and a
   permission card refuses to answer. A rollback/undo, a new epoch, deleting
   or archiving the session, and sign-out invalidate it.
+- **A provider retry is shown, not hidden.** opencode's `retry` status
+  (PROTOCOL.md §7: `retry {attempt, message, next?}`, also `Transcript.retry`
+  in a snapshot) becomes a running turn carrying `retry` (`machineTimeline.ts`
+  `statusToTurnState`), and `RetryNotice.svelte` renders "Retrying — <provider
+  message> (attempt N, next try in S s)" under the transcript while the turn
+  runs, so a rate limit does not read as a hang. A galopin without the field
+  shows a plain running turn.
 - **Tool-output images are references, never bytes on the stream.** A tool
   part lists `attachments` (`sha256`, `mime`, `size`); `machineTimeline.ts`
   maps them to `{type:"image", url}` blocks pointing at the forwarder's
@@ -980,7 +1009,9 @@ caller's own, paired. Things that bite:
 - the permission word is set **before** the prompt, and for "always this session"
   it is set on that session and stays; the machine's ceiling caps it as everywhere;
 - **coordination is a grant, not a rule.** `session_list`/`session_read`/
-  `session_send`/`session_spawn` are never granted by Allow, and no op writes a
+  `session_send`/`session_spawn` are what a grant names (a session on Allow
+  also spawns and sends without one when the ceiling and the machine's rules
+  leave the tool alone, but never reads), and no op writes a
   rule (`session.setRules` is retired). The two options (`canMessage`: list,
   read, send; `canSpawn`: spawn; both off by default, `utils/coordination.ts`
   maps them) become one `session.grantCoordination` after the session exists

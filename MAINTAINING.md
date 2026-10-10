@@ -163,10 +163,14 @@ release. Version: patch for fixes, minor for features.
      machines need the galopin update;
    - commit "Release vX.Y.Z", push.
 2. Run `scripts/release/release.sh X.Y.Z`. It checks the release commit,
-   waits for CI, tags, builds the image, checks it pulls without a login, runs
+   waits for `ci` and `kit` (only those two), tags, builds the image, checks it pulls without a login, runs
    the fresh-kit test (`scripts/release/fresh-kit-check.sh`), moves `stable`
    and creates the GitHub release. It stops at the first failure and says
    which step. A release is done only when it prints `released vX.Y.Z`.
+   It does **not** wait for the `opencode` workflow, which runs galopin against
+   real opencode: when `agent/` changed, watch that run yourself
+   (`gh run list --workflow opencode.yml`) before or while releasing, and do not
+   announce the release as proven until it is green.
 3. Tell the owner: the version, what changed in a few lines, the upgrade
    commands, and whether machines need the galopin update.
 
@@ -240,17 +244,33 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   it describes the agent tools and the `[Scheduled run …]` header that
   `src/lib/server/schedules/runHeader.ts` writes. Change it with them.
 
-## 7. Open items (as of v0.7.0, 2026-10-08)
+## 7. Open items (as of v0.10.1, 2026-10-10)
 
-- Six e2e tests fail on one development machine but pass in CI:
-  `code-device-revoke` (2), `code-machine-p0`, `code-machine-parity` (line
-  693), `code-tree-reactivity` (line 95) and `code-machine-terminal` (the
-  typed command never echoes). They fail the same way on builds from before
-  the latest changes, so they are about that machine, not the code; still
-  unexplained. Start by running one alone against a fresh build. When running
-  e2e against an external MongoDB, set both `E2E_MONGO_URL` and
-  `E2E_MONGO_PORT`, or the test database launcher exits at once ("Process
-  from config.webServer exited early").
+- **Known failures on the build box only.** Six e2e tests fail on the
+  development machine and pass in CI: `code-device-revoke` (2),
+  `code-machine-p0`, `code-machine-parity` (line 699: the subagent approvals,
+  root on Allow), `code-machine-terminal` (the typed command never echoes) and
+  `code-tree-reactivity` (line 95). They fail the same way on builds from
+  before the latest changes, so they are about that machine, not the code;
+  still unexplained. Start by running one alone against a fresh build. When
+  running e2e against an external MongoDB, set both `E2E_MONGO_URL` and
+  `E2E_MONGO_PORT`, or the test database launcher exits at once ("Process from
+  config.webServer exited early").
+- **Failing on v0.10.0 and v0.10.1, not yet fixed** (so "pre-existing" by the
+  rule in `AGENTS.md`, but real):
+  - server test `src/lib/server/textGeneration/__tests__/replayRoundTrip.spec.ts`,
+    "model switching > still replays tool calls and results across a model
+    switch". It went unseen because the whole server suite is not in CI.
+  - e2e `tests/conversation-streaming.spec.ts:145`, "a second viewer of a live
+    generation…": the second tab is redirected to `/login?next=/code`.
+- **CI's `check` job flakes** on `mongodb-memory-server` (a 60 s timeout, or a
+  SIGSEGV). A rerun passes.
+- **galopin's hello omits two capabilities** it defines: `agentTools` and
+  `steer` are on the backend's `Capabilities` but `buildHello` (`agent/run.go`)
+  does not send them, so Cerea reads both as false and the composer never offers
+  Send beside Stop on a running turn (`PROTOCOL.md` §5 states the gap). A fix is
+  a bug fix (add both keys to the map, and a test that the hello carries every
+  capability the backend reports), plus a galopin release.
 - Offered to the owner, not decided: a drag-to-resize sidebar; running each
   scheduled run in its own git worktree (galopin already has
   `workspace.create {worktree}` and `workspace.archive {removeWorktree}`).
@@ -258,6 +278,8 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   framework is kind-agnostic (`src/lib/server/schedules/executors.ts`); the
   open question is which gateway credential a chat run uses when nobody is
   signed in.
+- Specified, not built: `PROTOCOL.md` §9's file search, watching and writing
+  (section 6 above).
 - Pystino's own open items are listed at the end of its `AGENTS.md`.
 
 ## 8. How the owner likes to work
