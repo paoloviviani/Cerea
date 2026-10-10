@@ -276,10 +276,16 @@ export interface ThinkingState {
 	held: Map<string, string>;
 	/** The part whose `<think>` block is open on the client, if any. */
 	openPart: string | null;
+	/** The last todo list this stream sent, per session (content, status,
+	 * priority): opencode re-publishes `todo.updated` with an unchanged list,
+	 * and a repeat must not make a new card. Per stream, never per server:
+	 * every connection maps the same events, and a shared memory would let
+	 * the first viewer's stream swallow the change for every other viewer. */
+	todos?: Map<string, string>;
 }
 
 export function newThinkingState(): ThinkingState {
-	return { kinds: new Map(), held: new Map(), openPart: null };
+	return { kinds: new Map(), held: new Map(), openPart: null, todos: new Map() };
 }
 
 const streamToken = (token: string, partId?: string): AgentStreamUpdate => ({
@@ -543,22 +549,22 @@ export function questionResolvedToUpdate(event: {
 	};
 }
 
-/** The last todo list sent per session (content, status, priority): opencode
- * re-publishes `todo.updated` with an unchanged list, and a repeat must not
- * make a new card. Bounded like `planVersions`. */
-const lastTodos = new Map<string, string>();
 function todoKey(todos: Todo[]): string {
 	return JSON.stringify(todos.map((t) => [t.content, t.status, t.priority ?? ""]));
 }
-function rememberTodos(sessionId: string, todos: Todo[]): boolean {
+/** Records `todos` as the last list this stream sent for the session and
+ * says whether it repeats the previous one. Without a stream's state there
+ * is nothing to compare against: every list is new. */
+function rememberTodos(
+	state: ThinkingState | undefined,
+	sessionId: string,
+	todos: Todo[]
+): boolean {
+	if (!state) return false;
+	state.todos ??= new Map();
 	const key = todoKey(todos);
-	const same = lastTodos.get(sessionId) === key;
-	lastTodos.delete(sessionId);
-	lastTodos.set(sessionId, key);
-	if (lastTodos.size > PLAN_VERSIONS_KEPT) {
-		const oldest = lastTodos.keys().next().value;
-		if (oldest !== undefined) lastTodos.delete(oldest);
-	}
+	const same = state.todos.get(sessionId) === key;
+	state.todos.set(sessionId, key);
 	return same;
 }
 
@@ -726,12 +732,14 @@ export function eventToUpdates(
 			resolveClientMessageId,
 			resolveCommand,
 			imageUrl,
-			sessionId
+			sessionId,
+			thinking
 		)
 	);
 }
 
-/** The watched session's own event → frames, before thinking is routed. */
+/** The watched session's own event → frames, before thinking is routed.
+ * `stream` is the connection's own state (here: the last todo list sent). */
 function liveFrames(
 	event: NormalizedEvent,
 	lastAssistantError: string | undefined,
@@ -739,7 +747,8 @@ function liveFrames(
 	resolveCommand:
 		((messageId: string) => { name: string; arguments: string } | undefined) | undefined,
 	imageUrl: ToolImageUrl | undefined,
-	sessionId: string | undefined
+	sessionId: string | undefined,
+	stream: ThinkingState
 ): AgentStreamUpdate[] {
 	switch (event.kind) {
 		case "message": {
@@ -781,7 +790,7 @@ function liveFrames(
 			return [turnStateUpdate("failed", errorEventReason(event.message, event.code))];
 		case "todo":
 			// An unchanged list is not an update: no new card, no new version.
-			return rememberTodos(sessionId ?? "", event.todos)
+			return rememberTodos(stream, sessionId ?? "", event.todos)
 				? []
 				: [todoToUpdate(event.todos, sessionId)];
 		case "question.asked":
@@ -972,7 +981,7 @@ export function snapshotToUpdates(
 	const todos = transcript.todos ?? [];
 	let planAfter: { messageId: string; updates: AgentStreamUpdate[] } | undefined;
 	if (todos.length) {
-		rememberTodos(sessionId ?? "", todos);
+		rememberTodos(thinking, sessionId ?? "", todos);
 		const last = [...(transcript.messages ?? [])]
 			.reverse()
 			.find(({ parts }) => (parts ?? []).some((p) => p.type === "tool" && p.tool === "todowrite"));
