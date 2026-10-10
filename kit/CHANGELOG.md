@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.2 — 2026-10-10
+
+Pins: Cerea `0.10.2`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
+galopin update** for steering: re-run the install line from the pairing
+dialog, then `systemctl --user restart galopin`.
 
 - **Sending while a turn runs (steer) works again: galopin never advertised
   it.** `buildHello` omitted `steer` and `agentTools` from the capabilities
@@ -13,6 +17,16 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   beside Stop on a running turn. It sends every capability the backend
   reports now, checked by a test that walks the capability struct. Needs the
   galopin update.
+- **Pystino 0.4.1:** the Identity page's "Create an account on first
+  sign-in" hint describes the state the box is in — On said what Off does,
+  and pointed to a rule the ticked box hides. Cerea only.
+- The user and developer guides are aligned with what shipped: the shield
+  button, the named build caches as safe directories, session paging, the
+  in-memory session cache, the mountain, the plan card, fork and the retry
+  notice, the delegation skill's long-waits rule, and a Skills link in the
+  index; the developer docs now match the code at the capability list, the
+  policy examples, the spawn inheritance and the default ceiling, and the
+  known-failures list is current.
 
 ## v0.10.1 — 2026-10-10
 
