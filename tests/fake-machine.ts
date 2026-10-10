@@ -717,17 +717,39 @@ export class FakeMachine {
 			case "permissions.pending":
 				return { permissions: [], questions: [] };
 			case "session.sync": {
-				const { sessionId } = args as { sessionId: string; epoch?: string; afterSeq?: number };
+				const { sessionId, limit } = args as {
+					sessionId: string;
+					epoch?: string;
+					afterSeq?: number;
+					limit?: number;
+				};
+				const whole = model.transcripts.get(sessionId) ?? {
+					messages: [],
+					permissions: [],
+					status: "idle",
+					usage: null,
+					todos: [],
+				};
+				// A `limit` trims to the newest page like a paging galopin
+				// does (the agent's own contract, tested against real
+				// opencode): tests that want to page pass a backend with
+				// historyPaging and get hasMore/before back.
+				let snapshot = whole;
+				if (typeof limit === "number" && limit > 0 && whole.messages.length > limit) {
+					const kept = whole.messages.slice(-limit);
+					snapshot = {
+						...whole,
+						messages: kept,
+						hasMore: true,
+						before: kept[0].message.id,
+					};
+				} else if (typeof limit === "number" && limit > 0) {
+					snapshot = { ...whole, hasMore: false };
+				}
 				const result: SyncResult = {
 					epoch: model.epoch,
 					seq: model.seq.get(sessionId) ?? 0,
-					snapshot: model.transcripts.get(sessionId) ?? {
-						messages: [],
-						permissions: [],
-						status: "idle",
-						usage: null,
-						todos: [],
-					},
+					snapshot,
 				};
 				return result;
 			}

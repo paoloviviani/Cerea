@@ -341,6 +341,28 @@ export class ChatScroll {
 		this.controller?.jumpToBottom();
 	}
 
+	/**
+	 * Turns were prepended above the viewport (the agent panel paging an
+	 * older history page in): the anchored turn's reservation follows the
+	 * same turn to its new position — a position that would one flush later
+	 * point at a different turn's content.
+	 */
+	notifyPrepended(addedTurns: number) {
+		if (this.anchoredTurnIndex !== null) this.anchoredTurnIndex += addedTurns;
+	}
+
+	/**
+	 * Keep the viewport on the same content after a prepend above it: go to
+	 * an absolute position the caller computed (the pre-mutation top plus
+	 * the height the prepend added), through the controller so its
+	 * attribution baselines adopt the move like any other programmatic one.
+	 * Absolute, never relative: native scroll anchoring may already have
+	 * moved the position, and this same target is correct either way.
+	 */
+	keepScrollAt(top: number) {
+		this.controller?.scrollTo(top);
+	}
+
 	// --- buttons ----------------------------------------------------------------------
 
 	scrollToBottom() {

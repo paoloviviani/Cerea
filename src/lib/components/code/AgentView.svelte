@@ -59,6 +59,7 @@
 		CodeApiError,
 		cancelAgent,
 		listAgents,
+		fetchAgentHistory,
 		fetchSubagentTimeline,
 		getAgent,
 		getPermissionRules,
@@ -163,6 +164,18 @@
 	 * first paint of the real transcript lands at the bottom (see
 	 * `ChatMessageColumn`'s historyPending). */
 	let historyPending = $state(false);
+	/** Paging the older transcript (§6 `session.history`): whether older
+	 * pages exist behind what is loaded, from the bridge's `historyMeta`
+	 * frame. Null while unknown — an older galopin never sends the frame,
+	 * and nothing pages there. */
+	let historyHasMore = $state<boolean | null>(null);
+	/** One older page in flight; errors keep their own row with a retry. */
+	let historyFetching = $state(false);
+	let historyError = $state<string | null>(null);
+	/** Bumped every time the transcript is rebuilt from scratch (a new
+	 * address, a rollback, a machine restart): an in-flight page fetch from
+	 * the old transcript is discarded instead of prepended into the new. */
+	let pagingEpoch = 0;
 	/** The latest usage/compaction side-channel frames (M3) — the fold's
 	 * onUsage/onCompaction never touch `messages`, so these track separately. */
 	let usage = $state<AgentUsageUpdate["usage"] | null>(null);
@@ -525,6 +538,13 @@
 		// end), so a long session opens on the loading state rather than a
 		// half-built transcript rendered from the top.
 		historyPending = true;
+		// A rebuilt transcript starts with unknown paging: older pages
+		// loaded before the reset are gone with the messages, and their
+		// in-flight fetches must not land in the new one.
+		historyHasMore = null;
+		historyFetching = false;
+		historyError = null;
+		pagingEpoch += 1;
 		const abort = new AbortController();
 		untrack(() => {
 			(async () => {
@@ -537,9 +557,19 @@
 						onCompaction: (c) => (lastCompaction = c),
 						onChildActivity: (childId) => noteChildActivity(childId),
 						onHistoryDone: () => (historyPending = false),
+						onHistoryMeta: (meta) => {
+							historyHasMore = meta.hasMore;
+						},
 						onReset: () => {
 							usage = null;
 							lastCompaction = null;
+							// The transcript was discarded and rebuilds from
+							// the new epoch alone: whatever paging knew is
+							// gone with it.
+							historyHasMore = null;
+							historyFetching = false;
+							historyError = null;
+							pagingEpoch += 1;
 						},
 					});
 				} catch (err) {
@@ -562,6 +592,63 @@
 	});
 
 	let streamNonce = $state(0);
+
+	// ── Paging the older transcript (§6 `session.history`) ──────────
+	//
+	// The newest page arrived with the stream's snapshot; when the reader
+	// scrolls within about one screen of the top and older pages exist, the
+	// previous page is fetched, folded on its own, and PREPENDED — the
+	// visible message stays where it was (the column's anchored prepend),
+	// and the live tail's own fold keeps appending to the same array. One
+	// fetch at a time; a fetch that started before a rebuild (rollback, a
+	// new epoch) is discarded when it lands.
+	const HISTORY_PAGE_LIMIT = 40;
+
+	async function requestPreviousPage() {
+		if (historyPending || historyHasMore !== true || historyFetching || messages.length === 0)
+			return;
+		const before = messages[0].machineMessageId;
+		if (!before) return;
+		const epoch = pagingEpoch;
+		historyFetching = true;
+		historyError = null;
+		try {
+			const page = await fetchAgentHistory(deviceId, agentId, before, HISTORY_PAGE_LIMIT);
+			if (epoch !== pagingEpoch) return;
+			if (page.updates.length > 0) {
+				const folded: Message[] = [];
+				const abort = new AbortController();
+				await consumeAgentUpdates(
+					(async function* () {
+						yield* page.updates;
+					})(),
+					folded,
+					{
+						isAborted: () => false,
+						onAbort: () => abort.abort(),
+						onTurnEvent: () => {},
+					}
+				);
+				if (epoch !== pagingEpoch) return;
+				// A page that re-answered what the transcript already holds
+				// (an old cursor, a retried fetch) must not double it: the
+				// machine's own ids decide, and they survive every fold.
+				const known = new Set(
+					messages.flatMap((m) => (m.machineMessageId ? [m.machineMessageId] : []))
+				);
+				const fresh = folded.filter((m) => !m.machineMessageId || !known.has(m.machineMessageId));
+				// In place, never a reassignment: the live tail's fold holds
+				// this same array and keeps appending where it was.
+				if (fresh.length > 0) column?.prependWithAnchor(() => messages.unshift(...fresh));
+			}
+			historyHasMore = page.hasMore;
+		} catch (err) {
+			if (epoch !== pagingEpoch) return;
+			historyError = err instanceof Error ? err.message : "Could not load earlier messages.";
+		} finally {
+			if (epoch === pagingEpoch) historyFetching = false;
+		}
+	}
 
 	// ── Retry and rollback (capability `revert`) ────────────────────
 	// Retry on an answer rolls back to the prompt that produced it and sends
@@ -1190,6 +1277,7 @@
 			conversationId={agentId}
 			fileBaseUrl={attachmentsUrl}
 			onanswerElicitation={answerPermission}
+			onScrollNearTop={requestPreviousPage}
 			onretry={revertSupported &&
 			!loading &&
 			shownState !== "running" &&
@@ -1202,6 +1290,32 @@
 			{messageActionsWhen}
 			bind:this={column}
 		>
+			{#snippet head()}
+				<!-- The older-transcript rows: nothing until the machine said
+				     (historyMeta) whether older pages exist behind the newest
+				     one. A short session's start reads as quietly as an old
+				     galopin's whole snapshot — no marker at all there. -->
+				{#if !historyPending && historyHasMore !== null}
+					<div class="flex flex-col items-center py-1 text-center" aria-live="polite">
+						{#if historyFetching}
+							<p class="animate-pulse text-xs text-ink-muted">Loading earlier messages…</p>
+						{:else if historyError}
+							<p class="text-xs text-ink-muted">
+								Couldn't load earlier messages.
+								<button
+									type="button"
+									class="underline underline-offset-2"
+									onclick={requestPreviousPage}
+								>
+									Retry
+								</button>
+							</p>
+						{:else if historyHasMore === false}
+							<p class="text-xs text-ink-faint">Start of the session</p>
+						{/if}
+					</div>
+				{/if}
+			{/snippet}
 			{#snippet historyLoading()}
 				<!-- The transcript's first snapshot is still folding (see
 				     `historyPending`): same shape as the introduction below,

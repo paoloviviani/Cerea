@@ -117,7 +117,7 @@ func TestSplitModelID(t *testing.T) {
 func TestCapabilitiesMatchesProtocolSpec(t *testing.T) {
 	b := New(Config{})
 	c := b.Capabilities()
-	want := backend.Capabilities{Diff: true, Children: true, Usage: true, Compact: true, Images: true, Files: true, Worktrees: false, Questions: true, Revert: true, RevertFiles: true, Efforts: true, ToolImages: true, Steer: true}
+	want := backend.Capabilities{Diff: true, Children: true, Usage: true, Compact: true, Images: true, Files: true, Worktrees: false, Questions: true, Revert: true, RevertFiles: true, Efforts: true, ToolImages: true, Steer: true, HistoryPaging: true}
 	if c != want {
 		t.Fatalf("Capabilities = %+v, want %+v", c, want)
 	}
