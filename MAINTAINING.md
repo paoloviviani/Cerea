@@ -266,11 +266,16 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   rule in `AGENTS.md`, but real):
   - server test `src/lib/server/textGeneration/__tests__/replayRoundTrip.spec.ts`,
     "model switching > still replays tool calls and results across a model
-    switch". It went unseen because the whole server suite is not in CI.
+    switch", **on this build box only**: CI's `check` job runs the whole
+    server suite and passes it, so the difference is this box's environment
+    (its real MongoDB 4.4, `TEST_MONGODB_URL`), not the code.
   - e2e `tests/conversation-streaming.spec.ts:145`, "a second viewer of a live
     generation…": the second tab is redirected to `/login?next=/code`.
-- **CI's `check` job flakes** on `mongodb-memory-server` (a 60 s timeout, or a
-  SIGSEGV). A rerun passes.
+- **CI's `check` job** once segfaulted inside `mongodb-memory-server` (a
+  rerun passed). The 60 s timeouts it also showed were not the database: the
+  `conversationFiles` erasure test attached its second upload's `finish`
+  listener after awaiting the first, so a fast upload's event was missed and
+  the test hung; fixed in v0.10.2 by attaching both listeners before `end()`.
 - Offered to the owner, not decided: a drag-to-resize sidebar; running each
   scheduled run in its own git worktree (galopin already has
   `workspace.create {worktree}` and `workspace.archive {removeWorktree}`).

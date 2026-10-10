@@ -389,6 +389,27 @@ func usageFromMessageMap(m map[string]any) *backend.Usage {
 
 // setSessionUsage records sessionID's latest known Usage, observed off the
 // event stream (opencode's own session object carries no usage field).
+// noteSessionModel remembers the model an assistant message ran on
+// (opencode's message info carries providerID and modelID; the session
+// object does not).
+func (b *Backend) noteSessionModel(sessionID string, info map[string]any) {
+	provider, model := getStr(info, "providerID"), getStr(info, "modelID")
+	if sessionID == "" || provider == "" || model == "" {
+		return
+	}
+	b.usageMu.Lock()
+	b.sessionModel[sessionID] = provider + "/" + model
+	b.usageMu.Unlock()
+}
+
+// sessionModelOf is noteSessionModel's answer for a session, "" when no
+// assistant message of it has been seen since this process started.
+func (b *Backend) sessionModelOf(sessionID string) string {
+	b.usageMu.Lock()
+	defer b.usageMu.Unlock()
+	return b.sessionModel[sessionID]
+}
+
 func (b *Backend) setSessionUsage(sessionID string, u *backend.Usage) {
 	b.usageMu.Lock()
 	b.sessionUsage[sessionID] = u

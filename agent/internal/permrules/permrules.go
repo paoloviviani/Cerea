@@ -518,6 +518,36 @@ func Compose(l Layers, sel Selector, agent []Rule) []Rule {
 	return append(cerea, tail...)
 }
 
+// ToolVisibilitySentinel is a deny that can never apply, whose only job is to
+// keep a task subagent's tools visible on its first step (opencode 1.18.34;
+// upstream anomalyco/opencode#45078).
+//
+// opencode seeds a task subagent's session with the parent session's deny
+// rules only (deriveSubagentSessionPermission), ignoring the allows that came
+// after them, and hides a tool from the request when the last rule naming it
+// (pattern ignored) is a `*`-pattern deny (Permission.disabled). Session rules
+// are append-only, so a parent that was on Deny once keeps that block's
+// `* * deny` for life: every child it spawns started with every tool hidden
+// until galopin's own rules for the child landed, which a first step can beat
+// by a few hundred milliseconds. A background child has no second step, so it
+// answered in text and ended.
+//
+// The sentinel is a deny, so the child inherits it, and it sits after every
+// older block, so for each tool it is the last rule the visibility check sees:
+// its pattern is not `*`, so the tool stays visible. It never decides a call:
+// the pattern has no wildcard and no real command or path equals it, so
+// Evaluate (galopin's and opencode's) passes over it; it is one token, with
+// no space, so a matcher that splits a command pattern on whitespace sees
+// nothing it could match either. Opening each block, it
+// changes nothing for the session that owns the block (the block's own
+// `* * <word>` follows it), and a deny later in the block — a machine rule, the
+// ceiling's tail, the Deny word itself — still hides its tool in the child.
+var ToolVisibilitySentinel = Rule{Permission: "*", Pattern: "<galopin:subagent-tools-visible>", Action: Deny}
+
+// IsToolVisibilitySentinel reports the sentinel, so listings meant for a
+// person can leave it out.
+func IsToolVisibilitySentinel(r Rule) bool { return r == ToolVisibilitySentinel }
+
 // ComposeParts is Compose taken apart: the machine's rules and the selector's
 // (own first, so len(l.Own) of them are the machine's), then the ceiling's tail.
 //
@@ -528,7 +558,10 @@ func Compose(l Layers, sel Selector, agent []Rule) []Rule {
 func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 	base := append(append([]Rule(nil), agent...), l.Own...)
 	mode := sel.Effective()
-	cerea = append([]Rule(nil), l.Own...)
+	// Every block opens with the tool-visibility sentinel (see
+	// ToolVisibilitySentinel): first, so that within the block the word and
+	// the machine's own rules still decide, exactly as without it.
+	cerea = append([]Rule{ToolVisibilitySentinel}, l.Own...)
 	if mode == Deny {
 		cerea = append(cerea, sel.exceptionRules()...)
 	}
