@@ -206,6 +206,10 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 		"agent": layers.Agent, "mode": layers.Mode, "rules": rules,
 		"savedApprovals": mc.exceptionViews(rh, a.SessionID), "ceiling": max,
 		"coordination": orEmptyStrings(rh.Coordination(mc.mat.RootOf(a.SessionID))),
+		// The machine's safe external directories, as a person reads them
+		// (home-relative entries shortened). Optional on the wire: a galopin
+		// older than the field omits it, and the panel shows no line.
+		"safeDirs": orEmptyStrings(policy.DisplaySafeDirs(mc.live.Layers().SafeDirs)),
 	}, nil
 }
 

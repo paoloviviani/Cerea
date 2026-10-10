@@ -39,6 +39,26 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   flight, a quiet marker at the start of the session. **A galopin update
   is needed**: older machines keep sending the whole log, which still
   opens behind the skeleton.
+- **A few safe directories outside the workspace never ask.** `/tmp`, the
+  temp directory and the toolchain caches a build or test run needs
+  (`~/.cache/go-build`, `~/.cache/pip`, `~/.cache/uv`, `~/.cache/pnpm`,
+  `~/.cache/node-gyp`, `~/go/pkg/mod`, `~/.npm`, `~/.local/share/pnpm`) no
+  longer raise the external_directory card — in any session, under any
+  Deny / Ask / Allow setting, subagents included. Never the whole
+  `~/.cache`, which also holds programs other tools run. The machine's
+  policy holds the list (`enroll --safe-dir PATH` replaces the default,
+  `--no-safe-dirs` empties it; `galopin policy set --no-safe-dir PATH` may
+  only remove), the ceiling still caps it, and the Permissions dialog names
+  it in the _Work outside the project folder_ row. A machine enrolled before
+  gets the default list with the update. A safe directory is one the agent
+  may write into, so the list stays short. **A galopin update is needed**:
+  an older galopin keeps asking (and the dialog shows no line).
+- **Agents stop blocking their turn on long waits.** opencode's bash has no
+  background mode, so an agent waiting on CI, a full test suite or a release
+  wrote foreground sleep-and-poll loops that held the whole turn. galopin's
+  delegation skill now says to hand any such wait to a background task
+  (`task` with `background: true`), end the turn, and pick up when the
+  result arrives. Ships with the galopin update.
 
 ## v0.9.4 — 2026-10-09
 

@@ -140,6 +140,10 @@ export interface MachinePermission {
 	max?: Record<string, "ask" | "deny">;
 	/** The machine's own rules (applied to every session, capped by `max`). */
 	rules?: Record<string, "allow" | "ask" | "deny">;
+	/** The machine's safe external directories (what `enroll --safe-dir`
+	 * writes; absent from the file, the machine expands its own default
+	 * list). Absolute paths, written verbatim. */
+	safeDirs?: string[];
 }
 
 /** What a fresh `enroll` writes as the ceiling. */
@@ -156,6 +160,10 @@ export interface MachinePolicy {
 	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
 	terminal?: "allowed" | "denied";
 	maxTerminals?: number;
+	/** Safe external directories given relative to the machine's own isolated
+	 * home directory (joined at write time), so entries under the home display
+	 * as "~…" in the panel, the way a real enrollment's do. */
+	safeDirsUnderHome?: string[];
 }
 
 export async function startMachine(input: {
@@ -253,6 +261,14 @@ export async function startMachine(input: {
 			permission: {
 				max: policy.permission?.max ?? ENROLL_DEFAULT_MAX,
 				...(policy.permission?.rules ? { rules: policy.permission.rules } : {}),
+				...(policy.permission?.safeDirs || policy.safeDirsUnderHome
+					? {
+							safeDirs: [
+								...(policy.permission?.safeDirs ?? []),
+								...(policy.safeDirsUnderHome?.map((d) => join(home, d)) ?? []),
+							],
+						}
+					: {}),
 			},
 			allowFreeModels: policy.allowFreeModels ?? false,
 			workspaceRoots: policy.workspaceRoots ?? [],

@@ -550,13 +550,18 @@ func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string
 	ownLayers, nOwn := l, len(l.Own)
 	if b.isChild(sessionID) {
 		// A child gets no rule of the machine's as such: its restricting ones
-		// travel inside the cap (permrules.Layers.ChildCeiling).
-		ownLayers, nOwn = permrules.Layers{Ceiling: l.ChildCeiling()}, 0
+		// travel inside the cap (permrules.Layers.ChildCeiling). The safe
+		// directories do travel (ChildRules carries them), as policy.
+		ownLayers, nOwn = permrules.Layers{SafeDirs: l.SafeDirs, Ceiling: l.ChildCeiling()}, 0
 	}
 	cerea, tail := permrules.ComposeParts(ownLayers, sel, agentRules)
+	// ComposeParts appends the safe directories after everything else in
+	// cerea, so that many trailing rules are the machine's policy, not the
+	// session's selector.
+	nSafe := len(permrules.SafeDirRules(ownLayers.SafeDirs))
 	for i, r := range cerea {
 		src := backend.SourceCerea
-		if i < nOwn {
+		if i < nOwn || i >= len(cerea)-nSafe {
 			src = backend.SourceMachine
 		}
 		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: src})
