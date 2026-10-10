@@ -123,8 +123,11 @@ func TestCreateSessionCarriesTheRules(t *testing.T) {
 		t.Fatalf("creates=%d patches=%d, want the rules in the one create", len(creates), len(patches))
 	}
 	rules := rulesOf(t, creates[0])
-	if rules[0] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) {
-		t.Errorf("first rule = %+v, want the machine's own", rules[0])
+	if rules[0] != permrules.ToolVisibilitySentinel {
+		t.Errorf("first rule = %+v, want the tool-visibility sentinel", rules[0])
+	}
+	if rules[1] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) {
+		t.Errorf("second rule = %+v, want the machine's own", rules[1])
 	}
 	agent := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
 	if got := permrules.Evaluate(append(agent, rules...), "edit", "a.go"); got != permrules.Ask {
@@ -411,6 +414,16 @@ func TestRuleLayersAttributesSources(t *testing.T) {
 	}
 	if last := l.Rules[len(l.Rules)-1]; last.Source != backend.SourceCeiling {
 		t.Errorf("last rule = %+v, want the ceiling's", last)
+	}
+	// The tool-visibility sentinel is machinery: never listed, and the
+	// machine's own rule keeps its label right after where it sits.
+	for _, r := range l.Rules {
+		if r.Pattern == permrules.ToolVisibilitySentinel.Pattern {
+			t.Errorf("the sentinel is listed: %+v", r)
+		}
+		if r.Source == backend.SourceMachine && r.Permission != "webfetch" {
+			t.Errorf("a non-machine rule is labelled machine: %+v", r)
+		}
 	}
 }
 

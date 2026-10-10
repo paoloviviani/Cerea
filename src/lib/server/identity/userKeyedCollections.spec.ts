@@ -684,12 +684,10 @@ describe("the conversationFiles bucket entry", () => {
 		await ready;
 	});
 
-	// A GridFS write plus two deletes have room to run long under this box's
-	// contention (see AGENTS.md's own flaky-test note on `replayRoundTrip`) —
-	// the operations themselves are not slow by design (a standalone script
-	// against the same container completes the same sequence in under 20ms);
-	// this is box contention, not the test. A longer budget rather than a
-	// flaky report.
+	// Each upload's "finish" listener is attached BEFORE its end(): the second
+	// upload used to get its listener only after the first had been awaited,
+	// so when it finished in the meantime the event was already gone and the
+	// test hung until its timeout (CI's check job, 2026-10-10, twice).
 	it("erases a conversation's attachments and a shared copy's, by owner", async () => {
 		const userId = new ObjectId();
 		const conversationId = new ObjectId();
@@ -714,22 +712,19 @@ describe("the conversationFiles bucket entry", () => {
 			updatedAt: new Date(),
 		} as never);
 
-		const own = collections.bucket.openUploadStream(`${conversationId}-file`, {
-			metadata: { conversation: conversationId.toString() },
-		});
-		own.end(Buffer.from("hello"));
-		const shared = collections.bucket.openUploadStream(`${sharedId}-file`, {
-			metadata: { conversation: sharedId },
-		});
-		shared.end(Buffer.from("hello"));
-		await new Promise((resolve, reject) => {
-			own.on("finish", resolve);
-			own.on("error", reject);
-		});
-		await new Promise((resolve, reject) => {
-			shared.on("finish", resolve);
-			shared.on("error", reject);
-		});
+		const upload = (name: string, conversation: string) => {
+			const stream = collections.bucket.openUploadStream(name, { metadata: { conversation } });
+			const done = new Promise((resolve, reject) => {
+				stream.on("finish", resolve);
+				stream.on("error", reject);
+			});
+			stream.end(Buffer.from("hello"));
+			return done;
+		};
+		await Promise.all([
+			upload(`${conversationId}-file`, conversationId.toString()),
+			upload(`${sharedId}-file`, sharedId),
+		]);
 
 		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "bucket:conversationFiles");
 		if (!entry) throw new Error("bucket:conversationFiles must be registered");
@@ -743,7 +738,7 @@ describe("the conversationFiles bucket entry", () => {
 
 		await collections.conversations.deleteOne({ _id: conversationId });
 		await collections.sharedConversations.deleteOne({ _id: sharedId });
-	}, 60_000);
+	});
 });
 
 describe("previewErasureCounts (the erasure preview's dry run)", () => {

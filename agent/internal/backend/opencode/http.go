@@ -162,7 +162,38 @@ func (b *Backend) GetSession(ctx context.Context, _ string, sessionID string) (b
 	b.noteSession(s)
 	ov := b.getOverlay(sessionID)
 	s.ModeID, s.ModelID, s.Effort = ov.ModeID, ov.ModelID, ov.Effort
+	if s.ModelID == "" && s.ParentID != "" {
+		// A subagent runs on its parent's model and has no choice of its own
+		// to report: say what it actually ran on, so the panel does not fall
+		// back to naming the machine's default model for it.
+		s.ModelID = b.subagentModel(ctx, sessionID)
+	}
 	return b.withUsage(s), nil
+}
+
+// subagentModel is the model a subagent's newest assistant message ran on:
+// from the event stream when this process saw one, else from its newest
+// messages (a short page, not the whole transcript), else "".
+func (b *Backend) subagentModel(ctx context.Context, sessionID string) string {
+	if m := b.sessionModelOf(sessionID); m != "" {
+		return m
+	}
+	var raw []any
+	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message?limit=10", nil, &raw); err != nil {
+		return ""
+	}
+	entries := asMaps(raw)
+	for i := len(entries) - 1; i >= 0; i-- {
+		info := getMap(entries[i], "info")
+		if info == nil || getStr(info, "role") != "assistant" {
+			continue
+		}
+		b.noteSessionModel(sessionID, info)
+		if m := b.sessionModelOf(sessionID); m != "" {
+			return m
+		}
+	}
+	return ""
 }
 
 func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts backend.CreateSessionOptions) (backend.Session, error) {

@@ -110,8 +110,11 @@ func TestComposePutsTheCeilingLast(t *testing.T) {
 	if len(rules) < 3 {
 		t.Fatalf("rules = %+v", rules)
 	}
-	if rules[0] != (Rule{"edit", "*", Allow}) {
-		t.Errorf("first rule = %+v, want the machine's own", rules[0])
+	if rules[0] != ToolVisibilitySentinel {
+		t.Errorf("first rule = %+v, want the tool-visibility sentinel", rules[0])
+	}
+	if rules[1] != (Rule{"edit", "*", Allow}) {
+		t.Errorf("second rule = %+v, want the machine's own", rules[1])
 	}
 	if last := rules[len(rules)-1]; last != (Rule{"edit", "*", Ask}) {
 		t.Errorf("last rule = %+v, want the ceiling's", last)
@@ -407,8 +410,9 @@ func TestSelectorOwnRulesAreBeneathTheMode(t *testing.T) {
 	if got := eval(buildAgent, allow, "read", "x.secret"); got != Deny {
 		t.Errorf("own read deny (an untouched key) under Allow = %s, want deny", got)
 	}
-	if rules, _ := ComposeParts(l, Selector{}, buildAgent); !reflect.DeepEqual(rules[:3], l.Own) {
-		t.Errorf("the machine's own rules are not first: %+v", rules[:3])
+	// The machine's own rules open the block, right after the sentinel.
+	if rules, _ := ComposeParts(l, Selector{}, buildAgent); rules[0] != ToolVisibilitySentinel || !reflect.DeepEqual(rules[1:4], l.Own) {
+		t.Errorf("the machine's own rules are not first after the sentinel: %+v", rules[:4])
 	}
 }
 
