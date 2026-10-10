@@ -487,12 +487,14 @@ project's own row) keep the single button, which is the file-tree idiom. The `+`
 beside Projects is unchanged. Do not make the label toggle again "because every
 tree does": the chevron is the toggle, and the label is where you go.
 
-**The width is one variable.** The desktop sidebar is `--nav-width` (300px, in
+**The width is one variable.** The desktop sidebar is `--nav-width` (340px, in
 `styles/main.css`): the layout's grid column, the collapse handle riding its
 edge and the width pinned on the nav's children all read it, so they cannot
-disagree. It is 300 because titles and the /code tree's nested rows (device,
-workspace, session, subagent, each indented) were unreadable at 260 once the
-text grew by a pixel. It means nothing below `md`, where the sidebar is the
+disagree. It was 260, then 300 because titles and the /code tree's nested rows
+(device, workspace, session, subagent, each indented) were unreadable once the
+text grew by a pixel; 340 because at 300 a session row's state dot, badges and
+⋯ menu still cut its title short, while the phone drawer (85% of a 390px
+screen, ~330px) showed it whole. It means nothing below `md`, where the sidebar is the
 drawer. Put no pixel width for the nav anywhere else.
 
 Four rules:
