@@ -541,6 +541,19 @@ export async function consumeAgentUpdates(
 			}
 			case MessageUpdateType.Elicitation: {
 				if (update.subtype === MessageElicitationUpdateType.Request) {
+					// A background child's card after the parent's turn closed: it
+					// joins the last answer, never opens a new one. Opening one made
+					// a message with no "done" — the view read it as the parent's
+					// turn running again (dots, Stop) while opencode had ended it.
+					// A sync subagent's card arrives while the turn is open and
+					// joins it as before.
+					if (!current && update.request.childSessionId) {
+						const last = [...messages].reverse().find((m) => m.from === "assistant");
+						if (last) {
+							attach(last, update);
+							break;
+						}
+					}
 					openAssistant();
 					pushUpdate(update);
 					scheduleFrameFlush();

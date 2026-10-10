@@ -259,6 +259,47 @@ describe("consumeAgentUpdates", () => {
 		]);
 	});
 
+	it("joins a background child's late card to the last answer, without reopening the turn", async () => {
+		// The parent spawned a background subagent and ended its turn; the
+		// child's bash card arrives afterwards. It must not open a new running
+		// message (dots and Stop on a turn opencode already closed).
+		const childCard: MessageElicitationRequestUpdate = {
+			type: MessageUpdateType.Elicitation,
+			subtype: MessageElicitationUpdateType.Request,
+			request: {
+				elicitationId: "child-1",
+				server: "opencode",
+				mode: "form",
+				message: "Subagent Sleep: run sleep 60",
+				toolApproval: { tool: "bash", args: {} },
+				childSessionId: "ses_child",
+			},
+		};
+		const messages = await run([user("go"), running(), token("Launched."), done(), childCard]);
+		expect(messages).toHaveLength(2);
+		const kinds = (messages[1].updates ?? []).map((u) => u.type);
+		expect(kinds).toContain(MessageUpdateType.Elicitation);
+		expect(isConversationGenerationActive(messages)).toBe(false);
+	});
+
+	it("keeps a sync subagent's card inside the running turn", async () => {
+		const childCard: MessageElicitationRequestUpdate = {
+			type: MessageUpdateType.Elicitation,
+			subtype: MessageElicitationUpdateType.Request,
+			request: {
+				elicitationId: "child-2",
+				server: "opencode",
+				mode: "form",
+				message: "Subagent: run ls",
+				toolApproval: { tool: "bash", args: {} },
+				childSessionId: "ses_child",
+			},
+		};
+		const messages = await run([user("go"), running(), token("working"), childCard]);
+		expect(messages).toHaveLength(2);
+		expect(isConversationGenerationActive(messages)).toBe(true);
+	});
+
 	it("flushes buffered tokens before folding a non-stream frame", async () => {
 		const messages = await run([user("go"), token("hal"), call("t1")]);
 		// The token landed on the message even though the fold moved straight
