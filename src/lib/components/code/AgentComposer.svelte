@@ -65,6 +65,7 @@
 		CodeApiError,
 	} from "$lib/codeApi";
 	import type { PermissionMode, Policy } from "$lib/types/machineProtocol";
+	import type { CodeDeviceView } from "$lib/codeApi";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import { ceilingNote } from "$lib/utils/permissionRules";
 	import * as s from "$lib/components/overlay/styles";
@@ -113,6 +114,9 @@
 		/** The machine's `hello` policy, for the dialog's legacy-machine
 		 * flag (the composer has no other use for it). */
 		policy?: Policy;
+		/** The device row this session is on, for the dialog's coordination
+		 * switches (a galopin too old to grant, agent tools off). */
+		device?: CodeDeviceView;
 		/** Whether a turn is live on the transcript — the send button's spot
 		 * carries the stop control while it is, permission prompts included. */
 		running?: boolean;
@@ -199,6 +203,7 @@
 		ceiling = {},
 		permissionExceptions = 0,
 		policy,
+		device,
 		running = false,
 		enrollmentExpired = false,
 		offline = false,
@@ -1133,6 +1138,8 @@
 		{agentId}
 		sessionTitle={agent?.title ?? ""}
 		{policy}
+		{device}
+		subagent={isSubagent}
 		onchanged={() => (onpermissionchanged ?? onchanged)()}
 		{onreenroll}
 		onclose={() => (permissionDetailsOpen = false)}

@@ -11,13 +11,14 @@ import { CodeApiError } from "$lib/codeApi";
 import type { PermissionRulesResult } from "$lib/types/machineProtocol";
 
 /**
- * The Permissions dialog is read-only: it shows what the machine says is in
- * force as one plain row per capability (the final answer, worked out from
- * the rules), the session's exceptions with Remove on each, and the raw rule
- * list behind a disclosure. It reads the session's `permission.rules` itself
- * — that is what lets a session's ⋯ menu open it for a row that is not the
- * selection — and re-reads after the one write, removing an exception by id
- * through `removeSavedApproval`.
+ * The Permissions dialog shows what the machine says is in force as one
+ * plain row per capability (the final answer, worked out from the rules),
+ * the session's exceptions with Remove on each, and a Coordination section
+ * with two grant switches — the only other write. It reads the session's
+ * `permission.rules` itself — that is what lets a session's ⋯ menu open it
+ * for a row that is not the selection — and re-reads after the one write,
+ * removing an exception by id through `removeSavedApproval` or granting
+ * through `setCoordinationGrant`.
  *
  * MOCK: the rule lists below are the panel's reading of the frozen contract
  * with the agent half (feat/permission-selector-agent), not galopin's output.
@@ -29,6 +30,7 @@ const fake = vi.hoisted(() => ({
 const api = vi.hoisted(() => ({
 	getPermissionRules: vi.fn(),
 	removeSavedApproval: vi.fn(),
+	setCoordinationGrant: vi.fn(),
 }));
 
 vi.mock("$env/dynamic/public", () => ({
@@ -41,6 +43,7 @@ vi.mock("$lib/codeApi", async (importOriginal) => {
 		...original,
 		getPermissionRules: api.getPermissionRules,
 		removeSavedApproval: api.removeSavedApproval,
+		setCoordinationGrant: api.setCoordinationGrant,
 	};
 });
 
@@ -98,6 +101,11 @@ beforeEach(async () => {
 	fake.failRemove = null;
 	errorToast.set(undefined);
 	api.getPermissionRules.mockReset().mockResolvedValue(RESULT);
+	api.setCoordinationGrant
+		.mockReset()
+		.mockImplementation(async (_device: string, _agent: string, keys: string[]) => ({
+			keys,
+		}));
 	api.removeSavedApproval
 		.mockReset()
 		.mockImplementation(async (_device: string, agent: string, id: string) => {
@@ -326,11 +334,12 @@ describe("Permissions line detail", () => {
 		expect(dialog.clientHeight).toBeLessThanOrEqual(window.innerHeight + 1);
 	});
 
-	it("is read-only: no field, no select, and the only buttons are the exceptions' Remove", async () => {
+	it("has no free-form field: no text input, no select, and the only switches are the two coordination ones", async () => {
 		const screen = mount();
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		const root = screen.getByTestId("permissions-detail").element();
-		expect(root.querySelectorAll("input, select, textarea").length).toBe(0);
+		expect(root.querySelectorAll("input:not([type='checkbox']), select, textarea").length).toBe(0);
+		expect([...root.querySelectorAll("[data-testid='coordination-options'] input")].length).toBe(2);
 		expect([...root.querySelectorAll("button")].map((el) => el.getAttribute("aria-label"))).toEqual(
 			["Remove exception for bash", "Remove exception for bash"]
 		);
@@ -509,5 +518,113 @@ describe("a machine that predates ceilings", () => {
 			expect(screen.getByTestId("legacy-machine-flag").elements()).toHaveLength(0)
 		);
 		await vi.waitFor(() => expect(codeLegacyMachines.d1).toBe(false));
+	});
+});
+
+describe("Permissions dialog coordination", () => {
+	const MESSAGE = ["session_list", "session_read", "session_send"];
+	const device = (over: Record<string, unknown> = {}) =>
+		({
+			id: "d1",
+			name: "Box",
+			backends: [{ id: "opencode", capabilities: { coordinationGrant: true } }],
+			...over,
+		}) as never;
+
+	const boxes = (screen: ReturnType<typeof mount>) =>
+		screen
+			.getByTestId("coordination-options")
+			.element()
+			.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+	const noOptions = (screen: ReturnType<typeof mount>) =>
+		screen.getByTestId("coordination-options").elements();
+
+	function mountGrant(
+		coordination: string[],
+		extra: { device?: unknown; subagent?: boolean; onchanged?: () => void } = {}
+	) {
+		api.getPermissionRules.mockResolvedValue({ ...RESULT, coordination });
+		return renderWithApp(PermissionsDialog, {
+			deviceId: "d1",
+			agentId: "a1",
+			sessionTitle: "Build it",
+			onclose: () => {},
+			...(extra as object),
+		});
+	}
+
+	it("reads the initial switches from the session's own grant", async () => {
+		const screen = mountGrant(MESSAGE, { device: device() });
+		await expect.element(screen.getByTestId("coordination-options")).toBeVisible();
+		const [message, spawn] = [...boxes(screen)];
+		expect(message.checked).toBe(true);
+		expect(spawn.checked).toBe(false);
+	});
+
+	it("a partial grant leaves the message switch off", async () => {
+		const screen = mountGrant(["session_send"], { device: device() });
+		await expect.element(screen.getByTestId("coordination-options")).toBeVisible();
+		expect([...boxes(screen)][0].checked).toBe(false);
+	});
+
+	it("toggling sends the whole new set, re-reads, and tells the parent", async () => {
+		const onchanged = vi.fn();
+		const screen = mountGrant([], { device: device(), onchanged });
+		await expect.element(screen.getByTestId("coordination-options")).toBeVisible();
+		// The machine's answer is the receipt; the dialog believes its
+		// re-read, so point the next read at the granted set now.
+		api.getPermissionRules.mockResolvedValue({ ...RESULT, coordination: MESSAGE });
+		const [message, spawn] = [...boxes(screen)];
+		expect(message.checked).toBe(false);
+		message.click();
+		await vi.waitFor(() =>
+			expect(api.setCoordinationGrant).toHaveBeenCalledWith("d1", "a1", MESSAGE)
+		);
+		await vi.waitFor(() => expect([...boxes(screen)][0].checked).toBe(true));
+		await vi.waitFor(() => expect(onchanged).toHaveBeenCalled());
+		expect(spawn.checked).toBe(false);
+	});
+
+	it("clearing the last switch clears the grant", async () => {
+		const screen = mountGrant(MESSAGE, { device: device() });
+		await expect.element(screen.getByTestId("coordination-options")).toBeVisible();
+		[...boxes(screen)][0].click();
+		await vi.waitFor(() => expect(api.setCoordinationGrant).toHaveBeenCalledWith("d1", "a1", []));
+	});
+
+	it("a galopin too old to grant disables the switches with the reason", async () => {
+		const screen = mountGrant([], { device: device({ backends: [{ capabilities: {} }] }) });
+		await expect.element(screen.getByTestId("coordination-unavailable")).toBeVisible();
+		await expect
+			.element(screen.getByTestId("coordination-unavailable"))
+			.toHaveTextContent("too old to grant coordination");
+		expect(noOptions(screen)).toHaveLength(0);
+	});
+
+	it("agent tools off disables the switches with its own reason", async () => {
+		const screen = mountGrant([], {
+			device: device({ policy: { agentTools: "denied" } }),
+		});
+		await expect
+			.element(screen.getByTestId("coordination-unavailable"))
+			.toHaveTextContent("without agent tools");
+	});
+
+	it("a subagent gets the note, not the switches", async () => {
+		const screen = mountGrant(MESSAGE, { device: device(), subagent: true });
+		await expect.element(screen.getByText(/follows its root's setting/)).toBeVisible();
+		expect(noOptions(screen)).toHaveLength(0);
+	});
+
+	it("without a device row the switches stay usable", async () => {
+		const screen = mountGrant([]);
+		await expect.element(screen.getByTestId("coordination-options")).toBeVisible();
+	});
+
+	it("a ceiling that caps a granted key is said under the switches", async () => {
+		const screen = mountGrant(MESSAGE, {
+			device: device({ policy: { permission: { max: { session_send: "ask" } } } }),
+		});
+		await expect.element(screen.getByText(/caps messaging sessions at Ask/)).toBeVisible();
 	});
 });

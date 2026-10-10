@@ -192,6 +192,7 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["GET", "v1/agents/a1/diff"],
 	["GET", "v1/agents/a1/permission-rules"],
 	["POST", "v1/agents/a1/permission-mode"],
+	["POST", "v1/agents/a1/coordination"],
 	["DELETE", "v1/agents/a1/permission-approvals/x1"],
 ];
 
