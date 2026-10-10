@@ -207,15 +207,24 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 		status := getMap(props, "status")
 		state := getStr(status, "type")
 		var s backend.SessionStatus
+		var retry *backend.RetryInfo
 		switch state {
 		case "busy":
 			s = backend.StatusBusy
 		case "retry":
 			s = backend.StatusRetry
+			// Why the session waits: the provider's message, the attempt and
+			// the next try. The status's `action` (a title/link for the
+			// person) is dropped on purpose; nothing in it is forwarded.
+			retry = &backend.RetryInfo{
+				Attempt: int(getFloat(status, "attempt")),
+				Message: clip(getStr(status, "message")),
+				Next:    int64(getFloat(status, "next")),
+			}
 		default:
 			s = backend.StatusIdle
 		}
-		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventStatus, Status: s})}
+		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventStatus, Status: s, Retry: retry})}
 
 	case "session.idle":
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})}

@@ -11,8 +11,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   opencode 1.18.34 only appends session rules, so each change of a session's
   Deny/Ask/Allow word, exceptions or the machine ceiling adds one composed
   block (the newest always wins). Measured cost is record size, not speed
-  (about 117 KB at 1,300 rules); see the agent protocol, section 6. Machines
+  (about 100 KB at 1,300 rules); see the agent protocol, section 6. Machines
   do not need the galopin update for this.
+- A session whose model provider is rate-limiting or overloaded no longer looks hung: the agent view says "Retrying — Rate limit exceeded (attempt 3, next try in 20 s)" beside Stop. **A galopin update is needed** for the detail; Cerea alone keeps the old look.
 
 ## v0.10.0 — 2026-10-10
 

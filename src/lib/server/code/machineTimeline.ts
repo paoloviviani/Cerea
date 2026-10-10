@@ -43,6 +43,7 @@ import type {
 	Part,
 	PermissionRequest,
 	Question,
+	RetryInfo,
 	SessionStatus,
 	Todo,
 	ToolAttachment,
@@ -569,13 +570,15 @@ function todoToUpdate(todos: Todo[], sessionId = ""): MessagePlanUpdate {
 
 function turnStateUpdate(
 	state: MessageTurnStateUpdate["state"],
-	reason?: string
+	reason?: string,
+	retry?: RetryInfo
 ): MessageTurnStateUpdate {
 	return {
 		type: MessageUpdateType.TurnState,
 		state,
 		serverNow: Date.now(),
 		...(reason ? { reason } : {}),
+		...(retry ? { retry } : {}),
 	};
 }
 
@@ -632,12 +635,16 @@ export function trackedErrorReason(event: { message: string; code?: string }): s
 function statusToTurnState(
 	status: SessionStatus,
 	lastAssistantError: string | undefined,
-	detail?: string
+	detail?: string,
+	retry?: RetryInfo
 ): MessageTurnStateUpdate {
 	switch (status) {
 		case "busy":
-		case "retry":
 			return turnStateUpdate("running", detail);
+		case "retry":
+			// Still a running turn, but one waiting on the provider: the retry
+			// facts ride along so the view can say so (an older galopin sends none).
+			return turnStateUpdate("running", detail, retry);
 		case "error":
 			return turnStateUpdate("failed", detail ?? lastAssistantError);
 		default:
@@ -749,7 +756,7 @@ function liveFrames(
 		case "part.removed":
 			return [];
 		case "status":
-			return [statusToTurnState(event.status, lastAssistantError, event.detail)];
+			return [statusToTurnState(event.status, lastAssistantError, event.detail, event.retry)];
 		case "permission.asked":
 			return [permissionRequestToUpdate(event.request)];
 		case "permission.replied":
@@ -952,7 +959,9 @@ export function snapshotToUpdates(
 	}
 	const todos = transcript.todos ?? [];
 	if (todos.length) updates.push(todoToUpdate(todos, sessionId));
-	updates.push(statusToTurnState(transcript.status, lastAssistantError));
+	updates.push(
+		statusToTurnState(transcript.status, lastAssistantError, undefined, transcript.retry)
+	);
 	// After history, never before it: a fresh mount's first paint should show
 	// the transcript before the meter, same order a live turn would deliver
 	// them in (the usage event trails the turn's own parts).

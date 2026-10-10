@@ -96,6 +96,7 @@
 	import AgentDialog from "./AgentDialog.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
+	import RetryNotice from "./RetryNotice.svelte";
 	import SubagentCard from "./SubagentCard.svelte";
 	import HandoffDialog from "./HandoffDialog.svelte";
 	import CodeConfirmDialog from "./CodeConfirmDialog.svelte";
@@ -1249,6 +1250,12 @@
 					{/if}
 				</span>
 			</span>
+		{/if}
+		{#if shownState === "running" && liveTurn?.retry}
+			<!-- The model's provider is refusing (a rate limit, an outage) and
+			     the backend is retrying with backoff: say so instead of
+			     letting a silent running turn read as a hang. -->
+			<RetryNotice retry={liveTurn.retry} />
 		{/if}
 		<!-- The Permissions line lived here; it is a sidebar item now
 		     (CodeNavTree's "Permissions", opening the detail in a dialog),
