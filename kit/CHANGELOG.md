@@ -5,6 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Word documents in the preview keep their formatting** (fonts, styles,
+  lists, tables, headers and footers).
+
 ## v0.10.2 — 2026-10-10
 
 Pins: Cerea `0.10.2`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the

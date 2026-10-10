@@ -23,8 +23,11 @@ export interface FencePreview {
 	 * Rendered through buildArtifactSrcdoc, same builders as artifact
 	 * previews — except "pdf", which is not an ArtifactKind: a document the
 	 * browser renders natively, carried as a data: URL and framed directly.
+	 * "docx" is not an ArtifactKind either: its content is already-sanitized
+	 * docx-preview HTML (docxPreview.ts), which PreviewPane wraps with
+	 * buildDocxSrcdoc — the postMessage hook plus the fit-to-width script.
 	 */
-	kind: "html" | "svg" | "mermaid" | "pdf";
+	kind: "html" | "svg" | "mermaid" | "pdf" | "docx";
 	/** Shown in the pane header: the annotated filename, or a generic label. */
 	title: string;
 	/**
