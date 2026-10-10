@@ -453,23 +453,43 @@ func TestDefaultSafeDirsFiltersToExistingAndConservative(t *testing.T) {
 	}
 	fake := scratchDir(t)
 	tmpInConfig := filepath.Join(fake, ".config", "galopin", "opencode-tmp")
-	for _, d := range []string{filepath.Join(fake, ".cache"), tmpInConfig} {
+	goBuild := filepath.Join(fake, ".cache", "go-build")
+	opencodeBin := filepath.Join(fake, ".cache", "opencode", "bin")
+	for _, d := range []string{goBuild, opencodeBin, tmpInConfig} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("HOME", fake)
 	t.Setenv("TMPDIR", tmpInConfig)
+	t.Setenv("XDG_CACHE_HOME", "")
 	got := DefaultSafeDirs()
-	var hasTmp, hasCache, hasTmpInConfig bool
+	var hasTmp, hasGoBuild bool
 	for _, d := range got {
-		hasTmp, hasCache, hasTmpInConfig = hasTmp || d == "/tmp", hasCache || d == filepath.Join(fake, ".cache"), hasTmpInConfig || d == tmpInConfig
+		hasTmp, hasGoBuild = hasTmp || d == "/tmp", hasGoBuild || d == goBuild
+		// The cache root holds programs other tools run (opencode's bin/,
+		// Playwright's browsers): a write there would run code past the bash
+		// ceiling, so only the named build caches under it are allowed.
+		if d == filepath.Join(fake, ".cache") || strings.HasPrefix(d, filepath.Join(fake, ".cache", "opencode")) {
+			t.Errorf("the default list = %v, must never name the cache root or opencode's cache", got)
+		}
+		if d == tmpInConfig {
+			t.Errorf("the default list = %v, must never name a directory under the config one", got)
+		}
 	}
-	if !hasTmp || !hasCache {
-		t.Errorf("the default list = %v, want /tmp and the home cache", got)
+	if !hasTmp || !hasGoBuild {
+		t.Errorf("the default list = %v, want /tmp and the go build cache", got)
 	}
-	if hasTmpInConfig {
-		t.Errorf("the default list = %v, must never name a directory under the config one", got)
+
+	// An XDG cache pointed into opencode's own cache names nothing there.
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(fake, ".cache", "opencode"))
+	if err := os.MkdirAll(filepath.Join(fake, ".cache", "opencode", "go-build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range DefaultSafeDirs() {
+		if strings.HasPrefix(d, filepath.Join(fake, ".cache", "opencode")) {
+			t.Errorf("with XDG_CACHE_HOME inside opencode's cache the default list names %q", d)
+		}
 	}
 }
 

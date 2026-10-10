@@ -134,9 +134,10 @@ veto that only `enroll` can loosen:
   `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps.
   The machine's **safe external directories** (`enroll --safe-dir PATH`
   repeatable, replacing the default; `--no-safe-dirs` for none) are the one
-  thing no session ever asks about: `/tmp`, the temp dir, the user's cache
-  and the toolchain caches (`~/go/pkg/mod`, `~/.npm`,
-  `~/.local/share/pnpm`) — those that exist — never raise the
+  thing no session ever asks about: `/tmp`, the temp dir and the toolchain
+  caches (`~/.cache/{go-build,pip,uv,pnpm,node-gyp}`, `~/go/pkg/mod`,
+  `~/.npm`, `~/.local/share/pnpm`; never the whole `~/.cache`) — those that
+  exist — never raise the
   external_directory card, under Deny, Ask or Allow alike, subagents
   included. A safe directory is one the agent may write into
   (external_directory does not separate read from write), so the list stays

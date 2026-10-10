@@ -75,7 +75,7 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skipf("opencode not on PATH: %v", err)
 	}
-	r := &permRig{t: t, mock: startMockLLM(t, itFreePort(t)), root: t.TempDir()}
+	r := &permRig{t: t, mock: startMockLLM(t, itFreePort(t)), root: rigRoot(t)}
 	dirs := map[string]string{}
 	for _, n := range []string{"home", "config", "data", "cache", "work", "work2", "state"} {
 		dirs[n] = filepath.Join(r.root, n)
@@ -386,6 +386,29 @@ func (r *permRig) agentRules(agent string) []permrules.Rule {
 }
 
 func (r *permRig) auditRows() []map[string]any { return auditRows(r.t, r.stateDir) }
+
+// rigRoot is the rig's own scratch root: OUTSIDE every default safe
+// directory, so the specs that write "outside the workspace" still meet the
+// external_directory ask. t.TempDir() lands under /tmp from a plain shell,
+// and /tmp is a safe directory now. ~/.cache/galopin-it is not one (only
+// named build caches under ~/.cache are).
+func rigRoot(t *testing.T) string {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory for a scratch root outside the safe directories")
+	}
+	base := filepath.Join(home, ".cache", "galopin-it")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(base, "rig-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
 
 // safeTmp is a directory under /tmp — the one safe entry every machine's
 // default list has — for the safe-directory specs to write into. Made under

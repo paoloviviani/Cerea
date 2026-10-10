@@ -85,7 +85,6 @@ describe("parsePermissionRules", () => {
 				rules: [],
 				savedApprovals: [],
 				ceiling: {},
-				safeDirs: [],
 			});
 		}
 	});
@@ -93,7 +92,9 @@ describe("parsePermissionRules", () => {
 	it("reads the machine's safe directories, and drops what is not a string", () => {
 		const parsed = parsePermissionRules({ safeDirs: ["/tmp", "~/.cache", 3, null] });
 		expect(parsed.safeDirs).toEqual(["/tmp", "~/.cache"]);
-		expect(parsePermissionRules({}).safeDirs).toEqual([]);
+		// Absent stays absent (an older galopin), unlike an empty list (none).
+		expect(parsePermissionRules({}).safeDirs).toBeUndefined();
+		expect(parsePermissionRules({ safeDirs: [] }).safeDirs).toEqual([]);
 	});
 
 	it("reads the machine's own spelling of a saved approval (action / resource)", () => {

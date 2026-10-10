@@ -133,9 +133,14 @@ func defaultSafeDirs(home string) []string {
 		dirs = append(dirs, tmp)
 	}
 	if home != "" {
-		dirs = append(dirs, filepath.Join(home, ".cache"))
-		if cache := os.Getenv("XDG_CACHE_HOME"); cache != "" {
-			dirs = append(dirs, cache)
+		// Named build caches only, never the cache root: ~/.cache also holds
+		// programs other tools run (opencode's own bin/, Playwright's
+		// browsers) and other tools' state, and a write there would run code
+		// past the bash ceiling.
+		for _, base := range cacheBases(home) {
+			for _, name := range safeCacheNames {
+				dirs = append(dirs, filepath.Join(base, name))
+			}
 		}
 		dirs = append(dirs,
 			filepath.Join(home, "go", "pkg", "mod"),
@@ -164,9 +169,24 @@ func defaultSafeDirs(home string) []string {
 	return out
 }
 
+// safeCacheNames are the build caches under the user's cache directory the
+// default list allows: compilers' and package managers' own stores.
+var safeCacheNames = []string{"go-build", "pip", "uv", "pnpm", "node-gyp"}
+
+// cacheBases is the user's cache directory: $XDG_CACHE_HOME when set, and
+// ~/.cache either way (tools differ on which one they honour).
+func cacheBases(home string) []string {
+	bases := []string{filepath.Join(home, ".cache")}
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" && filepath.Clean(xdg) != bases[0] {
+		bases = append(bases, filepath.Clean(xdg))
+	}
+	return bases
+}
+
 // defaultSafeDirForbidden reports whether dir is somewhere a safe directory
 // must never name, whatever the environment says: the home directory itself,
-// its config, its ssh directory or its personal bin. A safe directory is one
+// its config, its ssh directory, its personal bin, the cache root, or
+// opencode's own cache (which holds programs opencode runs). A safe directory is one
 // the agent may write into, and none of these is ever that — galopin's own
 // state (policy.json, the opencode config it owns) lives under the config
 // directory. Only the default expansion is filtered this way; an entry the
@@ -177,6 +197,14 @@ func defaultSafeDirForbidden(home, dir string) bool {
 	}
 	if dir == home {
 		return true
+	}
+	for _, base := range cacheBases(home) {
+		if dir == base {
+			return true
+		}
+		if op := filepath.Join(base, "opencode"); dir == op || strings.HasPrefix(dir, op+string(filepath.Separator)) {
+			return true
+		}
 	}
 	for _, bad := range []string{
 		filepath.Join(home, ".config"), filepath.Join(home, ".ssh"),
@@ -191,7 +219,8 @@ func defaultSafeDirForbidden(home, dir string) bool {
 
 // DefaultSafeDirs is the safe-directory list a policy.json without
 // permission.safeDirs gets: the temp and toolchain caches a build or test
-// run needs (/tmp and the temp dir, the user's cache, ~/go/pkg/mod, ~/.npm,
+// run needs (/tmp and the temp dir, the named build caches under the user's
+// cache directory — go-build, pip, uv, pnpm, node-gyp — ~/go/pkg/mod, ~/.npm,
 // ~/.local/share/pnpm), expanded for this machine's user, only the entries
 // that exist. Conservative on purpose — a safe directory is one the agent
 // may write into — so it never names the home directory itself, a config

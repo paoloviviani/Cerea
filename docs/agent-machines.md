@@ -497,10 +497,13 @@ Allow too, and the selector says so (_"Allow · bash asks (machine limit)"_).
 Nothing in the panel can raise the ceiling; loosening it means enrolling again.
 
 **What never asks, on every machine:** the **safe directories** the machine was
-enrolled with — by default `/tmp`, the temp directory, the user's cache and the
-toolchain caches (`~/go/pkg/mod`, `~/.npm`, `~/.local/share/pnpm`), those that
-exist. The Permissions dialog names them in the _Work outside the project
-folder_ row ("Allowed: /tmp, ~/.cache, …; elsewhere asks"), and no session —
+enrolled with — by default `/tmp`, the temp directory and the toolchain caches
+(`~/.cache/go-build`, `~/.cache/pip`, `~/.cache/uv`, `~/.cache/pnpm`,
+`~/.cache/node-gyp`, `~/go/pkg/mod`, `~/.npm`, `~/.local/share/pnpm`), those
+that exist. Never the whole `~/.cache`: it also holds programs other tools run
+(opencode's own `bin/`, Playwright's browsers). A machine enrolled before this
+list existed gets the default with the galopin update. The Permissions dialog names them in the _Work outside the project
+folder_ row ("Allowed: /tmp, ~/.cache/go-build, …; elsewhere asks"), and no session —
 Deny, Ask or Allow, a fresh one or an old one, a subagent's first turn
 included — is shown the external_directory card for anything inside them. They
 are machine policy, not a setting: re-enrolling with `--safe-dir PATH` replaces
