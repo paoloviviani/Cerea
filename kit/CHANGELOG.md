@@ -27,6 +27,25 @@ dialog, then `systemctl --user restart galopin`.
   index; the developer docs now match the code at the capability list, the
   policy examples, the spawn inheritance and the default ceiling, and the
   known-failures list is current.
+- **The agent's task plan lives in the Tasks pane only.** The plan card that
+  closed each agent turn is gone from the transcript — the pane showed the
+  same list — and the `todowrite` row stays in the "Called N tools" group as
+  the record that the plan changed. A chat's own plan card is untouched.
+  Cerea only.
+- **The side pane opens at about a third of the window.** It used to take
+  60% of the area right of the sidebar; on a 1440 screen it now opens around
+  480px instead of 660px. A dragged width still wins, the phone drawer is
+  unchanged. Cerea only.
+- **The inline progress mark is a little larger on desktop.** The mark that
+  rides at the bottom of a working turn is 16px on a desktop and the
+  previous 12px on a phone; the waiting mark at the start of a turn keeps
+  its size. Cerea only.
+- **Word documents fit the side pane's width.** A .docx opened in the
+  artifact pane kept its print width (A4 ≈ 794px) and was cut off on the
+  right; the pages now scale down to the pane's width like a PDF viewer
+  does, recompute when the pane is dragged, never enlarge past their real
+  size, and centre in a wide pane. The page layout is kept (no reflow), and
+  the sanitising and the sandbox are unchanged. Cerea only.
 
 ## v0.10.1 — 2026-10-10
 
