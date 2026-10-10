@@ -575,6 +575,66 @@ export function buildArtifactSrcdoc(kind: ArtifactKind, content: string, channel
 	}
 }
 
+/**
+ * Scale a docx-preview rendering down to the frame's width, as a PDF viewer
+ * fits a page: the pages keep their layout, they are never enlarged past
+ * their real size, and a pane narrower than the page cannot clip them.
+ *
+ * docx-preview renders each page as its own `section.docx` carrying the
+ * document's width in the section itself (A4 ≈ 794px of text plus the page
+ * padding, e.g. 986px total) inside a `.docx-wrapper` that stays narrow and
+ * lets the pages overflow it — which is the cut-off a pane narrower than the
+ * page showed. Each section is therefore zoomed to `frame ÷ section`, the
+ * wrapper is widened to the frame so it stops clipping, and both centre.
+ * Each section's natural width is measured once, before any zoom is applied
+ * (offsetWidth reports the scaled width afterwards). `zoom` is Chromium's own
+ * mechanism and keeps the layout boxes in step, so the pages stack as they
+ * did — no height compensation is needed. The script lives here in the srcdoc
+ * template (the preview sandbox allows inline scripts), never in the
+ * document's HTML, which stays DOMPurify-clean.
+ */
+function buildDocxFitScript(): string {
+	return `\n<script>
+(function () {
+  var naturals = {};
+  function fit() {
+    var sections = document.querySelectorAll('section.docx');
+    if (!sections.length) return;
+    var wrapper = document.querySelector('.docx-wrapper');
+    var frameW = document.documentElement.clientWidth;
+    if (!frameW) return;
+    if (wrapper) {
+      document.body.style.margin = '0';
+      document.body.style.padding = '0';
+      wrapper.style.width = '100%';
+      wrapper.style.marginLeft = 'auto';
+      wrapper.style.marginRight = 'auto';
+    }
+    sections.forEach(function (sec) {
+      var key = sec.className + '|' + sec.offsetTop + '|' + sec.offsetLeft;
+      if (naturals[key] === undefined) naturals[key] = sec.offsetWidth || 0;
+      var natural = naturals[key];
+      if (!natural) return;
+      var scale = Math.min(1, frameW / natural);
+      sec.style.zoom = String(scale);
+      sec.style.marginLeft = 'auto';
+      sec.style.marginRight = 'auto';
+    });
+  }
+  fit();
+  document.addEventListener('DOMContentLoaded', fit);
+  window.addEventListener('resize', fit);
+  try { new ResizeObserver(fit).observe(document.documentElement); } catch (err) {}
+})();
+${END_SCRIPT_TAG}`;
+}
+
+/** Build the srcdoc for a docx-preview render (sanitized HTML, no `<head>`). */
+export function buildDocxSrcdoc(content: string, channel: string): string {
+	const baseTag = `<base target="_blank">${previewCspMeta(channel)}`;
+	return `<head>${baseTag}${buildPreviewHookScript(channel)}${buildDocxFitScript()}</head>\n${content}`;
+}
+
 /** Kinds that can be shipped as a self-contained static page (an HF Space). */
 export function isDeployableKind(kind: ArtifactKind): boolean {
 	return kind === "html" || kind === "svg" || kind === "react" || kind === "mermaid";

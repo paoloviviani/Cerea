@@ -71,6 +71,18 @@ describe("SidePane desktop frame", () => {
 		expect(sidePane.open).toBe(true);
 	});
 
+	it("opens at the default split — about a third of the window — until a drag overrides it", async () => {
+		const screen = mount();
+		const aside = screen.getByRole("complementary", { name: "Tasks" }).element() as HTMLElement;
+		expect(aside.style.width).toBe("33vw");
+		sidePane.setWidth(500);
+		await tick();
+		expect(aside.style.width).toBe("500px");
+		sidePane.resetWidth();
+		await tick();
+		expect(aside.style.width).toBe("33vw");
+	});
+
 	it("resets a dragged width on double-click of the handle", async () => {
 		const screen = mount();
 		sidePane.setWidth(500);

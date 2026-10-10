@@ -610,26 +610,15 @@
 			res.push({ type: "text" as const, content: message.content });
 		}
 
-		return placeAgentPlan(expandArtifactBlocks(expandThinkBlocks(res)));
+		// The coding agent's task plan (opencode's todo list) never renders as a
+		// card: it is state the Tasks pane reads from the transcript (latestPlan),
+		// redundant as a card under the answer. The todowrite tool call it came
+		// from stays in the "Called N tools" group. A chat plan (the plan tool,
+		// keyed by its call id) keeps its card and its stream position.
+		return expandArtifactBlocks(expandThinkBlocks(res)).filter(
+			(b) => !(b.type === "plan" && b.update.uuid.startsWith("agent-plan"))
+		);
 	});
-
-	// The coding agent's task plan (opencode's todo list) is state, not a step:
-	// it may arrive while the model is still reasoning, and at its stream
-	// position it cut the "Thought / Called N tools" group in two. It is shown
-	// once per message, right after the last thinking/tool block and before the
-	// answer text (at the start when there is none). A chat plan (the plan tool,
-	// keyed by its call id) keeps its stream position.
-	function placeAgentPlan(input: Block[]): Block[] {
-		const isAgentPlan = (b: Block) => b.type === "plan" && b.update.uuid.startsWith("agent-plan");
-		const plan = input.find(isAgentPlan);
-		if (!plan) return input;
-		const rest = input.filter((b) => b !== plan);
-		let at = 0;
-		rest.forEach((b, i) => {
-			if (b.type === "think" || b.type === "tool") at = i + 1;
-		});
-		return [...rest.slice(0, at), plan, ...rest.slice(at)];
-	}
 
 	// Coalesce consecutive process blocks (thinking + tools) into groups so they can
 	// collapse into a single "Called N tools" / "Thought" summary. Text passes through.
@@ -901,7 +890,7 @@
 					{#if !trailingBlockShowsProgress}
 						<MessageAvatar
 							animating
-							classNames="loading mt-1 inline-block h-3 w-auto select-none"
+							classNames="loading mt-1 inline-block h-3 md:h-4 w-auto select-none"
 						/>
 					{/if}
 				{:else}
@@ -909,7 +898,7 @@
 					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : unit.kind === "backgroundTask" ? `background-${unit.update.taskId}-${unit.update.state}` : `${unit.kind}-${unitIndex}`)}
 						{#if unit.kind === "text"}
 							{#if isLast && loading && unit.content.length === 0}
-								<MessageAvatar animating classNames="loading inline-block h-3 w-auto select-none" />
+								<MessageAvatar animating classNames="loading inline-block h-3 md:h-4 w-auto select-none" />
 							{:else if unit.content.trim().length > 0}
 								<div class={proseClasses}>
 									<MarkdownRenderer
