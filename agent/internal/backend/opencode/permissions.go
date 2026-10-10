@@ -559,14 +559,27 @@ func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string
 	// cerea, so that many trailing rules are the machine's policy, not the
 	// session's selector.
 	nSafe := len(permrules.SafeDirRules(ownLayers.SafeDirs))
+	// The tool-visibility sentinel opens cerea and is machinery, not a rule a
+	// person set or reads: it is left out of the listing (and so are the
+	// ceiling's restatements of it), and the machine's own rules follow it.
+	nSentinel := 0
+	if len(cerea) > 0 && permrules.IsToolVisibilitySentinel(cerea[0]) {
+		nSentinel = 1
+	}
 	for i, r := range cerea {
+		if i < nSentinel {
+			continue
+		}
 		src := backend.SourceCerea
-		if i < nOwn || i >= len(cerea)-nSafe {
+		if i < nSentinel+nOwn || i >= len(cerea)-nSafe {
 			src = backend.SourceMachine
 		}
 		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: src})
 	}
 	for _, r := range tail {
+		if r.Pattern == permrules.ToolVisibilitySentinel.Pattern {
+			continue
+		}
 		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCeiling})
 	}
 	return out, nil
