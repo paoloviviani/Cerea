@@ -122,6 +122,12 @@ func permissionPolicySummary(pol policy.Policy) string {
 		}
 		parts = append(parts, "this machine's own rules "+strings.Join(rs, ", "))
 	}
+	if dirs := pol.Permission.EffectiveSafeDirs(); len(dirs) > 0 {
+		parts = append(parts, "safe directories "+strings.Join(policy.DisplaySafeDirs(dirs), ", ")+
+			" never ask (the ceiling on external_directory still caps them)")
+	} else {
+		parts = append(parts, "no safe directories: every external_directory asks")
+	}
 	parts = append(parts, "sessions start on Ask; a person moves a session to Deny or Allow in the /code composer, and the ceiling caps both")
 	return "Permissions: " + strings.Join(parts, "; ") + "."
 }

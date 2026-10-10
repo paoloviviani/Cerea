@@ -279,3 +279,208 @@ func TestLiveLayers(t *testing.T) {
 		t.Errorf("layers = %+v", l)
 	}
 }
+
+// scratchDir is a temp directory this test may make and remove: under /tmp
+// even when the box's TMPDIR points somewhere a test must not write (an
+// opencode tmp dir belongs to a running galopin here).
+func scratchDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "galopin-policy-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// The safe directories' three file states, and the one-way rule for a local
+// change: a policy set may only REMOVE entries, never add one.
+func TestSafeDirsAbsentIsEmptyAndCustom(t *testing.T) {
+	dir := scratchDir(t)
+	existing := filepath.Join(dir, "exists")
+	if err := os.Mkdir(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Absent: the default list, expanded and filtered to what exists. /tmp is
+	// always among them; the temp dir only when this machine's TMPDIR is
+	// somewhere a safe directory may name.
+	p, err := Load(filepath.Join(dir, "policy.json")) // a missing file is Default
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Permission.SafeDirs != nil {
+		t.Errorf("an absent field must read as the default (nil), got %+v", p.Permission.SafeDirs)
+	}
+	def := p.Permission.EffectiveSafeDirs()
+	if !equalStrings(def, DefaultSafeDirs()) {
+		t.Errorf("EffectiveSafeDirs() = %v, want the default %v", def, DefaultSafeDirs())
+	}
+	var sawTmp bool
+	for _, d := range def {
+		sawTmp = sawTmp || d == "/tmp"
+	}
+	if !sawTmp {
+		t.Errorf("the default list = %v, want /tmp in it", def)
+	}
+
+	// Custom entries are kept as given, even when they do not exist (an owner
+	// who named one is not second-guessed).
+	path := filepath.Join(dir, "custom.json")
+	if err := os.WriteFile(path, []byte(`{"permission":{"safeDirs":["/data/scratch","/tmp"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Permission.EffectiveSafeDirs(); !equalStrings(got, []string{"/data/scratch", "/tmp"}) {
+		t.Errorf("custom list = %v, want it kept as given", got)
+	}
+
+	// An empty list is none, and it survives a save — the field may not
+	// collapse back to the default on the way through the file.
+	empty := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(empty, []byte(`{"permission":{"safeDirs":[]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err = Load(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Permission.EffectiveSafeDirs(); len(got) != 0 {
+		t.Errorf("an empty list = %v, want none", got)
+	}
+	if err := Save(empty, p); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := os.ReadFile(empty)
+	if !strings.Contains(string(saved), `"safeDirs": []`) {
+		t.Errorf("Save dropped an empty safeDirs list:\n%s", saved)
+	}
+	p2, err := Load(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p2.Permission.SafeDirs == nil || len(*p2.Permission.SafeDirs) != 0 {
+		t.Errorf("the saved empty list read back as %+v, want [] (not the default)", p2.Permission.SafeDirs)
+	}
+
+	// A path that is not absolute, or not clean, is refused rather than
+	// allowing whatever the working directory happens to be.
+	for name, body := range map[string]string{
+		"relative": `{"permission":{"safeDirs":["tmp"]}}`,
+		"unclean":  `{"permission":{"safeDirs":["/tmp//x"]}}`,
+		"empty":    `{"permission":{"safeDirs":[""]}}`,
+	} {
+		bad := filepath.Join(dir, "bad.json")
+		if err := os.WriteFile(bad, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(bad); err == nil {
+			t.Errorf("%s: Load accepted %s", name, body)
+		}
+	}
+}
+
+func TestLiveTightenOnlyRemovesSafeDirs(t *testing.T) {
+	live := NewLive(Permission{SafeDirs: &[]string{"/tmp", "/home/u/.cache", "/data/scratch"}})
+	if got := live.Layers().SafeDirs; !equalStrings(got, []string{"/tmp", "/home/u/.cache", "/data/scratch"}) {
+		t.Fatalf("layers safe dirs = %v", got)
+	}
+
+	// A file that adds an entry is not a tightening: the addition is ignored.
+	if ch := live.Tighten(Permission{SafeDirs: &[]string{"/tmp", "/home/u/.cache", "/data/scratch", "/srv/pub"}}); ch.Any() {
+		t.Errorf("an added safe directory changed something: %+v", ch)
+	}
+	if got := live.Layers().SafeDirs; !equalStrings(got, []string{"/tmp", "/home/u/.cache", "/data/scratch"}) {
+		t.Errorf("safe dirs after an attempted addition = %v", got)
+	}
+
+	// A file that drops one is: the entry goes, and the change is reported.
+	if ch := live.Tighten(Permission{SafeDirs: &[]string{"/tmp", "/data/scratch"}}); !ch.Tightened {
+		t.Error("removing a safe directory is a tightening")
+	}
+	if got := live.Layers().SafeDirs; !equalStrings(got, []string{"/tmp", "/data/scratch"}) {
+		t.Errorf("safe dirs after a removal = %v", got)
+	}
+
+	// An empty list removes everything.
+	if ch := live.Tighten(Permission{SafeDirs: &[]string{}}); !ch.Tightened {
+		t.Error("an empty list removes the rest")
+	}
+	if got := live.Layers().SafeDirs; len(got) != 0 {
+		t.Errorf("safe dirs after an empty list = %v, want none", got)
+	}
+
+	// A file that does not speak of safe directories leaves them as they are.
+	if ch := live.Tighten(Permission{}); ch.Any() {
+		t.Errorf("an absent field changed something: %+v", ch)
+	}
+	if got := live.Layers().SafeDirs; len(got) != 0 {
+		t.Errorf("safe dirs after an absent field = %v, want none still", got)
+	}
+}
+
+func TestDefaultSafeDirsFiltersToExistingAndConservative(t *testing.T) {
+	def := DefaultSafeDirs()
+	for _, d := range def {
+		if !filepath.IsAbs(d) {
+			t.Errorf("default entry %q is not absolute", d)
+		}
+		if info, err := os.Stat(d); err != nil || !info.IsDir() {
+			t.Errorf("default entry %q does not exist as a directory", d)
+		}
+	}
+	if !equalStrings(def, DefaultSafeDirs()) {
+		t.Error("DefaultSafeDirs is not stable across calls")
+	}
+	// The conservative half: never the home directory itself, never a config,
+	// ssh or personal-bin directory — whatever the environment names. On a
+	// box whose TMPDIR lives under the config directory (a galopin unit does
+	// exactly that), the temp-dir entry must be dropped, not kept.
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		for _, d := range def {
+			forbidden := d == home
+			for _, bad := range []string{filepath.Join(home, ".config"), filepath.Join(home, ".ssh"), filepath.Join(home, ".local", "bin")} {
+				forbidden = forbidden || d == bad || strings.HasPrefix(d, bad+string(filepath.Separator))
+			}
+			if forbidden {
+				t.Errorf("default entry %q is not conservative", d)
+			}
+		}
+	}
+	fake := scratchDir(t)
+	tmpInConfig := filepath.Join(fake, ".config", "galopin", "opencode-tmp")
+	for _, d := range []string{filepath.Join(fake, ".cache"), tmpInConfig} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", fake)
+	t.Setenv("TMPDIR", tmpInConfig)
+	got := DefaultSafeDirs()
+	var hasTmp, hasCache, hasTmpInConfig bool
+	for _, d := range got {
+		hasTmp, hasCache, hasTmpInConfig = hasTmp || d == "/tmp", hasCache || d == filepath.Join(fake, ".cache"), hasTmpInConfig || d == tmpInConfig
+	}
+	if !hasTmp || !hasCache {
+		t.Errorf("the default list = %v, want /tmp and the home cache", got)
+	}
+	if hasTmpInConfig {
+		t.Errorf("the default list = %v, must never name a directory under the config one", got)
+	}
+}
+
+func TestDisplaySafeDirsShortensTheHomePrefix(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory to shorten against")
+	}
+	got := DisplaySafeDirs([]string{"/tmp", filepath.Join(home, ".cache"), filepath.Join(home+"2", "x")})
+	want := []string{"/tmp", "~/.cache", filepath.Join(home+"2", "x")}
+	if !equalStrings(got, want) {
+		t.Errorf("DisplaySafeDirs = %v, want %v (a neighbour directory is not the home)", got, want)
+	}
+}

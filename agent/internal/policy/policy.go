@@ -7,6 +7,7 @@ package policy
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -93,6 +94,17 @@ type Permission struct {
 	// session's selector or any exception says. A key absent from Max is not capped. `enroll`
 	// defaults bash to "ask"; `galopin policy set` may only lower a value.
 	Max map[string]string `json:"max,omitempty"`
+	// SafeDirs are the machine's safe external directories (PROTOCOL.md §6
+	// "Permissions"): absolute paths whose contents never ask, under every
+	// selector word. The pointer carries the three states the file can hold:
+	// nil (the field absent) is the default list — expanded for this
+	// machine's user and filtered to the directories that exist, see
+	// DefaultSafeDirs — an empty list is none, and a list is exactly those
+	// entries. A safe directory is one the agent may WRITE into
+	// (external_directory does not separate read from write), so the list
+	// stays short. `enroll --safe-dir` gives one (replacing the default);
+	// a local `galopin policy set --no-safe-dir` may only remove entries.
+	SafeDirs *[]string `json:"safeDirs,omitempty"`
 }
 
 // Ceiling is Max as the rule package's type.
@@ -113,9 +125,115 @@ func (p Permission) OwnRules() []permrules.Rule {
 	return permrules.OwnRules(m)
 }
 
+// defaultSafeDirs is DefaultSafeDirs with the home directory given, so a
+// test can pin it.
+func defaultSafeDirs(home string) []string {
+	dirs := []string{"/tmp"}
+	if tmp := os.TempDir(); tmp != "" {
+		dirs = append(dirs, tmp)
+	}
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".cache"))
+		if cache := os.Getenv("XDG_CACHE_HOME"); cache != "" {
+			dirs = append(dirs, cache)
+		}
+		dirs = append(dirs,
+			filepath.Join(home, "go", "pkg", "mod"),
+			filepath.Join(home, ".npm"),
+			filepath.Join(home, ".local", "share", "pnpm"),
+		)
+	}
+	// Keep the first of any duplicate, and only the entries that exist: the
+	// list is a guess about this machine, and a directory that is not there
+	// allows nothing. Entries the environment can only have named by
+	// accident (a TMPDIR inside the config directory, say) are dropped: see
+	// defaultSafeDirForbidden.
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range dirs {
+		d = filepath.Clean(d)
+		if d == "" || !filepath.IsAbs(d) || seen[d] || defaultSafeDirForbidden(home, d) {
+			continue
+		}
+		if info, err := os.Stat(d); err != nil || !info.IsDir() {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
+}
+
+// defaultSafeDirForbidden reports whether dir is somewhere a safe directory
+// must never name, whatever the environment says: the home directory itself,
+// its config, its ssh directory or its personal bin. A safe directory is one
+// the agent may write into, and none of these is ever that — galopin's own
+// state (policy.json, the opencode config it owns) lives under the config
+// directory. Only the default expansion is filtered this way; an entry the
+// owner named in policy.json is the owner's word.
+func defaultSafeDirForbidden(home, dir string) bool {
+	if home == "" {
+		return false
+	}
+	if dir == home {
+		return true
+	}
+	for _, bad := range []string{
+		filepath.Join(home, ".config"), filepath.Join(home, ".ssh"),
+		filepath.Join(home, ".local", "bin"),
+	} {
+		if dir == bad || strings.HasPrefix(dir, bad+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// DefaultSafeDirs is the safe-directory list a policy.json without
+// permission.safeDirs gets: the temp and toolchain caches a build or test
+// run needs (/tmp and the temp dir, the user's cache, ~/go/pkg/mod, ~/.npm,
+// ~/.local/share/pnpm), expanded for this machine's user, only the entries
+// that exist. Conservative on purpose — a safe directory is one the agent
+// may write into — so it never names the home directory itself, a config
+// directory or a credential store.
+func DefaultSafeDirs() []string {
+	home, _ := os.UserHomeDir()
+	return defaultSafeDirs(home)
+}
+
+// EffectiveSafeDirs is the safe-directory list in force: the entries the
+// policy names, or the default list when it names none (the field absent).
+func (p Permission) EffectiveSafeDirs() []string {
+	if p.SafeDirs == nil {
+		return DefaultSafeDirs()
+	}
+	return *p.SafeDirs
+}
+
+// DisplaySafeDirs is a safe-directory list as a person reads it: an entry
+// under the machine user's home directory with the home prefix replaced by
+// "~". Entries outside it pass through unchanged; a list is never empty
+// just because the home directory could not be read.
+func DisplaySafeDirs(dirs []string) []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return dirs
+	}
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		if rest, ok := strings.CutPrefix(d, home); ok && (rest == "" || strings.HasPrefix(rest, string(filepath.Separator))) {
+			d = "~" + rest
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
 // Validate refuses a value that would silently mean something else: an action
-// word that is not one of the three (a typo in a ceiling must not uncap), or a
-// pattern where a key is expected.
+// word that is not one of the three (a typo in a ceiling must not uncap), a
+// pattern where a key is expected, or a safe directory that is not an
+// absolute, clean path (a relative one would allow whatever the working
+// directory happens to be).
 func (p Permission) Validate() error {
 	check := func(field string, m map[string]string) error {
 		for k, v := range m {
@@ -133,6 +251,13 @@ func (p Permission) Validate() error {
 	}
 	if err := check("max", p.Max); err != nil {
 		return err
+	}
+	if p.SafeDirs != nil {
+		for i, d := range *p.SafeDirs {
+			if d == "" || !filepath.IsAbs(d) || filepath.Clean(d) != d {
+				return fmt.Errorf("permission.safeDirs[%d]: %q is not an absolute directory path", i, d)
+			}
+		}
 	}
 	return nil
 }
@@ -354,10 +479,16 @@ func (p Policy) FilterModelIDs(ids []string) []string {
 type Live struct {
 	mu sync.RWMutex
 	p  Permission
+	// safeDirs is the effective list in force: the file's entries, or the
+	// default expanded for this machine when the file says nothing. Tighten
+	// may only shrink it.
+	safeDirs []string
 }
 
 // NewLive starts from the permission policy `run` loaded.
-func NewLive(p Permission) *Live { return &Live{p: clonePermission(p)} }
+func NewLive(p Permission) *Live {
+	return &Live{p: clonePermission(p), safeDirs: p.EffectiveSafeDirs()}
+}
 
 // Permission is a copy of the current permission policy.
 func (l *Live) Permission() Permission {
@@ -366,18 +497,23 @@ func (l *Live) Permission() Permission {
 	return clonePermission(l.p)
 }
 
-// Layers is the machine's two permission inputs for composing a session's rules.
+// Layers is the machine's permission inputs for composing a session's rules.
 func (l *Live) Layers() permrules.Layers {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return permrules.Layers{Own: l.p.OwnRules(), Ceiling: l.p.Ceiling()}
+	return permrules.Layers{
+		Own:      l.p.OwnRules(),
+		Ceiling:  l.p.Ceiling(),
+		SafeDirs: append([]string(nil), l.safeDirs...),
+	}
 }
 
 // Change says what a Tighten took in.
 type Change struct {
 	// Tightened: a ceiling key or a rule of the machine's own now permits less
-	// than it did. This is what makes a restart of opencode necessary, because
-	// an "always" it holds outranks every rule.
+	// than it did, or a safe directory was removed from the list. This is what
+	// makes a restart of opencode necessary, because an "always" it holds
+	// outranks every rule.
 	Tightened bool
 }
 
@@ -386,7 +522,10 @@ func (c Change) Any() bool { return c.Tightened }
 
 // Tighten takes in a newly read permission policy, keeping the stricter of each
 // key and never raising anything: a ceiling the file now loosens stays as it
-// was, a rule it raises stays lowered.
+// was, a rule it raises stays lowered. The safe directories shrink the same
+// way, and only when the file names the list at all: an entry it adds where
+// there was none is ignored (a local set may only remove), and a file that
+// does not speak of safe directories leaves them as they are.
 func (l *Live) Tighten(next Permission) Change {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -395,6 +534,25 @@ func (l *Live) Tighten(next Permission) Change {
 	var rulesTight bool
 	l.p.Rules, rulesTight = lowerActions(l.p.Rules, next.Rules)
 	ch.Tightened = ch.Tightened || rulesTight
+	if next.SafeDirs != nil {
+		drop := map[string]bool{}
+		for _, d := range *next.SafeDirs {
+			drop[d] = true
+		}
+		kept := make([]string, 0, len(l.safeDirs))
+		removed := false
+		for _, d := range l.safeDirs {
+			if drop[d] {
+				kept = append(kept, d)
+			} else {
+				removed = true
+			}
+		}
+		if removed {
+			l.safeDirs = kept
+			ch.Tightened = true
+		}
+	}
 	return ch
 }
 
@@ -459,6 +617,10 @@ func clonePermission(p Permission) Permission {
 		for k, v := range p.Rules {
 			out.Rules[k] = v
 		}
+	}
+	if p.SafeDirs != nil {
+		s := append([]string(nil), *p.SafeDirs...)
+		out.SafeDirs = &s
 	}
 	return out
 }

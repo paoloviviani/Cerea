@@ -59,8 +59,10 @@ var (
 var subagents = map[string]bool{"general": true, "explore": true}
 
 // Floor is the permission part of OPENCODE_CONFIG_CONTENT for ceiling c:
-// {"permission": {...}, "agent": {name: {"permission": {...}}}}.
-func (c Ceiling) Floor() map[string]any { return floorFor(c, c) }
+// {"permission": {...}, "agent": {name: {"permission": {...}}}}. A bare
+// ceiling knows no safe directories; the Layers floor is the one the backend
+// builds from.
+func (c Ceiling) Floor() map[string]any { return floorFor(c, c, nil) }
 
 // subagentAsk is what the floor holds a subagent to before its session has its
 // root's selector: the blanket's own names ask. A subagent starts its first tool
@@ -77,15 +79,19 @@ var subagentAsk = Ceiling{Max: map[string]Action{
 // and for the subagents also the machine's own ask/deny rules, restated as caps
 // the way ChildCeiling does, and the blanket's names asking by default
 // (subagentAsk) — a subagent's first tool call can beat the rules galopin
-// applies to its session, and this is what holds that window.
+// applies to its session, and this is what holds that window. The machine's
+// safe directories carry into the two subagents as allows, so a subagent's
+// first turn does not ask for /tmp and the caches either — but only where the
+// ceiling leaves external_directory alone, since a floor allow under a capped
+// key would loosen the cap the window exists to hold.
 func (l Layers) Floor() map[string]any {
-	return floorFor(l.Ceiling, l.ChildCeiling().Meet(subagentAsk))
+	return floorFor(l.Ceiling, l.ChildCeiling().Meet(subagentAsk), l.SafeDirs)
 }
 
 // FloorRules is the floor for agent as rules.
 func (l Layers) FloorRules(agent string) []Rule { return floorRules(l.Floor(), agent) }
 
-func floorFor(top, sub Ceiling) map[string]any {
+func floorFor(top, sub Ceiling, safeDirs []string) map[string]any {
 	topCfg := map[string]any{}
 	agents := map[string]map[string]any{}
 	for _, name := range builtinAgents {
@@ -93,6 +99,17 @@ func floorFor(top, sub Ceiling) map[string]any {
 	}
 	agents["plan"]["edit"] = planEdit
 	agents["explore"]["edit"] = exploreEdit
+	if safe := SafeDirRules(safeDirs); len(safe) > 0 && !sub.Limits("external_directory") {
+		// The safe directories never ask in a subagent's first turn either.
+		// Allows only, no catch-all: the map's entries are orderless in JSON,
+		// so anything stricter than an allow must not share it.
+		m := map[string]any{}
+		for _, r := range safe {
+			m[r.Pattern] = string(r.Action)
+		}
+		agents["general"]["external_directory"] = m
+		agents["explore"]["external_directory"] = m
+	}
 	for _, name := range builtinAgents {
 		c := top
 		if subagents[name] {

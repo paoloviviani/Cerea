@@ -84,6 +84,15 @@ Usage:
                default none). Applied as a session rule, so it beats the
                opencode.json written here; a session's Deny / Ask / Allow
                selector sits after it, and the ceiling still caps both.
+  --safe-dir PATH  A directory outside the workspace whose contents never
+               ask (repeatable; given, it REPLACES the default list: /tmp
+               and the temp dir, the user's cache, ~/go/pkg/mod, ~/.npm and
+               ~/.local/share/pnpm — those that exist). A safe directory is
+               one the agent may write into: external_directory does not
+               separate read from write, so a poisoned build cache is the
+               residual risk, and the list stays short on purpose. The
+               ceiling key external_directory still caps every one of them.
+  --no-safe-dirs  No safe directories at all: every external_directory asks.
   --workspace-root PATH  Confine workspace.create to this path or below
                (repeatable; default unrestricted). Every occurrence is
                recorded; 'run' refuses a workspace outside all of them.
@@ -143,6 +152,8 @@ type enrollOptions struct {
 	allowAutoAccept        bool
 	permissionMax          []string
 	permissionRules        []string
+	safeDirs               []string
+	noSafeDirs             bool
 	noFiles                bool
 	fileDeny               []string
 	noDefaultFileDeny      bool
@@ -201,6 +212,8 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.allowAutoAccept, "allow-auto-accept", false, "")
 	fs.Var(stringListFlag{&opts.permissionMax}, "permission-max", "")
 	fs.Var(stringListFlag{&opts.permissionRules}, "permission-rule", "")
+	fs.Var(stringListFlag{&opts.safeDirs}, "safe-dir", "")
+	fs.BoolVar(&opts.noSafeDirs, "no-safe-dirs", false, "")
 	fs.Var(stringListFlag{&opts.workspaceRoots}, "workspace-root", "")
 	fs.BoolVar(&opts.allowFreeModels, "allow-free-models", false, "")
 	fs.BoolVar(&opts.noFiles, "no-files", false, "")
@@ -647,6 +660,11 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 		}
 		pol.Permission.Rules = rules
 	}
+	safeDirs, err := enrollSafeDirs(opts)
+	if err != nil {
+		return policy.Policy{}, err
+	}
+	pol.Permission.SafeDirs = safeDirs
 	pol.WorkspaceRoots = opts.workspaceRoots
 	pol.AllowFreeModels = opts.allowFreeModels
 	if opts.noFiles {
@@ -671,4 +689,34 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	}
 	pol.MaxTerminals = opts.maxTerminals
 	return pol, nil
+}
+
+// enrollSafeDirs is permission.safeDirs from the flags: --no-safe-dirs says
+// none, a --safe-dir list replaces the default, and neither flag leaves the
+// field absent (the default list, expanded for this machine at every load).
+// Given entries must be absolute and are cleaned; duplicates drop.
+func enrollSafeDirs(opts *enrollOptions) (*[]string, error) {
+	if opts.noSafeDirs {
+		if len(opts.safeDirs) > 0 {
+			return nil, fmt.Errorf("--safe-dir and --no-safe-dirs conflict: pick one")
+		}
+		none := []string{}
+		return &none, nil
+	}
+	if len(opts.safeDirs) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(opts.safeDirs))
+	for _, d := range opts.safeDirs {
+		d = filepath.Clean(d)
+		if !filepath.IsAbs(d) {
+			return nil, fmt.Errorf("--safe-dir %q is not an absolute directory path", d)
+		}
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return &out, nil
 }
