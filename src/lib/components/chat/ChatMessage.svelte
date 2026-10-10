@@ -8,7 +8,6 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	const publicConfig = usePublicConfig();
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
-	import IconLoading from "../icons/IconLoading.svelte";
 	import CarbonRotate360 from "~icons/carbon/rotate-360";
 	// import CarbonDownload from "~icons/carbon/download";
 
@@ -729,6 +728,10 @@
 	// duration — mid-turn narration between tool rounds must not regroup the
 	// rows into the collapsed summary, or every new round visibly "re-expands"
 	// them. The nested summary takes over only once the turn is over.
+	// Nothing to show yet but the progress mark: no bubble around it.
+	let awaitingFirstContent = $derived(
+		isLast && loading && blocks.length === 0 && !message.files?.length
+	);
 	let isProcessStreaming = $derived.by(() => {
 		if (!isLast || !loading) return false;
 		return blocks.some(
@@ -788,12 +791,14 @@
 		onclick={() => (isTapped = !isTapped)}
 		onkeydown={() => (isTapped = !isTapped)}
 	>
-		<MessageAvatar
-			classNames="mt-5 h-4 w-auto flex-none select-none max-sm:hidden"
-			animating={isLast && loading}
-		/>
+		<!-- No avatar column: the answer takes the row's whole width, as it
+		     always did on a phone. The mountain mark is the progress signal
+		     instead — alone while nothing has arrived yet, then inline where the
+		     three dots used to be. -->
 		<div
-			class="relative flex min-w-[60px] flex-col gap-2 rounded-2xl border border-line bg-linear-to-br from-gray-50 px-3 py-2.5 wrap-break-word text-gray-600 sm:px-4 sm:py-3 dark:from-gray-800/80 dark:text-gray-300 prose-pre:my-2"
+			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent
+				? 'py-2.5'
+				: 'rounded-2xl border border-line bg-linear-to-br from-gray-50 px-3 py-2.5 sm:px-4 sm:py-3 dark:from-gray-800/80'}"
 		>
 			{#if message.files?.length}
 				<div class="flex h-fit flex-wrap gap-x-5 gap-y-2">
@@ -807,7 +812,7 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<div bind:this={contentEl} oncopy={handleCopy} onclick={handleContentClick}>
 				{#if isLast && loading && blocks.length === 0}
-					<IconLoading classNames="loading inline ml-2 first:ml-0" />
+					<MessageAvatar animating classNames="loading inline-block h-4 w-auto select-none" />
 				{/if}
 				{#if isProcessStreaming}
 					<!-- A streaming turn that used thinking / tools: every block renders flat
@@ -894,14 +899,17 @@
 						{/if}
 					{/each}
 					{#if !trailingBlockShowsProgress}
-						<IconLoading classNames="loading mt-1 inline first:ml-0" />
+						<MessageAvatar
+							animating
+							classNames="loading mt-1 inline-block h-3 w-auto select-none"
+						/>
 					{/if}
 				{:else}
 					<!-- Answer started or generation finished: nest the process blocks. -->
 					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : unit.kind === "backgroundTask" ? `background-${unit.update.taskId}-${unit.update.state}` : `${unit.kind}-${unitIndex}`)}
 						{#if unit.kind === "text"}
 							{#if isLast && loading && unit.content.length === 0}
-								<IconLoading classNames="loading inline ml-2 first:ml-0" />
+								<MessageAvatar animating classNames="loading inline-block h-3 w-auto select-none" />
 							{:else if unit.content.trim().length > 0}
 								<div class={proseClasses}>
 									<MarkdownRenderer
@@ -1227,7 +1235,8 @@
 					</form>
 				{/if}
 			</div>
-			<div class="absolute -bottom-4 ml-3.5 flex w-full items-center gap-1.5">
+			<!-- Right-aligned under the bubble, which sits right. -->
+			<div class="absolute right-0 -bottom-4 mr-3.5 flex w-full items-center justify-end gap-1.5">
 				{#if alternatives.length > 1 && editMsdgId === null}
 					<Alternatives
 						{message}
