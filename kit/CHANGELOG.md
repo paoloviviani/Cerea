@@ -53,6 +53,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   gets the default list with the update. A safe directory is one the agent
   may write into, so the list stays short. **A galopin update is needed**:
   an older galopin keeps asking (and the dialog shows no line).
+- **Agents stop blocking their turn on long waits.** opencode's bash has no
+  background mode, so an agent waiting on CI, a full test suite or a release
+  wrote foreground sleep-and-poll loops that held the whole turn. galopin's
+  delegation skill now says to hand any such wait to a background task
+  (`task` with `background: true`), end the turn, and pick up when the
+  result arrives. Ships with the galopin update.
 
 ## v0.9.4 — 2026-10-09
 
