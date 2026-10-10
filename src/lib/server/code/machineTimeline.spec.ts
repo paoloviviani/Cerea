@@ -1413,7 +1413,8 @@ describe("todos → the plan update", () => {
 			{ id: "1", content: "a", status: "pending", priority: "high" },
 			{ id: "2", content: "b", status: "pending" },
 		];
-		const send = (list: Todos, sessionId = "ses_dup") =>
+		const stream = newThinkingState();
+		const send = (list: Todos, sessionId = "ses_dup", state = stream) =>
 			eventToUpdates(
 				todoEvent(list),
 				undefined,
@@ -1421,7 +1422,8 @@ describe("todos → the plan update", () => {
 				undefined,
 				undefined,
 				undefined,
-				sessionId
+				sessionId,
+				state
 			).filter((u) => u.type === MessageUpdateType.Plan);
 		expect(send(todos)).toHaveLength(1);
 		expect(send(todos.map((t) => ({ ...t })))).toHaveLength(0);
@@ -1433,13 +1435,42 @@ describe("todos → the plan update", () => {
 		expect(send(todos, "ses_dup_other")).toHaveLength(1);
 	});
 
+	it("gives every viewer's stream its own plan changes", () => {
+		// Two browsers on one session: each connection maps the same event,
+		// and the first one's memory must not swallow it for the second.
+		type Todos = Extract<NormalizedEvent, { kind: "todo" }>["todos"];
+		const todos: Todos = [{ id: "1", content: "a", status: "pending" }];
+		const desktop = newThinkingState();
+		const phone = newThinkingState();
+		const send = (state: ReturnType<typeof newThinkingState>) =>
+			eventToUpdates(
+				todoEvent(todos),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"ses_two_viewers",
+				state
+			).filter((u) => u.type === MessageUpdateType.Plan);
+		expect(send(desktop)).toHaveLength(1);
+		expect(send(phone)).toHaveLength(1);
+		expect(send(phone)).toHaveLength(0);
+	});
+
 	describe("in a snapshot", () => {
 		const todos = [{ id: "1", content: "step", status: "in_progress" as const }];
-		const snap = (messages: Transcript["messages"], sessionId: string, list = todos) =>
+		const snap = (
+			messages: Transcript["messages"],
+			sessionId: string,
+			list = todos,
+			state = newThinkingState()
+		) =>
 			snapshotToUpdates(
 				{ messages, permissions: [], status: "idle", usage: null, todos: list },
 				undefined,
-				sessionId
+				sessionId,
+				state
 			);
 		const order = (updates: ReturnType<typeof snap>) =>
 			updates
@@ -1467,7 +1498,13 @@ describe("todos → the plan update", () => {
 		});
 
 		it("does not repeat the snapshot's plan when the same list arrives live", () => {
-			snap([{ message: assistantMessage("m1"), parts: [todowritePart("m1")] }], "ses_snap_c");
+			const stream = newThinkingState();
+			snap(
+				[{ message: assistantMessage("m1"), parts: [todowritePart("m1")] }],
+				"ses_snap_c",
+				todos,
+				stream
+			);
 			const live = eventToUpdates(
 				{ kind: "todo", todos },
 				undefined,
@@ -1475,7 +1512,8 @@ describe("todos → the plan update", () => {
 				undefined,
 				undefined,
 				undefined,
-				"ses_snap_c"
+				"ses_snap_c",
+				stream
 			);
 			expect(live.filter((u) => u.type === MessageUpdateType.Plan)).toHaveLength(0);
 		});
