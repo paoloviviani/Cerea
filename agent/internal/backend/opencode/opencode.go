@@ -206,6 +206,12 @@ type Backend struct {
 	// Transcript.
 	usageMu      sync.Mutex
 	sessionUsage map[string]*backend.Usage
+	// sessionModel (under usageMu) is the "provider/model" each session's
+	// latest assistant message ran on, as the event stream shows it. A
+	// subagent has no model of its own in opencode's session object or in
+	// galopin's overlay (it runs on its parent's), so this is the only place
+	// session.get can learn what it actually runs on.
+	sessionModel map[string]string
 }
 
 type sessionOverlay struct {
@@ -248,6 +254,7 @@ func New(cfg Config) *Backend {
 		pendingClientMsg: map[string]pendingClaim{},
 		modelLimit:       map[string]int{},
 		sessionUsage:     map[string]*backend.Usage{},
+		sessionModel:     map[string]string{},
 		commandMarkers:   map[string]backend.MessageCommand{},
 	}
 }

@@ -63,6 +63,11 @@ type Server struct {
 	// expanded text reached the mock" is exactly the fact only the mock can
 	// see. Capped so a long IT run cannot grow it without bound.
 	requests [][]string
+	// requestTools is, per entry of requests, the tool names that request
+	// offered the model ([] for none): whether a request carried tools at all
+	// is a fact only the mock sees (a subagent whose every tool is hidden still
+	// reaches the provider, just with no tools on it).
+	requestTools [][]string
 	// tools is the tool descriptions (name -> description) of the most recent
 	// chat-completion request: what the model was told it can call, which only
 	// the mock can see (the task tool's list of agent types is in its description).
@@ -81,6 +86,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out = [][]string{}
 		}
 		writeJSON(w, map[string]any{"requests": out})
+	case r.URL.Path == "/__control/request-log":
+		s.mu.Lock()
+		type entry struct {
+			Prompts []string `json:"prompts"`
+			Tools   []string `json:"tools"`
+		}
+		out := make([]entry, len(s.requests))
+		for i := range s.requests {
+			out[i] = entry{Prompts: s.requests[i], Tools: []string{}}
+			if i < len(s.requestTools) && s.requestTools[i] != nil {
+				out[i].Tools = s.requestTools[i]
+			}
+		}
+		s.mu.Unlock()
+		writeJSON(w, map[string]any{"requests": out})
 	case r.URL.Path == "/__control/tools":
 		s.mu.Lock()
 		out := s.tools
@@ -92,6 +112,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/__control/reset-requests" && r.Method == http.MethodPost:
 		s.mu.Lock()
 		s.requests = nil
+		s.requestTools = nil
 		s.mu.Unlock()
 		writeJSON(w, map[string]bool{"ok": true})
 	case r.URL.Path == "/__control/health":
@@ -189,6 +210,11 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	s.requests = append(s.requests, prompts)
+	names := []string{}
+	for _, t := range req.Tools {
+		names = append(names, t.Function.Name)
+	}
+	s.requestTools = append(s.requestTools, names)
 	if len(req.Tools) > 0 {
 		s.tools = map[string]string{}
 		for _, t := range req.Tools {

@@ -267,6 +267,7 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 		b.resolveClientMessageID(sid, &msg)
 		events := []backend.BackendEvent{wrap(sid, backend.Event{Kind: backend.EventMessage, Message: &msg})}
 		if msg.Role == "assistant" {
+			b.noteSessionModel(sid, info)
 			if u := usageFromMessageMap(info); u != nil {
 				b.fillContextMax(info, u)
 				b.setSessionUsage(sid, u)
