@@ -537,6 +537,8 @@ export interface Transcript {
 	/** Unanswered question-tool asks; a machine older than this field omits it. */
 	questions?: Array<{ id: string; questions: Question[]; callId?: string }>;
 	status: SessionStatus;
+	/** Why a `retry` status waits (PROTOCOL.md §7); a machine older than this omits it. */
+	retry?: RetryInfo;
 	usage: Usage | null;
 	todos: Todo[];
 	/** History paging (§6): when session.sync carried a `limit`, the
@@ -555,7 +557,7 @@ export type NormalizedEvent =
 	| { kind: "part"; part: Part }
 	| { kind: "delta"; messageId: string; partId: string; role: string; field: "text"; delta: string }
 	| { kind: "part.removed"; messageId: string; partId: string }
-	| { kind: "status"; status: SessionStatus; detail?: string }
+	| { kind: "status"; status: SessionStatus; detail?: string; retry?: RetryInfo }
 	| { kind: "permission.asked"; request: PermissionRequest }
 	| { kind: "permission.replied"; requestId: string; decision: string; by: "user" | "auto" }
 	| { kind: "usage"; usage: Usage }
@@ -1114,4 +1116,13 @@ export function decodeBinaryFrame(raw: Buffer): BinaryFrame | null {
 	// than silently truncated by Number().
 	if (offset > BigInt(Number.MAX_SAFE_INTEGER)) return null;
 	return { kind, channel, offset: Number(offset), payload: Buffer.from(payload) };
+}
+
+/** The model provider is refusing or failing and the backend is waiting to try
+ * again (PROTOCOL.md §7): `message` is the provider's own text, `next` the
+ * epoch milliseconds of the next try when known. */
+export interface RetryInfo {
+	attempt: number;
+	message: string;
+	next?: number;
 }

@@ -397,6 +397,29 @@ describe("a permission raised during a reconnect gap must appear", () => {
 });
 
 describe("eventToUpdates: one live event at a time", () => {
+	it("keeps the retry facts on a running turn state, and busy stays plain", () => {
+		const retry = { attempt: 3, message: "Rate limit exceeded", next: 1_760_000_000_000 };
+		expect(eventToUpdates({ kind: "status", status: "retry", retry })).toEqual([
+			{ type: MessageUpdateType.TurnState, state: "running", serverNow: expect.any(Number), retry },
+		]);
+		// An older galopin sends no retry: today's look.
+		expect(eventToUpdates({ kind: "status", status: "retry" })).toEqual([
+			{ type: MessageUpdateType.TurnState, state: "running", serverNow: expect.any(Number) },
+		]);
+	});
+
+	it("a snapshot taken mid-retry carries the retry facts too", () => {
+		const retry = { attempt: 2, message: "Overloaded" };
+		const updates = snapshotToUpdates(
+			{ messages: [], permissions: [], status: "retry", retry, usage: null, todos: [] },
+			undefined
+		);
+		expect(updates.find((u) => u.type === MessageUpdateType.TurnState)).toMatchObject({
+			state: "running",
+			retry,
+		});
+	});
+
 	it("maps status busy/idle/error and a dedicated error event", () => {
 		expect(eventToUpdates({ kind: "status", status: "busy" })).toEqual([
 			{ type: MessageUpdateType.TurnState, state: "running", serverNow: expect.any(Number) },

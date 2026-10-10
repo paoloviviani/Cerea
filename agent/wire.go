@@ -32,6 +32,9 @@ func eventToWire(ev backend.Event) map[string]any {
 		if ev.Detail != "" {
 			m["detail"] = ev.Detail
 		}
+		if ev.Retry != nil {
+			m["retry"] = ev.Retry
+		}
 	case backend.EventPermissionAsked:
 		m["request"] = ev.Request
 	case backend.EventPermissionReplied:

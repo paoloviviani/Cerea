@@ -63,6 +63,9 @@ export interface MessageTurnStateUpdate {
 	until?: number;
 	reason?: string;
 	error?: string;
+	/** A code session waiting to retry a failing model provider: attempt,
+	 * the provider's message, epoch ms of the next try. */
+	retry?: { attempt: number; message: string; next?: number };
 }
 
 // Status
