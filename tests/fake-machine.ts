@@ -699,6 +699,7 @@ export class FakeMachine {
 					rules: [...model.permissionRules, ...block, ...tail],
 					savedApprovals: model.savedApprovals,
 					ceiling: model.permissionCeiling,
+					coordination: model.coordination.get(sessionId) ?? [],
 				};
 			}
 			case "permission.saved.remove": {

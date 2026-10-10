@@ -1171,6 +1171,8 @@
 		deviceId={permissionsFor.device.id}
 		agentId={permissionsFor.agent.id}
 		sessionTitle={permissionsFor.agent.title}
+		device={permissionsFor.device}
+		subagent={Boolean(permissionsFor.agent.parentId)}
 		policy={permissionsFor.device.policy}
 		onreenroll={() => (pairingOpen = true)}
 		onclose={() => (permissionsFor = null)}

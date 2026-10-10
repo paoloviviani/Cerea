@@ -11,13 +11,15 @@
 	Opened from a session's ⋯ menu in the agents sidebar (CodeNavTree) or
 	from the details button beside the composer's Deny / Ask / Allow
 	selector (AgentComposer), so the transcript and its approval cards stay
-	in view while the person reads it. It is read-only. The one setting is
-	the composer's Deny / Ask / Allow selector; the one write here is Remove
-	on an exception, which can only tighten (that command asks again). What
-	it shows is always the machine's last word: the dialog reads the rules
-	and the exceptions itself, for the session it was opened for, and
-	re-reads after every change. The ceiling, the machine's own rules and
-	its policy have no control here at all.
+	in view while the person reads it. The Deny / Ask / Allow selector and
+	the Coordination switches are the two ways to grant here: the former is
+	the composer's, the latter replaces a repeated approval card with a
+	grant the session keeps; Remove on an exception can only tighten (that
+	command asks again). What it shows is always the machine's last
+	word: the dialog reads the rules and the exceptions itself, for the
+	session it was opened for, and re-reads after every change. The
+	ceiling, the machine's own rules and its policy have no control here
+	at all.
 
 	An exception is what the card's "Always allow" leaves behind: one command
 	or pattern allowed for this session, on top of the selector. Switching to
@@ -32,7 +34,13 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
-	import { CodeApiError, getPermissionRules, removeSavedApproval } from "$lib/codeApi";
+	import {
+		CodeApiError,
+		getPermissionRules,
+		removeSavedApproval,
+		setCoordinationGrant,
+		type CodeDeviceView,
+	} from "$lib/codeApi";
 	import type { PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import {
@@ -44,6 +52,13 @@
 		overriddenLabel,
 		type RuleAction,
 	} from "$lib/utils/permissionRules";
+	import {
+		ceilingNote,
+		coordinationKeys,
+		coordinationOptions,
+		coordinationSupport,
+		type CoordinationOptions,
+	} from "$lib/utils/coordination";
 	import { error as errorToast } from "$lib/stores/errors";
 	import IconShield from "~icons/lucide/shield";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
@@ -55,6 +70,14 @@
 		/** The session's title, for the heading: the dialog is one session's
 		 * and can be opened for a row that is not the one on screen. */
 		sessionTitle: string;
+		/** The device row this session belongs to, for the coordination
+		 * switches' disabled reasons (a galopin too old to grant, agent tools
+		 * off) and the ceiling note. Unknown when the tree has not loaded
+		 * it — the switches stay usable and the grant itself answers. */
+		device?: CodeDeviceView;
+		/** A subagent holds no grant of its own (it follows its root):
+		 * the section says so instead of offering the switches. */
+		subagent?: boolean;
 		/** Called after an exception is removed (the dialog re-reads itself);
 		 * a parent showing the exceptions count re-reads with it. */
 		onchanged?: () => void;
@@ -66,9 +89,20 @@
 		onclose: () => void;
 	}
 
-	let { deviceId, agentId, sessionTitle, onchanged, policy, onreenroll, onclose }: Props = $props();
+	let {
+		deviceId,
+		agentId,
+		sessionTitle,
+		device,
+		subagent = false,
+		onchanged,
+		policy,
+		onreenroll,
+		onclose,
+	}: Props = $props();
 
 	let removing = $state<string | null>(null);
+	let coordinating = $state(false);
 
 	/** The machine's `permission.rules` answer for this session, read here:
 	 * the dialog owns its read, so it can be opened for any session's row,
@@ -134,6 +168,30 @@
 			errorToast.set(err instanceof Error ? err.message : "Could not remove that exception.");
 		} finally {
 			removing = null;
+		}
+	}
+
+	/** The session's grant read back as the two switches, in the same
+	 * wording the schedules use (utils/coordination.ts). */
+	let grant = $derived(coordinationOptions(result?.coordination ?? []));
+	/** Whether the machine can take a grant at all; null while the device
+	 * row is unknown — the switches stay usable and the grant itself
+	 * answers (an old galopin 404s with the reason). */
+	let grantable = $derived(device ? coordinationSupport(device) : null);
+	let ceilingWarning = $derived(device ? ceilingNote(device, result?.coordination ?? []) : null);
+
+	async function setGrant(next: CoordinationOptions) {
+		if (coordinating) return;
+		coordinating = true;
+		console.log("DEBUG setGrant", JSON.stringify(next));
+		try {
+			await setCoordinationGrant(deviceId, agentId, coordinationKeys(next));
+			await load();
+			onchanged?.();
+		} catch (err) {
+			errorToast.set(err instanceof Error ? err.message : "Could not change the grant.");
+		} finally {
+			coordinating = false;
 		}
 	}
 </script>
@@ -249,6 +307,58 @@
 							Exceptions last for this session only. Deny blocks them without deleting them;
 							switching back to Ask restores them.
 						</p>
+					{/if}
+				</div>
+
+				<div>
+					<p class="mb-1 font-medium text-ink">Coordination</p>
+					{#if subagent}
+						<p class="text-ink-muted">
+							A subagent follows its root's setting and holds no grant of its own. Open this dialog
+							on the main session to change it.
+						</p>
+					{:else if grantable && !grantable.ok}
+						<p class="text-ink-muted" data-testid="coordination-unavailable">
+							{grantable.detail}
+						</p>
+					{:else}
+						<div
+							class="space-y-2"
+							role="group"
+							aria-label="Coordination with other sessions"
+							data-testid="coordination-options"
+						>
+							<label class="flex items-start gap-2 text-sm text-ink">
+								<input
+									type="checkbox"
+									class="mt-1"
+									checked={grant.canMessage}
+									disabled={coordinating}
+									onchange={() =>
+										void setGrant({ canMessage: !grant.canMessage, canSpawn: grant.canSpawn })}
+								/>
+								<span>Can find, read and message other sessions</span>
+							</label>
+							<label class="flex items-start gap-2 text-sm text-ink">
+								<input
+									type="checkbox"
+									class="mt-1"
+									checked={grant.canSpawn}
+									disabled={coordinating}
+									onchange={() =>
+										void setGrant({ canMessage: grant.canMessage, canSpawn: !grant.canSpawn })}
+								/>
+								<span>Can start new sessions</span>
+							</label>
+						</div>
+						<p class="mt-1 text-ink-faint">
+							Takes effect on the session's next turn. Still asks: a session in another workspace, a
+							send past three hops, anything this machine caps at Ask — and the rate limits still
+							apply. A session it spawns starts with the same grant.
+						</p>
+						{#if ceilingWarning}
+							<p class="mt-1 text-ink-faint">{ceilingWarning}</p>
+						{/if}
 					{/if}
 				</div>
 
