@@ -5,20 +5,48 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.1 — 2026-10-10
 
-- Going back to a session you had open shows it at once: the last 8 sessions are kept in memory and refresh in the background.
-- **Documented, no behaviour change: a long session's permission list grows.**
-  opencode 1.18.34 only appends session rules, so each change of a session's
-  Deny/Ask/Allow word, exceptions or the machine ceiling adds one composed
-  block (the newest always wins). Measured cost is record size, not speed
-  (about 100 KB at 1,300 rules); see the agent protocol, section 6. Machines
-  do not need the galopin update for this.
-- A session whose model provider is rate-limiting or overloaded no longer looks hung: the agent view says "Retrying — Rate limit exceeded (attempt 3, next try in 20 s)" beside Stop. **A galopin update is needed** for the detail; Cerea alone keeps the old look.
-- The agent's task plan no longer splits its thinking and no longer reappears on the latest message when nothing changed.
-- The desktop sidebar is wider (340px, from 300), so a session's title is no
-  longer cut short beside its state and menu, as it already was not on a
-  phone.
+Pins: Cerea `0.10.1`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the
+galopin update** for the retry notice (re-run the install line from the
+pairing dialog, then `systemctl --user restart galopin`); everything else
+is Cerea only.
+
+- **Going back to a session shows it at once.** The last 8 sessions you had
+  open are kept in memory (never on disk); reopening one shows it straight
+  away instead of the loading skeleton, and the fresh replay replaces it in
+  the background without moving what you were reading. Until then the
+  copy is display only (paging, retry and fork wait for the refresh).
+  Cerea only.
+- **A background subagent no longer makes the parent look busy.** When a
+  session ended its turn with a background subagent still working, the
+  child's next permission card opened a new answer with no end, so the
+  view showed dots and Stop as if the parent were running again. The card
+  now joins the last answer. Cerea only.
+- **The mountain is the progress mark.** The three dots are gone: while a
+  turn works, the animated mountain shows on its own (no empty bubble) and
+  then inline where the dots were; answers use the whole row on desktop as
+  they already did on a phone; your message's Edit/Copy row sits right,
+  under it. Cerea only.
+- **The desktop sidebar is wider** (340px, from 300), so a session's title
+  is no longer cut short beside its state and menu. Cerea only.
+- **A session waiting on a refusing model provider says so.** When the
+  provider rate-limits or is overloaded, opencode keeps retrying with
+  backoff; the agent view now shows "Retrying — Rate limit exceeded
+  (attempt 3, next try in 20 s)" with a live countdown, beside Stop,
+  instead of a silent running turn that read as a hang. Needs the galopin
+  update; Cerea alone keeps the old look.
+- **The agent's task plan stays out of the thinking.** At most one plan card
+  per message, after its thinking and tool steps and before the answer; it
+  no longer splits the "Thought / Called N tools" group, and it no longer
+  reappears on the newest message when nothing changed (on every page open,
+  or when opencode re-sent an unchanged list). Cerea only.
+- **Documented: a long session's permission list grows.** opencode 1.18.34
+  only appends session rules, so each change of a session's word,
+  exceptions, grant or the machine ceiling adds one composed block (the
+  newest always wins). Measured cost is record size, not speed (about
+  100 KB at 1,300 rules); see the agent protocol, section 6. No behaviour
+  change.
 
 ## v0.10.0 — 2026-10-10
 
