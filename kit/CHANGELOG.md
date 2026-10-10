@@ -5,40 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.0 — 2026-10-10
 
-- A session's Permissions dialog can let its agent read and message other
-  sessions in the workspace without asking each time: the dialog's new
-  Coordination section grants the standing answer to the orchestrator's
-  repeated cards, from the session's next turn. Cerea only, no galopin
-  update.
-- **Permissions belong to the session, visibly.** The sidebar's Permissions
-  item read as machine-wide but was the selected session's; it is gone.
-  A session's ⋯ menu now has **Permissions…** (not on subagents), and the
-  composer has a shield button beside the Deny · Ask · Allow selector that
-  carries the exceptions count. Both open the dialog for that session —
-  titled _Permissions — <session title>_ — which reads the session's rules
-  itself. Cerea only; no galopin update.
-- "Fork from here" is back on finished agent messages.
-- A long agent session opens behind a "Loading conversation…" skeleton and
-  lands on its newest message instead of rendering itself from the top
-  (measured: ~120 s to first content for 1,000 messages before, ~12 s
-  after; ~287 s → ~53 s on a throttled phone).
-- **A failed agent turn says why, on the turn itself.** When a provider
-  refuses a turn (Cortecs answering `Insufficient Balance.` with HTTP 401,
-  for example), the panel showed only a generic error; the provider's own
-  text now appears on the failed turn, with a hint to check the credit or
-  key for the auth/payment statuses. **A GALOPIN UPDATE IS NEEDED**: Cerea
-  alone still shows the generic error (the machines' agent forwards the
-  detail; re-run the install line from the pairing dialog, then
-  `systemctl --user restart galopin`).
+Pins: Cerea `0.10.0`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the
+galopin update** for paged transcripts, provider errors on the failed turn,
+the safe directories and the background-wait guidance: re-run the install
+line from the pairing dialog, then `systemctl --user restart galopin`. With
+only the new Cerea (or only the new galopin) a session still opens the old
+way, behind the loading skeleton.
+
 - **A long agent session opens in about a second.** The opening snapshot
   carries only the newest 40 messages; scrolling near the top fetches the
   previous pages (`session.history`, capability `historyPaging`) with the
   visible message held where it was — a loading row while a page is in
-  flight, a quiet marker at the start of the session. **A galopin update
-  is needed**: older machines keep sending the whole log, which still
-  opens behind the skeleton.
+  flight, a quiet marker at the start of the session. While a session loads
+  it shows a "Loading conversation…" skeleton and lands on its newest
+  message instead of rendering itself from the top. Needs the galopin
+  update for the paging; older machines keep sending the whole log behind
+  the skeleton.
 - **A few safe directories outside the workspace never ask.** `/tmp`, the
   temp directory and the toolchain caches a build or test run needs
   (`~/.cache/go-build`, `~/.cache/pip`, `~/.cache/uv`, `~/.cache/pnpm`,
@@ -49,16 +33,33 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   policy holds the list (`enroll --safe-dir PATH` replaces the default,
   `--no-safe-dirs` empties it; `galopin policy set --no-safe-dir PATH` may
   only remove), the ceiling still caps it, and the Permissions dialog names
-  it in the _Work outside the project folder_ row. A machine enrolled before
-  gets the default list with the update. A safe directory is one the agent
-  may write into, so the list stays short. **A galopin update is needed**:
-  an older galopin keeps asking (and the dialog shows no line).
+  it in the _Work outside the project folder_ row. A machine enrolled
+  before gets the default list with the update. A safe directory is one the
+  agent may write into, so the list stays short. Needs the galopin update.
+- **A session can coordinate without a card each time.** The Permissions
+  dialog's new Coordination section lets a session's agent find, read and
+  message other sessions in the workspace, and start new ones, from its next
+  turn; sessions it spawns inherit the grant. Another workspace, a send past
+  three hops and anything the machine caps still ask. Works with the
+  current galopin.
+- **Permissions belong to the session, visibly.** The sidebar's Permissions
+  item read as machine-wide but was the selected session's; it is gone. A
+  session's ⋯ menu now has **Permissions…** (not on subagents), and the
+  composer has a shield button beside the Deny · Ask · Allow selector that
+  carries the exceptions count. Both open the dialog for that session,
+  titled _Permissions — ‹session title›_.
+- **A failed agent turn says why, on the turn itself.** When a provider
+  refuses a turn (Cortecs answering `Insufficient Balance.` with HTTP 401,
+  for example), the provider's own text now appears on the failed turn,
+  with a hint to check the credit or key for the auth/payment statuses.
+  Needs the galopin update; without it the generic error stays.
 - **Agents stop blocking their turn on long waits.** opencode's bash has no
   background mode, so an agent waiting on CI, a full test suite or a release
   wrote foreground sleep-and-poll loops that held the whole turn. galopin's
   delegation skill now says to hand any such wait to a background task
   (`task` with `background: true`), end the turn, and pick up when the
   result arrives. Ships with the galopin update.
+- "Fork from here" is back on finished agent messages.
 
 ## v0.9.4 — 2026-10-09
 
