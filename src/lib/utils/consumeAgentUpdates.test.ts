@@ -320,6 +320,30 @@ describe("consumeAgentUpdates", () => {
 		});
 	});
 
+	describe("the bridge's historyMeta frame", () => {
+		it("reports the snapshot's paging facts without touching the transcript", async () => {
+			const messages: Message[] = [];
+			const onHistoryMeta = vi.fn();
+			await consumeAgentUpdates(
+				of([user("go"), { type: "historyMeta", hasMore: true, before: "msg_1" }]),
+				messages,
+				{ isAborted: () => false, onAbort: vi.fn(), onTurnEvent: vi.fn(), onHistoryMeta }
+			);
+			expect(onHistoryMeta).toHaveBeenCalledTimes(1);
+			expect(onHistoryMeta).toHaveBeenCalledWith({
+				type: "historyMeta",
+				hasMore: true,
+				before: "msg_1",
+			});
+			expect(messages).toHaveLength(1);
+		});
+
+		it("is a silent no-op without the callback", async () => {
+			const messages = await run([{ type: "historyMeta", hasMore: false }]);
+			expect(messages).toHaveLength(0);
+		});
+	});
+
 	describe("usage and compaction: a side channel that never touches turn structure (M3)", () => {
 		it("calls onUsage without opening a turn, disturbing the pending message, or affecting the transcript", async () => {
 			const messages: Message[] = [];

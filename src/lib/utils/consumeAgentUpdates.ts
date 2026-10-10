@@ -61,6 +61,11 @@ export interface AgentConsumeContext {
 	 * Fires with the buffer committed, so the last message is whole; fires
 	 * again on every SSE reconnect (the replay re-runs per connection). */
 	onHistoryDone?: () => void;
+	/** The bridge's `historyMeta` frame: the paging facts of the snapshot
+	 * just folded (§6 session.sync's `limit`) — whether older pages exist
+	 * behind it, and the cursor they continue from. Fires only when the
+	 * machine trimmed; a whole snapshot yields neither marker nor paging. */
+	onHistoryMeta?: (meta: { hasMore: boolean; before?: string }) => void;
 }
 
 export async function consumeAgentUpdates(
@@ -390,6 +395,12 @@ export async function consumeAgentUpdates(
 			case "historyDone": {
 				flushBuffer();
 				ctx.onHistoryDone?.();
+				break;
+			}
+			// The bridge's own paging facts (never from a machine): a side
+			// channel like historyDone — never touches turn structure.
+			case "historyMeta": {
+				ctx.onHistoryMeta?.(update);
 				break;
 			}
 			case MessageUpdateType.Stream: {

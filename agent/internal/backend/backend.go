@@ -60,6 +60,35 @@ type Capabilities struct {
 	// listed and removed (permission.rules, session.setPermissionMode,
 	// permission.saved.remove — PROTOCOL.md §6 "Permissions"). opencode only.
 	Permissions bool `json:"permissions"`
+	// HistoryPaging is fetching a session's older transcript in pages
+	// (session.history, and the limit/hasMore/before trim on session.sync's
+	// snapshot — PROTOCOL.md §6): the backend's storage can serve "the
+	// newest N messages older than this one". opencode pages its message
+	// list; ACP has no such read, so a long session there keeps arriving as
+	// one whole snapshot.
+	HistoryPaging bool `json:"historyPaging"`
+}
+
+// HistoryPage is one session.history answer (PROTOCOL.md §6): the page's
+// entries oldest first, whole messages only (a part never travels without
+// the message that owns it), whether still older messages exist behind the
+// page, and Before — the page's oldest message's id, the cursor the next
+// request names. An empty page (nothing older, or the cursor message is no
+// longer in the storage) carries HasMore false and no Before.
+type HistoryPage struct {
+	Entries []TranscriptEntry
+	HasMore bool
+	Before  string
+}
+
+// HistoryPager is the optional "historyPaging" capability: one older page of
+// a session's transcript. before is a message id the caller has already seen
+// (the previous page's oldest, or the snapshot's oldest); the page is the
+// newest limit messages strictly older than it, in ascending order — the
+// same per-message mapping Transcript produces, minus permissions,
+// questions, status and usage, which are live state no older page carries.
+type HistoryPager interface {
+	History(ctx context.Context, workspaceDir, sessionID, before string, limit int) (HistoryPage, error)
 }
 
 // CreateSessionOptions are session.create's optional fields (PROTOCOL.md

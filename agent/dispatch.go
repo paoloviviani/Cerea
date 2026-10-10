@@ -229,6 +229,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return nil, opErrf("unsupported", "%s is retired: use session.setPermissionMode (PROTOCOL.md §6 \"Permissions\")", op)
 	case "session.sync":
 		return mc.opSessionSync(ctx, args)
+	case "session.history":
+		return mc.opSessionHistory(ctx, args)
 	case "session.diff":
 		return mc.opSessionDiff(ctx, args)
 	case "session.children":
@@ -669,6 +671,7 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 		SessionID string `json:"sessionId"`
 		Epoch     string `json:"epoch,omitempty"`
 		AfterSeq  int64  `json:"afterSeq,omitempty"`
+		Limit     int    `json:"limit,omitempty"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
@@ -683,6 +686,42 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 	out := map[string]any{"epoch": res.Epoch, "seq": res.Seq}
 	if res.Snapshot != nil {
 		out["snapshot"] = res.Snapshot
+		// The history-paging trim (PROTOCOL.md §6 session.sync limit): the
+		// NEWEST limit messages only, with hasMore/before saying what the
+		// caller may page below. Wire-only — the materializer keeps the
+		// whole transcript for its own uses (session.children's spawn
+		// anchors, a later unlimited sync). The trim is offered only by a
+		// backend that can also serve the older pages: hasMore must never
+		// promise a page session.history cannot give.
+		if a.Limit > 0 {
+			if _, ok := mc.back.(backend.HistoryPager); ok && mc.back.Capabilities().HistoryPaging {
+				snap := *res.Snapshot
+				hasMore := false
+				before := ""
+				if n := len(snap.Messages); n > a.Limit {
+					snap.Messages = append([]backend.TranscriptEntry(nil), snap.Messages[n-a.Limit:]...)
+					hasMore = true
+					before = snap.Messages[0].Message.ID
+				}
+				// Transcript has a MarshalJSON of its own, so the two paging
+				// fields cannot ride an embedding — the promoted marshaler
+				// would emit the transcript alone. Marshal the transcript,
+				// then add them to the object it produced.
+				raw, err := json.Marshal(snap)
+				if err != nil {
+					return nil, backendErr(err)
+				}
+				var m map[string]any
+				if err := json.Unmarshal(raw, &m); err != nil {
+					return nil, backendErr(err)
+				}
+				m["hasMore"] = hasMore
+				if before != "" {
+					m["before"] = before
+				}
+				out["snapshot"] = m
+			}
+		}
 		return out, nil
 	}
 	envs := make([]map[string]any, 0, len(res.Events))
@@ -697,6 +736,50 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 	}
 	out["events"] = orEmpty(envs)
 	return out, nil
+}
+
+// opSessionHistory serves one older page of a session's transcript
+// (PROTOCOL.md §6 session.history): messages only — no permissions,
+// questions, status or usage, which are live state no older page carries —
+// in the same per-message shape session.sync's snapshot maps them. The op
+// is optional: a backend without the historyPaging capability answers
+// unsupported, and an older galopin answers the unknown op unsupported the
+// usual way.
+func (mc *machine) opSessionHistory(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string `json:"sessionId"`
+		Before    string `json:"before"`
+		Limit     int    `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.SessionID == "" {
+		return nil, opErrf("invalid", "sessionId is required")
+	}
+	if a.Before == "" {
+		return nil, opErrf("invalid", "before is required")
+	}
+	if a.Limit < 1 || a.Limit > 500 {
+		return nil, opErrf("invalid", "limit must be between 1 and 500")
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	pager, ok := mc.back.(backend.HistoryPager)
+	if !ok || !mc.back.Capabilities().HistoryPaging {
+		return nil, opErrf("unsupported", "backend %s has no historyPaging capability", mc.back.ID())
+	}
+	page, err := pager.History(ctx, dir, a.SessionID, a.Before, a.Limit)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	return map[string]any{
+		"messages": orEmpty(page.Entries),
+		"hasMore":  page.HasMore,
+		"before":   page.Before,
+	}, nil
 }
 
 func (mc *machine) opSessionDiff(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
