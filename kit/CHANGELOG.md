@@ -8,8 +8,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## v0.10.2 — 2026-10-10
 
 Pins: Cerea `0.10.2`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
-galopin update** for steering: re-run the install line from the pairing
-dialog, then `systemctl --user restart galopin`.
+galopin update** for steering and for subagents keeping their tools: re-run
+the install line from the pairing dialog, then
+`systemctl --user restart galopin`.
 
 - **Sending while a turn runs (steer) works again: galopin never advertised
   it.** `buildHello` omitted `steer` and `agentTools` from the capabilities
@@ -17,6 +18,21 @@ dialog, then `systemctl --user restart galopin`.
   beside Stop on a running turn. It sends every capability the backend
   reports now, checked by a test that walks the capability struct. Needs the
   galopin update.
+- **Subagents keep their tools when the session was once on Deny.** opencode
+  starts a task subagent with only its parent's deny rules, and session rules
+  only ever grow, so a session switched to Deny even once (for a second) gave
+  every later subagent a first step with **no tools at all**: the model could
+  only answer in text, and a background subagent ended there. galopin now
+  opens every rule block with a deny that can never apply, which keeps the
+  children's tools visible without changing any decision; sessions affected
+  before this release recover on their next message. Upstream:
+  anomalyco/opencode#45078. Needs the galopin update.
+- **A subagent's model line names the model it actually runs on**, instead of
+  the machine's default model ("Claude Sonnet 4 · Default"): galopin reports
+  it from the subagent's own messages. Needs the galopin update.
+- A server test that hung in CI (the account-erasure test for chat
+  attachments listened for its second upload only after awaiting the first)
+  is fixed.
 - **Pystino 0.4.1:** the Identity page's "Create an account on first
   sign-in" hint describes the state the box is in — On said what Off does,
   and pointed to a rule the ticked box hides. Cerea only.
