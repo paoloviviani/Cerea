@@ -17,7 +17,12 @@ git fetch -q origin || stop "fetch"
 SHA=$(git rev-parse origin/main)
 [ "$(git show "$SHA:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')" = "$V" ] ||
 	stop "origin/main's package.json is not $V: push the release commit first"
-git show "$SHA:kit/CHANGELOG.md" | grep -q "^## $T " || stop "kit/CHANGELOG.md has no '## $T' entry"
+# No -q on purpose: grep -q exits at the first match while git show is still
+# writing the blob into the pipe, and under pipefail the writer's SIGPIPE
+# fails the pipeline even though the entry is there (it stopped a release
+# one time in two). Without -q grep reads to EOF, so the check is
+# deterministic.
+git show "$SHA:kit/CHANGELOG.md" | grep "^## $T " >/dev/null || stop "kit/CHANGELOG.md has no '## $T' entry"
 git ls-remote --exit-code origin "refs/tags/$T" >/dev/null && stop "$T already exists"
 echo "releasing $T at $SHA"
 
