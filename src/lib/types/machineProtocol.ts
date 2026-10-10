@@ -500,7 +500,15 @@ export function parsePermissionRules(raw: unknown): PermissionRulesResult {
 			const parsed = permissionRuleSchema.safeParse(item);
 			return parsed.success ? [parsed.data] : [];
 		}),
-		safeDirs: items(object.safeDirs).filter((item): item is string => typeof item === "string"),
+		// Absent stays absent: a galopin older than the field says nothing about
+		// safe directories, which is not the same as a machine that has none.
+		...(Array.isArray(object.safeDirs)
+			? {
+					safeDirs: (object.safeDirs as unknown[]).filter(
+						(item): item is string => typeof item === "string"
+					),
+				}
+			: {}),
 		savedApprovals: items(object.savedApprovals).flatMap((item) => {
 			const parsed = savedApprovalSchema.safeParse(item);
 			if (!parsed.success) return [];

@@ -86,8 +86,9 @@ Usage:
                selector sits after it, and the ceiling still caps both.
   --safe-dir PATH  A directory outside the workspace whose contents never
                ask (repeatable; given, it REPLACES the default list: /tmp
-               and the temp dir, the user's cache, ~/go/pkg/mod, ~/.npm and
-               ~/.local/share/pnpm — those that exist). A safe directory is
+               and the temp dir, ~/.cache/{go-build,pip,uv,pnpm,node-gyp},
+               ~/go/pkg/mod, ~/.npm and ~/.local/share/pnpm — those that
+               exist; never the whole ~/.cache). A safe directory is
                one the agent may write into: external_directory does not
                separate read from write, so a poisoned build cache is the
                residual risk, and the list stays short on purpose. The
