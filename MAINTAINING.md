@@ -265,12 +265,6 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
     generation…": the second tab is redirected to `/login?next=/code`.
 - **CI's `check` job flakes** on `mongodb-memory-server` (a 60 s timeout, or a
   SIGSEGV). A rerun passes.
-- **galopin's hello omits two capabilities** it defines: `agentTools` and
-  `steer` are on the backend's `Capabilities` but `buildHello` (`agent/run.go`)
-  does not send them, so Cerea reads both as false and the composer never offers
-  Send beside Stop on a running turn (`PROTOCOL.md` §5 states the gap). A fix is
-  a bug fix (add both keys to the map, and a test that the hello carries every
-  capability the backend reports), plus a galopin release.
 - Offered to the owner, not decided: a drag-to-resize sidebar; running each
   scheduled run in its own git worktree (galopin already has
   `workspace.create {worktree}` and `workspace.archive {removeWorktree}`).

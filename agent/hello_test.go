@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
+	"galopin/internal/backend"
 	"galopin/internal/policy"
 )
 
@@ -52,5 +54,49 @@ func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	body, _ = json.Marshal(buildHello(newE2EFakeBackend(), policy.Default()))
 	if !strings.Contains(string(body), `"autoAccept":"denied"`) || !strings.Contains(string(body), `"max":{}`) {
 		t.Errorf("default hello policy = %s", body)
+	}
+}
+
+// allCapsBackend reports every field of backend.Capabilities true (built by
+// reflection, so a capability added to the struct later is covered without
+// touching this test).
+type allCapsBackend struct{ backend.Backend }
+
+func (allCapsBackend) ID() string      { return "fake-all-caps" }
+func (allCapsBackend) Version() string { return "0.0.0" }
+func (allCapsBackend) Capabilities() backend.Capabilities {
+	caps := backend.Capabilities{}
+	v := reflect.ValueOf(&caps).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		v.Field(i).SetBool(true)
+	}
+	return caps
+}
+
+// Every field of backend.Capabilities must reach the hello's capabilities
+// map: Cerea hides affordances a backend lacks from what the map says, so a
+// field buildHello forgets is a feature that silently never switches on
+// (agentTools and steer were both lost this way). The assertion walks the
+// struct, so a new capability cannot be forgotten again.
+func TestHelloAdvertisesEveryCapability(t *testing.T) {
+	caps := buildHello(allCapsBackend{}, policy.Default()).Backends[0].Capabilities
+	typ := reflect.TypeOf(backend.Capabilities{})
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		key := strings.Split(field.Tag.Get("json"), ",")[0]
+		if key == "" || key == "-" {
+			t.Fatalf("capability field %s carries no json name", field.Name)
+		}
+		got, ok := caps[key]
+		if !ok {
+			t.Errorf("hello capabilities miss %q (field %s): %v", key, field.Name, caps)
+			continue
+		}
+		if !got {
+			t.Errorf("backend reports %q true but the hello sends it false", key)
+		}
+	}
+	if len(caps) != typ.NumField() {
+		t.Errorf("hello capabilities carry %d keys for %d capability fields", len(caps), typ.NumField())
 	}
 }
