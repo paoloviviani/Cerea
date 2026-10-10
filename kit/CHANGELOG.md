@@ -15,6 +15,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   do not need the galopin update for this.
 - A session whose model provider is rate-limiting or overloaded no longer looks hung: the agent view says "Retrying — Rate limit exceeded (attempt 3, next try in 20 s)" beside Stop. **A galopin update is needed** for the detail; Cerea alone keeps the old look.
 - The agent's task plan no longer splits its thinking and no longer reappears on the latest message when nothing changed.
+- The desktop sidebar is wider (340px, from 300), so a session's title is no
+  longer cut short beside its state and menu, as it already was not on a
+  phone.
 
 ## v0.10.0 — 2026-10-10
 
