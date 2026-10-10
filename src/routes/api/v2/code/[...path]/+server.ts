@@ -45,9 +45,11 @@ import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { deleteAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import {
+	COORDINATION_KEYS,
 	OpError,
 	parsePermissionRules,
 	type Command,
+	type CoordinationKey,
 	type Directory,
 	type Session,
 	type Workspace,
@@ -119,6 +121,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	// policy have no route at all.
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/permission-rules$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/permission-mode$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/coordination$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}/permission-approvals/${ID}$`) },
 ];
 
@@ -697,6 +700,17 @@ const permissionModeSchema = z.object({
 	mode: z.enum(["deny", "ask", "allow"]),
 });
 
+/** The message trio of a coordination grant: together or not at all. */
+const MESSAGE_COORDINATION_KEYS = ["session_list", "session_read", "session_send"] as const;
+
+/** The grant's keys, as the machine takes them. The shapes galopin composes
+ * are enforced below: the message trio together or not at all, the spawn key
+ * on its own (`utils/coordination.ts` reads the same shapes, so the dialog
+ * and the schedules agree on what a grant is). */
+const coordinationSchema = z.object({
+	keys: z.array(z.enum(COORDINATION_KEYS)).max(COORDINATION_KEYS.length),
+});
+
 const createSchema = z.object({
 	provider: z.string().trim().min(1).max(64).default("opencode"),
 	posture: z.enum(["plan", "build"]).default("plan"),
@@ -1128,6 +1142,48 @@ export const POST: RequestHandler = async (event) => {
 		}
 		await recordCodeAudit(event, { ...audit, outcome: "sent" });
 		return superjsonResponse({ ok: true });
+	}
+
+	// Which other sessions this one may touch without a card: the machine's
+	// `session.grantCoordination`, the same op the schedules use. The keys
+	// travel as a set and land before the session's next turn; `[]` clears the
+	// grant. `unsupported` (a galopin that predates the op) surfaces as a 404
+	// and a mid-turn session as a 400, like the blanket above. Audited by
+	// session and keys.
+	const coordinationMatch = new RegExp(`^v1/agents/(${ID})/coordination$`).exec(path);
+	if (coordinationMatch) {
+		const parsed = coordinationSchema.safeParse(body);
+		if (!parsed.success)
+			error(
+				400,
+				"Expected { keys: ['session_list' | 'session_read' | 'session_send' | 'session_spawn'] }."
+			);
+		const keys = [...new Set(parsed.data.keys)].sort();
+		const message = keys.filter((key) => key !== "session_spawn");
+		if (
+			message.length !== 0 &&
+			!(
+				message.length === MESSAGE_COORDINATION_KEYS.length &&
+				MESSAGE_COORDINATION_KEYS.every((key) => message.includes(key))
+			)
+		) {
+			error(
+				400,
+				"Grant the message set (session_list, session_read, session_send) together or not at all; session_spawn on its own."
+			);
+		}
+		const sessionId = decodeURIComponent(coordinationMatch[1]);
+		const audit = { action: "coordination.grant", deviceId, sessionId, keys };
+		try {
+			const granted = await callOp(() =>
+				link.sessionGrantCoordination({ sessionId, keys: keys as CoordinationKey[] })
+			);
+			await recordCodeAudit(event, { ...audit, outcome: "sent" });
+			return superjsonResponse(granted);
+		} catch (err) {
+			await recordCodeAudit(event, { ...audit, outcome: "refused" });
+			throw err;
+		}
 	}
 
 	const agentNameMatch = new RegExp(`^v1/agents/(${ID})/name$`).exec(path);

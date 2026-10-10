@@ -651,6 +651,29 @@ export async function getPermissionRules(
 	);
 }
 
+/** Which other sessions this one may touch without a card: the whole new
+ * set (`[]` clears the grant), taking effect on the session's next turn.
+ * A read of the rules afterwards is the truth; the answer here is the
+ * machine's receipt only (`{keys}` as it recorded them). 404s
+ * (`CodeApiError.status === 404`) on a galopin that predates the op or a
+ * session that is not a root. */
+export async function setCoordinationGrant(
+	deviceId: string,
+	agentId: string,
+	keys: string[]
+): Promise<{ keys: string[] }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/coordination?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ keys }),
+			}
+		)
+	);
+}
+
 /** Forget one exception (an "Always allow" on a card), so that command asks
  * again. A tightening, like nothing else here that touches permissions. */
 export async function removeSavedApproval(

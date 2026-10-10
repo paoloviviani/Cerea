@@ -33,6 +33,20 @@ export function coordinationKeys(options: CoordinationOptions): CoordinationKey[
 	return COORDINATION_KEYS.filter((key) => wanted.has(key));
 }
 
+/** The reverse: a grant read back (the dialog's initial state) as the two
+ * options. The machine only ever holds the shapes above, but a set that is
+ * not exactly one of them still reads truthfully — a partial message set
+ * leaves the switch off rather than claiming it. */
+export function coordinationOptions(keys: readonly string[]): CoordinationOptions {
+	return {
+		canMessage:
+			keys.includes("session_list") &&
+			keys.includes("session_read") &&
+			keys.includes("session_send"),
+		canSpawn: keys.includes("session_spawn"),
+	};
+}
+
 /** What the run row and the editor say about a galopin that cannot grant. */
 export const TOO_OLD_DETAIL = "this machine's galopin is too old to grant coordination; update it";
 export const TOOLS_OFF_DETAIL =

@@ -7,6 +7,11 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- A session's Permissions dialog can let its agent read and message other
+  sessions in the workspace without asking each time: the dialog's new
+  Coordination section grants the standing answer to the orchestrator's
+  repeated cards, from the session's next turn. Cerea only, no galopin
+  update.
 - **Permissions belong to the session, visibly.** The sidebar's Permissions
   item read as machine-wide but was the selected session's; it is gone.
   A session's ⋯ menu now has **Permissions…** (not on subagents), and the
