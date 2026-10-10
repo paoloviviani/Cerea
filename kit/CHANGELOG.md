@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- The agent's task plan no longer splits its thinking and no longer reappears on the latest message when nothing changed.
+
 ## v0.10.0 — 2026-10-10
 
 Pins: Cerea `0.10.0`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the
