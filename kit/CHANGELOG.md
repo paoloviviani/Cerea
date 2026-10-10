@@ -14,6 +14,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   (about 100 KB at 1,300 rules); see the agent protocol, section 6. Machines
   do not need the galopin update for this.
 - A session whose model provider is rate-limiting or overloaded no longer looks hung: the agent view says "Retrying — Rate limit exceeded (attempt 3, next try in 20 s)" beside Stop. **A galopin update is needed** for the detail; Cerea alone keeps the old look.
+- The agent's task plan no longer splits its thinking and no longer reappears on the latest message when nothing changed.
 
 ## v0.10.0 — 2026-10-10
 
