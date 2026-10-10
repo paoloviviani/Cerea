@@ -377,8 +377,10 @@ full rules under "Verifying a change". In short:
 - **Run what the change touches, then the gates:** `npm run check`, `npm run lint`
   (or `npx prettier --check` on the files you changed), the server tests for the
   area, and the client tests for any component you changed.
-- **A new test must fail without the fix.** Put the fix aside (`git stash push
-<the fixed file>`), run the test and see it fail, then restore the fix. A test
+- **A new test must fail without the fix.** Put the fix aside (copy the fixed file out
+  of the tree and restore the old version with `git restore --source=<base> --
+<the fixed file>`; not `git stash`, whose stack is shared by every worktree of
+  the clone), run the test and see it fail, then copy the fix back. A test
   that passes either way proves nothing.
 - **A failure is "pre-existing" only once it fails on `main` too.** Rebuild `main`
   without your change and run the same test there. Failing on both: pre-existing,
@@ -406,7 +408,7 @@ Six workflows in `.github/workflows/`.
 | `opencode` | a push to `main` touching `agent/**`, weekly (pinned), daily (latest), manual                                                                              | the whole real-opencode suite against the pinned opencode (`pinned`), and against opencode's newest release (`latest`), which opens or updates an issue                                                                                                                                                                                   |
 | `images`   | manual only (`workflow_dispatch`)                                                                                                                          | builds the image with `APP_BASE=/chat` and pushes it to `ghcr.io/paoloviviani/cerea`; on a `v*.*.*` tag it publishes `X.Y.Z` and `X.Y`, and refuses to overwrite a version that exists                                                                                                                                                    |
 | `docs`     | a push to `main` touching `docs/**`, `mkdocs.yml` or `kit/README.md`, and manual                                                                           | `mkdocs build --strict`, published to GitHub Pages at <https://paoloviviani.github.io/Cerea/>                                                                                                                                                                                                                                             |
-| `contract` | a pull request touching the gateway-facing code or the pin, Mondays 05:23 UTC (against `edge`, non-blocking), manual                                       | this chat's assumptions about Pystino's API, checked against a gateway image (`deploy/ci/pystino-contract.env` names the version)                                                                                                                                                                                                         |
+| `contract` | a pull request touching the gateway-facing code or the pin, manual (no scheduled run: Pystino publishes images only for release tags)                      | this chat's assumptions about Pystino's API, checked against a gateway image (`deploy/ci/pystino-contract.env` names the version)                                                                                                                                                                                                         |
 | `kit`      | a push to `main` or a pull request touching `kit/**`, and manual                                                                                           | the deploy kit, run from `kit/`: its unit tests, `tools/pin --check`, `bash -n dev/build.sh`, `docker compose config` with `.env.example` for every profile, the Caddyfile in all three TLS modes, and `get-kit.sh` under `sh -n` and ShellCheck. No images are pulled or built                                                           |
 
 End-to-end Playwright is not in CI: run it yourself for UI and flow changes.
@@ -431,6 +433,8 @@ pins the Pystino version it was tested with. Then, in this order:
      running the kit sees and any step an upgrade needs on their side (re-running the install line
      on agent machines, pressing Save once, and so on).
 2. **CI green** on that commit: `ci` and `kit` run on every push to `main`; push, then wait.
+   When `agent/` changed, the `opencode` workflow runs too: `release.sh` does not wait for it, so
+   watch it yourself.
 3. **Tag** it, annotated, `vX.Y.Z`, and push the tag. Tags are never moved. (`release.sh`
    uses the message `vX.Y.Z`; when five pushes fail with a GitHub 5xx it creates the tag through
    the API instead, which makes a lightweight tag.)
