@@ -175,6 +175,22 @@ export interface AgentHistoryDoneUpdate {
 	type: "historyDone";
 }
 
+/**
+ * The bridge-internal paging facts of the history replay it just delivered
+ * (§6 session.sync's `limit`): `hasMore` says whether older messages exist
+ * behind the snapshot the view has folded, and `before` is the cursor the
+ * next page continues from (the snapshot's oldest message id — the view
+ * reads the same id off its own oldest message, which mirrors it). Emitted
+ * only when the machine trimmed, so an older galopin yields neither marker
+ * nor paging. Like `historyDone`, it is Cerea's own — no machine ever sends
+ * it, and it is not part of PROTOCOL.md.
+ */
+export interface AgentHistoryMetaUpdate {
+	type: "historyMeta";
+	hasMore: boolean;
+	before?: string;
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
 	| AgentResetUpdate
@@ -183,6 +199,7 @@ export type AgentStreamUpdate =
 	| AgentMessageBoundaryUpdate
 	| AgentChildActivityUpdate
 	| AgentHistoryDoneUpdate
+	| AgentHistoryMetaUpdate
 	| MessageStreamUpdate
 	| MessageToolCallUpdate
 	| MessageToolResultUpdate
@@ -202,6 +219,7 @@ export const AGENT_STREAM_UPDATE_TYPES: readonly string[] = [
 	"messageBoundary",
 	"childActivity",
 	"historyDone",
+	"historyMeta",
 	MessageUpdateType.Stream,
 	MessageUpdateType.Tool,
 	MessageUpdateType.BackgroundTask,

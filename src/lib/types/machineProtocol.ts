@@ -52,6 +52,11 @@ export interface Backend {
 		/** galopin installed the schedule tools (`schedule_list`, `_create`,
 		 * `_update`, `_delete`), which reach Cerea as `call` frames (§5). */
 		scheduleTools?: boolean;
+		/** A session's older transcript can be paged (§6 `session.history`, and
+		 * the `limit`/`hasMore`/`before` trim on `session.sync`'s snapshot).
+		 * Older machines omit it: read as false — the whole snapshot arrives
+		 * as before, and nothing pages. */
+		historyPaging?: boolean;
 	};
 }
 
@@ -520,6 +525,13 @@ export interface Transcript {
 	status: SessionStatus;
 	usage: Usage | null;
 	todos: Todo[];
+	/** History paging (§6): when session.sync carried a `limit`, the
+	 * snapshot holds only the newest limit messages, and `hasMore` says
+	 * whether older ones exist behind the page — `before` naming the page's
+	 * oldest message, the cursor session.history continues from. Absent
+	 * when no limit was asked (an older galopin, or an unlimited sync). */
+	hasMore?: boolean;
+	before?: string;
 }
 
 // -- normalized events (§7) --------------------------------------------------
@@ -578,6 +590,7 @@ export type OpName =
 	| "question.reply"
 	| "permissions.pending"
 	| "session.sync"
+	| "session.history"
 	| "session.diff"
 	| "session.children"
 	| "session.compact"
@@ -632,6 +645,16 @@ export function opDeadlineMs(op: OpName): number {
 export type SyncResult =
 	| { epoch: string; seq: number; events: Envelope[] }
 	| { epoch: string; seq: number; snapshot: Transcript };
+
+/** `session.history`'s answer (§6): the page's messages oldest first —
+ * whole messages, so a tool call and its result are never split — whether
+ * still older messages exist behind it, and the cursor the next request
+ * names (the page's oldest message id; empty when the page is empty). */
+export interface HistoryPage {
+	messages: Array<{ message: Message; parts: Part[] }>;
+	hasMore: boolean;
+	before?: string;
+}
 
 // -- frames -------------------------------------------------------------------
 
@@ -754,6 +777,7 @@ const backendSchema = z.object({
 		coordinationGrant: z.boolean().optional(),
 		steer: z.boolean().optional(),
 		scheduleTools: z.boolean().optional(),
+		historyPaging: z.boolean().optional(),
 	}),
 });
 

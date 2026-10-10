@@ -38,6 +38,7 @@ import {
 	type Command,
 	type Envelope,
 	type FileDiff,
+	type HistoryPage,
 	type Mode,
 	type Model,
 	type OpName,
@@ -458,8 +459,22 @@ export class MachineLink {
 	}> {
 		return this.call("permissions.pending", {});
 	}
-	sessionSync(args: { sessionId: string; epoch?: string; afterSeq?: number }): Promise<SyncResult> {
+	sessionSync(args: {
+		sessionId: string;
+		epoch?: string;
+		afterSeq?: number;
+		/** History paging (§6): the snapshot then holds only the newest
+		 * `limit` messages plus `hasMore`/`before`. A machine older than
+		 * the field ignores it and answers the whole snapshot. */
+		limit?: number;
+	}): Promise<SyncResult> {
 		return this.call("session.sync", args);
+	}
+	/** One older page of a session's transcript (§6 session.history) —
+	 * messages only, no permissions/questions/status. Capability
+	 * `historyPaging`; anything else answers `unsupported`. */
+	sessionHistory(args: { sessionId: string; before: string; limit: number }): Promise<HistoryPage> {
+		return this.call("session.history", args);
 	}
 	sessionDiff(args: { sessionId: string }): Promise<{ files: FileDiff[] }> {
 		return this.call("session.diff", args);

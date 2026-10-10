@@ -3,12 +3,14 @@ package opencode
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +106,10 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		CoordinationGrant: b.toolsEnabled() && b.cfg.Permissions != nil,
 		// The schedule tools are installed with the others.
 		ScheduleTools: b.toolsEnabled(),
+		// opencode's message list pages (limit/before on GET
+		// /session/:id/message — verified against the pinned server's own
+		// source and its httpapi tests), so History serves older pages.
+		HistoryPaging: true,
 		// Probed from the server's own GET /doc (never a version string):
 		// commands exist only when the server lists session.command there.
 		Commands: b.commandsSupported(),
@@ -487,6 +493,123 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir string, sessionID
 		}
 	}
 	return tr, nil
+}
+
+// History implements backend.HistoryPager (PROTOCOL.md §6 session.history):
+// the newest limit messages strictly older than before, ascending — the same
+// per-message mapping Transcript applies, minus permissions, questions,
+// status and usage (live state no older page carries), and under the same
+// revert cut, so a page can never resurrect a rolled-back turn.
+//
+// opencode's own semantics, read from the pinned server's source and pinned
+// by its httpapi tests (1.18.34): `limit` alone answers the newest limit
+// messages, ascending; with `before` — an encoded cursor, not a bare id —
+// the newest limit messages strictly older than it, ascending; the query
+// reads limit+1 rows, so a page answering fewer than limit really is the
+// last one.
+func (b *Backend) History(ctx context.Context, workspaceDir, sessionID, before string, limit int) (backend.HistoryPage, error) {
+	if before == "" {
+		return backend.HistoryPage{}, fmt.Errorf("history needs the message id to page below")
+	}
+	if limit < 1 {
+		return backend.HistoryPage{}, fmt.Errorf("history needs a positive limit")
+	}
+	// The revert point is read BEFORE the message list, exactly as Transcript
+	// reads it: the next prompt's cleanup deletes the reverted messages and
+	// only then clears the marker, and this order is the one that stays safe
+	// across that race (see Transcript's comment).
+	revertedFrom := b.revertPoint(ctx, sessionID)
+	// The cursor carries the message's created time, so the message itself
+	// is read first. One the storage no longer holds (a revert's cleanup
+	// deletes the reverted turns) has nothing older to page through: an
+	// empty page ends the walk instead of failing it.
+	created, gone, err := b.messageCreated(ctx, sessionID, before)
+	if err != nil {
+		return backend.HistoryPage{}, err
+	}
+	if gone {
+		return backend.HistoryPage{}, nil
+	}
+	cursor, err := opencodeCursor(before, created)
+	if err != nil {
+		return backend.HistoryPage{}, err
+	}
+	path := "/session/" + url.PathEscape(sessionID) + "/message?limit=" + strconv.Itoa(limit) +
+		"&before=" + url.QueryEscape(cursor)
+	var raw []any
+	if err := b.doJSONLimit(ctx, http.MethodGet, path, nil, &raw, maxTranscriptBytes); err != nil {
+		return backend.HistoryPage{}, err
+	}
+	entries := asMaps(raw)
+	// An opencode too old to page would ignore the parameters and answer the
+	// whole list; that must never be mapped into a page that reads like one.
+	if len(entries) > limit {
+		return backend.HistoryPage{}, fmt.Errorf("opencode answered %d messages for a %d-message history page", len(entries), limit)
+	}
+	page := backend.HistoryPage{}
+	for _, entry := range entries {
+		info := getMap(entry, "info")
+		if info == nil {
+			info = entry
+		}
+		msg := messageFromMap(info)
+		if revertedFrom != "" && msg.ID == revertedFrom {
+			break
+		}
+		b.resolveClientMessageID(sessionID, &msg)
+		var parts []backend.Part
+		for _, pm := range asMaps(getSlice(entry, "parts")) {
+			parts = append(parts, b.mapPart(sessionID, pm))
+		}
+		page.Entries = append(page.Entries, backend.TranscriptEntry{Message: msg, Parts: parts})
+	}
+	if len(page.Entries) > 0 {
+		page.Before = page.Entries[0].Message.ID
+	}
+	// A full page is opencode's own `more` (it fetched limit+1 rows); a
+	// shorter one is the end even when a revert cut shrank it.
+	page.HasMore = len(page.Entries) == limit
+	return page, nil
+}
+
+// messageCreated reads one message's time.created — the half of opencode's
+// paging cursor a bare message id does not carry. gone reports a message the
+// storage no longer holds (HTTP 404), which the caller answers with an empty
+// page rather than an error.
+func (b *Backend) messageCreated(ctx context.Context, sessionID, messageID string) (created time.Time, gone bool, _ error) {
+	var msg map[string]any
+	path := "/session/" + url.PathEscape(sessionID) + "/message/" + url.PathEscape(messageID)
+	if err := b.doJSON(ctx, http.MethodGet, path, nil, &msg); err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return time.Time{}, true, nil
+		}
+		return time.Time{}, false, err
+	}
+	info := getMap(msg, "info")
+	if info == nil {
+		info = msg
+	}
+	ms := getFloat(getMap(info, "time"), "created")
+	if ms <= 0 {
+		return time.Time{}, false, fmt.Errorf("opencode message %s carries no created time", messageID)
+	}
+	return time.UnixMilli(int64(ms)), false, nil
+}
+
+// opencodeCursor encodes the message-list paging cursor the pinned opencode
+// (1.18.34) answers `before` with: base64url of {"id","time"}, time the
+// message's time.created in millis. GET /doc's `before` parameter and the
+// paged answer's X-Next-Cursor header both carry one; a bare message id is
+// a 400.
+func opencodeCursor(messageID string, created time.Time) (string, error) {
+	body, err := json.Marshal(struct {
+		ID   string `json:"id"`
+		Time int64  `json:"time"`
+	}{ID: messageID, Time: created.UnixMilli()})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(body), nil
 }
 
 func (b *Backend) Diff(ctx context.Context, _ string, sessionID string) ([]backend.FileDiff, error) {

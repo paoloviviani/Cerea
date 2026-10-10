@@ -57,6 +57,11 @@ import type { MessageFile } from "$lib/types/Message";
 const HEARTBEAT_AFTER_MS = 15_000;
 const MAX_LIFETIME_MS = 30 * 60_000;
 
+/** How many newest messages a fresh snapshot asks for (§6 session.sync's
+ * `limit`), when the machine advertised history paging: older ones the view
+ * fetches page by page as the reader scrolls up. */
+const SNAPSHOT_PAGE_LIMIT = 40;
+
 /** What the stream sends, then closes, when the sign-in behind it lapses:
  * a distinct SSE event, so the client can tell "sign in again" from an
  * ordinary end. */
@@ -125,9 +130,17 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 
 	let sync;
 	try {
+		// History paging (§6): Cerea asks the newest page only when this
+		// machine advertised the capability — an older galopin never sees the
+		// field, and answers the whole snapshot exactly as before. The
+		// machine double-checks on its side: it trims only when its backend
+		// can also serve the older pages, so `hasMore` never promises a page
+		// session.history cannot give.
+		const pagingCapable = device.backends.some((b) => b.capabilities.historyPaging === true);
 		sync = await link.sessionSync({
 			sessionId,
 			...(clientEpoch ? { epoch: clientEpoch, afterSeq: clientSeq } : {}),
+			...(pagingCapable ? { limit: SNAPSHOT_PAGE_LIMIT } : {}),
 		});
 	} catch (err) {
 		unsubscribe();
@@ -158,6 +171,19 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
 		userMessageIds = userMessageIdsOf(sync.snapshot);
 		commandMarkers = commandMarkersOf(sync.snapshot);
+		// The snapshot's paging facts, delivered while the first paint is
+		// still gated: hasMore says whether older pages exist behind the
+		// snapshot, before is the cursor they continue from (the snapshot's
+		// own oldest message, which the view's oldest message mirrors).
+		// Absent on a machine that never trimmed — nothing pages there.
+		// Cerea-internal, like historyDone below.
+		if (sync.snapshot.hasMore !== undefined) {
+			initial.push({
+				type: "historyMeta",
+				hasMore: sync.snapshot.hasMore,
+				...(sync.snapshot.before ? { before: sync.snapshot.before } : {}),
+			});
+		}
 	} else {
 		// A reconnect resumed from a cursor: the parts announced before it are
 		// not in the replayed gap, so their types come from the session as it

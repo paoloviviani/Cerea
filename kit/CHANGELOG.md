@@ -32,6 +32,13 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   alone still shows the generic error (the machines' agent forwards the
   detail; re-run the install line from the pairing dialog, then
   `systemctl --user restart galopin`).
+- **A long agent session opens in about a second.** The opening snapshot
+  carries only the newest 40 messages; scrolling near the top fetches the
+  previous pages (`session.history`, capability `historyPaging`) with the
+  visible message held where it was — a loading row while a page is in
+  flight, a quiet marker at the start of the session. **A galopin update
+  is needed**: older machines keep sending the whole log, which still
+  opens behind the skeleton.
 
 ## v0.9.4 — 2026-10-09
 
