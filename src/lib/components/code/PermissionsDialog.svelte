@@ -183,7 +183,6 @@
 	async function setGrant(next: CoordinationOptions) {
 		if (coordinating) return;
 		coordinating = true;
-		console.log("DEBUG setGrant", JSON.stringify(next));
 		try {
 			await setCoordinationGrant(deviceId, agentId, coordinationKeys(next));
 			await load();
