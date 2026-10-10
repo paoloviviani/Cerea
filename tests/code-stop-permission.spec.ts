@@ -196,6 +196,10 @@ async function installStubs(
 	// it, exactly as it does across a real bridge's reconnects.
 	let served = 0;
 	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, async (route) => {
+		// The bridge ends its first replay with a historyDone marker (the
+		// agent view shows the transcript only after it); a mock that never
+		// sends one leaves the view on its loading skeleton.
+		const first = served === 0;
 		const body =
 			"retry: 250\n\n" +
 			frames
@@ -203,7 +207,8 @@ async function installStubs(
 				.map(
 					(update, i) => `id: ${served + i + 1}\nevent: update\ndata: ${JSON.stringify(update)}\n\n`
 				)
-				.join("");
+				.join("") +
+			(first ? `event: update\ndata: ${JSON.stringify({ type: "historyDone" })}\n\n` : "");
 		served = frames.length;
 		await route.fulfill({ status: 200, contentType: "text/event-stream", body });
 	});
