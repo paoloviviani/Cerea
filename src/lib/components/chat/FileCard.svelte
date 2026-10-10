@@ -58,11 +58,11 @@
 
 <script lang="ts">
 	import { onDestroy, untrack } from "svelte";
-	import DOMPurify from "isomorphic-dompurify";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
 	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import { renderDocxPreview } from "$lib/utils/docxPreview";
 	import {
 		FILE_PREVIEW_MAX_BYTES,
 		FILE_PREVIEW_TEXT_CHARS,
@@ -259,49 +259,16 @@
 			if (bytes.byteLength > DOCX_PREVIEW_MAX_BYTES) {
 				throw new Error("too large to preview — download it to read the whole document");
 			}
-			const { renderAsync } = await import("docx-preview");
-			// slice() copies exactly the viewed range: bytes.buffer may overhang
-			// it (transferable slices), and the zip reader would parse the slack
-			// too. A Blob rather than a bare buffer because docx-preview's jszip
-			// layer reads it through the File API.
-			const blob = new Blob([bytes.slice()], {
-				type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			});
-			const container = window.document.createElement("div");
-			await renderAsync(blob, container, undefined, {
-				// The docx carries its own fonts, sizes and page geometry —
-				// rendering those is the point of the swap; the previous
-				// converter emitted a bare semantic fragment that had to be
-				// styled by hand instead.
-				inWrapper: true,
-				ignoreWidth: false,
-				ignoreHeight: false,
-				ignoreFonts: false,
-				breakPages: true,
-				// Off by name, not by default: these are 0.x experimental surface,
-				// and a throw inside them would lose the whole preview.
-				renderHeaders: false,
-				renderFooters: false,
-				renderFootnotes: false,
-				renderEndnotes: false,
-				renderChanges: false,
-				renderComments: false,
-				// Images inline as data: URLs — the preview CSP allows exactly
-				// data:/blob: for img-src, and this keeps the document self-contained
-				useBase64URL: true,
-			});
-			if (!container.innerHTML.trim()) {
-				throw new Error("the document rendered empty — download it to read the whole file");
-			}
-			// The renderer emits a <style> block (page geometry, fonts) plus the
-			// section markup — both are allowed by the preview CSP. Sanitized
-			// like every other model-authored HTML before it reaches the panel —
-			// the sandboxed iframe is the second layer, not the only one.
-			sidePane.openPreview({
-				kind: "html",
-				title: name,
-				content: DOMPurify.sanitize(container.innerHTML),
-			});
+			// Rendered and sanitized by the shared helper (docxPreview.ts): the
+			// <style> block docx-preview leads its output with survives now,
+			// because the helper sanitizes with FORCE_BODY — DOMPurify's
+			// default parsing drops a fragment that begins with <style> (it
+			// parses into <head>), which is how this preview lost every font,
+			// size and border while the text survived. Sanitizing before the
+			// panel is still the first layer; the sandboxed iframe is the
+			// second, not the only one.
+			const html = await renderDocxPreview(bytes);
+			sidePane.openPreview({ kind: "docx", title: name, content: html });
 		} catch (err) {
 			previewError =
 				err instanceof Error ? err.message : "the preview is unavailable; the download still works";

@@ -59,6 +59,31 @@ describe("PreviewPane", () => {
 		expect(srcdoc).toContain("flowchart LR");
 	});
 
+	it("builds a docx payload with the docx srcdoc, not the generic html builder", async () => {
+		sidePane.openPreview({
+			kind: "docx",
+			title: "section.docx",
+			content: '<div class="docx-wrapper"><section class="docx"><p>Hi</p></section></div>',
+		});
+		const screen = render(PreviewPane, {});
+		await tick();
+		const srcdoc = iframeSrcdoc(screen.baseElement);
+		expect(srcdoc).not.toBeNull();
+		// The fit-to-width script rides along — the marker string exists only
+		// in buildDocxFitScript, so its presence proves the docx builder ran
+		// rather than the generic html one.
+		expect(srcdoc).toContain("section.docx");
+		// The same postMessage hook every preview carries, so error
+		// forwarding keeps working through the docx path too.
+		expect(srcdoc).toContain("chatui.preview.error");
+		// The document's own (already-sanitized) markup is the body.
+		expect(srcdoc).toContain('<section class="docx"><p>Hi</p></section>');
+		// Same sandbox discipline as every other preview surface.
+		expect(screen.baseElement.querySelector("iframe")?.getAttribute("sandbox")).toContain(
+			"allow-scripts"
+		);
+	});
+
 	it("frames a pdf payload by URL instead of building a srcdoc", async () => {
 		sidePane.openPreview({
 			kind: "pdf",

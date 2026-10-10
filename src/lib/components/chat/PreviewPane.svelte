@@ -7,6 +7,7 @@
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import {
 		buildArtifactSrcdoc,
+		buildDocxSrcdoc,
 		browserRendersPdfInFrame,
 		capturePreviewError,
 		composeFixRequest,
@@ -23,12 +24,15 @@
 	 * versions and no persistence: the content lives in the message, the store
 	 * only holds what is showing. The iframe runs the same sandboxed builders
 	 * as every other preview, so the security posture is identical — only the
-	 * surface moved, from the fullscreen modal to this pane. The one
-	 * exception is a pdf payload: the browser's native viewer refuses to
-	 * attach to a sandboxed opaque-origin frame (Chrome shows its "blocked"
-	 * interstitial, Safari a white box), so it is framed WITHOUT the
-	 * sandbox — the bytes are typed application/pdf by this app, rendered by
-	 * the browser's viewer, and executing no document script of their own.
+	 * surface moved, from the fullscreen modal to this pane. Two payloads are
+	 * exceptions. A pdf is framed WITHOUT the sandbox: the browser's native
+	 * viewer refuses to attach to a sandboxed opaque-origin frame (Chrome
+	 * shows its "blocked" interstitial, Safari a white box), the bytes are
+	 * typed application/pdf by this app, and no document script executes. A
+	 * docx is not an ArtifactKind either: its content is already-sanitized
+	 * docx-preview HTML, and it goes through buildDocxSrcdoc so the frame
+	 * carries the postMessage hook plus the fit-to-width script, like the
+	 * artifact panel's own docx view.
 	 */
 	interface Props {
 		/**
@@ -60,9 +64,14 @@
 	});
 
 	let srcdoc = $derived(
-		payload && payload.kind !== "pdf"
-			? buildArtifactSrcdoc(payload.kind, payload.content, channel)
-			: ""
+		!payload || payload.kind === "pdf"
+			? ""
+			: payload.kind === "docx"
+				? // Already-sanitized docx-preview HTML: the docx builder adds the
+					// same postMessage hook plus the fit-to-width script the
+					// artifact panel's docx view gets.
+					buildDocxSrcdoc(payload.content, channel)
+				: buildArtifactSrcdoc(payload.kind, payload.content, channel)
 	);
 
 	// Mobile engines draw no PDF in an iframe — see

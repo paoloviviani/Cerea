@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
 	import { base } from "$app/paths";
-	import DOMPurify from "isomorphic-dompurify";
 	import CarbonDocument from "~icons/carbon/document";
 	import CarbonDownload from "~icons/carbon/download";
+	import { renderDocxPreview } from "$lib/utils/docxPreview";
 	import type { FileArtifactVersion } from "$lib/utils/fileArtifacts";
 	import {
 		FILE_PREVIEW_MAX_BYTES,
@@ -164,32 +164,9 @@
 					if (buffer.byteLength > FILE_PREVIEW_MAX_BYTES) {
 						throw new Error("too large to preview — download it to read the whole document");
 					}
-					const bytes = new Uint8Array(buffer);
-					const { renderAsync } = await import("docx-preview");
+					const html = await renderDocxPreview(new Uint8Array(buffer));
 					if (cancelled) return;
-					const blob = new Blob([bytes.slice()], {
-						type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-					});
-					const container = window.document.createElement("div");
-					await renderAsync(blob, container, undefined, {
-						inWrapper: true,
-						ignoreWidth: false,
-						ignoreHeight: false,
-						ignoreFonts: false,
-						breakPages: true,
-						renderHeaders: false,
-						renderFooters: false,
-						renderFootnotes: false,
-						renderEndnotes: false,
-						renderChanges: false,
-						renderComments: false,
-						useBase64URL: true,
-					});
-					if (cancelled) return;
-					if (!container.innerHTML.trim()) {
-						throw new Error("the document rendered empty — download it to read the whole file");
-					}
-					payload = { kind: "docx", html: DOMPurify.sanitize(container.innerHTML) };
+					payload = { kind: "docx", html };
 				}
 				status = "ready";
 			} catch (err) {
