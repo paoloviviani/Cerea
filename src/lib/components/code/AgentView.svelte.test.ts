@@ -8,6 +8,7 @@ import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/Mess
 import { permissionToElicitation } from "$lib/utils/codeInboxCards";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type { PlanStep } from "$lib/types/Plan";
+import { clearTranscripts, getTranscript } from "$lib/stores/agentTranscriptCache";
 
 /**
  * The machine is a fake: the stream is a gate the test opens with the frames
@@ -32,6 +33,12 @@ const fake = vi.hoisted(() => ({
 	/** End the mocked stream after the frames (no live tail, no marker):
 	 * the `reauth_required`/`end` path a real EventSource can take. */
 	endStream: false,
+	/** Live frames the mocked stream yields after its history (see `push`). */
+	live: [] as unknown[],
+	wake: null as null | (() => void),
+	/** Calls the rollback test expects the view to make. */
+	reverts: [] as string[],
+	sends: [] as string[],
 }));
 
 // The composer's MCP stores read `$env/dynamic/public` at module scope and
@@ -54,7 +61,13 @@ vi.mock("$lib/codeAgentStream", () => ({
 		// on it, so a test's frames are the history and need it too.
 		yield { type: "historyDone" };
 		if (fake.endStream) return;
-		await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+		while (!signal.aborted) {
+			while (fake.live.length > 0) yield fake.live.shift() as AgentStreamUpdate;
+			await new Promise<void>((resolve) => {
+				fake.wake = resolve;
+				signal.addEventListener("abort", () => resolve());
+			});
+		}
 	},
 }));
 
@@ -96,6 +109,14 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 		fake.mode = mode;
 		return { ok: true };
 	},
+	revertAgent: async (_device: string, _agent: string, messageId: string) => {
+		fake.reverts.push(messageId);
+		return { ok: true };
+	},
+	sendFollowUp: async (_device: string, _agent: string, text: string) => {
+		fake.sends.push(text);
+		return { ok: true };
+	},
 	listWorkspaces: async () => ({ workspaces: [] }),
 	listSubagents: async () => ({ subagents: [] }),
 	listProviderModes: async () => ({ modes: [] }),
@@ -128,12 +149,18 @@ const ACTIVE = plan([
 	{ step: "ship", status: "pending" },
 ]);
 
-function mount() {
+function mount(agentId = "a1", backends?: unknown[]) {
 	codeDeviceList.devices = [
-		{ id: "d1", name: "Box", status: "paired", online: true },
+		{ id: "d1", name: "Box", status: "paired", online: true, backends },
 	] as typeof codeDeviceList.devices;
 	codeDeviceList.loading = false;
-	return renderWithApp(AgentView, { deviceId: "d1", agentId: "a1", workspaceId: "w1" });
+	return renderWithApp(AgentView, { deviceId: "d1", agentId, workspaceId: "w1" });
+}
+
+/** A frame arriving after the history, on the live tail. */
+function push(frame: unknown) {
+	fake.live.push(frame);
+	fake.wake?.();
 }
 
 async function arrive(frames: unknown[]) {
@@ -154,6 +181,11 @@ beforeEach(() => {
 	fake.snapshotReads = 0;
 	fake.childRunningUntilRead = 0;
 	fake.endStream = false;
+	fake.live = [];
+	fake.wake = null;
+	fake.reverts = [];
+	fake.sends = [];
+	clearTranscripts();
 	sidePane.reset();
 });
 
@@ -515,5 +547,86 @@ describe("AgentView transcript loading", () => {
 		await arrive([{ type: "user", text: "partial" }]);
 		await expect.element(screen.getByTestId("transcript-loading")).not.toBeInTheDocument();
 		await expect.element(screen.getByText("partial")).toBeVisible();
+	});
+});
+
+describe("AgentView transcript cache", () => {
+	const turn = (user: string, answer: string, ids: [string, string]) => [
+		{ type: "messageBoundary", role: "user", messageId: ids[0] },
+		{ type: "user", text: user },
+		{ type: "messageBoundary", role: "assistant", messageId: ids[1] },
+		{ type: MessageUpdateType.Stream, token: answer, partId: `p-${ids[1]}` },
+		{ type: MessageUpdateType.TurnState, state: "done", serverNow: 0 },
+	];
+	const forkButtons = (screen: { baseElement: HTMLElement }) =>
+		screen.baseElement.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]');
+
+	/** Open a session, let its replay land, and leave it (the `{#key}` remount). */
+	async function visit(agentId: string, frames: unknown[], expectText: string) {
+		fake.release = null;
+		const screen = mount(agentId);
+		await arrive(frames);
+		await expect.element(screen.getByText(expectText)).toBeVisible();
+		screen.unmount();
+	}
+
+	it("reopens a session you came back to at once, then swaps in the fresh replay and keeps tailing", async () => {
+		await browserPage.viewport(1200, 800);
+		await visit(
+			"a1",
+			[...turn("old prompt", "old answer", ["u1", "m1"]), { type: "historyDone" }],
+			"old answer"
+		);
+		await visit("b1", [...turn("other prompt", "other answer", ["u9", "m9"])], "other answer");
+
+		// Back to A: the stream is held (nothing replayed yet), and the
+		// transcript is already on screen, with no skeleton.
+		fake.release = null;
+		const screen = mount("a1");
+		await expect.element(screen.getByText("old answer")).toBeVisible();
+		await expect.element(screen.getByTestId("transcript-loading")).not.toBeInTheDocument();
+		// Display only until the swap: no fork action on the cached copy.
+		expect(forkButtons(screen)).toHaveLength(0);
+
+		// The fresh replay differs (the session moved on while it was away).
+		await arrive([
+			...turn("old prompt", "old answer", ["u1", "m1"]),
+			...turn("new prompt", "fresh answer", ["u2", "m2"]),
+		]);
+		await expect.element(screen.getByText("fresh answer")).toBeVisible();
+		await expect.element(screen.getByText("old answer")).toBeVisible();
+		await vi.waitFor(() => expect(forkButtons(screen).length).toBeGreaterThan(0));
+
+		// The swapped-in array is the one the fold keeps appending to.
+		push({ type: "user", text: "live prompt" });
+		await expect.element(screen.getByText("live prompt")).toBeVisible();
+	});
+
+	it("does not replay from the cache after a rollback, and keeps no copy of the rolled-back transcript", async () => {
+		await browserPage.viewport(1200, 800);
+		const backends = [{ id: "opencode", capabilities: { revert: true } }];
+		fake.release = null;
+		const first = mount("a1", backends);
+		await arrive([...turn("my prompt", "my answer", ["u1", "m1"]), { type: "historyDone" }]);
+		await expect.element(first.getByText("my answer")).toBeVisible();
+		first.unmount();
+
+		// Reopened from the cache, swapped, then rolled back.
+		fake.release = null;
+		const screen = mount("a1", backends);
+		await expect.element(screen.getByText("my answer")).toBeVisible();
+		await arrive([...turn("my prompt", "my answer", ["u1", "m1"]), { type: "historyDone" }]);
+		await vi.waitFor(() =>
+			expect(screen.baseElement.querySelector('[title="Retry"]')).not.toBeNull()
+		);
+		fake.release = null;
+		(screen.baseElement.querySelector('[title="Retry"]') as HTMLElement).click();
+		await screen.getByRole("button", { name: "Roll back and send" }).click();
+
+		await vi.waitFor(() => expect(fake.reverts).toEqual(["u1"]));
+		// The re-run replays cold: the skeleton, not the old copy, and nothing
+		// stored under the address while the history is in question.
+		await expect.element(screen.getByTestId("transcript-loading")).toBeVisible();
+		expect(getTranscript("d1:a1")).toBeUndefined();
 	});
 });
