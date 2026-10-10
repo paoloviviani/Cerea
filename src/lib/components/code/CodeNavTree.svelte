@@ -41,6 +41,7 @@
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
 	import IconPermissions from "~icons/carbon/security";
+	import { forgetTranscript, transcriptKey } from "$lib/stores/agentTranscriptCache";
 	import {
 		listWorkspaces,
 		listAgents,
@@ -402,6 +403,7 @@
 	 */
 	async function handleArchiveAgent(device: CodeDeviceView, agent: CodeAgentSession) {
 		await archiveAgent(device.id, agent.id);
+		forgetTranscript(transcriptKey(device.id, agent.id));
 		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
 			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
 		}
@@ -415,6 +417,7 @@
 	 */
 	async function handleDeleteAgent(device: CodeDeviceView, agent: CodeAgentSession) {
 		await deleteAgent(device.id, agent.id);
+		forgetTranscript(transcriptKey(device.id, agent.id));
 		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
 			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
 		}

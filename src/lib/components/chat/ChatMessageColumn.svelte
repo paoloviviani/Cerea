@@ -214,6 +214,54 @@
 		raf(tick);
 	}
 
+	/** Swap the whole transcript for another copy of it (the agent panel
+	 * replacing a cached transcript with the machine's fresh replay) without a
+	 * visible jump. `apply` assigns the caller's new array. A reader at the
+	 * bottom stays at the bottom. A reader scrolled up keeps the first visible
+	 * message where it was, found again by the machine's own id
+	 * (`machineMessageId`: the two copies were folded separately, so their
+	 * client ids differ); if that message is gone from the new copy there is
+	 * nothing to hold and the position stays as it was. */
+	export function replaceWithAnchor(apply: () => void) {
+		const container = scrollContainerEl;
+		if (!container) {
+			apply();
+			return;
+		}
+		if (chatScroll.state.pinned || chatScroll.state.atBottom) {
+			flushSync(() => apply());
+			chatScroll.landAtBottom();
+			return;
+		}
+		const containerTop = container.getBoundingClientRect().top;
+		let anchorMachineId: string | undefined;
+		let anchorBefore = 0;
+		for (const el of container.querySelectorAll<HTMLElement>("[data-message-id]")) {
+			const rect = el.getBoundingClientRect();
+			if (rect.bottom <= containerTop) continue;
+			const id = el.dataset.messageId;
+			anchorMachineId = messages.find((m) => m.id === id)?.machineMessageId;
+			anchorBefore = rect.top - containerTop;
+			break;
+		}
+		const top = container.scrollTop;
+		flushSync(() => apply());
+		if (!anchorMachineId) return;
+		const target = messages.find((m) => m.machineMessageId === anchorMachineId);
+		if (!target) return;
+		const settle = () => {
+			const now = messageViewportTop(container, target.id);
+			if (now === null) return;
+			if (Math.abs(now - anchorBefore) > 1) {
+				chatScroll.keepScrollAt(container.scrollTop + (now - anchorBefore));
+			}
+		};
+		chatScroll.keepScrollAt(top);
+		settle();
+		// One more pass once markdown and images have taken their height.
+		if (typeof requestAnimationFrame === "function") requestAnimationFrame(settle);
+	}
+
 	/** One message's viewport-relative top, or null when it renders no node
 	 * (the turn regrouping recreates nodes across the boundary, so the
 	 * caller re-queries rather than holding an element). */

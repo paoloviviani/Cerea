@@ -16,9 +16,11 @@
 	live on the daemon rather than per send.
 
 	The address (`?device=&ws=&agent=`) is the selection; the `{#key}` in
-	`CodePanel` remounts this whole view on a new address, so the transcript is
-	always a fresh replay of the daemon's log for this agent, never a stale
-	one. The reply is NOT inserted optimistically: the stream echoes the
+	`CodePanel` remounts this whole view on a new address, so the transcript
+	is always a fresh replay of the daemon's log for this agent. A session
+	left a moment ago reopens from the in-memory transcript cache first (shown
+	at once, display only), and the fresh replay replaces it when it lands:
+	the replay, never the cache, is the source of truth. The reply is NOT inserted optimistically: the stream echoes the
 	person's message back, and the stream is the transcript's source of truth.
 -->
 <script lang="ts">
@@ -83,6 +85,12 @@
 	import { page } from "$app/state";
 	import { uploadComposerFiles } from "$lib/utils/composerFiles";
 	import { keepReportedUsage } from "$lib/utils/agentUsage";
+	import {
+		dropTranscript,
+		getTranscript,
+		putTranscript,
+		transcriptKey,
+	} from "$lib/stores/agentTranscriptCache";
 	import { AGENT_ATTACHMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import {
 		CODE_SESSION_LINKS,
@@ -165,6 +173,23 @@
 	 * first paint of the real transcript lands at the bottom (see
 	 * `ChatMessageColumn`'s historyPending). */
 	let historyPending = $state(false);
+	/** `messages` is a COPY of this session's transcript from the in-memory
+	 * cache (`agentTranscriptCache`), shown at once while the fresh replay
+	 * folds off-screen; false once that replay has been swapped in (and for
+	 * every cold open). While true the copy is DISPLAY ONLY — it may be stale
+	 * by whatever happened since this view last left the session — so, the
+	 * minimal safe rule: paging, retry/edit and fork are off, and a permission
+	 * card in it refuses to answer ("refreshing"). The composer stays usable
+	 * (a send goes to the machine, not to the copy); the window is the time
+	 * the replay takes. */
+	let cachedView = $state(false);
+	/** The fresh replay's own array while `cachedView` shows the copy: a
+	 * `$state` proxy so that, once it becomes `messages`, the fold that keeps
+	 * appending the live tail to it still drives rendering. */
+	let staging = $state<Message[]>([]);
+	/** Set by a rollback/undo: the history changed on the machine, so the
+	 * next run neither saves the old transcript nor reads the cache. */
+	let skipCacheOnce = false;
 	/** Paging the older transcript (§6 `session.history`): whether older
 	 * pages exist behind what is loaded, from the bridge's `historyMeta`
 	 * frame. Null while unknown — an older galopin never sends the frame,
@@ -535,47 +560,107 @@
 		// A rollback changes the history the machine holds: bumping this
 		// restarts the subscription, which replays it from scratch.
 		void streamNonce;
-		messages = [];
+		const key = transcriptKey(deviceId, agentId);
+		// A session this view had open recently opens on its cached copy
+		// (stale-while-revalidate); a rollback's re-run never does.
+		const cached = skipCacheOnce ? undefined : untrack(() => getTranscript(key));
+		skipCacheOnce = false;
+		const staged = cached !== undefined;
 		pending = false;
-		usage = null;
-		lastCompaction = null;
-		// The replay this effect opens IS the history fetch: the transcript
-		// stays gated on it until the stream's historyDone marker (or its
-		// end), so a long session opens on the loading state rather than a
-		// half-built transcript rendered from the top.
-		historyPending = true;
-		// A rebuilt transcript starts with unknown paging: older pages
-		// loaded before the reset are gone with the messages, and their
-		// in-flight fetches must not land in the new one.
-		historyHasMore = null;
-		historyBefore = null;
+		if (cached) {
+			messages = [...cached.messages];
+			usage = cached.usage;
+			lastCompaction = cached.lastCompaction;
+			historyPending = false;
+			cachedView = true;
+			historyHasMore = cached.hasMore;
+			historyBefore = cached.before;
+			staging = [];
+		} else {
+			messages = [];
+			usage = null;
+			lastCompaction = null;
+			// The replay this effect opens IS the history fetch: the transcript
+			// stays gated on it until the stream's historyDone marker (or its
+			// end), so a long session opens on the loading state rather than a
+			// half-built transcript rendered from the top.
+			historyPending = true;
+			cachedView = false;
+			// A rebuilt transcript starts with unknown paging: older pages
+			// loaded before the reset are gone with the messages, and their
+			// in-flight fetches must not land in the new one.
+			historyHasMore = null;
+			historyBefore = null;
+		}
 		historyFetching = false;
 		historyError = null;
 		pagingEpoch += 1;
 		const abort = new AbortController();
+		// The array the fold appends to: `messages` itself on a cold open,
+		// the off-screen `staging` proxy behind a cached copy. The same proxy
+		// is what `messages` becomes at the swap, so the live tail keeps
+		// rendering after it.
+		const target = untrack(() => (staged ? staging : messages));
+		let swapped = false;
+		// The fresh replay's paging facts, held back while the cached copy
+		// (and its own paging row) is on screen.
+		let freshHasMore: boolean | null = null;
+		let freshBefore: string | null = null;
+		const swapIn = () => {
+			if (!staged || swapped) return;
+			swapped = true;
+			const apply = () => {
+				// The cached copy's older pages are dropped here: the replay
+				// brings the newest page, and older ones page in again.
+				messages = target;
+				historyHasMore = freshHasMore;
+				historyBefore = freshBefore;
+				historyFetching = false;
+				historyError = null;
+				pagingEpoch += 1;
+				cachedView = false;
+			};
+			if (column) column.replaceWithAnchor(apply);
+			else apply();
+		};
 		untrack(() => {
 			(async () => {
 				try {
-					await consumeAgentUpdates(codeAgentStream(deviceId, agentId, abort.signal), messages, {
+					await consumeAgentUpdates(codeAgentStream(deviceId, agentId, abort.signal), target, {
 						isAborted: () => abort.signal.aborted,
 						onAbort: () => abort.abort(),
 						onTurnEvent: () => (pending = false),
 						onUsage: (u) => (usage = keepReportedUsage(usage, u)),
 						onCompaction: (c) => (lastCompaction = c),
 						onChildActivity: (childId) => noteChildActivity(childId),
-						onHistoryDone: () => (historyPending = false),
+						onHistoryDone: () => {
+							if (staged) swapIn();
+							else historyPending = false;
+							saveTranscript(key);
+						},
 						onHistoryMeta: (meta) => {
+							if (staged && !swapped) {
+								freshHasMore = meta.hasMore;
+								freshBefore = meta.before ?? null;
+								return;
+							}
 							historyHasMore = meta.hasMore;
 							historyBefore = meta.before ?? null;
 						},
 						onReset: () => {
+							// A new epoch: the cached copy is of the old one.
+							dropTranscript(key);
 							usage = null;
 							lastCompaction = null;
 							// The transcript was discarded and rebuilds from
 							// the new epoch alone: whatever paging knew is
 							// gone with it.
-							historyHasMore = null;
-							historyBefore = null;
+							freshHasMore = null;
+							freshBefore = null;
+							if (!staged || swapped) {
+								historyHasMore = null;
+								historyBefore = null;
+							}
 							historyFetching = false;
 							historyError = null;
 							pagingEpoch += 1;
@@ -593,12 +678,45 @@
 					// (rollback, device switch): its end lands as a microtask
 					// after the new run already raised the gate, and clearing
 					// here would open it while the new history is still folding.
-					if (!abort.signal.aborted) historyPending = false;
+					if (!abort.signal.aborted) {
+						historyPending = false;
+						if (staged && target.length > 0) swapIn();
+					}
 				}
 			})();
 		});
-		return () => abort.abort();
+		return () => {
+			abort.abort();
+			// Leaving the session (or re-running for the same one): keep the
+			// transcript for the way back, unless a rollback just changed it.
+			if (!skipCacheOnce) saveTranscript(key);
+		};
 	});
+
+	/** Remember this transcript for the way back. Only a settled one: not
+	 * while the first replay is gated, and not the cached copy itself. */
+	function saveTranscript(key: string) {
+		if (historyPending || cachedView) return;
+		try {
+			putTranscript(key, {
+				messages: $state.snapshot(messages) as Message[],
+				hasMore: historyHasMore,
+				before: historyBefore,
+				usage: $state.snapshot(usage),
+				lastCompaction: $state.snapshot(lastCompaction),
+			});
+		} catch {
+			// A transcript that cannot be cloned is simply not cached.
+		}
+	}
+
+	/** Rebuild the transcript from scratch (a rollback changed the machine's
+	 * history): no cached copy of the old one may be shown or kept. */
+	function restartStream() {
+		dropTranscript(transcriptKey(deviceId, agentId));
+		skipCacheOnce = true;
+		streamNonce += 1;
+	}
 
 	let streamNonce = $state(0);
 
@@ -614,7 +732,13 @@
 	const HISTORY_PAGE_LIMIT = 40;
 
 	async function requestPreviousPage() {
-		if (historyPending || historyHasMore !== true || historyFetching || messages.length === 0)
+		if (
+			cachedView ||
+			historyPending ||
+			historyHasMore !== true ||
+			historyFetching ||
+			messages.length === 0
+		)
 			return;
 		const before = historyBefore ?? messages[0].machineMessageId;
 		if (!before) return;
@@ -700,7 +824,7 @@
 		const { userMessageId } = undoTarget;
 		await revertAgent(deviceId, agentId, userMessageId);
 		undoTarget = null;
-		streamNonce += 1;
+		restartStream();
 	}
 
 	// ── /new — the new-agent dialog on this agent's workspace ────────
@@ -740,7 +864,7 @@
 		const { userMessageId, text } = rollback;
 		await revertAgent(deviceId, agentId, userMessageId);
 		rollback = null;
-		streamNonce += 1;
+		restartStream();
 		// A refused resend is already on the banner; nothing else to keep here.
 		await handleSend(text).catch(() => undefined);
 	}
@@ -827,7 +951,7 @@
 	let forkableIds = $derived(forkableMessageIds(messages, sessionBusy));
 	/** ChatMessage's per-message gate for the "Fork from here" action. */
 	function messageActionsWhen(message: Message): boolean {
-		return forkableIds.has(message.id);
+		return !cachedView && forkableIds.has(message.id);
 	}
 	// A list that has just become active opens the pane on its own, once,
 	// on a screen with room for it, and only into an empty slot.
@@ -1026,6 +1150,11 @@
 		action: ElicitationAction,
 		scope?: "always"
 	): Promise<{ ok: boolean; error?: string; note?: string }> {
+		// A card in the cached copy may have been answered since: refuse until
+		// the fresh replay (which carries the truth) has replaced it.
+		if (cachedView) {
+			return { ok: false, error: "Still refreshing this conversation. Try again in a moment." };
+		}
 		try {
 			const reply = await respondPermission(
 				deviceId,
@@ -1296,6 +1425,7 @@
 			onScrollNearTop={requestPreviousPage}
 			onretry={revertSupported &&
 			!loading &&
+			!cachedView &&
 			shownState !== "running" &&
 			shownState !== "waiting-permission"
 				? onretry
