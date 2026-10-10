@@ -20,10 +20,14 @@ vi.mock("$lib/utils/execution/runtime", () => ({
 // The renderer is a real dependency with its own upstream tests; what is
 // under test here is the wiring — bytes in, sanitized panel payload out —
 // so the module boundary is mocked, not the zip format. The real renderer
-// fills a live element; the mock plays that part minimally.
+// fills a live element and LEADS its output with a <style> block (its
+// renderAsync routes style nodes to a styleContainer that defaults to the
+// body container); the mock plays that part, so the tests can pin that the
+// style block survives sanitization into the panel payload.
 vi.mock("docx-preview", () => ({
 	renderAsync: vi.fn(async (_data: Blob, container: HTMLElement) => {
-		container.innerHTML = '<section class="docx-wrapper"><h1>Hi</h1></section>';
+		container.innerHTML =
+			'<style>.docx-wrapper{padding:1cm}</style><section class="docx-wrapper"><h1>Hi</h1></section>';
 	}),
 }));
 
@@ -37,7 +41,8 @@ beforeEach(() => {
 	);
 	vi.mocked(renderAsync).mockClear();
 	vi.mocked(renderAsync).mockImplementation(async (_data: Blob, container: HTMLElement) => {
-		container.innerHTML = '<section class="docx-wrapper"><h1>Hi</h1></section>';
+		container.innerHTML =
+			'<style>.docx-wrapper{padding:1cm}</style><section class="docx-wrapper"><h1>Hi</h1></section>';
 	});
 	// sidePane is a module singleton: a preview left open by one test would
 	// leak into the next one's assertions.
@@ -231,8 +236,15 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 		await screen.getByRole("button", { name: "Preview report.docx" }).click();
 		await vi.waitFor(() => expect(sidePane.open).toBe(true));
 		expect(sidePane.view).toBe("preview");
-		expect(sidePane.preview).toMatchObject({ kind: "html", title: "report.docx" });
+		// Its own preview kind, not a generic html payload: the pane builds it
+		// with the docx srcdoc (fit-to-width script) like the artifact panel.
+		expect(sidePane.preview).toMatchObject({ kind: "docx", title: "report.docx" });
 		expect(sidePane.preview?.content).toContain("<h1>Hi</h1>");
+		// The renderer's leading <style> block survives sanitization — it used
+		// to be dropped (a fragment that starts with <style> parses into
+		// <head>, which a default DOMPurify sanitizes away), and with it every
+		// font, size and border of the document.
+		expect(sidePane.preview?.content).toContain("<style>.docx-wrapper{padding:1cm}</style>");
 		// The converter read fetched bytes; the sandbox Python path is gone.
 		expect(sessionMock.run).not.toHaveBeenCalled();
 		// No inline expander opens for a document preview — the panel owns it.
@@ -256,7 +268,7 @@ describe("FileCard direct-emission mode (inline bytes)", () => {
 			await vi.waitFor(() => expect(sidePane.open).toBe(true));
 			expect(fetch).toHaveBeenCalledWith("/conversation/abc/code-execution/output/sha256");
 			expect(vi.mocked(renderAsync)).toHaveBeenCalled();
-			expect(sidePane.preview).toMatchObject({ kind: "html", title: "report.docx" });
+			expect(sidePane.preview).toMatchObject({ kind: "docx", title: "report.docx" });
 		} finally {
 			vi.stubGlobal("fetch", realFetch);
 		}
