@@ -169,6 +169,11 @@
 	 * frame. Null while unknown — an older galopin never sends the frame,
 	 * and nothing pages there. */
 	let historyHasMore = $state<boolean | null>(null);
+	/** The cursor the next older page continues from: the machine's own
+	 * oldest-sent message id (historyMeta, then each page's `before`). The
+	 * first bubble's id is only the fallback — a bubble the fold opened
+	 * without a machine id would otherwise stop the paging silently. */
+	let historyBefore: string | null = null;
 	/** One older page in flight; errors keep their own row with a retry. */
 	let historyFetching = $state(false);
 	let historyError = $state<string | null>(null);
@@ -542,6 +547,7 @@
 		// loaded before the reset are gone with the messages, and their
 		// in-flight fetches must not land in the new one.
 		historyHasMore = null;
+		historyBefore = null;
 		historyFetching = false;
 		historyError = null;
 		pagingEpoch += 1;
@@ -559,6 +565,7 @@
 						onHistoryDone: () => (historyPending = false),
 						onHistoryMeta: (meta) => {
 							historyHasMore = meta.hasMore;
+							historyBefore = meta.before ?? null;
 						},
 						onReset: () => {
 							usage = null;
@@ -567,6 +574,7 @@
 							// the new epoch alone: whatever paging knew is
 							// gone with it.
 							historyHasMore = null;
+							historyBefore = null;
 							historyFetching = false;
 							historyError = null;
 							pagingEpoch += 1;
@@ -607,7 +615,7 @@
 	async function requestPreviousPage() {
 		if (historyPending || historyHasMore !== true || historyFetching || messages.length === 0)
 			return;
-		const before = messages[0].machineMessageId;
+		const before = historyBefore ?? messages[0].machineMessageId;
 		if (!before) return;
 		const epoch = pagingEpoch;
 		historyFetching = true;
@@ -642,6 +650,7 @@
 				if (fresh.length > 0) column?.prependWithAnchor(() => messages.unshift(...fresh));
 			}
 			historyHasMore = page.hasMore;
+			if (page.before) historyBefore = page.before;
 		} catch (err) {
 			if (epoch !== pagingEpoch) return;
 			historyError = err instanceof Error ? err.message : "Could not load earlier messages.";
