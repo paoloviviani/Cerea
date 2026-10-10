@@ -238,6 +238,14 @@ describe("AgentView Tasks pane", () => {
 		await expect.element(screen.getByRole("button", { name: "Tasks 1/1" })).toBeVisible();
 		expect(sidePane.open).toBe(false);
 	});
+	it("the Tasks pane lists the plan's steps when opened", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await arrive([ACTIVE]);
+		await expect.element(screen.getByTestId("code-tasks")).toBeVisible();
+		await expect.element(screen.getByText("write the view")).toBeVisible();
+		await expect.element(screen.getByText("ship")).toBeVisible();
+	});
 });
 
 describe("AgentView Permissions strip", () => {

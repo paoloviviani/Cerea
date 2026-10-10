@@ -49,7 +49,7 @@ function makeDocx(paragraph: string): Buffer {
 			`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
 		),
 		"word/document.xml": new TextEncoder().encode(
-			`<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${paragraph}</w:t></w:r></w:p></w:body></w:document>`
+			`<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${paragraph}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`
 		),
 	};
 	return Buffer.from(zipSync(files, { level: 0 }));
@@ -204,6 +204,37 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	await expect(docxFrame.contentFrame().getByText("Hello DOCX")).toBeVisible({
 		timeout: 30_000,
 	});
+
+	// The pages fit the pane's width, never clip, and never enlarge past their
+	// real size: at the default pane (a third of a 1280 window, ~420px against
+	// the document's ~800px A4 pages) the rendering is scaled down and the
+	// frame has no horizontal overflow; once the window is wide enough the
+	// scale returns to 1.
+	const docxInside = docxFrame.contentFrame();
+	await expect(docxInside.locator(".docx-wrapper")).toBeVisible({ timeout: 30_000 });
+	const measureDocx = () =>
+		docxInside.locator("html").evaluate(() => {
+			const wrapper = document.querySelector<HTMLElement>(".docx-wrapper");
+			const sections = [...document.querySelectorAll<HTMLElement>("section.docx")];
+			const root = document.documentElement;
+			return {
+				scale: sections[0]?.style.zoom ?? "",
+				width: wrapper?.getBoundingClientRect().width ?? 0,
+				pageWidth: Math.max(0, ...sections.map((s) => s.getBoundingClientRect().width)),
+				frameWidth: root.clientWidth,
+				scrollWidth: root.scrollWidth,
+			};
+		});
+	const narrow = await measureDocx();
+	expect(narrow.scale).not.toBe("1");
+	expect(narrow.pageWidth).toBeLessThanOrEqual(narrow.frameWidth);
+	expect(narrow.scrollWidth).toBeLessThanOrEqual(narrow.frameWidth);
+
+	await page.setViewportSize({ width: 4200, height: 1000 });
+	await expect.poll(async () => (await measureDocx()).scale).toBe("1");
+	const wide = await measureDocx();
+	expect(wide.pageWidth).toBeLessThanOrEqual(wide.frameWidth);
+	await page.setViewportSize({ width: 1280, height: 720 });
 
 	// The export lists both generated files.
 	await page.getByRole("button", { name: "Open artifacts panel" }).click();

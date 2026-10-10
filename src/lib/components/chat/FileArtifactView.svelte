@@ -16,7 +16,7 @@
 	} from "$lib/utils/filePreview";
 	import {
 		browserRendersPdfInFrame,
-		buildArtifactSrcdoc,
+		buildDocxSrcdoc,
 		PREVIEW_ALLOW,
 		PREVIEW_SANDBOX,
 	} from "$lib/utils/previewSrcdoc";
@@ -209,7 +209,7 @@
 
 	const docxChannel = `file_${Math.random().toString(36).slice(2)}`;
 	let docxSrcdoc = $derived(
-		payload?.kind === "docx" ? buildArtifactSrcdoc("html", payload.html, docxChannel) : ""
+		payload?.kind === "docx" ? buildDocxSrcdoc(payload.html, docxChannel) : ""
 	);
 
 	// Mobile engines draw no PDF in an iframe even unsandboxed (see
