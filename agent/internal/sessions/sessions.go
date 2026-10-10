@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/policy"
@@ -63,6 +64,11 @@ type sessionState struct {
 	// from the parent's own task tool parts naming the child they
 	// spawned — whichever arrives first.
 	parentID string
+	// parentSince is when the tree edge was learned. ReconcileChildren
+	// reads it: an edge learned a moment ago may be a child the answer it
+	// reconciles against could not list yet (the spawn race), and must not
+	// be pruned on the strength of one answer.
+	parentSince time.Time
 
 	seq  int64
 	ring []Envelope
@@ -253,6 +259,9 @@ func (m *Materializer) Track(workspaceDir string, sess backend.Session) {
 	st := newSessionState(workspaceDir, sess.ID)
 	st.status = sess.Status
 	st.parentID = sess.ParentID
+	if sess.ParentID != "" {
+		st.parentSince = time.Now()
+	}
 	m.sessions[sess.ID] = st
 }
 
@@ -273,6 +282,7 @@ func (m *Materializer) setParentLocked(childID, parentID string) {
 	}
 	if st.parentID == "" {
 		st.parentID = parentID
+		st.parentSince = time.Now()
 		m.newChildren = append(m.newChildren, childID)
 	}
 }
@@ -1057,6 +1067,49 @@ func (m *Materializer) ChildSummaries() map[string]*backend.ChildSummary {
 		}
 	}
 	return out
+}
+
+// spawnEdgeGrace is how long an edge just learned is spared from
+// ReconcileChildren: a child spawned while its parent's /children answer was
+// being taken has an edge the answer could not name, and one reconcile must
+// not read as its deletion. A minute covers any gap between the answer and
+// the reconcile and delays noticing a real deletion by no more than a
+// minute past the panel's next look.
+const spawnEdgeGrace = time.Minute
+
+// ReconcileChildren drops the tree edges the materializer learned for
+// parentID's children that live does not name, so ChildSummary counts only
+// children the backend still has (a deleted subagent must stop being
+// counted). live is the backend's own answer, the authoritative list.
+//
+// Pruning an edge missing from the answer is safe because an edge always
+// names a session that already existed when it was learned: opencode's task
+// tool creates the child session and only then emits the part whose
+// metadata carries the child's id, and session events and listings report
+// existing sessions — so an answer taken later lists every edge learned
+// before it, and a missing one was deleted in between. The one false
+// positive is an edge learned while the answer was in flight; those are
+// spared for spawnEdgeGrace instead.
+//
+// Only the edge is dropped: the child's own transcript state is kept, so a
+// panel still reading the deleted session's transcript keeps what it had
+// until the process restarts.
+func (m *Materializer) ReconcileChildren(parentID string, live []string) {
+	keep := make(map[string]bool, len(live))
+	for _, id := range live {
+		keep[id] = true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, st := range m.sessions {
+		if st.parentID != parentID || keep[id] {
+			continue
+		}
+		if time.Since(st.parentSince) < spawnEdgeGrace {
+			continue
+		}
+		st.parentID = ""
+	}
 }
 
 // descendsFromLocked reports whether sessionID has ancestor somewhere up its

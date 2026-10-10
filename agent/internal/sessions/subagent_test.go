@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"testing"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/policy"
@@ -190,5 +191,65 @@ func TestChildAgentIsReadFromTheParentsTaskCall(t *testing.T) {
 	}})
 	if got := m.ChildAgent("kid"); got != "explore" {
 		t.Errorf("ChildAgent = %q, want explore", got)
+	}
+}
+
+// ReconcileChildren drops the edges whose child the backend's /children
+// answer no longer has, so ChildSummary counts only children opencode still
+// has — a deleted subagent must stop being counted. The dropped child's own
+// transcript state is kept.
+func TestReconcileChildrenDropsDeletedEdges(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "a", ParentID: "parent"})
+	m.Track("/ws", backend.Session{ID: "b", ParentID: "parent"})
+	// Both edges were learned long before this reconcile's answer.
+	m.mu.Lock()
+	m.sessions["a"].parentSince = time.Now().Add(-2 * spawnEdgeGrace)
+	m.sessions["b"].parentSince = time.Now().Add(-2 * spawnEdgeGrace)
+	m.mu.Unlock()
+
+	m.ReconcileChildren("parent", []string{"a"})
+
+	sum := m.ChildSummary("parent")
+	if sum == nil || sum.Children != 1 {
+		t.Fatalf("parent summary = %+v, want 1 child", sum)
+	}
+	if got := m.RootOf("b"); got != "b" {
+		t.Errorf("RootOf(b) = %q, want b itself: the edge was dropped", got)
+	}
+	// An empty answer drops the last edge too.
+	m.ReconcileChildren("parent", nil)
+	if got := m.ChildSummary("parent"); got != nil {
+		t.Errorf("parent summary after an empty answer = %+v, want nil", got)
+	}
+}
+
+// The spawn race: a child spawned while its parent's /children answer was in
+// flight has an edge the answer could not name, and one reconcile must not
+// read it as a deletion. Edges younger than spawnEdgeGrace are spared; an
+// edge learned before the answer and missing from it is a real deletion.
+func TestReconcileChildrenSparesAFreshEdge(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "parent"})
+	m.Track("/ws", backend.Session{ID: "old", ParentID: "parent"})
+	m.mu.Lock()
+	m.sessions["old"].parentSince = time.Now().Add(-2 * spawnEdgeGrace)
+	m.mu.Unlock()
+	// The fresh spawn: learned from the parent's task part a moment ago.
+	m.Track("/ws", backend.Session{ID: "fresh", ParentID: "parent"})
+
+	// The answer, taken before the fresh spawn existed, names neither child.
+	m.ReconcileChildren("parent", nil)
+
+	sum := m.ChildSummary("parent")
+	if sum == nil || sum.Children != 1 {
+		t.Fatalf("parent summary = %+v, want the fresh child kept", sum)
+	}
+	if got := m.RootOf("fresh"); got != "parent" {
+		t.Errorf("RootOf(fresh) = %q, want parent", got)
+	}
+	if got := m.RootOf("old"); got != "old" {
+		t.Errorf("RootOf(old) = %q, want old itself: the stale edge was dropped", got)
 	}
 }

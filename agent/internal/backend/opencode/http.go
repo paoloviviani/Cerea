@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,6 +51,27 @@ func (b *Backend) doJSON(ctx context.Context, method, path string, body any, out
 // transcript.
 const maxTranscriptBytes = 256 << 20
 
+// statusError is a non-2xx answer from opencode: the typed half of doJSON's
+// error, so a caller can tell one status from another without matching on
+// the message text (a deleted child's 404 is the cue to forget it,
+// permissions.go). The text is exactly what doJSON has always printed, so
+// callers still matching on it keep working.
+type statusError struct {
+	status int
+	err    error
+}
+
+func (e *statusError) Error() string { return e.err.Error() }
+
+// Unwrap exposes the formatted error behind it.
+func (e *statusError) Unwrap() error { return e.err }
+
+// notFound reports whether err is opencode answering 404.
+func notFound(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.status == http.StatusNotFound
+}
+
 // doJSONLimit is doJSON with an explicit cap on the response body read.
 func (b *Backend) doJSONLimit(ctx context.Context, method, path string, body any, out any, limit int64) error {
 	ctx, cancel := context.WithTimeout(ctx, doJSONTimeout)
@@ -79,7 +101,8 @@ func (b *Backend) doJSONLimit(ctx context.Context, method, path string, body any
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("opencode %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+		err := fmt.Errorf("opencode %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return &statusError{status: resp.StatusCode, err: err}
 	}
 	if out == nil || len(respBody) == 0 {
 		return nil
