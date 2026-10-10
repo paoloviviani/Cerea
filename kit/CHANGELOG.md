@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Sending while a turn runs (steer) works again: galopin never advertised
+  it.** `buildHello` omitted `steer` and `agentTools` from the capabilities
+  it sends, so Cerea read both as false and the composer never offered Send
+  beside Stop on a running turn. It sends every capability the backend
+  reports now, checked by a test that walks the capability struct. Needs the
+  galopin update.
+
 ## v0.10.1 — 2026-10-10
 
 Pins: Cerea `0.10.1`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the
