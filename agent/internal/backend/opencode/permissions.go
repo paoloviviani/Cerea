@@ -162,6 +162,18 @@ func (b *Backend) noteSession(s backend.Session) {
 	}
 }
 
+// forgetChild drops a subagent session from the child maps: opencode has
+// answered 404 for it (the session was deleted), and keeping it would make
+// every later updateSelector retry a PATCH that can only fail again. Its
+// persisted overlay is left alone — harmless, and cleanup there is not
+// worth the write.
+func (b *Backend) forgetChild(sessionID string) {
+	b.perm.childMu.Lock()
+	delete(b.perm.childAgent, sessionID)
+	delete(b.perm.parentOf, sessionID)
+	b.perm.childMu.Unlock()
+}
+
 // childTitleAgent matches the suffix opencode puts on a subagent session's title
 // when its task tool creates it: "<description> (@<agent> subagent)". Anchored at
 // the end, so only opencode's own suffix counts, not anything the model wrote
@@ -453,7 +465,9 @@ func (b *Backend) RemoveException(ctx context.Context, workspaceDir, sessionID, 
 // enforced. A subagent that cannot be reached keeps the change (the root already
 // carries it, and the next re-application retries the child, its fingerprint
 // being stale) but the error is returned, because a Deny that did not land on a
-// running child must not be reported as done.
+// running child must not be reported as done — except one opencode answered 404
+// for: that child was deleted, so it is forgotten (forgetChild) and the change
+// is reported as done instead of failing on it for ever.
 func (b *Backend) updateSelector(ctx context.Context, dir, sessionID string, change func(permrules.Selector) (permrules.Selector, error)) error {
 	b.perm.mu.Lock()
 	defer b.perm.mu.Unlock()
@@ -483,6 +497,13 @@ func (b *Backend) updateSelector(ctx context.Context, dir, sessionID string, cha
 		agent := b.perm.childAgent[child]
 		b.perm.childMu.Unlock()
 		if err := b.applyChildLocked(ctx, dir, child, agent); err != nil {
+			if notFound(err) {
+				// opencode no longer has the child: it was deleted. Forget
+				// it so the next change stops retrying it, and do not fail
+				// the change on a session that no longer exists.
+				b.forgetChild(child)
+				continue
+			}
 			failed = append(failed, fmt.Sprintf("%s: %v", child, err))
 		}
 	}
