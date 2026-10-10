@@ -888,6 +888,16 @@ changing the code:
   the real cost of opening a long session (1,000 messages: ~2 minutes to
   first content, measured); the gate also makes the landing independent of
   whatever the reader did while waiting, because a skeleton cannot scroll.
+- **Recent sessions reopen from an in-memory cache, then refresh.**
+  `stores/agentTranscriptCache.ts` keeps the last 8 sessions (newest 400
+  messages each, plain snapshots, memory only, never localStorage) saved on
+  leaving a session and at `historyDone`. A hit renders at once with no
+  skeleton, folds the fresh replay into a separate `$state` array
+  (`staging`), and swaps it in at `historyDone` through the column's
+  `replaceWithAnchor` (the very array the fold keeps appending to). Until the
+  swap the copy is display-only: no paging, retry/edit or fork, and a
+  permission card refuses to answer. A rollback/undo, a new epoch, deleting
+  or archiving the session, and sign-out invalidate it.
 - **Tool-output images are references, never bytes on the stream.** A tool
   part lists `attachments` (`sha256`, `mime`, `size`); `machineTimeline.ts`
   maps them to `{type:"image", url}` blocks pointing at the forwarder's

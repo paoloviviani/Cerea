@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Going back to a session you had open shows it at once: the last 8 sessions are kept in memory and refresh in the background.
 - **Documented, no behaviour change: a long session's permission list grows.**
   opencode 1.18.34 only appends session rules, so each change of a session's
   Deny/Ask/Allow word, exceptions or the machine ceiling adds one composed
