@@ -14,6 +14,12 @@ stores no code for it.
 This page is for operators. The person using the panel wants
 [Agent machines](agent-machines.md) instead.
 
+A session waiting on a busy model says so: when the provider answers "rate limit"
+or "overloaded" and the agent retries with backoff, the view shows "Retrying —
+<the provider's message> (attempt N, next try in S s)" beside Stop instead of a
+silent running turn. This needs the galopin update; an older machine keeps the
+plain running look.
+
 ## What gets deployed
 
 Nothing extra. The machine link is one WebSocket endpoint

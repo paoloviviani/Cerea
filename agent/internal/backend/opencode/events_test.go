@@ -203,3 +203,42 @@ func TestTranslateEventSessionErrorAbortedIsDropped(t *testing.T) {
 		t.Fatalf("got %d events, want none for an abort", len(events))
 	}
 }
+
+// A session.status retry carries why the session waits (PROTOCOL.md §7): the
+// provider's message, the attempt and the next try. The status's `action` is
+// never forwarded, and an overlong message is clipped.
+func TestTranslateEventStatusRetry(t *testing.T) {
+	b := New(Config{})
+	events := b.translateEvent("/ws", "session.status", map[string]any{
+		"sessionID": "ses_1",
+		"status": map[string]any{
+			"type": "retry", "attempt": float64(3), "message": "Rate limit exceeded", "next": float64(1760000000000),
+			"action": map[string]any{"title": "Upgrade", "link": "https://example.test/billing"},
+		},
+	})
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	ev := events[0].Event
+	if ev.Status != backend.StatusRetry || ev.Retry == nil {
+		t.Fatalf("event = %+v, want a retry status with Retry set", ev)
+	}
+	if *ev.Retry != (backend.RetryInfo{Attempt: 3, Message: "Rate limit exceeded", Next: 1760000000000}) {
+		t.Errorf("Retry = %+v", *ev.Retry)
+	}
+
+	long := b.translateEvent("/ws", "session.status", map[string]any{
+		"sessionID": "ses_1",
+		"status":    map[string]any{"type": "retry", "attempt": float64(1), "message": strings.Repeat("x", 1000)},
+	})
+	if n := len([]rune(long[0].Event.Retry.Message)); n > maxErrorMessage+1 {
+		t.Errorf("message not clipped: %d runes", n)
+	}
+
+	busy := b.translateEvent("/ws", "session.status", map[string]any{
+		"sessionID": "ses_1", "status": map[string]any{"type": "busy"},
+	})
+	if busy[0].Event.Status != backend.StatusBusy || busy[0].Event.Retry != nil {
+		t.Errorf("busy = %+v, want no Retry", busy[0].Event)
+	}
+}

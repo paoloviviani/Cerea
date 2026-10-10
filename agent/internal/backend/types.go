@@ -339,8 +339,11 @@ type Transcript struct {
 	// answer one; question.asked is not replayed by a snapshot.
 	Questions []QuestionRequest `json:"questions"`
 	Status    SessionStatus     `json:"status"`
-	Usage     *Usage            `json:"usage,omitempty"`
-	Todos     []Todo            `json:"todos"`
+	// Retry says why a "retry" status is waiting (PROTOCOL.md §7); nil in any
+	// other state.
+	Retry *RetryInfo `json:"retry,omitempty"`
+	Usage *Usage     `json:"usage,omitempty"`
+	Todos []Todo     `json:"todos"`
 }
 
 // EventKind discriminates Event's per-kind fields (PROTOCOL.md §7).
@@ -398,6 +401,9 @@ type Event struct {
 	// status
 	Status SessionStatus
 	Detail string
+	// Retry accompanies Status "retry": what the provider said, which attempt
+	// this is and when the next try is due.
+	Retry *RetryInfo
 
 	// permission.asked
 	Request *PermissionRequest
@@ -452,4 +458,13 @@ func (t Transcript) MarshalJSON() ([]byte, error) {
 		out.Todos = []Todo{}
 	}
 	return json.Marshal(out)
+}
+
+// RetryInfo is the reason a session sits in the "retry" status: the backend
+// is waiting to try the model provider again (a rate limit, an outage).
+// Next is epoch milliseconds of the next try, 0 when unknown.
+type RetryInfo struct {
+	Attempt int    `json:"attempt"`
+	Message string `json:"message"`
+	Next    int64  `json:"next,omitempty"`
 }

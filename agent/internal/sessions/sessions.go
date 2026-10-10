@@ -81,6 +81,7 @@ type sessionState struct {
 	questions     map[string]*backend.QuestionRequest
 
 	status backend.SessionStatus
+	retry  *backend.RetryInfo
 	usage  *backend.Usage
 	todos  []backend.Todo
 }
@@ -160,6 +161,7 @@ func (s *sessionState) snapshot() backend.Transcript {
 		Permissions: perms,
 		Questions:   questions,
 		Status:      s.status,
+		Retry:       s.retry,
 		Usage:       s.usage,
 		Todos:       s.todos,
 	}
@@ -560,6 +562,10 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) []bac
 
 	case backend.EventStatus:
 		st.status = ev.Status
+		st.retry = nil
+		if ev.Status == backend.StatusRetry {
+			st.retry = ev.Retry
+		}
 		return []backend.Event{ev}
 
 	case backend.EventPermissionAsked:
