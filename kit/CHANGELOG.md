@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Documented, no behaviour change: a long session's permission list grows.**
+  opencode 1.18.34 only appends session rules, so each change of a session's
+  Deny/Ask/Allow word, exceptions or the machine ceiling adds one composed
+  block (the newest always wins). Measured cost is record size, not speed
+  (about 117 KB at 1,300 rules); see the agent protocol, section 6. Machines
+  do not need the galopin update for this.
+
 ## v0.10.0 — 2026-10-10
 
 Pins: Cerea `0.10.0`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the
