@@ -5,6 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+**Machines need the galopin update** for this fix: re-run the install line
+from the pairing dialog, then `systemctl --user restart galopin`.
+
+- **A deleted subagent no longer lingers in its session's permissions or
+  subagent count.** Deleting a subagent session in opencode left it in
+  galopin's memory: every later permission change on the parent session
+  failed with "a subagent under it could not be given them" — one 404 per
+  deleted child — and the panel kept showing the deleted subagents under
+  the session. galopin now forgets a child opencode answers 404 for when it
+  re-applies a session's rules, and drops the child edges its memory holds
+  for children opencode's own listing no longer has, so the count drops
+  with the deletions. Needs the galopin update.
+
 ## v0.10.3 — 2026-10-10
 
 Pins: Cerea `0.10.3`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
