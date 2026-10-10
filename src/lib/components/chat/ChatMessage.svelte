@@ -898,7 +898,10 @@
 					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : unit.kind === "backgroundTask" ? `background-${unit.update.taskId}-${unit.update.state}` : `${unit.kind}-${unitIndex}`)}
 						{#if unit.kind === "text"}
 							{#if isLast && loading && unit.content.length === 0}
-								<MessageAvatar animating classNames="loading inline-block h-3 md:h-4 w-auto select-none" />
+								<MessageAvatar
+									animating
+									classNames="loading inline-block h-3 md:h-4 w-auto select-none"
+								/>
 							{:else if unit.content.trim().length > 0}
 								<div class={proseClasses}>
 									<MarkdownRenderer
