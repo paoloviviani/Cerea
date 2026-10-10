@@ -98,9 +98,12 @@ func TestPassthroughP3CeilingWinsAndAlwaysBecomesOnce(t *testing.T) {
 	// The rules were in the create itself: they are on the session before any
 	// prompt exists, with the ceiling last.
 	rules := r.sessionRules(s.ID)
-	if len(rules) == 0 || rules[0] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) ||
+	// The block opens with the tool-visibility sentinel, then the machine's
+	// own rules; the ceiling's tail closes it.
+	if len(rules) < 2 || rules[0] != permrules.ToolVisibilitySentinel ||
+		rules[1] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) ||
 		rules[len(rules)-1].Action != permrules.Ask {
-		t.Fatalf("session rules before the first prompt = %+v, want the machine's allow first and the ceiling's ask last", rules)
+		t.Fatalf("session rules before the first prompt = %+v, want the sentinel, then the machine's allow, and the ceiling's ask last", rules)
 	}
 	ask, _, mark := r.try(s, "p3a.txt")
 	if ask == nil {
