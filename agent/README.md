@@ -131,7 +131,18 @@ veto that only `enroll` can loosen:
   its first turn: opencode starts that turn before galopin can give it the
   word, so its asks come from a floor that asks, and galopin answers them
   `once` when the session's word and exceptions allow (audited
-  `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps. What **is** the machine's is the **ceiling**
+  `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps.
+  The machine's **safe external directories** (`enroll --safe-dir PATH`
+  repeatable, replacing the default; `--no-safe-dirs` for none) are the one
+  thing no session ever asks about: `/tmp`, the temp dir, the user's cache
+  and the toolchain caches (`~/go/pkg/mod`, `~/.npm`,
+  `~/.local/share/pnpm`) — those that exist — never raise the
+  external_directory card, under Deny, Ask or Allow alike, subagents
+  included. A safe directory is one the agent may write into
+  (external_directory does not separate read from write), so the list stays
+  short, and `galopin policy set --no-safe-dir PATH` may only remove from
+  it. The ceiling key `external_directory` still caps every one of them.
+  What **is** the machine's is the **ceiling**
   (`enroll --permission-max KEY=ACTION`, default `bash=ask` and
   `session_spawn=ask`; the coordination keys `session_read` and
   `session_send` are ceiling keys too, and so is `schedule`, all uncapped by
@@ -185,10 +196,13 @@ veto that only `enroll` can loosen:
   (default 8). Enrolling with terminals on always prints a warning: the
   shell is outside every permission rule.
 
-`galopin policy show` prints the current policy in plain words.
+`galopin policy show` prints the current policy in plain words — the
+permission line names the effective safe directories, so an owner can see
+what never asks.
 `galopin policy set` can locally **tighten** it without a full re-enroll —
 turn files or the terminal off, lower `--max-terminals`, a
-`--permission-max` ceiling or a `--permission-rule`, or add a
+`--permission-max` ceiling or a `--permission-rule`, remove a safe
+directory with `--no-safe-dir PATH`, or add a
 `--file-deny` entry — but never loosen it back; loosening always requires
 `enroll` again, since the policy is never writable over the link (§4).
 

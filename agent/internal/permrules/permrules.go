@@ -179,8 +179,39 @@ type Layers struct {
 	// permission.rules): they beat opencode's static file, because a session's
 	// rules sit above config. Never allow-rules the ceiling forbids: the tail
 	// lowers them.
-	Own     []Rule
+	Own []Rule
+	// Ceiling is the machine's cap.
 	Ceiling Ceiling
+	// SafeDirs are the machine's safe external directories (policy.json's
+	// permission.safeDirs): absolute paths whose contents never ask, under
+	// every selector word. They are not the word's to move and not part of
+	// Own — see SafeDirRules for where they sit and what still caps them.
+	SafeDirs []string
+}
+
+// SafeDirRules is the machine's safe external directories as rules: one
+// `external_directory <dir>/* : allow` per directory, in the order given,
+// duplicates dropped.
+//
+// They are appended after everything else in a session's composed block and
+// answer only to the ceiling: external_directory is an untouched name the
+// selector's blanket never moves, so a session on Deny, Ask or Allow reads
+// them alike, and the ceiling's tail — always last — restates them lowered
+// like every other rule beneath it, so a ceiling of
+// external_directory=ask|deny still asks or refuses. Note that
+// external_directory does not separate read from write: a safe directory is
+// one the agent may write into, which is why the list stays short.
+func SafeDirRules(dirs []string) []Rule {
+	var out []Rule
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, Rule{"external_directory", d + "/*", Allow})
+	}
+	return out
 }
 
 // Tail is the ceiling expressed as rules that can only restrict. in is every
@@ -526,6 +557,17 @@ func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 		}
 		cerea = append(cerea, sel.exceptionRules()...)
 	}
+	// The safe directories, last of the session's own block: after the mode
+	// block and the exceptions, so the word and the person's exceptions
+	// cannot bury them, and before the ceiling's tail, which alone caps them.
+	// A duplicate of the rule just before it (an exception of the same shape)
+	// is not restated, like everywhere else in this composer.
+	for _, r := range SafeDirRules(l.SafeDirs) {
+		if n := len(cerea); n > 0 && cerea[n-1] == r {
+			continue
+		}
+		cerea = append(cerea, r)
+	}
 	in := append(append([]Rule(nil), agent...), cerea...)
 	return cerea, l.Ceiling.Tail(in)
 }
@@ -551,9 +593,12 @@ func (l Layers) ChildCeiling() Ceiling {
 // ChildRules is what a subagent session gets: its ROOT's selector (the mode
 // block and the root's exceptions — a subagent has no selector of its own)
 // over the child agent's rules, and the child ceiling's tail. Never the
-// machine's own allows: only their restrictions, as caps.
+// machine's own allows: only their restrictions, as caps. The one allow that
+// does travel is the machine's safe directories (SafeDirs): they are policy,
+// not a machine rule, and a subagent's later turns read /tmp and the caches
+// without a card the way its root's do.
 func ChildRules(l Layers, root Selector, agent []Rule) []Rule {
-	return Compose(Layers{Ceiling: l.ChildCeiling()}, root, agent)
+	return Compose(Layers{SafeDirs: l.SafeDirs, Ceiling: l.ChildCeiling()}, root, agent)
 }
 
 // Grant is how the two galopin coordination tools are decided from rules.

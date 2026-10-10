@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"note": "Every flag `galopin enroll` registers, classified for the /code panel's Pair-a-machine dialog. exposed:true means the dialog must offer a control for it (a default emits no flag); exposed:false is connection plumbing, a retired flag, or a negation the dialog does not need. enroll_flags_test.go fails when this file and enroll's registered flags differ, so a new flag cannot land unclassified. kind is bool | int | string | list | keyAction (a repeatable KEY=ACTION list). default is what enroll uses when the flag is absent.",
+	"note": "Every flag `galopin enroll` registers, classified for the /code panel's Pair-a-machine dialog. exposed:true means the dialog must offer a control for it (a default emits no flag); exposed:false is connection plumbing, a retired flag, or a control the dialog does not need (a default emits no flag, so the safe-directory flags and the rest stay out of the printed command). enroll_flags_test.go fails when this file and enroll's registered flags differ, so a new flag cannot land unclassified. kind is bool | int | string | list | keyAction (a repeatable KEY=ACTION list). default is what enroll uses when the flag is absent.",
 	"flags": [
 		{ "flag": "allow-background-subagents", "kind": "bool", "default": true, "exposed": false },
 		{ "flag": "allow-command-shell", "kind": "bool", "default": true, "exposed": false },
@@ -18,6 +18,8 @@
 		{ "flag": "no-terminal", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "permission-max", "kind": "keyAction", "default": [], "exposed": true },
 		{ "flag": "permission-rule", "kind": "keyAction", "default": [], "exposed": true },
+		{ "flag": "safe-dir", "kind": "list", "default": [], "exposed": false },
+		{ "flag": "no-safe-dirs", "kind": "bool", "default": false, "exposed": false },
 		{ "flag": "workspace-root", "kind": "list", "default": [], "exposed": true },
 
 		{

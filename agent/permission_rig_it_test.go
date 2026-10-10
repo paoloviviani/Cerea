@@ -387,6 +387,20 @@ func (r *permRig) agentRules(agent string) []permrules.Rule {
 
 func (r *permRig) auditRows() []map[string]any { return auditRows(r.t, r.stateDir) }
 
+// safeTmp is a directory under /tmp — the one safe entry every machine's
+// default list has — for the safe-directory specs to write into. Made under
+// /tmp whatever the test process's TMPDIR says: on this box that can point
+// into a running galopin's own state, which the default list never names.
+func (r *permRig) safeTmp() string {
+	r.t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "galopin-s13-")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	r.t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // onlyOneAsk reports the asks the hub has logged for a session since mark.
 func (r *permRig) asks(mark int, s backend.Session) []backend.PermissionRequest {
 	return r.hub.asks(mark, s.ID)

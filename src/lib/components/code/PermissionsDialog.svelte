@@ -50,6 +50,7 @@
 		isLegacyMachine,
 		sourceLabel,
 		overriddenLabel,
+		type CapabilityRow,
 		type RuleAction,
 	} from "$lib/utils/permissionRules";
 	import {
@@ -141,6 +142,21 @@
 	let rules = $derived(annotateRules(result?.rules ?? []));
 	let rows = $derived(result ? capabilityRows(result) : []);
 	let exceptions = $derived(result?.savedApprovals ?? []);
+	/** The machine's safe external directories, in its own words; empty on a
+	 * galopin older than the field, and when the machine has none. */
+	let safeDirs = $derived(result?.safeDirs ?? []);
+
+	/** The safe-directory line in the external_directory row: the directories
+	 * that never ask, and what happens everywhere else. Said only when the
+	 * row is not held below the session's setting by the machine's limits —
+	 * a ceiling on external_directory caps the safe directories too, and the
+	 * row already says so. */
+	function safeDirNote(row: CapabilityRow): string | null {
+		if (row.id !== "external" || row.capped || safeDirs.length === 0) return null;
+		const elsewhere =
+			row.action === "deny" ? "blocked" : row.action === "allow" ? "allowed" : "asks";
+		return `Allowed: ${safeDirs.join(", ")}; elsewhere ${elsewhere}`;
+	}
 
 	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
 	 * front, never inside the collapsed detail. */
@@ -248,6 +264,11 @@
 							>
 							{#if row.except.length > 0}
 								<span class="text-ink-muted">except {row.except.join("; ")}</span>
+							{/if}
+							{#if safeDirNote(row)}
+								<span class="text-ink-faint" data-testid="permission-safe-dirs">
+									{safeDirNote(row)}
+								</span>
 							{/if}
 							{#if row.capped}
 								<span class="text-ink-faint" data-testid="permission-capped"

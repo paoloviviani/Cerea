@@ -241,7 +241,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
 	go watchPolicy(ctx, filepath.Join(stateDir, policyFileName), live, policyPollEvery, func(ch policy.Change) {
-		logf("permissions: policy tightened (ceiling or rules: %v)", ch.Tightened)
+		logf("permissions: policy tightened (ceiling, rules or safe dirs: %v)", ch.Tightened)
 		mc.policyTightened(ctx, ch)
 	})
 	for _, w := range reg.List(true) {

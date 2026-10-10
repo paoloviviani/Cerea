@@ -443,6 +443,11 @@ export interface PermissionRulesResult {
 	 * dialog shows as the two switches; absent on a galopin that predates
 	 * the op — which then shows no line rather than an empty one). */
 	coordination?: CoordinationKey[];
+	/** The machine's safe external directories, in the form a person reads
+	 * (home-relative entries shortened). Optional: a galopin older than the
+	 * field omits it, and the external_directory row then says nothing about
+	 * them. */
+	safeDirs?: string[];
 }
 
 const permissionRuleSchema = z.object({
@@ -495,6 +500,7 @@ export function parsePermissionRules(raw: unknown): PermissionRulesResult {
 			const parsed = permissionRuleSchema.safeParse(item);
 			return parsed.success ? [parsed.data] : [];
 		}),
+		safeDirs: items(object.safeDirs).filter((item): item is string => typeof item === "string"),
 		savedApprovals: items(object.savedApprovals).flatMap((item) => {
 			const parsed = savedApprovalSchema.safeParse(item);
 			if (!parsed.success) return [];

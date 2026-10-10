@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"galopin/internal/policy"
 )
@@ -39,6 +40,10 @@ refuses and names the 'enroll' re-run that does it instead.
                        restarted so nothing it kept in memory outlives it.
    --permission-rule KEY=ACTION  Lower this machine's own rule for KEY, or add
                        an ask/deny one (repeatable).
+   --no-safe-dir PATH  Remove PATH from this machine's safe directories — the
+                       directories outside the workspace whose contents never
+                       ask (repeatable). A local set may only remove: adding
+                       one needs 'enroll --safe-dir'.
    --max-terminals N   Lower the concurrent-terminal cap (must be less than
                        the current value).
   --file-deny GLOB    Add GLOB to the deny list (repeatable).
@@ -122,6 +127,8 @@ func runPolicySet(args []string) error {
 	var permMax, permRules []string
 	fs.Var(stringListFlag{&permMax}, "permission-max", "")
 	fs.Var(stringListFlag{&permRules}, "permission-rule", "")
+	var noSafeDirs []string
+	fs.Var(stringListFlag{&noSafeDirs}, "no-safe-dir", "")
 	maxTerminals := fs.Int("max-terminals", 0, "")
 	var fileDeny []string
 	fs.Var(stringListFlag{&fileDeny}, "file-deny", "")
@@ -190,6 +197,31 @@ func runPolicySet(args []string) error {
 		if pol.Permission.Rules, err = tighten("permission-rule", pol.Permission.Rules, want); err != nil {
 			return err
 		}
+		changed = true
+	}
+	if len(noSafeDirs) > 0 {
+		effective := pol.Permission.EffectiveSafeDirs()
+		dropped := map[string]bool{}
+		for _, d := range noSafeDirs {
+			found := false
+			for _, have := range effective {
+				found = found || have == d
+			}
+			if !found {
+				return fmt.Errorf("--no-safe-dir %s is not among this machine's safe directories (%s): nothing to remove", d,
+					strings.Join(policy.DisplaySafeDirs(effective), ", "))
+			}
+			dropped[d] = true
+		}
+		kept := make([]string, 0, len(effective))
+		for _, d := range effective {
+			if !dropped[d] {
+				kept = append(kept, d)
+			}
+		}
+		// The list is written explicitly even when it shrinks to none: an
+		// absent field reads as the default list again.
+		pol.Permission.SafeDirs = &kept
 		changed = true
 	}
 	if *maxTerminals != 0 {

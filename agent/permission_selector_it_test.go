@@ -615,6 +615,73 @@ func TestSelectorS12EveryPermissionNameIsClassified(t *testing.T) {
 	}
 }
 
+// S13: the machine's safe external directories (policy.json's
+// permission.safeDirs). opencode consults external_directory for a path
+// outside the workspace before the tool's own permission, and its ask is the
+// one a session gets today under every word (probed live: with no rule for
+// the path, an outside write under Ask asks external_directory, not edit).
+// With the safe-dir allows, that question is gone: a fresh Ask session reads
+// /tmp with no card and its writes there raise only the word's own edit ask,
+// a session on Allow writes to /tmp with no card at all, a directory outside
+// every safe entry still asks, and the ceiling stays the last word.
+func TestSelectorS13SafeDirs(t *testing.T) {
+	t.Run("a fresh Ask session reads /tmp with no card, writes there only its own edit ask, /etc/hostname still asks", func(t *testing.T) {
+		r := newPermRig(t, permRigOpts{})
+		s := r.session("s13", "")
+		target := filepath.Join(r.safeTmp(), "s13-written.txt")
+		if err := os.WriteFile(target, []byte("written by the rig\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ask, part, mark := r.tryCall(s, "read", map[string]any{"filePath": target})
+		if ask != nil || part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("a read from /tmp on a fresh Ask session: ask=%v part=%+v, want it to run with no card (the safe directories)", ask, part)
+		}
+		r.idle(s, mark)
+
+		ask, _, mark = r.tryCall(s, "write", map[string]any{"filePath": target, "content": "x"})
+		if ask == nil {
+			t.Fatalf("a write into /tmp under Ask raised no card at all")
+		}
+		if ask.Tool != "edit" {
+			t.Errorf("a write into /tmp under Ask: ask.Tool = %q, want the session's own edit ask", ask.Tool)
+		}
+		r.reply(s, ask.ID, "reject")
+		r.idle(s, mark)
+		for _, a := range r.asks(mark, s) {
+			if a.Tool == "external_directory" {
+				t.Errorf("the safe-dir question appeared for a /tmp write under Ask: %+v", a)
+			}
+		}
+
+		// The rule is one allow per directory, not a pass for everywhere.
+		ask, _, mark = r.tryCall(s, "read", map[string]any{"filePath": "/etc/hostname"})
+		if ask == nil || ask.Tool != "external_directory" {
+			t.Fatalf("a read of /etc/hostname under Ask: ask=%v, want an external_directory ask", ask)
+		}
+		r.reply(s, ask.ID, "reject")
+		r.idle(s, mark)
+
+		// Under Allow the safe directories are the whole story: no card.
+		r.setMode(s, "allow")
+		ask, part, mark = r.tryCall(s, "write", map[string]any{"filePath": target, "content": "y"})
+		if ask != nil || part.ToolStatus != backend.ToolCompleted {
+			t.Errorf("a write into /tmp under Allow: ask=%v part=%+v, want it to run with no card", ask, part)
+		}
+		r.idle(s, mark)
+	})
+
+	t.Run("a ceiling of external_directory=ask still asks for /tmp", func(t *testing.T) {
+		r := newPermRig(t, permRigOpts{perm: policy.Permission{Max: map[string]string{"external_directory": "ask"}}})
+		s := r.session("s13-capped", "")
+		ask, _, mark := r.tryCall(s, "write", map[string]any{"filePath": filepath.Join(r.safeTmp(), "s13-capped.txt"), "content": "x"})
+		if ask == nil || ask.Tool != "external_directory" {
+			t.Fatalf("a write into /tmp under a ceiling of external_directory=ask: ask=%v, want an ask (the ceiling caps the safe directories)", ask)
+		}
+		r.reply(s, ask.ID, "reject")
+		r.idle(s, mark)
+	})
+}
+
 // rawChild makes a session opencode is told is a subagent session of parent (a
 // create with parentID) and gives it its root's rules the way the machine does
 // when a task creates one (the task flow itself is exercised by the delegate
