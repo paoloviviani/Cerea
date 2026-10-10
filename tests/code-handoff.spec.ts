@@ -130,6 +130,9 @@ test.beforeEach(async ({ page }) => {
 		{ type: "messageBoundary", role: "assistant", messageId: "wire-a1" },
 		{ type: "stream", token: "Sure thing." },
 		{ type: "turnState", state: "done", serverNow: Date.now() },
+		// The bridge ends its replay with this marker; the agent view shows
+		// the transcript only after it.
+		{ type: "historyDone" },
 	];
 	let served = 0;
 	await page.route(`**/api/v2/code/agents/${AGENT}/stream?*`, (route) => {
