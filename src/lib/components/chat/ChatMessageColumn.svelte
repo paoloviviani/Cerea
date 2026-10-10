@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
 	import type { Message } from "$lib/types/Message";
-	import { untrack } from "svelte";
+	import { flushSync, untrack } from "svelte";
 	import type { Snippet } from "svelte";
 
 	import ChatMessage from "./ChatMessage.svelte";
@@ -79,6 +79,10 @@
 		overlay?: Snippet;
 		/** Rendered at the top of the container, above whatever the messages branch shows. */
 		head?: Snippet;
+		/** Fired when the person scrolls within about one screen of the top
+		 * (the agent panel's cue to page an older history page in). Chat
+		 * routes never pass it. */
+		onScrollNearTop?: () => void;
 		/** The empty-conversation state, when there is nothing to render yet. */
 		introduction?: Snippet;
 		/** Rendered after the turns, inside the message column (e.g. a read-only notice). */
@@ -109,17 +113,23 @@
 		conversationId,
 		overlay,
 		head,
+		onScrollNearTop,
 		introduction,
 		tail,
 		composer,
 	}: Props = $props();
 
 	const chatScroll = createChatScroll();
+	let scrollContainerEl: HTMLElement | undefined = $state();
 	let messagesEl: HTMLElement | undefined = $state();
 	let pendingEl: HTMLElement | undefined = $state();
 	let composerHeight = $state<number | undefined>(undefined);
 	// Owned here: the edit affordance is per-message UI and no caller reads it.
 	let editMsdgId: Message["id"] | null = $state(null);
+	// The settle follower's generation: a newer prepend supersedes an older
+	// page's correction (its anchor still measures the visible region, but
+	// one follower is enough).
+	let settleToken = 0;
 
 	/** For callers that must land the view with their own send (the send is
 	 * the request to see the exchange). */
@@ -129,6 +139,98 @@
 
 	export function notifyBranchSwitch() {
 		chatScroll.notifyBranchSwitch();
+	}
+
+	/** Prepend messages above the viewport and hold the visible message
+	 * where it was (the agent panel paging an older history page in):
+	 * `apply` mutates the caller's message array in place, and the scroll
+	 * position grows by exactly the height the prepend added — measured and
+	 * written in one synchronous flush, so no frame ever shows the unmoved
+	 * position. The anchored turn's reservation follows its turn to the new
+	 * index. Reads the turn count, never turns' contents, so token flushes
+	 * never disturb it.
+	 *
+	 * The fresh nodes' markdown settles over the frames after the flush (its
+	 * height was only a shell when the synchronous compensation measured
+	 * it), and native anchoring absorbs that late growth only in part — so
+	 * a settle follower re-zeroes the oldest message's drift until the
+	 * heights stop moving. It never fights the reader: their own scroll
+	 * cancels it, and a newer prepend supersedes it. */
+	export function prependWithAnchor(apply: () => void) {
+		const container = scrollContainerEl;
+		if (!container) {
+			apply();
+			return;
+		}
+		const anchorId = messages[0]?.id;
+		const anchorBefore = anchorId === undefined ? null : messageViewportTop(container, anchorId);
+		const top = container.scrollTop;
+		const height = container.scrollHeight;
+		const turnsBefore = turns.length;
+		flushSync(() => apply());
+		chatScroll.notifyPrepended(turns.length - turnsBefore);
+		// Through the controller, so its attribution baselines adopt the
+		// move — and absolute: native scroll anchoring may already have
+		// shifted the position, and this same target is correct either way.
+		chatScroll.keepScrollAt(top + (container.scrollHeight - height));
+		if (anchorId === undefined || anchorBefore === null) return;
+		const token = ++settleToken;
+		let cancelled = false;
+		const cancel = () => {
+			cancelled = true;
+		};
+		for (const type of ["wheel", "touchstart", "keydown", "mousedown"] as const) {
+			container.addEventListener(type, cancel, { once: true, passive: true });
+		}
+		const raf =
+			typeof requestAnimationFrame === "function"
+				? (fn: () => void) => requestAnimationFrame(fn)
+				: (fn: () => void) => setTimeout(fn, 16);
+		let lastHeight = -1;
+		let stableFrames = 0;
+		const started = Date.now();
+		const tick = () => {
+			if (token !== settleToken || cancelled) return;
+			if (container.scrollHeight !== lastHeight) {
+				lastHeight = container.scrollHeight;
+				stableFrames = 0;
+			} else {
+				stableFrames += 1;
+			}
+			const anchorNow = messageViewportTop(container, anchorId);
+			// The anchor left the transcript (a reset cleared it): nothing
+			// to hold anymore.
+			if (anchorNow === null) return;
+			if (Math.abs(anchorNow - anchorBefore) > 1) {
+				chatScroll.keepScrollAt(container.scrollTop + (anchorNow - anchorBefore));
+			}
+			// Keep following until the heights rest (and at least past the
+			// first paint, whose effects render the fresh markdown), bounded
+			// so a never-settling page cannot follow forever.
+			if ((stableFrames < 3 || Date.now() - started < 500) && Date.now() - started < 2500) {
+				raf(tick);
+			}
+		};
+		raf(tick);
+	}
+
+	/** One message's viewport-relative top, or null when it renders no node
+	 * (the turn regrouping recreates nodes across the boundary, so the
+	 * caller re-queries rather than holding an element). */
+	function messageViewportTop(container: HTMLElement, id: Message["id"]): number | null {
+		const el = container.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+		if (!(el instanceof HTMLElement)) return null;
+		return el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+	}
+
+	/** The reader is within about one screen of the transcript's top — the
+	 * agent panel's cue to page the previous history page in. Fires on every
+	 * scroll event up there; the caller guards (one fetch at a time, only
+	 * while older pages exist). */
+	function handleScroll() {
+		const container = scrollContainerEl;
+		if (!container || !onScrollNearTop) return;
+		if (container.scrollTop <= container.clientHeight) onScrollNearTop();
 	}
 
 	// Turn grouping: a user message starts a turn, following assistant messages
@@ -226,6 +328,8 @@
 		class="scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
 		tabindex="0"
 		aria-label="Conversation messages"
+		bind:this={scrollContainerEl}
+		onscroll={handleScroll}
 		use:chatScroll.attach={{
 			content: () => messagesEl ?? pendingEl,
 			ignoreTouchZonePx: NAV_EDGE_SWIPE_ZONE_PX,

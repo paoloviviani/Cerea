@@ -430,6 +430,23 @@ export async function fetchSubagentTimeline(
 	);
 }
 
+/** One older page of a session's transcript (§6 `session.history`), as
+ * agent frames for the chat's fold. `before` is the caller's oldest loaded
+ * message's id; the answer names the next cursor in `before`, and `hasMore`
+ * says whether another page exists behind it. */
+export async function fetchAgentHistory(
+	deviceId: string,
+	agentId: string,
+	before: string,
+	limit: number
+): Promise<{ updates: AgentStreamUpdate[]; hasMore: boolean; before?: string }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/history?device=${encodeURIComponent(deviceId)}&before=${encodeURIComponent(before)}&limit=${limit}`
+		)
+	);
+}
+
 // -- control: follow-ups and approvals (Phase 3) ----------------------------
 
 /** How much licence a new agent starts with. Creation-time only: the live

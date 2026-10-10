@@ -42,7 +42,7 @@ import {
 	withinPixelBudget,
 } from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
-import { deleteAttachments } from "$lib/server/files/attachmentStore";
+import { deleteAttachments, findAttachments } from "$lib/server/files/attachmentStore";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import {
 	COORDINATION_KEYS,
@@ -97,6 +97,10 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/attachments/[0-9a-f]{64}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/subagents/${ID}/timeline$`) },
+	// A session's older transcript, one page at a time (§6 session.history):
+	// the one read past what the stream's snapshot carried, and nothing but
+	// messages — no permissions, questions or status ride an older page.
+	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/history$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/messages$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/commands$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/command$`) },
@@ -627,6 +631,52 @@ export const GET: RequestHandler = async (event) => {
 					)
 				: [];
 		return superjsonResponse({ updates });
+	}
+
+	// One older page of the session's transcript (§6 session.history),
+	// converted with the same per-message code path the snapshot uses so the
+	// frames fold identically — and the same tool-image urls the stream
+	// rides. The machine answers `unsupported` without the historyPaging
+	// capability, which maps to the 404 the view reads as "nothing to page".
+	const historyMatch = new RegExp(`^v1/agents/(${ID})/history$`).exec(path);
+	if (historyMatch) {
+		const sessionId = decodeURIComponent(historyMatch[1]);
+		const before = z
+			.string()
+			.trim()
+			.min(1)
+			.max(128)
+			.safeParse(event.url.searchParams.get("before") ?? "");
+		if (!before.success) error(400, "Expected ?before= with a message id.");
+		const limit = z.coerce
+			.number()
+			.int()
+			.min(1)
+			.max(500)
+			.safeParse(event.url.searchParams.get("limit") ?? "");
+		if (!limit.success) error(400, "Expected ?limit= between 1 and 500.");
+		const page = await callOp(() =>
+			link.sessionHistory({ sessionId, before: before.data, limit: limit.data })
+		);
+		const { transcriptMessagesToUpdates } = await import("$lib/server/code/machineTimeline");
+		const updates = transcriptMessagesToUpdates({ messages: page.messages }, (sha256) =>
+			toolImageUrl(deviceId, sessionId, sha256)
+		);
+		// A user frame's files ride the frame so the transcript renders them,
+		// after a reload as much as live — the stream bridge does the same
+		// for its replay. Looked up once per message, by the client message
+		// id the attachment store keys.
+		const ownerKey = codeAttachmentKey(deviceId, sessionId);
+		for (const update of updates) {
+			if (update.type !== "user" || !update.messageId) continue;
+			const found = await findAttachments(ownerKey, update.messageId).catch(() => []);
+			if (found.length) update.files = found;
+		}
+		return superjsonResponse({
+			updates,
+			hasMore: page.hasMore,
+			...(page.before ? { before: page.before } : {}),
+		});
 	}
 
 	const diffMatch = new RegExp(`^v1/agents/(${ID})/diff$`).exec(path);

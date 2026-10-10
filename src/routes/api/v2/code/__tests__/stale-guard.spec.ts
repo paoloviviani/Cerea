@@ -173,6 +173,7 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["GET", `v1/agents/a1/attachments/${SHA}`],
 	["GET", "v1/agents/a1/subagents"],
 	["GET", "v1/agents/a1/subagents/s1/timeline"],
+	["GET", "v1/agents/a1/history"],
 	["POST", "v1/agents/a1/messages"],
 	["GET", "v1/agents/a1/commands"],
 	["POST", "v1/agents/a1/command"],

@@ -878,23 +878,22 @@ export function seedThinking(transcript: Transcript, state: ThinkingState): void
 	state.openPart = trailingReasoning(transcript);
 }
 
-/** A whole snapshot (`session.sync`'s `Transcript`, or an offline read) →
- * the panel frames a fresh mount replays.
+/** A transcript's messages → the panel's message frames, in order — the one
+ * per-message code path `snapshotToUpdates` and the history route (§6
+ * `session.history`'s older pages) share, so a page renders exactly as the
+ * same message would have in the snapshot. Nothing but the messages: no
+ * permissions, questions, status, todos or usage — live state no older page
+ * carries.
  *
- * `thinking`, when the caller goes on to tail the session live, is seeded
- * from it (`seedThinking`), and a reasoning part still being written is left
- * open, so the deltas that follow continue its block instead of starting a
- * second. */
-export function snapshotToUpdates(
-	transcript: Transcript,
+ * `openPart`, when given, is a reasoning part still being written (the
+ * caller leaves it open, so the deltas that follow continue its block);
+ * older pages pass the default and render every part closed. */
+export function transcriptMessagesToUpdates(
+	transcript: Pick<Transcript, "messages">,
 	imageUrl?: ToolImageUrl,
-	sessionId?: string,
-	thinking?: ThinkingState
+	openPart: string | null = null
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
-	let lastAssistantError: string | undefined;
-	if (thinking) seedThinking(transcript, thinking);
-	const openPart = thinking?.openPart ?? null;
 	// The protocol types these lists as arrays, but a machine that omits an
 	// empty one (Go's nil slices) must degrade to "nothing", not a 500.
 	for (const { message, parts } of transcript.messages ?? []) {
@@ -916,9 +915,30 @@ export function snapshotToUpdates(
 				...answeredQuestionFromPart(part)
 			);
 		}
-		if (message.role === "assistant") {
-			lastAssistantError = providerRefusalReason(message.error);
-		}
+	}
+	return updates;
+}
+
+/** A whole snapshot (`session.sync`'s `Transcript`, or an offline read) →
+ * the panel frames a fresh mount replays.
+ *
+ * `thinking`, when the caller goes on to tail the session live, is seeded
+ * from it (`seedThinking`), and a reasoning part still being written is left
+ * open, so the deltas that follow continue its block instead of starting a
+ * second. */
+export function snapshotToUpdates(
+	transcript: Transcript,
+	imageUrl?: ToolImageUrl,
+	sessionId?: string,
+	thinking?: ThinkingState
+): AgentStreamUpdate[] {
+	const updates: AgentStreamUpdate[] = [];
+	let lastAssistantError: string | undefined;
+	if (thinking) seedThinking(transcript, thinking);
+	const openPart = thinking?.openPart ?? null;
+	updates.push(...transcriptMessagesToUpdates(transcript, imageUrl, openPart));
+	for (const { message } of transcript.messages ?? []) {
+		if (message.role === "assistant") lastAssistantError = providerRefusalReason(message.error);
 	}
 	for (const permission of transcript.permissions ?? []) {
 		updates.push(permissionRequestToUpdate(permission));
