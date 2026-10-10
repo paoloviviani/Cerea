@@ -87,6 +87,30 @@ describe("a run still working with nothing streaming", () => {
 	});
 });
 
+describe("the progress mark", () => {
+	// One mount per test: they share a document.
+	it("is the animated mountain alone, with no bubble, before anything arrives", () => {
+		const { baseElement } = mount([]);
+		const marks = baseElement.querySelectorAll('svg[aria-label="Generating response"]');
+		expect(marks).toHaveLength(1);
+		expect(marks[0].classList.contains("loading")).toBe(true);
+		// The three dots are gone, and so is the empty bubble around the mark.
+		expect(baseElement.querySelectorAll(".animate-bounce")).toHaveLength(0);
+		expect(baseElement.querySelector('[data-message-role="assistant"] .rounded-2xl')).toBeNull();
+	});
+
+	it("leaves no avatar column beside a finished answer", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "m2", from: "assistant", content: "Done.", children: [], updates: [] },
+			loading: false,
+			isLast: true,
+			isAuthor: true,
+			readOnly: false,
+		} as never);
+		expect(baseElement.querySelectorAll('svg[aria-label="Assistant response"]')).toHaveLength(0);
+	});
+});
+
 describe("collapsed process blocks during streaming", () => {
 	const stream = (token: string) => ({ type: "stream", token });
 	const streamCall = (uuid: string) => ({
