@@ -277,10 +277,16 @@ export interface ThinkingState {
 	held: Map<string, string>;
 	/** The part whose `<think>` block is open on the client, if any. */
 	openPart: string | null;
+	/** The last todo list this stream sent, per session (content, status,
+	 * priority): opencode re-publishes `todo.updated` with an unchanged list,
+	 * and a repeat must not make a new card. Per stream, never per server:
+	 * every connection maps the same events, and a shared memory would let
+	 * the first viewer's stream swallow the change for every other viewer. */
+	todos?: Map<string, string>;
 }
 
 export function newThinkingState(): ThinkingState {
-	return { kinds: new Map(), held: new Map(), openPart: null };
+	return { kinds: new Map(), held: new Map(), openPart: null, todos: new Map() };
 }
 
 const streamToken = (token: string, partId?: string): AgentStreamUpdate => ({
@@ -544,6 +550,25 @@ export function questionResolvedToUpdate(event: {
 	};
 }
 
+function todoKey(todos: Todo[]): string {
+	return JSON.stringify(todos.map((t) => [t.content, t.status, t.priority ?? ""]));
+}
+/** Records `todos` as the last list this stream sent for the session and
+ * says whether it repeats the previous one. Without a stream's state there
+ * is nothing to compare against: every list is new. */
+function rememberTodos(
+	state: ThinkingState | undefined,
+	sessionId: string,
+	todos: Todo[]
+): boolean {
+	if (!state) return false;
+	state.todos ??= new Map();
+	const key = todoKey(todos);
+	const same = state.todos.get(sessionId) === key;
+	state.todos.set(sessionId, key);
+	return same;
+}
+
 function todoToUpdate(todos: Todo[], sessionId = ""): MessagePlanUpdate {
 	const version = nextPlanVersion(sessionId);
 	return {
@@ -714,12 +739,14 @@ export function eventToUpdates(
 			resolveClientMessageId,
 			resolveCommand,
 			imageUrl,
-			sessionId
+			sessionId,
+			thinking
 		)
 	);
 }
 
-/** The watched session's own event → frames, before thinking is routed. */
+/** The watched session's own event → frames, before thinking is routed.
+ * `stream` is the connection's own state (here: the last todo list sent). */
 function liveFrames(
 	event: NormalizedEvent,
 	lastAssistantError: string | undefined,
@@ -727,7 +754,8 @@ function liveFrames(
 	resolveCommand:
 		((messageId: string) => { name: string; arguments: string } | undefined) | undefined,
 	imageUrl: ToolImageUrl | undefined,
-	sessionId: string | undefined
+	sessionId: string | undefined,
+	stream: ThinkingState
 ): AgentStreamUpdate[] {
 	switch (event.kind) {
 		case "message": {
@@ -768,7 +796,10 @@ function liveFrames(
 		case "error":
 			return [turnStateUpdate("failed", errorEventReason(event.message, event.code))];
 		case "todo":
-			return [todoToUpdate(event.todos, sessionId)];
+			// An unchanged list is not an update: no new card, no new version.
+			return rememberTodos(stream, sessionId ?? "", event.todos)
+				? []
+				: [todoToUpdate(event.todos, sessionId)];
 		case "question.asked":
 			return [
 				questionRequestedToUpdate({
@@ -898,7 +929,10 @@ export function seedThinking(transcript: Transcript, state: ThinkingState): void
 export function transcriptMessagesToUpdates(
 	transcript: Pick<Transcript, "messages">,
 	imageUrl?: ToolImageUrl,
-	openPart: string | null = null
+	openPart: string | null = null,
+	/** Frames to emit right after the named message's parts (the task plan,
+	 * after the message that last wrote it). */
+	after?: { messageId: string; updates: AgentStreamUpdate[] }
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	// The protocol types these lists as arrays, but a machine that omits an
@@ -922,6 +956,7 @@ export function transcriptMessagesToUpdates(
 				...answeredQuestionFromPart(part)
 			);
 		}
+		if (after && message.id === after.messageId) updates.push(...after.updates);
 	}
 	return updates;
 }
@@ -943,7 +978,28 @@ export function snapshotToUpdates(
 	let lastAssistantError: string | undefined;
 	if (thinking) seedThinking(transcript, thinking);
 	const openPart = thinking?.openPart ?? null;
-	updates.push(...transcriptMessagesToUpdates(transcript, imageUrl, openPart));
+	// The task plan goes where it last changed: right after the message that
+	// holds the last `todowrite` call, never at the end of the transcript
+	// (galopin keeps the last list for the session's life, so an end-of-list
+	// plan repainted an hours-old plan on the newest turn at every open). With
+	// no `todowrite` among these messages (none at all, or only on an older page
+	// the snapshot does not carry) nothing is emitted. The list is remembered
+	// either way, so an identical live `todo` event is not a change.
+	const todos = transcript.todos ?? [];
+	let planAfter: { messageId: string; updates: AgentStreamUpdate[] } | undefined;
+	if (todos.length) {
+		rememberTodos(thinking, sessionId ?? "", todos);
+		const last = [...(transcript.messages ?? [])]
+			.reverse()
+			.find(({ parts }) => (parts ?? []).some((p) => p.type === "tool" && p.tool === "todowrite"));
+		if (last) {
+			planAfter = {
+				messageId: last.message.id,
+				updates: [todoToUpdate(todos, sessionId)],
+			};
+		}
+	}
+	updates.push(...transcriptMessagesToUpdates(transcript, imageUrl, openPart, planAfter));
 	for (const { message } of transcript.messages ?? []) {
 		if (message.role === "assistant") lastAssistantError = providerRefusalReason(message.error);
 	}
@@ -957,8 +1013,6 @@ export function snapshotToUpdates(
 			questionRequestedToUpdate({ requestId: question.id, questions: question.questions })
 		);
 	}
-	const todos = transcript.todos ?? [];
-	if (todos.length) updates.push(todoToUpdate(todos, sessionId));
 	updates.push(
 		statusToTurnState(transcript.status, lastAssistantError, undefined, transcript.retry)
 	);
