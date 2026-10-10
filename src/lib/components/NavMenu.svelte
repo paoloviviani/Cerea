@@ -253,7 +253,7 @@
 	     contents of the same list, not two destinations — the agents panel
 	     keeps its actions (pair, add workspace, new agent) in the tree, and
 	     an agent opens the way a chat does. Two boxes, not one: +layout.svelte
-	     pins every NavMenu child to the nav's column (`--nav-width`, 300px), so horizontal
+	     pins every NavMenu child to the nav's column (`--nav-width`, 340px), so horizontal
 	     insets must be padding inside that box — margins on a full-width child
 	     push its far edge 8px past the list's border. The pt-2 is the air the
 	     list keeps above the switch, so a scrolling row never vanishes flush

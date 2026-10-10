@@ -76,7 +76,7 @@ select {
  * anything from `md` up: below that the sidebar is a drawer.
  */
 :root {
-	--nav-width: 300px;
+	--nav-width: 340px;
 }
 
 /*
