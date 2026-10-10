@@ -5,8 +5,8 @@ import { browser } from "$app/environment";
 // SidePane), so neither side can be dragged into oblivion.
 export const SIDE_PANE_MIN_WIDTH = 300;
 export const SIDE_PANE_MAX_WIDTH = 2400;
-/** Default split when the user hasn't resized: the pane takes 60%, the chat keeps 40% */
-export const SIDE_PANE_DEFAULT_FRACTION = "60%";
+/** Default split when the user hasn't resized: the pane takes about a third of the window, the chat the rest */
+export const SIDE_PANE_DEFAULT_FRACTION = "33vw";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
 export type SidePaneView =
@@ -64,7 +64,8 @@ class SidePaneStore {
 	/** Set when the user explicitly picked a tab, so we stop auto-switching */
 	userPinnedTab = $state(false);
 	/**
-	 * Resized pixel width from a drag, or null to use the default 40/60 chat/panel split.
+	 * Resized pixel width from a drag, or null to use the default split (the
+	 * pane about a third of the window).
 	 * Deliberately not persisted: a fresh load or a new conversation always
 	 * starts at the default instead of restoring an earlier drag.
 	 */
@@ -267,7 +268,7 @@ class SidePaneStore {
 		this.widthPx = Math.min(SIDE_PANE_MAX_WIDTH, Math.max(SIDE_PANE_MIN_WIDTH, px));
 	}
 
-	/** Back to the default 40/60 chat/panel split */
+	/** Back to the default split (the pane about a third of the window) */
 	resetWidth() {
 		this.widthPx = null;
 	}

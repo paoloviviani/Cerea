@@ -256,6 +256,12 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   running e2e against an external MongoDB, set both `E2E_MONGO_URL` and
   `E2E_MONGO_PORT`, or the test database launcher exits at once ("Process from
   config.webServer exited early").
+  Also on the build box, two `tests/chat-artifact-files.spec.ts` cases fail
+  the same way on builds from before the latest changes: "the inline file card
+  keeps its filename visible when the chat column is narrow (artifact panel
+  open)" and "…on a narrow (390x844) viewport" — the `span[title="…"]` name
+  never appears in the message. The playwright suite is not in CI, so there is
+  no CI verdict for them.
 - **Failing on v0.10.0 and v0.10.1, not yet fixed** (so "pre-existing" by the
   rule in `AGENTS.md`, but real):
   - server test `src/lib/server/textGeneration/__tests__/replayRoundTrip.spec.ts`,

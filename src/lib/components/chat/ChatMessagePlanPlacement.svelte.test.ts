@@ -45,7 +45,7 @@ const planCards = (view: ReturnType<typeof mount>) =>
 	view.baseElement.querySelectorAll('button[aria-label$="plan"]').length;
 
 describe("the coding agent's task plan inside a message", () => {
-	it("never splits a run of steps: one group, the plan after it and before the answer", () => {
+	it("never shows the agent's task plan as a card: one process group, no plan text", () => {
 		const view = mount([
 			call("a"),
 			result("a"),
@@ -57,21 +57,38 @@ describe("the coding agent's task plan inside a message", () => {
 		// one summary for both calls, not "Called 1 tool" twice
 		expect(out).toContain("Called 2 tools");
 		expect(out).not.toContain("Called 1 tool");
-		expect(planCards(view)).toBe(1);
-		expect(out.indexOf("Called 2 tools")).toBeLessThan(out.indexOf("Write the view"));
-		expect(out.indexOf("Write the view")).toBeLessThan(out.indexOf("The answer."));
+		expect(planCards(view)).toBe(0);
+		expect(out).not.toContain("Write the view");
 	});
 
-	it("shows one card per message, the latest version", () => {
+	it("a later agent plan update still shows no card, and the todowrite row stays", () => {
 		const view = mount([
 			plan("agent-plan-s1", 1, "First plan"),
-			call("a"),
-			result("a"),
+			{
+				type: "tool",
+				subtype: "call",
+				uuid: "t1",
+				call: { name: "todowrite", parameters: { steps: [] } },
+			},
+			{
+				type: "tool",
+				subtype: "result",
+				uuid: "t1",
+				result: {
+					status: 0,
+					call: { name: "todowrite", parameters: { steps: [] } },
+					outputs: [{ text: "ok" }],
+					display: true,
+				},
+			},
 			plan("agent-plan-s1", 2, "Second plan"),
 		]);
-		expect(planCards(view)).toBe(1);
-		expect(text(view)).toContain("Second plan");
+		expect(planCards(view)).toBe(0);
 		expect(text(view)).not.toContain("First plan");
+		expect(text(view)).not.toContain("Second plan");
+		// the todowrite call stays in the process group: it is the record that
+		// the plan changed
+		expect(text(view)).toContain("Called tool todowrite");
 	});
 
 	it("leaves a chat plan (keyed by its call id) at its stream position", () => {
