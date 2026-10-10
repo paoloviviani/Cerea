@@ -266,7 +266,12 @@ People can put a prompt on a timetable: **Schedules**, under the devices in the
 Agents sidebar. A schedule names a machine, a workspace on it and either "a new
 session each run" or one existing session, and sends its prompt at the times
 set (every N hours, daily, weekdays, weekly, or a cron expression; at least 15
-minutes apart; read in the schedule's timezone, DST included).
+minutes apart; read in the schedule's timezone, DST included). A schedule can
+also be told to **stop after a number of runs**: once it has fired that many
+times it switches itself off, with the reason shown on it. A fire that sent or
+failed counts; a skipped or missed one does not, and "Run now" never does.
+Editing the cap below the count already reached, or re-enabling a schedule that
+is at its cap, switches it off rather than firing again.
 
 **What runs where.** The scheduler is a loop inside the chat process (every 30
 seconds). It claims a due schedule atomically in MongoDB, so two chat instances

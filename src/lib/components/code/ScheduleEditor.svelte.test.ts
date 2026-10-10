@@ -285,6 +285,59 @@ describe("ScheduleEditor timetable", () => {
 	});
 });
 
+describe("ScheduleEditor stopping criterion", () => {
+	const editingRow = {
+		id: "sch1",
+		name: "Twice",
+		prompt: "p",
+		enabled: true,
+		timezone: "UTC",
+		recurrence: { type: "daily", at: "09:00" },
+		target: { deviceId: "d1", workspaceId: "w1", sessionMode: "new", permissionMode: "ask" },
+	};
+
+	async function fillAndSave(screen: ReturnType<typeof mount>["screen"], onsaved: unknown) {
+		await screen.getByLabelText("Name").fill("Twice");
+		await screen.getByLabelText("Prompt").fill("go");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
+		const calls = api.createSchedule.mock.calls;
+		return calls[calls.length - 1][0];
+	}
+
+	it("sends the cap when the field is filled, and null when it is empty", async () => {
+		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
+		await screen.getByLabelText("Stop after (runs)").fill("5");
+		const sent = await fillAndSave(screen, onsaved);
+		expect(sent.maxOccurrences).toBe(5);
+		screen.unmount();
+
+		const empty = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
+		const sentEmpty = await fillAndSave(empty.screen, empty.onsaved);
+		expect(sentEmpty.maxOccurrences).toBeNull();
+	});
+
+	it("prefills from the schedule being edited, and clears when emptied", async () => {
+		api.updateSchedule.mockResolvedValue({ schedule: { id: "sch1" } });
+		const { screen, onsaved } = mount({ editing: { ...editingRow, maxOccurrences: 7 } });
+		await expect.element(screen.getByLabelText("Stop after (runs)")).toHaveValue(7);
+		await screen.getByLabelText("Stop after (runs)").fill("");
+		await screen.getByRole("button", { name: "Save changes" }).click();
+		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
+		expect(api.updateSchedule.mock.calls[0][1].maxOccurrences).toBeNull();
+	});
+
+	it("sends nothing when the cap is below 1: the field itself refuses it", async () => {
+		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
+		await screen.getByLabelText("Name").fill("Twice");
+		await screen.getByLabelText("Prompt").fill("go");
+		await screen.getByLabelText("Stop after (runs)").fill("0");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		expect(api.createSchedule).not.toHaveBeenCalled();
+		expect(onsaved).not.toHaveBeenCalled();
+	});
+});
+
 describe("ScheduleEditor coordination options", () => {
 	const device = (over: Record<string, unknown> = {}) =>
 		({

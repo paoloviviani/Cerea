@@ -86,6 +86,7 @@ const createArgs = z.object({
 	permissionMode: z.enum(["deny", "ask", "allow"]),
 	coordination: coordinationArg.optional(),
 	agentMode: z.enum(AGENT_MODES).optional(),
+	maxOccurrences: z.number().int().min(1).max(100_000).optional(),
 });
 
 const updateArgs = z.object({
@@ -98,6 +99,7 @@ const updateArgs = z.object({
 	permissionMode: z.enum(["deny", "ask", "allow"]).optional(),
 	coordination: coordinationArg.optional(),
 	agentMode: z.enum(AGENT_MODES).optional(),
+	maxOccurrences: z.number().int().min(1).max(100_000).nullish(),
 	paused: z.boolean().optional(),
 });
 
@@ -370,6 +372,7 @@ async function opCreate(ctx: CallContext) {
 			prompt: args.prompt,
 			recurrence: args.recurrence,
 			timezone: args.timezone ?? (await ownerTimezone(ctx.userId)),
+			...(args.maxOccurrences !== undefined ? { maxOccurrences: args.maxOccurrences } : {}),
 			target,
 		},
 		{ createdBy }
@@ -451,6 +454,7 @@ async function opUpdate(ctx: CallContext) {
 		...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
 		...(args.recurrence !== undefined ? { recurrence: args.recurrence } : {}),
 		...(args.timezone !== undefined ? { timezone: args.timezone } : {}),
+		...(args.maxOccurrences !== undefined ? { maxOccurrences: args.maxOccurrences } : {}),
 		...(target ? { target } : {}),
 		...(paused !== undefined ? { enabled: !paused } : {}),
 	});
