@@ -543,6 +543,25 @@ export function questionResolvedToUpdate(event: {
 	};
 }
 
+/** The last todo list sent per session (content, status, priority): opencode
+ * re-publishes `todo.updated` with an unchanged list, and a repeat must not
+ * make a new card. Bounded like `planVersions`. */
+const lastTodos = new Map<string, string>();
+function todoKey(todos: Todo[]): string {
+	return JSON.stringify(todos.map((t) => [t.content, t.status, t.priority ?? ""]));
+}
+function rememberTodos(sessionId: string, todos: Todo[]): boolean {
+	const key = todoKey(todos);
+	const same = lastTodos.get(sessionId) === key;
+	lastTodos.delete(sessionId);
+	lastTodos.set(sessionId, key);
+	if (lastTodos.size > PLAN_VERSIONS_KEPT) {
+		const oldest = lastTodos.keys().next().value;
+		if (oldest !== undefined) lastTodos.delete(oldest);
+	}
+	return same;
+}
+
 function todoToUpdate(todos: Todo[], sessionId = ""): MessagePlanUpdate {
 	const version = nextPlanVersion(sessionId);
 	return {
@@ -761,7 +780,10 @@ function liveFrames(
 		case "error":
 			return [turnStateUpdate("failed", errorEventReason(event.message, event.code))];
 		case "todo":
-			return [todoToUpdate(event.todos, sessionId)];
+			// An unchanged list is not an update: no new card, no new version.
+			return rememberTodos(sessionId ?? "", event.todos)
+				? []
+				: [todoToUpdate(event.todos, sessionId)];
 		case "question.asked":
 			return [
 				questionRequestedToUpdate({
@@ -891,7 +913,10 @@ export function seedThinking(transcript: Transcript, state: ThinkingState): void
 export function transcriptMessagesToUpdates(
 	transcript: Pick<Transcript, "messages">,
 	imageUrl?: ToolImageUrl,
-	openPart: string | null = null
+	openPart: string | null = null,
+	/** Frames to emit right after the named message's parts (the task plan,
+	 * after the message that last wrote it). */
+	after?: { messageId: string; updates: AgentStreamUpdate[] }
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	// The protocol types these lists as arrays, but a machine that omits an
@@ -915,6 +940,7 @@ export function transcriptMessagesToUpdates(
 				...answeredQuestionFromPart(part)
 			);
 		}
+		if (after && message.id === after.messageId) updates.push(...after.updates);
 	}
 	return updates;
 }
@@ -936,7 +962,28 @@ export function snapshotToUpdates(
 	let lastAssistantError: string | undefined;
 	if (thinking) seedThinking(transcript, thinking);
 	const openPart = thinking?.openPart ?? null;
-	updates.push(...transcriptMessagesToUpdates(transcript, imageUrl, openPart));
+	// The task plan goes where it last changed: right after the message that
+	// holds the last `todowrite` call, never at the end of the transcript
+	// (galopin keeps the last list for the session's life, so an end-of-list
+	// plan repainted an hours-old plan on the newest turn at every open). With
+	// no `todowrite` among these messages (none at all, or only on an older page
+	// the snapshot does not carry) nothing is emitted. The list is remembered
+	// either way, so an identical live `todo` event is not a change.
+	const todos = transcript.todos ?? [];
+	let planAfter: { messageId: string; updates: AgentStreamUpdate[] } | undefined;
+	if (todos.length) {
+		rememberTodos(sessionId ?? "", todos);
+		const last = [...(transcript.messages ?? [])]
+			.reverse()
+			.find(({ parts }) => (parts ?? []).some((p) => p.type === "tool" && p.tool === "todowrite"));
+		if (last) {
+			planAfter = {
+				messageId: last.message.id,
+				updates: [todoToUpdate(todos, sessionId)],
+			};
+		}
+	}
+	updates.push(...transcriptMessagesToUpdates(transcript, imageUrl, openPart, planAfter));
 	for (const { message } of transcript.messages ?? []) {
 		if (message.role === "assistant") lastAssistantError = providerRefusalReason(message.error);
 	}
@@ -950,8 +997,6 @@ export function snapshotToUpdates(
 			questionRequestedToUpdate({ requestId: question.id, questions: question.questions })
 		);
 	}
-	const todos = transcript.todos ?? [];
-	if (todos.length) updates.push(todoToUpdate(todos, sessionId));
 	updates.push(statusToTurnState(transcript.status, lastAssistantError));
 	// After history, never before it: a fresh mount's first paint should show
 	// the transcript before the meter, same order a live turn would deliver

@@ -38,6 +38,20 @@ function textPart(id: string, messageId: string, role: string, text: string): Pa
 	return { id, messageId, role, type: "text", text };
 }
 
+function todowritePart(messageId: string, id = `tw-${messageId}`): Part {
+	return {
+		id,
+		messageId,
+		role: "assistant",
+		type: "tool",
+		callId: `call-${id}`,
+		tool: "todowrite",
+		status: "completed",
+		input: {},
+		output: "",
+	};
+}
+
 describe("snapshotToUpdates", () => {
 	it("offers an unanswered question again, as the assistant's own card (not a server's)", () => {
 		const transcript: Transcript = {
@@ -177,7 +191,7 @@ describe("snapshotToUpdates", () => {
 
 	it("surfaces pending permissions and todos", () => {
 		const transcript: Transcript = {
-			messages: [],
+			messages: [{ message: assistantMessage("m1"), parts: [todowritePart("m1")] }],
 			permissions: [
 				{
 					id: "perm-1",
@@ -1358,7 +1372,7 @@ describe("todos → the plan update", () => {
 
 	it("maps a snapshot's cancelled todo the same way the live event does", () => {
 		const transcript: Transcript = {
-			messages: [],
+			messages: [{ message: assistantMessage("m1"), parts: [todowritePart("m1")] }],
 			permissions: [],
 			status: "idle",
 			usage: null,
@@ -1369,11 +1383,12 @@ describe("todos → the plan update", () => {
 	});
 
 	it("keys the plan and its revision per session, never across sessions", () => {
-		const todos = [{ id: "1", content: "x", status: "pending" as const }];
+		let n = 0;
 		const update = (sessionId: string) =>
 			planOf(
 				eventToUpdates(
-					todoEvent(todos),
+					// a changed list each call: an identical one makes no update
+					todoEvent([{ id: "1", content: `x${n++}`, status: "pending" as const }]),
 					undefined,
 					undefined,
 					undefined,
@@ -1390,6 +1405,80 @@ describe("todos → the plan update", () => {
 		expect(a2.version).toBe(a1.version + 1);
 		// Another session's revision is untouched by A's traffic.
 		expect(b1.version).toBe(1);
+	});
+
+	it("skips a live todo event identical to the last one sent for the session", () => {
+		type Todos = Extract<NormalizedEvent, { kind: "todo" }>["todos"];
+		const todos: Todos = [
+			{ id: "1", content: "a", status: "pending", priority: "high" },
+			{ id: "2", content: "b", status: "pending" },
+		];
+		const send = (list: Todos, sessionId = "ses_dup") =>
+			eventToUpdates(
+				todoEvent(list),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				sessionId
+			).filter((u) => u.type === MessageUpdateType.Plan);
+		expect(send(todos)).toHaveLength(1);
+		expect(send(todos.map((t) => ({ ...t })))).toHaveLength(0);
+		// a real change goes through, with the next version
+		const changed: Todos = [{ ...todos[0], status: "completed" }, todos[1]];
+		const [next] = send(changed);
+		expect(next).toMatchObject({ version: 2 });
+		// another session is its own stream
+		expect(send(todos, "ses_dup_other")).toHaveLength(1);
+	});
+
+	describe("in a snapshot", () => {
+		const todos = [{ id: "1", content: "step", status: "in_progress" as const }];
+		const snap = (messages: Transcript["messages"], sessionId: string, list = todos) =>
+			snapshotToUpdates(
+				{ messages, permissions: [], status: "idle", usage: null, todos: list },
+				undefined,
+				sessionId
+			);
+		const order = (updates: ReturnType<typeof snap>) =>
+			updates
+				.filter((u) => u.type === "messageBoundary" || u.type === MessageUpdateType.Plan)
+				.map((u) => (u.type === "messageBoundary" ? u.messageId : "PLAN"));
+
+		it("puts the plan right after the message of the last todowrite, not at the end", () => {
+			const updates = snap(
+				[
+					{ message: assistantMessage("m1"), parts: [todowritePart("m1", "a")] },
+					{ message: assistantMessage("m2"), parts: [todowritePart("m2", "b")] },
+					{ message: assistantMessage("m3"), parts: [textPart("t3", "m3", "assistant", "done")] },
+				],
+				"ses_snap_a"
+			);
+			expect(order(updates)).toEqual(["m1", "m2", "PLAN", "m3"]);
+		});
+
+		it("emits no plan when the transcript has todos but no todowrite part", () => {
+			const updates = snap(
+				[{ message: assistantMessage("m1"), parts: [textPart("t1", "m1", "assistant", "hi")] }],
+				"ses_snap_b"
+			);
+			expect(order(updates)).toEqual(["m1"]);
+		});
+
+		it("does not repeat the snapshot's plan when the same list arrives live", () => {
+			snap([{ message: assistantMessage("m1"), parts: [todowritePart("m1")] }], "ses_snap_c");
+			const live = eventToUpdates(
+				{ kind: "todo", todos },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"ses_snap_c"
+			);
+			expect(live.filter((u) => u.type === MessageUpdateType.Plan)).toHaveLength(0);
+		});
 	});
 });
 

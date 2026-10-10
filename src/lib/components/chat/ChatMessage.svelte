@@ -557,6 +557,7 @@
 				if (toolIdx !== -1) res.splice(toolIdx, 1);
 				const planIdx = res.findIndex((b) => b.type === "plan");
 				if (planIdx !== -1) res.splice(planIdx, 1);
+				// The agent's task plan is placed after the walk (below), not here.
 				res.push({ type: "plan", update });
 			} else if (isMessageMemoryUpdate(update)) {
 				// Unlike a plan, memory writes accumulate: two facts remembered in
@@ -610,8 +611,26 @@
 			res.push({ type: "text" as const, content: message.content });
 		}
 
-		return expandArtifactBlocks(expandThinkBlocks(res));
+		return placeAgentPlan(expandArtifactBlocks(expandThinkBlocks(res)));
 	});
+
+	// The coding agent's task plan (opencode's todo list) is state, not a step:
+	// it may arrive while the model is still reasoning, and at its stream
+	// position it cut the "Thought / Called N tools" group in two. It is shown
+	// once per message, right after the last thinking/tool block and before the
+	// answer text (at the start when there is none). A chat plan (the plan tool,
+	// keyed by its call id) keeps its stream position.
+	function placeAgentPlan(input: Block[]): Block[] {
+		const isAgentPlan = (b: Block) => b.type === "plan" && b.update.uuid.startsWith("agent-plan");
+		const plan = input.find(isAgentPlan);
+		if (!plan) return input;
+		const rest = input.filter((b) => b !== plan);
+		let at = 0;
+		rest.forEach((b, i) => {
+			if (b.type === "think" || b.type === "tool") at = i + 1;
+		});
+		return [...rest.slice(0, at), plan, ...rest.slice(at)];
+	}
 
 	// Coalesce consecutive process blocks (thinking + tools) into groups so they can
 	// collapse into a single "Called N tools" / "Thought" summary. Text passes through.
