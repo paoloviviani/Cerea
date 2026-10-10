@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- A session whose model provider is rate-limiting or overloaded no longer looks hung: the agent view says "Retrying — Rate limit exceeded (attempt 3, next try in 20 s)" beside Stop. **A galopin update is needed** for the detail; Cerea alone keeps the old look.
+
 ## v0.10.0 — 2026-10-10
 
 Pins: Cerea `0.10.0`, Pystino `0.4.0`, Authelia 4.39.22. **Machines need the

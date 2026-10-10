@@ -515,3 +515,32 @@ func TestWithdrawPendingClosesEveryAsk(t *testing.T) {
 		t.Errorf("events = %+v, want a rejected replied then a resolved", res.Events)
 	}
 }
+
+// A page opened mid-retry still learns why the session waits: the snapshot
+// carries the retry detail, and the next non-retry status clears it.
+func TestSnapshotCarriesRetryUntilStatusChanges(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	ctx := context.Background()
+	apply := func(ev backend.Event) {
+		m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: ev})
+	}
+	snap := func() backend.Transcript {
+		res, err := m.Sync(ctx, "s1", "", 0)
+		if err != nil || res.Snapshot == nil {
+			t.Fatalf("Sync = %+v, %v; want a snapshot", res, err)
+		}
+		return *res.Snapshot
+	}
+
+	info := &backend.RetryInfo{Attempt: 2, Message: "Rate limit exceeded", Next: 42}
+	apply(backend.Event{Kind: backend.EventStatus, Status: backend.StatusRetry, Retry: info})
+	tr := snap()
+	if tr.Status != backend.StatusRetry || tr.Retry == nil || *tr.Retry != *info {
+		t.Fatalf("snapshot = status %q retry %+v, want retry %+v", tr.Status, tr.Retry, info)
+	}
+	apply(backend.Event{Kind: backend.EventStatus, Status: backend.StatusBusy})
+	if tr := snap(); tr.Retry != nil {
+		t.Errorf("Retry = %+v after busy, want nil", tr.Retry)
+	}
+}
