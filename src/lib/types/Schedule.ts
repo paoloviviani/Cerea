@@ -75,6 +75,10 @@ export interface Schedule extends Timestamps {
 	lastStatus?: ScheduleRunStatus;
 	/** Consecutive `failed` runs; three disable the schedule. */
 	consecutiveFailures: number;
+	/** Stop after this many scheduled fires; absent = run for ever. */
+	maxOccurrences?: number;
+	/** How many scheduled fires have happened; absent on old rows reads as 0. */
+	firedCount: number;
 	/** The claim: while in the future another instance leaves the schedule alone. */
 	leaseUntil?: Date | null;
 	leaseOwner?: string | null;
@@ -123,6 +127,9 @@ export interface ScheduleView {
 	nextRunAt: Date | null;
 	lastRunAt?: Date;
 	lastStatus?: ScheduleRunStatus;
+	/** The optional stopping criterion, and how far it has got. */
+	maxOccurrences?: number;
+	firedCount: number;
 	/** Only for an agent-created schedule; a person's has none. */
 	createdBy?: Extract<ScheduleCreator, { kind: "agent" }>;
 	createdAt: Date;

@@ -311,6 +311,19 @@ describe("schedule.create", () => {
 		expect((await createViaCall({ timezone: "Asia/Tokyo" })).timezone).toBe("Asia/Tokyo");
 	});
 
+	it("takes a stopping criterion, and refuses an invalid one", async () => {
+		refused(await machine.call("schedule.create", createArgs({ maxOccurrences: 0 })), "invalid");
+		refused(
+			await machine.call("schedule.create", createArgs({ maxOccurrences: "3" })),
+			"invalid",
+			/maxOccurrences/
+		);
+		const item = await createViaCall({ maxOccurrences: 3 });
+		const row = await getSchedule(person.user._id, item.id);
+		expect(row.maxOccurrences).toBe(3);
+		expect(row.firedCount).toBe(0);
+	});
+
 	it('session "this" pins the caller\'s root session', async () => {
 		const child = addSession(machine, { parentId: session.id, title: "sub" });
 		const item = await createViaCall(
@@ -468,6 +481,16 @@ describe("schedule.list, update and delete", () => {
 		expect(row.recurrence).toEqual({ type: "weekdays", at: "07:30" });
 		expect(row.enabled).toBe(false);
 		expect(await collections.codeAudit.countDocuments({ action: "schedule.update" })).toBe(1);
+	});
+
+	it("updates and clears the stopping criterion", async () => {
+		const item = await createViaCall({ maxOccurrences: 3 });
+		const id = item.id;
+		ok(await machine.call("schedule.update", { id, maxOccurrences: 10 }));
+		expect((await getSchedule(person.user._id, id)).maxOccurrences).toBe(10);
+		refused(await machine.call("schedule.update", { id, maxOccurrences: 0 }), "invalid");
+		ok(await machine.call("schedule.update", { id, maxOccurrences: null }));
+		expect((await getSchedule(person.user._id, id)).maxOccurrences).toBeUndefined();
 	});
 
 	it("refuses to loosen a schedule, or hand over a looser one, past the caller", async () => {

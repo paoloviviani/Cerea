@@ -173,6 +173,7 @@ describe("running", () => {
 		const claim = await claimDue(new Date(), "a", ["agent"]);
 		if (!claim) throw new Error("claim");
 		const run = await fireClaim(claim, new Date(), "a");
+		if (!run) throw new Error("run");
 		expect(run.status).toBe("failed");
 		expect(run.detail).toMatch(/Nothing here can run/);
 		expect(row).toBeTruthy();
@@ -413,6 +414,143 @@ describe("the executor registry", () => {
 	});
 });
 
+describe("max occurrences: the stopping criterion", () => {
+	/** Make the row due again, anchored at the occurrence itself. */
+	async function dueAgain(id: ObjectId) {
+		const at = new Date(Date.now() - MIN);
+		await collections.schedules.updateOne({ _id: id }, { $set: { nextRunAt: at, anchorAt: at } });
+	}
+
+	it("stops after the last scheduled fire, switched off with the reason", async () => {
+		const row = await due({ maxOccurrences: 2 });
+		const id = row._id.toString();
+		await runDue();
+		expect(calls).toHaveLength(1);
+		expect((await getSchedule(user, id)).enabled).toBe(true);
+		await dueAgain(row._id);
+		await runDue();
+		expect(calls).toHaveLength(2);
+		const stored = await getSchedule(user, id);
+		expect(stored.enabled).toBe(false);
+		expect(stored.nextRunAt).toBeNull();
+		expect(stored.firedCount).toBe(2);
+		expect(stored.disabledReason).toBe("Ran its 2 scheduled occurrences and switched off.");
+		expect(await listRuns(user, id)).toHaveLength(2);
+		// Switched off, nothing further runs however often it is made due.
+		await dueAgain(row._id);
+		expect(await runDue()).toBe(0);
+		expect(calls).toHaveLength(2);
+	});
+
+	it("does not count a manual run", async () => {
+		const row = await due({ maxOccurrences: 2 });
+		const id = row._id.toString();
+		await runNow(user, id);
+		let stored = await getSchedule(user, id);
+		expect(stored.firedCount).toBe(0);
+		expect(stored.enabled).toBe(true);
+		await dueAgain(row._id);
+		await runDue();
+		stored = await getSchedule(user, id);
+		expect(stored.firedCount).toBe(1);
+		expect(stored.enabled).toBe(true);
+		expect(calls).toHaveLength(2);
+	});
+
+	it("counts a failed fire but neither a skip nor a miss", async () => {
+		answer = () => ({ status: "skipped-still-running", detail: "still going" });
+		const row = await due({ maxOccurrences: 2 });
+		const id = row._id.toString();
+		await runDue();
+		expect((await getSchedule(user, id)).firedCount).toBe(0);
+		answer = () => ({ status: "failed", detail: "no" });
+		await dueAgain(row._id);
+		await runDue();
+		expect((await getSchedule(user, id)).firedCount).toBe(1);
+		// A missed occurrence is not a fire either.
+		const late = new Date(Date.now() - 3 * HOUR);
+		await collections.schedules.updateOne(
+			{ _id: row._id },
+			{ $set: { nextRunAt: late, anchorAt: late } }
+		);
+		await runDue();
+		expect((await getSchedule(user, id)).firedCount).toBe(1);
+		answer = () => ({ status: "sent" });
+		await dueAgain(row._id);
+		await runDue();
+		const stored = await getSchedule(user, id);
+		expect(stored.firedCount).toBe(2);
+		expect(stored.enabled).toBe(false);
+		expect(stored.disabledReason).toBe("Ran its 2 scheduled occurrences and switched off.");
+	});
+
+	it("disables at once when the cap is edited below the count already reached", async () => {
+		const row = await due({ maxOccurrences: 5 });
+		const id = row._id.toString();
+		await runDue();
+		expect(await collections.scheduleRuns.countDocuments({ scheduleId: row._id })).toBe(1);
+		const edited = await updateSchedule(user, id, { maxOccurrences: 1 });
+		expect(edited.enabled).toBe(false);
+		expect(edited.nextRunAt).toBeNull();
+		expect(edited.disabledReason).toBe("Ran its 1 scheduled occurrences and switched off.");
+		// Switched off without firing, and without a run row.
+		expect(await collections.scheduleRuns.countDocuments({ scheduleId: row._id })).toBe(1);
+		expect(await runDue()).toBe(0);
+		expect(calls).toHaveLength(1);
+	});
+
+	it("does not fire a claim whose row is already at its cap, and records nothing", async () => {
+		const row = await due({ maxOccurrences: 2 });
+		// A cap that reached below the count without going through the store.
+		await collections.schedules.updateOne({ _id: row._id }, { $set: { firedCount: 3 } });
+		expect(await runDue()).toBe(1);
+		expect(calls).toHaveLength(0);
+		const stored = await getSchedule(user, row._id.toString());
+		expect(stored.enabled).toBe(false);
+		expect(stored.nextRunAt).toBeNull();
+		expect(stored.disabledReason).toBe("Ran its 2 scheduled occurrences and switched off.");
+		expect(await collections.scheduleRuns.countDocuments({ scheduleId: row._id })).toBe(0);
+	});
+
+	it("re-opens the schedule when the cap is cleared", async () => {
+		const row = await due({ maxOccurrences: 1 });
+		const id = row._id.toString();
+		await runDue();
+		expect((await getSchedule(user, id)).enabled).toBe(false);
+		const cleared = await updateSchedule(user, id, { maxOccurrences: null });
+		expect(cleared.maxOccurrences).toBeUndefined();
+		expect(cleared.enabled).toBe(false);
+		const revived = await updateSchedule(user, id, { enabled: true });
+		expect(revived.enabled).toBe(true);
+		expect(revived.disabledReason).toBeUndefined();
+		expect(revived.nextRunAt?.getTime()).toBeGreaterThan(Date.now());
+		await dueAgain(row._id);
+		await runDue();
+		const stored = await getSchedule(user, id);
+		expect(stored.enabled).toBe(true);
+		expect(stored.firedCount).toBe(2);
+	});
+
+	it("re-enabling a schedule still at its cap switches it off again at once", async () => {
+		const row = await due({ maxOccurrences: 1 });
+		const id = row._id.toString();
+		await runDue();
+		const revived = await updateSchedule(user, id, { enabled: true });
+		expect(revived.enabled).toBe(false);
+		expect(revived.disabledReason).toBe("Ran its 1 scheduled occurrences and switched off.");
+		expect(calls).toHaveLength(1);
+	});
+
+	it("reads a missing counter as zero on rows from before the field", async () => {
+		const row = await due({ maxOccurrences: 1 });
+		await collections.schedules.updateOne({ _id: row._id }, { $unset: { firedCount: "" } });
+		await runDue();
+		const stored = await getSchedule(user, row._id.toString());
+		expect(stored.firedCount).toBe(1);
+		expect(stored.enabled).toBe(false);
+	});
+});
+
 describe("validation and ownership", () => {
 	it("refuses a bad recurrence, zone, name and prompt", async () => {
 		const cases: Array<Record<string, unknown>> = [
@@ -460,5 +598,32 @@ describe("validation and ownership", () => {
 		await runNow(user, row._id.toString());
 		await deleteSchedule(user, row._id.toString());
 		expect(await collections.scheduleRuns.countDocuments({ scheduleId: row._id })).toBe(1);
+	});
+
+	it("validates the stopping criterion: absent or a whole 1..100000, nothing else", async () => {
+		for (const bad of [0, -1, "3", 100001, 1.5]) {
+			await expect(createSchedule(user, { ...base, maxOccurrences: bad })).rejects.toMatchObject({
+				status: 400,
+			});
+		}
+		const row = await createSchedule(user, { ...base, maxOccurrences: 5 });
+		expect(row.maxOccurrences).toBe(5);
+		const edited = await updateSchedule(user, row._id.toString(), { maxOccurrences: 2 });
+		expect(edited.maxOccurrences).toBe(2);
+		for (const bad of [0, -1, "3", 100001]) {
+			await expect(
+				updateSchedule(user, row._id.toString(), { maxOccurrences: bad })
+			).rejects.toMatchObject({ status: 400 });
+			await expect(createSchedule(user, { ...base, maxOccurrences: bad })).rejects.toMatchObject({
+				status: 400,
+			});
+		}
+		// `null` is how the cap is cleared, on either path.
+		expect(
+			(await updateSchedule(user, row._id.toString(), { maxOccurrences: null })).maxOccurrences
+		).toBeUndefined();
+		expect(
+			(await createSchedule(user, { ...base, maxOccurrences: null })).maxOccurrences
+		).toBeUndefined();
 	});
 });

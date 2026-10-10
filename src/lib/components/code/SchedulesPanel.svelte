@@ -265,6 +265,14 @@
 												{/if}
 											</dd>
 										</div>
+										{#if schedule.maxOccurrences !== undefined}
+											<div class="min-w-0">
+												<dt class="text-ink-faint">Runs</dt>
+												<dd class="text-ink" data-testid="run-progress">
+													{schedule.firedCount}/{schedule.maxOccurrences} run
+												</dd>
+											</div>
+										{/if}
 									</dl>
 
 									{#if schedule.disabledReason && !schedule.enabled}

@@ -95,6 +95,9 @@
 	let canMessage = $state(stored.canMessage === true);
 	let canSpawn = $state(stored.canSpawn === true);
 	let enabled = $state(untrack(() => editing?.enabled) ?? true);
+	let stopAfter = $state(
+		untrack(() => (editing?.maxOccurrences != null ? String(editing.maxOccurrences) : ""))
+	);
 
 	const initialRecurrence: Recurrence = untrack(() => editing?.recurrence) ?? {
 		type: "daily",
@@ -269,6 +272,11 @@
 		if (makingWorkspace && !newPath.trim())
 			return (failure = "Enter the new workspace's directory.");
 		if (!prompt.trim()) return (failure = "Write the prompt it sends.");
+		// Empty = no stopping criterion; `null` clears one on an edit.
+		const capRaw = stopAfter == null ? "" : String(stopAfter).trim();
+		if (capRaw !== "" && (!/^\d+$/.test(capRaw) || Number(capRaw) < 1 || Number(capRaw) > 100000)) {
+			return (failure = "Stop after must be a whole number of runs from 1 to 100000, or empty.");
+		}
 		busy = true;
 		try {
 			let workspaceId = workspaceChoice;
@@ -306,6 +314,7 @@
 				recurrence,
 				timezone,
 				enabled,
+				maxOccurrences: capRaw === "" ? null : Number(capRaw),
 				target,
 			};
 			const saved = editing ? await updateSchedule(editing.id, input) : await createSchedule(input);
@@ -683,12 +692,32 @@
 						{/each}
 					</datalist>
 				</div>
+				<div class="min-w-0">
+					<label class={s.LABEL} for="sched-stopafter">Stop after (runs)</label>
+					<input
+						id="sched-stopafter"
+						class={s.INPUT}
+						style="font-size: 16px;"
+						type="number"
+						min="1"
+						max="100000"
+						step="1"
+						placeholder="For ever"
+						autocomplete="off"
+						bind:value={stopAfter}
+						disabled={busy}
+					/>
+				</div>
 			</div>
 			{#if preset === "cron"}
 				<p class={s.HINT}>
 					Five fields: minute hour day-of-month month day-of-week. At least 15 minutes between runs.
 				</p>
 			{/if}
+			<p class={s.HINT} data-testid="stopafter-hint">
+				Switches the schedule off once it has run this many times. Leave empty to run for ever; Run
+				now does not count.
+			</p>
 
 			<div class="mt-3 rounded-lg bg-sunken p-3" data-testid="schedule-preview" aria-live="polite">
 				{#if preview?.ok}
