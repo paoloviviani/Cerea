@@ -24,16 +24,37 @@ type permFake struct {
 	mu      sync.Mutex
 	creates []map[string]any
 	patches []map[string]any
-	prompts []map[string]any
-	saved   []map[string]any
-	deleted []string
-	agents  string // GET /agent's answer; fakeAgents when empty
+	// patchIDs parallels patches with the session each PATCH named, so a
+	// test can count one session's own PATCHes.
+	patchIDs []string
+	prompts  []map[string]any
+	saved    []map[string]any
+	deleted  []string
+	agents   string // GET /agent's answer; fakeAgents when empty
+	// gone answers PATCH /session/<id> with the status (404 for a child
+	// opencode no longer has, 500 for one that merely fails), opencode's
+	// NotFoundError body for the 404.
+	gone map[string]int
 }
 
 func (f *permFake) snapshot() (creates, patches, prompts []map[string]any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]map[string]any(nil), f.creates...), append([]map[string]any(nil), f.patches...), append([]map[string]any(nil), f.prompts...)
+}
+
+// patchCount is how many PATCHes the fake received naming sessionID —
+// received, answered however.
+func (f *permFake) patchCount(sessionID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, id := range f.patchIDs {
+		if id == sessionID {
+			n++
+		}
+	}
+	return n
 }
 
 const fakeAgents = `[
@@ -62,6 +83,15 @@ func newPermFake(t *testing.T, layers func() permrules.Layers) (*Backend, *permF
 			f.creates = append(f.creates, parsed)
 			_, _ = io.WriteString(w, `{"id":"ses_new","title":"t"}`)
 		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/session/"):
+			id := strings.TrimPrefix(r.URL.Path, "/session/")
+			f.patchIDs = append(f.patchIDs, id)
+			if status, dead := f.gone[id]; dead {
+				w.WriteHeader(status)
+				if status == http.StatusNotFound {
+					_, _ = io.WriteString(w, `{"name":"NotFoundError","data":{"message":"Session not found: `+id+`"}}`)
+				}
+				return
+			}
 			f.patches = append(f.patches, parsed)
 			_, _ = io.WriteString(w, `{"id":"ses_1","title":"t"}`)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/session/"):
@@ -597,6 +627,88 @@ func TestARootThatCannotBeReachedKeepsItsOldMode(t *testing.T) {
 	}
 	if got := b.PermissionMode(s.ID); got != permrules.Ask {
 		t.Errorf("mode after a failed change = %s, want the old ask", got)
+	}
+}
+
+// A subagent opencode no longer has (its PATCH answers 404 — the session was
+// deleted) must not fail its root's change: it is forgotten, the change is
+// reported as done, and later changes stop trying to reach it.
+func TestADeletedChildDoesNotFailItsRootsChange(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	f.agents = `[
+	 {"name":"build","mode":"primary","permission":[{"permission":"*","pattern":"*","action":"allow"}]},
+	 {"name":"general","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"allow"}]}]`
+	ctx := context.Background()
+	root, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	// The title hint teaches each child its agent, so a change composes a
+	// block for it and the PATCH is really sent.
+	b.noteSession(backend.Session{ID: "ses_live", ParentID: root.ID, Title: "help (@general subagent)"})
+	b.noteSession(backend.Session{ID: "ses_gone", ParentID: root.ID, Title: "help (@general subagent)"})
+	f.mu.Lock()
+	f.gone = map[string]int{"ses_gone": http.StatusNotFound}
+	f.mu.Unlock()
+
+	if err := b.SetPermissionMode(ctx, "/ws", root.ID, permrules.Deny); err != nil {
+		t.Fatalf("the deleted child made the change fail: %v", err)
+	}
+	if got := f.patchCount("ses_gone"); got != 1 {
+		t.Fatalf("the deleted child was patched %d times, want the one attempt", got)
+	}
+	if b.isChild("ses_gone") {
+		t.Error("the deleted child is still known: every later change would fail on it again")
+	}
+	if !b.isChild("ses_live") {
+		t.Error("the live child was forgotten with the dead one")
+	}
+
+	// The second change reaches the root and the live child; the deleted one
+	// is not patched again.
+	if err := b.SetPermissionMode(ctx, "/ws", root.ID, permrules.Allow); err != nil {
+		t.Fatalf("the change after the deletion failed: %v", err)
+	}
+	if got := f.patchCount("ses_gone"); got != 1 {
+		t.Errorf("the deleted child was patched %d times, want still 1", got)
+	}
+	if got := f.patchCount("ses_live"); got != 2 {
+		t.Errorf("the live child was patched %d times, want 2", got)
+	}
+	if got := f.patchCount(root.ID); got != 2 {
+		t.Errorf("the root was patched %d times, want 2", got)
+	}
+}
+
+// A child that fails for any other reason is still reported and still
+// retried: today's behaviour, kept.
+func TestAChildThatFailsSomeOtherWayIsStillReportedAndRetried(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	f.agents = `[
+	 {"name":"build","mode":"primary","permission":[{"permission":"*","pattern":"*","action":"allow"}]},
+	 {"name":"general","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"allow"}]}]`
+	ctx := context.Background()
+	root, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	b.noteSession(backend.Session{ID: "ses_broken", ParentID: root.ID, Title: "help (@general subagent)"})
+	f.mu.Lock()
+	f.gone = map[string]int{"ses_broken": http.StatusInternalServerError}
+	f.mu.Unlock()
+
+	if err := b.SetPermissionMode(ctx, "/ws", root.ID, permrules.Deny); err == nil {
+		t.Fatal("a child's 500 was swallowed")
+	} else if !strings.Contains(err.Error(), "ses_broken") {
+		t.Errorf("the error does not name the child: %v", err)
+	}
+	// The root keeps the change, and the child is not forgotten.
+	if b.PermissionMode(root.ID) != permrules.Deny {
+		t.Errorf("mode = %s, want deny: the root keeps the change", b.PermissionMode(root.ID))
+	}
+	if !b.isChild("ses_broken") {
+		t.Error("the failing child was forgotten")
+	}
+	// The next change retries it (and fails again).
+	if err := b.SetPermissionMode(ctx, "/ws", root.ID, permrules.Allow); err == nil || !strings.Contains(err.Error(), "ses_broken") {
+		t.Fatalf("the retry = %v, want the child named again", err)
+	}
+	if got := f.patchCount("ses_broken"); got != 2 {
+		t.Errorf("the failing child was patched %d times, want 2: retried on the next change", got)
 	}
 }
 

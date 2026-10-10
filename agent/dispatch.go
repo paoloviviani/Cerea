@@ -831,6 +831,16 @@ func (mc *machine) opSessionChildren(ctx context.Context, args json.RawMessage) 
 	if err != nil {
 		return nil, backendErr(err)
 	}
+	// The answer is the authoritative list of children: drop the materializer's
+	// learned edges for children it no longer has, so a deleted subagent stops
+	// being counted (the backend's child maps forget the same child on its
+	// own 404). The op's guard against the spawn race lives in
+	// ReconcileChildren.
+	live := make([]string, 0, len(children))
+	for _, c := range children {
+		live = append(live, c.ID)
+	}
+	mc.mat.ReconcileChildren(a.SessionID, live)
 	// Each child is anchored at the parent's tool call that spawned it: the
 	// parent's transcript records the child's session id on that call.
 	spawnedBy := map[string]string{}
