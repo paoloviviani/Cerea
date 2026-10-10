@@ -5,10 +5,20 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.3 — 2026-10-10
+
+Pins: Cerea `0.10.3`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
+the change is Cerea-only.
 
 - **Word documents in the preview keep their formatting** (fonts, styles,
-  lists, tables, headers and footers).
+  lists, tables, headers and footers). A .docx preview rendered with no
+  fonts, sizes, paragraph styles, list numbering, table borders or page
+  geometry: DOMPurify dropped the `<style>` block docx-preview leads its
+  output with (a fragment that begins with `<style>` parses into `<head>`,
+  which a body-fragment sanitizer discards). The shared render now sanitizes
+  with `FORCE_BODY`, renders headers, footers and footnotes, and the side
+  pane's docx preview gained the fit-to-width script the artifact panel
+  already had.
 
 ## v0.10.2 — 2026-10-10
 
