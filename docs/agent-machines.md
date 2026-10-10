@@ -526,9 +526,15 @@ dialog.
 session) or from the details button beside the **Deny · Ask · Allow** selector
 in the composer; the transcript and its approval cards stay in view while you
 read it. It is titled _Permissions — <session title>_ and reads that session's
-rules itself, so it can be opened for any row, selected or not. It is
-**read-only**: the selector and **Remove** are the only controls that change
-anything. It gives one row per
+rules itself, so it can be opened for any row, selected or not. Besides the
+selector and **Remove** it holds a **Coordination** section: two switches —
+_Can find, read and message other sessions_ and _Can start new sessions_ — for
+the sessions this one may touch without a card. That is the standing answer to
+the orchestrator's repeated `session_read` cards: granting it once replaces
+asking every time, from the session's next turn. Still asks, grant or not: a
+session in another workspace, a send past three hops, anything the machine's
+ceiling caps, and the rate limits. A session it spawns starts with the same
+grant. It gives one row per
 capability
 (edit and write files, run commands, fetch from the web, start subagents, read
 files, work outside the project folder, start or message other sessions, ask you

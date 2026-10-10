@@ -495,6 +495,113 @@ describe("POST v1/agents/:id/permission-mode", () => {
 	});
 });
 
+describe("POST v1/agents/:id/coordination", () => {
+	const MESSAGE = ["session_list", "session_read", "session_send"];
+	const coordUrl = (sessionId: string, deviceId: string) =>
+		`/api/v2/code/v1/agents/${sessionId}/coordination?device=${deviceId}`;
+
+	async function post(sessionId: string, deviceId: string, body: unknown, locals = user.locals) {
+		return forwarder(forwarderPOST, coordUrl(sessionId, deviceId), {
+			method: "POST",
+			body: JSON.stringify(body),
+			locals,
+		});
+	}
+
+	async function readGrant(sessionId: string, deviceId: string) {
+		return parse<{ coordination?: string[] }>(
+			await forwarder(
+				forwarderGET,
+				`/api/v2/code/v1/agents/${sessionId}/permission-rules?device=${deviceId}`,
+				{ locals: user.locals }
+			)
+		);
+	}
+
+	it("grants the message set and the spawn key, and a re-read shows the grant", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		expect((await readGrant(sessionId, deviceId)).coordination ?? []).toEqual([]);
+		machine.opLog.length = 0;
+		expect((await post(sessionId, deviceId, { keys: MESSAGE })).status).toBe(200);
+		expect(machine.opLog).toEqual([
+			{ op: "session.grantCoordination", args: { sessionId, keys: MESSAGE } },
+		]);
+		expect(await readGrant(sessionId, deviceId)).toMatchObject({ coordination: MESSAGE });
+		machine.opLog.length = 0;
+		expect((await post(sessionId, deviceId, { keys: [...MESSAGE, "session_spawn"] })).status).toBe(
+			200
+		);
+		expect(machine.opLog).toEqual([
+			{
+				op: "session.grantCoordination",
+				args: { sessionId, keys: [...MESSAGE, "session_spawn"] },
+			},
+		]);
+		expect(await readGrant(sessionId, deviceId)).toMatchObject({
+			coordination: [...MESSAGE, "session_spawn"],
+		});
+		machine.close();
+	});
+
+	it("an empty set clears the grant", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		expect((await post(sessionId, deviceId, { keys: MESSAGE })).status).toBe(200);
+		expect((await post(sessionId, deviceId, { keys: [] })).status).toBe(200);
+		expect((await readGrant(sessionId, deviceId)).coordination ?? []).toEqual([]);
+		machine.close();
+	});
+
+	it("refuses a partial message set without asking the machine", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		const res = await post(sessionId, deviceId, { keys: ["session_send"] });
+		expect(res.status).toBe(400);
+		expect(machine.opLog.filter((entry) => entry.op === "session.grantCoordination")).toEqual([]);
+		machine.close();
+	});
+
+	it("refuses an unknown key", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		expect((await post(sessionId, deviceId, { keys: ["sidereal_time"] })).status).toBe(400);
+		machine.close();
+	});
+
+	it("the machine's refusal for a subagent becomes a 400", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		const root = machine.model.sessions[0];
+		machine.model.sessions.push({ ...root, id: "child-1", parentId: sessionId });
+		expect((await post("child-1", deviceId, { keys: ["session_spawn"] })).status).toBe(400);
+		machine.close();
+	});
+
+	it("is a 404 on a galopin that predates the op", async () => {
+		const machine = await connectAndPair({ coordinationGrant: false });
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		expect((await post(sessionId, deviceId, { keys: MESSAGE })).status).toBe(404);
+		machine.close();
+	});
+
+	it("refuses a device that belongs to a different user", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const otherUser = await createTestUser();
+		expect((await post("s1", deviceId, { keys: ["session_spawn"] }, otherUser.locals)).status).toBe(
+			404
+		);
+		machine.close();
+	});
+});
+
 describe("what the panel can reach, and no more", () => {
 	it("has no route for the ceiling, the machine's rules or policy; the retired writers are gone", async () => {
 		const machine = await connectAndPair();

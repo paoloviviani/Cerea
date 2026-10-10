@@ -434,6 +434,10 @@ export interface PermissionRulesResult {
 	/** The ceiling: permission key -> the most it may ever be. A key absent
 	 * is uncapped. Empty on a machine that does not report one. */
 	ceiling: Record<string, "ask" | "deny">;
+	/** The session's coordination grant, when the machine says (a grant the
+	 * dialog shows as the two switches; absent on a galopin that predates
+	 * the op — which then shows no line rather than an empty one). */
+	coordination?: CoordinationKey[];
 }
 
 const permissionRuleSchema = z.object({
@@ -475,6 +479,13 @@ export function parsePermissionRules(raw: unknown): PermissionRulesResult {
 	return {
 		...(typeof object.agent === "string" ? { agent: object.agent } : {}),
 		...(isPermissionMode(object.mode) ? { mode: object.mode } : {}),
+		...(Array.isArray(object.coordination)
+			? {
+					coordination: (object.coordination as unknown[]).filter((key): key is CoordinationKey =>
+						(COORDINATION_KEYS as readonly string[]).includes(String(key))
+					),
+				}
+			: {}),
 		rules: items(object.rules).flatMap((item) => {
 			const parsed = permissionRuleSchema.safeParse(item);
 			return parsed.success ? [parsed.data] : [];
