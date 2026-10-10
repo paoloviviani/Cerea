@@ -233,6 +233,61 @@ describe("Permissions line detail", () => {
 		expect(rowText(screen, "read")).toBe("Read files Allowed except secret files like .env: ask");
 	});
 
+	it("names the machine's safe directories in the external row, and what happens elsewhere", async () => {
+		const screen = mount({
+			rules: [],
+			savedApprovals: [],
+			ceiling: {},
+			safeDirs: ["/tmp", "~/.cache", "~/go/pkg/mod"],
+		});
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		expect(rowText(screen, "external")).toBe(
+			"Work outside the project folder Asks first Allowed: /tmp, ~/.cache, ~/go/pkg/mod; elsewhere asks"
+		);
+		// The line is the one place the directories are named.
+		expect(screen.getByTestId("permission-safe-dirs").elements()).toHaveLength(1);
+	});
+
+	it("says elsewhere blocked under a machine rule that denies the rest", async () => {
+		const screen = mount({
+			rules: [
+				{ permission: "external_directory", pattern: "*", action: "deny", source: "machine" },
+			],
+			savedApprovals: [],
+			ceiling: {},
+			safeDirs: ["/tmp"],
+		});
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		expect(rowText(screen, "external")).toBe(
+			"Work outside the project folder Blocked Allowed: /tmp; elsewhere blocked"
+		);
+	});
+
+	it("leaves the safe directories out of the line when the machine's limits hold the row: the ceiling caps them too", async () => {
+		const screen = mount({
+			mode: "allow",
+			rules: [
+				{ permission: "*", pattern: "*", action: "allow", source: "cerea" },
+				{ permission: "external_directory", pattern: "*", action: "ask", source: "ceiling" },
+			],
+			savedApprovals: [],
+			ceiling: { external_directory: "ask" },
+			safeDirs: ["/tmp"],
+		});
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		expect(rowText(screen, "external")).toBe(
+			"Work outside the project folder Asks first limited by this machine"
+		);
+		expect(screen.getByTestId("permission-safe-dirs").elements()).toHaveLength(0);
+	});
+
+	it("says nothing about safe directories on a galopin older than the field", async () => {
+		const screen = mount({ rules: [], savedApprovals: [], ceiling: {} });
+		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
+		expect(rowText(screen, "external")).toBe("Work outside the project folder Asks first");
+		expect(screen.getByTestId("permission-safe-dirs").elements()).toHaveLength(0);
+	});
+
 	it("says when the machine's limits hold a row below the session's setting", async () => {
 		const screen = mount({
 			mode: "allow",

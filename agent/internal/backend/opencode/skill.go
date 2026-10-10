@@ -19,7 +19,7 @@ const delegationSkillName = "delegation"
 
 const delegationSkill = `---
 name: delegation
-description: Use when a job splits into independent parts, when you might start or message another coding session (task, session_spawn, session_send, session_read), or when work should happen later or repeatedly (schedule_list, schedule_create, schedule_update, schedule_delete). How to delegate without editing behind the person's back.
+description: Use when a job splits into independent parts, when you might start or message another coding session (task, session_spawn, session_send, session_read), when you would wait on something slow (CI, a full test suite, a build, a release, any sleep-and-poll loop: use a background task instead), or when work should happen later or repeatedly (schedule_list, schedule_create, schedule_update, schedule_delete). How to delegate without editing behind the person's back.
 ---
 
 # Delegating work
@@ -49,6 +49,7 @@ These reach other sessions the person can see and read. Whether a call raises an
 
 ## Background work (when the machine allows it)
 
+- **Never wait in the foreground.** Your bash tool has no background mode and nothing wakes you when a command ends, so a ` + "`sleep`" + `-and-poll loop (waiting for CI, a release, a long suite) blocks your whole turn and dies at the bash timeout. Instead start a ` + "`task`" + ` with ` + "`background: true`" + ` whose prompt runs or polls the slow thing and reports the outcome in a few lines (pass/fail, the numbers, the first error), then end your turn and pick up when its result arrives.
 - ` + "`task`" + ` with ` + "`background: true`" + ` starts a subagent that **keeps running after your turn ends**: you do not wait, and when the child finishes its result is injected back to you automatically as a synthetic message the panel shows as an automatic marker — that is how work pings back to you across turns. Use it for long work (a big test suite, a long build) instead of blocking the turn. Tell the person what is running and that you will report when it lands.
 - This is on by default; a machine enrolled with ` + "`--no-background-subagents`" + ` (or switched off later with ` + "`galopin policy set --no-background-subagents`" + `) does not have it, and there ` + "`background: true`" + ` fails closed — do not promise it, and do not retry it as a workaround. A plain ` + "`task`" + ` (the default) blocks until the child finishes: several plain ` + "`task`" + ` calls in one message still run side by side, but none of them frees your turn.
 - A ` + "`task_id`" + ` given to a follow-up ` + "`task`" + ` call reaches a child that is still running, background or not.
