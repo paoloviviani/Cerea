@@ -5,11 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.5 — 2026-10-11
 
-**Machines need the galopin update** for these fixes: re-run the install
-line from the pairing dialog (not the pairing line itself), then
-`systemctl --user restart galopin`.
+Pins: Cerea `0.10.5`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
+galopin update** for these fixes: re-run the install line from the pairing
+dialog (not the pairing line itself), then `systemctl --user restart
+galopin`.
 
 - **A session that was once on Deny no longer poisons its subagents.**
   In Deny mode the session's rules now say ask and galopin itself refuses
