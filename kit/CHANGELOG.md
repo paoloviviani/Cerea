@@ -5,6 +5,28 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.9 — 2026-10-11
+
+Pins: Cerea `0.10.9`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
+the changes are Cerea-only.
+
+- **The /code terminal copies and pastes.** xterm's defaults swallowed the
+  browser's clipboard machinery: Ctrl+C always reached the shell as SIGINT
+  even over a selection, and Ctrl+V reached it as `^V`, so the only working
+  paths were the undiscoverable right-click menu and, by accident, macOS's
+  Cmd chords. Now copy wins over SIGINT while a selection exists, Ctrl+V
+  pastes (bracketed-paste aware), and Ctrl+Shift+C writes the clipboard
+  itself instead of opening DevTools. The phone key bar gains a Paste
+  button. Copying out of the terminal on a phone is unchanged — canvas
+  rendering has no touch selection. Cerea only.
+- **The project page is two tabs.** Conversations — the count strip, New
+  chat and the chat list — open by default on `/projects/<id>`; Settings
+  (`?tab=settings`) carries everything that configures the project: the five
+  context levels, the fields, knowledge bases, the defaults for new chats,
+  sharing and delete. Addressed like the workspace panel, and a tab switch
+  never remounts the page, so the loaded project and unsaved edits survive
+  it. `/projects/new` has no tab bar. Cerea only.
+
 ## v0.10.8 — 2026-10-11
 
 Pins: Cerea `0.10.8`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
