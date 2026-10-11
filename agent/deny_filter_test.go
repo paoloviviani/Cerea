@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"galopin/internal/backend"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
+	"galopin/internal/sessions"
+	"galopin/internal/workspaces"
 )
 
 // The Deny pre-filter (B1): in Deny mode the session's block says ask for the
@@ -127,6 +130,120 @@ func TestDenyFilterLeavesAskAndAllowRootsAlone(t *testing.T) {
 		if n := mc.mat.PendingPermissions("s1"); n != 1 {
 			t.Errorf("%s: pending = %d, want the materialised ask", mode, n)
 		}
+	}
+}
+
+// Switching a root to Deny rejects the asks already showing for it and its
+// subagents: each goes out with DecisionReject + the Deny message, audited
+// like rejectDenyAsk, and none is left pending.
+func TestSwitchToDenyRejectsPendingAsks(t *testing.T) {
+	mc, rb, dir := denyMachine(t, permrules.Allow)
+	ctx := context.Background()
+	askFor(mc, "per_1", "bash")
+	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/x", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "s1"},
+	}})
+	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/x", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_k", SessionID: "kid", Tool: "edit", Patterns: []string{"a.go"}},
+	}})
+	if n := mc.mat.PendingPermissions("s1") + mc.mat.PendingPermissions("kid"); n != 2 {
+		t.Fatalf("pending = %d, want the two materialised asks", n)
+	}
+	if _, operr := mc.Handle(ctx, "session.setPermissionMode", mustJSONArgs(t, map[string]any{"sessionId": "s1", "mode": "deny"})); operr != nil {
+		t.Fatalf("mode switch: %+v", operr)
+	}
+	waitReplies(t, rb, 2)
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	for i, d := range rb.replies {
+		if d != backend.DecisionReject {
+			t.Errorf("reply %d = %s, want reject", i, d)
+		}
+		if rb.messages[i] != denyRejectMessage {
+			t.Errorf("reply %d message = %q, want the Deny message", i, rb.messages[i])
+		}
+	}
+	if n := mc.mat.PendingPermissions("s1") + mc.mat.PendingPermissions("kid"); n != 0 {
+		t.Errorf("pending = %d, want nothing left", n)
+	}
+	var rejects int
+	for _, r := range auditRows(t, dir) {
+		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == denyRejectMessage {
+			rejects++
+		}
+	}
+	if rejects != 2 {
+		t.Errorf("galopin Deny rejections in the audit = %d, want 2 (root + child)", rejects)
+	}
+}
+
+// A backend whose transcript seeds one pending ask: the shape a galopin
+// restart finds in opencode's history for a session whose ask was showing.
+type seededRuleBackend struct {
+	*ruleBackend
+	perms []backend.PermissionRequest
+}
+
+func (s *seededRuleBackend) Transcript(context.Context, string, string) (backend.Transcript, error) {
+	return backend.Transcript{Permissions: s.perms}, nil
+}
+
+// A sync that seeds a Deny root sweeps its seeded pending asks the same way
+// a mode switch does: DecisionReject + the Deny message, audited like
+// rejectDenyAsk, none left pending.
+func TestSyncSweepRejectsSeededDenyAsk(t *testing.T) {
+	stateDir := t.TempDir()
+	reg, err := workspaces.Load(filepath.Join(stateDir, "workspaces.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := reg.Create("ws", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb := &seededRuleBackend{
+		ruleBackend: &ruleBackend{fakeBackend: &fakeBackend{}},
+		perms: []backend.PermissionRequest{
+			{ID: "per_seed", SessionID: "s1", Tool: "bash", Patterns: []string{"rm -rf /"}},
+		},
+	}
+	mat := sessions.New(rb, policy.Default())
+	mc := newMachine(reg, rb, mat, policy.Default())
+	audit, err := newAuditLogger(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = audit.Close() })
+	mc.AttachAudit(audit)
+	mc.installPermissions()
+	rb.mu.Lock()
+	rb.sel = map[string]permrules.Selector{"s1": {Mode: permrules.Deny}}
+	rb.mu.Unlock()
+	mc.trackSession(ws, backend.Session{ID: "s1"})
+
+	if _, operr := mc.Handle(context.Background(), "session.sync", mustJSONArgs(t, map[string]any{"sessionId": "s1"})); operr != nil {
+		t.Fatalf("session.sync: %+v", operr)
+	}
+	waitReplies(t, rb.ruleBackend, 1)
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	if rb.replies[0] != backend.DecisionReject {
+		t.Errorf("reply = %s, want reject", rb.replies[0])
+	}
+	if rb.messages[0] != denyRejectMessage {
+		t.Errorf("reply message = %q, want the Deny message", rb.messages[0])
+	}
+	if n := mc.mat.PendingPermissions("s1"); n != 0 {
+		t.Errorf("pending = %d, want the seeded ask swept", n)
+	}
+	var rejects int
+	for _, r := range auditRows(t, stateDir) {
+		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == denyRejectMessage {
+			rejects++
+		}
+	}
+	if rejects != 1 {
+		t.Errorf("galopin Deny rejections in the audit = %d, want 1", rejects)
 	}
 }
 

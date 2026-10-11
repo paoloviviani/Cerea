@@ -78,13 +78,20 @@ type permState struct {
 // staleEntry is the cached stale-deny verdict for one root: whether the rules
 // opencode keeps for it carry a blanket deny the current composition no
 // longer contains (stale: an old Deny block), or a deny the ceiling no longer
-// imposes (policy: an earlier machine policy), and the fingerprint of the
-// stored rules the verdict was computed from (opencode only appends, so a
-// changed fingerprint means new rules arrived and the verdict is recomputed).
+// imposes (policy: an earlier machine policy); the fingerprint of the stored
+// rules the verdict was computed from; and the inputs at check time — the
+// fingerprint of our own composition (composed), of the last rules we sent
+// (sent), and how many stored rules we saw (count). The stored rules move
+// only when we PATCH (every send updates the overlay fingerprint), so an
+// unchanged composition and an unchanged last-sent block mean the verdict
+// cannot have moved and the GET is skipped. A restart starts with an empty
+// cache and recomputes; so does any prompt after we PATCH.
 type staleEntry struct {
-	fp     string
-	stale  bool
-	policy bool
+	fp       string
+	stale    bool
+	policy   bool
+	composed string
+	sent     string
 }
 
 // layers is the machine's current inputs (empty when none are configured).
@@ -300,9 +307,9 @@ func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent s
 	ov := b.getOverlay(sessionID)
 	fp := permrules.Fingerprint(rules)
 	if ov.RulesFP == fp {
-		// No PATCH, but the stored rules may still have changed under us
-		// (another client, an older block): the stale verdict is refreshed
-		// on every prompt either way.
+		// No PATCH: the stale verdict is recomputed only if our own
+		// composition moved since the last check — detectStaleDeny skips
+		// its read of the stored rules otherwise.
 		b.detectStaleDeny(ctx, dir, sessionID)
 		return nil
 	}
@@ -339,32 +346,42 @@ func (b *Backend) StoredRules(ctx context.Context, sessionID string) ([]permrule
 // which opencode seeds into every future child's first turn). Best effort —
 // a verdict must never fail a prompt — so every failure only logs and leaves
 // the cached value. Caller holds perm.mu.
+//
+// The GET /session/{root} is skipped when nothing on our side moved since
+// the last verdict: our composition is recomputed first (the agent ruleset
+// is cached, so that is cheap), and an unchanged composition fingerprint
+// plus an unchanged last-sent block (the overlay fingerprint, which every
+// PATCH updates) means the stored rules — which move only when we send —
+// cannot have moved either.
 func (b *Backend) detectStaleDeny(ctx context.Context, dir, sessionID string) {
 	root := b.rootOf(sessionID)
+	composed, err := b.composeFor(ctx, dir, b.agentFor(root), root)
+	if err != nil {
+		b.cfg.Logf("opencode: composing the current rules for stale-deny detection: %v", err)
+		return
+	}
+	composedFp := permrules.Fingerprint(composed)
+	sentFp := b.getOverlay(root).RulesFP
+	b.perm.staleMu.Lock()
+	e, ok := b.perm.stale[root]
+	if ok && e.composed == composedFp && e.sent == sentFp {
+		b.perm.staleMu.Unlock()
+		return
+	}
+	b.perm.staleMu.Unlock()
 	stored, err := b.StoredRules(ctx, root)
 	if err != nil {
 		b.cfg.Logf("opencode: reading the stored rules for stale-deny detection: %v", err)
 		return
 	}
 	fp := permrules.Fingerprint(stored)
-	b.perm.staleMu.Lock()
-	if e, ok := b.perm.stale[root]; ok && e.fp == fp {
-		b.perm.staleMu.Unlock()
-		return
-	}
-	b.perm.staleMu.Unlock()
-	composed, err := b.composeFor(ctx, dir, b.agentFor(root), root)
-	if err != nil {
-		b.cfg.Logf("opencode: composing the current rules for stale-deny detection: %v", err)
-		return
-	}
 	stale := permrules.FindStaleBlanketDeny(stored, composed)
 	policy := permrules.FindStalePolicyDenies(stored, composed, b.layers().Ceiling)
 	b.perm.staleMu.Lock()
 	if b.perm.stale == nil {
 		b.perm.stale = map[string]staleEntry{}
 	}
-	b.perm.stale[root] = staleEntry{fp: fp, stale: stale, policy: policy}
+	b.perm.stale[root] = staleEntry{fp: fp, stale: stale, policy: policy, composed: composedFp, sent: sentFp}
 	b.perm.staleMu.Unlock()
 }
 

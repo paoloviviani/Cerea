@@ -948,6 +948,38 @@ func (m *Materializer) PendingPermissionRequests(sessionID string) []backend.Per
 	return out
 }
 
+// SweepDeniedAsks collects the permission asks the materializer still holds
+// for sessionID that the ask pre-filter consumes — a Deny root's asks,
+// whether they arrived live or were seeded from history (seeding does not
+// pass through the filter). It collects only: answering stays with the
+// caller (rejectDenyAsk + WithdrawPermission, as for a mode switch). The
+// filter is consulted without the lock held, like the live path; nil filter
+// (no permissions backend) collects nothing.
+func (m *Materializer) SweepDeniedAsks(sessionID string) []backend.PermissionRequest {
+	m.mu.Lock()
+	st, ok := m.sessions[sessionID]
+	if !ok || m.onAskFilter == nil {
+		m.mu.Unlock()
+		return nil
+	}
+	dir := st.workspaceDir
+	pending := make([]backend.PermissionRequest, 0, len(st.permissionOrder))
+	for _, id := range st.permissionOrder {
+		if req, ok := st.permissions[id]; ok {
+			pending = append(pending, *req)
+		}
+	}
+	filter := m.onAskFilter
+	m.mu.Unlock()
+	var out []backend.PermissionRequest
+	for _, req := range pending {
+		if filter(dir, req) {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
 // PendingQuestionRequests returns copies of the unanswered question-tool
 // asks for sessionID, in the order they were asked — what
 // permissions.pending serves alongside permissions. Empty, never nil.

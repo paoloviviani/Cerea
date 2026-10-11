@@ -141,7 +141,10 @@ func TestDenyModeRefusesWithoutACard(t *testing.T) {
 	if ask != nil {
 		t.Fatalf("a card was materialised under Deny (%+v)", ask)
 	}
-	if part == nil || (part.ToolStatus != backend.ToolFailed && part.Tool != "invalid") {
+	// Under deny-as-ask tools are no longer hidden, so an "invalid" tool call
+	// means the old hide-the-tools behaviour came back: the call must be an
+	// explicit refusal, not an absence.
+	if part == nil || part.ToolStatus != backend.ToolFailed {
 		t.Fatalf("the call was not refused: %+v", part)
 	}
 	if got := part.ToolError + part.Output; !strings.Contains(got, "set to Deny") {

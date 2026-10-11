@@ -188,7 +188,7 @@ func (s *shim) transitionLocked(state credState, checkedAt time.Time, message st
 		fmt.Fprintf(os.Stderr, "galopin shim: credential OK — %s\n", message)
 	}
 	if err := writeStatusFile(s.statusPath, s.status); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v", err)
+		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v\n", err)
 	}
 }
 
@@ -201,7 +201,7 @@ func (s *shim) adoptWarnings(warnings []string) {
 	status := s.status
 	s.mu.Unlock()
 	if err := writeStatusFile(s.statusPath, status); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v", err)
+		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v\n", err)
 	}
 }
 

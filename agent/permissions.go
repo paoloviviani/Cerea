@@ -61,6 +61,9 @@ func (mc *machine) installPermissions() {
 		// PermissionMode is the ROOT's word (the backend resolves it), so
 		// this covers root and child asks alike. gp_ asks are not excepted:
 		// under Deny nothing runs without a card, and there are no cards.
+		// A child whose parent edge isn't known yet resolves to itself and
+		// reads Ask, so its ask shows a card instead of being rejected:
+		// that fails toward a person, never toward running.
 		if rh.PermissionMode(mc.mat.RootOf(req.SessionID)) != permrules.Deny {
 			return false
 		}
@@ -287,8 +290,9 @@ func (mc *machine) exceptionViews(rh backend.RuleHost, sessionID string) []backe
 // the three words `invalid`, and a subagent `invalid` too: it has no selector
 // of its own and follows its root. The change reaches the root and every
 // subagent under it, including ones already running. A Deny takes effect at
-// once, from the next ask: every ask from a Deny root is rejected before any
-// card, even mid-turn. Any other change applies from the session's NEXT turn:
+// once: every ask from a Deny root is rejected before any card, even mid-turn,
+// and asks already showing for the root and its subagents are rejected at once
+// with the Deny message (their cards resolve like any answered ask). Any other change applies from the session's NEXT turn:
 // opencode takes a session's rules when a turn starts, and nothing here stops,
 // cancels or withdraws a turn that is running. The answer is `{}`; read
 // the mode back from the session. Audited as permission.mode.
@@ -319,7 +323,34 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 		return nil, backendErr(err)
 	}
 	mc.audit.permissionMode(a.SessionID, string(mode))
+	if mode == permrules.Deny {
+		// A Deny chosen while asks are showing must not leave cards that
+		// answer into the old word: every permission ask the materializer
+		// still holds for the root and its subagents goes out with the Deny
+		// rejection at once.
+		mc.rejectTreePending(dir, a.SessionID)
+	}
 	return map[string]any{}, nil
+}
+
+// rejectTreePending answers every permission ask the materializer still
+// holds for root and its subagents with the Deny rejection. Each ask goes
+// out through rejectDenyAsk (DecisionReject + the Deny message, audited
+// like every galopin rejection), which releases the tool call waiting on
+// it in opencode; the card is then withdrawn the way an answered ask
+// normally is — the reply resolves it — and the materializer drops its
+// own copy too, so nothing lingers if the resolution event round-trips
+// after us.
+func (mc *machine) rejectTreePending(dir, root string) {
+	for _, id := range mc.mat.TrackedIDs() {
+		if mc.mat.RootOf(id) != root {
+			continue
+		}
+		for _, req := range mc.mat.PendingPermissionRequests(id) {
+			mc.rejectDenyAsk(dir, req)
+			mc.mat.WithdrawPermission(req.SessionID, req.ID)
+		}
+	}
 }
 
 // opSessionGrantCoordination answers session.grantCoordination {sessionId,

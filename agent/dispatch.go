@@ -707,6 +707,20 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 		}
 		return nil, backendErr(err)
 	}
+	// Seeded history skips the ask pre-filter, so a sync that (re)builds a
+	// Deny root's view can surface its pending asks as cards again. Sweep
+	// them the same way a mode switch does: DecisionReject + the Deny
+	// message, audited like rejectDenyAsk, cards withdrawn like answered
+	// asks. Best effort — a sync that cannot resolve the session's directory
+	// still answers with its snapshot.
+	if dir, _, derr := mc.resolveSession(a.SessionID); derr == nil {
+		for _, req := range mc.mat.SweepDeniedAsks(a.SessionID) {
+			mc.rejectDenyAsk(dir, req)
+			mc.mat.WithdrawPermission(req.SessionID, req.ID)
+		}
+	} else {
+		logf("permissions: sync sweep skipped for %s: %v", a.SessionID, derr)
+	}
 	out := map[string]any{"epoch": res.Epoch, "seq": res.Seq}
 	if res.Snapshot != nil {
 		out["snapshot"] = res.Snapshot
