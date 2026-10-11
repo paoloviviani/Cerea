@@ -23,6 +23,13 @@
  *
  * **Failures.** Three `failed` runs in a row disable the schedule, with the
  * last reason. Any `sent` resets the count; skipped and missed runs do not move it.
+ *
+ * **Stopping.** A schedule with `maxOccurrences` switches itself off after
+ * that many scheduled fires (a fire that `sent` or `failed`; skips and misses
+ * do not count, and neither does a manual "Run now"). The count moves only in
+ * `record()`, under the claim lease. A row already at its cap when claimed
+ * (the cap edited down, or a re-enable) is disabled at the claim instead of
+ * firing, and records nothing.
  */
 
 import { ObjectId } from "mongodb";
@@ -32,7 +39,7 @@ import { onExit } from "$lib/server/exitHandler";
 import { availableKinds, getExecutor, type ExecutorOutcome } from "./executors";
 import { schedulesEnabled } from "./limits";
 import { intervalAfter, nextOccurrence } from "./recurrence";
-import { ScheduleError } from "./store";
+import { ScheduleError, capReachedReason } from "./store";
 import type { Schedule, ScheduleRun } from "$lib/types/Schedule";
 
 export const TICK_MS = 30_000;
@@ -138,8 +145,19 @@ async function record(
 			: outcome.status === "sent"
 				? 0
 				: schedule.consecutiveFailures;
+	// `firedCount` counts scheduled fires only, and moves only here, under the
+	// claim lease its caller (`fireClaim`, or `runNow` for a manual one) holds:
+	// the lease serialises the row, so this read-modify-write cannot
+	// interleave with another instance's. Skipped and missed runs, and a
+	// manual run, leave it alone.
+	const counts =
+		trigger === "schedule" && (outcome.status === "sent" || outcome.status === "failed");
+	const firedCount = (schedule.firedCount ?? 0) + (counts ? 1 : 0);
 	const disableReason =
 		outcome.disable ??
+		(counts && schedule.maxOccurrences !== undefined && firedCount >= schedule.maxOccurrences
+			? capReachedReason(schedule.maxOccurrences)
+			: null) ??
 		(failures >= MAX_CONSECUTIVE_FAILURES
 			? `Switched off after ${MAX_CONSECUTIVE_FAILURES} failed runs in a row. Last: ${outcome.detail ?? "failed"}`
 			: null);
@@ -149,6 +167,7 @@ async function record(
 		consecutiveFailures: failures,
 		updatedAt: new Date(),
 	};
+	if (counts) set.firedCount = firedCount;
 	if (disableReason) {
 		set.enabled = false;
 		set.nextRunAt = null;
@@ -180,14 +199,37 @@ async function execute(
 	}
 }
 
-/** Handle one claim end to end: judge lateness, run, record, release the lease. */
+/** Handle one claim end to end: judge lateness, run, record, release the lease.
+ * Returns the run recorded, or null when the claim was spent on a schedule
+ * already at its stopping criterion (disabled in place, nothing recorded). */
 export async function fireClaim(
 	claim: Claim,
 	now: Date,
 	owner: string = instanceId
-): Promise<ScheduleRun> {
+): Promise<ScheduleRun | null> {
 	try {
-		const decision = decideLateness(claim.schedule, claim.scheduledFor, now);
+		const { schedule } = claim;
+		if (
+			schedule.maxOccurrences !== undefined &&
+			(schedule.firedCount ?? 0) >= schedule.maxOccurrences
+		) {
+			// The cap was edited down after the count passed it, or the schedule
+			// was re-enabled at the cap: the claim disables the row instead of
+			// firing it, and records nothing.
+			await collections.schedules.updateOne(
+				{ _id: schedule._id },
+				{
+					$set: {
+						enabled: false,
+						nextRunAt: null,
+						disabledReason: capReachedReason(schedule.maxOccurrences),
+						updatedAt: now,
+					},
+				}
+			);
+			return null;
+		}
+		const decision = decideLateness(schedule, claim.scheduledFor, now);
 		if (!decision.fire) {
 			return await record(claim.schedule, claim.scheduledFor, "schedule", now, {
 				status: "missed-downtime",
