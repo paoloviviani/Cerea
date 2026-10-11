@@ -708,10 +708,17 @@ bite:
 
 ### The project page, and what a project puts in a prompt
 
-`components/projects/ProjectPage.svelte` is one scroll of sections, which are the
-**five context levels** in the order `projectContext` (`server/projects.ts`)
-builds the prompt — the one function that assembles project context, and the
-order is part of its contract (`projectContext.spec.ts` asserts it):
+`components/projects/ProjectPage.svelte` is two tabs of one page, addressed like
+the workspace panel: **Conversations** (the default — the strip with the count
+and New chat, then the list of the project's chats) and **Settings**
+(`?tab=settings` — everything that configures the project). A query change never
+remounts the page, so the loaded project and unsaved edits survive a switch;
+`/projects/new` has no tab bar, since everything it makes is settings.
+
+The Settings tab's sections are the **five context levels** in the order
+`projectContext` (`server/projects.ts`) builds the prompt — the one function
+that assembles project context, and the order is part of its contract
+(`projectContext.spec.ts` asserts it):
 
 1. standing instructions (in full);
 2. context documents (in full);

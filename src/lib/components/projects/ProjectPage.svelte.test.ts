@@ -1,8 +1,9 @@
 /**
- * The project page: what it shows, and the things that used to need the
- * overlay's nested Edit — attaching a knowledge base after the project exists,
- * removing a chat, the defaults for new chats — plus the documents section's
- * refusal of a dropped folder.
+ * The project page: the two tabs (conversations by default, settings behind
+ * `?tab=settings` — `/projects/new` has no tab bar), and the things that used
+ * to need the overlay's nested Edit — attaching a knowledge base after the
+ * project exists, removing a chat, the defaults for new chats — plus the
+ * documents section's refusal of a dropped folder.
  */
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { writable } from "svelte/store";
@@ -152,9 +153,12 @@ function mountCreate(webSearchEnabled: boolean) {
 	});
 }
 
-function mountExisting(webSearchEnabled = false) {
+function mountExisting(webSearchEnabled = false, tab?: "settings") {
 	return renderWithApp(ProjectPage, { id: "proj-1" } as never, {
-		page: { data: { models: [{ id: "m" }] } },
+		page: {
+			url: tab ? `/projects/proj-1?tab=${tab}` : "/projects/proj-1",
+			data: { models: [{ id: "m" }] },
+		},
 		context: settingsContext(webSearchEnabled).context,
 	});
 }
@@ -212,11 +216,39 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
+describe("ProjectPage tabs", () => {
+	it("opens on the conversations tab: the chats are shown, the settings are not", async () => {
+		stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
+		mountExisting();
+		await waitForText("Budget questions");
+
+		expect(text()).toContain("Chats (2)");
+		expect(byLabel("Remove Budget questions from project")).not.toBeNull();
+		expect(document.body.querySelector("#project-name")).toBeNull();
+		expect(document.body.querySelector('[aria-label="Standing instructions"]')).toBeNull();
+		expect(document.body.querySelector('[data-testid="project-knowledge"]')).toBeNull();
+
+		// The tab bar is the workspace's: two links, the active one marked.
+		const tabs = [...document.body.querySelectorAll('nav[aria-label="Project sections"] a')];
+		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Conversations", "Settings"]);
+		expect(tabs[0].getAttribute("aria-current")).toBe("page");
+		expect(tabs[0].getAttribute("href")).toBe("/projects/proj-1");
+		expect(tabs[1].getAttribute("href")).toBe("/projects/proj-1?tab=settings");
+	});
+
+	it("/projects/new has no tab bar: everything it makes is settings", async () => {
+		stubApi({});
+		mountCreate(false);
+		await waitForText("Web search on by default");
+		expect(document.body.querySelector('nav[aria-label="Project sections"]')).toBeNull();
+	});
+});
+
 describe("ProjectPage sections", () => {
 	it("draws the five context levels and every section of an existing project", async () => {
 		stubApi({ project: projectView({ name: "Grant application" }), chats: CHATS });
-		mountExisting();
-		await waitForText("Budget questions");
+		mountExisting(false, "settings");
+		await waitForText("Context documents (0)");
 
 		// The explainer lists the five levels, in prompt order.
 		const explainer = document.body.querySelector("[aria-labelledby='project-levels']");
@@ -233,24 +265,31 @@ describe("ProjectPage sections", () => {
 		expect(document.body.querySelector("h1")?.textContent).toContain("Grant application");
 		expect(document.body.querySelector("#project-name")).not.toBeNull();
 		expect(document.body.querySelector('[aria-label="Standing instructions"]')).not.toBeNull();
-		await waitForText("Context documents (0)");
 		expect(document.body.querySelector('[data-testid="project-documents"]')).not.toBeNull();
 		expect(document.body.querySelector('[data-testid="project-knowledge"]')).not.toBeNull();
 		expect(text()).toContain("Share it");
 		expect(text()).toContain("Defaults for new chats here");
 		expect(text()).toContain("Passages per answer");
-		expect(text()).toContain("Chats (2)");
 		expect(text()).toContain("Web search on by default");
+		// The settings tab does not carry the conversations: they are the other
+		// tab's content, reached without remounting the page.
+		expect(text()).not.toContain("Chats (2)");
 	});
 
-	it("a shared project is read-only for settings, but still lists documents and its chats", async () => {
+	it("a shared project is read-only for its settings", async () => {
 		stubApi({ project: projectView({ owned: false }), chats: CHATS });
-		mountExisting();
-		await waitForText("Budget questions");
+		mountExisting(false, "settings");
+		await waitForText("Context documents (0)");
 		expect((document.body.querySelector("#project-name") as HTMLInputElement).disabled).toBe(true);
 		expect(text()).not.toContain("Share it");
 		expect(button("Save changes")).toBeUndefined();
 		expect(document.body.querySelector('[data-testid="project-documents"]')).not.toBeNull();
+	});
+
+	it("a shared project still lists its chats, with removal only for one's own", async () => {
+		stubApi({ project: projectView({ owned: false }), chats: CHATS });
+		mountExisting();
+		await waitForText("Budget questions");
 		// Not theirs, not the owner's: no removal for the chat they did not start.
 		expect(byLabel("Remove Budget questions from project")).not.toBeNull();
 		expect(byLabel("Remove Their thread from project")).toBeNull();
@@ -260,7 +299,7 @@ describe("ProjectPage sections", () => {
 describe("ProjectPage knowledge bases, after creation", () => {
 	it("attaches a base to an existing project at once, and detaches it again", async () => {
 		const seen = stubApi({ project: projectView() });
-		mountExisting();
+		mountExisting(false, "settings");
 		await waitForText("No knowledge bases attached");
 
 		byLabel("Attach Call texts")?.click();
@@ -282,7 +321,7 @@ describe("ProjectPage knowledge bases, after creation", () => {
 
 	it("searches the list, and links to the workspace to create a base", async () => {
 		stubApi({ project: projectView() });
-		mountExisting();
+		mountExisting(false, "settings");
 		await waitForText("Call texts");
 		await typeInto("#project-kb-search", "proposals");
 		await vi.waitFor(() => expect(byLabel("Attach Call texts")).toBeNull());
@@ -341,7 +380,7 @@ describe("ProjectPage context documents", () => {
 
 	it("refuses a dropped folder with the reason, and uploads nothing", async () => {
 		const seen = stubApi({ project: projectView() });
-		mountExisting();
+		mountExisting(false, "settings");
 		await waitForText("No documents yet");
 
 		drop([fakeItem("papers", true)]);
@@ -352,7 +391,7 @@ describe("ProjectPage context documents", () => {
 
 	it("offers a file picker for files only: multiple, and no directory selection", async () => {
 		stubApi({ project: projectView() });
-		mountExisting();
+		mountExisting(false, "settings");
 		await waitForText("No documents yet");
 		const input = document.body.querySelector(
 			'[data-testid="project-documents-input"]'
@@ -409,7 +448,7 @@ describe("ProjectPage defaults for new chats", () => {
 		stubApi({
 			project: projectView({ defaultWebSearch: false, defaultMcpConnectorIds: ["conn-a"] }),
 		});
-		mountExisting(true);
+		mountExisting(true, "settings");
 		await waitForText("MCPs on by default:");
 		await vi.waitFor(() =>
 			expect(
@@ -427,7 +466,7 @@ describe("ProjectPage defaults for new chats", () => {
 
 	it("an existing project without a stored value falls back to the app default", async () => {
 		stubApi({ project: projectView() });
-		mountExisting(true);
+		mountExisting(true, "settings");
 		await waitForText("Web search on by default");
 		await vi.waitFor(() =>
 			expect(switchControl("project-default-websearch").getAttribute("aria-checked")).toBe("true")
@@ -473,7 +512,7 @@ describe("ProjectPage defaults for new chats", () => {
 
 	it("Save appears only when something changed, and sends the changed settings", async () => {
 		const seen = stubApi({ project: projectView() });
-		mountExisting();
+		mountExisting(false, "settings");
 		await waitForText("Passages per answer");
 		expect(button("Save changes")?.disabled).toBe(true);
 

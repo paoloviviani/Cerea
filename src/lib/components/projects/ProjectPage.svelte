@@ -2,11 +2,18 @@
 	A project, as a page: `/projects/new` creates one, `/projects/<id>` is its page.
 
 	This replaced an overlay with a form view inside it and a second Edit inside
-	that. Everything that makes a project is one scroll of sections, each
-	editable where it stands, and the sections are the project's **five context
-	levels** in the order the prompt is built (`projectContext` in
-	`$lib/server/projects`): standing instructions, context documents, project
-	memory (all sent in full), then knowledge bases and past chats (searched).
+	that. It is now two tabs of one page, addressed like the workspace panel
+	(`?tab=settings`; anything else, a bare `/projects/<id>` included, is the
+	conversations tab, and a query change never remounts the page):
+
+	**Conversations** — the strip with the count and New chat, then the list of
+	the project's chats, new and old. This is the tab the page opens on.
+
+	**Settings** — everything that configures the project: the five context
+	levels, each editable where it stands, in the order the prompt is built
+	(`projectContext` in `$lib/server/projects`): standing instructions, context
+	documents, project memory (all sent in full), then knowledge bases and past
+	chats (searched) — plus the defaults for new chats, sharing and delete.
 
 	Saving: the text fields and options share one Save (the bar appears when
 	something changed); everything that is an *action* — attaching a base,
@@ -53,6 +60,7 @@
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconShare from "~icons/carbon/share";
 	import IconChat from "~icons/carbon/chat";
+	import IconSettings from "~icons/carbon/settings";
 	import IconClose from "~icons/carbon/close";
 	import LucideFolderOpen from "~icons/lucide/folder-open";
 	import LucideLibrary from "~icons/lucide/library";
@@ -133,6 +141,24 @@
 	let kbSearch = $state("");
 
 	const owned = $derived(creating || project?.owned === true);
+
+	/**
+	 * The tab and the address are one thing, as in the workspace panel:
+	 * `?tab=settings` opens the settings, anything else — a bare
+	 * `/projects/<id>`, a mistyped value — opens the conversations. A query
+	 * change is not a new address, so the switch never remounts this
+	 * component: the loaded project, the loaded sections and any unsaved
+	 * edits all survive it.
+	 */
+	const TABS = [
+		{ key: "conversations", label: "Conversations" },
+		{ key: "settings", label: "Settings" },
+	] as const;
+	type TabKey = (typeof TABS)[number]["key"];
+	const tab = $derived(
+		TABS.find((candidate) => candidate.key === page.url.searchParams.get("tab"))?.key ??
+			("conversations" satisfies TabKey)
+	);
 
 	async function api<T>(
 		path: string,
@@ -441,6 +467,39 @@
 		</p>
 	</header>
 
+	{#if !creating && project}
+		<!--
+			The same tab bar the workspace, settings and admin pages draw: a row of
+			links under a shared border, the active one marked `aria-current`.
+			Hidden until the project has loaded, and absent from /projects/new,
+			which has nothing to tab between yet.
+		-->
+		<nav
+			aria-label="Project sections"
+			class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700"
+		>
+			{#each TABS as t (t.key)}
+				{@const active = tab === t.key}
+				<a
+					href={t.key === "conversations"
+						? `${base}/projects/${id}`
+						: `${base}/projects/${id}?tab=${t.key}`}
+					aria-current={active ? "page" : undefined}
+					class="flex items-center gap-1.5 rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors {active
+						? 'border-blue-600 text-blue-700 dark:text-blue-400'
+						: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
+				>
+					{#if t.key === "conversations"}
+						<IconChat class="size-4" />
+					{:else}
+						<IconSettings class="size-4" />
+					{/if}
+					{t.label}
+				</a>
+			{/each}
+		</nav>
+	{/if}
+
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
 		{#if failure}
 			<p class="{s.ERROR} mb-4" role="alert">{failure}</p>
@@ -455,39 +514,16 @@
 				<p class={s.EMPTY_DETAIL}>It may have been deleted, or not shared with you.</p>
 				<a href="{base}/projects" class={s.PRIMARY}>All projects</a>
 			</div>
-		{:else}
+		{:else if creating || tab === "settings"}
+			<!--
+				The settings tab (and the whole of /projects/new, which has no
+				conversations to tab between yet): the five context levels, the
+				fields, and the Save bar.
+			-->
 			<form
 				class="grid grid-cols-1 items-start gap-5 pb-6 lg:grid-cols-2 [&>*]:min-w-0"
 				onsubmit={save}
 			>
-				{#if project}
-					<div class="{s.STRIP} {s.STRIP_ACTIVE} lg:col-span-2">
-						<div class="flex items-center gap-3">
-							<div class={s.STRIP_TILE}>
-								<LucideFolderOpen class="size-5 text-accent" />
-							</div>
-							<div>
-								<p class={s.STRIP_HEADLINE}>
-									{project.conversationCount} conversation{project.conversationCount === 1
-										? ""
-										: "s"}
-								</p>
-								<p class={s.STRIP_DETAIL}>
-									{#if knowledgeOn}
-										{attached.length} knowledge base{attached.length === 1 ? "" : "s"}
-										{#if project.indexPastChats}· past chats searchable{/if}
-									{/if}
-									{#if !project.owned}· shared with you{/if}
-								</p>
-							</div>
-						</div>
-						<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
-							<IconAddLarge class="size-4" />
-							New chat
-						</button>
-					</div>
-				{/if}
-
 				<section class="{s.TIPS} lg:col-span-2" aria-labelledby="project-levels">
 					<h2 id="project-levels" class={s.TIPS_TITLE}>What every chat here is given</h2>
 					<ol class="space-y-1 text-xs text-ink-muted">
@@ -707,57 +743,6 @@
 					</section>
 				{/if}
 
-				{#if !creating && project}
-					<section class={s.card(false)}>
-						<div class="p-4">
-							<h2 class={s.SECTION_TITLE}>Chats ({conversations.length})</h2>
-							{#if conversations.length === 0}
-								<div class={s.EMPTY}>
-									<IconChat class={s.EMPTY_ICON} />
-									<p class={s.EMPTY_TITLE}>Nothing here yet</p>
-									<p class={s.EMPTY_DETAIL}>Start one and it will carry this project's context</p>
-									<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
-										<IconAddLarge class="size-4" />
-										Start the First Chat
-									</button>
-								</div>
-							{:else}
-								<ul class="space-y-2">
-									{#each conversations as conversation (conversation.id)}
-										<li class="{s.card(false)} flex items-center gap-2 pr-3">
-											<a
-												href="{base}/conversation/{conversation.id}"
-												class="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 no-underline"
-											>
-												<IconChat class="size-4 flex-shrink-0 text-ink-faint" />
-												<span class="min-w-0 flex-1">
-													<span class="block truncate text-sm font-medium"
-														>{conversation.title}</span
-													>
-													<span class="text-xs text-ink-muted">
-														{modelName(conversation.model)}
-														{#if !conversation.mine}· somebody else's{/if}
-													</span>
-												</span>
-											</a>
-											{#if conversation.mine || project.owned}
-												<button
-													type="button"
-													class={s.CARD_ACTION}
-													aria-label="Remove {conversation.title} from project"
-													onclick={() => removeChat(conversation)}
-												>
-													Remove from project
-												</button>
-											{/if}
-										</li>
-									{/each}
-								</ul>
-							{/if}
-						</div>
-					</section>
-				{/if}
-
 				<section class={s.card(false)}>
 					<div class="p-4">
 						<h2 class={s.SECTION_TITLE}>Defaults for new chats here</h2>
@@ -905,6 +890,90 @@
 					This project is shared with you. Its settings are the owner's; you can start chats, add
 					documents and notes, and remove your own chats.
 				</p>
+			{/if}
+		{:else}
+			<!--
+				The conversations tab: the strip with the count and the New chat
+				action, then the list. Nothing here is a form field, so this branch
+				is outside the settings form entirely.
+			-->
+			{#if project}
+				<div class="flex flex-col gap-5 pb-6">
+					<div class="{s.STRIP} {s.STRIP_ACTIVE}">
+						<div class="flex items-center gap-3">
+							<div class={s.STRIP_TILE}>
+								<LucideFolderOpen class="size-5 text-accent" />
+							</div>
+							<div>
+								<p class={s.STRIP_HEADLINE}>
+									{project.conversationCount} conversation{project.conversationCount === 1
+										? ""
+										: "s"}
+								</p>
+								<p class={s.STRIP_DETAIL}>
+									{#if knowledgeOn}
+										{attached.length} knowledge base{attached.length === 1 ? "" : "s"}
+										{#if project.indexPastChats}· past chats searchable{/if}
+									{/if}
+									{#if !project.owned}· shared with you{/if}
+								</p>
+							</div>
+						</div>
+						<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
+							<IconAddLarge class="size-4" />
+							New chat
+						</button>
+					</div>
+
+					<section class={s.card(false)}>
+						<div class="p-4">
+							<h2 class={s.SECTION_TITLE}>Chats ({conversations.length})</h2>
+							{#if conversations.length === 0}
+								<div class={s.EMPTY}>
+									<IconChat class={s.EMPTY_ICON} />
+									<p class={s.EMPTY_TITLE}>Nothing here yet</p>
+									<p class={s.EMPTY_DETAIL}>Start one and it will carry this project's context</p>
+									<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
+										<IconAddLarge class="size-4" />
+										Start the First Chat
+									</button>
+								</div>
+							{:else}
+								<ul class="space-y-2">
+									{#each conversations as conversation (conversation.id)}
+										<li class="{s.card(false)} flex items-center gap-2 pr-3">
+											<a
+												href="{base}/conversation/{conversation.id}"
+												class="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 no-underline"
+											>
+												<IconChat class="size-4 flex-shrink-0 text-ink-faint" />
+												<span class="min-w-0 flex-1">
+													<span class="block truncate text-sm font-medium"
+														>{conversation.title}</span
+													>
+													<span class="text-xs text-ink-muted">
+														{modelName(conversation.model)}
+														{#if !conversation.mine}· somebody else's{/if}
+													</span>
+												</span>
+											</a>
+											{#if conversation.mine || project.owned}
+												<button
+													type="button"
+													class={s.CARD_ACTION}
+													aria-label="Remove {conversation.title} from project"
+													onclick={() => removeChat(conversation)}
+												>
+													Remove from project
+												</button>
+											{/if}
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					</section>
+				</div>
 			{/if}
 		{/if}
 	</div>
