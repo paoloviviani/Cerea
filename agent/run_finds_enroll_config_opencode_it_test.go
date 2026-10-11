@@ -41,6 +41,14 @@ func TestRunFindsTheConfigEnrollWroteIT(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 	t.Setenv("TMPDIR", itTmpDir(t))
+	// The IT can run inside an opencode session, whose environment carries
+	// OPENCODE_CONFIG (and friends) pointing at this box's real enrollment;
+	// without this the control inherits a working gateway config and lists
+	// the real gateway's models. An empty value is no config as far as
+	// opencode is concerned.
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	t.Chdir(filepath.Join(root, "cwd")) // not the galopin dir, not where enroll ran
 
 	srv := fakeEnrollServer(t)
