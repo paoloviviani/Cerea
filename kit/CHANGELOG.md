@@ -5,10 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.4 — 2026-10-11
 
-**Machines need the galopin update** for this fix: re-run the install line
-from the pairing dialog, then `systemctl --user restart galopin`.
+Pins: Cerea `0.10.4`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
+galopin update** for this fix: re-run the install line from the pairing
+dialog, then `systemctl --user restart galopin`.
 
 - **A deleted subagent no longer lingers in its session's permissions or
   subagent count.** Deleting a subagent session in opencode left it in
@@ -19,6 +20,13 @@ from the pairing dialog, then `systemctl --user restart galopin`.
   re-applies a session's rules, and drops the child edges its memory holds
   for children opencode's own listing no longer has, so the count drops
   with the deletions. Needs the galopin update.
+- **Schedules can stop after N occurrences instead of running for ever.**
+  An optional "Stop after N runs" on a schedule switches it off once that
+  many scheduled fires have happened — a run that sent or failed counts;
+  skipped and missed runs, and a manual Run now, do not. The list row shows
+  how far it has got, agents can set the cap through schedule.create and
+  schedule.update, and clearing it runs the schedule for ever again.
+  Cerea only.
 
 ## v0.10.3 — 2026-10-10
 
