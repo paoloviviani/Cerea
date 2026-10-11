@@ -17,6 +17,7 @@
 	import IconRenew from "~icons/carbon/renew";
 	import { subscribeToTheme } from "$lib/switchTheme";
 	import { mintTerminalTicket, terminalSocketUrl, TerminalReauthRequired } from "$lib/codeApi";
+	import { terminalKeyAction } from "$lib/utils/terminalKeys";
 	import {
 		encodeTerminalFrame,
 		decodeTerminalFrame,
@@ -248,6 +249,44 @@
 		);
 	}
 
+	/**
+	 * Copy and paste are wired by hand because xterm's defaults swallow the
+	 * browser's machinery: Ctrl+C always reaches the shell as SIGINT (even
+	 * over a selection) and Ctrl+V reaches it as ^V, cancel() having
+	 * suppressed the copy and paste events either way. The decision matrix
+	 * lives in `$lib/utils/terminalKeys`; the two "let the browser" answers
+	 * step aside without preventDefault so the events fire onto xterm's own
+	 * copy/paste listeners, and the manual chord writes the clipboard here.
+	 */
+	const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+
+	function customKeyEventHandler(ev: KeyboardEvent): boolean {
+		switch (
+			terminalKeyAction({
+				type: ev.type,
+				key: ev.key,
+				ctrlKey: ev.ctrlKey,
+				shiftKey: ev.shiftKey,
+				altKey: ev.altKey,
+				metaKey: ev.metaKey,
+				isMac,
+				hasSelection: !!term?.hasSelection(),
+			})
+		) {
+			case "passthrough":
+				return true;
+			case "letBrowserCopy":
+			case "letBrowserPaste":
+				return false;
+			case "copySelection": {
+				ev.preventDefault();
+				const selection = term?.getSelection() ?? "";
+				if (selection) void navigator.clipboard?.writeText(selection);
+				return false;
+			}
+		}
+	}
+
 	/** The one path all typed input takes, real keystrokes and the extra-keys
 	 * bar alike (the bar feeds it via `term.input(data, false)`, xterm's own
 	 * "as if typed" API). Sticky Ctrl/Alt apply here, to whatever key comes
@@ -282,6 +321,18 @@
 	 * applied to "the next key". */
 	function sendControlByte(byte: number): void {
 		sendInputBytes(new Uint8Array([byte]));
+	}
+
+	/** One tap from the key bar: clipboard read needs a user gesture, which a
+	 * button press is — the soft keyboard's own paste was the only path before.
+	 * Read refusal (permission denied, insecure origin) pastes nothing. */
+	async function pasteFromClipboard(): Promise<void> {
+		try {
+			const text = await navigator.clipboard?.readText();
+			if (text) sendInputBytes(new TextEncoder().encode(text));
+		} catch {
+			/* the clipboard read was refused; there is nothing to paste */
+		}
 	}
 
 	function toggleCtrl(): void {
@@ -349,6 +400,7 @@
 
 			term.onData(handleTerminalData);
 			term.onResize(({ cols, rows }) => sendResize(cols, rows));
+			term.attachCustomKeyEventHandler(customKeyEventHandler);
 
 			textareaEl = term.textarea ?? null;
 			textareaEl?.addEventListener("blur", onTextareaBlur);
@@ -450,6 +502,7 @@
 			{@render key("Hyphen", "-", () => sendKey("-"))}
 			{@render key("Send Ctrl+C", "^C", () => sendControlByte(0x03))}
 			{@render key("Send Ctrl+D", "^D", () => sendControlByte(0x04))}
+			{@render key("Paste", "Paste", () => void pasteFromClipboard())}
 			{@render key("Decrease font size", "A−", () => changeFontSize(-1))}
 			{@render key("Increase font size", "A+", () => changeFontSize(1))}
 			{#if typingMode}
