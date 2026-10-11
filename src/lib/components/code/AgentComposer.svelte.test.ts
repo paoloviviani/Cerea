@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { writable } from "svelte/store";
 import { page as browserPage } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import AgentComposer from "./AgentComposer.svelte";
@@ -25,17 +26,31 @@ const onstop = vi.fn<() => Promise<boolean>>(async () => {
 	return true;
 });
 
-function mount(running: boolean, steer = true) {
-	return renderWithApp(AgentComposer, {
-		deviceId: "d1",
-		agentId: "a1",
-		agent: null,
-		running,
-		steerSupported: steer,
-		onsend,
-		onstop,
-		onchanged: () => {},
-	});
+function settingsContext(directPaste = false) {
+	const store = writable({ directPaste });
+	return {
+		context: new Map<unknown, unknown>([["settings", { subscribe: store.subscribe }]]),
+	};
+}
+
+function mount(running: boolean, steer = true, options: { modelIsMultimodal?: boolean } = {}) {
+	return renderWithApp(
+		AgentComposer,
+		{
+			deviceId: "d1",
+			agentId: "a1",
+			agent: null,
+			running,
+			steerSupported: steer,
+			onsend,
+			onstop,
+			onchanged: () => {},
+			...(options.modelIsMultimodal !== undefined
+				? { modelIsMultimodal: options.modelIsMultimodal, mimeTypes: ["image/png", "text/plain"] }
+				: {}),
+		},
+		settingsContext()
+	);
 }
 
 beforeEach(() => {
@@ -137,3 +152,46 @@ for (const [label, width] of [
 		});
 	});
 }
+
+describe("AgentComposer image attachments", () => {
+	it("offers Add image(s) when the session's model takes images", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount(true, true, { modelIsMultimodal: true });
+		await screen.getByRole("button", { name: "Add attachment" }).click();
+		await expect.element(screen.getByRole("menuitem", { name: "Add image(s)" })).toBeVisible();
+		await expect.element(screen.getByRole("menuitem", { name: "Add text file" })).toBeVisible();
+	});
+
+	it("hides Add image(s) for a model that says nothing about images", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount(true, true, { modelIsMultimodal: false });
+		await screen.getByRole("button", { name: "Add attachment" }).click();
+		await expect.element(screen.getByRole("menuitem", { name: "Add text file" })).toBeVisible();
+		expect(screen.getByRole("menuitem", { name: "Add image(s)" }).elements()).toHaveLength(0);
+	});
+
+	it("keeps a pasted screenshot as a chip, and drops what the allowlist refuses", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount(true, true, { modelIsMultimodal: true });
+
+		const target = screen.getByPlaceholder("Follow up with the agent…").element() as HTMLElement;
+		const dt = new DataTransfer();
+		dt.items.add(new File(["png"], "shot.png", { type: "image/png" }));
+		dt.items.add(new File(["pdf"], "paper.pdf", { type: "application/pdf" }));
+		const event = new ClipboardEvent("paste", {
+			bubbles: true,
+			cancelable: true,
+			clipboardData: dt,
+		});
+		target.dispatchEvent(event);
+
+		// The image became a chip (an image chip renders the name as the img's
+		// alt), and the browser was told not to paste it too; the pdf is outside
+		// the allowlist and never shows.
+		expect(event.defaultPrevented).toBe(true);
+		await vi.waitFor(() =>
+			expect(document.body.querySelector('img[alt="shot.png"]')).not.toBeNull()
+		);
+		expect(document.body.querySelector('img[alt="paper.pdf"]')).toBeNull();
+	});
+});

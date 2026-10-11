@@ -38,6 +38,8 @@
 	import { DropdownMenu } from "bits-ui";
 	import ComposerFileChips from "$lib/components/chat/ComposerFileChips.svelte";
 	import ChatInput from "$lib/components/chat/ChatInput.svelte";
+	import { pastedAttachments } from "$lib/utils/composerFiles";
+	import { useSettingsStore } from "$lib/stores/settings";
 	import StopGeneratingBtn from "$lib/components/StopGeneratingBtn.svelte";
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconChevronDown from "~icons/carbon/chevron-down";
@@ -136,6 +138,11 @@
 		onsend: (text: string, files: File[]) => Promise<void>;
 		/** What the picker, paste and chips accept; empty hides the picker. */
 		mimeTypes?: string[];
+		/** The session's model takes images: the picker offers "Add image(s)"
+		 * and paste keeps screenshots. False — or absent, the default — hides
+		 * the image affordances; the wire already carries whatever the picker
+		 * uploads, so this is display gating only, and it fails closed. */
+		modelIsMultimodal?: boolean;
 		/** Stops the live turn. The transcript records the ending; this only
 		 * carries the request to the daemon. Resolves `false` when the daemon
 		 * did not take it, which "Stop and send" reads as "do not send". */
@@ -209,6 +216,7 @@
 		offline = false,
 		onsend,
 		mimeTypes = [],
+		modelIsMultimodal = false,
 		onstop,
 		onchanged,
 		onpermissionchanged,
@@ -234,6 +242,21 @@
 	let files = $state<File[]>([]);
 	let focused = $state(false);
 	let busy = $state(false);
+
+	const settings = useSettingsStore();
+
+	/** A paste that carries files — a screenshot, most often — becomes chips,
+	 * and long text becomes the clipboard chip, exactly as the chat composer
+	 * treats a paste. The mimeTypes prop already says what this session
+	 * accepts; pasted files outside it are dropped by the helper. */
+	function handlePaste(e: ClipboardEvent) {
+		const pasted = pastedAttachments(e.clipboardData, {
+			mimeTypes,
+			directPaste: $settings.directPaste,
+		});
+		if (pasted.preventDefault) e.preventDefault();
+		if (pasted.files.length) files = [...files, ...pasted.files];
+	}
 
 	// Unsent-text persistence: one draft per device+agent, kept on this
 	// device only. The view remounts per address, so returning to an agent
@@ -815,6 +838,8 @@
 				bind:value={draft}
 				{draftKey}
 				{mimeTypes}
+				{modelIsMultimodal}
+				onPaste={handlePaste}
 				chatTools={false}
 				bind:files
 				onsubmit={submit}
