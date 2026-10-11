@@ -283,7 +283,14 @@
 		<link rel="icon" href="{publicConfig.assetPath}/favicon-dev.svg?v=2" type="image/svg+xml" />
 	{/if}
 	<link rel="apple-touch-icon" href="{publicConfig.assetPath}/apple-touch-icon.png?v=2" />
-	<link rel="manifest" href="{publicConfig.assetPath}/manifest.json?v=2" />
+	<!-- The manifest is served from a route (base-aware URLs), except in
+	     HuggingChat mode, which keeps upstream's static asset file. -->
+	<link
+		rel="manifest"
+		href={publicConfig.isHuggingChat
+			? `${publicConfig.assetPath}/manifest.json?v=2`
+			: `${base}/manifest.webmanifest`}
+	/>
 
 	{#if publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}
 		<script async src={publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}></script>

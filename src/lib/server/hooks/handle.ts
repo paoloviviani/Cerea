@@ -41,11 +41,14 @@ const MACHINE_ADMIN_PATHS = ["/admin/stats/compute"];
 /**
  * Routes anyone may fetch with no session: galopin's binaries and installer
  * (`/galopin/[file]`), fetched by `curl` on a machine that has never signed
- * in. Matched by route id, not path prefix, so nothing else that happens to
- * live under the path inherits the exemption; the route itself serves only a
- * fixed allowlist of names (`galopinDist.ts`).
+ * in, and the web app manifest (`/manifest.webmanifest`), which an install
+ * prompt — and the analyzers that score one — resolves without a session,
+ * exactly as the static manifest file it replaced was served. Matched by
+ * route id, not path prefix, so nothing else that happens to live under the
+ * path inherits the exemption; the galopin route itself serves only a fixed
+ * allowlist of names (`galopinDist.ts`).
  */
-const PUBLIC_ROUTES = new Set(["/galopin/[file]"]);
+const PUBLIC_ROUTES = new Set(["/galopin/[file]", "/manifest.webmanifest"]);
 
 /**
  * The gateway's own service-to-service calls (ADR 0093 §9.3): a static
