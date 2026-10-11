@@ -200,6 +200,17 @@
 				});
 		} else if (toolApproval?.tool === "session_send") {
 			const target = args.target as { title?: unknown } | undefined;
+			if (args.fromSubagent === true) {
+				// A task subagent reporting sideways: galopin cards every send it
+				// makes, because its final message is its report to its parent.
+				const parent = text(args.parentTitle);
+				facts.push({
+					label: "From",
+					value: parent
+						? `a task subagent of "${parent}"`
+						: "a task subagent of its parent session",
+				});
+			}
 			facts.push({ label: "To", value: text(target?.title) });
 			facts.push({ label: "Message", value: text(args.text), long: true });
 			if (typeof args.hop === "number")

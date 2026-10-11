@@ -252,7 +252,19 @@ func (at *agentTools) list(ctx context.Context, tc *toolCaller) (string, error) 
 			Mode: modeLabel(l.s.ModeID), Status: string(l.s.Status), SpawnedBy: l.s.SpawnedBy,
 		}
 		if at.mc.mat.RootOf(l.s.ID) == callerRoot {
-			r.Note = "your own session tree: not a session_send target"
+			// A row in the caller's own tree. A top-level session sees its
+			// own row; a task subagent sees its parent's (or its root's) and
+			// must be told where its report goes instead, so it does not pick
+			// the row as a session_send target the way one once picked an
+			// unrelated session after this note refused its parent.
+			switch {
+			case tc.session.ParentID != "" && l.s.ID == tc.session.ParentID:
+				r.Note = fmt.Sprintf("your parent %q: report to it in your final message; the result is delivered automatically, do not session_send it", l.s.Title)
+			case tc.session.ParentID != "":
+				r.Note = "your session tree's root: report to your parent in your final message; it is delivered automatically, do not session_send anything in this tree"
+			default:
+				r.Note = "your own session tree: not a session_send target"
+			}
 		}
 		rows = append(rows, r)
 	}
@@ -675,15 +687,28 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// An allow from the machine's rules skips the card, but a send borrows the
 	// target's powers, so the hard limits stand over it: a target in another
 	// workspace, or a chain past the hop limit, always shows the card. (The
-	// rate limit above is the one hard refusal.)
-	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID
+	// rate limit above is the one hard refusal.) A task subagent — the caller
+	// has a parent in the materializer's tree; a session_spawn child is a root
+	// and is not affected — never auto-sends either: its final message is its
+	// report to that parent, so a send from it reaches a conversation it was
+	// not started for. The card names the case and a person decides, whatever
+	// the grant, the word or a schedule's coordination grant says.
+	fromSubagent := at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
+	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent
+	meta := map[string]any{
+		"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
+		"text":   text, "hop": hop,
+	}
+	if fromSubagent {
+		meta["fromSubagent"] = true
+		if parent, perr := at.mc.back.GetSession(ctx, tc.dir, tc.session.ParentID); perr == nil && parent.Title != "" {
+			meta["parentTitle"] = parent.Title
+		}
+	}
 	decision, message, err := at.approve(ctx, tc, call, auto, targetID, reasonAllowedByRules, backend.PermissionRequest{
-		Tool:  "session_send",
-		Title: "Send a message to " + target.s.Title,
-		Metadata: map[string]any{
-			"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
-			"text":   text, "hop": hop,
-		},
+		Tool:     "session_send",
+		Title:    "Send a message to " + target.s.Title,
+		Metadata: meta,
 	})
 	if err != nil {
 		return "", targetID, err

@@ -35,6 +35,9 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		"Needs-you inbox",                 // pending approvals do not block a run
 		"a schedule's coordination grant", // a second reason a call carries no card
 		"you a message when it is done",   // spawn CAN ping back via send (approvals still apply)
+		"final message",                   // a subagent reports in its final message
+		"Never tell a task subagent",      // the delegating side never routes the report through session_send
+		"different conversation",          // every other session is a different conversation with its own person
 		"## Scheduling work",              // the schedule tools' section
 		"**List first.**",                 // update instead of duplicating
 		"session: \"this\"",               // follow-ups land in this session

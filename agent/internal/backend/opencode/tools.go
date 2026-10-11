@@ -79,6 +79,7 @@ var galopinTools = []toolDef{
 		name: "session_send",
 		description: "Send a message to ANOTHER session on this machine (by id from session_list); it arrives as a prompt marked as coming from you, folded into its running turn if it is busy. " +
 			"Whether the person is asked first follows your own Deny / Ask / Allow and this machine's rules: an Allow session sends with no card inside its workspace and hop limit unless the ceiling or an explicit rule asks (a send or read into another workspace, or at hop 4+, always asks). The target has the same tools and can send a message back the same way — but do not assume it will. " +
+			"A task subagent must never use this to reply to its parent or whoever started it: its final message is the reply, delivered automatically. Every other session is a different conversation with its own person. " +
 			"Not for your own subagents (use task) or yourself. Limits apply (hops, rate).",
 		args: `{ target: { type: "string", description: "The target session id, from session_list." },` +
 			` text: { type: "string", description: "The message." } }`,
