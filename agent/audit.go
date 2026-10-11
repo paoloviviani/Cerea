@@ -115,6 +115,14 @@ func (a *auditLogger) projectConfigOverride(workspace, session string, keys []st
 	a.write(map[string]any{"action": "project_config.override_attempt", "workspace": workspace, "session": session, "keys": keys})
 }
 
+// globalConfigModelPin records an opencode global config source pinning a
+// model outside Pystino (modelpins.go): the file and the key, never edited,
+// only reported — background results and scheduled runs fail or bypass the
+// gateway while it stands.
+func (a *auditLogger) globalConfigModelPin(file, key, model string) {
+	a.write(map[string]any{"action": "global_config.model_pin", "file": file, "key": key, "model": model})
+}
+
 // agentTool records one agent-coordination tool call (PROTOCOL.md §6 "Agent
 // tools"): the tool, the calling session, the target (the spawned child, or
 // the addressed session), the decision and the reason for a refusal — never

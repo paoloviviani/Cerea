@@ -26,7 +26,7 @@ func TestBuildOpencodeConfigShape(t *testing.T) {
 		{ID: "qwen3-embedding-8b", Kind: "embedding", ContextWindow: 32768},
 		{ID: "legacy-unknown-kind", Kind: ""},
 	}
-	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", models, false)
+	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", models, false, false)
 	if cfg.Schema != "https://opencode.ai/config.json" {
 		t.Fatalf("wrong schema: %s", cfg.Schema)
 	}
@@ -106,7 +106,7 @@ func TestBuildOpencodeConfigShape(t *testing.T) {
 // same placeholder id the pasted-key installer writes, so both paths tell
 // the user the same thing.
 func TestBuildOpencodeConfigPlaceholder(t *testing.T) {
-	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", nil, false)
+	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", nil, false, false)
 	entry, ok := cfg.Provider["pystino"].Models["REPLACE-WITH-MODEL-ID"]
 	if !ok {
 		t.Fatal("missing placeholder models entry")
@@ -125,7 +125,7 @@ func TestBuildOpencodeConfigPlaceholder(t *testing.T) {
 // the key is the only shape that leaves opencode untouched.
 func TestBuildOpencodeConfigAllowOpencodeProvider(t *testing.T) {
 	models := []gatewayModel{{ID: "coder-large", DisplayName: "Coder Large"}}
-	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", models, true)
+	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", models, true, false)
 	if cfg.EnabledProviders != nil {
 		t.Fatalf("opting in must omit enabled_providers, got %v", cfg.EnabledProviders)
 	}
@@ -145,11 +145,26 @@ func TestBuildOpencodeConfigAllowOpencodeProvider(t *testing.T) {
 	}
 }
 
+// TestBuildOpencodeConfigFreeModels pins the day-1 decision (PROTOCOL.md
+// §6): with --allow-free-models the allowlist names pystino and opencode —
+// the opencode provider's own models are the free ones a machine may run —
+// and only --allow-opencode-provider omits it.
+func TestBuildOpencodeConfigFreeModels(t *testing.T) {
+	cfg := buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", nil, false, true)
+	if len(cfg.EnabledProviders) != 2 || cfg.EnabledProviders[0] != "pystino" || cfg.EnabledProviders[1] != "opencode" {
+		t.Fatalf("free-models allowlist = %v, want [pystino opencode]", cfg.EnabledProviders)
+	}
+	cfg = buildOpencodeConfig("127.0.0.1:41871", "test-shim-secret", nil, true, true)
+	if cfg.EnabledProviders != nil {
+		t.Fatalf("--allow-opencode-provider still omits enabled_providers, got %v", cfg.EnabledProviders)
+	}
+}
+
 func TestBuildOpencodeConfigGivesReasoningModelsEffortVariants(t *testing.T) {
 	cfg := buildOpencodeConfig("127.0.0.1:1", "s", []gatewayModel{
 		{ID: "thinker", SupportedFeatures: []string{"tools", "Reasoning"}},
 		{ID: "plain", SupportedFeatures: []string{"tools"}},
-	}, false)
+	}, false, false)
 	models := cfg.Provider["pystino"].Models
 	want := map[string]map[string]string{
 		"low":    {"reasoningEffort": "low"},
@@ -169,7 +184,7 @@ func TestBuildOpencodeConfigMarksImageModels(t *testing.T) {
 		{ID: "vision", InputModalities: []string{"text", "image"}},
 		{ID: "textonly", InputModalities: []string{"text"}},
 		{ID: "legacy"},
-	}, false)
+	}, false, false)
 	models := cfg.Provider["pystino"].Models
 
 	v := models["vision"]

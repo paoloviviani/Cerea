@@ -288,7 +288,10 @@ type opencodeConfig struct {
 	// stays correct when an opencode release ships a new built-in.
 	// Omitted entirely when the operator opts out with
 	// --allow-opencode-provider, so nothing about opencode's default
-	// behaviour is claimed either way.
+	// behaviour is claimed either way. With --allow-free-models it names
+	// pystino and opencode: the machine may run the opencode provider's own
+	// models, so the allowlist must name both (PROTOCOL.md §6); "every
+	// provider" stays opt-in behind --allow-opencode-provider alone.
 	EnabledProviders []string                    `json:"enabled_providers,omitempty"`
 	Provider         map[string]opencodeProvider `json:"provider"`
 	// Permission is opencode's static permission block, written once by
@@ -311,13 +314,16 @@ type opencodeConfig struct {
 // built-in provider with ambient credentials (an ANTHROPIC_API_KEY in the
 // environment, a logged-in Copilot) would otherwise offer models that
 // bypass the gateway — its spend would never land in the caller's
-// account, which the whole point of enrolling is. The flag opts out for
-// operators who want both.
+// account, which the whole point of enrolling is. allowFreeModels widens
+// the allowlist to pystino and opencode (the opencode provider's own models
+// are the free ones a machine may run); allowOpencodeProviders opts out for
+// operators who want both, omitting the key entirely.
 func buildOpencodeConfig(
 	shimAddr string,
 	shimSecret string,
 	models []gatewayModel,
 	allowOpencodeProviders bool,
+	allowFreeModels bool,
 ) *opencodeConfig {
 	entries := make(map[string]opencodeModel, len(models))
 	for _, m := range models {
@@ -369,9 +375,13 @@ func buildOpencodeConfig(
 	if allowOpencodeProviders {
 		return &opencodeConfig{Schema: "https://opencode.ai/config.json", Provider: provider}
 	}
+	enabled := []string{"pystino"}
+	if allowFreeModels {
+		enabled = append(enabled, "opencode")
+	}
 	return &opencodeConfig{
 		Schema:           "https://opencode.ai/config.json",
-		EnabledProviders: []string{"pystino"},
+		EnabledProviders: enabled,
 		Provider:         provider,
 	}
 }

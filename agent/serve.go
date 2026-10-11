@@ -159,7 +159,17 @@ const refreshInterval = 15 * time.Minute
 // to see. Caller holds s.mu.
 func (s *shim) transitionLocked(state credState, checkedAt time.Time, message string) {
 	changed := s.status.State != state
-	s.status = healthStatus{State: state, CheckedAt: checkedAt, Message: message}
+	// Warnings are not the credential's (model pins, modelpins.go): the
+	// status file is their home too, so a state change carries over
+	// whatever is filed there rather than dropping it.
+	warnings := s.status.Warnings
+	if raw, err := os.ReadFile(s.statusPath); err == nil {
+		var prev healthStatus
+		if json.Unmarshal(raw, &prev) == nil && len(prev.Warnings) > 0 {
+			warnings = prev.Warnings
+		}
+	}
+	s.status = healthStatus{State: state, CheckedAt: checkedAt, Message: message, Warnings: warnings}
 	if !changed {
 		return
 	}
@@ -178,7 +188,20 @@ func (s *shim) transitionLocked(state credState, checkedAt time.Time, message st
 		fmt.Fprintf(os.Stderr, "galopin shim: credential OK — %s\n", message)
 	}
 	if err := writeStatusFile(s.statusPath, s.status); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v", err)
+	}
+}
+
+// adoptWarnings replaces the served (and filed) warnings, keeping the
+// credential state: what run calls after the startup model-pin scan
+// (modelpins.go). The file may not exist yet on a first start.
+func (s *shim) adoptWarnings(warnings []string) {
+	s.mu.Lock()
+	s.status.Warnings = warnings
+	status := s.status
+	s.mu.Unlock()
+	if err := writeStatusFile(s.statusPath, status); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write status file: %v", err)
 	}
 }
 
