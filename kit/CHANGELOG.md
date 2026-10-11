@@ -5,10 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.6 — 2026-10-11
 
-**Machines need the galopin update** for this fix: the install step only (no
-re-enroll), then `systemctl --user restart galopin`.
+Pins: Cerea `0.10.6`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
+galopin update** for this fix: the install step only (no re-enroll), then
+`systemctl --user restart galopin`.
 
 - **A task subagent reports to its parent in its final message; galopin now
   cards every other send it makes.** A background subagent that
