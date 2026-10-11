@@ -90,6 +90,50 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		await expect.element(facts).toHaveTextContent("1 of 3");
 	});
 
+	it("names a subagent sender and its parent on a send raised by a task subagent", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("session_send", {
+				galopin: true,
+				target: { sessionId: "s2", title: "Docs agent", workspaceId: "w1" },
+				text: "the first lines of /etc/hosts",
+				hop: 1,
+				fromSubagent: true,
+				parentTitle: "Fix the flaky test",
+			}),
+			onanswer: async () => ({ ok: true }),
+		});
+		const facts = screen.getByTestId("galopin-approval");
+		await expect.element(facts).toHaveTextContent('a task subagent of "Fix the flaky test"');
+	});
+
+	it("still names a subagent sender when the parent's title is unknown", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("session_send", {
+				galopin: true,
+				target: { sessionId: "s2", title: "Docs agent", workspaceId: "w1" },
+				text: "hello",
+				fromSubagent: true,
+			}),
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("galopin-approval"))
+			.toHaveTextContent("a task subagent of its parent session");
+	});
+
+	it("a plain send card does not name a subagent sender", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: send,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("galopin-approval"))
+			.not.toHaveTextContent("task subagent");
+	});
+
 	it("says why a fourth hop asks, rather than 4 of 3", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",

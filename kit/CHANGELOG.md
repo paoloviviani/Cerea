@@ -5,6 +5,25 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+**Machines need the galopin update** for this fix: the install step only (no
+re-enroll), then `systemctl --user restart galopin`.
+
+- **A task subagent reports to its parent in its final message; galopin now
+  cards every other send it makes.** A background subagent that
+  tried to `session_send` its parent was refused (correctly — same tree),
+  then picked the only other session its `session_list` showed and
+  auto-sent that session a file's contents, because its root was on Allow.
+  Now: `session_list` marks the parent's row "report to it in your final
+  message; it is delivered automatically, do not session_send it"; the
+  `session_send` tool and the delegation skill say the same; and a send from
+  a task subagent (a session with a parent in the tree — a `session_spawn`
+  child is a root and is unaffected) is never auto-approved: it always shows
+  the card, marked `fromSubagent` with the parent's title, whatever the
+  rules, the Allow word or a schedule's coordination grant say. The card
+  shows the sender as "a task subagent of \<parent\>". Audited as before.
+
 ## v0.10.5 — 2026-10-11
 
 Pins: Cerea `0.10.5`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
