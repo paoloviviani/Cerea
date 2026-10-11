@@ -5,6 +5,19 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.7 — 2026-10-11
+
+Pins: Cerea `0.10.7`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
+the change is Cerea-only.
+
+- **Thinking is collapsed by default.** A streaming turn auto-expanded its
+  thinking section and folded it again when the answer began, so the
+  reasoning scrolled by whether the reader wanted it or not. The section
+  starts closed now and only a click opens it — streaming included; the
+  shimmering "Thinking" header stays the live indicator, and a section
+  expanded by hand during streaming keeps the tail-following view with its
+  fade. Cerea only.
+
 ## v0.10.6 — 2026-10-11
 
 Pins: Cerea `0.10.6`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
