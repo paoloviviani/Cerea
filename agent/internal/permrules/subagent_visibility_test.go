@@ -81,8 +81,7 @@ func TestASubagentKeepsItsToolsAfterTheParentWasOnDenyOnce(t *testing.T) {
 	}
 }
 
-func TestASubagentOfASessionOnDenyAsksInsteadOfRunning(t *testing.T) {
-	// On Deny now: the child keeps its tools visible — Deny is enforced by
+func TestASubagentOfASessionOnDenyAsksInsteadOfRunning(t *testing.T) { // On Deny now: the child keeps its tools visible — Deny is enforced by
 	// galopin rejecting the asks, not by hiding tools — but every blanket
 	// name asks by rule, so nothing runs. (A machine or ceiling deny still
 	// hides its tool: see TestAMachineDenyStillHidesItsToolInTheChild.)
@@ -123,8 +122,7 @@ func TestAMachineDenyStillHidesItsToolInTheChild(t *testing.T) {
 	}
 }
 
-func TestTheSentinelNeverDecidesACall(t *testing.T) {
-	// Every (permission, input) a session evaluates reads the same with and
+func TestTheSentinelNeverDecidesACall(t *testing.T) { // Every (permission, input) a session evaluates reads the same with and
 	// without the sentinel, under every word and with a ceiling and machine
 	// rules in play.
 	l := Layers{
@@ -152,5 +150,22 @@ func TestTheSentinelNeverDecidesACall(t *testing.T) {
 				t.Errorf("word %s: Grant(%s) = %s with the sentinel, %s without", w, p, a, b)
 			}
 		}
+	}
+}
+
+// A stored history from before deny-as-ask (hand-built: the old Deny block
+// denied the blanket by rule) is what the stale-deny detector must flag, so
+// such a session gets the banner instead of silence.
+func TestAnOldStyleDenyBlockIsFlaggedStale(t *testing.T) {
+	oldDeny := []Rule{
+		ToolVisibilitySentinel,
+		{"*", "*", Deny},
+		{"edit", "*", Deny}, {"bash", "*", Deny},
+		{"schedule_list", "*", Ask},
+	}
+	current := Compose(Layers{}, Selector{Mode: Allow}, buildAgent)
+	stored := append(append([]Rule(nil), oldDeny...), current...)
+	if !FindStaleBlanketDeny(stored, current) {
+		t.Errorf("an old-style stored Deny block: want flagged stale")
 	}
 }

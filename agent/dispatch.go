@@ -154,6 +154,7 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 	s.WorkspaceID = workspaceID
 	s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 	s.PermissionMode = mc.permissionMode(s.ID)
+	s.StaleDeny = mc.staleDeny(s.ID)
 	s.RootID = mc.mat.RootOf(s.ID)
 	s.ChildSummary = mc.mat.ChildSummary(s.ID)
 	if status, ok := mc.mat.Status(s.ID); ok && status != "" {
@@ -173,6 +174,7 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 		s.WorkspaceID = workspaceIDs[i]
 		s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 		s.PermissionMode = mc.permissionMode(s.ID)
+		s.StaleDeny = mc.staleDeny(s.ID)
 		s.RootID = mc.mat.RootOf(s.ID)
 		s.ChildSummary = summaries[s.ID]
 		if status, ok := mc.mat.Status(s.ID); ok && status != "" {
@@ -664,6 +666,16 @@ func (mc *machine) permissionMode(sessionID string) string {
 		return ""
 	}
 	return string(rh.PermissionMode(sessionID))
+}
+
+// staleDeny is the stale-deny verdict for a session's root (false when the
+// backend has no verdict to give).
+func (mc *machine) staleDeny(sessionID string) bool {
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return false
+	}
+	return rh.StaleDeny(sessionID)
 }
 
 func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any, *link.OpError) {

@@ -59,6 +59,12 @@ type permState struct {
 	agentMu    sync.Mutex
 	agentCache map[string]agentRulesEntry // by workspace directory
 
+	// staleMu guards stale, separately from mu: detection runs under mu (it
+	// does I/O like the PATCH beside it) while StaleDeny reads the cache
+	// from anywhere.
+	staleMu sync.Mutex
+	stale   map[string]staleEntry // by root session id
+
 	// childAgent remembers which agent a subagent session runs, once the
 	// materializer has read it from the parent's task call.
 	childMu    sync.Mutex
@@ -67,6 +73,16 @@ type permState struct {
 	// so a session's root (the one that carries the selector) and the
 	// subagents under a root can be found without asking opencode.
 	parentOf map[string]string
+}
+
+// staleEntry is the cached stale-deny verdict for one root: whether the rules
+// opencode keeps for it carry a blanket deny the current composition no
+// longer contains, and the fingerprint of the stored rules the verdict was
+// computed from (opencode only appends, so a changed fingerprint means new
+// rules arrived and the verdict is recomputed).
+type staleEntry struct {
+	fp    string
+	stale bool
 }
 
 // layers is the machine's current inputs (empty when none are configured).
@@ -282,6 +298,10 @@ func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent s
 	ov := b.getOverlay(sessionID)
 	fp := permrules.Fingerprint(rules)
 	if ov.RulesFP == fp {
+		// No PATCH, but the stored rules may still have changed under us
+		// (another client, an older block): the stale verdict is refreshed
+		// on every prompt either way.
+		b.detectStaleDeny(ctx, dir, sessionID)
 		return nil
 	}
 	if len(rules) > 0 {
@@ -290,7 +310,69 @@ func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent s
 		}
 	}
 	ov.RulesFP = fp
-	return b.setOverlay(sessionID, ov)
+	if err := b.setOverlay(sessionID, ov); err != nil {
+		return err
+	}
+	b.detectStaleDeny(ctx, dir, sessionID)
+	return nil
+}
+
+// StoredRules reads the session's rules as opencode keeps them (GET
+// /session/{id} → permission). opencode only appends, so what it returns is
+// the whole history of composed blocks, including ones from before a
+// deny-as-ask-style change.
+func (b *Backend) StoredRules(ctx context.Context, sessionID string) ([]permrules.Rule, error) {
+	var m struct {
+		Permission []permrules.Rule `json:"permission"`
+	}
+	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID), nil, &m); err != nil {
+		return nil, err
+	}
+	return m.Permission, nil
+}
+
+// detectStaleDeny refreshes the cached stale-deny verdict for sessionID's
+// root: whether the rules opencode keeps for it carry a stale blanket deny
+// (an old Deny block, kept forever because opencode's rules are append-only,
+// which opencode seeds into every future child's first turn). Best effort —
+// a verdict must never fail a prompt — so every failure only logs and leaves
+// the cached value. Caller holds perm.mu.
+func (b *Backend) detectStaleDeny(ctx context.Context, dir, sessionID string) {
+	root := b.rootOf(sessionID)
+	stored, err := b.StoredRules(ctx, root)
+	if err != nil {
+		b.cfg.Logf("opencode: reading the stored rules for stale-deny detection: %v", err)
+		return
+	}
+	fp := permrules.Fingerprint(stored)
+	b.perm.staleMu.Lock()
+	if e, ok := b.perm.stale[root]; ok && e.fp == fp {
+		b.perm.staleMu.Unlock()
+		return
+	}
+	b.perm.staleMu.Unlock()
+	composed, err := b.composeFor(ctx, dir, b.agentFor(root), root)
+	if err != nil {
+		b.cfg.Logf("opencode: composing the current rules for stale-deny detection: %v", err)
+		return
+	}
+	stale := permrules.FindStaleBlanketDeny(stored, composed)
+	b.perm.staleMu.Lock()
+	if b.perm.stale == nil {
+		b.perm.stale = map[string]staleEntry{}
+	}
+	b.perm.stale[root] = staleEntry{fp: fp, stale: stale}
+	b.perm.staleMu.Unlock()
+}
+
+// StaleDeny implements backend.RuleHost: the cached verdict for sessionID's
+// root (false until the first prompt after this process learned the session
+// refreshed it). A read of the cache — never I/O.
+func (b *Backend) StaleDeny(sessionID string) bool {
+	root := b.rootOf(sessionID)
+	b.perm.staleMu.Lock()
+	defer b.perm.staleMu.Unlock()
+	return b.perm.stale[root].stale
 }
 
 // EnsureRules is ensureRules for the session's current agent, for the machine

@@ -35,6 +35,10 @@ type permFake struct {
 	// opencode no longer has, 500 for one that merely fails), opencode's
 	// NotFoundError body for the 404.
 	gone map[string]int
+	// stored answers GET /session/<id> with these exact rules as its
+	// permission field (what opencode keeps for the session), so the
+	// stale-deny detector can be driven without a real server history.
+	stored map[string][]permrules.Rule
 }
 
 func (f *permFake) snapshot() (creates, patches, prompts []map[string]any) {
@@ -95,7 +99,13 @@ func newPermFake(t *testing.T, layers func() permrules.Layers) (*Backend, *permF
 			f.patches = append(f.patches, parsed)
 			_, _ = io.WriteString(w, `{"id":"ses_1","title":"t"}`)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/session/"):
-			_, _ = io.WriteString(w, `{"id":"`+strings.TrimPrefix(r.URL.Path, "/session/")+`","title":"t"}`)
+			id := strings.TrimPrefix(r.URL.Path, "/session/")
+			if rules, ok := f.stored[id]; ok {
+				out, _ := json.Marshal(map[string]any{"id": id, "title": "t", "permission": rules})
+				_, _ = w.Write(out)
+				break
+			}
+			_, _ = io.WriteString(w, `{"id":"`+id+`","title":"t"}`)
 		case strings.HasSuffix(r.URL.Path, "/prompt_async"):
 			f.prompts = append(f.prompts, parsed)
 			w.WriteHeader(http.StatusNoContent)
@@ -568,6 +578,47 @@ func TestExceptionsComeAndGoWithTheirRules(t *testing.T) {
 	}
 	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Ask {
 		t.Errorf("after removal = %s, want ask", got)
+	}
+}
+
+// A root whose stored rules carry an old-style Deny block reports it through
+// StaleDeny once a prompt refreshes the verdict; a root with only new-style
+// blocks does not. The verdict is cached by stored-rules fingerprint, so a
+// changed history is picked up on the next prompt.
+func TestStaleDenyDetectedAndCached(t *testing.T) {
+	b, f := newPermFake(t, func() permrules.Layers { return permrules.Layers{} })
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	agent := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
+	allow := permrules.Compose(permrules.Layers{}, permrules.Selector{Mode: permrules.Allow}, agent)
+	oldDeny := []permrules.Rule{
+		{Permission: "*", Pattern: "*", Action: permrules.Deny},
+		{Permission: "edit", Pattern: "*", Action: permrules.Deny},
+		{Permission: "bash", Pattern: "*", Action: permrules.Deny},
+	}
+	if b.StaleDeny(s.ID) {
+		t.Fatalf("stale before any prompt: the verdict starts false")
+	}
+	// Stored as opencode would keep them after Deny-then-Allow: the dead Deny
+	// block under the live Allow one.
+	f.mu.Lock()
+	f.stored = map[string][]permrules.Rule{s.ID: append(append([]permrules.Rule(nil), oldDeny...), allow...)}
+	f.mu.Unlock()
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !b.StaleDeny(s.ID) {
+		t.Errorf("stored old-style Deny block: want StaleDeny")
+	}
+	// Only new-style blocks: clean. A changed stored history recomputes.
+	f.mu.Lock()
+	f.stored[s.ID] = allow
+	f.mu.Unlock()
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b.StaleDeny(s.ID) {
+		t.Errorf("new-style blocks only: want no StaleDeny")
 	}
 }
 

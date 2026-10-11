@@ -753,6 +753,7 @@ func TestDenyBlockCarriesNoBlanketDeny(t *testing.T) {
 		}
 	}
 }
+
 // grantOf is Grant over the agent's rules and what Compose gave the session:
 // the answer a coordination tool call gets.
 func grantOf(l Layers, sel Selector, tool string) Action {

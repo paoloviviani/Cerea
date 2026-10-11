@@ -91,7 +91,7 @@ func TestAskFilterConsumesBeforeAnythingIsRecorded(t *testing.T) {
 	ctx := context.Background()
 	ask := func(id, session string) backend.BackendEvent {
 		return backend.BackendEvent{WorkspaceDir: "/ws", SessionID: session, Event: backend.Event{
-			Kind: backend.EventPermissionAsked,
+			Kind:    backend.EventPermissionAsked,
 			Request: &backend.PermissionRequest{ID: id, SessionID: session, Tool: "bash", Patterns: []string{"ls"}},
 		}}
 	}
@@ -142,6 +142,7 @@ func TestAskFilterConsumesBeforeAnythingIsRecorded(t *testing.T) {
 		t.Errorf("onAsk fired %d times, want 1", childAsks2)
 	}
 }
+
 // full upsert; later growth becomes a suffix delta; a stale (shorter)
 // resend is dropped; a genuinely different resend re-baselines as a fresh
 // upsert — and concat(first text, deltas...) always equals the latest text.

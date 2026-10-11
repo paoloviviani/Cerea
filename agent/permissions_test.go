@@ -158,6 +158,8 @@ func (r *ruleBackend) RestartForPolicy(context.Context) error {
 	return r.restart
 }
 
+func (r *ruleBackend) StaleDeny(string) bool { return false }
+
 var _ backend.RuleHost = (*ruleBackend)(nil)
 
 func newRuleMachine(t *testing.T, pol policy.Policy) (*machine, *ruleBackend, string) {
