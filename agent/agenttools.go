@@ -251,12 +251,14 @@ func (at *agentTools) list(ctx context.Context, tc *toolCaller) (string, error) 
 			SessionID: l.s.ID, Title: l.s.Title, WorkspaceID: l.ws.ID, Workspace: l.ws.Name,
 			Mode: modeLabel(l.s.ModeID), Status: string(l.s.Status), SpawnedBy: l.s.SpawnedBy,
 		}
-		if at.mc.mat.RootOf(l.s.ID) == callerRoot {
+		if at.mc.mat.RootOf(l.s.ID) == callerRoot || l.s.ID == tc.session.ParentID {
 			// A row in the caller's own tree. A top-level session sees its
 			// own row; a task subagent sees its parent's (or its root's) and
 			// must be told where its report goes instead, so it does not pick
 			// the row as a session_send target the way one once picked an
-			// unrelated session after this note refused its parent.
+			// unrelated session after this note refused its parent. The
+			// parent's id comes from the session record too, so the note
+			// still shows when the tree has not learned the edge yet.
 			switch {
 			case tc.session.ParentID != "" && l.s.ID == tc.session.ParentID:
 				r.Note = fmt.Sprintf("your parent %q: report to it in your final message; the result is delivered automatically, do not session_send it", l.s.Title)
@@ -688,12 +690,13 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// target's powers, so the hard limits stand over it: a target in another
 	// workspace, or a chain past the hop limit, always shows the card. (The
 	// rate limit above is the one hard refusal.) A task subagent — the caller
-	// has a parent in the materializer's tree; a session_spawn child is a root
-	// and is not affected — never auto-sends either: its final message is its
-	// report to that parent, so a send from it reaches a conversation it was
-	// not started for. The card names the case and a person decides, whatever
-	// the grant, the word or a schedule's coordination grant says.
-	fromSubagent := at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
+	// has a parent in the materializer's tree, or its own session record says
+	// so (the tree can lag a restart's replay; fail closed on either) — never
+	// auto-sends: its final message is its report to that parent, so a send
+	// from it reaches a conversation it was not started for. The card names
+	// the case and a person decides, whatever the grant, the word or a
+	// schedule's coordination grant says.
+	fromSubagent := tc.session.ParentID != "" || at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
 	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent
 	meta := map[string]any{
 		"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
