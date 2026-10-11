@@ -1002,6 +1002,8 @@ export interface ScheduleInput {
 	recurrence: Recurrence;
 	timezone: string;
 	enabled?: boolean;
+	/** Stop after this many runs; `null` clears the cap (absent leaves it as it is). */
+	maxOccurrences?: number | null;
 	target: Record<string, unknown>;
 }
 

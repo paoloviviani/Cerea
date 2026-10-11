@@ -360,6 +360,7 @@ describe("schedules and scheduleRuns: a schedule goes with its person", () => {
 		enabled: true,
 		nextRunAt: new Date(),
 		consecutiveFailures: 0,
+		firedCount: 0,
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	});

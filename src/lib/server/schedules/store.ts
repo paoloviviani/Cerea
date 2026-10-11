@@ -34,6 +34,17 @@ export class ScheduleError extends Error {
 
 export const MAX_NAME_LENGTH = 80;
 export const MAX_PROMPT_LENGTH = 8000;
+/** The most runs a stopping criterion may ask for. */
+export const MAX_OCCURRENCES = 100_000;
+
+const occurrenceCap = z.number().int().min(1).max(MAX_OCCURRENCES).nullish();
+
+/** The words a schedule switched off at its stopping criterion carries — shared
+ * by the store's edit-time disable and the scheduler's fire-time and claim-time
+ * ones (the store cannot import the scheduler: the scheduler imports the store). */
+export function capReachedReason(maxOccurrences: number): string {
+	return `Ran its ${maxOccurrences} scheduled occurrences and switched off.`;
+}
 
 const createSchema = z.object({
 	name: z.string(),
@@ -43,6 +54,7 @@ const createSchema = z.object({
 	recurrence: z.unknown(),
 	timezone: z.string().default("UTC"),
 	enabled: z.boolean().optional(),
+	maxOccurrences: occurrenceCap,
 });
 
 const updateSchema = z
@@ -53,6 +65,7 @@ const updateSchema = z
 		recurrence: z.unknown(),
 		timezone: z.string(),
 		enabled: z.boolean(),
+		maxOccurrences: occurrenceCap,
 	})
 	.partial();
 
@@ -140,8 +153,10 @@ export async function createSchedule(
 		enabled,
 		nextRunAt: enabled ? nextOccurrence(recurrence, timezone, now, now) : null,
 		consecutiveFailures: 0,
+		firedCount: 0,
 		createdAt: now,
 		updatedAt: now,
+		...(input.maxOccurrences != null ? { maxOccurrences: input.maxOccurrences } : {}),
 		...(options.createdBy ? { createdBy: options.createdBy } : {}),
 	};
 	await collections.schedules.insertOne(schedule);
@@ -198,17 +213,33 @@ export async function updateSchedule(
 	const enabled = patch.enabled ?? existing.enabled;
 	const revived = patch.enabled === true && !existing.enabled;
 	const unset: Record<string, ""> = {};
+	// The stopping criterion: absent leaves it as it is, `null` clears it, a
+	// number sets it.
+	if (patch.maxOccurrences === null) unset.maxOccurrences = "";
+	else if (patch.maxOccurrences !== undefined) set.maxOccurrences = patch.maxOccurrences;
+	const cap =
+		patch.maxOccurrences === undefined
+			? existing.maxOccurrences
+			: (patch.maxOccurrences ?? undefined);
+	const capReached = enabled && cap !== undefined && (existing.firedCount ?? 0) >= cap;
 	if (patch.enabled !== undefined) set.enabled = patch.enabled;
 	if (revived || patch.target !== undefined) {
 		// Switching it back on, or pointing it somewhere new, is a fresh start.
 		set.consecutiveFailures = 0;
-		if (existing.disabledReason && enabled) unset.disabledReason = "";
+		if (existing.disabledReason && enabled && !capReached) unset.disabledReason = "";
 	}
 	if (timetableChanged) set.anchorAt = now;
 	if (!enabled) set.nextRunAt = null;
 	else if (timetableChanged || revived || existing.nextRunAt === null) {
 		const recurrence = set.recurrence ?? existing.recurrence;
 		set.nextRunAt = nextOccurrence(recurrence, timezone, now, set.anchorAt ?? existing.anchorAt);
+	}
+	if (capReached) {
+		// Already at its stopping criterion: switch it off here with the same
+		// words the scheduler uses, so nothing is left to fire.
+		set.enabled = false;
+		set.nextRunAt = null;
+		set.disabledReason = capReachedReason(cap);
 	}
 
 	const updated = await collections.schedules.findOneAndUpdate(
@@ -257,6 +288,8 @@ export async function scheduleView(schedule: Schedule): Promise<ScheduleView> {
 		enabled: schedule.enabled,
 		...(schedule.disabledReason ? { disabledReason: schedule.disabledReason } : {}),
 		nextRunAt: schedule.nextRunAt,
+		...(schedule.maxOccurrences !== undefined ? { maxOccurrences: schedule.maxOccurrences } : {}),
+		firedCount: schedule.firedCount ?? 0,
 		...(schedule.lastRunAt ? { lastRunAt: schedule.lastRunAt } : {}),
 		...(schedule.lastStatus ? { lastStatus: schedule.lastStatus } : {}),
 		...(schedule.createdBy?.kind === "agent" ? { createdBy: schedule.createdBy } : {}),
