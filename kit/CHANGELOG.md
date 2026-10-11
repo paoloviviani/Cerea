@@ -5,6 +5,23 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.10 — 2026-10-11
+
+Pins: Cerea `0.10.10`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
+the change is Cerea-only.
+
+- **Pictures can be attached to agent sessions.** The whole path existed and
+  was never offered: the upload route, the wire's `session.prompt`
+  attachments, galopin and opencode all take images — but the composer's
+  "Add image(s)" item is gated on the session's model claiming them, and
+  nothing agent-side passed that, so the + menu showed only text files and
+  documents. The provider list now carries the machine's per-model
+  `images` flag and the composer reads the session's own model (or the
+  backend's default): the picker item and a paste that keeps screenshots
+  as chips appear when the backend takes images and the model claims them,
+  and stay hidden otherwise. The transcript already renders the
+  attachments a user message carries, images included. Cerea only.
+
 ## v0.10.9 — 2026-10-11
 
 Pins: Cerea `0.10.9`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
