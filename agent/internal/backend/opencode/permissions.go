@@ -77,12 +77,14 @@ type permState struct {
 
 // staleEntry is the cached stale-deny verdict for one root: whether the rules
 // opencode keeps for it carry a blanket deny the current composition no
-// longer contains, and the fingerprint of the stored rules the verdict was
-// computed from (opencode only appends, so a changed fingerprint means new
-// rules arrived and the verdict is recomputed).
+// longer contains (stale: an old Deny block), or a deny the ceiling no longer
+// imposes (policy: an earlier machine policy), and the fingerprint of the
+// stored rules the verdict was computed from (opencode only appends, so a
+// changed fingerprint means new rules arrived and the verdict is recomputed).
 type staleEntry struct {
-	fp    string
-	stale bool
+	fp     string
+	stale  bool
+	policy bool
 }
 
 // layers is the machine's current inputs (empty when none are configured).
@@ -357,11 +359,12 @@ func (b *Backend) detectStaleDeny(ctx context.Context, dir, sessionID string) {
 		return
 	}
 	stale := permrules.FindStaleBlanketDeny(stored, composed)
+	policy := permrules.FindStalePolicyDenies(stored, composed, b.layers().Ceiling)
 	b.perm.staleMu.Lock()
 	if b.perm.stale == nil {
 		b.perm.stale = map[string]staleEntry{}
 	}
-	b.perm.stale[root] = staleEntry{fp: fp, stale: stale}
+	b.perm.stale[root] = staleEntry{fp: fp, stale: stale, policy: policy}
 	b.perm.staleMu.Unlock()
 }
 
@@ -373,6 +376,15 @@ func (b *Backend) StaleDeny(sessionID string) bool {
 	b.perm.staleMu.Lock()
 	defer b.perm.staleMu.Unlock()
 	return b.perm.stale[root].stale
+}
+
+// StalePolicy implements backend.RuleHost: like StaleDeny, for a deny the
+// ceiling no longer imposes (an earlier machine policy).
+func (b *Backend) StalePolicy(sessionID string) bool {
+	root := b.rootOf(sessionID)
+	b.perm.staleMu.Lock()
+	defer b.perm.staleMu.Unlock()
+	return b.perm.stale[root].policy
 }
 
 // EnsureRules is ensureRules for the session's current agent, for the machine

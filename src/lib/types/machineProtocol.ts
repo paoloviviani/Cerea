@@ -170,6 +170,9 @@ export interface Session {
 	 * them forever): subagents started from here have their first turn
 	 * refused. Absent on a machine that predates the verdict. */
 	staleDeny?: boolean;
+	/** A deny in the stored rules that the machine's ceiling no longer
+	 * imposes (an earlier machine policy). Absent like staleDeny. */
+	stalePolicy?: boolean;
 	parentId: string | null;
 	/** For a child session (session.children): the parent's tool call that spawned it. */
 	parentToolCallId?: string;

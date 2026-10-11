@@ -620,6 +620,20 @@ func TestStaleDenyDetectedAndCached(t *testing.T) {
 	if b.StaleDeny(s.ID) {
 		t.Errorf("new-style blocks only: want no StaleDeny")
 	}
+	// A deny the (empty) ceiling no longer imposes is a stale policy, not a
+	// stale blanket: the other verdict fires, this one stays quiet.
+	f.mu.Lock()
+	f.stored[s.ID] = append(append([]permrules.Rule(nil), allow...), permrules.Rule{Permission: "question", Pattern: "*", Action: permrules.Deny})
+	f.mu.Unlock()
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b.StaleDeny(s.ID) {
+		t.Errorf("a non-blanket deny: want no StaleDeny")
+	}
+	if !b.StalePolicy(s.ID) {
+		t.Errorf("a deny the ceiling no longer imposes: want StalePolicy")
+	}
 }
 
 // A subagent has no selector: it follows its root's, and a change to the root

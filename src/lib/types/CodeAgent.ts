@@ -438,6 +438,9 @@ export interface CodeAgentSession {
 	 * started from here have their first turn refused (start a new session
 	 * to use subagents). Absent on a machine that predates the verdict. */
 	staleDeny?: boolean;
+	/** A deny in the stored rules that the machine's ceiling no longer
+	 * imposes (an earlier machine policy). Absent like staleDeny. */
+	stalePolicy?: boolean;
 	/** The session this one was spawned from, when it is a subagent. */
 	parentId?: string | null;
 	/** Its top-level ancestor (itself when it has no parent). */

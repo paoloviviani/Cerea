@@ -43,3 +43,38 @@ func isBlanketName(key string) bool {
 	}
 	return false
 }
+
+// FindStalePolicyDenies reports whether stored carries a deny the ceiling no
+// longer imposes: a `*`-pattern deny for a literal key the current
+// composition does not contain and the ceiling does not deny. That is an
+// earlier machine policy — a ceiling since loosened (ceilings only tighten
+// while a process runs, but a re-enroll or an edited policy.json across a
+// restart can loosen one) or a machine rule since removed — kept forever
+// because opencode's rules are append-only. Blanket names are the blanket
+// detector's (above), not this one's; the sentinel never counts; a deny the
+// composition still carries is live policy, not stale.
+func FindStalePolicyDenies(stored, composed []Rule, ceiling Ceiling) bool {
+	if len(stored) == 0 {
+		return false
+	}
+	have := make(map[Rule]bool, len(composed))
+	for _, r := range composed {
+		have[r] = true
+	}
+	for _, r := range stored {
+		if r.Action != Deny || r.Pattern != "*" || IsToolVisibilitySentinel(r) {
+			continue
+		}
+		if r.Permission == "*" || isBlanketName(r.Permission) || IsWildcard(r.Permission) {
+			continue
+		}
+		if have[r] {
+			continue
+		}
+		if ceiling.Of(r.Permission) == Deny {
+			continue
+		}
+		return true
+	}
+	return false
+}

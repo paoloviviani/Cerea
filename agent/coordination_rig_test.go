@@ -222,6 +222,7 @@ func (c *coordBackend) ChildAskAction(context.Context, string, string, string, s
 func (c *coordBackend) OnProcessStart(func())                  {}
 func (c *coordBackend) RestartForPolicy(context.Context) error { return nil }
 func (c *coordBackend) StaleDeny(string) bool                  { return false }
+func (c *coordBackend) StalePolicy(string) bool                { return false }
 
 var (
 	_ backend.Backend  = (*coordBackend)(nil)

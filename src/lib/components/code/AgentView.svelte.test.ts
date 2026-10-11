@@ -25,6 +25,9 @@ const fake = vi.hoisted(() => ({
 	/** The machine's stale-Deny verdict for the session (an earlier Deny
 	 * stuck in its stored rules). */
 	staleDeny: false,
+	/** The machine's stale-policy verdict (a deny the ceiling no longer
+	 * imposes). */
+	stalePolicy: false,
 	ceiling: {} as Record<string, "ask" | "deny">,
 	setCalls: [] as string[],
 	/** Each subagent's own transcript, by session id (MOCK of the timeline route). */
@@ -91,6 +94,7 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 				permissionMode: fake.mode,
 				parentId: fake.parentId,
 				...(fake.staleDeny ? { staleDeny: true } : {}),
+				...(fake.stalePolicy ? { stalePolicy: true } : {}),
 				...(fake.childRunningUntilRead > 0
 					? {
 							childSummary: {
@@ -179,6 +183,7 @@ beforeEach(() => {
 	fake.mode = "ask";
 	fake.parentId = null;
 	fake.staleDeny = false;
+	fake.stalePolicy = false;
 	fake.ceiling = {};
 	fake.setCalls = [];
 	fake.timelines = {};
@@ -267,6 +272,17 @@ describe("AgentView stale-Deny banner", () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
 		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(screen.getByTestId("stale-deny").elements()).toHaveLength(0);
+		expect(screen.getByTestId("stale-policy").elements()).toHaveLength(0);
+	});
+
+	it("names the stuck machine policy when the session reports one", async () => {
+		await browserPage.viewport(1200, 800);
+		fake.stalePolicy = true;
+		const screen = mount();
+		await expect
+			.element(screen.getByTestId("stale-policy"))
+			.toHaveTextContent("An earlier machine policy is stuck");
 		expect(screen.getByTestId("stale-deny").elements()).toHaveLength(0);
 	});
 });

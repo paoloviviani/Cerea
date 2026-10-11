@@ -392,4 +392,7 @@ type RuleHost interface {
 	// forever because opencode's rules are append-only). Refreshed on every
 	// prompt; a read of the cache, never I/O.
 	StaleDeny(sessionID string) bool
+	// StalePolicy is the same cache's second verdict: a deny the ceiling no
+	// longer imposes (an earlier machine policy).
+	StalePolicy(sessionID string) bool
 }

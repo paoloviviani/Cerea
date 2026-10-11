@@ -34,8 +34,12 @@ type Session struct {
 	// started from here have their first turn refused. Start a new session to
 	// use subagents. Absent (false) when the stored rules hold no stale
 	// blanket deny, or on a backend without the verdict.
-	StaleDeny bool   `json:"staleDeny,omitempty"`
-	ParentID  string `json:"parentId,omitempty"`
+	StaleDeny bool `json:"staleDeny,omitempty"`
+	// StalePolicy says the root's stored rules carry a deny the machine's
+	// ceiling no longer imposes (an earlier machine policy). Absent like
+	// StaleDeny.
+	StalePolicy bool   `json:"stalePolicy,omitempty"`
+	ParentID    string `json:"parentId,omitempty"`
 	// ParentToolCallID is the parent's tool call that spawned this session
 	// (set by session.children), so the panel can anchor it in the transcript.
 	ParentToolCallID string `json:"parentToolCallId,omitempty"`
