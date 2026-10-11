@@ -26,6 +26,7 @@ type ruleBackend struct {
 	*fakeBackend
 	mu       sync.Mutex
 	replies  []backend.Decision
+	messages []string
 	onStart  func()
 	restarts int
 	ensured  []string
@@ -39,10 +40,11 @@ type ruleBackend struct {
 func (r *ruleBackend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{Permissions: true}
 }
-func (r *ruleBackend) ReplyPermission(_ context.Context, _, _, _ string, d backend.Decision, _ string) error {
+func (r *ruleBackend) ReplyPermission(_ context.Context, _, _, _ string, d backend.Decision, msg string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.replies = append(r.replies, d)
+	r.messages = append(r.messages, msg)
 	return nil
 }
 func (r *ruleBackend) EffectiveRules(context.Context, string, string) ([]permrules.Rule, error) {
@@ -155,6 +157,9 @@ func (r *ruleBackend) RestartForPolicy(context.Context) error {
 	}
 	return r.restart
 }
+
+func (r *ruleBackend) StaleDeny(string) bool   { return false }
+func (r *ruleBackend) StalePolicy(string) bool { return false }
 
 var _ backend.RuleHost = (*ruleBackend)(nil)
 

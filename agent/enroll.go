@@ -363,7 +363,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
 	}
-	ocConfig := buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders)
+	ocConfig := buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders, opts.allowFreeModels)
 	ocConfig.Permission = staticPermission()
 	if err := writeOpencodeConfig(opts.output, ocConfig); err != nil {
 		return err
@@ -389,6 +389,13 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
+	// opencode loads the user's own global config into every session, so a
+	// model pinned there outside Pystino would bypass this gateway (or break
+	// background results once the provider is unreachable). Warn now, while
+	// the files can still be fixed; run reports them again at every start.
+	for _, p := range scanModelPins(opts.allowFreeModels) {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", p.Warning())
+	}
 	if opts.allowAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --allow-auto-accept does nothing any more: auto-accept was replaced by the Deny / Ask / Allow selector in the /code composer. Nothing was written for it; drop the flag.")
 	}

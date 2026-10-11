@@ -194,6 +194,18 @@ type Materializer struct {
 	// session raises (its root's selector may already allow it).
 	onAsk       func(workspaceDir string, req backend.PermissionRequest)
 	newChildren []string
+	// onAskFilter is consulted, without the lock held and before any state
+	// is touched, for every permission ask a LIVE event carries (root and
+	// child sessions alike, opencode's own asks and galopin's own gp_ asks —
+	// both arrive as EventPermissionAsked). When it returns true the ask is
+	// consumed: it is never recorded in the ring, never published, and onAsk
+	// is never told of it. The filter must be fast and do no I/O itself: a
+	// rejection that needs work (answering the ask, auditing it) belongs in
+	// a goroutine the filter's owner starts. It runs before the
+	// materializer lock is taken, so read-only materializer calls such as
+	// RootOf are safe; anything that could block or re-enter event
+	// application is not.
+	onAskFilter func(workspaceDir string, req backend.PermissionRequest) bool
 
 	outCh chan Envelope
 }
@@ -316,6 +328,14 @@ func (m *Materializer) OnChildAsk(fn func(workspaceDir string, req backend.Permi
 	m.onAsk = fn
 }
 
+// OnAskFilter installs the pre-filter consulted for every permission ask a
+// live event carries, before the ask is recorded or published (see
+// onAskFilter). An ask it consumes never becomes a card anywhere. Set before
+// Start.
+func (m *Materializer) OnAskFilter(fn func(workspaceDir string, req backend.PermissionRequest) bool) {
+	m.onAskFilter = fn
+}
+
 // ChildAgent is the subagent type a child session was started as, read from
 // its parent's task call ("" until that call's input is known).
 func (m *Materializer) ChildAgent(childID string) string {
@@ -431,6 +451,15 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 	if be.Event.Kind == backend.EventResync {
 		go m.resync(ctx, be.WorkspaceDir, be.SessionID)
 		return
+	}
+	if be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil && m.onAskFilter != nil {
+		// Consulted before translateLocked: a consumed ask is never
+		// materialised, so no permission.asked envelope reaches any client
+		// and no card flashes. Seeded history (Sync's mergeSeedLocked) does
+		// not pass through here.
+		if m.onAskFilter(be.WorkspaceDir, *be.Event.Request) {
+			return
+		}
 	}
 	m.mu.Lock()
 	st, exists := m.sessions[be.SessionID]
@@ -914,6 +943,38 @@ func (m *Materializer) PendingPermissionRequests(sessionID string) []backend.Per
 	for _, id := range st.permissionOrder {
 		if req, ok := st.permissions[id]; ok {
 			out = append(out, *req)
+		}
+	}
+	return out
+}
+
+// SweepDeniedAsks collects the permission asks the materializer still holds
+// for sessionID that the ask pre-filter consumes — a Deny root's asks,
+// whether they arrived live or were seeded from history (seeding does not
+// pass through the filter). It collects only: answering stays with the
+// caller (rejectDenyAsk + WithdrawPermission, as for a mode switch). The
+// filter is consulted without the lock held, like the live path; nil filter
+// (no permissions backend) collects nothing.
+func (m *Materializer) SweepDeniedAsks(sessionID string) []backend.PermissionRequest {
+	m.mu.Lock()
+	st, ok := m.sessions[sessionID]
+	if !ok || m.onAskFilter == nil {
+		m.mu.Unlock()
+		return nil
+	}
+	dir := st.workspaceDir
+	pending := make([]backend.PermissionRequest, 0, len(st.permissionOrder))
+	for _, id := range st.permissionOrder {
+		if req, ok := st.permissions[id]; ok {
+			pending = append(pending, *req)
+		}
+	}
+	filter := m.onAskFilter
+	m.mu.Unlock()
+	var out []backend.PermissionRequest
+	for _, req := range pending {
+		if filter(dir, req) {
+			out = append(out, req)
 		}
 	}
 	return out

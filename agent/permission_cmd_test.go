@@ -83,7 +83,7 @@ func TestEnrollDefaultsAndStaticFile(t *testing.T) {
 	if got := defaultEnrollMax(); got["bash"] != "ask" || len(got) != 1 {
 		t.Errorf("default ceiling = %v, want bash=ask alone (session_spawn enrolls uncapped)", got)
 	}
-	cfg := buildOpencodeConfig("127.0.0.1:1", "s", nil, false)
+	cfg := buildOpencodeConfig("127.0.0.1:1", "s", nil, false, false)
 	cfg.Permission = staticPermission()
 	for _, k := range []string{"edit", "bash", "webfetch"} {
 		if cfg.Permission[k] != "ask" {
@@ -141,7 +141,7 @@ func TestEnrollPolicyDefaultsAndFlags(t *testing.T) {
 }
 
 func TestStaticOpencodeConfigCarriesThePermissionBlock(t *testing.T) {
-	cfg := buildOpencodeConfig("127.0.0.1:1", "s", nil, false)
+	cfg := buildOpencodeConfig("127.0.0.1:1", "s", nil, false, false)
 	cfg.Permission = staticPermission()
 	dir := t.TempDir()
 	if err := writeOpencodeConfig(filepath.Join(dir, "opencode.json"), cfg); err != nil {

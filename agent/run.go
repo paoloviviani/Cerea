@@ -240,6 +240,10 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
+	// Model pins outside Pystino in opencode's global config (modelpins.go):
+	// logged, audited and filed in status.json at every start (and carried
+	// on every hello by buildHello). The files are the user's, never edited.
+	reportModelPins(scanModelPins(pol.AllowFreeModels), auditLog, sh)
 	go watchPolicy(ctx, filepath.Join(stateDir, policyFileName), live, policyPollEvery, func(ch policy.Change) {
 		logf("permissions: policy tightened (ceiling, rules or safe dirs: %v)", ch.Tightened)
 		mc.policyTightened(ctx, ch)
@@ -475,8 +479,22 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			AgentTools:          agentToolsPolicyWord(pol),
 			ProjectConfig:       projectConfigPolicyWord(pol),
 			BackgroundSubagents: backgroundSubagentsPolicyWord(pol),
+			Warnings:            modelPinWarnings(pol),
 		},
 	}
+}
+
+// modelPinWarnings is hello's machine status for opencode global config
+// pinning a model outside Pystino (modelpins.go): rescanned for every hello,
+// so a pin edited mid-run shows up on the next dial without a restart. The
+// startup report (reportModelPins, below) is what logs and audits them; this
+// stays silent.
+func modelPinWarnings(pol policy.Policy) []string {
+	var out []string
+	for _, p := range scanModelPins(pol.AllowFreeModels) {
+		out = append(out, p.Warning())
+	}
+	return out
 }
 
 // loadOrMintMachineID reads a persisted machine id, or mints and saves one

@@ -33,6 +33,18 @@ func hasProjectConfig(dir string) bool {
 	return false
 }
 
+// parseOpencodeJSON is the shared reader for opencode JSON(C) config files:
+// comments and trailing commas dropped, then decoded. Nil when the file does
+// not parse. Used for both project files (below) and the global model-pin
+// scan (modelpins.go).
+func parseOpencodeJSON(raw []byte) map[string]json.RawMessage {
+	var cfg map[string]json.RawMessage
+	if json.Unmarshal(stripJSONC(raw), &cfg) != nil {
+		return nil
+	}
+	return cfg
+}
+
 // projectOverrideKeys lists the routing keys dir's own opencode.json sets:
 // provider, enabled_providers, model, small_model, and agent.<name>.model.
 // An unreadable or unparsable file contributes nothing.
@@ -43,8 +55,8 @@ func projectOverrideKeys(dir string) []string {
 		if err != nil {
 			continue
 		}
-		var cfg map[string]json.RawMessage
-		if json.Unmarshal(stripJSONC(raw), &cfg) != nil {
+		cfg := parseOpencodeJSON(raw)
+		if cfg == nil {
 			continue
 		}
 		for _, k := range []string{"provider", "enabled_providers", "model", "small_model"} {

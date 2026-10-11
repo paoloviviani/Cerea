@@ -59,6 +59,12 @@ type permState struct {
 	agentMu    sync.Mutex
 	agentCache map[string]agentRulesEntry // by workspace directory
 
+	// staleMu guards stale, separately from mu: detection runs under mu (it
+	// does I/O like the PATCH beside it) while StaleDeny reads the cache
+	// from anywhere.
+	staleMu sync.Mutex
+	stale   map[string]staleEntry // by root session id
+
 	// childAgent remembers which agent a subagent session runs, once the
 	// materializer has read it from the parent's task call.
 	childMu    sync.Mutex
@@ -67,6 +73,25 @@ type permState struct {
 	// so a session's root (the one that carries the selector) and the
 	// subagents under a root can be found without asking opencode.
 	parentOf map[string]string
+}
+
+// staleEntry is the cached stale-deny verdict for one root: whether the rules
+// opencode keeps for it carry a blanket deny the current composition no
+// longer contains (stale: an old Deny block), or a deny the ceiling no longer
+// imposes (policy: an earlier machine policy); the fingerprint of the stored
+// rules the verdict was computed from; and the inputs at check time — the
+// fingerprint of our own composition (composed), of the last rules we sent
+// (sent), and how many stored rules we saw (count). The stored rules move
+// only when we PATCH (every send updates the overlay fingerprint), so an
+// unchanged composition and an unchanged last-sent block mean the verdict
+// cannot have moved and the GET is skipped. A restart starts with an empty
+// cache and recomputes; so does any prompt after we PATCH.
+type staleEntry struct {
+	fp       string
+	stale    bool
+	policy   bool
+	composed string
+	sent     string
 }
 
 // layers is the machine's current inputs (empty when none are configured).
@@ -282,6 +307,10 @@ func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent s
 	ov := b.getOverlay(sessionID)
 	fp := permrules.Fingerprint(rules)
 	if ov.RulesFP == fp {
+		// No PATCH: the stale verdict is recomputed only if our own
+		// composition moved since the last check — detectStaleDeny skips
+		// its read of the stored rules otherwise.
+		b.detectStaleDeny(ctx, dir, sessionID)
 		return nil
 	}
 	if len(rules) > 0 {
@@ -290,7 +319,89 @@ func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent s
 		}
 	}
 	ov.RulesFP = fp
-	return b.setOverlay(sessionID, ov)
+	if err := b.setOverlay(sessionID, ov); err != nil {
+		return err
+	}
+	b.detectStaleDeny(ctx, dir, sessionID)
+	return nil
+}
+
+// StoredRules reads the session's rules as opencode keeps them (GET
+// /session/{id} → permission). opencode only appends, so what it returns is
+// the whole history of composed blocks, including ones from before a
+// deny-as-ask-style change.
+func (b *Backend) StoredRules(ctx context.Context, sessionID string) ([]permrules.Rule, error) {
+	var m struct {
+		Permission []permrules.Rule `json:"permission"`
+	}
+	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID), nil, &m); err != nil {
+		return nil, err
+	}
+	return m.Permission, nil
+}
+
+// detectStaleDeny refreshes the cached stale-deny verdict for sessionID's
+// root: whether the rules opencode keeps for it carry a stale blanket deny
+// (an old Deny block, kept forever because opencode's rules are append-only,
+// which opencode seeds into every future child's first turn). Best effort —
+// a verdict must never fail a prompt — so every failure only logs and leaves
+// the cached value. Caller holds perm.mu.
+//
+// The GET /session/{root} is skipped when nothing on our side moved since
+// the last verdict: our composition is recomputed first (the agent ruleset
+// is cached, so that is cheap), and an unchanged composition fingerprint
+// plus an unchanged last-sent block (the overlay fingerprint, which every
+// PATCH updates) means the stored rules — which move only when we send —
+// cannot have moved either.
+func (b *Backend) detectStaleDeny(ctx context.Context, dir, sessionID string) {
+	root := b.rootOf(sessionID)
+	composed, err := b.composeFor(ctx, dir, b.agentFor(root), root)
+	if err != nil {
+		b.cfg.Logf("opencode: composing the current rules for stale-deny detection: %v", err)
+		return
+	}
+	composedFp := permrules.Fingerprint(composed)
+	sentFp := b.getOverlay(root).RulesFP
+	b.perm.staleMu.Lock()
+	e, ok := b.perm.stale[root]
+	if ok && e.composed == composedFp && e.sent == sentFp {
+		b.perm.staleMu.Unlock()
+		return
+	}
+	b.perm.staleMu.Unlock()
+	stored, err := b.StoredRules(ctx, root)
+	if err != nil {
+		b.cfg.Logf("opencode: reading the stored rules for stale-deny detection: %v", err)
+		return
+	}
+	fp := permrules.Fingerprint(stored)
+	stale := permrules.FindStaleBlanketDeny(stored, composed)
+	policy := permrules.FindStalePolicyDenies(stored, composed, b.layers().Ceiling)
+	b.perm.staleMu.Lock()
+	if b.perm.stale == nil {
+		b.perm.stale = map[string]staleEntry{}
+	}
+	b.perm.stale[root] = staleEntry{fp: fp, stale: stale, policy: policy, composed: composedFp, sent: sentFp}
+	b.perm.staleMu.Unlock()
+}
+
+// StaleDeny implements backend.RuleHost: the cached verdict for sessionID's
+// root (false until the first prompt after this process learned the session
+// refreshed it). A read of the cache — never I/O.
+func (b *Backend) StaleDeny(sessionID string) bool {
+	root := b.rootOf(sessionID)
+	b.perm.staleMu.Lock()
+	defer b.perm.staleMu.Unlock()
+	return b.perm.stale[root].stale
+}
+
+// StalePolicy implements backend.RuleHost: like StaleDeny, for a deny the
+// ceiling no longer imposes (an earlier machine policy).
+func (b *Backend) StalePolicy(sessionID string) bool {
+	root := b.rootOf(sessionID)
+	b.perm.staleMu.Lock()
+	defer b.perm.staleMu.Unlock()
+	return b.perm.stale[root].policy
 }
 
 // EnsureRules is ensureRules for the session's current agent, for the machine
@@ -368,10 +479,14 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 	if !known {
 		rules = denyOnly(l.ChildCeiling())
 		if sel.Effective() == permrules.Deny {
-			// Deny restricts whatever the agent is: the blanket's own names are
-			// refused outright until the agent is known and the whole block lands.
+			// Deny restricts whatever the agent is, but by rejection, not by
+			// rule (see permrules.ComposeParts): the blanket's own names ask
+			// until the agent is known and the whole block lands, and the
+			// sessions pre-filter rejects the asks. A deny written here
+			// would poison the child's own stored rules — opencode seeds a
+			// grandchild with its parent's denies — for no enforcement gain.
 			for _, k := range permrules.Blanket {
-				rules = append(rules, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Deny})
+				rules = append(rules, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Ask})
 			}
 		}
 	}
@@ -391,14 +506,14 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 
 // denyNote rides on every prompt of a session on Deny, as the turn's extra
 // system prompt (prompt_async's `system` field).
-// opencode does not refuse a tool whose every pattern is denied: it removes
-// the tool from the model's tool list. A model asked to curl a site then has
-// no bash, is not told why, and reaches for what is left (list, read), then
-// apologises for "the wrong tool". Told, it says what it would run and asks
-// for the setting to change instead.
+// Under Deny the tools stay in the model's tool list — a deny is enforced by
+// rejection, not by hiding (see permrules.ComposeParts) — and every call is
+// refused with the Deny message before any card. A model told that says what
+// it would run and asks for the setting to change instead of burning calls
+// on refusals it cannot pass.
 const denyNote = "The person has set this session to Deny. Running commands, " +
 	"editing or writing files, fetching from the web and starting subagents are " +
-	"switched off, so those tools are missing from your tool list on purpose. " +
+	"switched off: every such call is refused, so do not make any. " +
 	"Reading and searching the project still work. If the request needs a " +
 	"switched-off tool, do not substitute another tool for it: say what you would " +
 	"run or change, and ask the person to switch the session to Ask or Allow."

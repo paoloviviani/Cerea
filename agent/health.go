@@ -31,6 +31,11 @@ type healthStatus struct {
 	State     credState `json:"state"`
 	CheckedAt time.Time `json:"checkedAt"`
 	Message   string    `json:"message"`
+	// Warnings are machine-level advisories that are not the credential
+	// (today: opencode global config pinning a model outside Pystino,
+	// modelpins.go). Set at startup and preserved across credential state
+	// changes, so a refresh never drops them.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 const statusFileName = "status.json"

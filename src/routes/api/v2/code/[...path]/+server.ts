@@ -245,6 +245,8 @@ function toSession(session: Session): CodeAgentSession {
 		parentId: session.parentId ?? null,
 		effort: session.effort ?? null,
 		...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+		...(session.staleDeny ? { staleDeny: true } : {}),
+		...(session.stalePolicy ? { stalePolicy: true } : {}),
 		...(session.rootId ? { rootId: session.rootId } : {}),
 		...(session.childSummary ? { childSummary: session.childSummary } : {}),
 		...(session.spawnedBy ? { spawnedBy: session.spawnedBy } : {}),

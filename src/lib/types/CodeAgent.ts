@@ -434,6 +434,13 @@ export interface CodeAgentSession {
 	 * subagent reports its root's). Absent on a machine that predates the
 	 * selector: the composer then draws none. */
 	permissionMode?: "deny" | "ask" | "allow";
+	/** An earlier Deny stuck in this session's stored rules: subagents
+	 * started from here have their first turn refused (start a new session
+	 * to use subagents). Absent on a machine that predates the verdict. */
+	staleDeny?: boolean;
+	/** A deny in the stored rules that the machine's ceiling no longer
+	 * imposes (an earlier machine policy). Absent like staleDeny. */
+	stalePolicy?: boolean;
 	/** The session this one was spawned from, when it is a subagent. */
 	parentId?: string | null;
 	/** Its top-level ancestor (itself when it has no parent). */

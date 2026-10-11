@@ -112,11 +112,15 @@ func TestScheduleGrantComposed(t *testing.T) {
 	}{
 		{pA, nil, nil, pA},
 		{pK, nil, nil, pK},
-		{pD, nil, nil, pD},
+		// Deny reads as ask by rule (the block says ask; galopin rejects the
+		// asks before any card, and decideSchedule's Deny case refuses the
+		// rest) — never deny, and never allow even with the machine's own
+		// schedule allow, which Deny keeps but does not apply.
+		{pD, nil, nil, pK},
 		{pK, map[string]permrules.Action{"schedule": pA}, nil, pA},
 		{pA, map[string]permrules.Action{"schedule": pK}, nil, pK},
 		{pA, map[string]permrules.Action{"schedule": pD}, nil, pD},
-		{pD, map[string]permrules.Action{"schedule": pA}, nil, pD},
+		{pD, map[string]permrules.Action{"schedule": pA}, nil, pK},
 		{pA, nil, map[string]permrules.Action{"schedule": pK}, pK},
 		{pA, nil, map[string]permrules.Action{"schedule": pD}, pD},
 		{pK, map[string]permrules.Action{"schedule": pA}, map[string]permrules.Action{"schedule": pK}, pK},

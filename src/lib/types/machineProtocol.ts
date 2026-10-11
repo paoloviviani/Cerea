@@ -166,6 +166,13 @@ export interface Session {
 	 * A child reports its root's. Absent on a machine that predates the
 	 * selector: the panel then draws no selector at all. */
 	permissionMode?: PermissionMode;
+	/** An earlier Deny stuck in this session's stored rules (opencode keeps
+	 * them forever): subagents started from here have their first turn
+	 * refused. Absent on a machine that predates the verdict. */
+	staleDeny?: boolean;
+	/** A deny in the stored rules that the machine's ceiling no longer
+	 * imposes (an earlier machine policy). Absent like staleDeny. */
+	stalePolicy?: boolean;
 	parentId: string | null;
 	/** For a child session (session.children): the parent's tool call that spawned it. */
 	parentToolCallId?: string;

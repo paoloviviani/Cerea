@@ -186,11 +186,12 @@ func TestGrantCoordinationClearsAndYieldsToDeny(t *testing.T) {
 	if len(r.asks()) != 1 {
 		t.Errorf("a cleared grant must ask again; asks = %d", len(r.asks()))
 	}
-	// Deny wins over a kept grant.
+	// Deny wins over a kept grant: refused up front with the Deny message,
+	// before any card.
 	mustGrant(t, r, "caller", []string{"session_read"})
 	_ = r.cb.SetPermissionMode(context.Background(), "", "caller", "deny")
 	_, err := r.call("caller", "session_read", map[string]any{"target": "peer"})
-	refusedWith(t, err, "do not allow session_read")
+	refusedWith(t, err, "set to Deny")
 }
 
 // The grant is audited with its keys and its outcome, refusals included.

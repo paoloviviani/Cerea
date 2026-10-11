@@ -90,6 +90,10 @@ type PolicyInfo struct {
 	// (task background:true): "allowed" or "denied" (default). Older
 	// machines omit it, read as denied: the env flag was never set there.
 	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
+	// Warnings are machine-level advisories for the device card (today:
+	// opencode global config pinning a model outside Pystino). Absent when
+	// there is nothing to say; a Cerea that predates the field ignores it.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // MachineInfo is hello.machine (PROTOCOL.md §5, §9): what this build can

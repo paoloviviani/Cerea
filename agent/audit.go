@@ -115,6 +115,14 @@ func (a *auditLogger) projectConfigOverride(workspace, session string, keys []st
 	a.write(map[string]any{"action": "project_config.override_attempt", "workspace": workspace, "session": session, "keys": keys})
 }
 
+// globalConfigModelPin records an opencode global config source pinning a
+// model outside Pystino (modelpins.go): the file and the key, never edited,
+// only reported — background results and scheduled runs fail or bypass the
+// gateway while it stands.
+func (a *auditLogger) globalConfigModelPin(file, key, model string) {
+	a.write(map[string]any{"action": "global_config.model_pin", "file": file, "key": key, "model": model})
+}
+
 // agentTool records one agent-coordination tool call (PROTOCOL.md §6 "Agent
 // tools"): the tool, the calling session, the target (the spawned child, or
 // the addressed session), the decision and the reason for a refusal — never
@@ -149,10 +157,15 @@ func (a *auditLogger) agentToolSchedule(tool, from, schedule, decision, reason s
 // decision is "always" when the reply stored an exception (the answer opencode
 // got was "once"). Never a pattern: for bash the pattern IS the
 // command text. capped marks a reply the ceiling lowered from "always".
-func (a *auditLogger) permission(session, requestID, tool, decision, by string, capped bool) {
+// reason carries the refusal text of a galopin rejection (a Deny-root ask
+// refused before any card); empty for a person's own reply.
+func (a *auditLogger) permission(session, requestID, tool, decision, by string, capped bool, reason string) {
 	entry := map[string]any{"action": "permission", "session": session, "requestId": requestID, "tool": tool, "decision": decision, "by": by}
 	if capped {
 		entry["capped"] = true
+	}
+	if reason != "" {
+		entry["reason"] = reason
 	}
 	a.write(entry)
 }

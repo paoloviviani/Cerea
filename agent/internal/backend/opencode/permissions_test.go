@@ -35,6 +35,13 @@ type permFake struct {
 	// opencode no longer has, 500 for one that merely fails), opencode's
 	// NotFoundError body for the 404.
 	gone map[string]int
+	// stored answers GET /session/<id> with these exact rules as its
+	// permission field (what opencode keeps for the session), so the
+	// stale-deny detector can be driven without a real server history.
+	stored map[string][]permrules.Rule
+	// gets parallels stored reads: every GET /session/<id> received, so a
+	// test can tell whether detection re-read or used its cache.
+	gets []string
 }
 
 func (f *permFake) snapshot() (creates, patches, prompts []map[string]any) {
@@ -50,6 +57,20 @@ func (f *permFake) patchCount(sessionID string) int {
 	defer f.mu.Unlock()
 	n := 0
 	for _, id := range f.patchIDs {
+		if id == sessionID {
+			n++
+		}
+	}
+	return n
+}
+
+// getCount is how many GET /session/<id> reads the fake received — the
+// stale-deny detector's read, which it must skip when nothing moved.
+func (f *permFake) getCount(sessionID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, id := range f.gets {
 		if id == sessionID {
 			n++
 		}
@@ -95,7 +116,14 @@ func newPermFake(t *testing.T, layers func() permrules.Layers) (*Backend, *permF
 			f.patches = append(f.patches, parsed)
 			_, _ = io.WriteString(w, `{"id":"ses_1","title":"t"}`)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/session/"):
-			_, _ = io.WriteString(w, `{"id":"`+strings.TrimPrefix(r.URL.Path, "/session/")+`","title":"t"}`)
+			id := strings.TrimPrefix(r.URL.Path, "/session/")
+			f.gets = append(f.gets, id)
+			if rules, ok := f.stored[id]; ok {
+				out, _ := json.Marshal(map[string]any{"id": id, "title": "t", "permission": rules})
+				_, _ = w.Write(out)
+				break
+			}
+			_, _ = io.WriteString(w, `{"id":"`+id+`","title":"t"}`)
 		case strings.HasSuffix(r.URL.Path, "/prompt_async"):
 			f.prompts = append(f.prompts, parsed)
 			w.WriteHeader(http.StatusNoContent)
@@ -524,8 +552,8 @@ func TestSetPermissionModeAppliesAndReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := stackOf(t, buildOnly, f, 0)
-	if got := permrules.Evaluate(all, "edit", "a"); got != permrules.Deny {
-		t.Errorf("edit after Allow then Deny = %s, want deny", got)
+	if got := permrules.Evaluate(all, "edit", "a"); got != permrules.Ask {
+		t.Errorf("edit after Allow then Deny = %s, want the block's ask (galopin rejects it; no rule denies it)", got)
 	}
 	if got := permrules.Evaluate(all, "read", "a"); got != permrules.Allow {
 		t.Errorf("read under Deny = %s, want allow", got)
@@ -550,10 +578,10 @@ func TestExceptionsComeAndGoWithTheirRules(t *testing.T) {
 	if permrules.Evaluate(all, "bash", "git status") != permrules.Allow || permrules.Evaluate(all, "bash", "git log") != permrules.Ask {
 		t.Error("the exception must allow git status and nothing else")
 	}
-	// Deny blocks it, Ask restores it.
+	// Deny blocks it (by rejection: the block's ask decides), Ask restores it.
 	_ = b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Deny)
-	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Deny {
-		t.Errorf("under Deny = %s", got)
+	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Ask {
+		t.Errorf("under Deny = %s, want the block's ask", got)
 	}
 	_ = b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Ask)
 	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Allow {
@@ -568,6 +596,112 @@ func TestExceptionsComeAndGoWithTheirRules(t *testing.T) {
 	}
 	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Ask {
 		t.Errorf("after removal = %s, want ask", got)
+	}
+}
+
+// A root whose stored rules carry an old-style Deny block reports it through
+// StaleDeny once a prompt refreshes the verdict; a root with only new-style
+// blocks does not. A verdict is recomputed when our own side moved — the
+// composition (a ceiling change here) or the last block we sent (the PATCH
+// that change triggers): opencode's stored rules move only when we send.
+func TestStaleDenyDetectedAndCached(t *testing.T) {
+	ceiling := map[string]permrules.Action{}
+	b, f := newPermFake(t, func() permrules.Layers {
+		return permrules.Layers{Ceiling: permrules.Ceiling{Max: ceiling}}
+	})
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	agent := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
+	allow := permrules.Compose(permrules.Layers{}, permrules.Selector{Mode: permrules.Allow}, agent)
+	oldDeny := []permrules.Rule{
+		{Permission: "*", Pattern: "*", Action: permrules.Deny},
+		{Permission: "edit", Pattern: "*", Action: permrules.Deny},
+		{Permission: "bash", Pattern: "*", Action: permrules.Deny},
+	}
+	if b.StaleDeny(s.ID) {
+		t.Fatalf("stale before any prompt: the verdict starts false")
+	}
+	// Stored as opencode would keep them after Deny-then-Allow: the dead Deny
+	// block under the live Allow one.
+	f.mu.Lock()
+	f.stored = map[string][]permrules.Rule{s.ID: append(append([]permrules.Rule(nil), oldDeny...), allow...)}
+	f.mu.Unlock()
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !b.StaleDeny(s.ID) {
+		t.Errorf("stored old-style Deny block: want StaleDeny")
+	}
+	// Only new-style blocks: clean. The stored history is re-read because our
+	// own side moved — the ceiling grew, which changes the composition and
+	// sends a fresh block.
+	f.mu.Lock()
+	f.stored[s.ID] = allow
+	f.mu.Unlock()
+	ceiling["edit"] = permrules.Ask
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b.StaleDeny(s.ID) {
+		t.Errorf("new-style blocks only: want no StaleDeny")
+	}
+	// A deny the ceiling no longer imposes is a stale policy, not a stale
+	// blanket: the other verdict fires, this one stays quiet.
+	f.mu.Lock()
+	f.stored[s.ID] = append(append([]permrules.Rule(nil), allow...), permrules.Rule{Permission: "question", Pattern: "*", Action: permrules.Deny})
+	f.mu.Unlock()
+	ceiling["webfetch"] = permrules.Ask
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b.StaleDeny(s.ID) {
+		t.Errorf("a non-blanket deny: want no StaleDeny")
+	}
+	if !b.StalePolicy(s.ID) {
+		t.Errorf("a deny the ceiling no longer imposes: want StalePolicy")
+	}
+}
+
+// The stale detector skips its read of the stored rules when nothing on our
+// side moved: the first prompt reads (the cache starts empty after a
+// restart), further identical prompts do not, and a PATCH we send (a ceiling
+// change here) reads again.
+func TestStaleDenySkipsTheReadWhenNothingMoved(t *testing.T) {
+	ceiling := map[string]permrules.Action{}
+	b, f := newPermFake(t, func() permrules.Layers {
+		return permrules.Layers{Ceiling: permrules.Ceiling{Max: ceiling}}
+	})
+	ctx := context.Background()
+	s, _ := b.CreateSession(ctx, "/ws", backend.CreateSessionOptions{})
+	agent := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Allow}}
+	allow := permrules.Compose(permrules.Layers{}, permrules.Selector{Mode: permrules.Allow}, agent)
+	f.mu.Lock()
+	f.stored = map[string][]permrules.Rule{s.ID: allow}
+	f.mu.Unlock()
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.getCount(s.ID); got != 1 {
+		t.Fatalf("first prompt GETs = %d, want 1 (the cache starts empty)", got)
+	}
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.getCount(s.ID); got != 1 {
+		t.Errorf("unchanged prompt GETs = %d, want still 1: the read is skipped", got)
+	}
+	ceiling["edit"] = permrules.Ask
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.getCount(s.ID); got != 2 {
+		t.Errorf("after a PATCH we sent GETs = %d, want 2: the verdict is recomputed", got)
+	}
+	if err := b.EnsureRules(ctx, "/ws", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.getCount(s.ID); got != 2 {
+		t.Errorf("settled prompt GETs = %d, want still 2", got)
 	}
 }
 

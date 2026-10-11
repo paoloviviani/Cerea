@@ -568,6 +568,14 @@ func (at *agentTools) grant(ctx context.Context, tc *toolCaller, tool string) (p
 	if !ok {
 		return permrules.Ask, nil
 	}
+	if rh.PermissionMode(tc.session.ID) == permrules.Deny {
+		// The session's word is Deny: refuse before any card and before the
+		// call spends any of the pair's rate budget. The session's rules say
+		// ask for the blanket names (see permrules.ComposeParts) — the
+		// sessions pre-filter would reject the card anyway — but refusing
+		// here keeps the refusal synchronous and the budget untouched.
+		return permrules.Deny, refuse("%s", denyRejectMessage)
+	}
 	rules, err := rh.EffectiveRules(ctx, tc.dir, tc.session.ID)
 	if err != nil {
 		// Unreadable rules are not consent.

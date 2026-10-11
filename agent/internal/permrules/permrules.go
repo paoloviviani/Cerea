@@ -553,8 +553,14 @@ func IsToolVisibilitySentinel(r Rule) bool { return r == ToolVisibilitySentinel 
 //
 //   - Ask and Allow: the exceptions sit after the mode block, so they win over
 //     it (under Allow they are redundant and harmless);
-//   - Deny: the exceptions sit BEFORE it, so Deny wins. They are kept all the
-//     same, and come back into force when the mode does.
+//   - Deny: the block says ASK, not deny, and the exceptions sit BEFORE it, so
+//     the block's ask still decides and galopin itself rejects it (the
+//     sessions pre-filter answers every ask from a Deny root with a reject
+//     before any card is shown). Children then inherit no blanket deny —
+//     opencode seeds a task child with its parent's deny rules only, so a
+//     blanket deny here would poison every future child's first turn — while
+//     nothing runs that the word forbids. Machine and ceiling denies stay
+//     real deny rules: they are policy, and their inheritance is correct.
 func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 	base := append(append([]Rule(nil), agent...), l.Own...)
 	mode := sel.Effective()
@@ -565,11 +571,21 @@ func ComposeParts(l Layers, sel Selector, agent []Rule) (cerea, tail []Rule) {
 	if mode == Deny {
 		cerea = append(cerea, sel.exceptionRules()...)
 	}
-	cerea = append(cerea, blanketBlock(mode, base)...)
+	blockMode := mode
 	if mode == Deny {
-		// Deny hides every tool its word matches, galopin's included, but a
-		// scheduled run must still be able to stop its own schedule ("stop
-		// when done"): the three tools that find and stop one stay visible.
+		// Deny refuses every tool by rejection, not by rule: the block's
+		// word is Ask, so no `*`-pattern deny for a blanket name is ever
+		// written here (Own and ceiling denies excepted — they arrive
+		// below through base restatements, Own, and the tail).
+		blockMode = Ask
+	}
+	cerea = append(cerea, blanketBlock(blockMode, base)...)
+	if mode == Deny {
+		// The Deny block says ask (above), so its word no longer hides any
+		// tool by rule — every ask from a Deny root is rejected by galopin
+		// itself instead. But a scheduled run must still be able to stop its
+		// own schedule ("stop when done"): the three tools that find and
+		// stop one stay visible.
 		// opencode never asks for a custom tool, so `ask` here only keeps the
 		// name; galopin's own gate decides each call (and refuses all but a
 		// run pausing or deleting its own schedule).

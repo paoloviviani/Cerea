@@ -123,15 +123,25 @@ veto that only `enroll` can loosen:
   the selector existed (no re-enroll needed): the agent asks before it
   edits, runs a command, fetches a page or starts a subagent. Reading stays
   allowed under all three words, and under Allow two asks survive: a write
-  outside the project folder and the stuck-agent brake. "Always allow" on
+  outside the project folder and the stuck-agent brake. Under **Deny** the
+  tools stay visible and every call is refused with a message naming the
+  word and the way out — galopin rejects each ask from a Deny session and
+  its subagents before any card is shown, so children inherit no blanket
+  deny and a Deny chosen mid-turn takes effect at once, from the next ask.
+  "Always allow" on
   a card is an exception for that command in that session only, removable
-  in the panel. A change applies **from the session's next turn**: the
+  in the panel. Any other change applies **from the session's next turn**: the
   turn that is running is not stopped and finishes under the word it
   started with. A **new subagent** follows the session's word from
   its first turn: opencode starts that turn before galopin can give it the
   word, so its asks come from a floor that asks, and galopin answers them
   `once` when the session's word and exceptions allow (audited
   `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps.
+  A session whose stored rules still carry an earlier Deny (opencode keeps
+  them forever) or a deny the ceiling no longer imposes is flagged on the
+  session (`staleDeny`, `stalePolicy`) and the panel says to start a new
+  session for subagents or the current policy — subagents started from a
+  `staleDeny` session have their first turn refused.
   The machine's **safe external directories** (`enroll --safe-dir PATH`
   repeatable, replacing the default; `--no-safe-dirs` for none) are the one
   thing no session ever asks about: `/tmp`, the temp dir and the toolchain
@@ -187,6 +197,19 @@ veto that only `enroll` can loosen:
   `task`, the session tools and the schedule tools, what to do when its prompt
   starts with Cerea's `[Scheduled run …]` header, and how to schedule work.
   It must describe only what the tools do today: change it with them.
+  If a `task` subagent reports its tools refused on its first turn (an
+  earlier Deny stuck in the session's history — the panel says so on the
+  session), it resumes it once with the same `task_id`: later turns run
+  under the session's current rules.
+- **Models pinned outside the gateway.** opencode merges its own global
+  config into every session, so an agent file or config key there pinning a
+  non-Pystino model bypasses the gateway — and breaks background results,
+  which carry no model. At every start galopin scans those sources and
+  reports any pin (a log warning naming file and key, an audit
+  `global_config.model_pin` row, `status.json` and hello warnings for the
+  device card); it never edits them. With `--allow-free-models` the
+  generated config allows the `pystino` and `opencode` providers, nothing
+  else; see [PROTOCOL.md](PROTOCOL.md) §6.
 - **A terminal**: a real, interactive shell, **on by default** (as are
   slash commands that run shell and background subagents; `enroll
 --no-terminal`, `--no-command-shell` and `--no-background-subagents`

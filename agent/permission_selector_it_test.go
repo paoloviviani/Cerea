@@ -366,8 +366,12 @@ func TestSelectorS8Subagents(t *testing.T) {
 			t.Errorf("the child's rules after the root went to Allow say edit = %s: the change did not reach a live child", got)
 		}
 		r.setMode(root, "deny")
-		if got := permrules.Evaluate(childRules(id), "edit", "x.txt"); got != permrules.Deny {
-			t.Errorf("the child's rules after the root went to Deny say edit = %s", got)
+		// Deny composes as ask since deny-as-ask: the child's block must not
+		// carry a blanket deny (opencode would seed it into the child's own
+		// future children), and the refusal happens by rejection instead —
+		// the "root on Deny" case above proves the child's edit is refused.
+		if got := permrules.Evaluate(childRules(id), "edit", "x.txt"); got != permrules.Ask {
+			t.Errorf("the child's rules after the root went to Deny say edit = %s, want ask (deny-as-ask)", got)
 		}
 		if got := r.oc.PermissionMode(id); got != permrules.Deny {
 			t.Errorf("the child reports mode %s, want its root's", got)
@@ -407,8 +411,8 @@ func TestSelectorS8Subagents(t *testing.T) {
 // written against that — a change is in force from the session's next turn, and a
 // task's first turn belongs to the floor — and this pins the half a mock without
 // multi-step scripts can: that the change IS in force on the next turn, through
-// the mode change made mid-turn. (The running turn is not stopped by a change;
-// TestSelectorADeniedMidTurnDoesNotStopTheRunningTurn pins that.)
+// the mode change made mid-turn. (A mid-turn Deny now rejects the pending ask
+// at once; TestSelectorADeniedMidTurnRejectsThePendingAsk pins that.)
 func TestSelectorAModeChangedMidTurnIsInForceOnTheNextTurn(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	s := r.session("per-turn", "")
@@ -426,11 +430,13 @@ func TestSelectorAModeChangedMidTurnIsInForceOnTheNextTurn(t *testing.T) {
 	}
 }
 
-// A mid-turn change does not stop the running turn (the user's decision: no
-// abort on tighten). The session goes to Deny while a turn waits on an ask; the
-// person's answer still lands that call, the turn finishes, nothing is cancelled
-// or withdrawn — and the very next turn is refused.
-func TestSelectorADeniedMidTurnDoesNotStopTheRunningTurn(t *testing.T) {
+// A mid-turn Deny takes effect at once (deny-as-ask): the ask the turn is
+// waiting on is rejected the moment the word changes — DecisionReject with
+// the Deny message, audited as galopin's, the card resolved like any
+// answered ask — and the waiting call fails with that message. The turn
+// itself is not aborted: the model reads the refusal and finishes, and the
+// next turn is refused the same way.
+func TestSelectorADeniedMidTurnRejectsThePendingAsk(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	s := r.session("mid-turn-deny", "")
 	ask, _, mark := r.try(s, "mid-turn-1.txt")
@@ -438,13 +444,21 @@ func TestSelectorADeniedMidTurnDoesNotStopTheRunningTurn(t *testing.T) {
 		t.Fatal("no first ask")
 	}
 	r.setMode(s, "deny")
-	if n := r.mat.PendingPermissions(s.ID); n != 1 {
-		t.Fatalf("pending asks after the switch to Deny = %d, want the running turn's ask left alone", n)
+	if n := r.mat.PendingPermissions(s.ID); n != 0 {
+		t.Fatalf("pending asks after the switch to Deny = %d, want the pending ask rejected at once", n)
 	}
-	r.reply(s, ask.ID, "once")
+	var rejects int
+	for _, row := range auditPermissionRows(t, r.stateDir) {
+		if row["decision"] == "reject" && row["by"] == "galopin" && row["reason"] == denyRejectMessage {
+			rejects++
+		}
+	}
+	if rejects != 1 {
+		t.Errorf("galopin Deny rejections in the audit = %d, want the pending ask's", rejects)
+	}
 	r.idle(s, mark)
-	if !r.exists("mid-turn-1.txt") {
-		t.Error("the running turn was stopped: the answered write did not land")
+	if r.exists("mid-turn-1.txt") {
+		t.Error("the refused write landed")
 	}
 	for _, env := range r.hub.since(mark) {
 		if env.SessionID == s.ID && env.Event.Kind == backend.EventError {

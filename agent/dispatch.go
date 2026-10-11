@@ -154,6 +154,8 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 	s.WorkspaceID = workspaceID
 	s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 	s.PermissionMode = mc.permissionMode(s.ID)
+	s.StaleDeny = mc.staleDeny(s.ID)
+	s.StalePolicy = mc.stalePolicy(s.ID)
 	s.RootID = mc.mat.RootOf(s.ID)
 	s.ChildSummary = mc.mat.ChildSummary(s.ID)
 	if status, ok := mc.mat.Status(s.ID); ok && status != "" {
@@ -173,6 +175,8 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 		s.WorkspaceID = workspaceIDs[i]
 		s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 		s.PermissionMode = mc.permissionMode(s.ID)
+		s.StaleDeny = mc.staleDeny(s.ID)
+		s.StalePolicy = mc.stalePolicy(s.ID)
 		s.RootID = mc.mat.RootOf(s.ID)
 		s.ChildSummary = summaries[s.ID]
 		if status, ok := mc.mat.Status(s.ID); ok && status != "" {
@@ -666,6 +670,26 @@ func (mc *machine) permissionMode(sessionID string) string {
 	return string(rh.PermissionMode(sessionID))
 }
 
+// staleDeny is the stale-deny verdict for a session's root (false when the
+// backend has no verdict to give).
+func (mc *machine) staleDeny(sessionID string) bool {
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return false
+	}
+	return rh.StaleDeny(sessionID)
+}
+
+// stalePolicy is the stale-policy verdict for a session's root (false when
+// the backend has no verdict to give).
+func (mc *machine) stalePolicy(sessionID string) bool {
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return false
+	}
+	return rh.StalePolicy(sessionID)
+}
+
 func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
 		SessionID string `json:"sessionId"`
@@ -682,6 +706,20 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 			return nil, notFound("session")
 		}
 		return nil, backendErr(err)
+	}
+	// Seeded history skips the ask pre-filter, so a sync that (re)builds a
+	// Deny root's view can surface its pending asks as cards again. Sweep
+	// them the same way a mode switch does: DecisionReject + the Deny
+	// message, audited like rejectDenyAsk, cards withdrawn like answered
+	// asks. Best effort — a sync that cannot resolve the session's directory
+	// still answers with its snapshot.
+	if dir, _, derr := mc.resolveSession(a.SessionID); derr == nil {
+		for _, req := range mc.mat.SweepDeniedAsks(a.SessionID) {
+			mc.rejectDenyAsk(dir, req)
+			mc.mat.WithdrawPermission(req.SessionID, req.ID)
+		}
+	} else {
+		logf("permissions: sync sweep skipped for %s: %v", a.SessionID, derr)
 	}
 	out := map[string]any{"epoch": res.Epoch, "seq": res.Seq}
 	if res.Snapshot != nil {
@@ -1038,7 +1076,7 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		}
 		return nil, backendErr(err)
 	}
-	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped)
+	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped, "")
 	return map[string]any{}, nil
 }
 

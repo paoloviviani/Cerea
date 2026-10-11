@@ -386,4 +386,13 @@ type RuleHost interface {
 	// memory outlives a tightened policy; it returns once the new process is
 	// healthy.
 	RestartForPolicy(ctx context.Context) error
+	// StaleDeny is the cached stale-deny verdict for a session's root:
+	// whether the rules opencode keeps for it carry a blanket deny the
+	// current composition no longer contains (an old Deny block, kept
+	// forever because opencode's rules are append-only). Refreshed on every
+	// prompt; a read of the cache, never I/O.
+	StaleDeny(sessionID string) bool
+	// StalePolicy is the same cache's second verdict: a deny the ceiling no
+	// longer imposes (an earlier machine policy).
+	StalePolicy(sessionID string) bool
 }

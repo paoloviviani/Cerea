@@ -34,6 +34,7 @@ Three things exist, and only these three.
 - Write each prompt so it stands alone: the child cannot see this conversation. Say what to look at, what to report, and that it must not change anything.
 - **Every edit stays in you, the parent.** Children read and report; you decide and write. Never fan out edits, and never let two agents touch the same file.
 - Children's results come back to you only. Read them all, then tell the person what you learned in a short summary **before** you act on it. Do not paste raw child output as your answer.
+- If a ` + "`task`" + ` subagent reports its tools were refused on its first turn (an earlier Deny stuck in this session's history — the panel says so on the session), resume it once with the same ` + "`task_id`" + ` before giving up: its later turns run under this session's current rules, and that is what worked before.
 
 ## 2. session_read, session_spawn and session_send — other sessions on this machine
 

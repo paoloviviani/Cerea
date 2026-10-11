@@ -316,13 +316,17 @@ var (
 )
 
 func TestSelectorBlanketPerMode(t *testing.T) {
+	// Under Deny the block says ASK, not deny: nothing runs because galopin
+	// itself rejects every ask from a Deny root before any card (the sessions
+	// pre-filter), not because a rule denies it — so children inherit no
+	// blanket deny. Machine and ceiling denies still deny by rule (below).
 	for _, tc := range []struct {
 		mode            Action
 		edit, bash, web Action
 	}{
 		{Allow, Allow, Allow, Allow},
 		{Ask, Ask, Ask, Ask},
-		{Deny, Deny, Deny, Deny},
+		{Deny, Ask, Ask, Ask},
 	} {
 		session := Compose(Layers{}, Selector{Mode: tc.mode}, buildAgent)
 		if got := eval(buildAgent, session, "edit", "a.go"); got != tc.edit {
@@ -432,8 +436,8 @@ func TestSelectorExceptionsPlacement(t *testing.T) {
 		t.Errorf("Allow: git log = %s, want allow", got)
 	}
 	deny := Compose(Layers{}, sel(Deny), buildAgent)
-	if got := eval(buildAgent, deny, "bash", "git status"); got != Deny {
-		t.Errorf("Deny: git status = %s, want deny: Deny beats an exception", got)
+	if got := eval(buildAgent, deny, "bash", "git status"); got != Ask {
+		t.Errorf("Deny: git status = %s, want the block's ask (galopin rejects it; the exception stays inert and comes back with Ask)", got)
 	}
 	// Kept while blocked: the same selector back on Ask allows it again.
 	back := Compose(Layers{}, sel(Ask), buildAgent)
@@ -509,7 +513,7 @@ func TestSelectorChildFollowsTheRootsMode(t *testing.T) {
 		mode Action
 		edit Action
 		git  Action
-	}{{Allow, Allow, Allow}, {Ask, Ask, Allow}, {Deny, Deny, Deny}} {
+	}{{Allow, Allow, Allow}, {Ask, Ask, Allow}, {Deny, Ask, Ask}} {
 		rules := ChildRules(l, Selector{Mode: tc.mode, Exceptions: []Exception{ex}}, general)
 		if got := eval(general, rules, "edit", "a.go"); got != tc.edit {
 			t.Errorf("root on %s: child edit = %s, want %s", tc.mode, got, tc.edit)
@@ -676,8 +680,77 @@ func TestSelectorKeepsTheMachinesRulesForGalopinsTools(t *testing.T) {
 		}
 	}
 	deny := Compose(l, Selector{Mode: Deny}, buildAgent)
-	if got := Grant(append(append([]Rule(nil), buildAgent...), deny...), "session_spawn"); got != Deny {
-		t.Errorf("Deny: session_spawn grant = %s, want deny (the person's Deny beats the machine's allow)", got)
+	// Under Deny the machine's allow reads as the block's ask (the grant's
+	// decision), and galopin itself refuses it: the pre-filter rejects every
+	// ask from a Deny root, and the agent-tools gate refuses before any card.
+	if got := Grant(append(append([]Rule(nil), buildAgent...), deny...), "session_spawn"); got != Ask {
+		t.Errorf("Deny: session_spawn grant = %s, want ask (the person's Deny is enforced by rejection, not by rule)", got)
+	}
+}
+
+// Under Deny the composed block carries no `*`-pattern deny for `*` or any
+// blanket name of its own: children inherit only their parent's denies from
+// opencode, so a blanket deny here would poison every future child's first
+// turn. Deny is enforced by galopin rejecting the asks. The only denies in
+// the block are the machine's own and the ceiling's tail — policy, whose
+// inheritance is correct.
+func TestDenyBlockCarriesNoBlanketDeny(t *testing.T) {
+	l := Layers{
+		Own:     OwnRules(map[string]Action{"webfetch": Deny, "session_read": Ask}),
+		Ceiling: Ceiling{Max: map[string]Action{"bash": Ask, "edit": Deny}},
+	}
+	ex := Exception{ID: "ex_1", Permission: "bash", Patterns: []string{"git status *"}}
+	cerea, tail := ComposeParts(l, Selector{Mode: Deny, Exceptions: []Exception{ex}}, buildAgent)
+	for _, r := range cerea {
+		if r.Action != Deny || r.Pattern != "*" {
+			continue
+		}
+		if containsRule(l.Own, r) {
+			continue // the machine's own deny: policy, whose inheritance is correct
+		}
+		if r.Permission == "*" || IsBlanketCovered(r.Permission) {
+			t.Errorf("Deny block denies %s by rule: %+v", r.Permission, r)
+		}
+		for _, k := range Blanket {
+			if r.Permission == k {
+				t.Errorf("Deny block denies blanket name %s by rule: %+v", k, r)
+			}
+		}
+		if IsToolVisibilitySentinel(r) {
+			t.Errorf("the sentinel must never be a *-pattern rule: %+v", r)
+		}
+	}
+	// ... but the machine's and the ceiling's denies are still there.
+	if got := Evaluate(append(append([]Rule(nil), buildAgent...), append(cerea, tail...)...), "webfetch", "x"); got != Deny {
+		t.Errorf("machine webfetch deny under Deny = %s, want deny", got)
+	}
+	if got := Evaluate(append(append([]Rule(nil), buildAgent...), append(cerea, tail...)...), "edit", "a.go"); got != Deny {
+		t.Errorf("ceiling edit deny under Deny = %s, want deny", got)
+	}
+	if got := Evaluate(append(append([]Rule(nil), buildAgent...), append(cerea, tail...)...), "bash", "ls"); got != Ask {
+		t.Errorf("bash under Deny = %s, want the block's ask", got)
+	}
+	// Exceptions sit before the ask block, so the block's ask still decides.
+	askIdx, exIdx := -1, -1
+	for i, r := range cerea {
+		if r == (Rule{"*", "*", Ask}) && askIdx < 0 {
+			askIdx = i
+		}
+		if r == (Rule{"bash", "git status *", Allow}) {
+			exIdx = i
+		}
+	}
+	if askIdx < 0 {
+		t.Fatalf("no `* * ask` block under Deny: %+v", cerea)
+	}
+	if exIdx < 0 || exIdx > askIdx {
+		t.Errorf("exception at %d, ask block at %d: want the exception before it", exIdx, askIdx)
+	}
+	// The schedule stop tools stay visible.
+	for _, k := range DenyVisibleTools {
+		if !containsRule(cerea, Rule{k, "*", Ask}) {
+			t.Errorf("Deny block lacks %s * ask", k)
+		}
 	}
 }
 
@@ -758,12 +831,13 @@ func TestGrantDoesNotLoosenTheMachinesOwnRule(t *testing.T) {
 	}
 }
 
-// Deny is the person's word: a grant is kept but not applied, and comes back
-// with Ask. Clearing it restores ask.
+// Deny is the person's word: a grant is kept but not applied — the block's
+// ask decides, and galopin rejects it — and it comes back with Ask. Clearing
+// it restores ask.
 func TestGrantYieldsToDenyAndComesBack(t *testing.T) {
 	sel := Selector{Mode: Deny, Coordination: []string{"session_send"}}
-	if got := grantOf(Layers{}, sel, "session_send"); got != Deny {
-		t.Errorf("under Deny = %s, want deny", got)
+	if got := grantOf(Layers{}, sel, "session_send"); got != Ask {
+		t.Errorf("under Deny = %s, want ask (refused by galopin, not by rule)", got)
 	}
 	sel.Mode = Ask
 	if got := grantOf(Layers{}, sel, "session_send"); got != Allow {
@@ -804,7 +878,9 @@ func TestChildFollowsTheRootsGrant(t *testing.T) {
 }
 
 // Under Deny a session still sees the tools a scheduled run needs to stop its
-// own schedule (galopin's gate decides each call), and nothing else.
+// own schedule (galopin's gate decides each call). Everything else asks too —
+// Deny is enforced by galopin rejecting the asks, not by rules denying them —
+// except what the machine or the ceiling denies by rule.
 func TestDenyKeepsTheScheduleStopToolsVisible(t *testing.T) {
 	agent := []Rule{{"*", "*", Allow}}
 	rules := append(append([]Rule(nil), agent...), Compose(Layers{}, Selector{Mode: Deny}, agent)...)
@@ -814,8 +890,8 @@ func TestDenyKeepsTheScheduleStopToolsVisible(t *testing.T) {
 		}
 	}
 	for _, k := range []string{"schedule_create", "session_spawn", "bash", "edit"} {
-		if got := Evaluate(rules, k, "*"); got != Deny {
-			t.Errorf("%s under Deny = %s, want deny", k, got)
+		if got := Evaluate(rules, k, "*"); got != Ask {
+			t.Errorf("%s under Deny = %s, want ask (galopin rejects it; no rule denies it)", k, got)
 		}
 	}
 	rules = append(append([]Rule(nil), agent...), Compose(Layers{}, Selector{Mode: Ask}, agent)...)

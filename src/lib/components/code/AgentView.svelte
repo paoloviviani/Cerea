@@ -1404,6 +1404,29 @@
 	{:else if failure}
 		<div class="pointer-events-auto {s.ERROR} mx-4 mb-2">{failure}</div>
 	{/if}
+	{#if agent?.staleDeny}
+		<!-- An earlier Deny is stuck in this session's stored rules (opencode
+		     keeps them forever): subagents started from here have their first
+		     turn refused. New sessions are clean. -->
+		<div
+			class="pointer-events-auto mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+			data-testid="stale-deny"
+		>
+			An earlier Deny is stuck in this session's history (opencode keeps it). Subagents started from
+			here will have their first turn refused. Start a new session to use subagents.
+		</div>
+	{/if}
+	{#if agent?.stalePolicy}
+		<!-- A deny the machine's ceiling no longer imposes is stuck in this
+		     session's stored rules: an earlier machine policy. -->
+		<div
+			class="pointer-events-auto mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+			data-testid="stale-policy"
+		>
+			An earlier machine policy is stuck in this session's history (opencode keeps it). Tools it
+			denied may still be refused here. Start a new session for the current policy.
+		</div>
+	{/if}
 
 	<!-- pointer-events-none: the message column paints at z-[-1] (its own
 	     contract, see ChatMessageColumn), which places it behind this row's

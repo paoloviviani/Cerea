@@ -5,6 +5,33 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+**Machines need the galopin update** for these fixes: re-run the install
+line from the pairing dialog (not the pairing line itself), then
+`systemctl --user restart galopin`.
+
+- **A session that was once on Deny no longer poisons its subagents.**
+  In Deny mode the session's rules now say ask and galopin itself refuses
+  every call with a message naming the word and the way out — no card is
+  ever shown — so a parent that was on Deny and back on Ask or Allow spawns
+  subagents whose first turn runs instead of being refused. A Deny chosen
+  mid-turn takes effect at once, from the next ask. Needs the galopin
+  update.
+- **Sessions stuck with an earlier Deny or machine policy say so.** A
+  session whose stored rules still carry an old Deny block (or a deny the
+  ceiling no longer imposes) shows a one-line banner: subagents started
+  from it have their first turn refused — start a new session. If a task
+  subagent reports its tools refused on its first turn, the model now
+  resumes it once with the same `task_id`. Needs the galopin update.
+- **opencode models pinned outside the gateway are reported.** A global
+  agent file or config key pinning a non-Pystino model bypasses the
+  gateway — and breaks background subagent results once its provider is
+  unreachable. galopin scans those sources at every start and warns (log,
+  audit, status file and device card) without editing them. With
+  `--allow-free-models` the generated config now allows the `pystino` and
+  `opencode` providers. Needs the galopin update.
+
 ## v0.10.4 — 2026-10-11
 
 Pins: Cerea `0.10.4`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
