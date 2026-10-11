@@ -25,11 +25,27 @@ function viewportIn(root: Element): HTMLElement {
 }
 
 describe("OpenReasoningResults", () => {
-	it("fades the top of the streaming viewport once content overflows", async () => {
+	it("starts collapsed by default, streaming included", async () => {
 		const { baseElement } = render(OpenReasoningResults, {
 			content: LONG_REASONING,
 			loading: true,
 		});
+
+		// The shimmering header is the live indicator; nothing is expanded.
+		expect(baseElement.querySelector(".thinking-viewport")).toBeNull();
+		await expect.element(page.getByText("Paragraph 1:", { exact: false })).not.toBeInTheDocument();
+		await expect.element(page.getByText("Thinking")).toBeInTheDocument();
+	});
+
+	it("expands the streaming viewport when the reader opens it", async () => {
+		const { baseElement } = render(OpenReasoningResults, {
+			content: LONG_REASONING,
+			loading: true,
+		});
+
+		const toggle = baseElement.querySelector("button");
+		if (!toggle) throw new Error("expected toggle button to be rendered");
+		toggle.click();
 
 		await vi.waitFor(() => {
 			expect(maskOf(viewportIn(baseElement))).toContain("linear-gradient");
@@ -44,6 +60,10 @@ describe("OpenReasoningResults", () => {
 			content: SHORT_REASONING,
 			loading: true,
 		});
+
+		const toggle = baseElement.querySelector("button");
+		if (!toggle) throw new Error("expected toggle button to be rendered");
+		toggle.click();
 
 		await expect.element(page.getByText("One short thought.")).toBeInTheDocument();
 

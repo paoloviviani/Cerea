@@ -159,10 +159,11 @@ describe("collapsed process blocks during streaming", () => {
 			expect(expanded(screen.baseElement as HTMLElement).length).toBeLessThanOrEqual(1);
 		}
 
-		// The active think block streams at the end; it alone is expanded.
+		// Nothing is expanded: thinking is collapsed by default, streaming
+		// included, so the stale unclosed think cannot shimmer an open block
+		// back into the transcript either.
 		const open = expanded(screen.baseElement as HTMLElement);
-		expect(open.length).toBe(1);
-		expect(open[0].textContent).toContain("Thinking");
+		expect(open.length).toBe(0);
 	});
 
 	it("keeps the flat rows through mid-turn narration instead of regrouping them", async () => {

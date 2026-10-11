@@ -9,33 +9,14 @@
 	}
 
 	let { content, loading = false }: Props = $props();
+	// Collapsed by default, streaming included: the shimmering header is the
+	// live indicator, and the reader expands a section when they want to read it.
 	let isOpen = $state(false);
-	let wasLoading = $state(false);
-	let initialized = $state(false);
 	// Reactive size bindings (powered by ResizeObserver under the hood) — used
 	// to apply the fade mask only when the streamed content actually overflows
 	// the viewport, so short reasoning isn't unnecessarily faded at the top.
 	let viewportHeight = $state(0);
 	let contentHeight = $state(0);
-
-	// Track loading transitions to auto-expand/collapse
-	$effect(() => {
-		if (!initialized) {
-			initialized = true;
-			if (loading) {
-				isOpen = true;
-				wasLoading = true;
-				return;
-			}
-		}
-
-		if (loading && !wasLoading) {
-			isOpen = true;
-		} else if (!loading && wasLoading) {
-			isOpen = false;
-		}
-		wasLoading = loading;
-	});
 </script>
 
 <BlockWrapper>
