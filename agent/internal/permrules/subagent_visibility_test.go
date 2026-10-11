@@ -53,28 +53,52 @@ func history(l Layers, agent []Rule, words ...Action) []Rule {
 	return out
 }
 
+// flooredGeneral is the general subagent's rules as opencode's GET /agent
+// reports them: its own allow-all merged with the agent-level floor
+// (OPENCODE_CONFIG_CONTENT), which asks for the blanket's names whatever the
+// root's mode is. A child's first turn is judged by these plus whatever denies
+// opencode seeded from the parent — the session rules galopin then PATCHes
+// land too late for it.
+func flooredGeneral(l Layers) []Rule {
+	return append([]Rule{{"*", "*", Allow}}, l.FloorRules("general")...)
+}
+
 func TestASubagentKeepsItsToolsAfterTheParentWasOnDenyOnce(t *testing.T) {
 	// The parent was on Deny for a moment, long ago, and is on Allow now. Its
 	// own tools are fine (last match wins); its child's first step must be too.
-	parent := history(Layers{}, buildAgent, Ask, Deny, Allow)
-	child := append(append([]Rule(nil), buildAgent...), ocChildSeed(parent)...)
+	l := Layers{}
+	parent := history(l, buildAgent, Ask, Deny, Allow)
+	child := append(flooredGeneral(l), ocChildSeed(parent)...)
 	hidden := ocHidden(subagentTools, child)
 	if len(hidden) > 0 {
 		t.Fatalf("a subagent of a session that was once on Deny starts with these tools hidden: %v", hidden)
+	}
+	if got := Evaluate(child, "bash", "git status"); got == Deny {
+		t.Errorf("a subagent of a session that was once on Deny: bash = deny (the call would be refused, not asked)")
 	}
 	if h := ocHidden(subagentTools, append(append([]Rule(nil), buildAgent...), parent...)); len(h) > 0 {
 		t.Errorf("the parent itself has tools hidden: %v", h)
 	}
 }
 
-func TestASubagentOfASessionOnDenyStillHasNoTools(t *testing.T) {
-	// On Deny now: the child must not get around the parent's word.
-	parent := history(Layers{}, buildAgent, Allow, Deny)
-	child := append(append([]Rule(nil), buildAgent...), ocChildSeed(parent)...)
-	hidden := ocHidden([]string{"bash", "edit", "write", "webfetch"}, child)
+func TestASubagentOfASessionOnDenyAsksInsteadOfRunning(t *testing.T) {
+	// On Deny now: the child keeps its tools visible — Deny is enforced by
+	// galopin rejecting the asks, not by hiding tools — but every blanket
+	// name asks by rule, so nothing runs. (A machine or ceiling deny still
+	// hides its tool: see TestAMachineDenyStillHidesItsToolInTheChild.)
+	l := Layers{}
+	parent := history(l, buildAgent, Allow, Deny)
+	child := append(flooredGeneral(l), ocChildSeed(parent)...)
+	if hidden := ocHidden(subagentTools, child); len(hidden) > 0 {
+		t.Errorf("a child of a session on Deny starts with tools hidden: %v (Deny hides nothing; it rejects)", hidden)
+	}
 	for _, tool := range []string{"bash", "edit", "write", "webfetch"} {
-		if !hidden[tool] {
-			t.Errorf("%s is visible to the child of a session on Deny", tool)
+		perm := tool
+		if tool == "write" {
+			perm = "edit"
+		}
+		if got := Evaluate(child, perm, "x"); got != Ask {
+			t.Errorf("child %s under a Deny root = %s, want ask (galopin rejects it)", tool, got)
 		}
 	}
 }

@@ -41,9 +41,11 @@ func TestSafeDirsAllowUnderEveryWord(t *testing.T) {
 		if got := Evaluate(rules, "external_directory", "/etc/hostname"); got != Ask {
 			t.Errorf("%s: external_directory /etc/hostname = %s, want ask", mode, got)
 		}
-		// The word still moves what it moves.
-		if got := Evaluate(rules, "bash", "ls"); mode == Deny && got != Deny {
-			t.Errorf("Deny: bash = %s, want deny", got)
+		// The word still moves what it moves: under Deny the blanket names ask
+		// by rule (and galopin rejects the asks), everywhere else keeps the
+		// word's own answer.
+		if got := Evaluate(rules, "bash", "ls"); mode == Deny && got != Ask {
+			t.Errorf("Deny: bash = %s, want ask (rejected by galopin, not denied by rule)", got)
 		}
 	}
 }

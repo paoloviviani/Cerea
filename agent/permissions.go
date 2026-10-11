@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,50 @@ func (mc *machine) installPermissions() {
 	})
 	mc.mat.OnChild(func(dir, childID string) { go mc.giveChildTheCeiling(dir, childID) })
 	mc.mat.OnChildAsk(func(dir string, req backend.PermissionRequest) { go mc.answerChildAsk(dir, req) })
+	// In Deny mode the session's block says ask for the blanket names, and
+	// galopin itself rejects every ask from that root and from its subagents
+	// before any card is shown: children then inherit no blanket deny (see
+	// permrules.ComposeParts), while nothing runs. The filter consumes the
+	// ask — it is never materialised, so no permission.asked envelope reaches
+	// any client — and the rejection goes out from a goroutine.
+	mc.mat.OnAskFilter(func(dir string, req backend.PermissionRequest) bool {
+		rh, ok := mc.ruleHost()
+		if !ok {
+			return false
+		}
+		// PermissionMode is the ROOT's word (the backend resolves it), so
+		// this covers root and child asks alike. gp_ asks are not excepted:
+		// under Deny nothing runs without a card, and there are no cards.
+		if rh.PermissionMode(mc.mat.RootOf(req.SessionID)) != permrules.Deny {
+			return false
+		}
+		go mc.rejectDenyAsk(dir, req)
+		return true
+	})
+}
+
+// denyRejectMessage is the refusal text of an ask rejected because its root
+// session is on Deny: it names the word and the way out, since the model is
+// never shown a card for it. It rides the reply's message (opencode shows it
+// on the refused call) and the audit row's reason.
+const denyRejectMessage = "This session is set to Deny: no tool may run. Change the mode to Ask or Allow to continue."
+
+// rejectDenyAsk answers an ask the pre-filter consumed: DecisionReject with
+// the Deny message, audited as a galopin rejection. The ask was never
+// materialised, so there is no card to withdraw — answering it here is what
+// releases the tool call waiting on it.
+func (mc *machine) rejectDenyAsk(dir string, req backend.PermissionRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := mc.back.ReplyPermission(ctx, dir, req.SessionID, req.ID, backend.DecisionReject, denyRejectMessage); err != nil {
+		if !backend.IsNotFound(err) && !errors.Is(err, backend.ErrPermissionGone) {
+			logf("permissions: could not reject Deny ask %s: %v", req.ID, err)
+		}
+		return
+	}
+	if mc.audit != nil {
+		mc.audit.permission(req.SessionID, req.ID, req.Tool, string(backend.DecisionReject), "galopin", false, denyRejectMessage)
+	}
 }
 
 // answerChildAsk answers a subagent's ask that its root's selector allows. A
@@ -57,9 +102,17 @@ func (mc *machine) installPermissions() {
 // and exceptions under the ceiling, as ChildRules composes them — and answered
 // "once" when those allow it. An ask they do not allow (a root on Ask, or a key
 // the ceiling caps) is left for a person.
+//
+// A Deny root never reaches here: the sessions pre-filter (installed above)
+// consumes every ask from a Deny root — root and child asks alike — and
+// rejects it before any card, so the two hooks cannot answer the same request
+// (this one only ever answers "once", the filter only ever rejects).
 func (mc *machine) answerChildAsk(dir string, req backend.PermissionRequest) {
 	rh, ok := mc.ruleHost()
 	if !ok || strings.HasPrefix(req.ID, "gp_") {
+		return
+	}
+	if rh.PermissionMode(mc.mat.RootOf(req.SessionID)) == permrules.Deny {
 		return
 	}
 	agent := ""
@@ -82,7 +135,7 @@ func (mc *machine) answerChildAsk(dir string, req backend.PermissionRequest) {
 		}
 		return
 	}
-	mc.audit.permission(req.SessionID, req.ID, req.Tool, string(backend.DecisionOnce), "galopin", false)
+	mc.audit.permission(req.SessionID, req.ID, req.Tool, string(backend.DecisionOnce), "galopin", false, "")
 }
 
 // giveChildTheCeiling applies the root's selector and the ceiling to a subagent
@@ -233,9 +286,11 @@ func (mc *machine) exceptionViews(rh backend.RuleHost, sessionID string) []backe
 // it is changed. An unknown session is `not_found`, a mode that is not one of
 // the three words `invalid`, and a subagent `invalid` too: it has no selector
 // of its own and follows its root. The change reaches the root and every
-// subagent under it, including ones already running. It applies from the
-// session's NEXT turn: opencode takes a session's rules when a turn starts, and
-// nothing here stops, cancels or withdraws a turn that is running. The answer is `{}`; read
+// subagent under it, including ones already running. A Deny takes effect at
+// once, from the next ask: every ask from a Deny root is rejected before any
+// card, even mid-turn. Any other change applies from the session's NEXT turn:
+// opencode takes a session's rules when a turn starts, and nothing here stops,
+// cancels or withdraws a turn that is running. The answer is `{}`; read
 // the mode back from the session. Audited as permission.mode.
 func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {

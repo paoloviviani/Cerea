@@ -83,10 +83,69 @@ func textPart(msgID, partID, text string) backend.Event {
 	}
 }
 
-// TestTextContract pins PROTOCOL.md §7: the first sighting of a part is a
+// The ask pre-filter (PROTOCOL.md §6 "Permissions", Deny): a consumed ask is
+// never recorded in the ring, never published, and never reaches onAsk — no
+// permission.asked envelope exists for it anywhere. An ask the filter leaves
+// alone flows exactly as without one.
+func TestAskFilterConsumesBeforeAnythingIsRecorded(t *testing.T) {
+	ctx := context.Background()
+	ask := func(id, session string) backend.BackendEvent {
+		return backend.BackendEvent{WorkspaceDir: "/ws", SessionID: session, Event: backend.Event{
+			Kind: backend.EventPermissionAsked,
+			Request: &backend.PermissionRequest{ID: id, SessionID: session, Tool: "bash", Patterns: []string{"ls"}},
+		}}
+	}
+	// Consumed: nothing in the ring, nothing on the child-ask hook.
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	var childAsks int
+	m.OnChildAsk(func(string, backend.PermissionRequest) { childAsks++ })
+	m.OnAskFilter(func(string, backend.PermissionRequest) bool { return true })
+	m.ApplyBackendEvent(ctx, ask("per_1", "s1"))
+	// A child ask is consumed the same way.
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "s1"},
+	}})
+	m.ApplyBackendEvent(ctx, ask("per_k", "kid"))
+	if n := m.PendingPermissions("s1") + m.PendingPermissions("kid"); n != 0 {
+		t.Errorf("consumed asks are pending: %d", n)
+	}
+	if childAsks != 0 {
+		t.Errorf("onAsk fired %d times for consumed asks", childAsks)
+	}
+	res, err := m.Sync(ctx, "s1", m.Epoch(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Events {
+		if e.Event.Kind == backend.EventPermissionAsked {
+			t.Errorf("a consumed ask reached the ring: %+v", e.Event.Request)
+		}
+	}
+	// Left alone: recorded, counted and forwarded to onAsk for a child.
+	m2 := New(newFakeBackend(), policy.Default())
+	var childAsks2 int
+	m2.OnChildAsk(func(string, backend.PermissionRequest) { childAsks2++ })
+	consulted := 0
+	m2.OnAskFilter(func(string, backend.PermissionRequest) bool { consulted++; return false })
+	m2.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "s1"},
+	}})
+	m2.ApplyBackendEvent(ctx, ask("per_k", "kid"))
+	if consulted != 1 {
+		t.Errorf("filter consulted %d times, want 1", consulted)
+	}
+	if n := m2.PendingPermissions("kid"); n != 1 {
+		t.Errorf("pending = %d, want the ask the filter left alone", n)
+	}
+	if childAsks2 != 1 {
+		t.Errorf("onAsk fired %d times, want 1", childAsks2)
+	}
+}
 // full upsert; later growth becomes a suffix delta; a stale (shorter)
 // resend is dropped; a genuinely different resend re-baselines as a fresh
 // upsert — and concat(first text, deltas...) always equals the latest text.
+// TestTextContract pins PROTOCOL.md §7: the first sighting of a part is a
 func TestTextContract(t *testing.T) {
 	m := New(newFakeBackend(), policy.Default())
 	m.Track("/ws", backend.Session{ID: "s1"})

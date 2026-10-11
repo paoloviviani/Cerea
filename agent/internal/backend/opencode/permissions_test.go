@@ -524,8 +524,8 @@ func TestSetPermissionModeAppliesAndReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := stackOf(t, buildOnly, f, 0)
-	if got := permrules.Evaluate(all, "edit", "a"); got != permrules.Deny {
-		t.Errorf("edit after Allow then Deny = %s, want deny", got)
+	if got := permrules.Evaluate(all, "edit", "a"); got != permrules.Ask {
+		t.Errorf("edit after Allow then Deny = %s, want the block's ask (galopin rejects it; no rule denies it)", got)
 	}
 	if got := permrules.Evaluate(all, "read", "a"); got != permrules.Allow {
 		t.Errorf("read under Deny = %s, want allow", got)
@@ -550,10 +550,10 @@ func TestExceptionsComeAndGoWithTheirRules(t *testing.T) {
 	if permrules.Evaluate(all, "bash", "git status") != permrules.Allow || permrules.Evaluate(all, "bash", "git log") != permrules.Ask {
 		t.Error("the exception must allow git status and nothing else")
 	}
-	// Deny blocks it, Ask restores it.
+	// Deny blocks it (by rejection: the block's ask decides), Ask restores it.
 	_ = b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Deny)
-	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Deny {
-		t.Errorf("under Deny = %s", got)
+	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Ask {
+		t.Errorf("under Deny = %s, want the block's ask", got)
 	}
 	_ = b.SetPermissionMode(ctx, "/ws", s.ID, permrules.Ask)
 	if got := permrules.Evaluate(stackOf(t, buildOnly, f, 0), "bash", "git status"); got != permrules.Allow {

@@ -368,10 +368,14 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 	if !known {
 		rules = denyOnly(l.ChildCeiling())
 		if sel.Effective() == permrules.Deny {
-			// Deny restricts whatever the agent is: the blanket's own names are
-			// refused outright until the agent is known and the whole block lands.
+			// Deny restricts whatever the agent is, but by rejection, not by
+			// rule (see permrules.ComposeParts): the blanket's own names ask
+			// until the agent is known and the whole block lands, and the
+			// sessions pre-filter rejects the asks. A deny written here
+			// would poison the child's own stored rules — opencode seeds a
+			// grandchild with its parent's denies — for no enforcement gain.
 			for _, k := range permrules.Blanket {
-				rules = append(rules, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Deny})
+				rules = append(rules, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Ask})
 			}
 		}
 	}
@@ -391,14 +395,14 @@ func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent st
 
 // denyNote rides on every prompt of a session on Deny, as the turn's extra
 // system prompt (prompt_async's `system` field).
-// opencode does not refuse a tool whose every pattern is denied: it removes
-// the tool from the model's tool list. A model asked to curl a site then has
-// no bash, is not told why, and reaches for what is left (list, read), then
-// apologises for "the wrong tool". Told, it says what it would run and asks
-// for the setting to change instead.
+// Under Deny the tools stay in the model's tool list — a deny is enforced by
+// rejection, not by hiding (see permrules.ComposeParts) — and every call is
+// refused with the Deny message before any card. A model told that says what
+// it would run and asks for the setting to change instead of burning calls
+// on refusals it cannot pass.
 const denyNote = "The person has set this session to Deny. Running commands, " +
 	"editing or writing files, fetching from the web and starting subagents are " +
-	"switched off, so those tools are missing from your tool list on purpose. " +
+	"switched off: every such call is refused, so do not make any. " +
 	"Reading and searching the project still work. If the request needs a " +
 	"switched-off tool, do not substitute another tool for it: say what you would " +
 	"run or change, and ask the person to switch the session to Ask or Allow."

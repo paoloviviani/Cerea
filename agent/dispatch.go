@@ -1038,7 +1038,7 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		}
 		return nil, backendErr(err)
 	}
-	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped)
+	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped, "")
 	return map[string]any{}, nil
 }
 
