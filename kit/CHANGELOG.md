@@ -5,6 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.8 — 2026-10-11
+
+Pins: Cerea `0.10.8`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
+the change is Cerea-only.
+
+- **The web app manifest is built from the deployment's base path, and
+  carries what an install sheet scores.** The static manifest hardcoded
+  `/chat` into its start URL and every icon source — correct only for a
+  deployment built with that base — and had no `id`, `scope`,
+  `theme_color`, `description`, `shortcuts` or `categories`. It now comes
+  from a route (`/manifest.webmanifest`): every URL derives from the
+  compile-time base, the `id` resolves to the address browsers already
+  derived from the old start URL (already-installed apps keep their
+  identity), the theme colours match the page, and the shortcuts list
+  Chats, Projects and Agents — Agents only when the deployment serves the
+  code panel. The route answers with no session, as the static file did.
+  Cerea only.
+
 ## v0.10.7 — 2026-10-11
 
 Pins: Cerea `0.10.7`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
