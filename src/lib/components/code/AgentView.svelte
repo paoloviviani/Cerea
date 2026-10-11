@@ -152,6 +152,22 @@
 	let modesFailure = $state<string | null>(null);
 	let models = $state<CodeProviderModel[] | null>(null);
 	let modelsFailure = $state<string | null>(null);
+	/** The model this session runs on, as the provider list names it: the
+	 * session's own choice, or the backend's default when it has none. */
+	const activeModelId = $derived(agent?.modelId ?? models?.find((model) => model.isDefault)?.id);
+	/** Whether the composer offers images: the backend must take them at all
+	 * (`hello` capability `images`) and the session's own model must claim
+	 * them (`Model.images`, carried by the provider list). A model the list
+	 * does not name — or one that says nothing — fails closed. */
+	const modelIsMultimodal = $derived.by(() => {
+		const backend = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return (
+			Boolean(backend?.images) &&
+			models?.find((model) => model.id === activeModelId)?.images === true
+		);
+	});
 	/** Models the machine listed but its enrollment policy keeps off the panel. */
 	let modelsHidden = $state(0);
 	/** The machine's `permission.rules` answer for this session: the rules in
@@ -1564,6 +1580,7 @@
 					onundo={openUndoConfirm}
 					onnew={openNewAgentDialog}
 					mimeTypes={filesSupported ? [...AGENT_ATTACHMENT_MIME_ALLOWLIST] : []}
+					{modelIsMultimodal}
 				/>
 			{/snippet}
 		</ChatMessageColumn>

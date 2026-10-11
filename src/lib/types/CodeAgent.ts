@@ -297,6 +297,10 @@ export interface CodeProviderModel {
 	label: string;
 	description?: string;
 	isDefault?: boolean;
+	/** The model takes images: the composer's image picker is offered only
+	 * when the session's own model affirms it (the machine's `Model.images`).
+	 * Absent means unknown or not multimodal, and reads as false. */
+	images?: boolean;
 	/** Thinking-effort levels, low to high; absent when the model takes none. */
 	efforts?: string[];
 }

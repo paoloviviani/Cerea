@@ -528,6 +528,9 @@ export const GET: RequestHandler = async (event) => {
 			id: model.id,
 			label: model.label,
 			...(model.isDefault ? { isDefault: true } : {}),
+			// Only an affirmed true maps: absent or false means unknown or
+			// not multimodal, and the composer's image affordance fails closed.
+			...(model.images ? { images: true } : {}),
 			...(model.efforts?.length ? { efforts: model.efforts } : {}),
 		}));
 		// `hidden` lets the pill say why the list is short rather than look broken.
