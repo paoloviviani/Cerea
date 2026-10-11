@@ -201,8 +201,10 @@ type Materializer struct {
 	// consumed: it is never recorded in the ring, never published, and onAsk
 	// is never told of it. The filter must be fast and do no I/O itself: a
 	// rejection that needs work (answering the ask, auditing it) belongs in
-	// a goroutine the filter's owner starts. It must not call back into this
-	// materializer.
+	// a goroutine the filter's owner starts. It runs before the
+	// materializer lock is taken, so read-only materializer calls such as
+	// RootOf are safe; anything that could block or re-enter event
+	// application is not.
 	onAskFilter func(workspaceDir string, req backend.PermissionRequest) bool
 
 	outCh chan Envelope
