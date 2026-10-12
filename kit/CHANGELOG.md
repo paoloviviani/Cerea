@@ -5,6 +5,46 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+Pins: Cerea unreleased, Pystino unreleased (the join-gateway side lands in
+Pystino's next release), Authelia 4.39.22.
+
+- **"Who may join" is one setting, for any identity provider.** The
+  gateway's four join modes (`open`, `approval`, `invite`, `group`) replace
+  the provisioning checkbox and refusal rule; the console's Identity page
+  asks as a radio group and previews a group gate ("N people will lose
+  access") before saving. `./configure` asks the question for an external
+  IdP — `approval` is a new install's default, an existing `.env` keeps its
+  behaviour — and `group` mode also asks for the local group names and the
+  fallback, refusing to write a gate that would refuse to start. New env
+  keys `OIDC_JOIN_MODE`, `OIDC_REQUIRED_GROUPS`, `OIDC_GROUP_FALLBACK`
+  (documented in the kit README's identity section).
+- **Invitations for every provider.** The console invites a person by
+  email for any IdP that creates no logins — a pending account claimed at
+  first sign-in by verified email, invitations expiring after 14 days with
+  re-issue, optional delivery through the configured SMTP (a failed send
+  leaves the invitation standing). A person the directory pushes is claimed
+  the same way instead of duplicated.
+- **The approval queue on the Users page.** Filter chips with counts
+  (Awaiting approval, Invited, Active, Disabled); an invited row is badged —
+  with an expiry marker and re-issue — and an awaiting row carries Approve
+  (Reject is Delete).
+- **One group-mapping surface.** The Groups page's panel lists every seen
+  IdP name with one decision — import, map to an existing group, or ignore —
+  with the current mappings and their Unmap; Settings points there.
+- **A machine survives losing its group.** The gateway refuses `/v1` with
+  `403 outside_access_groups` (never the 401 that would make the chat
+  revoke the device), Cerea closes the link with a new `4404` close code
+  and the machine retries; regaining the group reconnects it. galopin and
+  the protocol document the code.
+- **`pystino idp check` fails loudly when the issuer cannot run the device
+  flow** (no `device_authorization_endpoint`, or a grant list omitting it —
+  Infomaniak, 2026-10-10), names the effective join mode, and warns in
+  invite mode when the provider's tokens carry no `email_verified`.
+  `./configure` makes the same check a blocking warning with an explicit
+  continue-without-agent-machines choice.
+
 ## v0.10.17 — 2026-10-12
 
 Pins: Cerea `0.10.17`, Pystino `0.4.2`, Authelia 4.39.22. No galopin update —
