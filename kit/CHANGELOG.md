@@ -7,9 +7,19 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## v0.10.12 — 2026-10-12
 
-Pins: Cerea `0.10.12`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
-the change is Cerea-only.
+Pins: Cerea `0.10.12`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
+galopin update** for the sync-sweep fix: update the deployment first (the
+install line downloads galopin from it), then re-run the install line from
+the pairing dialog, then `systemctl --user restart galopin`.
 
+- **A sync sweeping a Deny session's seeded asks rejects each once.** The
+  sweep consulted the same pre-filter a live ask takes, which consumes an
+  ask and sends its rejection from its own goroutine — and then rejected
+  the same ask again, synchronously: two replies, two audit rows, per ask
+  of a Deny root whose view a sync rebuilt. The flake that had been
+  failing the suite's Deny-sweep test at roughly one run in fifty, and
+  three CI runs today. The sweep now only withdraws the card; the
+  rejection goes out once, through the filter. Needs the galopin update.
 - **The phone terminal's key bar is three full rows.** It broke nine keys,
   then eight, then a lone Type pill on an empty row. It now fills three
   rows of nine: modifiers and motion first (Esc, Tab, Ctrl, Alt, the
