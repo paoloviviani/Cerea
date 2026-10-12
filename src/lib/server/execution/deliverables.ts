@@ -51,13 +51,40 @@ export const MAX_DELIVERABLES_PER_CONVERSATION = 200;
  * Total stored bytes one conversation's deliverables may occupy. Five times
  * the single-file cap: enough headroom for a handful of real documents
  * without letting one chatty conversation's throwaway retries fill the
- * store — a per-deployment problem the 30-day TTL alone does not bound
+ * store — a per-deployment problem the retention period alone does not bound
  * quickly enough.
  */
 export const MAX_DELIVERABLE_TOTAL_BYTES_PER_CONVERSATION = 5 * MAX_DELIVERABLE_BYTES;
 
-/** ADR 0073's amendment: computed deliverables persist for 30 days. */
-export const DELIVERABLE_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** ADR 0073's amendment: computed deliverables persist for 30 days by default. */
+export const DEFAULT_RETENTION_DAYS = 30;
+/** Ten years: a number past this is a typo, and "forever" is 0. */
+export const MAX_RETENTION_DAYS = 3650;
+
+/**
+ * How many days produced files are kept: `CHAT_FILE_RETENTION_DAYS`, set from
+ * Administration → Storage (or the environment), 0 for no expiry. Anything
+ * that is not a whole number in range reads as the default rather than as
+ * "forever" or "now": an unreadable value must not delete everything, nor
+ * silently stop expiring.
+ */
+export function fileRetentionDays(): number {
+	return parseRetentionDays(config.CHAT_FILE_RETENTION_DAYS);
+}
+
+/** `fileRetentionDays`'s reading of a raw value, on its own for the tests. */
+export function parseRetentionDays(value: string | undefined): number {
+	const raw = (value ?? "").trim();
+	if (raw === "") return DEFAULT_RETENTION_DAYS;
+	if (!/^\d+$/.test(raw)) return DEFAULT_RETENTION_DAYS;
+	const days = Number(raw);
+	return days <= MAX_RETENTION_DAYS ? days : DEFAULT_RETENTION_DAYS;
+}
+
+/** The instant before which a produced file has expired, or null when files never expire. */
+export function retentionCutoff(days = fileRetentionDays(), now = Date.now()): Date | null {
+	return days === 0 ? null : new Date(now - days * 24 * 60 * 60 * 1000);
+}
 
 export type StoreDeliverableResult =
 	{ ok: true; ref: PersistedDeliverableRef } | { ok: false; status: 413; error: string };
@@ -207,24 +234,119 @@ export async function deleteConversationDeliverables(
 }
 
 const SWEEP_BATCH = 200;
+/** A stored file younger than this may still be waiting for its metadata row
+ * (`storeDeliverable` uploads the bytes first), so it is never an orphan. */
+const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 
 /**
- * The actual 30-day cleanup. A native Mongo TTL index cannot do this by
- * itself for a GridFS-backed store (see the comment beside the index in
- * database.ts): deleting the metadata row does not cascade to the file's
- * chunks. This sweep is the one that frees the bytes, via the same
- * `bucket.delete()` path a conversation delete uses.
+ * The retention cleanup: bytes, metadata and the message records naming them,
+ * together. This sweep is the only thing that expires a produced file. It
+ * used to share the job with a native 30-day TTL index on the metadata, and
+ * the two raced: the TTL monitor (every minute) deleted a row as soon as it
+ * turned 30 days old, while this sweep (hourly) finds files *through* those
+ * rows, so it usually found nothing and the GridFS bytes stayed for ever.
+ * The TTL indexes are gone (database.ts); `sweepOrphanedDeliverableBytes`
+ * frees what they left behind.
  */
-export async function sweepExpiredDeliverables(): Promise<void> {
-	const cutoff = new Date(Date.now() - DELIVERABLE_TTL_SECONDS * 1000);
-	const stale = await collections.codeExecutionOutputs
-		.find({ createdAt: { $lt: cutoff } })
-		.project<{ _id: ObjectId; gridFsId: ObjectId }>({ gridFsId: 1 })
-		.limit(SWEEP_BATCH)
-		.toArray();
-	if (stale.length === 0) return;
-	logger.info({ count: stale.length }, "[code-execution] sweeping expired deliverables");
-	await deleteRows(stale);
+export async function sweepExpiredDeliverables(
+	now = Date.now(),
+	days = fileRetentionDays()
+): Promise<number> {
+	const cutoff = retentionCutoff(days, now);
+	if (!cutoff) return 0;
+	let removed = 0;
+	for (;;) {
+		const stale = await collections.codeExecutionOutputs
+			.find({ createdAt: { $lt: cutoff } })
+			.project<{ _id: ObjectId; gridFsId: ObjectId }>({ gridFsId: 1 })
+			.limit(SWEEP_BATCH)
+			.toArray();
+		if (stale.length === 0) break;
+		await deleteRows(stale);
+		removed += stale.length;
+		if (stale.length < SWEEP_BATCH) break;
+	}
+	await collections.codeRunFiles.deleteMany({ createdAt: { $lt: cutoff } });
+	if (removed > 0) logger.info({ count: removed }, "[code-execution] swept expired deliverables");
+	return removed;
+}
+
+/**
+ * GridFS files in the deliverables bucket that no metadata row names: what
+ * the old TTL index left behind (see `sweepExpiredDeliverables`), or a
+ * crash between the upload and the row's insert. Nothing can ever read
+ * them — downloads go through the row — so they are deleted, bytes and
+ * chunks, once past a grace period that covers an upload in flight.
+ */
+export async function sweepOrphanedDeliverableBytes(now = Date.now()): Promise<number> {
+	const before = new Date(now - ORPHAN_GRACE_MS);
+	let removed = 0;
+	let after: ObjectId | null = null;
+	for (;;) {
+		const page: Array<{ _id: ObjectId }> = await collections.codeOutputBucket
+			.find(
+				after
+					? { uploadDate: { $lt: before }, _id: { $gt: after } }
+					: { uploadDate: { $lt: before } }
+			)
+			.project<{ _id: ObjectId }>({ _id: 1 })
+			.sort({ _id: 1 })
+			.limit(SWEEP_BATCH)
+			.toArray();
+		if (page.length === 0) break;
+		after = page[page.length - 1]._id;
+		const named = new Set(
+			(
+				await collections.codeExecutionOutputs
+					.find({ gridFsId: { $in: page.map((o) => o._id) } })
+					.project<{ gridFsId: ObjectId }>({ gridFsId: 1 })
+					.toArray()
+			).map((row) => row.gridFsId.toString())
+		);
+		for (const file of page) {
+			if (named.has(file._id.toString())) continue;
+			await collections.codeOutputBucket
+				.delete(file._id)
+				.then(() => {
+					removed += 1;
+				})
+				.catch((err) =>
+					logger.error(
+						{ err, id: file._id.toString() },
+						"[code-execution] failed to delete orphaned deliverable bytes"
+					)
+				);
+		}
+		if (page.length < SWEEP_BATCH) break;
+	}
+	if (removed > 0) {
+		logger.info({ count: removed }, "[code-execution] freed orphaned deliverable bytes");
+	}
+	return removed;
+}
+
+/** What Administration → Storage shows: the store's size, and how much of it a
+ * given retention would remove at the next sweep. */
+export async function deliverableStorageSummary(days: number, now = Date.now()) {
+	const totals = await collections.codeExecutionOutputs
+		.aggregate<{ count: number; bytes: number }>([
+			{ $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: "$size" } } },
+		])
+		.next();
+	const cutoff = retentionCutoff(days, now);
+	const expiring = cutoff
+		? await collections.codeExecutionOutputs
+				.aggregate<{ count: number; bytes: number }>([
+					{ $match: { createdAt: { $lt: cutoff } } },
+					{ $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: "$size" } } },
+				])
+				.next()
+		: null;
+	return {
+		files: totals?.count ?? 0,
+		bytes: totals?.bytes ?? 0,
+		expiring: { files: expiring?.count ?? 0, bytes: expiring?.bytes ?? 0 },
+	};
 }
 
 function sweepIntervalMs(): number {
@@ -237,17 +359,15 @@ export class DeliverableReaper {
 	private static instance: DeliverableReaper;
 
 	private constructor() {
-		const interval = setInterval(() => {
-			sweepExpiredDeliverables().catch((err) =>
-				logger.error({ err }, "[code-execution] deliverable sweep failed")
-			);
-		}, sweepIntervalMs());
+		const sweep = () =>
+			sweepExpiredDeliverables()
+				.then(() => sweepOrphanedDeliverableBytes())
+				.catch((err) => logger.error({ err }, "[code-execution] deliverable sweep failed"));
+		const interval = setInterval(sweep, sweepIntervalMs());
 		interval.unref?.();
 		onExit(() => clearInterval(interval));
 
-		sweepExpiredDeliverables().catch((err) =>
-			logger.error({ err }, "[code-execution] initial deliverable sweep failed")
-		);
+		sweep();
 	}
 
 	public static getInstance(): DeliverableReaper {

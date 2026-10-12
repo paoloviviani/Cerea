@@ -433,6 +433,7 @@ services:
       # "false" (the kill switch); at most this many schedules per person.
       CHAT_SCHEDULES_ENABLED: ${CHAT_SCHEDULES_ENABLED:-}
       CHAT_SCHEDULES_MAX_PER_USER: ${CHAT_SCHEDULES_MAX_PER_USER:-}
+      CHAT_FILE_RETENTION_DAYS: ${CHAT_FILE_RETENTION_DAYS:-}
       # One issuer for all three clients: the machine link reads the same
       # OIDC_ISSUER, OIDC_AUDIENCE and OIDC_MACHINE_CLIENT_ID as the console
       # and the chat.
