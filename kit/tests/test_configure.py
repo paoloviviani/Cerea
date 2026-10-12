@@ -29,6 +29,15 @@ def _load():
 
 
 cfg = _load()
+# The suite makes no network calls: ./configure reaches for the issuer's
+# discovery document at `check_scopes` (via `check_values`) and in
+# `cmd_configure`, and several test classes call `build()`/`check_values()`
+# without the per-test patch `Deploy.setUp` applies. A hard stub answers
+# None — what an unreachable issuer would say — and only the tests that
+# need a document set one (they patch `fetch_discovery` themselves, in
+# `Deploy`). A call that expects a document would fail its assertions, so
+# the stub cannot silently stand in for one.
+cfg.fetch_discovery = lambda issuer, timeout=8.0: None
 TEMPLATE = (ROOT / ".env.example").read_text(encoding="utf-8")
 
 
