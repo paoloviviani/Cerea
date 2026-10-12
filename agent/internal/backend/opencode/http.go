@@ -464,9 +464,18 @@ func (b *Backend) Models(ctx context.Context, _ string) ([]backend.Model, error)
 				model.ContextWindow = getInt(limit, "context")
 				newLimits[id] = model.ContextWindow
 			}
-			if attach := getMap(mm, "attachment"); attach != nil {
-				model.Images = getBool(attach, "image")
-			}
+			// The model's own image claim, read from the shape opencode actually
+			// serves at /config/providers: the resolved entry nests it under
+			// `capabilities`, as the boolean `attachment` beside the input
+			// modality `input.image` (verified against the pinned opencode). The
+			// top-level `attachment` object is an older shape, kept so a backend
+			// that still serves it keeps working. Any affirmative claim counts,
+			// and a model nobody claims anything about stays false — the wire's
+			// fail-closed answer.
+			caps := getMap(mm, "capabilities")
+			model.Images = getBool(caps, "attachment") ||
+				getBool(getMap(caps, "input"), "image") ||
+				getBool(getMap(mm, "attachment"), "image")
 			model.Reasoning = getBool(mm, "reasoning")
 			model.Efforts = variantIDs(getMap(mm, "variants"))
 			if defaults != nil && getStr(defaults, providerID) == modelID {
