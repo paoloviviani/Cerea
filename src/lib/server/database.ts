@@ -1,4 +1,4 @@
-import { GridFSBucket, MongoClient, ReadPreference, type Collection } from "mongodb";
+import { GridFSBucket, MongoClient, ReadPreference, type Collection, type Document } from "mongodb";
 // The mongodb driver require()s these lazily at runtime when the connection
 // string uses authMechanism=MONGODB-AWS (IRSA / web identity in prod). Import
 // them statically so dependency-cleanup passes don't strip them from
@@ -151,6 +151,34 @@ export async function backfillLegacySharedConversationOwners(
 		);
 	}
 	return { attributed, unattributed };
+}
+
+/**
+ * Make `{ createdAt: 1 }` a plain index on a collection whose earlier versions
+ * gave it a TTL (`expireAfterSeconds`). MongoDB 4.4 cannot turn a TTL index
+ * into a plain one in place, so it is dropped and recreated; two pods doing
+ * this at once only make one of them log a harmless "index not found" or
+ * "already exists".
+ */
+export async function replaceTtlIndex<T extends Document>(
+	collection: Collection<T>,
+	label: string
+): Promise<void> {
+	try {
+		const indexes = await collection.indexes().catch(() => []);
+		const ttl = indexes.find(
+			(index) =>
+				index.expireAfterSeconds !== undefined &&
+				JSON.stringify(index.key) === JSON.stringify({ createdAt: 1 })
+		);
+		if (ttl?.name) {
+			await collection.dropIndex(ttl.name);
+			logger.info({ collection: label }, "dropped the createdAt TTL index; retention is swept");
+		}
+		await collection.createIndex({ createdAt: 1 });
+	} catch (e) {
+		logger.error(e, `Error replacing the createdAt TTL index for ${label}`);
+	}
 }
 
 export class Database {
@@ -956,24 +984,25 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for codeExecutionOutputs by conversationId")
 			);
-		// 30-day retention (ADR 0073's amendment). This expires the metadata row;
-		// `DeliverableReaper`'s own sweep is what actually frees the GridFS bytes
-		// (a native TTL index on `codeOutputs.files` would drop the `files` doc
-		// without its `chunks`, since GridFS deletion is not cascading) — this
-		// index is the backstop that still bounds the metadata collection even if
-		// that sweep is not running.
+		// Retention (ADR 0073's amendment, Administration → Storage) is
+		// `DeliverableReaper`'s alone: it deletes bytes, metadata and message
+		// records together. These used to carry a native 30-day TTL, which
+		// raced the reaper — the TTL monitor removed a row the minute it
+		// expired, the hourly reaper finds files through those rows, so the
+		// GridFS bytes were usually left behind for good. An existing TTL index
+		// is dropped and replaced by a plain one the sweep's range query uses.
+		void replaceTtlIndex(codeExecutionOutputs, "codeExecutionOutputs");
+		// The sweep for orphaned bytes asks which files a row still names.
 		codeExecutionOutputs
-			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
-			.catch((e) => logger.error(e, "Error creating TTL index for codeExecutionOutputs"));
+			.createIndex({ gridFsId: 1 })
+			.catch((e) => logger.error(e, "Error creating index for codeExecutionOutputs by gridFsId"));
 
 		// One record per distinct output of a run, and the loader's lookup.
 		codeRunFiles
 			.createIndex({ conversationId: 1, messageId: 1, runKey: 1, fingerprint: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for codeRunFiles"));
-		// The same 30-day retention as the bytes they name.
-		codeRunFiles
-			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
-			.catch((e) => logger.error(e, "Error creating TTL index for codeRunFiles"));
+		// The same retention as the bytes they name, swept with them.
+		void replaceTtlIndex(codeRunFiles, "codeRunFiles");
 
 		codeAudit
 			.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })

@@ -27,7 +27,7 @@ runs on the deployment, and the files the code opens never leave your browser.
   type allows, a preview (text, images, PDF, Word). When a file is what you
   asked for, the file is the answer and the code folds away behind a
   disclosure. A run lists only the files it **created or changed**. Every
-  listed file is kept with the conversation for 30 days and shows up as an
+  listed file is kept with the conversation for 30 days (or what Administration → Storage says) and shows up as an
   [artifact](artifacts.md).
 - **Ask for charts.** See [Charts](#charts) below.
 
@@ -104,7 +104,7 @@ version of the same artifact, not a new one.
 | First run | loads the runtime (about 12 MB) once; later runs start immediately                                                                  |
 | Listing   | at most 200 files listed per run                                                                                                    |
 | Figures   | at most 20 per run                                                                                                                  |
-| Retention | files a run produced are kept 30 days                                                                                               |
+| Retention | files a run produced are kept 30 days by default; Administration → Storage changes it                                               |
 
 ## Installing more packages
 

@@ -17,6 +17,7 @@
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import IconBook from "~icons/carbon/book";
+	import IconDataBase from "~icons/carbon/data-base";
 	import IconDocument from "~icons/carbon/document";
 	import IconLaunch from "~icons/carbon/launch";
 	import IconPlug from "~icons/carbon/plug";
@@ -38,6 +39,7 @@
 		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
 		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
 		{ href: "/admin/skills", label: "Skills", icon: IconDocument },
+		{ href: "/admin/storage", label: "Storage", icon: IconDataBase },
 	]);
 
 	const current = $derived(page.url.pathname);

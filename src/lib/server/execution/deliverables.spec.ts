@@ -1,14 +1,18 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ObjectId } from "mongodb";
-import { collections, ready } from "$lib/server/database";
+import { collections, ready, replaceTtlIndex } from "$lib/server/database";
 import {
 	MAX_DELIVERABLE_BYTES,
 	MAX_DELIVERABLE_TOTAL_BYTES_PER_CONVERSATION,
 	MAX_DELIVERABLES_PER_CONVERSATION,
+	DEFAULT_RETENTION_DAYS,
 	deleteConversationDeliverables,
+	deliverableStorageSummary,
 	downloadDeliverable,
+	parseRetentionDays,
 	storeDeliverable,
 	sweepExpiredDeliverables,
+	sweepOrphanedDeliverableBytes,
 } from "./deliverables";
 
 beforeAll(async () => {
@@ -319,17 +323,136 @@ describe("sweepExpiredDeliverables", () => {
 	});
 });
 
-describe("the codeExecutionOutputs TTL index", () => {
-	it("expires rows 30 days after createdAt", async () => {
-		// Index creation at startup is fire-and-forget (database.ts), so re-assert
-		// it here rather than racing that: `createIndex` is idempotent and
-		// confirms the same definition this app relies on at startup.
-		await collections.codeExecutionOutputs.createIndex(
+describe("retention is configurable", () => {
+	const DAY = 24 * 60 * 60 * 1000;
+
+	async function storeAged(name: string, ageDays: number) {
+		const conversationId = newConversationId();
+		const stored = await storeDeliverable({
+			conversationId,
+			name,
+			mime: "text/plain",
+			bytes: Buffer.from(`${name}-${Math.random()}`),
+		});
+		if (!stored.ok) throw new Error("store failed");
+		await collections.codeExecutionOutputs.updateOne(
+			{ conversationId, sha256: stored.ref.sha256 },
+			{ $set: { createdAt: new Date(Date.now() - ageDays * DAY) } }
+		);
+		return { conversationId, sha256: stored.ref.sha256 };
+	}
+
+	it("reads the setting, and an unreadable value as the default", () => {
+		expect(parseRetentionDays(undefined)).toBe(DEFAULT_RETENTION_DAYS);
+		expect(parseRetentionDays("")).toBe(DEFAULT_RETENTION_DAYS);
+		expect(parseRetentionDays("90")).toBe(90);
+		expect(parseRetentionDays("0")).toBe(0);
+		expect(parseRetentionDays("-3")).toBe(DEFAULT_RETENTION_DAYS);
+		expect(parseRetentionDays("7.5")).toBe(DEFAULT_RETENTION_DAYS);
+		expect(parseRetentionDays("forever")).toBe(DEFAULT_RETENTION_DAYS);
+		expect(parseRetentionDays("99999")).toBe(DEFAULT_RETENTION_DAYS);
+	});
+
+	it("a shorter period removes what it no longer covers, bytes included", async () => {
+		const old = await storeAged("ten-days.txt", 10);
+		const fresh = await storeAged("two-days.txt", 2);
+		await sweepExpiredDeliverables(Date.now(), 7);
+		expect(await downloadDeliverable(old.conversationId, old.sha256)).toBeUndefined();
+		expect(await downloadDeliverable(fresh.conversationId, fresh.sha256)).toBeDefined();
+	});
+
+	it("0 keeps everything, however old", async () => {
+		const ancient = await storeAged("ancient.txt", 400);
+		expect(await sweepExpiredDeliverables(Date.now(), 0)).toBe(0);
+		expect(await downloadDeliverable(ancient.conversationId, ancient.sha256)).toBeDefined();
+	});
+
+	it("removes the message records naming expired files with them", async () => {
+		const old = await storeAged("named.txt", 40);
+		await collections.codeRunFiles.insertOne({
+			_id: new ObjectId(),
+			conversationId: old.conversationId,
+			messageId: "m1",
+			runKey: "r1",
+			fingerprint: "f1",
+			files: [],
+			createdAt: new Date(Date.now() - 40 * DAY),
+		} as never);
+		await sweepExpiredDeliverables(Date.now(), 30);
+		expect(
+			await collections.codeRunFiles.countDocuments({ conversationId: old.conversationId })
+		).toBe(0);
+	});
+
+	it("reports what a period would remove before anybody saves it", async () => {
+		const conversationIds = [await storeAged("a.txt", 50), await storeAged("b.txt", 5)];
+		const summary = await deliverableStorageSummary(30);
+		expect(summary.files).toBeGreaterThanOrEqual(2);
+		expect(summary.expiring.files).toBeGreaterThanOrEqual(1);
+		const forever = await deliverableStorageSummary(0);
+		expect(forever.expiring.files).toBe(0);
+		expect(conversationIds).toHaveLength(2);
+	});
+});
+
+describe("orphaned deliverable bytes", () => {
+	it("frees GridFS files no metadata row names, once past the grace period", async () => {
+		const conversationId = newConversationId();
+		const stored = await storeDeliverable({
+			conversationId,
+			name: "orphan.txt",
+			mime: "text/plain",
+			bytes: Buffer.from(`orphan-${Math.random()}`),
+		});
+		if (!stored.ok) throw new Error("store failed");
+		const row = await collections.codeExecutionOutputs.findOne({
+			conversationId,
+			sha256: stored.ref.sha256,
+		});
+		if (!row) throw new Error("no row");
+		// What the old TTL index did: the row goes, the bytes stay.
+		await collections.codeExecutionOutputs.deleteOne({ _id: row._id });
+		expect(await collections.codeOutputBucket.find({ _id: row.gridFsId }).toArray()).toHaveLength(
+			1
+		);
+
+		// Inside the grace period an upload may still be waiting for its row.
+		await sweepOrphanedDeliverableBytes(Date.now());
+		expect(await collections.codeOutputBucket.find({ _id: row.gridFsId }).toArray()).toHaveLength(
+			1
+		);
+
+		await sweepOrphanedDeliverableBytes(Date.now() + 2 * 60 * 60 * 1000);
+		expect(await collections.codeOutputBucket.find({ _id: row.gridFsId }).toArray()).toHaveLength(
+			0
+		);
+	});
+
+	it("never frees bytes a row still names", async () => {
+		const conversationId = newConversationId();
+		const stored = await storeDeliverable({
+			conversationId,
+			name: "kept.txt",
+			mime: "text/plain",
+			bytes: Buffer.from(`kept-${Math.random()}`),
+		});
+		if (!stored.ok) throw new Error("store failed");
+		await sweepOrphanedDeliverableBytes(Date.now() + 2 * 60 * 60 * 1000);
+		expect(await downloadDeliverable(conversationId, stored.ref.sha256)).toBeDefined();
+	});
+});
+
+describe("the createdAt indexes are plain, not TTL", () => {
+	it("replaces an earlier TTL index with a plain one", async () => {
+		// What an existing deployment has: the 30-day TTL this release removes.
+		await collections.codeRunFiles.dropIndex("createdAt_1").catch(() => undefined);
+		await collections.codeRunFiles.createIndex(
 			{ createdAt: 1 },
 			{ expireAfterSeconds: 30 * 24 * 60 * 60 }
 		);
-		const indexes = await collections.codeExecutionOutputs.indexes();
-		const ttl = indexes.find((i) => i.key?.createdAt === 1 && "expireAfterSeconds" in i);
-		expect(ttl?.expireAfterSeconds).toBe(30 * 24 * 60 * 60);
+		await replaceTtlIndex(collections.codeRunFiles, "codeRunFiles");
+		const index = (await collections.codeRunFiles.indexes()).find((i) => i.key?.createdAt === 1);
+		expect(index).toBeDefined();
+		expect(index && "expireAfterSeconds" in index).toBe(false);
 	});
 });

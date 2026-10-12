@@ -5,6 +5,20 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Administration → Storage: how long produced files are kept.** Files the
+  assistant's code writes (documents, spreadsheets, charts) were kept a fixed
+  30 days. The new **Storage** tab sets the period, or **Never expire**, and
+  says how many files a shorter period would delete before it is saved.
+  `CHAT_FILE_RETENTION_DAYS` sets the default from the environment (empty: 30).
+- **Expired produced files now free their bytes.** The fixed 30 days was
+  enforced twice, by a database TTL on the files' records and by an hourly
+  sweep that finds the files through those records; the TTL usually won, so
+  the bytes were left in GridFS for good. The sweep alone expires files now,
+  bytes and records together, and also frees the bytes already orphaned (on
+  the first start, after an hour's grace for uploads in flight).
+
 ## v0.10.14 — 2026-10-12
 
 Pins: Cerea `0.10.14`, Pystino `0.4.2`, Authelia 4.39.22. Only the chat

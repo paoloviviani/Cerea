@@ -33,6 +33,7 @@ server; the page's gate is for navigation, never a permission.
 | **Fetching**   | Which backend fetches a URL: a plain HTTPS request, or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                            |
 | **Connectors** | MCP servers offered to everybody: see [Connectors](connectors.md#connectors-for-everybody)                                                                                                                              |
 | **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                   |
+| **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                     |
 
 **Knowledge** puts the configuration and its consequences together on purpose.
 Changing the embedding model touches **no existing base**: each pins the model
@@ -55,6 +56,21 @@ not search for it, you fetch it, and the only question is what does the
 reading. Selecting the headless browser before its service is up is a legitimate
 order of operations, so the health check warns and never locks the setting. The
 status meanings are on the [browser page](browser.md#turning-it-on).
+
+## Storage
+
+How many days the files the assistant's code produces (documents,
+spreadsheets, PDFs, charts from the [Python sandbox](pyodide.md)) are kept:
+30 unless changed, or **Never expire**, which keeps them until their
+conversation is deleted. Text artifacts and uploaded attachments are not
+affected: they live with their conversation and never expire.
+
+The screen shows how many produced files are stored and their size. Before a
+shorter period is saved it says how many files it would delete, because those
+go at the next sweep (within the hour) and cannot be recovered. A longer
+period, or none, keeps everything that still exists. The value is stored in the
+chat's configuration and overrides `CHAT_FILE_RETENTION_DAYS`; with
+`ENABLE_CONFIG_MANAGER` off it can only be set in the environment.
 
 ## Everything else is the console
 

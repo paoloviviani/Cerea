@@ -47,7 +47,7 @@ in panel**.
 
 - **Versions follow the name.** When you ask for a change and the assistant writes `report.pdf` again, that is v2 of the same artifact; an identical file adds nothing.
 - **A card always opens what it showed.** An older card in the conversation opens the version it produced at the time, even after later versions exist; the panel moves you between versions.
-- **Produced files are kept for 30 days**, per person, and survive reloads and
+- **Produced files are kept for 30 days** by default (an administrator sets the period, or no expiry, under [Administration → Storage](chat-admin.md#storage)), per person, and survive reloads and
   other devices, so a chart or a document is still there the next day, however the assistant ran the code.
 
 ### Images
@@ -69,4 +69,4 @@ artifact in the panel with its versions and preview; each file has its own
 **Download**, and the list has a reload button.
 
 The panel is **per conversation**: it lists the open chat's files, not other
-conversations', and files older than 30 days are gone.
+conversations', and files older than the retention period are gone.
