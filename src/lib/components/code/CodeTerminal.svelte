@@ -471,23 +471,32 @@
 				text: string,
 				onclick: () => void,
 				pressed?: boolean,
-				wide = false
+				filled = false,
+				span = 1
 			)}
 				<button
 					type="button"
 					aria-label={label}
 					aria-pressed={pressed}
-					class="flex h-8 min-w-0 items-center justify-center rounded-md text-xs {wide
-						? 'col-span-2 bg-blue-600 font-medium text-white dark:bg-blue-500'
+					class="flex h-8 min-w-0 items-center justify-center rounded-md text-xs {filled
+						? 'bg-blue-600 font-medium text-white dark:bg-blue-500'
 						: pressed
 							? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
-							: 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}"
+							: 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'} {span ===
+					3
+						? 'col-span-3'
+						: span === 2
+							? 'col-span-2'
+							: ''}"
 					onpointerdown={(e) => e.preventDefault()}
 					{onclick}
 				>
 					{text}
 				</button>
 			{/snippet}
+			<!-- Three full rows of nine. Modifiers and motion first, then the
+			     punctuation a shell actually asks for, then the control actions
+			     with Type (the typing-mode toggle) anchoring the last row. -->
 			{@render key("Escape", "Esc", () => sendKey("\x1b"))}
 			{@render key("Tab", "Tab", () => sendKey("\t"))}
 			{@render key("Control", "Ctrl", toggleCtrl, ctrlSticky)}
@@ -500,15 +509,22 @@
 			{@render key("Tilde", "~", () => sendKey("~"))}
 			{@render key("Slash", "/", () => sendKey("/"))}
 			{@render key("Hyphen", "-", () => sendKey("-"))}
+			{@render key("Dollar", "$", () => sendKey("$"))}
+			{@render key("Redirect", ">", () => sendKey(">"))}
+			{@render key("Double quote", '"', () => sendKey('"'))}
+			{@render key("Single quote", "'", () => sendKey("'"))}
+			{@render key("Glob", "*", () => sendKey("*"))}
+			{@render key("Ampersand", "&", () => sendKey("&"))}
 			{@render key("Send Ctrl+C", "^C", () => sendControlByte(0x03))}
 			{@render key("Send Ctrl+D", "^D", () => sendControlByte(0x04))}
+			{@render key("Kill line", "^U", () => sendControlByte(0x15))}
 			{@render key("Paste", "Paste", () => void pasteFromClipboard())}
 			{@render key("Decrease font size", "A−", () => changeFontSize(-1))}
 			{@render key("Increase font size", "A+", () => changeFontSize(1))}
 			{#if typingMode}
-				{@render key("Done", "Done", exitTypingMode, undefined, true)}
+				{@render key("Done", "Done", exitTypingMode, undefined, true, 3)}
 			{:else}
-				{@render key("Type", "Type", enterTypingMode, undefined, true)}
+				{@render key("Type", "Type", enterTypingMode, undefined, true, 3)}
 			{/if}
 		</div>
 	{/if}
