@@ -50,6 +50,22 @@ vi.mock("$lib/server/identity/gatewayIdentity", async () => {
 	return { ...actual, me: async () => meAnswer };
 });
 
+// Whether the connection's token still validates on its own (the
+// revalidation's second question when the gateway refuses): "valid" by
+// default, so the account-refused tests revoke as before.
+let tokenCheck: "valid" | "invalid" | "unknown" = "valid";
+vi.mock("./machineAuth", async () => {
+	const actual = await vi.importActual<typeof import("./machineAuth")>("./machineAuth");
+	return {
+		...actual,
+		validateMachineToken: async () => {
+			if (tokenCheck === "valid") return { sub: "s", iss: "i", exp: 0 };
+			if (tokenCheck === "invalid") throw new actual.MachineAuthError(401, "revoked at the IdP");
+			throw new Error("issuer unreachable");
+		},
+	};
+});
+
 const { acceptMachineConnection, revalidateLiveMachineConnections, isMachineOnline } =
 	await import("./machines");
 const { resetMachineUserCacheForTests } = await import("./machineAuth");
@@ -104,6 +120,7 @@ beforeEach(async () => {
 		},
 	};
 	resetMachineUserCacheForTests();
+	tokenCheck = "valid";
 });
 
 let openMachines: FakeMachine[] = [];
@@ -146,6 +163,39 @@ describe("revalidateLiveMachineConnections", () => {
 		expect(device?.status).toBe("revoked");
 		expect(device?.revokedReason).toBe("account_disabled");
 		expect(device?.revokedAt).toBeInstanceOf(Date);
+	});
+
+	it("asks the machine to renew, and revokes nothing, when the refused token itself no longer validates", async () => {
+		// GitLab revokes the previous access token on refresh: for a moment the
+		// connection holds a token the gateway refuses while the machine is fine.
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		const closed = waitForClose(machine);
+
+		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
+		tokenCheck = "invalid";
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(4401);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).not.toBe("revoked");
+		expect(device?.revokedAt).toBeUndefined();
+	});
+
+	it("revokes nothing when the token cannot be checked at all", async () => {
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		const closed = waitForClose(machine);
+
+		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
+		tokenCheck = "unknown";
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(1013);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).not.toBe("revoked");
 	});
 
 	it("revokes when sessions_valid_after postdates the device's own enrolment", async () => {

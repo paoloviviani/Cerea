@@ -28,7 +28,8 @@ type Credential interface {
 	Token(ctx context.Context) (string, error)
 	// ForceRefresh refreshes regardless of the cached token's remaining
 	// lifetime — used after Cerea answers 4401, which means the token it
-	// saw was already unacceptable, skew or not.
+	// saw was already unacceptable, skew or not, and by the renewal loop,
+	// whose whole point is a new token at ~70% of the old one's life.
 	ForceRefresh(ctx context.Context) (string, error)
 	// NextRenewal is when the link should proactively renew and push a
 	// fresh auth frame — nominally ~70% of the current token's lifetime.
@@ -434,13 +435,30 @@ func (l *Link) setPaired(v bool) {
 	l.mu.Unlock()
 }
 
+// minRenewalGap bounds how often the loop may push an auth frame, whatever
+// NextRenewal says: a renewal instant that stays in the past (a credential
+// that cannot move it on) must cost one frame a minute, not a flood.
+const minRenewalGap = time.Minute
+
 // renewalLoop proactively renews the access token at ~70% of its lifetime
 // (PROTOCOL.md §3) and pushes an auth frame, for as long as this connection
 // lives.
+//
+// A due renewal ROTATES the token (ForceRefresh). It used to ask Token, which
+// hands back the cached token until its last minute: the same token was
+// pushed, NextRenewal stayed in the past, and the loop pushed it again with no
+// wait until the token nearly expired, thousands of frames the chat checked
+// one by one (for GitLab's opaque tokens, a token-info call each). The real
+// rotation then queued behind them, while GitLab, which revokes the old
+// access token on refresh, already refused the token the chat still held, so
+// the chat's revalidation revoked the device.
 func (l *Link) renewalLoop(ctx context.Context) {
+	var last time.Time
 	for {
-		next := l.cfg.Cred.NextRenewal()
-		wait := time.Until(next)
+		wait := time.Until(l.cfg.Cred.NextRenewal())
+		if gap := minRenewalGap - time.Since(last); !last.IsZero() && wait < gap {
+			wait = gap
+		}
 		if wait < 0 {
 			wait = 0
 		}
@@ -449,7 +467,8 @@ func (l *Link) renewalLoop(ctx context.Context) {
 			return
 		case <-time.After(wait):
 		}
-		token, err := l.cfg.Cred.Token(ctx)
+		last = time.Now()
+		token, err := l.cfg.Cred.ForceRefresh(ctx)
 		if err != nil {
 			l.cfg.Logf("link: token renewal failed: %v", err)
 			continue

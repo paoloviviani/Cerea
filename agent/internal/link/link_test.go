@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -272,4 +274,102 @@ func TestPublishEventSendsFrame(t *testing.T) {
 	if gotEvent["rootSessionId"] != "root1" {
 		t.Errorf("event.rootSessionId = %v, want root1", gotEvent["rootSessionId"])
 	}
+}
+
+// rotatingCred models the shim: Token returns the cached token until it is
+// within its skew of expiry, ForceRefresh rotates it and moves NextRenewal
+// on, as a real refresh does. Its renewal starts already due.
+type rotatingCred struct {
+	mu       sync.Mutex
+	n        int
+	next     time.Time
+	forced   int
+	tokenHit int
+}
+
+func (c *rotatingCred) Token(context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tokenHit++
+	return fmt.Sprintf("tok-%d", c.n), nil
+}
+
+func (c *rotatingCred) ForceRefresh(context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.forced++
+	c.n++
+	c.next = time.Now().Add(time.Hour)
+	return fmt.Sprintf("tok-%d", c.n), nil
+}
+
+func (c *rotatingCred) NextRenewal() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.next
+}
+
+// TestRenewalRotatesOnceInsteadOfFlooding pins the renewal fix. The loop used
+// to call Token at 70% of the lifetime; Token returned the same, unexpired
+// token, the renewal instant stayed in the past, and the loop pushed that same
+// token again and again with no wait until the last minute of its life — a
+// flood the chat validated one by one (for GitLab, a token-info call each),
+// with the real rotation queued behind it. A due renewal now rotates the token
+// (ForceRefresh) and pushes it once.
+func TestRenewalRotatesOnceInsteadOfFlooding(t *testing.T) {
+	cred := &rotatingCred{next: time.Now().Add(-time.Minute)}
+	auths := make(chan string, 1000)
+	srv := newFakeCereaServer(t, func(sc *serverConn, r *http.Request) {
+		sc.readType("hello")
+		sc.send(map[string]any{"type": "welcome", "deviceId": "dev1", "status": "paired"})
+		for {
+			_, raw, err := sc.conn.Read(context.Background())
+			if err != nil {
+				return
+			}
+			var m map[string]any
+			if json.Unmarshal(raw, &m) == nil && m["type"] == "auth" {
+				auths <- fmt.Sprint(m["token"])
+			}
+		}
+	})
+	l := New(Config{
+		CereaOrigin: srv.URL,
+		MachineID:   "machine-123",
+		MachineName: "test box",
+		Cred:        cred,
+		Hello:       func() Hello { return Hello{} },
+		Handler:     &fakeHandler{calls: make(chan string, 4)},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go func() { _ = l.Run(ctx) }()
+	time.Sleep(700 * time.Millisecond)
+	cancel()
+
+	var got []string
+	for {
+		select {
+		case tok := <-auths:
+			got = append(got, tok)
+			continue
+		default:
+		}
+		break
+	}
+	if len(got) != 1 || got[0] != "tok-1" {
+		t.Fatalf("auth frames = %d (%v…), want exactly one, with the rotated token tok-1", len(got), head(got))
+	}
+	cred.mu.Lock()
+	defer cred.mu.Unlock()
+	if cred.forced != 1 {
+		t.Errorf("ForceRefresh calls = %d, want 1", cred.forced)
+	}
+}
+
+func head(s []string) []string {
+	if len(s) > 3 {
+		return s[:3]
+	}
+	return s
 }

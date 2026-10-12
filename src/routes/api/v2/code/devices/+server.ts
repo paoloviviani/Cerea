@@ -78,9 +78,15 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 	// rather than a refusal, so ids stay unguessable either way. The row
 	// survives as a tombstone (spec §4) — deleting it would let the same
 	// machineId re-pair silently on its next connect.
+	// A row the gateway revoked (`revokedAt`) is listed with its re-enroll
+	// banner; removing it clears that mark, so it becomes the same hidden
+	// tombstone an owner's own revoke leaves, still refusing its machineId.
 	const result = await collections.codeDevices.updateOne(
 		{ _id: objectId, userId: locals.user?._id },
-		{ $set: { status: "revoked", updatedAt: new Date() } }
+		{
+			$set: { status: "revoked", updatedAt: new Date() },
+			$unset: { revokedAt: "", revokedReason: "" },
+		}
 	);
 	if (result.matchedCount === 0) error(404, "No such paired device.");
 	dropMachineConnection(id.data, 4403, "revoked by owner");

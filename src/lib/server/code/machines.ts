@@ -18,8 +18,10 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import {
+	MachineAuthError,
 	resolveMachineUser,
 	revalidateMachineAuth,
+	validateMachineToken,
 	type MachinePrincipal,
 } from "$lib/server/code/machineAuth";
 import {
@@ -238,7 +240,31 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			if (!staleEnrolment) continue;
 			await revokeAndClose(state, "sessions_valid_after");
 		} else if (resolution.refused) {
-			await revokeAndClose(state, resolution.message);
+			// A refusal of the TOKEN is not a refusal of the ACCOUNT. The
+			// gateway answers 401 alike for "this person is disabled" and "this
+			// token is no longer good", and only the first should revoke the
+			// device. A token can stop being good while the machine is fine: an
+			// IdP that revokes the previous access token on refresh (GitLab's
+			// Doorkeeper does) refuses the one this connection still holds in
+			// the moment before the machine's renewal lands. So the token is
+			// checked on its own first: if it no longer validates, the link is
+			// closed with 4401 (the machine refreshes and reconnects) and nothing
+			// is revoked. Only a token that still validates, refused by the
+			// gateway, means the account was refused.
+			const verdict = await tokenVerdict(state.token);
+			if (verdict === "valid") {
+				await revokeAndClose(state, resolution.message);
+			} else if (verdict === "invalid") {
+				logger.info(
+					{ deviceId: state.deviceId },
+					"machine link: the gateway refused a token that no longer validates; asking the machine to renew"
+				);
+				closeConnection(state, 4401, "token no longer valid; renew and reconnect");
+			} else {
+				// The issuer could not be asked: cannot tell the two apart, so
+				// close for a reconnect and leave the device enrolled.
+				closeConnection(state, 1013, "could not check the token; reconnect shortly");
+			}
 		} else {
 			// Unreachable, past the bounded fail-open: close, but the device
 			// stays enrolled — the machine reconnects on its own once the
@@ -249,6 +275,18 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			);
 			closeConnection(state, 1013, "the gateway is unreachable; reconnect shortly");
 		}
+	}
+}
+
+/** Whether a connection's token still validates on its own (machineAuth's
+ * own checks: signature or token info, issuer, client, expiry): "unknown"
+ * when the issuer could not be reached. */
+async function tokenVerdict(token: string): Promise<"valid" | "invalid" | "unknown"> {
+	try {
+		await validateMachineToken(token);
+		return "valid";
+	} catch (err) {
+		return err instanceof MachineAuthError ? "invalid" : "unknown";
 	}
 }
 
