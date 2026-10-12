@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.14 — 2026-10-12
+
+Pins: Cerea `0.10.14`, Pystino `0.4.2`, Authelia 4.39.22. Only the chat
+changes: `docker compose pull && docker compose up -d`; machines need no
+galopin update.
 
 - **A GitLab-enrolled machine connects.** After a successful enroll, the
   machine's link to the chat was refused with HTTP 401 on every attempt: the
