@@ -5,11 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.13 — 2026-10-12
 
-**Machines need the galopin update** (install step only, then
-`systemctl --user restart galopin`) and **the gateway needs Pystino 0.4.2**
-for these fixes.
+Pins: Cerea `0.10.13`, Pystino `0.4.2`, Authelia 4.39.22. **Machines need the
+galopin update** (install step only, then `systemctl --user restart galopin`)
+and the deployment needs the new gateway (`docker compose pull && docker
+compose up -d`) for these fixes.
 
 - **Agent machines enroll with GitLab.** GitLab's discovery lists the device
   grant but not its device endpoint, so a headless `galopin enroll` stopped at
