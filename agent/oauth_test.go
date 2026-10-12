@@ -157,3 +157,85 @@ func TestAccessExpiryDecidesRefresh(t *testing.T) {
 		t.Fatalf("zero lifetime did not default conservative: %v", got.Sub(now))
 	}
 }
+
+// TestFetchDiscoveryDerivesGitLabDeviceEndpoint pins the GitLab case: its
+// discovery lists the device_code grant but no device_authorization_endpoint,
+// while Doorkeeper serves the endpoint at /oauth/authorize_device beside
+// /oauth/authorize (checked against gitlab.linksfoundation.com on 2026-10-12:
+// POST there answers 401 for an unknown client, not 404). Without the
+// derivation a headless enroll stopped at "no device endpoint advertised".
+func TestFetchDiscoveryDerivesGitLabDeviceEndpoint(t *testing.T) {
+	cases := []struct {
+		name   string
+		doc    map[string]any
+		wanted string
+	}{
+		{"gitlab: grant listed, endpoint missing", map[string]any{
+			"authorization_endpoint": "https://gitlab.example.org/oauth/authorize",
+			"token_endpoint":         "https://gitlab.example.org/oauth/token",
+			"grant_types_supported":  []string{"authorization_code", "device_code", "refresh_token"},
+		}, "https://gitlab.example.org/oauth/authorize_device"},
+		{"rfc grant name", map[string]any{
+			"authorization_endpoint": "https://idp.example.org/sub/oauth/authorize",
+			"token_endpoint":         "https://idp.example.org/sub/oauth/token",
+			"grant_types_supported":  []string{"urn:ietf:params:oauth:grant-type:device_code"},
+		}, "https://idp.example.org/sub/oauth/authorize_device"},
+		{"advertised endpoint wins", map[string]any{
+			"authorization_endpoint":        "https://gitlab.example.org/oauth/authorize",
+			"token_endpoint":                "https://gitlab.example.org/oauth/token",
+			"device_authorization_endpoint": "https://gitlab.example.org/custom/device",
+			"grant_types_supported":         []string{"device_code"},
+		}, "https://gitlab.example.org/custom/device"},
+		{"no device grant: nothing guessed", map[string]any{
+			"authorization_endpoint": "https://gitlab.example.org/oauth/authorize",
+			"token_endpoint":         "https://gitlab.example.org/oauth/token",
+			"grant_types_supported":  []string{"authorization_code"},
+		}, ""},
+		{"not doorkeeper-shaped: nothing guessed", map[string]any{
+			"authorization_endpoint": "https://idp.example.org/protocol/openid-connect/auth",
+			"token_endpoint":         "https://idp.example.org/protocol/openid-connect/token",
+			"grant_types_supported":  []string{"device_code"},
+		}, ""},
+	}
+	for _, tc := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(tc.doc)
+		}))
+		doc, err := fetchDiscovery(context.Background(), server.URL)
+		server.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if doc.DeviceAuthorizationEndpoint != tc.wanted {
+			t.Errorf("%s: device endpoint = %q, want %q", tc.name, doc.DeviceAuthorizationEndpoint, tc.wanted)
+		}
+		if derived := tc.wanted != "" && tc.doc["device_authorization_endpoint"] == nil; doc.DeviceEndpointDerived != derived {
+			t.Errorf("%s: derived = %v, want %v", tc.name, doc.DeviceEndpointDerived, derived)
+		}
+	}
+}
+
+// TestApplyDeviceEndpointOverride: --device-endpoint replaces whatever
+// discovery said (or did not say), and must be https unless it is loopback.
+func TestApplyDeviceEndpointOverride(t *testing.T) {
+	doc := &discovery{AuthorizationEndpoint: "https://idp/oauth/authorize"}
+	if err := applyDeviceEndpointOverride(doc, "https://idp.example.org/oauth/authorize_device"); err != nil {
+		t.Fatal(err)
+	}
+	if doc.DeviceAuthorizationEndpoint != "https://idp.example.org/oauth/authorize_device" || doc.DeviceEndpointDerived {
+		t.Fatalf("override not applied: %+v", doc)
+	}
+	if err := applyDeviceEndpointOverride(&discovery{}, "http://idp.example.org/device"); err == nil {
+		t.Error("plain http to a remote host was accepted")
+	}
+	if err := applyDeviceEndpointOverride(&discovery{}, "http://127.0.0.1:9000/device"); err != nil {
+		t.Errorf("loopback http refused: %v", err)
+	}
+	if err := applyDeviceEndpointOverride(&discovery{}, "not a url"); err == nil {
+		t.Error("garbage accepted")
+	}
+	unchanged := &discovery{DeviceAuthorizationEndpoint: "https://keep"}
+	if err := applyDeviceEndpointOverride(unchanged, ""); err != nil || unchanged.DeviceAuthorizationEndpoint != "https://keep" {
+		t.Errorf("an empty override changed the document: %+v, %v", unchanged, err)
+	}
+}

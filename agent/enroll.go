@@ -18,7 +18,8 @@ const enrollUsage = `galopin enroll — sign in and write the opencode setup.
 
 Usage:
   galopin enroll [--issuer URL] [--gateway URL] [--client-id ID]
-                [--device | --loopback] [--group NAME] [--output PATH]
+                [--device | --loopback] [--device-endpoint URL]
+                [--group NAME] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
                 [--allow-opencode-provider] [--yes]
 
@@ -31,6 +32,9 @@ Usage:
   --client-id  OAuth client id (default opencode-enrollment: the id baked
                into both bundled IdPs, so it must match on either).
   --device     Force the device flow (headless boxes).
+  --device-endpoint URL  The IdP's device authorization endpoint, when its
+               discovery does not advertise one. GitLab's is derived
+               (<issuer>/oauth/authorize_device) and needs no flag.
   --loopback   Force the loopback browser flow (laptops).
   --group      Preselect the billing group (else prompted when several).
   --output     Where to write opencode.json (default: opencode.json beside
@@ -143,6 +147,7 @@ type enrollOptions struct {
 	cerea                  string
 	clientID               string
 	device                 bool
+	deviceEndpoint         string
 	loopback               bool
 	group                  string
 	output                 string
@@ -200,6 +205,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.StringVar(&opts.cerea, "cerea", "", "")
 	fs.StringVar(&opts.clientID, "client-id", "opencode-enrollment", "")
 	fs.BoolVar(&opts.device, "device", false, "")
+	fs.StringVar(&opts.deviceEndpoint, "device-endpoint", "", "")
 	fs.BoolVar(&opts.loopback, "loopback", false, "")
 	fs.StringVar(&opts.group, "group", "", "")
 	fs.StringVar(&opts.output, "output", "", "")
@@ -296,9 +302,16 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		return err
 	}
 
+	if err := applyDeviceEndpointOverride(doc, opts.deviceEndpoint); err != nil {
+		return err
+	}
 	useDevice, err := selectFlow(doc, opts.device, opts.loopback)
 	if err != nil {
 		return err
+	}
+	if useDevice && doc.DeviceEndpointDerived {
+		fmt.Fprintf(os.Stderr, "note: the identity provider does not advertise a device endpoint; using %s (GitLab's). Pass --device-endpoint to name another.\n",
+			doc.DeviceAuthorizationEndpoint)
 	}
 	if scope, dropped := requestScopes(doc); len(dropped) > 0 {
 		fmt.Fprintf(os.Stderr, "note: the identity provider does not list the scope(s) %s; asking for %q instead.\n",
@@ -468,7 +481,7 @@ func selectFlow(doc *discovery, forceDevice, forceLoopback bool) (bool, error) {
 	switch {
 	case forceDevice:
 		if doc.DeviceAuthorizationEndpoint == "" {
-			return false, fmt.Errorf("device flow requested but discovery names no device authorization endpoint")
+			return false, fmt.Errorf("device flow requested but discovery names no device authorization endpoint: pass --device-endpoint URL")
 		}
 		return true, nil
 	case forceLoopback:
@@ -481,7 +494,7 @@ func selectFlow(doc *discovery, forceDevice, forceLoopback bool) (bool, error) {
 	case doc.DeviceAuthorizationEndpoint != "":
 		return true, nil
 	case doc.AuthorizationEndpoint != "":
-		return false, fmt.Errorf("no display detected and no device endpoint advertised: re-run with --loopback on a machine with a browser")
+		return false, fmt.Errorf("no display detected and no device endpoint advertised: pass --device-endpoint URL if the identity provider has one, or re-run with --loopback on a machine with a browser")
 	default:
 		return false, fmt.Errorf("discovery names neither an authorization nor a device endpoint")
 	}

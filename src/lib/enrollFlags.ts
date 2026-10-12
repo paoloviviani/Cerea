@@ -34,6 +34,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "client-id", kind: "string", default: "opencode-enrollment", exposed: false },
 	{ flag: "creds", kind: "string", default: "", exposed: false },
 	{ flag: "device", kind: "bool", default: false, exposed: false },
+	{ flag: "device-endpoint", kind: "string", default: "", exposed: false },
 	{ flag: "discover", kind: "bool", default: true, exposed: false },
 	{ flag: "gateway", kind: "string", default: "", exposed: false },
 	{ flag: "group", kind: "string", default: "", exposed: false },

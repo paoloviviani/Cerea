@@ -544,6 +544,14 @@ rather than JWTs (GitLab) can only be asked about a token at its introspection
 endpoint, and the gateway does that authenticated as the chat client.
 `./configure` already writes the value; there is nothing extra to set.
 
+Agent machines with GitLab need their own application there: not
+confidential, scopes `openid profile email`, the device authorization grant
+enabled. Put its Application ID in `OIDC_MACHINE_CLIENT_ID` (GitLab cannot
+have the default `opencode-enrollment`). Its tokens cannot be introspected,
+since the application has no secret, so the gateway checks them at GitLab's
+`/oauth/token/info` with the token itself; see
+[Agent machines](https://paoloviviani.github.io/Cerea/agent-machines/#with-gitlab-as-the-identity-provider).
+
 ### Groups from the identity provider
 
 A directory reports every group a person is in: one GitLab sign-in used to
