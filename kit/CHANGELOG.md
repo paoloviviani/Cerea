@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **A GitLab-enrolled machine connects.** After a successful enroll, the
+  machine's link to the chat was refused with HTTP 401 on every attempt: the
+  chat checked the machine's access token as a JWT, and GitLab's are opaque.
+  The chat now checks an opaque token at GitLab's `/oauth/token/info` with
+  the token itself, at an issuer whose introspection endpoint is
+  Doorkeeper's: the token must belong to the machine client
+  (`OIDC_MACHINE_CLIENT_ID`) and expire, and its subject is userinfo's. Only
+  the chat changes: `docker compose pull && docker compose up -d`; no
+  galopin update.
+
 ## v0.10.13 — 2026-10-12
 
 Pins: Cerea `0.10.13`, Pystino `0.4.2`, Authelia 4.39.22. **Machines need the

@@ -11,6 +11,19 @@
  * client, `exp` must be in the future, and the token must not be an ID token
  * wearing an access token's clothes.
  *
+ * An issuer whose access tokens are opaque rather than JWTs (GitLab's are
+ * Doorkeeper's random strings) has no signature to check. For those, and only
+ * at an issuer whose discovery names Doorkeeper's `…/oauth/introspect`, the
+ * token is checked at the sibling `GET …/oauth/token/info` with the token
+ * itself as the bearer: Doorkeeper answers 401 for an unknown, revoked or
+ * expired token, and otherwise names the application it was issued to
+ * (`application.uid`, which must be the machine client) and the seconds it
+ * has left (which must be some: a token that never expires is refused). The
+ * subject is userinfo's `sub`, fetched with the same token, and must agree
+ * with the token info's `resource_owner_id`. galopin's GitLab application is
+ * public, so introspection proper, which needs a client secret, is not open
+ * to it; the gateway does the same check for its `/v1` (Pystino 0.4.2).
+ *
  * `CODE_MACHINE_ISSUER` defaults to `OPENID_PROVIDER_URL` so a normal
  * deployment needs no extra configuration, but a test harness can point
  * machine tokens at a mock issuer without touching the browser login's OIDC
@@ -82,6 +95,8 @@ export function machineBackchannel(
 interface DiscoveryDoc {
 	issuer: string;
 	jwks_uri: string;
+	userinfo_endpoint?: string;
+	introspection_endpoint?: string;
 }
 
 const DISCOVERY_TTL_MS = 10 * 60_000;
@@ -89,6 +104,8 @@ const DISCOVERY_TIMEOUT_MS = 5_000;
 
 let cachedForIssuer: string | null = null;
 let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let cachedDoc: DiscoveryDoc | null = null;
+let cachedBackchannel: { base: string; headers: Record<string, string> } | null = null;
 let cachedAt = 0;
 
 /** The issuer's JWKS, cached per-issuer with a 10-minute TTL — the same
@@ -134,6 +151,8 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
 		timeoutDuration: DISCOVERY_TIMEOUT_MS,
 		headers: backchannel?.headers,
 	});
+	cachedDoc = doc;
+	cachedBackchannel = backchannel;
 	cachedForIssuer = issuer;
 	cachedAt = now;
 	return cachedJwks;
@@ -148,6 +167,8 @@ async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJW
 /** Tests only: forget the cached discovery so the next validation fetches it again. */
 export function resetMachineDiscoveryCacheForTests(): void {
 	cachedJwks = null;
+	cachedDoc = null;
+	cachedBackchannel = null;
 	cachedForIssuer = null;
 	cachedAt = 0;
 }
@@ -185,7 +206,7 @@ export async function validateMachineToken(token: string): Promise<ValidatedMach
 	try {
 		header = decodeProtectedHeader(token);
 	} catch {
-		throw new MachineAuthError(401, "The token is not a valid JWT.");
+		return validateOpaqueMachineToken(token, issuer);
 	}
 	if (looksLikeIdToken(header.typ)) {
 		throw new MachineAuthError(401, "An ID token was presented where an access token is required.");
@@ -219,6 +240,97 @@ export async function validateMachineToken(token: string): Promise<ValidatedMach
 		throw new MachineAuthError(401, "The token carries no expiry claim.");
 	}
 	return { sub: payload.sub, iss: issuer, exp: payload.exp };
+}
+
+const DOORKEEPER_INTROSPECT = "/oauth/introspect";
+const DOORKEEPER_TOKEN_INFO = "/oauth/token/info";
+
+/** An endpoint the issuer published, moved onto the back-channel base the way
+ * `jwksFor` moves `jwks_uri`. */
+function viaBackchannel(issuer: string, url: string): string {
+	return cachedBackchannel && url.startsWith(issuer)
+		? cachedBackchannel.base + url.slice(issuer.length)
+		: url;
+}
+
+async function getWithToken(url: string, token: string): Promise<Response> {
+	return fetch(url, {
+		headers: {
+			...(cachedBackchannel?.headers ?? {}),
+			authorization: `Bearer ${token}`,
+			accept: "application/json",
+		},
+		signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+	});
+}
+
+/** An opaque access token, checked with the issuer (see the module comment).
+ * Never logs the token or a response body. */
+async function validateOpaqueMachineToken(
+	token: string,
+	issuer: string
+): Promise<ValidatedMachineToken> {
+	await jwksFor(issuer); // fills the discovery cache
+	const introspect = cachedDoc?.introspection_endpoint?.replace(/\/+$/, "") ?? "";
+	const userinfo = cachedDoc?.userinfo_endpoint ?? "";
+	if (!introspect.endsWith(DOORKEEPER_INTROSPECT) || introspect.includes("?") || !userinfo) {
+		throw new MachineAuthError(401, "The token is not a valid JWT.");
+	}
+	const tokenInfo = viaBackchannel(
+		issuer,
+		introspect.slice(0, -DOORKEEPER_INTROSPECT.length) + DOORKEEPER_TOKEN_INFO
+	);
+	const refused = new MachineAuthError(
+		401,
+		"The token is invalid, expired, or not meant for this deployment."
+	);
+
+	let info: Record<string, unknown>;
+	try {
+		const res = await getWithToken(tokenInfo, token);
+		if (!res.ok) {
+			logger.warn({ status: res.status }, "machine link: token info refused an opaque token");
+			throw refused;
+		}
+		info = (await res.json()) as Record<string, unknown>;
+	} catch (err) {
+		if (err instanceof MachineAuthError) throw err;
+		logger.warn({ err }, "machine link: token info unreachable");
+		throw refused;
+	}
+
+	const application = info.application as { uid?: unknown } | undefined;
+	if (application?.uid !== machineClientId()) {
+		throw new MachineAuthError(
+			401,
+			"The token was not issued to this deployment's machine-enrollment client."
+		);
+	}
+	// GitLab adds `expires_in_seconds`; Doorkeeper's own is `expires_in`. Both
+	// are seconds left, null for a token that never expires.
+	const left = info.expires_in_seconds ?? info.expires_in;
+	if (typeof left !== "number" || left <= 0) {
+		throw new MachineAuthError(401, "The token carries no expiry claim.");
+	}
+
+	let sub: unknown;
+	try {
+		const res = await getWithToken(viaBackchannel(issuer, userinfo), token);
+		if (!res.ok) throw refused;
+		sub = ((await res.json()) as { sub?: unknown }).sub;
+	} catch (err) {
+		if (err instanceof MachineAuthError) throw err;
+		logger.warn({ err }, "machine link: userinfo unreachable for an opaque token");
+		throw refused;
+	}
+	if (typeof sub !== "string" || !sub) {
+		throw new MachineAuthError(401, "The token carries no subject claim.");
+	}
+	const owner = info.resource_owner_id;
+	if (owner !== undefined && owner !== null && String(owner) !== sub) {
+		throw refused;
+	}
+	return { sub, iss: issuer, exp: Math.floor(Date.now() / 1000) + Math.floor(left) };
 }
 
 /** The token's `sub` mapped onto a Cerea user on the generic (gateway-less)

@@ -24,6 +24,12 @@ const CLIENT_ID = "opencode-enrollment";
 let server: Server;
 /** What the discovery document claims as its issuer; a test flips it to impersonate. */
 let advertisedIssuer = ISSUER_URL;
+/** Doorkeeper (GitLab) shape: an introspection endpoint at /oauth/introspect,
+ * with token info beside it. A test turns it off to stand for any other IdP. */
+let doorkeeper = true;
+/** Opaque tokens the fake GitLab knows: token -> its application, owner, seconds left. */
+const opaque = new Map<string, { app: string; owner: number; left: number | null }>();
+let tokenInfoCalls = 0;
 let privateKey: CryptoKey;
 let publicJwk: Awaited<ReturnType<typeof exportJWK>>;
 
@@ -39,7 +45,50 @@ beforeAll(async () => {
 	server = createServer((req, res) => {
 		if (req.url === "/.well-known/openid-configuration") {
 			res.setHeader("content-type", "application/json");
-			res.end(JSON.stringify({ issuer: advertisedIssuer, jwks_uri: `${ISSUER_URL}/jwks` }));
+			res.end(
+				JSON.stringify({
+					issuer: advertisedIssuer,
+					jwks_uri: `${ISSUER_URL}/jwks`,
+					userinfo_endpoint: `${ISSUER_URL}/oauth/userinfo`,
+					...(doorkeeper
+						? { introspection_endpoint: `${ISSUER_URL}/oauth/introspect` }
+						: { introspection_endpoint: `${ISSUER_URL}/introspect` }),
+				})
+			);
+			return;
+		}
+		// GitLab's Doorkeeper token info and userinfo, authorised by the token itself.
+		const bearer = (req.headers.authorization ?? "").replace(/^Bearer /, "");
+		const held = opaque.get(bearer);
+		if (req.url === "/oauth/token/info") {
+			tokenInfoCalls += 1;
+			res.setHeader("content-type", "application/json");
+			if (!held) {
+				res.statusCode = 401;
+				res.end(JSON.stringify({ error: "invalid_token" }));
+				return;
+			}
+			res.end(
+				JSON.stringify({
+					resource_owner_id: held.owner,
+					scope: ["openid", "profile", "email"],
+					expires_in: held.left,
+					application: { uid: held.app },
+					created_at: Math.floor(Date.now() / 1000),
+					scopes: ["openid", "profile", "email"],
+					expires_in_seconds: held.left,
+				})
+			);
+			return;
+		}
+		if (req.url === "/oauth/userinfo") {
+			res.setHeader("content-type", "application/json");
+			if (!held) {
+				res.statusCode = 401;
+				res.end("{}");
+				return;
+			}
+			res.end(JSON.stringify({ sub: String(held.owner), email: "ada@example.org" }));
 			return;
 		}
 		if (req.url === "/jwks") {
@@ -141,6 +190,46 @@ describe("validateMachineToken", () => {
 			.setSubject("hf-user-1")
 			.sign(privateKey);
 		await expect(validateMachineToken(token)).rejects.toBeInstanceOf(MachineAuthError);
+	});
+});
+
+describe("validateMachineToken with an opaque (GitLab) token", () => {
+	afterEach(() => {
+		opaque.clear();
+		doorkeeper = true;
+		tokenInfoCalls = 0;
+		resetMachineDiscoveryCacheForTests();
+	});
+
+	it("accepts a token GitLab's token info says belongs to the machine client", async () => {
+		opaque.set("gl-opaque-1", { app: CLIENT_ID, owner: 42, left: 7200 });
+		const before = Math.floor(Date.now() / 1000);
+		const validated = await validateMachineToken("gl-opaque-1");
+		expect(validated.sub).toBe("42");
+		expect(validated.iss).toBe(ISSUER_URL);
+		expect(validated.exp).toBeGreaterThanOrEqual(before + 7199);
+		expect(validated.exp).toBeLessThanOrEqual(before + 7202);
+	});
+
+	it("rejects a token issued to another application", async () => {
+		opaque.set("gl-chat", { app: "the-chat-app", owner: 42, left: 7200 });
+		await expect(validateMachineToken("gl-chat")).rejects.toMatchObject({ status: 401 });
+	});
+
+	it("rejects a token GitLab does not know (revoked, expired, never issued)", async () => {
+		await expect(validateMachineToken("gl-unknown")).rejects.toMatchObject({ status: 401 });
+	});
+
+	it("rejects a token that never expires", async () => {
+		opaque.set("gl-forever", { app: CLIENT_ID, owner: 42, left: null });
+		await expect(validateMachineToken("gl-forever")).rejects.toMatchObject({ status: 401 });
+	});
+
+	it("never asks token info at an IdP that is not Doorkeeper", async () => {
+		doorkeeper = false;
+		opaque.set("gl-opaque-2", { app: CLIENT_ID, owner: 42, left: 7200 });
+		await expect(validateMachineToken("gl-opaque-2")).rejects.toThrow(/not a valid JWT/);
+		expect(tokenInfoCalls).toBe(0);
 	});
 });
 
