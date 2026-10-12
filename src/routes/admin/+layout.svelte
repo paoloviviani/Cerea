@@ -122,16 +122,16 @@
 			{/if}
 		</header>
 
-		<nav class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700">
+		<nav class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700">
 			{#each sections as section (section.href)}
 				{@const active = current.startsWith(`${base}${section.href}`)}
 				<a
 					href="{base}{section.href}"
-					class="flex items-center gap-1.5 rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors {active
+					class="flex items-center gap-1 rounded-t-lg border-b-2 px-2 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-2 sm:text-sm {active
 						? 'border-blue-600 text-blue-700 dark:text-blue-400'
 						: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
 				>
-					<section.icon class="size-4" />
+					<section.icon class="size-3.5 sm:size-4" />
 					{section.label}
 				</a>
 			{/each}

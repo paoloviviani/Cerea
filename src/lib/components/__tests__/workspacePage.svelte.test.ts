@@ -119,7 +119,7 @@ describe("the workspace panel", () => {
 		expect(screen.baseElement.textContent).not.toContain("System prompt");
 	});
 
-	it("renders Customize models on ?tab=custom, and links it from the tab bar", async () => {
+	it("renders Custom models on ?tab=custom, and links it from the tab bar", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => Response.json({ data: [] }))
@@ -127,7 +127,7 @@ describe("the workspace panel", () => {
 		const screen = mountWorkspace("?tab=custom");
 
 		await expect
-			.element(screen.getByRole("heading", { name: "Customize models", level: 2 }))
+			.element(screen.getByRole("heading", { name: "Custom models", level: 2 }))
 			.toBeInTheDocument();
 		expect(screen.baseElement.textContent).toContain("Global system prompt");
 		expect(screen.baseElement.querySelector('a[href="/workspace?tab=custom"]')).not.toBeNull();
