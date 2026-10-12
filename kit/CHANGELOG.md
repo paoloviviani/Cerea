@@ -5,6 +5,25 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.11 — 2026-10-11
+
+Pins: Cerea `0.10.11`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
+galopin update** for the model-capability fix, in this order: update the
+deployment first (the install line downloads galopin from it), then re-run
+the install line from the pairing dialog, then
+`systemctl --user restart galopin`.
+
+- **The machine now reports which models take images.** galopin read the
+  image claim out of opencode's `/config/providers` answer at the wrong
+  shape — the resolved entry nests it under `capabilities` (the boolean
+  `attachment` beside the input modality `input.image`), and the reader
+  looked at the top level — so no model ever arrived at Cerea claiming
+  images, and v0.10.10's composer affordance failed closed everywhere:
+  no session ever saw "Add image(s)". The reader now takes any affirmative
+  claim from the resolved shape (and keeps the older top-level shape for a
+  backend that still serves it), pinned against the real opencode by a new
+  integration test. Needs the galopin update; the Cerea side needs nothing.
+
 ## v0.10.10 — 2026-10-11
 
 Pins: Cerea `0.10.10`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
