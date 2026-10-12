@@ -846,6 +846,15 @@ to reconnect, and its live socket (if any) is closed immediately. Re-running
 `galopin enroll` mints a **new** machine id — it re-pairs as a fresh
 `pending` row, not a resurrection of the revoked one.
 
+A machine the **gateway** refused (a disabled account, or sessions
+invalidated since it enrolled) stays listed as **access revoked**, with the
+re-enroll command beside it, until you remove it with its bin icon; removing
+it only takes it off the list. A refused **token** is not a refused account:
+when the gateway refuses the token a machine holds, the chat checks the token
+on its own first, and if that token no longer validates (it expired, or the
+identity provider revoked it on refresh, as GitLab does) the link is closed
+with 4401 and the machine renews and reconnects, with nothing revoked.
+
 ## What is kept where
 
 |                                                             | Where it lives                                                  |

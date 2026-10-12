@@ -5,6 +5,26 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+**Machines need the galopin update** (install step only, then
+`systemctl --user restart galopin`).
+
+- **A GitLab machine no longer has to re-enroll after its first token
+  refresh.** Two bugs met. galopin's renewal at 70% of the token's life
+  pushed the *same* token, found the renewal still due and pushed it again
+  with no wait, thousands of frames until the token's last minute; and when
+  it finally refreshed, GitLab revoked the old token at once, the chat's
+  minute check still held it, the gateway refused it, and the chat revoked
+  the device. galopin now rotates the token when renewal is due and pushes
+  it once (at most once a minute), and the chat tells a refused token from a
+  refused account: a token that no longer validates closes the link with
+  4401 so the machine renews and reconnects, and only a still-valid token the
+  gateway refuses revokes the device.
+- **A revoked machine can be removed from the list.** A machine the gateway
+  refused stayed in the panel as **access revoked** with no way to remove
+  it; it now has a bin icon, which takes it off the list.
+
 ## v0.10.15 — 2026-10-12
 
 Pins: Cerea `0.10.15`, Pystino `0.4.2`, Authelia 4.39.22. Only the chat
