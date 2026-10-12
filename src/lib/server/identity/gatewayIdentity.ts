@@ -44,8 +44,11 @@ export interface GatewayMe {
 
 export type GatewayCall<T> =
 	| { ok: true; value: T }
-	/** 401/403: the token or the account is refused. */
-	| { ok: false; refused: true; status: number; message: string }
+	/** 401/403: the token or the account is refused. `code` is the gateway's
+	 * own error code when it sent one (`outside_access_groups`, ADR 0095:
+	 * the join gate refusing an authenticated caller — a loss that regaining
+	 * the group reverses, so callers close rather than revoke over it). */
+	| { ok: false; refused: true; status: number; message: string; code?: string }
 	/** Network error or 5xx: the gateway could not answer. */
 	| { ok: false; refused: false; status: number | null };
 
@@ -75,13 +78,17 @@ async function call<T>(
 	}
 	if (response.status === 401 || response.status === 403) {
 		let message = "Your account is not enabled here. Ask an administrator.";
+		let code: string | undefined;
 		try {
-			const body = (await response.json()) as { error?: { message?: unknown } };
+			const body = (await response.json()) as {
+				error?: { message?: unknown; code?: unknown };
+			};
 			if (typeof body?.error?.message === "string") message = body.error.message;
+			if (typeof body?.error?.code === "string") code = body.error.code;
 		} catch {
 			// The status is the answer; the body is only a nicer message.
 		}
-		return { ok: false, refused: true, status: response.status, message };
+		return { ok: false, refused: true, status: response.status, message, code };
 	}
 	if (!response.ok) return { ok: false, refused: false, status: response.status };
 	return { ok: true, value: (await response.json()) as T };

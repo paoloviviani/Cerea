@@ -1028,3 +1028,75 @@ class TestScopes(Deploy):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestJoinMode(unittest.TestCase):
+    """ADR 0095: the who-may-jay answers ./configure writes."""
+
+    def test_the_answer_is_written_and_the_rest_stay_neutral(self):
+        v = build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="approval").values
+        self.assertEqual(v["OIDC_JOIN_MODE"], "approval")
+        # The template's neutral defaults: no groups, refuse — the gateway's
+        # own defaults, so the file says nothing the deployment does not do.
+        self.assertEqual(v["OIDC_REQUIRED_GROUPS"], "")
+        self.assertEqual(v["OIDC_GROUP_FALLBACK"], "refuse")
+
+    def test_group_mode_needs_its_groups(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "required-groups"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="group")
+
+    def test_group_mode_writes_names_and_fallback(self):
+        v = build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="group", required_groups="staff, ops",
+                  group_fallback="approval").values
+        self.assertEqual(v["OIDC_JOIN_MODE"], "group")
+        self.assertEqual(v["OIDC_REQUIRED_GROUPS"], "staff,ops")
+        self.assertEqual(v["OIDC_GROUP_FALLBACK"], "approval")
+
+    def test_a_bogus_mode_is_refused(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "join-mode"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="sometimes")
+
+    def test_the_bundled_idp_honors_an_explicit_answer(self):
+        # The gateway supports every mode for the bundled Authelia too (its
+        # strangers cannot exist, but the group gate reads console
+        # memberships), so an explicit answer is written for it as well.
+        v = build(tls="internal", join_mode="invite").values
+        self.assertEqual(v["OIDC_JOIN_MODE"], "invite")
+
+
+class TestDeviceFlowCheck(unittest.TestCase):
+    """The enrollment precondition, checked before the stack is built."""
+
+    def test_missing_endpoint_is_the_problem(self):
+        problem = cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "grant_types_supported": ["authorization_code", "password"]}
+        )
+        self.assertIn("device_authorization_endpoint", problem)
+
+    def test_a_grant_list_omitting_device_code_is_the_problem(self):
+        problem = cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "device_authorization_endpoint": "https://id.example.org/device",
+             "grant_types_supported": ["authorization_code", "refresh_token"]}
+        )
+        self.assertIn("device_code", problem)
+
+    def test_a_complete_discovery_passes(self):
+        self.assertIsNone(cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "device_authorization_endpoint": "https://id.example.org/device",
+             "grant_types_supported": ["authorization_code", cfg.DEVICE_CODE_GRANT]}
+        ))
+
+    def test_an_unreachable_issuer_is_not_a_device_problem(self):
+        self.assertIsNone(cfg.device_flow_problem(None))
+        self.assertIsNone(cfg.device_flow_problem({}))

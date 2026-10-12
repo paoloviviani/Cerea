@@ -492,6 +492,12 @@ func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 				switch closeErr.Code {
 				case 4403:
 					return errGiveUp
+				case 4404:
+					// ADR 0095: the join gate refused this account. The device
+					// stays enrolled; Run's ordinary backoff retries, and the
+					// link comes back when the groups say so. Not a refresh (the
+					// token is fine), not a revocation.
+					return fmt.Errorf("link: outside the access groups (4404), retrying")
 				case 4401:
 					if _, refreshErr := l.cfg.Cred.ForceRefresh(ctx); refreshErr != nil {
 						return fmt.Errorf("%w: %v", ErrExpired, refreshErr)
