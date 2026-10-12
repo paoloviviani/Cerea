@@ -5,9 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.10.16 — 2026-10-12
 
-**Machines need the galopin update** (install step only, then
+Pins: Cerea `0.10.16`, Pystino `0.4.2`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`), then **machines
+need the galopin update** (install step only, then
 `systemctl --user restart galopin`).
 
 - **A GitLab machine no longer has to re-enroll after its first token
