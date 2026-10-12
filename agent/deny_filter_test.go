@@ -237,6 +237,14 @@ func TestSyncSweepRejectsSeededDenyAsk(t *testing.T) {
 		t.Errorf("pending = %d, want the seeded ask swept", n)
 	}
 	var rejects int
+	// The sweep's rejection rides the pre-filter's own goroutine now, so the
+	// audit row can land a moment after the reply does: wait for it, then
+	// count — the count is the point, since a sweep that rejected a second
+	// time beside the filter would show two rows here.
+	waitAuditRow(t, stateDir, func(r map[string]any) bool {
+		return r["action"] == "permission" && r["decision"] == "reject" &&
+			r["by"] == "galopin" && r["reason"] == denyRejectMessage
+	})
 	for _, r := range auditRows(t, stateDir) {
 		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == denyRejectMessage {
 			rejects++
@@ -244,6 +252,24 @@ func TestSyncSweepRejectsSeededDenyAsk(t *testing.T) {
 	}
 	if rejects != 1 {
 		t.Errorf("galopin Deny rejections in the audit = %d, want 1", rejects)
+	}
+}
+
+// waitAuditRow polls the audit until a row the predicate accepts appears, so
+// a rejection sent from a goroutine is not read before it is written.
+func waitAuditRow(t *testing.T, dir string, accept func(map[string]any) bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		for _, r := range auditRows(t, dir) {
+			if accept(r) {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the audit row never appeared")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

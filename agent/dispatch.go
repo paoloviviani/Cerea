@@ -709,13 +709,16 @@ func (mc *machine) opSessionSync(ctx context.Context, args json.RawMessage) (any
 	}
 	// Seeded history skips the ask pre-filter, so a sync that (re)builds a
 	// Deny root's view can surface its pending asks as cards again. Sweep
-	// them the same way a mode switch does: DecisionReject + the Deny
-	// message, audited like rejectDenyAsk, cards withdrawn like answered
-	// asks. Best effort — a sync that cannot resolve the session's directory
+	// them through the same pre-filter a live ask takes: consulting it
+	// consumes each ask and sends the Deny rejection out of its own
+	// goroutine — one reply, one audit row — so what is left for the sweep
+	// here is only to withdraw the card the ask would have flashed, the way
+	// an answered ask is withdrawn. Sweeping used to reject a second time
+	// beside the filter's own rejection, double-auditing every seeded ask.
+	// Best effort — a sync that cannot resolve the session's directory
 	// still answers with its snapshot.
-	if dir, _, derr := mc.resolveSession(a.SessionID); derr == nil {
+	if _, _, derr := mc.resolveSession(a.SessionID); derr == nil {
 		for _, req := range mc.mat.SweepDeniedAsks(a.SessionID) {
-			mc.rejectDenyAsk(dir, req)
 			mc.mat.WithdrawPermission(req.SessionID, req.ID)
 		}
 	} else {
