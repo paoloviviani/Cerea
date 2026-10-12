@@ -149,7 +149,9 @@ describe("CodeNavTree collapse", () => {
 		expect(wsRow?.hasAttribute("data-holds-selection")).toBe(true);
 
 		await screen.getByRole("button", { name: "Collapse Box d1" }).click();
-		expect(link().className).not.toContain("font-semibold");
+		// A machine row is always bold — the fold shows in the lighter wash
+		// and the marker, not a lighter weight.
+		expect(link().className).toContain("font-semibold");
 		expect(link().className).toContain("bg-gray-50");
 		expect(link().hasAttribute("data-holds-selection")).toBe(true);
 	});
@@ -165,7 +167,7 @@ describe("CodeNavTree collapse", () => {
 });
 
 describe("CodeNavTree rails", () => {
-	it("draws a rail under each expanded paired row and nowhere else", async () => {
+	it("guides only the sessions under each workspace: machines carry no gutter", async () => {
 		go("?device=d1&ws=w1&agent=a1");
 		const screen = mount([
 			device("d1"),
@@ -176,11 +178,14 @@ describe("CodeNavTree rails", () => {
 		await expect.element(screen.getByText("Agent a1")).toBeVisible();
 		await expect.element(screen.getByText("Agent a3")).toBeVisible();
 
-		// d1 and d2 each: one device rail, one workspace rail. The pending and
-		// revoked rows have no subtree to guide.
+		// d1 and d2 each: a device group and one workspace rail. The pending
+		// and revoked rows have no subtree to guide. The device group shows
+		// no border: workspaces start at the left edge and the vertical
+		// space between machines keeps the groups apart.
 		expect(rails(screen, "device")).toHaveLength(2);
 		expect(rails(screen, "workspace")).toHaveLength(2);
-		expect(rails(screen, "device")[0]?.className).toContain("border-l");
+		expect(rails(screen, "device")[0]?.className).not.toContain("border-l");
+		expect(rails(screen, "workspace")[0]?.className).toContain("border-l");
 
 		await screen.getByRole("button", { name: "Collapse alpha" }).click();
 		expect(rails(screen, "workspace")).toHaveLength(1);
@@ -346,7 +351,7 @@ describe("CodeNavTree scheduled actions", () => {
 		Object.assign(livePage.data, { codeSchedulesEnabled: on });
 	}
 
-	it("offers a Schedules row under the devices only when the deployment has them on", async () => {
+	it("offers a Schedules row above the devices only when the deployment has them on", async () => {
 		withSchedules(false);
 		go("");
 		const off = mount();

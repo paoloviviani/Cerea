@@ -100,10 +100,10 @@
 	}
 
 	/**
-	 * The stand-alone rows under the devices (Schedules): one address,
-	 * same shape as the branch, so the two can never drift. A button uses
-	 * the same classes; block layout comes from the caller (`w-full` for a
-	 * full-width row).
+	 * The stand-alone rows beside the device tree (Schedules, at the top):
+	 * one address, same shape as the branch, so the two can never drift. A
+	 * button uses the same classes; block layout comes from the caller
+	 * (`w-full` for a full-width row).
 	 */
 	const SIDEBAR_ITEM =
 		"flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700";
@@ -452,7 +452,7 @@
 		void goto(`${base}/code?device=${device.id}`, { keepFocus: true });
 	}
 
-	function row(active: boolean, holdsSelection = false): string {
+	function row(active: boolean, holdsSelection = false, device = false): string {
 		// flex-1, not flex-none: the row's link fills the row so its
 		// trailing actions (the add button, the kebab) pin to the sidebar's
 		// right edge. A second flex utility on the call site would lose to
@@ -460,17 +460,33 @@
 		// alone — call sites carry no flex sizing of their own.
 		// `holdsSelection`: a folded row with the selection hidden inside it —
 		// a lighter wash, so it does not read as the selected row itself.
-		return `flex h-8 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-sm ${
-			active
-				? "bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white"
-				: holdsSelection
-					? "bg-gray-50 font-medium text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-					: "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-		}`;
+		// `device`: a machine row, a touch taller and always bold — it is the
+		// group's heading now that the gutter under it is gone.
+		const emphasis = device
+			? "h-9 text-[0.95rem] font-semibold"
+			: `h-8 text-sm${holdsSelection ? " font-medium" : ""}`;
+		const wash = active
+			? "bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white"
+			: holdsSelection
+				? "bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+				: "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700";
+		return `flex ${emphasis} flex-1 items-center gap-1.5 rounded-lg px-2 text-left ${wash}`;
 	}
 </script>
 
 <div class="flex flex-col gap-px">
+	{#if page.data.codeSchedulesEnabled === true && codeDeviceList.devices.length > 0}
+		<!-- The top of the sidebar: one address, not a branch. The pane it
+		     opens holds the list, the editor and each schedule's history. -->
+		<a
+			href="{base}/code?view=schedules"
+			class="mb-1.5 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
+			data-testid="schedules-link"
+		>
+			<IconTime class="size-3.5 shrink-0" />
+			Schedules
+		</a>
+	{/if}
 	<div class="flex items-center justify-between px-2 pt-1">
 		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500">Devices</span>
 		<button
@@ -535,7 +551,9 @@
 			{@const deviceActive = device.id === selectedDeviceId}
 			{@const deviceExpanded = isDeviceExpanded(device.id)}
 			{@const isDead = device.reenroll === "revoked"}
-			<div>
+			<!-- The pb separates one machine's group from the next, now that
+			     the gutter under the machine row is gone. -->
+			<div class="pb-2">
 				<div class="group flex items-center gap-1 pr-1">
 					{#if device.status === "paired"}
 						<button
@@ -556,7 +574,7 @@
 						<span class="size-6 shrink-0"></span>
 					{/if}
 					{#if device.status === "pending" || isDead}
-						<span class="min-w-0 {row(false)}">
+						<span class="min-w-0 {row(false, false, true)}">
 							<IconLaptop class="size-3.5 shrink-0" />
 							<span class="min-w-0 flex-1 truncate">{device.name}</span>
 						</span>
@@ -565,7 +583,8 @@
 							href="{base}/code?device={device.id}"
 							class="min-w-0 {row(
 								deviceActive && !selectedAgentId,
-								deviceActive && !!selectedAgentId && !deviceExpanded
+								deviceActive && !!selectedAgentId && !deviceExpanded,
+								true
 							)}"
 							data-holds-selection={deviceActive && !!selectedAgentId && !deviceExpanded
 								? ""
@@ -720,12 +739,12 @@
 					</div>
 				{/if}
 				{#if device.status === "paired" && !isDead && deviceExpanded}
-					<!-- The guide runs down the centre of the size-6 chevron slot (ml-3),
-					     the ProjectsBranch idiom: nesting is drawn, not padded. -->
-					<div
-						class="ml-3 border-l border-gray-200 pl-1.5 dark:border-gray-700"
-						data-testid="device-rail"
-					>
+					<!-- No gutter here: the machine row is the group's heading and
+					     its workspaces start at the left edge, so the guide that
+					     used to run under it (the ProjectsBranch idiom: nesting
+					     drawn, not padded) has nothing left to mark. The vertical
+					     space between machines, above, keeps the groups apart. -->
+					<div data-testid="device-rail">
 						{#if device.online === false || tree?.off}
 							<!-- Offline renders as a plain label, never a spinner (X4):
 						     an unreachable machine is never even asked for its
@@ -864,8 +883,11 @@
 										</DropdownMenu.Root>
 									</div>
 									{#if wsExpanded}
+										<!-- The guide sits one chevron slot in and the rows one more:
+										     a session's `</>` must start clearly right of its
+										     workspace's folder icon, or the nesting does not read. -->
 										<div
-											class="ml-3 border-l border-gray-200 pl-1.5 dark:border-gray-700"
+											class="ml-6 border-l border-gray-200 pl-6 dark:border-gray-700"
 											data-testid="workspace-rail"
 										>
 											{#each agentsOf(tree, ws.id) as agent (agent.id)}
@@ -1155,18 +1177,6 @@
 				{/if}
 			</div>
 		{/each}
-	{/if}
-	{#if page.data.codeSchedulesEnabled === true && codeDeviceList.devices.length > 0}
-		<!-- Under the devices: one address, not a branch. The pane it opens holds
-		     the list, the editor and each schedule's history. -->
-		<a
-			href="{base}/code?view=schedules"
-			class="mt-1 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
-			data-testid="schedules-link"
-		>
-			<IconTime class="size-3.5 shrink-0" />
-			Schedules
-		</a>
 	{/if}
 </div>
 

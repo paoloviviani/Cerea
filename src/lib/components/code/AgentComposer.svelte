@@ -830,9 +830,14 @@
 	     pill row could grow wide enough to sit under it, which is exactly
 	     what stranded the explorer's Send button under an open file panel
 	     until this was widened. -->
+	<!-- Pending attachments on their own line above the input, thumbnails at
+	     the top left: inside the input's row even a small image was width the
+	     text never got back. -->
+	<div class="px-1">
+		<ComposerFileChips bind:files compact />
+	</div>
 	<div class="flex w-full items-center">
 		<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
-			<ComposerFileChips bind:files />
 			<ChatInput
 				placeholder="Follow up with the agent…"
 				bind:value={draft}

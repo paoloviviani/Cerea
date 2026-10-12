@@ -185,13 +185,16 @@ describe("AgentComposer image attachments", () => {
 		});
 		target.dispatchEvent(event);
 
-		// The image became a chip (an image chip renders the name as the img's
-		// alt), and the browser was told not to paste it too; the pdf is outside
-		// the allowlist and never shows.
+		// The image became a compact thumbnail (an image chip renders the name
+		// as the img's alt), on its own line above the input — never in the
+		// input's row, where even a small one squeezed the text. The pdf is
+		// outside the allowlist and never shows.
 		expect(event.defaultPrevented).toBe(true);
 		await vi.waitFor(() =>
-			expect(document.body.querySelector('img[alt="shot.png"]')).not.toBeNull()
+			expect(document.body.querySelector('[data-testid="composer-image-thumb"]')).not.toBeNull()
 		);
+		const thumb = document.body.querySelector('[data-testid="composer-image-thumb"] img');
+		expect(thumb?.className).toContain("size-14");
 		expect(document.body.querySelector('img[alt="paper.pdf"]')).toBeNull();
 	});
 });
