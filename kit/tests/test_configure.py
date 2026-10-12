@@ -394,13 +394,27 @@ class TestFreshInstall(unittest.TestCase):
 
     def test_the_interview_asks_about_group_import_for_an_external_idp(self):
         prompts = []
+        printed = []
 
         def fake_input(prompt):
             prompts.append(prompt)
-            return "auto" if prompt.startswith("choice") and any(
-                "Groups from the identity provider" in p for p in printed) else ""
+            if not prompt.startswith("choice"):
+                return ""
+            # Each choice question is answered by its own block, whichever
+            # was printed last: the join-mode question (ADR 0095) must not
+            # inherit the group-import answer, and its validator would loop
+            # forever on a wrong one.
+            for wanted, marker in (("auto", "Groups from the identity provider:"),
+                                   ("approval", "Who may join:")):
+                if marker in printed and printed.index(marker) > max(
+                    (printed.index(m) for m in
+                     ("Groups from the identity provider:", "Who may join:") if m in printed
+                     and m is not marker),
+                    default=-1,
+                ):
+                    return wanted
+            return ""
 
-        printed = []
         a = answers(**self._EXTERNAL)
         given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
                  "oidc_console_client_secret", "oidc_chat_client_secret"}
@@ -409,6 +423,10 @@ class TestFreshInstall(unittest.TestCase):
             result = cfg.interview(a, given, {})
         self.assertEqual(result.group_import, "auto")
         self.assertTrue(any("import by hand (recommended)" in p for p in printed), printed)
+        # The join question was asked and took its default (approval for a
+        # fresh install); it is not answered by the group-import choice.
+        self.assertEqual(result.join_mode, "approval")
+        self.assertTrue(any("Who may join:" in p for p in printed), printed)
 
     def test_the_interview_does_not_ask_with_the_bundled_authelia(self):
         printed = []
