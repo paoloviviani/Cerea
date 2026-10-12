@@ -5,6 +5,19 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.12 — 2026-10-12
+
+Pins: Cerea `0.10.12`, Pystino `0.4.1`, Authelia 4.39.22. No galopin update —
+the change is Cerea-only.
+
+- **The phone terminal's key bar is three full rows.** It broke nine keys,
+  then eight, then a lone Type pill on an empty row. It now fills three
+  rows of nine: modifiers and motion first (Esc, Tab, Ctrl, Alt, the
+  arrows, `|`); a shell punctuation row — `$ > " ' * &`, six keys the bar
+  never had; and the actions row, where `^U` (kill line) joins `^C` and
+  `^D` beside Paste and the font steps, with the typing-mode toggle
+  anchoring the row's right side under the thumb. Cerea only.
+
 ## v0.10.11 — 2026-10-11
 
 Pins: Cerea `0.10.11`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
