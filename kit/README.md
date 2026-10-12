@@ -578,6 +578,36 @@ console's.
 `OIDC_GROUP_ALLOWLIST` (advanced, optional; comma-separated) limits which IdP
 group names are considered at all, in either mode.
 
+### Who may join
+
+One answer governs what a stranger's first sign-in does, for any identity
+provider (ADR 0095). `./configure` asks for it with an external IdP, or takes
+`--join-mode open|approval|invite|group` (a new install's default is
+`approval`; editing an existing `.env` keeps what it does today):
+
+- **open** — anyone who signs in gets an active account at once (the old
+  `OIDC_AUTO_PROVISION=true`);
+- **approval** — the account is created disabled, in the console's **Users**
+  page *Awaiting approval* queue; **Approve** enables it, **Reject** deletes it;
+- **invite** — only people you invited (or the directory pushed) can sign in;
+  everyone else is refused with a text that says to ask for an invitation.
+  Invitations expire after 14 days; re-inviting (the invite-text button)
+  re-issues one;
+- **group** — only members of the required groups may sign in, checked at
+  every sign-in and every API call. `./configure` asks for the local group
+  names (`--required-groups`, comma-separated; a directory name must be
+  imported or mapped on Console > Groups first) and what a stranger without
+  one gets (`--group-fallback refuse|approval`). `group` with no required
+  groups refuses to start, by design.
+
+The written keys are `OIDC_JOIN_MODE`, `OIDC_REQUIRED_GROUPS` and
+`OIDC_GROUP_FALLBACK`; the console's Identity page can set all of this
+instead, and a decision there wins. Administrators are never refused by the
+gate, so a wrong group cannot lock you out. The machine links survive a
+group loss: the gateway refuses with `403 outside_access_groups`, Cerea
+closes the link (`4404`) without revoking the device, and it reconnects by
+itself once the person is back in a required group.
+
 **Everyone joins `users`.** Each person is put in one default group at their
 first sign-in, with any IdP (`OIDC_DEFAULT_GROUP`, `users`; existing people at
 their next sign-in), so a new account has a group to bill and can use the
