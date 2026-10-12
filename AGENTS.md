@@ -380,10 +380,10 @@ values dropped without migration (see below). `routes/settings/(nav)/[...model]`
 is **gone**; everything that pointed at it now opens the manager.
 
 The manager is the Models tab of the **workspace** (`/workspace`), the page
-that hosts models, **Customize models**, MCP servers, knowledge bases, skills and
+that hosts models, **Custom models**, memory, knowledge bases, skills and
 memory as tabs. The address is the way in from anywhere: `/workspace?tab=models`
 for the list, `/workspace?tab=models&id=<id>` straight onto one model's
-settings, `/workspace?tab=custom[&id=custom:<id>]` for Customize models. The
+settings, `/workspace?tab=custom[&id=custom:<id>]` for Custom models. The
 affordances that open it — a routed message's model, the models list's gear —
 navigate to that address (the composer's model name opens the per-chat
 `ModelPicker`, which is a different thing). The `modelsOverlay` store this once
@@ -401,9 +401,9 @@ Two things worth knowing:
   server-side plumbing is deliberately left in place, because it is live on the
   branch this fork came from.
 
-### Customize models: the global prompt and custom models
+### Custom models: the global prompt and custom models
 
-Two things a person writes, both on the **Customize models** tab
+Two things a person writes, both on the **Custom models** tab
 (`components/models/CustomModelsManager.svelte`):
 
 - **`Settings.globalSystemPrompt`**: one prompt for every _chat_ turn. Chat only:
@@ -472,7 +472,7 @@ The split is the point, and it was arrived at by getting it wrong first: every
 top-level entry was a branch, and a disclosure triangle revealing a list you
 then clicked to open a dialog anyway was worse. Only **Projects and Chats**
 have contents worth expanding. The rows at the foot are single addresses —
-**Workspace** (the tabbed page hosting models, Customize models, MCP servers,
+**Workspace** (the tabbed page hosting models, Custom models, memory,
 knowledge bases, skills and memory), **Settings**, and **Admin** for administrators (gated on
 `gatewayIsAdmin`, the gateway's answer, not the chat's own flag) — and the
 **footer** is static: the user's tag and name, a theme switch, and a sign-out
@@ -496,7 +496,8 @@ tree does": the chevron is the toggle, and the label is where you go.
 `styles/main.css`): the layout's grid column, the collapse handle riding its
 edge and the width pinned on the nav's children all read it, so they cannot
 disagree. It was 260, then 300 because titles and the /code tree's nested rows
-(device, workspace, session, subagent, each indented) were unreadable once the
+(flush machines and workspaces, indented sessions and subagents) were
+unreadable once the
 text grew by a pixel; 340 because at 300 a session row's state dot, badges and
 ⋯ menu still cut its title short, while the phone drawer (85% of a 390px
 screen, ~330px) showed it whole. It means nothing below `md`, where the sidebar is the
