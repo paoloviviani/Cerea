@@ -1063,6 +1063,13 @@ once:
 3. Enroll with the dialog's command, or by hand with
    `--client-id <Application ID>`.
 
+GitLab's access tokens are opaque, not JWTs, so neither the chat nor the
+gateway can check their signature. Both ask GitLab instead, at its
+`/oauth/token/info`, with the token itself: it must belong to the machine
+application and expire. The chat does this when a machine connects (from
+0.10.14; before, a GitLab machine's link was refused with HTTP 401 right
+after a successful enroll), and the gateway on every `/v1` call (Pystino 0.4.2).
+
 GitLab's discovery lists the device grant but does not advertise its device
 endpoint. galopin uses `<issuer>/oauth/authorize_device`, GitLab's, and says
 so (`note: the identity provider does not advertise a device endpoint; using
