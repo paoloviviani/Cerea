@@ -5,6 +5,29 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.10.17 — 2026-10-12
+
+Pins: Cerea `0.10.17`, Pystino `0.4.2`, Authelia 4.39.22. No galopin update —
+the changes are Cerea-only.
+
+- **The top tab selector is more compact on phones.** Workspace, Settings,
+  Admin and the project page's bar all run smaller text, tighter padding
+  and smaller gap below `sm`. The Workspace page's tabs now read two rows
+  on a 390px phone (133px down to 66px); the tab once called Customize
+  models reads **Custom models**, with memory moved ahead of MCP Servers.
+  The `?tab=custom` address is unchanged. Cerea only.
+- **Attached pictures sit as thumbnails above the agent composer's input.**
+  An image rendered at full preview size inside the input's row squeezed
+  the textarea to a sliver; pending attachments now render on their own
+  line at the top left — small tiles for images, the existing cards for
+  everything else — so the text keeps its width. Cerea only.
+- **The agents panel leads with Schedules and drops the machine gutter.**
+  Schedules moved from under the devices to the top of the list. Machine
+  rows read bolder and a touch larger with no gutter under them:
+  workspaces start at the left edge, machines are separated by vertical
+  space, and the workspace rail opens a chevron slot wider so a session's
+  marker starts clearly right of its workspace's folder icon. Cerea only.
+
 ## v0.10.16 — 2026-10-12
 
 Pins: Cerea `0.10.16`, Pystino `0.4.2`, Authelia 4.39.22. Update the
