@@ -118,7 +118,7 @@
 
 	function open(model: ModelCard) {
 		// A custom model is edited where it is made: its prompt, base and name live
-		// on the Customize models tab, and it has no settings of its own here.
+		// on the Custom models tab, and it has no settings of its own here.
 		if (model.customBase) {
 			goto(`${base}/workspace?tab=custom&id=${encodeURIComponent(model.id)}`);
 			return;
@@ -377,7 +377,7 @@
 						</li>
 						<li>
 							• <strong>Custom</strong> models are yours: a base model with its own system prompt,
-							made on the <strong>Customize models</strong> tab.
+							made on the <strong>Custom models</strong> tab.
 						</li>
 						<li>• A router picks a model per message rather than pinning one.</li>
 					</ul>

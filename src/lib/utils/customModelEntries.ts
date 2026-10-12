@@ -11,7 +11,7 @@ type ModelEntry = GETModelsResponse[number];
  * thinking-effort options carry over without a second code path.
  *
  * One whose base is not in `catalogue` is left out: there is nothing to run
- * it on, and the picker should not offer it. The Customize models tab lists it
+ * it on, and the picker should not offer it. The Custom models tab lists it
  * from the API instead, marked unavailable.
  */
 export function customModelEntries(

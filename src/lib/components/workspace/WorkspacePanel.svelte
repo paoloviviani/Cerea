@@ -1,6 +1,6 @@
 <!--
 	The workspace: models, MCP servers and knowledge bases as tabs of one page.
-	(Later joined by Customize models, skills and memory.)
+	(Later joined by Custom models, skills and memory.)
 
 	The three managers were overlays, each opened from a different corner of the
 	app (sidebar rows, the composer, the models list) and each mounted wherever
@@ -55,11 +55,11 @@
 	// Models.
 	const ALL_TABS = [
 		{ key: "models", label: "Models" },
-		{ key: "custom", label: "Customize models" },
-		{ key: "mcp", label: "MCP Servers" },
+		{ key: "custom", label: "Custom models" },
+		{ key: "memory", label: "Memory" },
 		{ key: "kb", label: "Knowledge" },
 		{ key: "skills", label: "Skills" },
-		{ key: "memory", label: "Memory" },
+		{ key: "mcp", label: "MCP Servers" },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
 	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only
@@ -100,29 +100,29 @@
 
 	<nav
 		aria-label="Workspace sections"
-		class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700"
+		class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700"
 	>
 		{#each TABS as t (t.key)}
 			{@const active = tab === t.key}
 			<a
 				href="{base}/workspace?tab={t.key}"
 				aria-current={active ? "page" : undefined}
-				class="flex items-center gap-1.5 rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors {active
+				class="flex items-center gap-1 rounded-t-lg border-b-2 px-2 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-2 sm:text-sm {active
 					? 'border-blue-600 text-blue-700 dark:text-blue-400'
 					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
 			>
 				{#if t.key === "models"}
-					<LucideBoxes class="size-4" />
+					<LucideBoxes class="size-3.5 sm:size-4" />
 				{:else if t.key === "custom"}
-					<LucideSparkles class="size-4" />
+					<LucideSparkles class="size-3.5 sm:size-4" />
 				{:else if t.key === "mcp"}
-					<IconMCP classNames="size-4" />
+					<IconMCP classNames="size-3.5 sm:size-4" />
 				{:else if t.key === "kb"}
-					<LucideLibrary class="size-4" />
+					<LucideLibrary class="size-3.5 sm:size-4" />
 				{:else if t.key === "memory"}
-					<LucideBrain class="size-4" />
+					<LucideBrain class="size-3.5 sm:size-4" />
 				{:else}
-					<IconDocument class="size-4" />
+					<IconDocument class="size-3.5 sm:size-4" />
 				{/if}
 				{t.label}
 			</a>

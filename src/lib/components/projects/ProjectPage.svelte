@@ -476,7 +476,7 @@
 		-->
 		<nav
 			aria-label="Project sections"
-			class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700"
+			class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700"
 		>
 			{#each TABS as t (t.key)}
 				{@const active = tab === t.key}
@@ -485,14 +485,14 @@
 						? `${base}/projects/${id}`
 						: `${base}/projects/${id}?tab=${t.key}`}
 					aria-current={active ? "page" : undefined}
-					class="flex items-center gap-1.5 rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors {active
+					class="flex items-center gap-1 rounded-t-lg border-b-2 px-2 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-2 sm:text-sm {active
 						? 'border-blue-600 text-blue-700 dark:text-blue-400'
 						: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
 				>
 					{#if t.key === "conversations"}
-						<IconChat class="size-4" />
+						<IconChat class="size-3.5 sm:size-4" />
 					{:else}
-						<IconSettings class="size-4" />
+						<IconSettings class="size-3.5 sm:size-4" />
 					{/if}
 					{t.label}
 				</a>

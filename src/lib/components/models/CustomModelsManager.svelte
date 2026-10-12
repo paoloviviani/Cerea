@@ -1,5 +1,5 @@
 <!--
-	Customize models: the person's global system prompt, and their own custom
+	Custom models: the person's global system prompt, and their own custom
 	models — a base model with a system prompt of its own.
 
 	Two different things share the tab because they are the same decision seen
@@ -186,11 +186,7 @@
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
 			<h2 class={s.TITLE}>
-				{view === "list"
-					? "Customize models"
-					: editing
-						? `Edit ${editing.name}`
-						: "New custom model"}
+				{view === "list" ? "Custom models" : editing ? `Edit ${editing.name}` : "New custom model"}
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}

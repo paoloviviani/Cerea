@@ -99,9 +99,9 @@ advertises for it; they are a default you can override, not a gate. (There is
 no per-model system prompt any more: see below. Prompts that were stored per
 model were dropped, not migrated.)
 
-### Customize models
+### Custom models
 
-The **Customize models** tab of the Workspace page (`/workspace?tab=custom`)
+The **Custom models** tab of the Workspace page (`/workspace?tab=custom`)
 holds two things you write yourself.
 
 **A global system prompt.** One text box, saved on your settings and sent with
