@@ -1,8 +1,9 @@
 # Cerea
 
-Cerea is a self-hosted chat for the models your gateway exposes, with
+Cerea is a self-hosted chat for any OpenAI-compatible endpoint, with
 knowledge bases, artifacts, Python in the browser, and coding agents on your
-own machines.
+own machines. It pairs with **Pystino**, a gateway for accounting, quotas and
+redaction: each runs on its own, and together they are the intended setup.
 
 !!! info "For everyone"
 
@@ -15,17 +16,18 @@ greeting that means both _buongiorno_ and _arrivederci_.
 
 ## The stack
 
-Cerea is one part of a stack of three repositories, and this site documents
-the chat:
+Two repositories, each solving a different problem, with the deployment in
+the first. This site documents the chat:
 
 | Part               | What it is                                                                                               |
 | ------------------ | -------------------------------------------------------------------------------------------------------- |
 | **Cerea**          | this repository: the chat, and **galopin**, the agent that runs on a person's own machine (`agent/`)     |
-| **Pystino**        | the gateway and its console: every model call, its accounting, quotas, redaction and sign-in             |
+| **Pystino**        | the gateway and its console: every model call, its accounting, quotas, redaction and access              |
 | **The deploy kit** | the deployment (`kit/` here): one `compose.yaml`, a documented `.env.example` and a `./configure` script |
 
-Each call the chat makes carries the signed-in person's own token, so quotas
-and billing are theirs. Pystino has its own documentation; this site links to it from the
+With Pystino, each call the chat makes carries the signed-in person's own
+token, so quotas and billing are theirs; elsewhere on this site, "the gateway"
+means Pystino. Pystino has its own documentation; this site links to it from the
 [reference](reference.md) page rather than repeating it.
 
 !!! tip "Three ways to run it"
