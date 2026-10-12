@@ -33,6 +33,73 @@ type discovery struct {
 	// scope they do not list, however standard it is elsewhere.
 	ScopesSupported     []string `json:"scopes_supported"`
 	GrantTypesSupported []string `json:"grant_types_supported"`
+	// DeviceEndpointDerived is true when DeviceAuthorizationEndpoint was not
+	// advertised but derived (deriveDeviceEndpoint), so enroll can say so.
+	DeviceEndpointDerived bool `json:"-"`
+}
+
+// doorkeeperAuthorize and doorkeeperDevice are where Doorkeeper, the OAuth
+// server inside GitLab, serves the authorization and device authorization
+// endpoints. GitLab's discovery lists the device_code grant but leaves
+// device_authorization_endpoint out (gitlab.linksfoundation.com, 2026-10-12;
+// a POST to /oauth/authorize_device there answers 401 for an unknown client,
+// not 404), so a headless enroll stopped at "no device endpoint advertised".
+const (
+	doorkeeperAuthorize = "/oauth/authorize"
+	doorkeeperDevice    = "/oauth/authorize_device"
+)
+
+// deriveDeviceEndpoint fills a missing device authorization endpoint for a
+// provider that says it supports the device grant and whose authorization
+// endpoint has Doorkeeper's shape. Nothing is guessed for any other
+// provider: an endpoint that is neither advertised nor Doorkeeper's is
+// --device-endpoint's to name.
+func deriveDeviceEndpoint(doc *discovery) {
+	if doc.DeviceAuthorizationEndpoint != "" || !supportsDeviceGrant(doc.GrantTypesSupported) {
+		return
+	}
+	base, ok := strings.CutSuffix(strings.TrimSuffix(doc.AuthorizationEndpoint, "/"), doorkeeperAuthorize)
+	if !ok || base == "" || strings.ContainsAny(base, "?#") {
+		return
+	}
+	doc.DeviceAuthorizationEndpoint = base + doorkeeperDevice
+	doc.DeviceEndpointDerived = true
+}
+
+func supportsDeviceGrant(grants []string) bool {
+	for _, g := range grants {
+		if g == "device_code" || g == "urn:ietf:params:oauth:grant-type:device_code" {
+			return true
+		}
+	}
+	return false
+}
+
+// applyDeviceEndpointOverride is --device-endpoint: it replaces what
+// discovery advertised or deriveDeviceEndpoint derived. https only, except
+// a loopback host (a development IdP); an empty value changes nothing.
+func applyDeviceEndpointOverride(doc *discovery, override string) error {
+	if override == "" {
+		return nil
+	}
+	u, err := url.Parse(override)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return fmt.Errorf("--device-endpoint must be an absolute https URL, got %q", override)
+	}
+	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		return fmt.Errorf("--device-endpoint must use https (plain http only for a loopback host), got %q", override)
+	}
+	doc.DeviceAuthorizationEndpoint = override
+	doc.DeviceEndpointDerived = false
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // oauth2Error is an RFC 6749 §5.2 error body (error + error_description).
@@ -178,6 +245,7 @@ func fetchDiscovery(ctx context.Context, issuer string) (*discovery, error) {
 	if doc.TokenEndpoint == "" {
 		return nil, fmt.Errorf("discovery document names no token endpoint")
 	}
+	deriveDeviceEndpoint(&doc)
 	return &doc, nil
 }
 

@@ -94,7 +94,7 @@ line the same answers are `--permission-rule external_directory=allow` and
 people who write the command by hand.
 
 Connection plumbing (`--issuer`, `--gateway`, `--cerea`, `--client-id`,
-`--creds`, `--output`, `--device`, `--loopback`, `--group`, `--shim-port`,
+`--creds`, `--output`, `--device`, `--device-endpoint`, `--loopback`, `--group`, `--shim-port`,
 `--no-discover`, `--yes`) is not offered: the dialog fills in what it knows, and the
 rest you add yourself if you need it.
 
@@ -1045,6 +1045,29 @@ chat. Open the sidebar's **Agents** panel: the machine is listed as **Pending** 
 | `--output PATH`  | where the opencode config goes (default `<config-dir>/galopin/opencode.json`). The file is **replaced whole**: `enroll` asks before replacing an existing one, and `--yes` skips the question. Its absolute path is recorded, so `run` finds it. Never point it at your own `~/.config/opencode/opencode.json` unless you mean to replace that |
 | `--device`       | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser                    |
 | the policy flags | `--no-terminal`, `--permission-max KEY=ACTION`, `--allow-free-models`, `--workspace-root PATH` and the rest are the machine's own vetoes, fixed at enroll time, and all of them are in the pairing dialog: see [The machine policy](#the-machine-policy)                                                                                       |
+
+### With GitLab as the identity provider
+
+GitLab mints its own application ids, so the default machine client
+`opencode-enrollment` cannot exist there. Signing in with it ends on GitLab's
+page with _Client authentication failed due to unknown client_. Set it up
+once:
+
+1. On GitLab, add an application for agent machines: **not confidential**
+   (galopin has no secret), scopes `openid profile email`, the device
+   authorization grant enabled, and redirect URI `http://127.0.0.1/callback`
+   (used only by the browser flow on a laptop).
+2. In the kit's `.env`, set `OIDC_MACHINE_CLIENT_ID` (or run `./configure --machine-client-id`) to that application's
+   **Application ID**, then `docker compose up -d`. The gateway then accepts
+   the machine's tokens, and the pairing dialog prints `--client-id` with it.
+3. Enroll with the dialog's command, or by hand with
+   `--client-id <Application ID>`.
+
+GitLab's discovery lists the device grant but does not advertise its device
+endpoint. galopin uses `<issuer>/oauth/authorize_device`, GitLab's, and says
+so (`note: the identity provider does not advertise a device endpoint; using
+…`); a headless box needs no `--loopback`. For any other provider that leaves
+the endpoint out, name it with `--device-endpoint URL`.
 
 A machine enrolled before `enroll` recorded the path has no `opencode_config` in
 its credential file, and `run` says so on stderr: the supervised opencode may

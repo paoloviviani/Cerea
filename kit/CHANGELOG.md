@@ -5,6 +5,25 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+**Machines need the galopin update** (install step only, then
+`systemctl --user restart galopin`) and **the gateway needs Pystino 0.4.2**
+for these fixes.
+
+- **Agent machines enroll with GitLab.** GitLab's discovery lists the device
+  grant but not its device endpoint, so a headless `galopin enroll` stopped at
+  *no device endpoint advertised*. galopin now uses GitLab's
+  `<issuer>/oauth/authorize_device` when the device grant is listed and the
+  authorization endpoint is Doorkeeper's, says so, and takes
+  `--device-endpoint URL` for any other provider that leaves it out.
+- **The gateway accepts galopin's GitLab tokens** (Pystino 0.4.2). They are
+  opaque and issued to a public application, so introspection could never
+  vouch for them; the gateway now asks GitLab's `/oauth/token/info` with the
+  token itself, for accepted clients that are neither the console nor the
+  chat. Set `OIDC_MACHINE_CLIENT_ID` to the GitLab application's id; the
+  default `opencode-enrollment` cannot exist on GitLab.
+
 ## v0.10.12 — 2026-10-12
 
 Pins: Cerea `0.10.12`, Pystino `0.4.1`, Authelia 4.39.22. **Machines need the
