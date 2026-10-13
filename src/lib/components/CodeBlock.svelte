@@ -16,6 +16,7 @@
 	import { CODE_PILL_BUTTON, CODE_ICON_BUTTON } from "./codeChrome";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import { getRunsStore, type RunState } from "$lib/utils/execution/runs.svelte";
+	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { base } from "$app/paths";
 	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
 	import { recordRunFiles, uploadRunFiles } from "$lib/utils/execution/runFiles";
@@ -132,6 +133,11 @@
 	}
 
 	// ----- execution -----
+	// Under the agent transcript's no-execution flag (see AgentView,
+	// SubagentCard) the block is not runnable at all: no Run button, no
+	// auto-run, no seen-streaming mark — exactly like a non-Python fence,
+	// still highlighted and copyable.
+	const codeExecutionDisabled = isCodeExecutionDisabled();
 	const PYTHON_LANGUAGES = new Set(["python", "py", "python3", "ipython"]);
 	let runnable = $derived(
 		// A titled block is a file deliverable, never a program to run — even
@@ -139,7 +145,10 @@
 		// surface). The membership check below would already exclude it because
 		// the info string carries the annotation; the explicit guard keeps that
 		// invariant independent of how the string is shaped.
-		!fileBlock && PYTHON_LANGUAGES.has(language.trim().toLowerCase()) && rawCode.length > 0
+		!codeExecutionDisabled &&
+			!fileBlock &&
+			PYTHON_LANGUAGES.has(language.trim().toLowerCase()) &&
+			rawCode.length > 0
 	);
 
 	let runsStore = getRunsStore();

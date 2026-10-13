@@ -19,6 +19,7 @@
 	settled row whose roster entry has not moved serves its cache instead.
 -->
 <script lang="ts">
+	import { setCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { tick } from "svelte";
 	import type {
 		AgentStreamUpdate,
@@ -42,6 +43,10 @@
 	}
 
 	let { anchor, activity = 0 }: Props = $props();
+
+	// The nested transcript reuses the chat's message components: same reason
+	// as the agent view itself, its python fences never execute here.
+	setCodeExecutionDisabled();
 
 	let open = $state(false);
 	let working = $state(false);
