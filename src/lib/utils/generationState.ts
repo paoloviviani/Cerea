@@ -21,6 +21,28 @@ export function turnStateOf(message?: Message): MessageTurnStateUpdate | undefin
 }
 
 /**
+ * Why a failed turn died, as the failed-turn banner renders it: the machine's
+ * error event framed the provider's own text (PROTOCOL.md §7); an empty
+ * reason (an older galopin) renders nothing, which is today's look.
+ */
+export function failedTurnReasonOf(message?: Message): string | undefined {
+	const state = turnStateOf(message);
+	return state?.state === "failed" && state.reason ? state.reason : undefined;
+}
+
+/**
+ * The transcript's most recent failed turn — the last message that would
+ * render the failed-turn banner. The message column hands this to its
+ * messages so only that banner starts expanded; older ones start collapsed.
+ */
+export function lastFailedTurnId(messages: Message[]): Message["id"] | undefined {
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		if (failedTurnReasonOf(messages[i]) !== undefined) return messages[i].id;
+	}
+	return undefined;
+}
+
+/**
  * Messages persisted before turn states carry only lifecycle statuses, whose
  * LAST event decides (each park stamped `finished`, each resume `started`).
  * Kept solely for those messages — delete when pre-turn-state conversations

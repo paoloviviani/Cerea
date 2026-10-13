@@ -28,6 +28,7 @@
 	} from "$lib/types/CodeAgent";
 	import type { Message } from "$lib/types/Message";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
+	import { lastFailedTurnId } from "$lib/utils/generationState";
 	import ChatMessage from "$lib/components/chat/ChatMessage.svelte";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideUsers from "~icons/lucide/users";
@@ -184,7 +185,12 @@
 					class="scrollbar-custom flex max-h-80 min-w-0 flex-col gap-3 overflow-y-auto rounded-lg bg-gray-50 p-2 dark:bg-gray-800/40"
 				>
 					{#each transcript as message, i (message.id)}
-						<ChatMessage {message} readOnly isLast={i === transcript.length - 1} />
+						<ChatMessage
+							{message}
+							readOnly
+							isLast={i === transcript.length - 1}
+							isLatestFailedTurn={message.id === lastFailedTurnId(transcript)}
+						/>
 					{/each}
 				</div>
 			{:else}

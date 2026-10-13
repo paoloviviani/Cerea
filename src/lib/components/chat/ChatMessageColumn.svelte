@@ -23,7 +23,7 @@
 	import ScrollToBottomBtn from "../ScrollToBottomBtn.svelte";
 	import ScrollToPreviousBtn from "../ScrollToPreviousBtn.svelte";
 	import { createChatScroll } from "$lib/utils/scroll/chatScroll.svelte";
-	import { isAssistantGenerationTerminal } from "$lib/utils/generationState";
+	import { isAssistantGenerationTerminal, lastFailedTurnId } from "$lib/utils/generationState";
 	import { NAV_EDGE_SWIPE_ZONE_PX } from "$lib/constants/gestures";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { CodeSubagentAnchor } from "$lib/types/CodeAgent";
@@ -299,6 +299,11 @@
 		return groups;
 	});
 
+	// The transcript's most recent failed turn: its banner is the one that
+	// starts expanded, and a newer failure folds the older ones — a session
+	// that kept failing does not stack a paragraph per turn.
+	let latestFailedId = $derived(lastFailedTurnId(messages));
+
 	// Structural sync: conversation identity, the trailing turn, and which turn
 	// (if any) a reply is currently streaming into — the whole condition for a
 	// turn to anchor. Reads ids/from/loading only (terminal-ness untracked), so
@@ -426,6 +431,7 @@
 									{isAuthor}
 									{readOnly}
 									isLast={turnIdx === turns.length - 1 && msgIdx === turn.messages.length - 1}
+									isLatestFailedTurn={message.id === latestFailedId}
 									bind:editMsdgId
 									{onanswerElicitation}
 									{subagentFor}

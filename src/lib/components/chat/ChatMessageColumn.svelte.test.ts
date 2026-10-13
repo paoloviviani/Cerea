@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import ChatMessageColumnTestHost from "./ChatMessageColumnTestHost.svelte";
 import type { Message } from "$lib/types/Message";
+import { MessageUpdateType } from "$lib/types/MessageUpdate";
 
 const user = (id: string, text: string): Message => ({
 	id,
@@ -93,5 +94,48 @@ describe("the column's history-paging surface", () => {
 		// …because the scroll position grew by the height added (up to the
 		// settle follower's pixel rounding).
 		expect(Math.abs(el.scrollTop - topBefore - (el.scrollHeight - heightBefore))).toBeLessThan(2);
+	});
+});
+
+describe("the column's failed-turn banners", () => {
+	it("starts only the most recent failed turn's banner expanded", async () => {
+		const failed = (id: string, reason: string): Message => ({
+			id,
+			from: "assistant",
+			content: "",
+			children: [],
+			updates: [{ type: MessageUpdateType.TurnState, state: "failed", serverNow: 0, reason }],
+		});
+		const view = renderWithApp(ChatMessageColumnTestHost, {
+			initial: [
+				user("u1", "first prompt"),
+				failed("a1", "first failure: the provider's credits ran out"),
+				user("u2", "again"),
+				failed("a2", "second failure: still exhausted"),
+			],
+			page: [],
+		});
+		await settled();
+
+		const banners = view.container.querySelectorAll('[data-testid="turn-failed-reason"]');
+		expect(banners).toHaveLength(2);
+		const expanded = [...banners].filter(
+			(b) =>
+				b.querySelector('[data-testid="turn-failed-toggle"]')?.getAttribute("aria-expanded") ===
+				"true"
+		);
+		expect(expanded).toHaveLength(1);
+		// The open one is the newest failure; the older one keeps its whole
+		// reason in the collapsed line's tooltip.
+		expect(expanded[0]?.querySelector("span")?.getAttribute("title")).toBe(
+			"second failure: still exhausted"
+		);
+		const older = view.container.querySelector('[data-testid="turn-failed-reason"]');
+		expect(older?.querySelector("span")?.getAttribute("title")).toBe(
+			"first failure: the provider's credits ran out"
+		);
+		expect(
+			older?.querySelector('[data-testid="turn-failed-toggle"]')?.getAttribute("aria-expanded")
+		).toBe("false");
 	});
 });
