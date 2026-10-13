@@ -253,3 +253,33 @@ func TestReconcileChildrenSparesAFreshEdge(t *testing.T) {
 		t.Errorf("RootOf(old) = %q, want old itself: the stale edge was dropped", got)
 	}
 }
+
+// Below pins the strict-descendant walk session_list uses to show a caller
+// its own subagents: children and grandchildren are below it, siblings,
+// parents and the session itself are not, and unknown ids are below
+// nothing.
+func TestBelow(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "root"})
+	m.Track("/ws", backend.Session{ID: "a", ParentID: "root"})
+	m.Track("/ws", backend.Session{ID: "b", ParentID: "root"})
+	m.Track("/ws", backend.Session{ID: "grandchild", ParentID: "a"})
+	cases := []struct {
+		child, ancestor string
+		want            bool
+	}{
+		{"a", "root", true},
+		{"grandchild", "root", true},
+		{"grandchild", "a", true},
+		{"b", "a", false},
+		{"root", "a", false},
+		{"a", "a", false},
+		{"nope", "root", false},
+		{"a", "nope", false},
+	}
+	for _, c := range cases {
+		if got := m.Below(c.child, c.ancestor); got != c.want {
+			t.Errorf("Below(%q, %q) = %v, want %v", c.child, c.ancestor, got, c.want)
+		}
+	}
+}

@@ -54,7 +54,8 @@ func TestSessionListNoteTellsTaskSubagentToReportInItsFinalMessage(t *testing.T)
 		}
 	}
 
-	// A root caller sees its own row marked as before.
+	// A root caller sees its own row marked as before — and its own
+	// subagent's row marked for resume, not for sends.
 	out, err = r.call("caller", "session_list", map[string]any{"note": "x"})
 	if err != nil {
 		t.Fatalf("session_list as a root: %v", err)
@@ -65,8 +66,11 @@ func TestSessionListNoteTellsTaskSubagentToReportInItsFinalMessage(t *testing.T)
 	}
 	for _, row := range rows {
 		want := ""
-		if row.SessionID == "caller" {
+		switch row.SessionID {
+		case "caller":
 			want = "your own session tree: not a session_send target"
+		case "kid":
+			want = "your subagent (resume it with task, task_id = this sessionId; read it with session_read; not a session_send target)"
 		}
 		if row.Note != want {
 			t.Errorf("row %s note = %q, want %q", row.SessionID, row.Note, want)

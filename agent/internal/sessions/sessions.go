@@ -390,6 +390,31 @@ func (m *Materializer) RootOf(sessionID string) string {
 	return m.rootLocked(sessionID)
 }
 
+// Below reports whether childID sits strictly below ancestorID in the
+// session tree (a child, grandchild, … — never the ancestor itself).
+// Unknown ids are below nothing: a caller only ever sees the part of its
+// own tree the tree actually knows. Cycle-safe like rootLocked.
+func (m *Materializer) Below(childID, ancestorID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{childID: true}
+	current := childID
+	for {
+		st, ok := m.sessions[current]
+		if !ok || st.parentID == "" {
+			return false
+		}
+		if st.parentID == ancestorID {
+			return true
+		}
+		if seen[st.parentID] {
+			return false
+		}
+		seen[st.parentID] = true
+		current = st.parentID
+	}
+}
+
 // WorkspaceDir returns the workspace directory a known session belongs to
 // — what the op dispatcher needs to call most Backend methods, which take
 // a directory, not a session id alone.
