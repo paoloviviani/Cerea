@@ -1052,6 +1052,23 @@ class TestScopes(Deploy):
         self.assertIn("GATEWAY_OIDC__DEFAULT_GROUP: ${OIDC_DEFAULT_GROUP-users}", compose)
         self.assertIn("GATEWAY_OIDC__CHAT_CLIENT_SECRET: ${OIDC_CHAT_CLIENT_SECRET:-}", compose)
 
+    def test_compose_gives_the_migrate_service_the_join_answers(self):
+        """Migration 0058 folds the group answers from the environment when the
+        newest oidc_config row does not decide them, so the migrate service
+        needs the same join variables the gateway gets — or a deployment that
+        runs group mode from the environment alone would get a required manual
+        group self-mapped by the migration, reopening the spoof."""
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        start = compose.index("  migrate:")
+        end = compose.index("  gateway:", start)
+        migrate = compose[start:end]
+        for line in (
+            "GATEWAY_OIDC__JOIN_MODE: ${OIDC_JOIN_MODE:-open}",
+            "GATEWAY_OIDC__REQUIRED_GROUPS: ${OIDC_REQUIRED_GROUPS:-}",
+            "GATEWAY_OIDC__GROUP_FALLBACK: ${OIDC_GROUP_FALLBACK:-refuse}",
+        ):
+            self.assertIn(line, migrate)
+
 
 if __name__ == "__main__":
     unittest.main()
