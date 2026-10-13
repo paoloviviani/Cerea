@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.11.2 — 2026-10-13
+
+Pins: Cerea `0.11.2`, Pystino `0.6.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **A fork always carries the conversation.** The fork dialog's "Carry the
+  conversation up to here" toggle is gone: "Fork from here" now always
+  seeds the new session with the conversation up to the chosen message —
+  a fork without it would just be a brand-new session, which is not what
+  the action promises. The route's `carry` flag stays optional for other
+  callers.
+
 ## v0.11.1 — 2026-10-13
 
 Pins: Cerea `0.11.1`, Pystino `0.6.0`, Authelia 4.39.22. Update the
