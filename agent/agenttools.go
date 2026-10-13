@@ -224,27 +224,68 @@ func modeLabel(id string) string {
 	return id
 }
 
-// list implements session_list: top-level sessions only (a subagent is part
-// of its parent's tree and is addressed with task, not session_send).
+// list implements session_list: every top-level session, plus the subagents
+// at or below the caller in its own tree (a finished task child drops out
+// of the conversation's view, and only the listing still names it). Other
+// trees' subagents stay out: a caller sees all top-level sessions and the
+// subagents at or below itself in its own tree.
 func (at *agentTools) list(ctx context.Context, tc *toolCaller) (string, error) {
 	all, err := at.allSessions(ctx)
 	if err != nil {
 		return "", err
 	}
 	type row struct {
-		SessionID   string             `json:"sessionId"`
-		Title       string             `json:"title"`
-		WorkspaceID string             `json:"workspaceId"`
-		Workspace   string             `json:"workspace"`
-		Mode        string             `json:"mode"`
-		Status      string             `json:"status"`
-		SpawnedBy   *backend.SpawnedBy `json:"spawnedBy,omitempty"`
-		Note        string             `json:"note,omitempty"`
+		SessionID   string `json:"sessionId"`
+		Title       string `json:"title"`
+		WorkspaceID string `json:"workspaceId"`
+		Workspace   string `json:"workspace"`
+		Mode        string `json:"mode"`
+		Status      string `json:"status"`
+		// ParentID and Agent mark an own-tree subagent: who spawned it and
+		// the subagent type it was started as (opencode's session agent,
+		// when the record carries it).
+		ParentID string `json:"parentId,omitempty"`
+		Agent    string `json:"agent,omitempty"`
+		// LastActivity is the session's RFC 3339 update time, so "finished
+		// hours ago" is visible; absent when the record carries no time.
+		LastActivity string             `json:"lastActivity,omitempty"`
+		SpawnedBy    *backend.SpawnedBy `json:"spawnedBy,omitempty"`
+		Note         string             `json:"note,omitempty"`
 	}
 	callerRoot := at.mc.mat.RootOf(tc.session.ID)
+	titles := make(map[string]string, len(all))
+	for _, l := range all {
+		titles[l.s.ID] = l.s.Title
+	}
 	rows := []row{}
 	for _, l := range all {
 		if l.s.ParentID != "" {
+			// A subagent is listed only below its own caller: same tree is
+			// not enough (that would show a subagent its siblings), it
+			// must sit strictly below the caller. The send gate is
+			// unchanged: a listed id here is still no session_send target.
+			if at.mc.mat.RootOf(l.s.ID) != callerRoot || !at.mc.mat.Below(l.s.ID, tc.session.ID) {
+				continue
+			}
+			r := row{
+				SessionID: l.s.ID, Title: l.s.Title, WorkspaceID: l.ws.ID, Workspace: l.ws.Name,
+				Mode: modeLabel(l.s.ModeID), Status: string(l.s.Status),
+				ParentID: l.s.ParentID, Agent: l.s.Agent,
+			}
+			if !l.s.UpdatedAt.IsZero() {
+				r.LastActivity = l.s.UpdatedAt.UTC().Format(time.RFC3339)
+			}
+			// task_id is the child's own session id (opencode's task tool
+			// output carries it), so this row is the resume handle.
+			const resume = "resume it with task, task_id = this sessionId; read it with session_read; not a session_send target"
+			if l.s.ParentID == tc.session.ID {
+				r.Note = "your subagent (" + resume + ")"
+			} else if parentTitle := titles[l.s.ParentID]; parentTitle != "" {
+				r.Note = fmt.Sprintf("subagent of your subagent %q (%s)", parentTitle, resume)
+			} else {
+				r.Note = "your subagent (" + resume + ")"
+			}
+			rows = append(rows, r)
 			continue
 		}
 		r := row{

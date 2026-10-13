@@ -166,6 +166,13 @@ func TestSessionReadTargets(t *testing.T) {
 	if err != nil || !strings.Contains(out, "kid says hello") {
 		t.Fatalf("own subagent: %v %q", err, out)
 	}
+	// A deeper descendant of the same tree reads the same way.
+	r.addSession(r.w1, "grandkid", "Grandkid", "kid")
+	r.say("grandkid", "assistant", "grandkid says hello", t0)
+	out, err = r.call("caller", "session_read", map[string]any{"target": "grandkid"})
+	if err != nil || !strings.Contains(out, "grandkid says hello") {
+		t.Fatalf("own grandchild: %v %q", err, out)
+	}
 	r.addSession(r.w2, "stranger", "Stranger", "other")
 	_, err = r.call("caller", "session_read", map[string]any{"target": "stranger"})
 	refusedWith(t, err, "subagent of another session")
