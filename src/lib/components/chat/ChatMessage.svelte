@@ -25,7 +25,7 @@
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
 	import TurnFailedBanner from "./TurnFailedBanner.svelte";
-	import { turnStateOf } from "$lib/utils/generationState";
+	import { failedTurnReasonOf, turnStateOf } from "$lib/utils/generationState";
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
 	import ElicitationForm from "./ElicitationForm.svelte";
@@ -82,6 +82,13 @@
 		alternatives?: Message["id"][];
 		editMsdgId?: Message["id"] | null;
 		isLast?: boolean;
+		/**
+		 * Whether this message is the transcript's most recent failed turn
+		 * (`lastFailedTurnId`): its failed-turn banner starts expanded, older
+		 * ones start collapsed. The default keeps the open banner, so a caller
+		 * that does not read the transcript's order keeps today's look.
+		 */
+		isLatestFailedTurn?: boolean;
 		/**
 		 * Regenerate / edit-with-content, when the caller owns a message tree to
 		 * retry against. Surfaces whose messages are a replay of someone else's
@@ -155,6 +162,7 @@
 		alternatives = [],
 		editMsdgId = $bindable(null),
 		isLast = false,
+		isLatestFailedTurn = true,
 		onretry,
 		onshowAlternateMsg,
 		onanswerElicitation,
@@ -419,10 +427,7 @@
 	// Why a failed turn died, shown on the turn itself. The machine's error
 	// event frames the provider's own text (PROTOCOL.md §7); an empty reason
 	// (an older galopin) renders nothing, which is today's look.
-	let failedReason = $derived.by(() => {
-		const state = turnStateOf(message);
-		return state?.state === "failed" && state.reason ? state.reason : undefined;
-	});
+	let failedReason = $derived(failedTurnReasonOf(message));
 
 	let blocks = $derived.by(() => {
 		const updates = message.updates ?? [];
@@ -997,7 +1002,7 @@
 					canWake={isAuthor && !readOnly}
 				/>
 			{:else if failedReason}
-				<TurnFailedBanner reason={failedReason} />
+				<TurnFailedBanner reason={failedReason} isLatest={isLatestFailedTurn} />
 			{/if}
 		</div>
 

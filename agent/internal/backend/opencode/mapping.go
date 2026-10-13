@@ -164,6 +164,9 @@ func sessionFromMap(m map[string]any) backend.Session {
 		Title:    getStr(m, "title"),
 		Status:   backend.StatusIdle,
 		ParentID: getStr(m, "parentID", "parentId"),
+		// The subagent type a task child was started as ("explore",
+		// "general", …): what session_list reports as the row's agent.
+		Agent: getStr(m, "agent"),
 	}
 	if t := getMap(m, "time"); t != nil {
 		s.CreatedAt = millisToTime(getFloat(t, "created"))

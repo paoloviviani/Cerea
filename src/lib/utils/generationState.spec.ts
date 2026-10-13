@@ -3,9 +3,11 @@ import { describe, expect, test } from "vitest";
 import type { Message } from "$lib/types/Message";
 import { MessageUpdateStatus, MessageUpdateType } from "$lib/types/MessageUpdate";
 import {
+	failedTurnReasonOf,
 	isAssistantGenerationTerminal,
 	isConversationGenerationActive,
 	isTurnSubscribable,
+	lastFailedTurnId,
 	turnStateOf,
 } from "./generationState";
 
@@ -203,6 +205,22 @@ describe("turn state as the authoritative liveness", () => {
 		});
 		expect(turnStateOf(message)?.state).toBe("running");
 		expect(turnStateOf(assistantMessage({ updates: [] }))).toBeUndefined();
+	});
+
+	test("lastFailedTurnId picks the last banner-rendering message, skipping empty reasons", () => {
+		const failed = (id: string, reason?: string) =>
+			assistantMessage({ id: id as Message["id"], updates: [state("failed", { reason })] });
+		const messages = [
+			assistantMessage({ id: "user-1" as Message["id"], from: "user", content: "hi" }),
+			failed("a-1", "provider refused"),
+			failed("a-2"), // an older galopin's empty reason renders no banner
+			failed("a-3", "provider refused again"),
+		];
+		expect(lastFailedTurnId(messages)).toBe("a-3");
+		expect(failedTurnReasonOf(messages[1])).toBe("provider refused");
+		expect(failedTurnReasonOf(messages[2])).toBeUndefined();
+		expect(lastFailedTurnId([messages[0]])).toBeUndefined();
+		expect(lastFailedTurnId([])).toBeUndefined();
 	});
 
 	test("only a running turn is non-terminal for UI purposes", () => {

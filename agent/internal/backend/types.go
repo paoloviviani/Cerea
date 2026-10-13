@@ -40,6 +40,10 @@ type Session struct {
 	// StaleDeny.
 	StalePolicy bool   `json:"stalePolicy,omitempty"`
 	ParentID    string `json:"parentId,omitempty"`
+	// Agent is the subagent type a task child was started as (opencode's
+	// session agent, e.g. "explore"), read from the session record. Empty
+	// for top-level sessions and when the backend does not report it.
+	Agent string `json:"agent,omitempty"`
 	// ParentToolCallID is the parent's tool call that spawned this session
 	// (set by session.children), so the panel can anchor it in the transcript.
 	ParentToolCallID string `json:"parentToolCallId,omitempty"`

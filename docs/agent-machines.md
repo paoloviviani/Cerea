@@ -376,7 +376,8 @@ While a turn works the animated mountain is the progress mark, and answers use
 the full row on desktop. The agent's task plan is one card per message, after
 its thinking and tool steps and before the answer. **Fork from here** on a
 finished answer starts a new session from that point. When the model provider
-refuses a turn, the failed turn shows the provider's own text, and while the
+refuses a turn, the failed turn shows the provider's own text — the newest
+failure expanded, earlier ones folded to one line you can reopen — and while the
 agent retries a rate limit or overload the view says "Retrying — …" beside Stop
 (both need the galopin update).
 
