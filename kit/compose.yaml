@@ -226,6 +226,14 @@ services:
       # Advanced: only these IdP group names are considered at all (comma-
       # separated, or a JSON list); `[]` considers every one.
       GATEWAY_OIDC__GROUP_ALLOWLIST: ${OIDC_GROUP_ALLOWLIST:-[]}
+      # ADR 0095: who may join. open signs strangers up at once; approval
+      # holds them in the console's queue; invite refuses everyone not
+      # invited; group admits only members of the required groups (checked
+      # at every sign-in and every /v1 call). group with no required groups
+      # refuses to start, by design.
+      GATEWAY_OIDC__JOIN_MODE: ${OIDC_JOIN_MODE:-open}
+      GATEWAY_OIDC__REQUIRED_GROUPS: ${OIDC_REQUIRED_GROUPS:-}
+      GATEWAY_OIDC__GROUP_FALLBACK: ${OIDC_GROUP_FALLBACK:-refuse}
       # The group every person joins at their first sign-in, with any IdP, so a
       # new account has a group to bill; it grants no model by itself. `-`,
       # not `:-`: set empty in .env, it is off.

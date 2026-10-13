@@ -240,6 +240,20 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			if (!staleEnrolment) continue;
 			await revokeAndClose(state, "sessions_valid_after");
 		} else if (resolution.refused) {
+			// ADR 0095: the join gate refusing an authenticated caller is a
+			// loss regaining the group reverses — closing with 4404 (PROTOCOL
+			// §4: the machine retries, nothing is revoked) and leaving the
+			// device enrolled. Checked before the token verdict below: the
+			// gate only answers a token it has already validated, so there is
+			// nothing to re-check.
+			if (resolution.status === 403 && resolution.code === "outside_access_groups") {
+				logger.info(
+					{ deviceId: state.deviceId },
+					"machine link: outside the access groups; closing (not revoking)"
+				);
+				closeConnection(state, 4404, "outside the access groups; reconnect when they say so");
+				continue;
+			}
 			// A refusal of the TOKEN is not a refusal of the ACCOUNT. The
 			// gateway answers 401 alike for "this person is disabled" and "this
 			// token is no longer good", and only the first should revoke the

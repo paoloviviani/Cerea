@@ -29,6 +29,15 @@ def _load():
 
 
 cfg = _load()
+# The suite makes no network calls: ./configure reaches for the issuer's
+# discovery document at `check_scopes` (via `check_values`) and in
+# `cmd_configure`, and several test classes call `build()`/`check_values()`
+# without the per-test patch `Deploy.setUp` applies. A hard stub answers
+# None — what an unreachable issuer would say — and only the tests that
+# need a document set one (they patch `fetch_discovery` themselves, in
+# `Deploy`). A call that expects a document would fail its assertions, so
+# the stub cannot silently stand in for one.
+cfg.fetch_discovery = lambda issuer, timeout=8.0: None
 TEMPLATE = (ROOT / ".env.example").read_text(encoding="utf-8")
 
 
@@ -394,13 +403,27 @@ class TestFreshInstall(unittest.TestCase):
 
     def test_the_interview_asks_about_group_import_for_an_external_idp(self):
         prompts = []
+        printed = []
 
         def fake_input(prompt):
             prompts.append(prompt)
-            return "auto" if prompt.startswith("choice") and any(
-                "Groups from the identity provider" in p for p in printed) else ""
+            if not prompt.startswith("choice"):
+                return ""
+            # Each choice question is answered by its own block, whichever
+            # was printed last: the join-mode question (ADR 0095) must not
+            # inherit the group-import answer, and its validator would loop
+            # forever on a wrong one.
+            for wanted, marker in (("auto", "Groups from the identity provider:"),
+                                   ("approval", "Who may join:")):
+                if marker in printed and printed.index(marker) > max(
+                    (printed.index(m) for m in
+                     ("Groups from the identity provider:", "Who may join:") if m in printed
+                     and m is not marker),
+                    default=-1,
+                ):
+                    return wanted
+            return ""
 
-        printed = []
         a = answers(**self._EXTERNAL)
         given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
                  "oidc_console_client_secret", "oidc_chat_client_secret"}
@@ -409,6 +432,10 @@ class TestFreshInstall(unittest.TestCase):
             result = cfg.interview(a, given, {})
         self.assertEqual(result.group_import, "auto")
         self.assertTrue(any("import by hand (recommended)" in p for p in printed), printed)
+        # The join question was asked and took its default (approval for a
+        # fresh install); it is not answered by the group-import choice.
+        self.assertEqual(result.join_mode, "approval")
+        self.assertTrue(any("Who may join:" in p for p in printed), printed)
 
     def test_the_interview_does_not_ask_with_the_bundled_authelia(self):
         printed = []
@@ -1028,3 +1055,75 @@ class TestScopes(Deploy):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestJoinMode(unittest.TestCase):
+    """ADR 0095: the who-may-jay answers ./configure writes."""
+
+    def test_the_answer_is_written_and_the_rest_stay_neutral(self):
+        v = build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="approval").values
+        self.assertEqual(v["OIDC_JOIN_MODE"], "approval")
+        # The template's neutral defaults: no groups, refuse — the gateway's
+        # own defaults, so the file says nothing the deployment does not do.
+        self.assertEqual(v["OIDC_REQUIRED_GROUPS"], "")
+        self.assertEqual(v["OIDC_GROUP_FALLBACK"], "refuse")
+
+    def test_group_mode_needs_its_groups(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "required-groups"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="group")
+
+    def test_group_mode_writes_names_and_fallback(self):
+        v = build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="group", required_groups="staff, ops",
+                  group_fallback="approval").values
+        self.assertEqual(v["OIDC_JOIN_MODE"], "group")
+        self.assertEqual(v["OIDC_REQUIRED_GROUPS"], "staff,ops")
+        self.assertEqual(v["OIDC_GROUP_FALLBACK"], "approval")
+
+    def test_a_bogus_mode_is_refused(self):
+        with self.assertRaisesRegex(cfg.ConfigError, "join-mode"):
+            build(idp="external", oidc_issuer="https://id.example.org",
+                  oidc_console_client_secret="a", oidc_chat_client_secret="b",
+                  join_mode="sometimes")
+
+    def test_the_bundled_idp_honors_an_explicit_answer(self):
+        # The gateway supports every mode for the bundled Authelia too (its
+        # strangers cannot exist, but the group gate reads console
+        # memberships), so an explicit answer is written for it as well.
+        v = build(tls="internal", join_mode="invite").values
+        self.assertEqual(v["OIDC_JOIN_MODE"], "invite")
+
+
+class TestDeviceFlowCheck(unittest.TestCase):
+    """The enrollment precondition, checked before the stack is built."""
+
+    def test_missing_endpoint_is_the_problem(self):
+        problem = cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "grant_types_supported": ["authorization_code", "password"]}
+        )
+        self.assertIn("device_authorization_endpoint", problem)
+
+    def test_a_grant_list_omitting_device_code_is_the_problem(self):
+        problem = cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "device_authorization_endpoint": "https://id.example.org/device",
+             "grant_types_supported": ["authorization_code", "refresh_token"]}
+        )
+        self.assertIn("device_code", problem)
+
+    def test_a_complete_discovery_passes(self):
+        self.assertIsNone(cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "device_authorization_endpoint": "https://id.example.org/device",
+             "grant_types_supported": ["authorization_code", cfg.DEVICE_CODE_GRANT]}
+        ))
+
+    def test_an_unreachable_issuer_is_not_a_device_problem(self):
+        self.assertIsNone(cfg.device_flow_problem(None))
+        self.assertIsNone(cfg.device_flow_problem({}))

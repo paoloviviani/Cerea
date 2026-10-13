@@ -165,6 +165,30 @@ describe("revalidateLiveMachineConnections", () => {
 		expect(device?.revokedAt).toBeInstanceOf(Date);
 	});
 
+	it("closes with 4404 and revokes nothing when the join gate refuses the account", async () => {
+		// ADR 0095: a 403 outside_access_groups is a loss regaining the group
+		// reverses. The device stays enrolled; the machine retries with its
+		// own backoff and the link comes back when the groups say so.
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		const closed = waitForClose(machine);
+
+		meAnswer = {
+			ok: false,
+			refused: true,
+			status: 403,
+			message: "Your account is no longer in a group that may use this deployment.",
+			code: "outside_access_groups",
+		};
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(4404);
+		expect(isMachineOnline(deviceId)).toBe(false);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).not.toBe("revoked");
+	});
+
 	it("asks the machine to renew, and revokes nothing, when the refused token itself no longer validates", async () => {
 		// GitLab revokes the previous access token on refresh: for a moment the
 		// connection holds a token the gateway refuses while the machine is fine.

@@ -307,6 +307,36 @@ def supported_scopes(discovery: dict | None) -> list | None:
     return None
 
 
+#: RFC 8628. Without it galopin cannot enroll: a machine has no browser, and
+#: the device flow is the one grant that works without one.
+DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+def device_flow_problem(discovery: dict | None) -> str | None:
+    """Why this issuer cannot run galopin's enrollment, or None when it can.
+
+    A `device_authorization_endpoint` in discovery is the requirement; when
+    the issuer also publishes `grant_types_supported`, it must list the
+    device grant there too. None discovery (unreachable) is not a device
+    problem: --check reports that separately.
+    """
+    if not discovery:
+        return None
+    if not discovery.get("device_authorization_endpoint"):
+        return (
+            "the issuer's discovery publishes no device_authorization_endpoint, "
+            "so galopin cannot enroll: agent machines will not work with it"
+        )
+    grants = discovery.get("grant_types_supported")
+    if isinstance(grants, list) and grants and DEVICE_CODE_GRANT not in grants:
+        return (
+            "the issuer's grant_types_supported omits the device flow "
+            f"({DEVICE_CODE_GRANT}), so galopin cannot enroll: agent machines "
+            "will not work with it"
+        )
+    return None
+
+
 def compute_scopes(discovery: dict | None) -> tuple:
     """(scopes to request, wanted scopes dropped), from the issuer's discovery.
 
@@ -697,6 +727,11 @@ class Answers:
     # External IdP: import the group names it reports by hand (manual, the
     # default) or create them on first sight (auto).
     group_import: str | None = None
+    # Who may join (ADR 0095): open, approval, invite or group. group needs
+    # the local group names too, and says what a stranger without one gets.
+    join_mode: str | None = None
+    required_groups: str | None = None
+    group_fallback: str | None = None
     # Mail: quota notices, "send test", and (bundled Authelia) its own
     # self-service reset.
     smtp_host: str | None = None
@@ -906,6 +941,34 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
     if answers.machine_client_id:
         values["OIDC_MACHINE_CLIENT_ID"] = answers.machine_client_id
     values.setdefault("OIDC_MACHINE_CLIENT_ID", "opencode-enrollment")
+    # ADR 0095: who may join. Only an answer (or an existing value) is
+    # written: absent, the gateway's own default (open) stands, so an upgrade
+    # never changes behaviour. `group` without names would start a gate that
+    # refuses everyone but the administrators — the gateway refuses to start
+    # in that state, so configure refuses to write it.
+    if answers.join_mode:
+        mode = answers.join_mode.strip()
+        if mode not in ("open", "approval", "invite", "group"):
+            raise ConfigError("--join-mode must be one of open, approval, invite, group")
+        names = [n.strip() for n in (answers.required_groups or "").split(",") if n.strip()]
+        if mode == "group":
+            if not names:
+                raise ConfigError(
+                    "--join-mode group needs --required-groups: local group names, comma-"
+                    "separated (import or map the directory's names on Console > Groups "
+                    "first). Or start with approval and switch in the console."
+                )
+            values["OIDC_REQUIRED_GROUPS"] = ",".join(names)
+            if answers.group_fallback:
+                if answers.group_fallback not in ("refuse", "approval"):
+                    raise ConfigError("--group-fallback must be refuse or approval")
+                values["OIDC_GROUP_FALLBACK"] = answers.group_fallback
+        values["OIDC_JOIN_MODE"] = mode
+        if mode == "group":
+            result.notes.append(
+                "group mode: the required groups are local names — a directory name must "
+                "be imported or mapped on Console > Groups before it grants access"
+            )
 
     # --- mail -------------------------------------------------------------------
     for attr, key in (
@@ -1550,6 +1613,40 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
                 },
                 existing.get("OIDC_GROUP_IMPORT") or "manual",
             )
+        if "join_mode" not in given:
+            # A fresh install defaults to approval — the safest that is still
+            # usable. Editing an .env that never answered defaults to open:
+            # Enter must keep what the deployment does today, not change it.
+            join_default = (
+                existing.get("OIDC_JOIN_MODE")
+                or ("approval" if not existing else "open")
+            )
+            answers.join_mode = choose(
+                "Who may join:",
+                {
+                    "open": "anyone who signs in gets an account at once (today's behaviour)",
+                    "approval": "strangers wait in the console's approval queue (recommended)",
+                    "invite": "only people you invite can sign in",
+                    "group": "only members of chosen groups may sign in",
+                },
+                join_default,
+            )
+        if answers.join_mode == "group":
+            if "required_groups" not in given:
+                answers.required_groups = ask(
+                    "Required groups (local names, comma-separated; a directory name must be "
+                    "imported or mapped on Console > Groups first)",
+                    existing.get("OIDC_REQUIRED_GROUPS", ""),
+                )
+            if "group_fallback" not in given:
+                answers.group_fallback = choose(
+                    "Someone without a required group:",
+                    {
+                        "refuse": "refused, told to ask an administrator",
+                        "approval": "held in the approval queue",
+                    },
+                    existing.get("OIDC_GROUP_FALLBACK") or "refuse",
+                )
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
             "OpenAI-compatible endpoint", existing.get("CHAT_OPENAI_BASE_URL", DEFAULT_UPSTREAM)
@@ -1636,9 +1733,29 @@ def cmd_configure(args, root: Path) -> int:
             print(f"configure: non-interactive, and {' and '.join(missing)} not given", file=sys.stderr)
             return 2
     discovery = None
+    pre_notes: list[str] = []
     issuer = (answers.oidc_issuer or existing.get("OIDC_ISSUER", "")).strip()
-    if answers.idp == "external" and answers.oidc_scopes is None and not args.offline and issuer.startswith("https://"):
+    if answers.idp == "external" and not args.offline and issuer.startswith("https://"):
+        # Fetched for the scopes answer and the device-flow check alike; the
+        # scopes question keeps working when the operator named them by hand.
         discovery = fetch_discovery(issuer)
+        problem = device_flow_problem(discovery)
+        if problem:
+            if interactive:
+                print(f"note: {problem}.")
+                choice = choose(
+                    "Continue how?",
+                    {
+                        "without": "continue without agent machines (recommended; switch issuers or add one that offers the device flow later)",
+                        "keep": "keep agent machines on anyway (enrollment will fail)",
+                    },
+                    "without",
+                )
+                if choice == "without":
+                    answers.agents = False
+                    pre_notes.append("agent machines disabled: the issuer offers no device flow")
+            else:
+                pre_notes.append(f"the issuer offers no device flow: galopin cannot enroll ({problem})")
     try:
         result = build(answers, existing, template, discovery)
         text = render(template, result.values, HEADER)
@@ -1652,7 +1769,7 @@ def cmd_configure(args, root: Path) -> int:
         saved = backup(env_path)
         write_private(env_path, text)
         print(f"wrote {env_path} (mode 0600)" + (f"; the previous one is {saved.name}" if saved else ""))
-    for note in result.notes:
+    for note in pre_notes + result.notes:
         print(f"note: {note}")
     if result.admin_password:
         path = root / FIRST_SIGN_IN
@@ -1887,6 +2004,15 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--group-import", choices=("manual", "auto"),
                    help="external IdP: import its groups by hand in the console (manual, the "
                         "default) or create each on first sight (auto)")
+    o.add_argument("--join-mode", choices=("open", "approval", "invite", "group"),
+                   help="external IdP, who may join (ADR 0095): open signs strangers up at "
+                        "once; approval holds them for your approval (the new install's "
+                        "default); invite refuses everyone not invited; group admits only "
+                        "the required groups' members")
+    o.add_argument("--required-groups", help="join-mode group: the local group names, comma-"
+                   "separated (a directory name must be imported or mapped first)")
+    o.add_argument("--group-fallback", choices=("refuse", "approval"),
+                   help="join-mode group: what a stranger without a required group gets")
     o.add_argument("--smtp-host")
     o.add_argument("--smtp-port", type=int)
     o.add_argument("--smtp-username")

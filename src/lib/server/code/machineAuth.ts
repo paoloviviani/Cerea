@@ -364,7 +364,17 @@ export type MachineUserResolution =
 	// below (or a brand-new connection with nothing cached at all) — an
 	// outage, not a refusal, so a live connection is closed but never
 	// revoked over one.
-	| { ok: false; status: 401 | 403; message: string; refused: boolean };
+	| {
+			ok: false;
+			status: 401 | 403;
+			message: string;
+			refused: boolean;
+			/** The gateway's own error code, when it sent one. ADR 0095:
+			 * `outside_access_groups` is the join gate refusing an
+			 * authenticated caller — a loss regaining the group reverses, so
+			 * a live link is closed (4404), never revoked, over one. */
+			code?: string;
+	  };
 
 export interface ResolveMachineUserOptions extends GatewayIdentityOptions {
 	now?: () => number;
@@ -446,6 +456,7 @@ export async function resolveMachineUser(
 				status: result.status as 401 | 403,
 				message: result.message,
 				refused: true,
+				code: result.code,
 			};
 		} else {
 			const lastGood = lastGoodBySub.get(sub);
