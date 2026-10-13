@@ -2,10 +2,13 @@
 	A follow-up, with the agent's own settings attached — in the chat's
 	own composer.
 
-	The textarea is ChatInput with the default props: no mime types to offer
-	(no upload affordances), no conversation to PATCH (so no web-search or
-	knowledge or tool-approval pills either — the pill row hides with an
-	empty allowlist), no hub mentions. What renders instead are the pills
+	The textarea is ChatInput with the session's own mime types: the picker,
+	paste and — as in the chat composer (`ChatWindow` + `FileDropzone`) —
+	dropping files over the window all feed the same allowlist, the same
+	`files` chips and the same upload path. No conversation to PATCH (so no
+	web-search or knowledge or tool-approval pills either — the pill row
+	hides with an empty allowlist), no hub mentions. What renders instead
+	are the pills
 	the agent owns, in the chat composer's own pill idiom and inside the
 	prompt box like chat's: the mode (the backend's permission vocabulary —
 	plan, build, … — listed live from the machine, never a hardcoded set
@@ -38,7 +41,9 @@
 	import { DropdownMenu } from "bits-ui";
 	import ComposerFileChips from "$lib/components/chat/ComposerFileChips.svelte";
 	import ChatInput from "$lib/components/chat/ChatInput.svelte";
+	import FileDropzone from "$lib/components/chat/FileDropzone.svelte";
 	import { pastedAttachments } from "$lib/utils/composerFiles";
+	import { FileDrag } from "$lib/utils/fileDrag.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import StopGeneratingBtn from "$lib/components/StopGeneratingBtn.svelte";
 	import IconArrowUp from "~icons/lucide/arrow-up";
@@ -242,6 +247,16 @@
 	let files = $state<File[]>([]);
 	let focused = $state(false);
 	let busy = $state(false);
+
+	/** Files dragged over the window — the same `FileDrag` the chat
+	 * composer uses: while a drag is on, the input gives its row to
+	 * `FileDropzone`, whose drop fills the same `files` the picker and the
+	 * paste do. */
+	const drag = new FileDrag();
+	/** Drag only offers the dropzone when this session accepts files at
+	 * all: `AgentView` fills `mimeTypes` from the machine's `filesSupported`
+	 * and an empty allowlist hides the picker and refuses the paste too. */
+	let fileUploadEnabled = $derived(mimeTypes.length > 0);
 
 	const settings = useSettingsStore();
 
@@ -810,6 +825,22 @@
 		"flex h-9 items-center rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400";
 </script>
 
+<!-- Window-level drag wiring, exactly as `ChatWindow`'s: the enter/leave
+     pair tracks whether a file drag is over the window (the dropzone swap
+     inside the form reads it), and the window-level drop keeps the browser
+     from navigating away on a stray drop anywhere else. -->
+<svelte:window
+	ondragenter={drag.enter}
+	ondragleave={drag.leave}
+	ondragover={(e) => {
+		e.preventDefault();
+	}}
+	ondrop={(e) => {
+		e.preventDefault();
+		drag.active = false;
+	}}
+/>
+
 <form
 	tabindex="-1"
 	onsubmit={(e) => {
@@ -837,23 +868,30 @@
 		<ComposerFileChips bind:files compact />
 	</div>
 	<div class="flex w-full items-center">
-		<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
-			<ChatInput
-				placeholder="Follow up with the agent…"
-				bind:value={draft}
-				{draftKey}
-				{mimeTypes}
-				{modelIsMultimodal}
-				onPaste={handlePaste}
-				chatTools={false}
-				bind:files
-				onsubmit={submit}
-				bind:focused
-				slashCommands={allCommands}
-				onslashcommand={onSlashCommand}
-			>
-				{#snippet children()}
-					<!-- Only the state that belongs *in* the prompt box renders here:
+		{#if drag.active && fileUploadEnabled}
+			<!-- Files are being dragged over the window: the input gives its
+			     row to the dropzone, exactly as the chat composer does. The
+			     mobile send control goes with it — there is nothing to send
+			     while a drop is pending. -->
+			<FileDropzone bind:files bind:onDrag={drag.active} {mimeTypes} label="Drop File to attach" />
+		{:else}
+			<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
+				<ChatInput
+					placeholder="Follow up with the agent…"
+					bind:value={draft}
+					{draftKey}
+					{mimeTypes}
+					{modelIsMultimodal}
+					onPaste={handlePaste}
+					chatTools={false}
+					bind:files
+					onsubmit={submit}
+					bind:focused
+					slashCommands={allCommands}
+					onslashcommand={onSlashCommand}
+				>
+					{#snippet children()}
+						<!-- Only the state that belongs *in* the prompt box renders here:
 				     the mode pill, the permission selector and the status banners.
 				     Below `sm` the toolbar row goes nowrap-and-scroll, with the
 				     `+` before it and the ring after it pinned outside it, so
@@ -862,181 +900,183 @@
 				     model/effort line; the mode (build/plan) pill stays here —
 				     a session toggle beside the toggles, not a trailing
 				     readout. -->
-					<DropdownMenu.Root bind:open={modeMenuOpen}>
-						<DropdownMenu.Trigger
-							class={pillClass}
-							disabled={applying === "mode"}
-							title="How much the agent may do on its own — the machine's modes, as the backend defines them"
-						>
-							<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
-							<IconChevronDown class={chevronClass} />
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Portal>
-							<DropdownMenu.Content
-								class={menuContentClass}
-								side="top"
-								align="start"
-								sideOffset={8}
-								trapFocus={false}
-								onCloseAutoFocus={(e) => e.preventDefault()}
-								interactOutsideBehavior="defer-otherwise-close"
+						<DropdownMenu.Root bind:open={modeMenuOpen}>
+							<DropdownMenu.Trigger
+								class={pillClass}
+								disabled={applying === "mode"}
+								title="How much the agent may do on its own — the machine's modes, as the backend defines them"
 							>
-								{#if modes === null && !modesFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled
-										>Loading modes…</DropdownMenu.Item
-									>
-								{:else if modesFailure}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										Could not load modes: {modesFailure}
-									</DropdownMenu.Item>
-								{:else if !modes?.length}
-									<DropdownMenu.Item class={menuNoteClass} disabled>
-										The daemon lists no modes.
-									</DropdownMenu.Item>
-								{:else}
-									{#each modes as mode (mode.id)}
-										<DropdownMenu.Item
-											class={menuItemClass}
-											onSelect={() => void applyMode(mode.id)}
+								<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
+								<IconChevronDown class={chevronClass} />
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Portal>
+								<DropdownMenu.Content
+									class={menuContentClass}
+									side="top"
+									align="start"
+									sideOffset={8}
+									trapFocus={false}
+									onCloseAutoFocus={(e) => e.preventDefault()}
+									interactOutsideBehavior="defer-otherwise-close"
+								>
+									{#if modes === null && !modesFailure}
+										<DropdownMenu.Item class={menuNoteClass} disabled
+											>Loading modes…</DropdownMenu.Item
 										>
-											<IconCheck
-												class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
-													? 'opacity-100'
-													: 'opacity-0'}"
-											/>
-											<span class="whitespace-nowrap" title={mode.description}>
-												{mode.label}
-											</span>
+									{:else if modesFailure}
+										<DropdownMenu.Item class={menuNoteClass} disabled>
+											Could not load modes: {modesFailure}
 										</DropdownMenu.Item>
-									{/each}
-								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Portal>
-					</DropdownMenu.Root>
-					<!-- The permission selector: the session's blanket, Deny · Ask ·
+									{:else if !modes?.length}
+										<DropdownMenu.Item class={menuNoteClass} disabled>
+											The daemon lists no modes.
+										</DropdownMenu.Item>
+									{:else}
+										{#each modes as mode (mode.id)}
+											<DropdownMenu.Item
+												class={menuItemClass}
+												onSelect={() => void applyMode(mode.id)}
+											>
+												<IconCheck
+													class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
+														? 'opacity-100'
+														: 'opacity-0'}"
+												/>
+												<span class="whitespace-nowrap" title={mode.description}>
+													{mode.label}
+												</span>
+											</DropdownMenu.Item>
+										{/each}
+									{/if}
+								</DropdownMenu.Content>
+							</DropdownMenu.Portal>
+						</DropdownMenu.Root>
+						<!-- The permission selector: the session's blanket, Deny · Ask ·
 					     Allow. The value is the agent snapshot's word, so a click
 					     waits for the machine's answer rather than guessing. On a
 					     subagent it is disabled and says whose it follows; under
 					     Allow, the note names what the ceiling still caps. Below
 					     `sm` the note drops out of the one-line row (the Allow
 					     segment's title carries the same facts). -->
-					{#if showPermissionSelector}
-						<div
-							role="radiogroup"
-							aria-label="Permission for this session"
-							aria-busy={applying === "permission"}
-							data-testid="permission-mode"
-							data-mode={permissionMode}
-							title={isSubagent
-								? "A subagent follows the main session's permission setting."
-								: "What this session does about a tool call it has no rule for."}
-							class="flex h-7 flex-none items-center rounded-full border p-0.5 max-sm:h-8 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 {PILL_REST}"
-						>
-							{#each PERMISSION_SEGMENTS as segment (segment.mode)}
-								<button
-									type="button"
-									role="radio"
-									aria-checked={permissionMode === segment.mode}
-									disabled={isSubagent || applying !== null}
-									title={segment.title}
-									data-testid="permission-mode-{segment.mode}"
-									onclick={() => void applyPermissionMode(segment.mode)}
-									class={[
-										segmentClass(permissionMode === segment.mode),
-										(isSubagent || applying !== null) && permissionMode !== segment.mode
-											? "opacity-60"
-											: "",
-									]}
-								>
-									<segment.icon class="hidden size-3.5 max-sm:block" />
-									<span class="max-sm:sr-only">{segment.label}</span>
-								</button>
-							{/each}
-						</div>
-						{#if showPermissionSelector && !isSubagent}
-							<!-- The session's permission details, one click beside the
+						{#if showPermissionSelector}
+							<div
+								role="radiogroup"
+								aria-label="Permission for this session"
+								aria-busy={applying === "permission"}
+								data-testid="permission-mode"
+								data-mode={permissionMode}
+								title={isSubagent
+									? "A subagent follows the main session's permission setting."
+									: "What this session does about a tool call it has no rule for."}
+								class="flex h-7 flex-none items-center rounded-full border p-0.5 max-sm:h-8 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 {PILL_REST}"
+							>
+								{#each PERMISSION_SEGMENTS as segment (segment.mode)}
+									<button
+										type="button"
+										role="radio"
+										aria-checked={permissionMode === segment.mode}
+										disabled={isSubagent || applying !== null}
+										title={segment.title}
+										data-testid="permission-mode-{segment.mode}"
+										onclick={() => void applyPermissionMode(segment.mode)}
+										class={[
+											segmentClass(permissionMode === segment.mode),
+											(isSubagent || applying !== null) && permissionMode !== segment.mode
+												? "opacity-60"
+												: "",
+										]}
+									>
+										<segment.icon class="hidden size-3.5 max-sm:block" />
+										<span class="max-sm:sr-only">{segment.label}</span>
+									</button>
+								{/each}
+							</div>
+							{#if showPermissionSelector && !isSubagent}
+								<!-- The session's permission details, one click beside the
 						     selector: the dialog reads this session's rules itself.
 						     The count is the exceptions' pill; on a phone the
 						     button is an icon circle like the segments and the
 						     count a dot badge, so the row stays one line. -->
-							<button
-								type="button"
-								class={composerPillClass({ compact: true })}
-								aria-label="Permission details for this session"
-								title="What this session will do about its tool calls"
-								data-testid="permission-details"
-								onclick={() => (permissionDetailsOpen = true)}
-							>
-								<span class="relative flex items-center">
-									<IconShield class="size-3.5" />
+								<button
+									type="button"
+									class={composerPillClass({ compact: true })}
+									aria-label="Permission details for this session"
+									title="What this session will do about its tool calls"
+									data-testid="permission-details"
+									onclick={() => (permissionDetailsOpen = true)}
+								>
+									<span class="relative flex items-center">
+										<IconShield class="size-3.5" />
+										{#if permissionExceptions > 0}
+											<span
+												class="absolute -top-1.5 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-gray-200 px-0.5 text-[9px] font-semibold text-gray-700 sm:hidden dark:bg-gray-600 dark:text-gray-200"
+												>{permissionExceptions}</span
+											>
+										{/if}
+									</span>
 									{#if permissionExceptions > 0}
-										<span
-											class="absolute -top-1.5 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-gray-200 px-0.5 text-[9px] font-semibold text-gray-700 sm:hidden dark:bg-gray-600 dark:text-gray-200"
+										<span class="max-sm:hidden {s.PILL} {s.PILL_TONES.neutral}"
 											>{permissionExceptions}</span
 										>
 									{/if}
+								</button>
+							{/if}
+							{#if permissionNote}
+								<span
+									class="flex min-w-0 flex-none items-center gap-1 text-xs text-gray-500 max-sm:hidden dark:text-gray-400"
+									data-testid="permission-mode-note"
+									title={permissionNote}
+								>
+									{permissionNote}
 								</span>
-								{#if permissionExceptions > 0}
-									<span class="max-sm:hidden {s.PILL} {s.PILL_TONES.neutral}"
-										>{permissionExceptions}</span
-									>
-								{/if}
-							</button>
+							{/if}
 						{/if}
-						{#if permissionNote}
+
+						{#if applyFailure}
 							<span
-								class="flex min-w-0 flex-none items-center gap-1 text-xs text-gray-500 max-sm:hidden dark:text-gray-400"
-								data-testid="permission-mode-note"
-								title={permissionNote}
+								class="flex min-w-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
 							>
-								{permissionNote}
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate" title={applyFailure}>{applyFailure}</span>
 							</span>
 						{/if}
-					{/if}
 
-					{#if applyFailure}
-						<span
-							class="flex min-w-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
-						>
-							<IconWarning class="size-3 shrink-0" />
-							<span class="min-w-0 truncate" title={applyFailure}>{applyFailure}</span>
-						</span>
-					{/if}
-
-					{#if offline}
-						<span class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-							<IconWarning class="size-3 shrink-0" />
-							<span class="min-w-0 truncate">This machine is offline.</span>
-						</span>
-					{:else if enrollmentExpired}
-						<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
-							<IconWarning class="size-3 shrink-0" />
-							<span class="min-w-0 truncate">
-								This machine's enrollment expired or was revoked.
-							</span>
-							<button
-								type="button"
-								class="shrink-0 font-medium underline underline-offset-2"
-								onclick={() => onreenroll?.()}
+						{#if offline}
+							<span
+								class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
 							>
-								Re-enroll
-							</button>
-						</span>
-					{/if}
-				{/snippet}
-				{#snippet trailingActions()}
-					<!-- Desktop's send/stop control (`sendControl`, below) sits
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate">This machine is offline.</span>
+							</span>
+						{:else if enrollmentExpired}
+							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
+								<IconWarning class="size-3 shrink-0" />
+								<span class="min-w-0 truncate">
+									This machine's enrollment expired or was revoked.
+								</span>
+								<button
+									type="button"
+									class="shrink-0 font-medium underline underline-offset-2"
+									onclick={() => onreenroll?.()}
+								>
+									Re-enroll
+								</button>
+							</span>
+						{/if}
+					{/snippet}
+					{#snippet trailingActions()}
+						<!-- Desktop's send/stop control (`sendControl`, below) sits
 					     after the pill group, in this same row, rather than
 					     floating absolutely over the composer — see that
 					     snippet's comment for why. The usage ring moved to the
 					     mode/model/effort row below the form, trailing it right
 					     the way chat's trailing actions clear its model line. -->
-					{#if !narrowViewport.current}
-						{@render sendControl(false)}
-					{/if}
-				{/snippet}
-			</ChatInput>
-			<!-- Mobile keeps the send/stop control pinned over the composer's
+						{#if !narrowViewport.current}
+							{@render sendControl(false)}
+						{/if}
+					{/snippet}
+				</ChatInput>
+				<!-- Mobile keeps the send/stop control pinned over the composer's
 			     bottom-right corner, exactly as `fix/mobile-composer` left it.
 			     Desktop instead renders it inside `trailingActions`, above,
 			     right after the ring: pinning it here worked only by
@@ -1049,10 +1089,11 @@
 			     share (brief item 2). `narrowViewport` picks exactly one of
 			     the two: never both, so there is only ever one "Send
 			     message"/stop control in the accessibility tree. -->
-			{#if narrowViewport.current}
-				{@render sendControl(true)}
-			{/if}
-		</div>
+				{#if narrowViewport.current}
+					{@render sendControl(true)}
+				{/if}
+			</div>
+		{/if}
 	</div>
 </form>
 

@@ -198,3 +198,45 @@ describe("AgentComposer image attachments", () => {
 		expect(document.body.querySelector('img[alt="paper.pdf"]')).toBeNull();
 	});
 });
+
+describe("AgentComposer file drag and drop", () => {
+	it("swaps the input for the dropzone while files drag over, and a drop becomes a chip", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount(true, true, { modelIsMultimodal: true });
+
+		// The dragenter fires on the textarea and bubbles to the window
+		// handler, exactly as a real drag does.
+		const target = screen.getByPlaceholder("Follow up with the agent…").element() as HTMLElement;
+		target.dispatchEvent(new DragEvent("dragenter", { bubbles: true }));
+
+		await vi.waitFor(() => expect(document.body.querySelector("#dropzone")).not.toBeNull());
+		// While the drag is on, the input gave its row to the dropzone.
+		expect(screen.getByPlaceholder("Follow up with the agent…").elements()).toHaveLength(0);
+
+		const zone = document.body.querySelector("#dropzone");
+		const dt = new DataTransfer();
+		dt.items.add(new File(["png"], "shot.png", { type: "image/png" }));
+		zone?.dispatchEvent(
+			new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt })
+		);
+
+		// The dropped file took the same path as a picked or pasted one —
+		// the same chips — and the drop ended the drag: the input is back.
+		await vi.waitFor(() =>
+			expect(document.body.querySelector('[data-testid="composer-image-thumb"]')).not.toBeNull()
+		);
+		await vi.waitFor(() =>
+			expect(screen.getByPlaceholder("Follow up with the agent…").elements()).toHaveLength(1)
+		);
+		expect(document.body.querySelector("#dropzone")).toBeNull();
+	});
+
+	it("offers no dropzone when the session accepts no files", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount(true);
+		const target = screen.getByPlaceholder("Follow up with the agent…").element() as HTMLElement;
+		target.dispatchEvent(new DragEvent("dragenter", { bubbles: true }));
+		expect(document.body.querySelector("#dropzone")).toBeNull();
+		expect(screen.getByPlaceholder("Follow up with the agent…").elements()).toHaveLength(1);
+	});
+});
