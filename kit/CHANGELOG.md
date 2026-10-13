@@ -7,18 +7,40 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## v0.11.1 — 2026-10-13
 
-Pins: Cerea `0.11.1`, Pystino `0.5.0`, Authelia 4.39.22. Update the
+Pins: Cerea `0.11.1`, Pystino `0.6.0`, Authelia 4.39.22. Update the
 deployment (`docker compose pull && docker compose up -d`), then
 **machines need the galopin update** (install step only, then
 `systemctl --user restart galopin`).
 
-- **Agents see their own subagents in `session_list`.** The listing skipped
+- **IdP groups reach local groups only through a mapping.** A group name
+  from a token resolves through the console's group mappings and nothing
+  else — an unmapped name resolves to nothing, even when a local group
+  carries the same name (IdP group namespaces are user-writable; a
+  same-name claim is not a vouch). **"Import" is now "Map"**: the Groups
+  page's Map dialog asks what the name means here — a new group with the
+  same name, a new group under another name, or an existing group — and
+  the mapping is what the token resolves through. Migration 0058 keeps
+  existing memberships by adding self-mappings (name → the same group),
+  except where a mapping already exists (a key, or a target: those came
+  through the mapping) or group mode requires a hand-made group; review
+  them in **Console → Groups**. A mapping trusts the IdP name, so remove
+  it if the IdP group is deleted — if the real IdP group is deleted and
+  someone else re-creates that name there, the mapping trusts the new
+  one.
+- **Agents can find their own subagents again.** `session_list` skipped
   every session with a parent id, including the caller's own task
-  subagents, so a session with finished children told the person it had
-  launched none. A caller now sees the subagents at or below itself in its
-  own tree — with the subagent type, the last-activity time and the
-  `task_id` resume handle — while other trees' subagents stay hidden and
-  `session_send` to an own-tree id stays refused.
+  subagents — a session with five finished children told the person it
+  had launched none. A caller now sees the subagents at or below itself
+  in its own tree, with the subagent type, the last-activity time and the
+  `task_id` resume handle; `session_send` to an own-tree id stays
+  refused.
+- **Older failure banners collapse.** When several turns failed, every
+  failed-turn banner started expanded and stacked into a wall; only the
+  most recent one starts open now, older ones fold to one line with a
+  chevron.
+- **Drag and drop files onto the agent composer.** The /code panel's
+  composer takes dropped files through the same allowlist and upload flow
+  as the chat composer's picker.
 
 ## v0.11.0 — 2026-10-13
 
