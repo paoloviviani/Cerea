@@ -8,6 +8,7 @@
 	import MarkdownBlock from "./MarkdownBlock.svelte";
 	import { browser } from "$app/environment";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
+	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
 
@@ -44,6 +45,9 @@
 
 	const runsStore = getRunsStore();
 	const messageRun = getMessageRunContext();
+	// The agent transcript never executes: leave no seen-streaming marks for
+	// a block that must stay inert.
+	const codeExecutionDisabled = isCodeExecutionDisabled();
 
 	// Mark every closed fence in `content` as "seen live" right here, in the
 	// same effect (so the same reactive tick) that captures `loading` for
@@ -51,7 +55,7 @@
 	// pipeline above has actually tokenized it. See `findClosedFences` for
 	// why that gap matters.
 	function markLiveFences(): void {
-		if (!loading || !runsStore) return;
+		if (!loading || !runsStore || codeExecutionDisabled) return;
 		const conversationId = messageRun?.conversationId ?? "";
 		for (const fence of findClosedFences(content)) {
 			runsStore.markSeenStreaming(`${conversationId}|${chatRunKey(fence.rawCode)}`);

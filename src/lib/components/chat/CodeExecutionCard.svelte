@@ -7,6 +7,7 @@
 	import RunOutput from "./RunOutput.svelte";
 	import FileArtifactCard from "./FileArtifactCard.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
+	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { uploadRunFiles } from "$lib/utils/execution/runFiles";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import type { MessageCodeExecutionRequestUpdate } from "$lib/types/MessageUpdate";
@@ -36,6 +37,9 @@
 	let { conversationId, request, resolved }: Props = $props();
 
 	let runsStore = getRunsStore();
+	// The agent transcript never executes (see AgentView/SubagentCard): a
+	// parked `execute_code` row there renders its persisted outcome only.
+	const codeExecutionDisabled = isCodeExecutionDisabled();
 	let runKey = $derived(runsStore ? chatRunKey(request.code) : "");
 	let runState = $derived(runsStore && runKey ? runsStore.get(runKey) : undefined);
 
@@ -43,7 +47,7 @@
 	// so a fence autorun of the same code settles this card too.
 	let kicked = false;
 	$effect(() => {
-		if (resolved || !runsStore || !runKey || kicked) return;
+		if (resolved || codeExecutionDisabled || !runsStore || !runKey || kicked) return;
 		kicked = true;
 		runsStore.run(runKey, request.code);
 	});

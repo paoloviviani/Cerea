@@ -66,6 +66,7 @@
 	import type { Snippet } from "svelte";
 	import { page } from "$app/state";
 	import { setMessageRunContext } from "$lib/utils/execution/messageContext";
+	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import ImageLightbox from "./ImageLightbox.svelte";
 	import CollapsibleUserText from "./CollapsibleUserText.svelte";
@@ -167,6 +168,10 @@
 
 	const sessionLinks = getCodeSessionLinks();
 	const convId = $derived(conversationId ?? page.params.id ?? "");
+	// The coding-agent transcript sets this (see AgentView/SubagentCard): its
+	// python fences render as inert text, never auto-run.
+	const codeExecutionDisabled = isCodeExecutionDisabled();
+	const codeAutorun = $derived(message.from === "assistant" && !codeExecutionDisabled);
 
 	// What a code block in this message needs to keep the files its run
 	// produces. Writing is for the owner's own chat page only: never a share,
@@ -813,7 +818,7 @@
 									<MarkdownRenderer
 										content={block.content}
 										loading={isLast && loading}
-										autorun={message.from === "assistant"}
+										autorun={codeAutorun}
 									/>
 								</div>
 							{/if}
@@ -907,7 +912,7 @@
 									<MarkdownRenderer
 										content={unit.content}
 										loading={isLast && loading}
-										autorun={message.from === "assistant"}
+										autorun={codeAutorun}
 									/>
 								</div>
 							{/if}

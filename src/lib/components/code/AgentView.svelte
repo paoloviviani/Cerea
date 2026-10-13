@@ -78,6 +78,7 @@
 	import type { PermissionRulesResult } from "$lib/types/machineProtocol";
 	import { ceilingOf, ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
+	import { setCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { FIRST_TURN_SUBAGENT } from "$lib/utils/firstTurnSubagent";
 	import { FirstTurnTracker } from "$lib/utils/firstTurnTracker.svelte";
 	import { error as errorToast } from "$lib/stores/errors";
@@ -520,6 +521,11 @@
 		title: (sessionId) => knownSessions[sessionId]?.title,
 	};
 	setContext(CODE_SESSION_LINKS, sessionLinks);
+	// The transcript below reuses the chat's message components, whose code
+	// blocks otherwise auto-run a streamed-in ```python fence in the
+	// browser's Pyodide: the agent quoting its own edit is not the person's
+	// code and must never run there.
+	setCodeExecutionDisabled();
 	// The cards below hide "Always allow (this session)" for a tool the ceiling
 	// holds below allow: the machine would answer once and store nothing.
 	setContext<AlwaysCapped>(ALWAYS_CAPPED, (tool) => isCapped(ceiling, tool));

@@ -1,4 +1,5 @@
 import CodeBlock from "./CodeBlock.svelte";
+import ChatMessage from "./chat/ChatMessage.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { tick } from "svelte";
@@ -6,6 +7,7 @@ import type { RunOutcome } from "$lib/utils/execution/protocol";
 import { sidePane } from "$lib/stores/sidePane.svelte";
 import { runFiles } from "$lib/stores/runFiles.svelte";
 import { MESSAGE_RUN_CONTEXT, type MessageRunContext } from "$lib/utils/execution/messageContext";
+import { CODE_EXECUTION_DISABLED } from "$lib/utils/execution/codeExecutionDisabled";
 
 /**
  * The real runs store is exercised; only the worker session underneath is a
@@ -322,6 +324,96 @@ describe("CodeBlock execution", () => {
 		const preRect = (pre as HTMLElement).getBoundingClientRect();
 		expect(Math.abs(preRect.right - containerRect.right)).toBeLessThan(1);
 		expect(Math.abs(preRect.left - containerRect.left)).toBeLessThan(1);
+	});
+});
+
+describe("CodeBlock with code execution disabled (the agent transcript)", () => {
+	/** Mount under the agent view's no-execution flag (see AgentView/SubagentCard). */
+	function mountDisabled(rawCode: string, extra: Record<string, unknown> = {}) {
+		return render(CodeBlock, {
+			props: {
+				code: rawCode,
+				rawCode,
+				loading: true,
+				// See the `mount` helper above for why this mirrors `loading`.
+				messageLoading: true,
+				language: "python",
+				autorun: true,
+				...extra,
+			},
+			context: new Map<unknown, unknown>([[CODE_EXECUTION_DISABLED, true]]),
+			// Same cast renderWithApp uses: the props-with-context form is valid,
+			// the helper's generic just cannot see it.
+		} as never);
+	}
+
+	it("never auto-runs a streamed python fence and offers no Run button", async () => {
+		const rawCode = "print('agent-disabled')";
+		const screen = mountDisabled(rawCode);
+		await tick();
+		expect(sessionMock.run).not.toHaveBeenCalledWith(rawCode);
+
+		// The fence streams in and closes: `loading` flips false exactly as in
+		// the auto-run test above — and still nothing executes.
+		await screen.rerender({ loading: false, messageLoading: false });
+		await tick();
+		// Give a would-be auto-run every chance to fire.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(sessionMock.run).not.toHaveBeenCalledWith(rawCode);
+		expect(screen.baseElement.querySelector('button[aria-label="Run code"]')).toBeNull();
+		// Still a readable, copyable block — highlighted code plus Copy, exactly
+		// like a non-Python fence.
+		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
+		expect(screen.baseElement.querySelector('button[title="Copy to clipboard"]')).not.toBeNull();
+	});
+
+	it("an assistant message in the agent view with a python fence never runs", async () => {
+		const rawCode = "print('agent-chat-disabled')";
+		const content = `Here is the edit:\n\n\`\`\`python\n${rawCode}\n\`\`\`\n`;
+		const screen = render(ChatMessage, {
+			props: {
+				message: { id: "m-agent-1", from: "assistant", content, children: [], updates: [] },
+				loading: true,
+				isLast: true,
+				isAuthor: true,
+				readOnly: true,
+			},
+			context: new Map<unknown, unknown>([[CODE_EXECUTION_DISABLED, true]]),
+		} as never);
+		await tick();
+		// The fence renders through the markdown pipeline…
+		await vi.waitFor(() => expect(screen.baseElement.querySelector("pre")).not.toBeNull(), {
+			timeout: 5000,
+		});
+		// …the turn settles, the fence closes — and nothing executes.
+		await screen.rerender({ loading: false });
+		await tick();
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(sessionMock.run).not.toHaveBeenCalledWith(rawCode);
+		expect(screen.baseElement.querySelector('button[aria-label="Run code"]')).toBeNull();
+	});
+
+	it("the same fence without the flag still auto-runs (chat is unchanged)", async () => {
+		const rawCode = "print('agent-control')";
+		const content = `Here is the edit:\n\n\`\`\`python\n${rawCode}\n\`\`\`\n`;
+		const screen = render(ChatMessage, {
+			message: { id: "m-agent-2", from: "assistant", content, children: [], updates: [] },
+			loading: true,
+			isLast: true,
+			isAuthor: true,
+			readOnly: true,
+		} as never);
+		await tick();
+		await vi.waitFor(() => expect(screen.baseElement.querySelector("pre")).not.toBeNull(), {
+			timeout: 5000,
+		});
+		await screen.rerender({ loading: false });
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledWith(rawCode), {
+			timeout: 5000,
+		});
+		// Drain the run: the pending queue is shared within this file.
+		sessionMock.settleNext(outcome({ stdout: "" }));
+		await tick();
 	});
 });
 
