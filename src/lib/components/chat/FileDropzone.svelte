@@ -10,6 +10,9 @@
 		mimeTypes?: string[];
 		onDrag?: boolean;
 		onDragInner?: boolean;
+		/** What the drop line says. Chat's own wording is the default; the
+		 * agent composer, whose target is a session and not a chat, says so. */
+		label?: string;
 	}
 
 	let {
@@ -17,6 +20,7 @@
 		mimeTypes = [],
 		onDrag = $bindable(false),
 		onDragInner = $bindable(false),
+		label = "Drop File to add to chat",
 	}: Props = $props();
 
 	async function dropHandle(event: DragEvent) {
@@ -81,5 +85,5 @@
 		: 'bg-gray-100 text-gray-500 dark:border-gray-500 dark:bg-gray-700 dark:text-gray-400'}"
 >
 	<CarbonImage class="text-xl" />
-	<p>Drop File to add to chat</p>
+	<p>{label}</p>
 </div>
