@@ -5,10 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.11.0 — 2026-10-13
 
-Pins: Cerea unreleased, Pystino unreleased (the join-gateway side lands in
-Pystino's next release), Authelia 4.39.22.
+Pins: Cerea `0.11.0`, Pystino `0.5.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`), then
+**machines need the galopin update** (install step only, then
+`systemctl --user restart galopin`).
 
 - **"Who may join" is one setting, for any identity provider.** The
   gateway's four join modes (`open`, `approval`, `invite`, `group`) replace
@@ -44,6 +46,16 @@ Pystino's next release), Authelia 4.39.22.
   invite mode when the provider's tokens carry no `email_verified`.
   `./configure` makes the same check a blocking warning with an explicit
   continue-without-agent-machines choice.
+- **The group gate holds on every sign-in and every API call.** The
+  gateway admits only members of the required groups — strangers refused,
+  people who lost their last required group refused with `403
+  outside_access_groups` (never a 401), administrators exempt everywhere —
+  and the console's Identity page previews who loses access before saving.
+- **The README and the docs home read as one shelf.** The README places
+  Cerea beside Pystino before calling it the gateway, and the docs home
+  places Pystino beside Cerea; each links the other's context.
+- **The agent transcript no longer runs Python fences.** Fenced code in
+  the agent view renders as text — nothing executes there.
 
 ## v0.10.17 — 2026-10-12
 
