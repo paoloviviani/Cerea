@@ -5,6 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.11.1 — 2026-10-13
+
+Pins: Cerea `0.11.1`, Pystino `0.5.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`), then
+**machines need the galopin update** (install step only, then
+`systemctl --user restart galopin`).
+
+- **Agents see their own subagents in `session_list`.** The listing skipped
+  every session with a parent id, including the caller's own task
+  subagents, so a session with finished children told the person it had
+  launched none. A caller now sees the subagents at or below itself in its
+  own tree — with the subagent type, the last-activity time and the
+  `task_id` resume handle — while other trees' subagents stay hidden and
+  `session_send` to an own-tree id stays refused.
+
 ## v0.11.0 — 2026-10-13
 
 Pins: Cerea `0.11.0`, Pystino `0.5.0`, Authelia 4.39.22. Update the
