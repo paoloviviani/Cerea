@@ -1,8 +1,8 @@
 <!--
 	A fork handoff (parity plan §4.2(a)): a new session, on this machine or
-	another of the caller's own paired ones, seeded with a prompt and —
-	optionally — the source transcript up to the message the person hit
-	"Fork from here" on. In the style of `AgentDialog.svelte`; see it for the
+	another of the caller's own paired ones, seeded with a prompt and the
+	source transcript up to the message the person hit "Fork from here" on.
+	In the style of `AgentDialog.svelte`; see it for the
 	phone-sized-first and sticky-footer notes, which apply here unchanged.
 
 	The route (`POST v1/agents/:id/handoff`) does the actual work — this
@@ -80,7 +80,6 @@
 	let models = $state<CodeProviderModel[]>([]);
 	let targetModeId = $state(untrack(() => modeId ?? ""));
 	let targetModelId = $state(untrack(() => modelId ?? ""));
-	let carry = $state(true);
 	let prompt = $state("");
 	let listsBusy = $state(false);
 	let listsFailure = $state<string | null>(null);
@@ -133,12 +132,16 @@
 		try {
 			const result = await handoffAgent(deviceId, agentId, {
 				prompt: prompt.trim(),
-				carry,
+				// The fork always carries the conversation: without it this is not
+				// a fork but a brand-new session with no memory of the work so
+				// far, which is not what "Fork from here" promises. The route
+				// keeps the flag for other callers.
+				carry: true,
 				...(targetDevice !== deviceId ? { targetDevice } : {}),
 				...(targetWorkspaceId ? { workspaceId: targetWorkspaceId } : {}),
 				...(targetModeId ? { modeId: targetModeId } : {}),
 				...(targetModelId ? { modelId: targetModelId } : {}),
-				...(carry && uptoMessageId ? { uptoMessageId } : {}),
+				...(uptoMessageId ? { uptoMessageId } : {}),
 			});
 			onhandoff(result);
 			onclose();
@@ -248,14 +251,8 @@
 				{/each}
 			</select>
 
-			<label class="mt-4 flex items-center gap-2 text-sm text-ink">
-				<input type="checkbox" bind:checked={carry} disabled={busy} />
-				Carry the conversation up to here
-			</label>
 			<p class={s.HINT}>
-				{carry
-					? "The new agent's first message carries a summary of this conversation as an attachment."
-					: "The new agent starts cold, with only the prompt below."}
+				The new agent's first message carries a summary of this conversation as an attachment.
 			</p>
 
 			<label class="{s.LABEL} mt-4" for="handoff-prompt">Prompt</label>
