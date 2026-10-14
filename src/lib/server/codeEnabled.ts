@@ -31,20 +31,26 @@ export function codeAgentsEnabled(): boolean {
  *   `capabilities.code_agents` decides — read through the session's existing
  *   `/v1/me` cache (`gatewaySessionCheck`, at most one gateway call a minute
  *   per session, shared with the sign-in check; this adds no call per
- *   request). Absent reads as allowed, so an older gateway never refuses.
+ *   request). Here the answer is **deny until the gateway says true**: no
+ *   token (nobody to ask), an answer the gateway did not give (a blip, a
+ *   refusal, an ended session) and a capabilities block that does not grant
+ *   the flag all read as denied, so a surface the gateway rations never
+ *   opens on a guess. The one allowance is an **older gateway**, told apart
+ *   by its own answer — a body with no `capabilities` key at all never heard
+ *   of capabilities and reads as allowed, while silence inside a present key
+ *   is a denial (`gatewaySession.ts` keeps the two apart; the check is always
+ *   awaited here, so "not fetched yet" can never reach this decision).
  * - without a gateway (the generic preset, a standalone deployment), the env
- *   switch alone decides, as today — and so it does whenever there is no
- *   gateway answer to deny by (no token, a blip, an ended session the auth
- *   layer already handled): those paths fail open here and are decided
- *   elsewhere (sign-in, the 503 layer).
+ *   switch alone decides, as today.
  */
 export async function codeAgentsAllowedFor(locals: App.Locals): Promise<boolean> {
 	if (!codeAgentsEnabled()) return false;
 	if (!isGatewayPreset()) return true;
-	if (!locals.token) return true;
+	if (!locals.token) return false;
 	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
-	if (outcome?.kind !== "valid") return true;
-	return outcome.capabilities?.code_agents ?? true;
+	if (outcome?.kind !== "valid") return false;
+	if (outcome.capabilities === "absent") return true;
+	return outcome.capabilities.code_agents;
 }
 
 /**

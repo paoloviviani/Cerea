@@ -9,6 +9,10 @@ const configState = vi.hoisted(() => ({
 	knowledgeEnabled: undefined as boolean | undefined,
 	openaiBaseUrl: undefined as string | undefined,
 	consoleEnabled: undefined as boolean | undefined,
+	// The gateway preset (a per-person user token): off unless a test turns
+	// it on, alongside `openaiBaseUrl`.
+	useUserToken: undefined as boolean | undefined,
+	codeAgentsEnabled: undefined as boolean | undefined,
 }));
 
 vi.mock("$lib/server/config", async (importOriginal) => {
@@ -32,6 +36,12 @@ vi.mock("$lib/server/config", async (importOriginal) => {
 					}
 					if (prop === "CHAT_CONSOLE_ENABLED" && configState.consoleEnabled !== undefined) {
 						return configState.consoleEnabled ? "true" : "";
+					}
+					if (prop === "USE_USER_TOKEN" && configState.useUserToken !== undefined) {
+						return configState.useUserToken ? "true" : "false";
+					}
+					if (prop === "CODE_AGENTS_ENABLED" && configState.codeAgentsEnabled !== undefined) {
+						return configState.codeAgentsEnabled ? "true" : "false";
 					}
 					return Reflect.get(target, prop, receiver);
 				},
@@ -216,6 +226,137 @@ describe("GET /api/v2/feature-flags", () => {
 			"GET, POST, PUT, PATCH, DELETE, OPTIONS"
 		);
 		expect(res.headers.get("access-control-allow-headers")).toBe("Content-Type, Authorization");
+	});
+});
+
+/**
+ * `codeAgentsEnabled` is the client's only source for the Chats | Agents
+ * switch (the universal layout load spreads feature-flags over its data), so
+ * this flag decides whether a person sees the switch at all. It answers per
+ * person (ADR 0096): the gateway's `capabilities.code_agents` for the
+ * caller's own token, deny until the gateway says true, the deployment switch
+ * alone where there is no gateway. A deployment-wide answer here is the bug
+ * that showed every owner's chat-only test user the switch.
+ */
+describe("GET /api/v2/feature-flags answers codeAgentsEnabled per person", () => {
+	const GATEWAY_BASE = "http://gateway.invalid/v1";
+
+	function stubMe(answer: { status: number; body?: unknown } | { down: true }) {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = new URL(typeof input === "string" ? input : input.toString());
+				if (url.href === `${GATEWAY_BASE}/me`) {
+					if ("down" in answer) throw new TypeError("fetch failed");
+					return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status });
+				}
+				return new Response("{}", { status: 500 });
+			})
+		);
+	}
+
+	/** A signed-in gateway person: a real session row carrying an oauth token,
+	 * a user the stubbed `/v1/me` answers for, and that answer's
+	 * `capabilities` (`undefined` sends no capabilities key at all). */
+	async function gatewayPerson(capabilities?: unknown) {
+		const person = await createTestUser();
+		const gatewayUserId = `gw-${person.user._id.toString()}`;
+		await collections.users.updateOne({ _id: person.user._id }, { $set: { gatewayUserId } });
+		const token = `tok-${person.session.sessionId}`;
+		await collections.sessions.updateOne(
+			{ sessionId: person.session.sessionId },
+			{
+				$set: {
+					oauth: { token: { value: token, expiresAt: new Date(Date.now() + 3_600_000) } },
+				},
+			}
+		);
+		const body = {
+			id: gatewayUserId,
+			is_admin: false,
+			groups: [],
+			sessions_valid_after: null,
+			merged_at: null,
+			...(capabilities === undefined ? {} : { capabilities }),
+		};
+		return { locals: createTestLocals({ sessionId: person.session.sessionId, token }), body };
+	}
+
+	async function flagsFor(locals: App.Locals): Promise<FeatureFlags> {
+		const res = await testRequest(featureFlagsGET, { path: "/api/v2/feature-flags", locals });
+		return parseResponse<FeatureFlags>(res);
+	}
+
+	beforeEach(async () => {
+		await ready;
+	});
+
+	afterEach(async () => {
+		configState.openaiBaseUrl = undefined;
+		configState.useUserToken = undefined;
+		configState.codeAgentsEnabled = undefined;
+		vi.unstubAllGlobals();
+		await cleanupTestData();
+	});
+
+	it("a person the gateway denies gets false, on a deployment whose switch is on", async () => {
+		configState.openaiBaseUrl = GATEWAY_BASE;
+		configState.useUserToken = true;
+		const { locals, body } = await gatewayPerson({ code_agents: false });
+		stubMe({ status: 200, body });
+
+		expect(await flagsFor(locals)).toMatchObject({ codeAgentsEnabled: false });
+	});
+
+	it("a person the gateway allows gets true", async () => {
+		configState.openaiBaseUrl = GATEWAY_BASE;
+		configState.useUserToken = true;
+		const { locals, body } = await gatewayPerson({ code_agents: true });
+		stubMe({ status: 200, body });
+
+		expect(await flagsFor(locals)).toMatchObject({ codeAgentsEnabled: true });
+	});
+
+	it("a gateway that cannot be asked: false until it answers", async () => {
+		configState.openaiBaseUrl = GATEWAY_BASE;
+		configState.useUserToken = true;
+		const { locals } = await gatewayPerson({ code_agents: true });
+		stubMe({ down: true });
+
+		expect(await flagsFor(locals)).toMatchObject({ codeAgentsEnabled: false });
+	});
+
+	it("an older gateway (no capabilities key in the body) still reads as allowed", async () => {
+		configState.openaiBaseUrl = GATEWAY_BASE;
+		configState.useUserToken = true;
+		const { locals, body } = await gatewayPerson(undefined);
+		stubMe({ status: 200, body });
+
+		expect(await flagsFor(locals)).toMatchObject({ codeAgentsEnabled: true });
+	});
+
+	it("a caller with no token on a gateway deployment: false", async () => {
+		configState.openaiBaseUrl = GATEWAY_BASE;
+		configState.useUserToken = true;
+		stubMe({ status: 200, body: {} });
+
+		expect(await flagsFor(createTestLocals())).toMatchObject({ codeAgentsEnabled: false });
+	});
+
+	it("without a gateway the deployment switch alone decides, as before", async () => {
+		// No OPENAI_BASE_URL: the generic preset. The suite's switch is on,
+		// and nobody is asked or refused for it.
+		expect(await flagsFor(createTestLocals())).toMatchObject({ codeAgentsEnabled: true });
+	});
+
+	it("the deployment switch off is off for everyone, even a person the gateway allows", async () => {
+		configState.codeAgentsEnabled = false;
+		configState.openaiBaseUrl = GATEWAY_BASE;
+		configState.useUserToken = true;
+		const { locals, body } = await gatewayPerson({ code_agents: true });
+		stubMe({ status: 200, body });
+
+		expect(await flagsFor(locals)).toMatchObject({ codeAgentsEnabled: false });
 	});
 });
 

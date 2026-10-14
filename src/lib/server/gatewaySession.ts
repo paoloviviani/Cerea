@@ -50,10 +50,13 @@ export type GatewaySessionOutcome =
 			isAdmin: boolean;
 			groups: string[];
 			/** ADR 0096: the person's `/v1/me` capabilities, cached with the
-			 * rest of this answer. Null when the gateway did not send the
-			 * field (an older gateway) — which reads as allowed, never as a
-			 * refusal. */
-			capabilities: { code_agents: boolean } | null;
+			 * rest of this answer. `"absent"` means the body carried no
+			 * `capabilities` key at all — an older gateway that never heard of
+			 * capabilities, which reads as allowed, never as a refusal. A body
+			 * that carries the key is a gateway that speaks capabilities, and
+			 * its `code_agents` is true only when the body says so: silence
+			 * inside a present key is a denial, not the allowance. */
+			capabilities: { code_agents: boolean } | "absent";
 	  }
 	| { kind: "ended" }
 	| { kind: "open" }
@@ -141,17 +144,22 @@ export async function gatewaySessionCheck(
 		if (!session || idMismatch || sessionStale) {
 			outcome = { kind: "ended" };
 		} else {
-			const capabilities = body.capabilities;
+			// The capabilities key's own presence is the version signal: JSON
+			// cannot express a present key with an undefined value, so
+			// `body.capabilities === undefined` means exactly "the body had no
+			// capabilities key" — an older gateway, kept apart from a current
+			// gateway that speaks capabilities but does not grant this one
+			// (`{}`, a null, or no usable `code_agents` boolean all deny;
+			// `codeAgentsAllowedFor` turns "absent" into the allowance).
+			const capabilities =
+				body.capabilities === undefined
+					? ("absent" as const)
+					: { code_agents: body.capabilities?.code_agents === true };
 			outcome = {
 				kind: "valid",
 				isAdmin: body.is_admin === true,
 				groups: Array.isArray(body.groups) ? body.groups.map(String) : [],
-				// Absent is not denied: an older gateway sends no field, and
-				// `codeAgentsAllowedFor` reads that as allowed.
-				capabilities:
-					capabilities && typeof capabilities.code_agents === "boolean"
-						? { code_agents: capabilities.code_agents }
-						: null,
+				capabilities,
 			};
 			if (user && body.merged_at) {
 				const mergedAt = new Date(body.merged_at);
