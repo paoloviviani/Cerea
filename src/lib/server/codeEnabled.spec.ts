@@ -101,6 +101,7 @@ afterEach(async () => {
 	insertedSessionIds = [];
 	env.values = {};
 	vi.unstubAllGlobals();
+	vi.useRealTimers();
 });
 
 describe("codeAgentsAllowedFor", () => {
@@ -215,6 +216,101 @@ describe("codeAgentsAllowedFor", () => {
 		expect(await codeAgentsAllowedFor(locals)).toBe(false);
 		expect(await codeAgentsAllowedFor(locals)).toBe(false);
 		expect(fetch.calls()).toBe(1);
+		forgetGatewaySession(sessionId);
+	});
+});
+
+/**
+ * A gateway that cannot be asked right now is not a refusal: the decision
+ * rides the session's last *valid* answer for at most five minutes (the same
+ * grace the machine link's fail-open uses, `machineAuth.ts`), so one blip
+ * does not hide /code from everyone for the length of the /v1/me cache.
+ * Only when there is no valid answer — first contact, or the grace has run
+ * out — does it deny. The clock is faked because the fallback only engages
+ * past the check's own 60-second cache: before that a re-check never asks.
+ */
+describe("codeAgentsAllowedFor through a gateway blip", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	function fakedClock() {
+		vi.useFakeTimers({ toFake: ["Date"] });
+	}
+
+	it("unreachable within five minutes of a valid allowed answer: still allowed", async () => {
+		fakedClock();
+		gatewayPreset();
+		const { sessionId, body } = await makeSession({ code_agents: true });
+		stubMe({ status: 200, body });
+		const locals = createTestLocals({ sessionId, token: "tok" });
+		expect(await codeAgentsAllowedFor(locals)).toBe(true);
+
+		vi.setSystemTime(Date.now() + 61_000); // past the /v1/me cache, inside the grace
+		stubMe({ down: true });
+		expect(await codeAgentsAllowedFor(locals)).toBe(true);
+		forgetGatewaySession(sessionId);
+	});
+
+	it("unreachable more than five minutes after the last valid answer: denied", async () => {
+		fakedClock();
+		gatewayPreset();
+		const { sessionId, body } = await makeSession({ code_agents: true });
+		stubMe({ status: 200, body });
+		const locals = createTestLocals({ sessionId, token: "tok" });
+		expect(await codeAgentsAllowedFor(locals)).toBe(true);
+
+		vi.setSystemTime(Date.now() + 61_000);
+		stubMe({ down: true });
+		expect(await codeAgentsAllowedFor(locals)).toBe(true);
+		vi.setSystemTime(Date.now() + 5 * 60_000); // past the grace since the last valid answer
+		expect(await codeAgentsAllowedFor(locals)).toBe(false);
+		forgetGatewaySession(sessionId);
+	});
+
+	it("an unreachable fallback carries the person's own answer: a denial stays a denial", async () => {
+		fakedClock();
+		gatewayPreset();
+		const { sessionId, body } = await makeSession({ code_agents: false });
+		stubMe({ status: 200, body });
+		const locals = createTestLocals({ sessionId, token: "tok" });
+		expect(await codeAgentsAllowedFor(locals)).toBe(false);
+
+		vi.setSystemTime(Date.now() + 61_000);
+		stubMe({ down: true });
+		// The last valid answer said false; a blip must not turn that into a
+		// maybe, let alone a yes.
+		expect(await codeAgentsAllowedFor(locals)).toBe(false);
+		forgetGatewaySession(sessionId);
+	});
+
+	it("valid then refused: denied at once, and the blip after it rides nothing", async () => {
+		fakedClock();
+		gatewayPreset();
+		const { sessionId, body } = await makeSession({ code_agents: true });
+		stubMe({ status: 200, body });
+		const locals = createTestLocals({ sessionId, token: "tok" });
+		expect(await codeAgentsAllowedFor(locals)).toBe(true);
+
+		vi.setSystemTime(Date.now() + 61_000);
+		stubMe({ status: 401 });
+		expect(await codeAgentsAllowedFor(locals)).toBe(false);
+
+		// The gateway goes quiet right after refusing: within the grace of
+		// its last answer, but the refusal was its newest word about this
+		// session, so there is no older valid answer to ride.
+		vi.setSystemTime(Date.now() + 61_000);
+		stubMe({ down: true });
+		expect(await codeAgentsAllowedFor(locals)).toBe(false);
+		forgetGatewaySession(sessionId);
+	});
+
+	it("never valid — unreachable from the first check: denied", async () => {
+		gatewayPreset();
+		const { sessionId } = await makeSession({ code_agents: true });
+		stubMe({ down: true });
+
+		expect(await codeAgentsAllowedFor(createTestLocals({ sessionId, token: "tok" }))).toBe(false);
 		forgetGatewaySession(sessionId);
 	});
 });

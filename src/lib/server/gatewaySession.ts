@@ -62,6 +62,9 @@ export type GatewaySessionOutcome =
 	| { kind: "open" }
 	| { kind: "unavailable" };
 
+/** The `valid` outcome, which is what a caller may ride through a blip. */
+export type ValidGatewaySessionOutcome = Extract<GatewaySessionOutcome, { kind: "valid" }>;
+
 const TTL_MS = 60_000;
 const FAIL_OPEN_GRACE_MS = 5 * 60_000;
 const MAX_ENTRIES = 5_000;
@@ -71,6 +74,25 @@ const cache = new Map<string, { at: number; outcome: GatewaySessionOutcome }>();
  * ended-by-mismatch or valid — anything but a network error/5xx), for the
  * bounded fail-open. */
 const lastGoodAnswerAt = new Map<string, number>();
+/** Each session's most recent valid answer, with when it arrived. The
+ * capability gate (`codeEnabled.ts`) rides it through a blip: a gateway that
+ * cannot be asked right now is not a refusal, and one hiccup must not hide
+ * /code from everyone for the length of the /v1/me cache. */
+const lastValid = new Map<string, { at: number; outcome: ValidGatewaySessionOutcome }>();
+
+/** The session's last valid answer, when it is at most `FAIL_OPEN_GRACE_MS`
+ * old — the same five minutes the machine link's fail-open allows itself
+ * (`machineAuth.ts`). `null` when there is none: first contact, the grace
+ * run out, or the gateway's newest word about this session was a refusal
+ * (which clears it — a 401 is not something an older "yes" may override). */
+export function recentValidGatewayOutcome(
+	sessionId: string,
+	now: number = Date.now()
+): ValidGatewaySessionOutcome | null {
+	const hit = lastValid.get(sessionId);
+	if (!hit || now - hit.at >= FAIL_OPEN_GRACE_MS) return null;
+	return hit.outcome;
+}
 
 export interface GatewaySessionOptions {
 	baseUrl?: string;
@@ -172,12 +194,21 @@ export async function gatewaySessionCheck(
 		}
 	}
 
-	if (cache.size >= MAX_ENTRIES) cache.clear();
+	if (cache.size >= MAX_ENTRIES) {
+		cache.clear();
+		lastValid.clear();
+	}
 	cache.set(sessionId, { at: now, outcome });
+	// Remember the session's newest valid word, and drop it the moment the
+	// gateway refuses the session: a 401/403 is the gateway's newest word
+	// about it, and an older "yes" must not ride out a refusal.
+	if (outcome.kind === "valid") lastValid.set(sessionId, { at: now, outcome });
+	else if (outcome.kind === "ended") lastValid.delete(sessionId);
 	return outcome;
 }
 
 export function forgetGatewaySession(sessionId: string): void {
 	cache.delete(sessionId);
 	lastGoodAnswerAt.delete(sessionId);
+	lastValid.delete(sessionId);
 }

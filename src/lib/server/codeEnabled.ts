@@ -1,5 +1,5 @@
 import { config } from "$lib/server/config";
-import { gatewaySessionCheck } from "$lib/server/gatewaySession";
+import { gatewaySessionCheck, recentValidGatewayOutcome } from "$lib/server/gatewaySession";
 import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
 import { schedulesEnabled } from "$lib/server/schedules/limits";
 
@@ -31,15 +31,21 @@ export function codeAgentsEnabled(): boolean {
  *   `capabilities.code_agents` decides — read through the session's existing
  *   `/v1/me` cache (`gatewaySessionCheck`, at most one gateway call a minute
  *   per session, shared with the sign-in check; this adds no call per
- *   request). Here the answer is **deny until the gateway says true**: no
- *   token (nobody to ask), an answer the gateway did not give (a blip, a
- *   refusal, an ended session) and a capabilities block that does not grant
- *   the flag all read as denied, so a surface the gateway rations never
- *   opens on a guess. The one allowance is an **older gateway**, told apart
- *   by its own answer — a body with no `capabilities` key at all never heard
- *   of capabilities and reads as allowed, while silence inside a present key
- *   is a denial (`gatewaySession.ts` keeps the two apart; the check is always
- *   awaited here, so "not fetched yet" can never reach this decision).
+ *   request). The answer is **deny until the gateway says true**, with one
+ *   mercy for a blip: when the gateway *cannot be asked* (a network error or
+ *   a 5xx, the `open`/`unavailable` outcomes — not a refusal), the session's
+ *   last valid answer rides for at most five minutes, the same grace the
+ *   machine link's fail-open allows itself (`machineAuth.ts`), so one hiccup
+ *   does not hide /code from everyone for the length of the /v1/me cache.
+ *   Deny otherwise: no token (nobody to ask), no valid answer yet (first
+ *   contact, or the grace has run out), a refusal (401/403, an ended
+ *   session — the gateway's newest word about the session), and a
+ *   capabilities block that does not grant the flag. The older-gateway
+ *   allowance is told apart by the body itself — a body with no
+ *   `capabilities` key at all never heard of capabilities and reads as
+ *   allowed, while silence inside a present key is a denial
+ *   (`gatewaySession.ts` keeps the two apart; the check is always awaited
+ *   here, so "not fetched yet" can never reach this decision).
  * - without a gateway (the generic preset, a standalone deployment), the env
  *   switch alone decides, as today.
  */
@@ -48,9 +54,17 @@ export async function codeAgentsAllowedFor(locals: App.Locals): Promise<boolean>
 	if (!isGatewayPreset()) return true;
 	if (!locals.token) return false;
 	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
-	if (outcome?.kind !== "valid") return false;
-	if (outcome.capabilities === "absent") return true;
-	return outcome.capabilities.code_agents;
+	// A refusal denies at once; an unreachable gateway rides the person's
+	// own last valid answer within the grace, and nothing else does.
+	const answer =
+		outcome?.kind === "valid"
+			? outcome
+			: outcome && outcome.kind !== "ended"
+				? recentValidGatewayOutcome(locals.sessionId)
+				: null;
+	if (!answer) return false;
+	if (answer.capabilities === "absent") return true;
+	return answer.capabilities.code_agents;
 }
 
 /**
