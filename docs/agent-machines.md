@@ -13,6 +13,16 @@ you run the deployment, [The `/code` panel](code-panel.md) is the page for that.
 
 ## Pair a machine in three steps
 
+The commands on this page use three variables for your deployment's addresses:
+
+```sh
+export GATEWAY_BASE_URL=https://cerea.example.org   # the kit: your PUBLIC_ORIGIN
+export CEREA_BASE_URL="$GATEWAY_BASE_URL/chat"
+export OIDC_ISSUER="$GATEWAY_BASE_URL/authelia"     # bundled Authelia; else your IdP's issuer
+```
+
+A satellite or standalone chat on another host sets `CEREA_BASE_URL` to that address.
+
 1. **Sign in to the chat once.** Pairing identifies you by the same account, so
    the chat must have seen you at least once.
 2. **Copy the line.** In the sidebar's **Agents** side, click **Pair** (or
@@ -986,11 +996,10 @@ binaries from `agent/` and serves them itself, with no sign-in needed, so
 nothing has to be published anywhere. On the machine:
 
 ```sh
-curl -fsSL https://cerea.example.org/chat/galopin/install.sh | sh
+curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh
 ```
 
-(Use your deployment's origin and base path; the `/code` pairing dialog
-shows the exact line.) The script picks the binary for this OS and CPU
+(The `/code` pairing dialog shows this command with your addresses filled in.) The script picks the binary for this OS and CPU
 (Linux or macOS, amd64 or arm64), downloads it and `SHA256SUMS` from the same
 origin, **refuses to install on a checksum mismatch**, installs to
 `~/.local/bin/galopin` (`GALOPIN_INSTALL_DIR` overrides), clears macOS's
@@ -1044,9 +1053,9 @@ install -m 0755 galopin-darwin-arm64 ~/.local/bin/galopin   # the file for this 
 xattr -d com.apple.quarantine ~/.local/bin/galopin 2>/dev/null || true   # macOS only
 
 ~/.local/bin/galopin enroll \
-  --issuer https://cerea.example.org/authelia \
-  --gateway https://cerea.example.org \
-  --cerea https://cerea.example.org/chat
+  --issuer "$OIDC_ISSUER" \
+  --gateway "$GATEWAY_BASE_URL" \
+  --cerea "$CEREA_BASE_URL"
 ~/.local/bin/galopin run
 ```
 
