@@ -18,6 +18,8 @@ const KEYLESS_BASE_URL = "http://keyless-models.test.invalid/v1";
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_ORIGIN: "https://vitest.invalid" } }));
 vi.mock("$env/dynamic/private", () => ({
 	env: {
+		// Without a MONGODB_URL the database module starts mongodb-memory-server, which needs AVX.
+		MONGODB_URL: process.env.TEST_MONGODB_URL,
 		OPENAI_BASE_URL: KEYLESS_BASE_URL,
 		// OPENAI_API_KEY and HF_TOKEN are deliberately absent — the point of the test.
 	},
