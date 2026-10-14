@@ -7,7 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## v0.13.0 — 2026-10-14
 
-Pins: Cerea `0.13.0`, Pystino `0.8.0`, Authelia 4.39.22. Update the
+Pins: Cerea `0.13.0`, Pystino `0.8.1`, Authelia 4.39.22. Update the
 deployment (`docker compose pull && docker compose up -d`).
 
 - **Capabilities are per group.** A person holds coding agents or API keys
@@ -32,6 +32,9 @@ deployment (`docker compose pull && docker compose up -d`).
 - **Fixed:** the Groups page's capability checkboxes always showed off
   after a refetch, even when a flag was set — the group list answered both
   flags as `false` regardless of the stored value.
+- **Fixed:** on a fresh install the default group now gets the deployment's
+  capability defaults when it is created (Pystino `0.8.1`), so new people
+  are no longer chat-only.
 
 ## v0.12.0 — 2026-10-14
 
