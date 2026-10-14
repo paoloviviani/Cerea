@@ -1054,19 +1054,37 @@ class TestScopes(Deploy):
 
     def test_compose_passes_the_machine_client_and_capability_baselines_to_the_gateway(self):
         """ADR 0096: the gateway matches a machine token's azp/client_id
-        against GATEWAY_OIDC__MACHINE_CLIENT_ID, and folds the ACCESS_*
-        baselines under the console's decision — so the kit must pass all
-        three through, or a renamed machine client (a GitLab app uid) would
-        never match and a chat-only person's machine would pass silently."""
+        against GATEWAY_OIDC__MACHINE_CLIENT_ID, and reads the ACCESS_*
+        variables as the default flag new groups are created with (per-group
+        toggles on Console > Groups, bulk on/off on Console > Settings) — so
+        the kit must pass all three through, or a renamed machine client (a
+        GitLab app uid) would never match and a chat-only person's machine
+        would pass silently."""
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
         start = compose.index("  gateway:")
         gateway = compose[start:]
         for line in (
             "GATEWAY_OIDC__MACHINE_CLIENT_ID: ${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}",
-            "GATEWAY_ACCESS__CODE_AGENTS: ${ACCESS_CODE_AGENTS:-everyone}",
-            "GATEWAY_ACCESS__API_KEYS: ${ACCESS_API_KEYS:-everyone}",
+            "GATEWAY_ACCESS__CODE_AGENTS: ${ACCESS_CODE_AGENTS:-on}",
+            "GATEWAY_ACCESS__API_KEYS: ${ACCESS_API_KEYS:-on}",
         ):
             self.assertIn(line, gateway)
+
+    def test_compose_gives_the_migrate_service_the_capability_baselines(self):
+        """Migration 0060 folds the capability defaults from the environment
+        when the newest oidc_config row does not decide them, so the migrate
+        service needs the same ACCESS_* variables the gateway gets — or the
+        upgrade would decide every existing group's flags from the gateway's
+        built-in defaults instead of the deployment's ACCESS_* answers."""
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        start = compose.index("  migrate:")
+        end = compose.index("  gateway:", start)
+        migrate = compose[start:end]
+        for line in (
+            "GATEWAY_ACCESS__CODE_AGENTS: ${ACCESS_CODE_AGENTS:-on}",
+            "GATEWAY_ACCESS__API_KEYS: ${ACCESS_API_KEYS:-on}",
+        ):
+            self.assertIn(line, migrate)
 
     def test_compose_gives_the_migrate_service_the_join_answers(self):
         """Migration 0058 folds the group answers from the environment when the
