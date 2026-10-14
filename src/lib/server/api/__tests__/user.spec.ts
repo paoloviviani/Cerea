@@ -86,8 +86,6 @@ describe("GET /api/v2/user/settings", () => {
 		const data = await parseResponse<Record<string, unknown>>(res);
 
 		expect(data).toMatchObject({
-			welcomeModalSeen: false,
-			welcomeModalSeenAt: null,
 			mlInternOnboardingSeen: false,
 			streamingMode: "smooth",
 			directPaste: false,
@@ -96,6 +94,10 @@ describe("GET /api/v2/user/settings", () => {
 			toolsOverrides: {},
 			providerOverrides: {},
 		});
+		// The welcome screen is gone: neither the flag nor its timestamp is
+		// reported any more, whatever an old stored document holds.
+		expect(data).not.toHaveProperty("welcomeModalSeen");
+		expect(data).not.toHaveProperty("welcomeModalSeenAt");
 	});
 
 	it("returns stored settings with canonical streaming mode", async () => {
@@ -115,6 +117,8 @@ describe("GET /api/v2/user/settings", () => {
 			toolsOverrides: {},
 			hidePromptExamples: {},
 			providerOverrides: {},
+			// A stray welcomeModalSeenAt left in an old document: stored
+			// settings may keep it, and it is ignored — no migration.
 			welcomeModalSeenAt: new Date("2024-01-01"),
 			createdAt: new Date(),
 			updatedAt: new Date(),
@@ -124,7 +128,6 @@ describe("GET /api/v2/user/settings", () => {
 		const data = await parseResponse<Record<string, unknown>>(res);
 
 		expect(data).toMatchObject({
-			welcomeModalSeen: true,
 			shareConversationsWithModelAuthors: false,
 			streamingMode: "raw",
 			directPaste: true,
@@ -133,6 +136,9 @@ describe("GET /api/v2/user/settings", () => {
 		// The retired per-model prompts are never sent back, even when stored.
 		expect(data).not.toHaveProperty("customPrompts");
 		expect(data).not.toHaveProperty("customPromptsEnabled");
+		// Neither is the retired welcome flag, stored or not.
+		expect(data).not.toHaveProperty("welcomeModalSeen");
+		expect(data).not.toHaveProperty("welcomeModalSeenAt");
 	});
 
 	it("maps legacy stored streamingMode=final to smooth", async () => {
@@ -202,7 +208,7 @@ describe("POST /api/v2/user/settings", () => {
 		expect(stored?.updatedAt).toBeInstanceOf(Date);
 	});
 
-	it("sets welcomeModalSeenAt when welcomeModalSeen is true", async () => {
+	it("ignores a stale client still posting welcomeModalSeen", async () => {
 		const { user, locals } = await createTestUser();
 
 		const body = {
@@ -226,10 +232,15 @@ describe("POST /api/v2/user/settings", () => {
 
 		const stored = await collections.settings.findOne({ userId: user._id });
 		expect(stored).not.toBeNull();
-		expect(stored?.welcomeModalSeenAt).toBeInstanceOf(Date);
+		// The welcome screen is gone: the retired field is stripped like any
+		// other unknown key, and nothing is stored for it. The removed field
+		// cannot be named on the Settings type; the raw document is checked.
+		const raw = (stored ?? {}) as unknown as Record<string, unknown>;
+		expect(raw.welcomeModalSeenAt).toBeUndefined();
+		expect(raw.welcomeModalSeen).toBeUndefined();
 	});
 
-	it("records the ML Intern onboarding acknowledgement independently of the welcome modal", async () => {
+	it("records the ML Intern onboarding acknowledgement independently of the retired welcome modal", async () => {
 		const { user, locals } = await createTestUser();
 
 		await testRequest(settingsPOST, {
@@ -240,11 +251,14 @@ describe("POST /api/v2/user/settings", () => {
 
 		const stored = await collections.settings.findOne({ userId: user._id });
 		expect(stored?.mlInternOnboardingSeenAt).toBeInstanceOf(Date);
-		expect(stored?.welcomeModalSeenAt).toBeUndefined();
+		expect(
+			((stored ?? {}) as unknown as Record<string, unknown>).welcomeModalSeenAt
+		).toBeUndefined();
 
 		const res = await testRequest(settingsGET, { path: "/api/v2/user/settings", locals });
 		const data = await parseResponse<Record<string, unknown>>(res);
-		expect(data).toMatchObject({ mlInternOnboardingSeen: true, welcomeModalSeen: false });
+		expect(data).toMatchObject({ mlInternOnboardingSeen: true });
+		expect(data).not.toHaveProperty("welcomeModalSeen");
 	});
 
 	it("validates body with Zod and applies defaults for missing fields", async () => {
@@ -320,7 +334,7 @@ describe("handle hook, via POST /api/v2/user/settings", () => {
 			const res = await testRequest(settingsPOST, {
 				path: "/api/v2/user/settings",
 				method: "POST",
-				body: "welcomeModalSeen=true",
+				body: "directPaste=true",
 				headers: { "Content-Type": contentType },
 				locals,
 			});
@@ -336,7 +350,7 @@ describe("handle hook, via POST /api/v2/user/settings", () => {
 		const res = await testRequest(settingsPOST, {
 			path: "/api/v2/user/settings",
 			method: "POST",
-			body: "welcomeModalSeen=true",
+			body: "directPaste=true",
 			headers: { "Content-Type": "text/plain", origin: "https://evil.example" },
 			locals,
 		});

@@ -20,7 +20,6 @@
 	import NavMenu from "$lib/components/NavMenu.svelte";
 	import NavigationLoadingBar from "$lib/components/NavigationLoadingBar.svelte";
 	import MobileNav from "$lib/components/MobileNav.svelte";
-	import WelcomeModal from "$lib/components/WelcomeModal.svelte";
 	import ExpandNavigation from "$lib/components/ExpandNavigation.svelte";
 	import { setContext } from "svelte";
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
@@ -105,11 +104,6 @@
 				console.error(err);
 				$error = String(err);
 			});
-	}
-
-	function closeWelcomeModal() {
-		if (requireAuthUser()) return;
-		settings.set({ welcomeModalSeen: true });
 	}
 
 	// Global keyboard shortcut: New Chat (Ctrl/Cmd + Shift + O)
@@ -226,12 +220,6 @@
 				: convsStore.list.find((conv) => conv.id === page.params.id)?.title
 	);
 
-	// Show the welcome modal once on first app load
-	let showWelcome = $derived(
-		!$settings.welcomeModalSeen &&
-			!(page.data.shared === true && page.route.id?.startsWith("/conversation/"))
-	);
-
 	// Shared conversation views define their own social preview tags
 	// (see SharePreviewTags.svelte), so skip the generic ones there
 	let isSharedConversationView = $derived(
@@ -300,10 +288,6 @@
 		<meta name="apple-itunes-app" content={`app-id=${publicConfig.PUBLIC_APPLE_APP_ID}`} />
 	{/if}
 </svelte:head>
-
-{#if showWelcome}
-	<WelcomeModal close={closeWelcomeModal} />
-{/if}
 
 <NavigationLoadingBar />
 

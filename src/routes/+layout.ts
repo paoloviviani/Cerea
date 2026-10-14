@@ -28,8 +28,6 @@ interface SettingsResponse {
 	webSearchEnabled?: boolean;
 	pyodidePyPiInstallEnabled?: boolean;
 	memoryEnabled?: boolean;
-	welcomeModalSeen: boolean;
-	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;
 	shareConversationsWithModelAuthors: boolean;
 	activeModel: string;
@@ -129,12 +127,7 @@ export const load = async ({ fetch, url, data }) => {
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
-		settings: {
-			...settings,
-			welcomeModalSeenAt: settings.welcomeModalSeenAt
-				? new Date(settings.welcomeModalSeenAt)
-				: null,
-		},
+		settings,
 		publicConfig: getConfigManager(publicConfig as Record<`PUBLIC_${string}`, string>),
 		mcpBaseServers,
 		...featureFlags,

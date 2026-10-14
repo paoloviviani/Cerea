@@ -11,8 +11,6 @@ type SettingsStore = {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;
 	memoryEnabled?: boolean;
-	welcomeModalSeen: boolean;
-	welcomeModalSeenAt: Date | null;
 	mlInternOnboardingSeen: boolean;
 	activeModel: string;
 	globalSystemPrompt?: string;

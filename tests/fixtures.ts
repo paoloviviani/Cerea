@@ -144,8 +144,8 @@ export async function installSession(context: BrowserContext): Promise<TestSessi
 }
 
 /**
- * Suppresses the welcome modal, which marks `#app` as `inert` on a first visit — the page looks
- * fully rendered while silently swallowing every click and keystroke.
+ * Seeds stored settings for the session. The welcome modal is gone, so
+ * nothing needs suppressing on a first visit any more.
  */
 export async function seedSettings(
 	db: Db,
@@ -155,7 +155,6 @@ export async function seedSettings(
 	const now = new Date();
 	await db.collection("settings").insertOne({
 		sessionId,
-		welcomeModalSeenAt: now,
 		shareConversationsWithModelAuthors: false,
 		activeModel: "test-org/test-model",
 		createdAt: now,
