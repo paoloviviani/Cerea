@@ -40,14 +40,20 @@ export interface GatewayMe {
 	groups: string[];
 	sessions_valid_after: string | null;
 	merged_at: string | null;
+	/** ADR 0096: which capabilities the person holds. Absent on an older
+	 * gateway — which reads as *allowed*, never as a refusal, so an upgrade
+	 * never locks anyone out of a surface they had. */
+	capabilities?: { code_agents?: boolean; api_keys?: boolean } | null;
 }
 
 export type GatewayCall<T> =
 	| { ok: true; value: T }
 	/** 401/403: the token or the account is refused. `code` is the gateway's
 	 * own error code when it sent one (`outside_access_groups`, ADR 0095:
-	 * the join gate refusing an authenticated caller — a loss that regaining
-	 * the group reverses, so callers close rather than revoke over it). */
+	 * the join gate refusing an authenticated caller; `agents_not_allowed`,
+	 * ADR 0096: the code_agents gate refusing a machine-client token — both
+	 * a loss regaining the group or the flag reverses, so callers close
+	 * rather than revoke over either). */
 	| { ok: false; refused: true; status: number; message: string; code?: string }
 	/** Network error or 5xx: the gateway could not answer. */
 	| { ok: false; refused: false; status: number | null };

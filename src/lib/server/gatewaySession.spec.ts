@@ -67,12 +67,35 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 			kind: "valid",
 			isAdmin: true,
 			groups: ["ops"],
+			// An older gateway sends no capabilities field: null, which
+			// reads as allowed (ADR 0096).
+			capabilities: null,
 		});
 		await gatewaySessionCheck(sessionId, "tok", opts);
 		expect(fetch.calls()).toBe(1);
 		now += 61_000;
 		await gatewaySessionCheck(sessionId, "tok", opts);
 		expect(fetch.calls()).toBe(2);
+		forgetGatewaySession(sessionId);
+	});
+
+	it("carries the gateway's capabilities answer in the cached outcome (ADR 0096)", async () => {
+		const { sessionId, gatewayUserId } = await makeSession("gw-1c");
+		const answer = await gatewaySessionCheck(sessionId, "tok", {
+			...base,
+			fetchImpl: fakeFetch(200, {
+				id: gatewayUserId,
+				is_admin: false,
+				groups: [],
+				capabilities: { code_agents: false, api_keys: true },
+			}).impl,
+		});
+		expect(answer).toEqual({
+			kind: "valid",
+			isAdmin: false,
+			groups: [],
+			capabilities: { code_agents: false },
+		});
 		forgetGatewaySession(sessionId);
 	});
 
@@ -120,7 +143,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 			...base,
 			fetchImpl: fakeFetch(200, { id: `${RUN}-gw-anything`, is_admin: false, groups: [] }).impl,
 		});
-		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [] });
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: null });
 		forgetGatewaySession(sessionId);
 	});
 
@@ -156,7 +179,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 				sessions_valid_after: "2021-01-01T00:00:00Z",
 			}).impl,
 		});
-		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [] });
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: null });
 		forgetGatewaySession(sessionId);
 	});
 
@@ -204,7 +227,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		}) as typeof fetch;
 
 		const answer = await gatewaySessionCheck(sessionId, "tok", { ...base, fetchImpl });
-		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [] });
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: null });
 
 		// The fold is launched in the background; give it a turn to run.
 		await new Promise((resolve) => setTimeout(resolve, 50));

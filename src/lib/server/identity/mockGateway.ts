@@ -16,6 +16,11 @@ export interface MockPerson {
 	groups?: string[];
 	sessionsValidAfter?: string | null;
 	mergedAt?: string | null;
+	/** ADR 0096: the person's coding-agents capability, answered on /me. */
+	codeAgents?: boolean;
+	/** Refuse this token outright with the gateway's own error code (a 403
+	 * carrying `code`), e.g. `outside_access_groups` or `agents_not_allowed`. */
+	refusedCode?: string;
 }
 
 export interface MockGateway {
@@ -41,6 +46,9 @@ export function mockGateway(): MockGateway {
 			const auth = new Headers(init?.headers).get("authorization") ?? "";
 			const person = state.tokens.get(auth.replace(/^Bearer /, ""));
 			if (!person) return json({ error: { message: "Invalid API key provided." } }, 401);
+			if (person.refusedCode) {
+				return json({ error: { message: "Refused.", code: person.refusedCode } }, 403);
+			}
 			if (person.isActive === false) {
 				return json({ error: { message: "This account is not enabled." } }, 403);
 			}
@@ -66,6 +74,9 @@ export function mockGateway(): MockGateway {
 					groups: person.groups ?? [],
 					sessions_valid_after: person.sessionsValidAfter ?? null,
 					merged_at: person.mergedAt ?? null,
+					...(person.codeAgents === undefined
+						? {}
+						: { capabilities: { code_agents: person.codeAgents } }),
 				};
 				return json(body);
 			}

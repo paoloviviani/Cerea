@@ -1,4 +1,6 @@
 import { config } from "$lib/server/config";
+import { gatewaySessionCheck } from "$lib/server/gatewaySession";
+import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
 import { schedulesEnabled } from "$lib/server/schedules/limits";
 
 /**
@@ -17,6 +19,32 @@ import { schedulesEnabled } from "$lib/server/schedules/limits";
  */
 export function codeAgentsEnabled(): boolean {
 	return config.CODE_AGENTS_ENABLED === "true";
+}
+
+/**
+ * Whether *this person* may use the `/code` panel (ADR 0096).
+ *
+ * `codeAgentsEnabled()` is the outer switch and always wins: off is off for
+ * everyone, exactly as today. When it is on:
+ *
+ * - with a Pystino gateway (`isGatewayPreset()`), the person's `/v1/me`
+ *   `capabilities.code_agents` decides — read through the session's existing
+ *   `/v1/me` cache (`gatewaySessionCheck`, at most one gateway call a minute
+ *   per session, shared with the sign-in check; this adds no call per
+ *   request). Absent reads as allowed, so an older gateway never refuses.
+ * - without a gateway (the generic preset, a standalone deployment), the env
+ *   switch alone decides, as today — and so it does whenever there is no
+ *   gateway answer to deny by (no token, a blip, an ended session the auth
+ *   layer already handled): those paths fail open here and are decided
+ *   elsewhere (sign-in, the 503 layer).
+ */
+export async function codeAgentsAllowedFor(locals: App.Locals): Promise<boolean> {
+	if (!codeAgentsEnabled()) return false;
+	if (!isGatewayPreset()) return true;
+	if (!locals.token) return true;
+	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
+	if (outcome?.kind !== "valid") return true;
+	return outcome.capabilities?.code_agents ?? true;
 }
 
 /**
