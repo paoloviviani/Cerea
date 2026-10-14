@@ -77,6 +77,29 @@ describe("resolveMachineUser on a gateway preset", () => {
 		expect(resolution).toMatchObject({ ok: false, status: 401, refused: true });
 	});
 
+	it("carries the gateway's agents_not_allowed code on a refused machine token (ADR 0096)", async () => {
+		// The revalidation tick matches on this code to close with 4404
+		// rather than revoke; the upgrade path answers the plain 403 the
+		// machine already retries on. Either way nothing here revokes.
+		const gateway = mockGateway();
+		gateway.tokens.set("tok-3c", {
+			id: "gw-machine-3c",
+			identities: [],
+			refusedCode: "agents_not_allowed",
+		});
+
+		const resolution = await resolveMachineUser("sub-3c", 123, "tok-3c", {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+		});
+		expect(resolution).toMatchObject({
+			ok: false,
+			status: 403,
+			refused: true,
+			code: "agents_not_allowed",
+		});
+	});
+
 	it("falls back to the last cached answer on a network error, marked refused: false", async () => {
 		const gateway = mockGateway();
 		const userId = new ObjectId();

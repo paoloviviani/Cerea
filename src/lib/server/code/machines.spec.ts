@@ -189,6 +189,31 @@ describe("revalidateLiveMachineConnections", () => {
 		expect(device?.status).not.toBe("revoked");
 	});
 
+	it("closes with 4404 and revokes nothing when the code_agents gate refuses the account", async () => {
+		// ADR 0096: a 403 agents_not_allowed is a loss regaining the flag
+		// reverses — treated exactly like outside_access_groups. The device
+		// stays enrolled; the machine retries with its own backoff and the
+		// link comes back when a group grants the capability.
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		const closed = waitForClose(machine);
+
+		meAnswer = {
+			ok: false,
+			refused: true,
+			status: 403,
+			message: "This account may not use coding agents on this deployment.",
+			code: "agents_not_allowed",
+		};
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(4404);
+		expect(isMachineOnline(deviceId)).toBe(false);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).not.toBe("revoked");
+	});
+
 	it("asks the machine to renew, and revokes nothing, when the refused token itself no longer validates", async () => {
 		// GitLab revokes the previous access token on refresh: for a moment the
 		// connection holds a token the gateway refuses while the machine is fine.
