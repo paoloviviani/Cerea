@@ -4,7 +4,7 @@ import { loginEnabled, OIDConfig } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
-import { codeAgentsEnabled } from "$lib/server/codeEnabled";
+import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
@@ -44,7 +44,14 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// the standalone profiles do not (satellite's console is central's,
 		// generic has none).
 		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true",
-		codeAgentsEnabled: codeAgentsEnabled(),
+		// Per person (ADR 0096), not a deployment fact: the client's only
+		// source for the Chats | Agents switch (the universal layout load
+		// spreads feature-flags over the layout data), so the deployment-wide
+		// `codeAgentsEnabled()` here would show every chat-only person a
+		// switch whose every use 404s. The same awaited /v1/me check the
+		// layout's server load makes — one gateway call a minute per session,
+		// shared through the cache.
+		codeAgentsEnabled: await codeAgentsAllowedFor(locals),
 		codeOidcIssuerUrl: OIDConfig.PROVIDER_URL,
 		codeOidcClientId: machineClientId(),
 		// No fallback here on purpose (§12): the browser-origin fallback only

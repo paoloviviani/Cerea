@@ -67,9 +67,9 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 			kind: "valid",
 			isAdmin: true,
 			groups: ["ops"],
-			// An older gateway sends no capabilities field: null, which
-			// reads as allowed (ADR 0096).
-			capabilities: null,
+			// An older gateway answers with no `capabilities` key at all:
+			// "absent", which reads as allowed (ADR 0096).
+			capabilities: "absent",
 		});
 		await gatewaySessionCheck(sessionId, "tok", opts);
 		expect(fetch.calls()).toBe(1);
@@ -143,7 +143,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 			...base,
 			fetchImpl: fakeFetch(200, { id: `${RUN}-gw-anything`, is_admin: false, groups: [] }).impl,
 		});
-		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: null });
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: "absent" });
 		forgetGatewaySession(sessionId);
 	});
 
@@ -179,7 +179,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 				sessions_valid_after: "2021-01-01T00:00:00Z",
 			}).impl,
 		});
-		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: null });
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: "absent" });
 		forgetGatewaySession(sessionId);
 	});
 
@@ -227,7 +227,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		}) as typeof fetch;
 
 		const answer = await gatewaySessionCheck(sessionId, "tok", { ...base, fetchImpl });
-		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: null });
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: "absent" });
 
 		// The fold is launched in the background; give it a turn to run.
 		await new Promise((resolve) => setTimeout(resolve, 50));
@@ -302,5 +302,60 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		).toBeNull();
 		expect(await gatewaySessionCheck("s-any", "", { ...base, fetchImpl: fetch.impl })).toBeNull();
 		expect(fetch.calls()).toBe(0);
+	});
+});
+
+/**
+ * The chat's half of the `/v1/me` contract (ADR 0096): how every shape the
+ * gateway's answer can take is read. A mismatch here would make every person
+ * look "absent = allowed" and quietly dissolve the per-person gate.
+ *
+ * The gateway's own half — that `GET /v1/me` carries `capabilities` with a
+ * boolean `code_agents` for every credential, the chat's session access token
+ * included — is answered by the gateway's `routers/identity.py`
+ * (`CallerIdentity`, built unconditionally for access tokens and keys alike)
+ * and its tests (`apps/gateway/tests/test_identity_policy.py`). These specs
+ * pin the reading: a body without the key is an older gateway (`"absent"`),
+ * a body with the key must say `true` to be allowed, and silence inside a
+ * present key is a denial, never the allowance.
+ */
+describe("reading /v1/me's capabilities (the chat's half of the contract)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	it.each([
+		["grants the flag", { code_agents: true }, { code_agents: true }],
+		["declines it", { code_agents: false }, { code_agents: false }],
+		["speaks capabilities but grants nothing", {}, { code_agents: false }],
+		["names only another capability", { api_keys: true }, { code_agents: false }],
+		["sends an explicit null", null, { code_agents: false }],
+	])("a body whose capabilities %s is read exactly", async (_name, capabilities, expected) => {
+		const { sessionId, gatewayUserId } = await makeSession("cap");
+		const answer = await gatewaySessionCheck(sessionId, "tok", {
+			...base,
+			fetchImpl: fakeFetch(200, {
+				id: gatewayUserId,
+				is_admin: false,
+				groups: [],
+				capabilities,
+			}).impl,
+		});
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: expected });
+		forgetGatewaySession(sessionId);
+	});
+
+	it("a body with no capabilities key at all is the older-gateway shape: absent", async () => {
+		const { sessionId, gatewayUserId } = await makeSession("cap-old");
+		const answer = await gatewaySessionCheck(sessionId, "tok", {
+			...base,
+			fetchImpl: fakeFetch(200, {
+				id: gatewayUserId,
+				is_admin: false,
+				groups: [],
+			}).impl,
+		});
+		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: "absent" });
+		forgetGatewaySession(sessionId);
 	});
 });

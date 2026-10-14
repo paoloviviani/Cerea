@@ -98,9 +98,16 @@ export interface FeatureFlags {
 	 */
 	consoleEnabled: boolean;
 	/**
-	 * Whether the deployment exposes the `/code` remote-agent panel
-	 * (`CODE_AGENTS_ENABLED`, off unless explicitly `"true"`). Off hides the
-	 * sidebar row and the route answers 404.
+	 * Whether *this person* may open the `/code` remote-agent panel
+	 * (ADR 0096): the deployment switch (`CODE_AGENTS_ENABLED`, off unless
+	 * explicitly `"true"`) and, on a gateway deployment, the person's own
+	 * `capabilities.code_agents` — deny until the gateway's `/v1/me` answer
+	 * says true, with an older gateway (a body carrying no `capabilities`
+	 * key) still reading as allowed, and a gateway that cannot be asked
+	 * riding the person's last valid answer for five minutes before it
+	 * denies. Off hides the sidebar switch and the route answers 404; this
+	 * is the client's only source for the switch, so it must never carry the
+	 * deployment-wide answer.
 	 */
 	codeAgentsEnabled: boolean;
 	/**

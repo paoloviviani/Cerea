@@ -29,7 +29,6 @@ const settingsSchema = z.object({
 	// standing facts about themselves. The deployment flag
 	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
 	memoryEnabled: z.boolean().optional(),
-	welcomeModalSeen: z.boolean().optional(),
 	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
 	// Unknown keys are stripped, so an old client still posting the retired
@@ -52,8 +51,7 @@ const settingsSchema = z.object({
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const body = await request.json();
 
-	const { welcomeModalSeen, mlInternOnboardingSeen, accent, neutral, ...parsedSettings } =
-		settingsSchema.parse(body);
+	const { mlInternOnboardingSeen, accent, neutral, ...parsedSettings } = settingsSchema.parse(body);
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	if (config.isHuggingChat) {
@@ -73,7 +71,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			$set: {
 				...settings,
 				...palettePatch({ accent, neutral }),
-				...(welcomeModalSeen && { welcomeModalSeenAt: new Date() }),
 				...(mlInternOnboardingSeen && { mlInternOnboardingSeenAt: new Date() }),
 				updatedAt: new Date(),
 			},
