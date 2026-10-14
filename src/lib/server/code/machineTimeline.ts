@@ -932,7 +932,10 @@ export function transcriptMessagesToUpdates(
 	openPart: string | null = null,
 	/** Frames to emit right after the named message's parts (the task plan,
 	 * after the message that last wrote it). */
-	after?: { messageId: string; updates: AgentStreamUpdate[] }
+	after?: { messageId: string; updates: AgentStreamUpdate[] },
+	/** A message whose failure the caller ends with its own terminal frame
+	 * (the snapshot's last turn), so none is emitted here and none doubles. */
+	skipFailedFor?: string
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	// The protocol types these lists as arrays, but a machine that omits an
@@ -957,6 +960,14 @@ export function transcriptMessagesToUpdates(
 			);
 		}
 		if (after && message.id === after.messageId) updates.push(...after.updates);
+		// A failed turn ends on its own message: live, each turn's terminal
+		// frame lands on the message it closes, so a replay says the same for
+		// every failure, not only the last (or the older banners vanish on
+		// reload). The provider's HTTP code is not stored with the message, so
+		// the credit hint stays live-only.
+		if (message.role === "assistant" && message.error && message.id !== skipFailedFor) {
+			updates.push(turnStateUpdate("failed", providerRefusalReason(message.error)));
+		}
 	}
 	return updates;
 }
@@ -999,10 +1010,18 @@ export function snapshotToUpdates(
 			};
 		}
 	}
-	updates.push(...transcriptMessagesToUpdates(transcript, imageUrl, openPart, planAfter));
+	let lastAssistantId: string | undefined;
 	for (const { message } of transcript.messages ?? []) {
-		if (message.role === "assistant") lastAssistantError = providerRefusalReason(message.error);
+		if (message.role === "assistant") {
+			lastAssistantId = message.id;
+			lastAssistantError = providerRefusalReason(message.error);
+		}
 	}
+	// The last assistant's ending is the snapshot's final frame below (it
+	// follows the live status); every earlier failed turn closes in place.
+	updates.push(
+		...transcriptMessagesToUpdates(transcript, imageUrl, openPart, planAfter, lastAssistantId)
+	);
 	for (const permission of transcript.permissions ?? []) {
 		updates.push(permissionRequestToUpdate(permission));
 	}
