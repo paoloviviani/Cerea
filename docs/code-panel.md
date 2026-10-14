@@ -47,6 +47,23 @@ In the deploy kit: `./configure --agents` at install time, or
 The last three only need setting when machine tokens come from somewhere
 unusual; the deploy kit's defaults match its bundled Authelia.
 
+## Who may use /code
+
+`CODE_AGENTS_ENABLED=true` is the outer switch and always wins: off hides the
+Agents switch and `/code` answers 404 for everyone. When it is on, a further
+per-person answer applies on a Pystino gateway deployment: the gateway's
+`code_agents` capability (set per deployment and granted per group in the
+gateway console — [Chat-only
+people](https://github.com/paoloviviani/Pystino/blob/main/docs/identity.md#chat-only-people)).
+A person without it never sees the Agents switch, `/code` answers 404 for
+them with "not available for your account", and every pairing, device,
+schedule, file and terminal endpoint refuses them the same way — the panel
+reads as hidden, not as a refusal to argue with. Their machine link is closed
+(`4404`, the device staying enrolled) and reconnects by itself once a group
+grants the capability. A deployment with no gateway (the generic preset) is
+decided by the env switch alone, as before; so is an older gateway that sends
+no `capabilities` field — absent reads as allowed, never as a refusal.
+
 ## Setting up a machine
 
 On the machine, with `<origin>` the deployment's origin:

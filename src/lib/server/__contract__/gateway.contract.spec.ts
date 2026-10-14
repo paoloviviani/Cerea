@@ -26,6 +26,16 @@ describe.skipIf(!base || !key)("gateway contract", () => {
 		expect(typeof body.credential).toBe("string");
 		expect(Array.isArray(body.groups)).toBe(true);
 		expect("email" in body && "display_name" in body && "default_billing_group" in body).toBe(true);
+		// ADR 0096: `capabilities` is required of the gateway this chat ships
+		// against, but the pinned contract gateway may predate it — so when
+		// present it must be shaped as the chat reads it, and when absent the
+		// chat reads it as allowed. (The pin in
+		// `deploy/ci/pystino-contract.env` moves only with a Pystino release.)
+		if ("capabilities" in body) {
+			const capabilities = body.capabilities as Record<string, unknown>;
+			expect(typeof capabilities.code_agents).toBe("boolean");
+			expect(typeof capabilities.api_keys).toBe("boolean");
+		}
 	});
 
 	it("a credential the gateway accepts keeps the session; a bad one ends it", async () => {
