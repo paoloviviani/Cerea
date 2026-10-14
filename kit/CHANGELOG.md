@@ -5,6 +5,31 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.13.2 — 2026-10-15
+
+Pins: Cerea `0.13.2`, Pystino `0.8.1`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **The Chats/Agents switch follows the person's capability.** The sidebar
+  switch and every `/code` entry point are now decided per person, from the
+  gateway's `/v1/me` `capabilities.code_agents` (ADR 0096): the client's
+  feature-flags answer used to be the deployment-wide
+  `CODE_AGENTS_ENABLED`, so a person the gateway denies still saw the
+  switch, and every click 404'd. The decision now denies until the gateway
+  says true — no token, a refusal, or a capabilities block that does not
+  grant the flag all hide the switch and 404 the routes as before — and,
+  when the gateway cannot be asked, rides the person's last valid answer
+  for five minutes (the machine link's grace) before hiding, so one blip
+  no longer hides /code from everyone for the length of the `/v1/me`
+  cache. An older gateway (a `/v1/me` body carrying no `capabilities` key
+  at all) still reads as allowed, so an upgrade locks nobody out. Without
+  a gateway the env switch alone decides, unchanged.
+- **No welcome screen.** The first-visit modal is gone — it marked `#app`
+  inert until dismissed and every test had to seed around it — with its
+  `welcomeModalSeen` settings plumbing end to end. Stored settings
+  documents may keep a stray `welcomeModalSeenAt`: it is ignored, no
+  migration.
+
 ## v0.13.1 — 2026-10-14
 
 Pins: Cerea `0.13.1`, Pystino `0.8.1`, Authelia 4.39.22. Update the
