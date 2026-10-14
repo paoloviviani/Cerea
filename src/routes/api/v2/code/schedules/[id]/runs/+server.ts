@@ -5,7 +5,7 @@ import { getSchedule, listRuns, runView, scheduleView } from "$lib/server/schedu
 
 /** The schedule's history, newest first: every occurrence considered, fired or not. */
 export const GET: RequestHandler = async ({ locals, params, url }) => {
-	const userId = requireSchedules(locals);
+	const userId = await requireSchedules(locals);
 	const id = params.id ?? "";
 	const limit = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
 	const schedule = await answering(() => getSchedule(userId, id));

@@ -27,7 +27,7 @@ import { disableSchedulesForDevice } from "$lib/server/code/scheduleAgentExecuto
 import { logger } from "$lib/server/logger";
 
 export const GET: RequestHandler = async ({ locals }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	return superjsonResponse({ devices: await listDevices(locals) });
 };
 
@@ -43,7 +43,7 @@ const patchSchema = z.object({ action: z.literal("confirm") });
 /** Confirm a pending machine: the browser's Confirm click, the second
  * factor a phished device-code approval alone never reaches (C2). */
 export const PATCH: RequestHandler = async ({ locals, request, url }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	requireJsonBody(request);
 	const id = z.string().min(1).safeParse(url.searchParams.get("id"));
 	if (!id.success) error(400, "A device id is required.");
@@ -63,7 +63,7 @@ export const PATCH: RequestHandler = async ({ locals, request, url }) => {
 };
 
 export const DELETE: RequestHandler = async ({ locals, url }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	const id = z.string().min(1).safeParse(url.searchParams.get("id"));
 	if (!id.success) error(400, "A device id is required.");
 

@@ -46,6 +46,7 @@ import { PATCH as devicesPATCH } from "../devices/+server";
 const terminalGate = vi.hoisted(() => ({ enabled: true }));
 vi.mock("$lib/server/codeEnabled", () => ({
 	codeAgentsEnabled: () => true,
+	codeAgentsAllowedFor: async () => true,
 	codeFilesEnabled: () => true,
 	codeTerminalEnabled: () => terminalGate.enabled,
 }));

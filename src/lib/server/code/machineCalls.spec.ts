@@ -23,6 +23,7 @@ const flags = vi.hoisted(() => ({ schedules: true }));
 vi.mock("$lib/server/codeEnabled", async (original) => ({
 	...(await original<typeof import("$lib/server/codeEnabled")>()),
 	codeAgentsEnabled: () => true,
+	codeAgentsAllowedFor: async () => true,
 	codeSchedulesEnabled: () => flags.schedules,
 }));
 

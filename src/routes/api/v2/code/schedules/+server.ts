@@ -11,7 +11,7 @@ import { createSchedule, listSchedules, scheduleView } from "$lib/server/schedul
 import { maxSchedulesPerUser } from "$lib/server/schedules/limits";
 
 export const GET: RequestHandler = async ({ locals }) => {
-	const userId = requireSchedules(locals);
+	const userId = await requireSchedules(locals);
 	const rows = await listSchedules(userId);
 	return superjsonResponse({
 		schedules: await Promise.all(rows.map((row) => scheduleView(row))),
@@ -20,7 +20,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
-	const userId = requireSchedules(locals);
+	const userId = await requireSchedules(locals);
 	requireJsonBody(request);
 	const body = await request.json().catch(() => null);
 	const schedule = await answering(() => createSchedule(userId, body));

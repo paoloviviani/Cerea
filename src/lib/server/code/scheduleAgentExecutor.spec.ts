@@ -30,6 +30,7 @@ const flags = vi.hoisted(() => ({ codeAgents: true }));
 vi.mock("$lib/server/codeEnabled", async (original) => ({
 	...(await original<typeof import("$lib/server/codeEnabled")>()),
 	codeAgentsEnabled: () => flags.codeAgents,
+	codeAgentsAllowedFor: async () => true,
 }));
 
 let httpServer: Server;

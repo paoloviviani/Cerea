@@ -1,7 +1,7 @@
 import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
-import { codeAgentsEnabled } from "$lib/server/codeEnabled";
+import { codeAgentsAllowedFor, codeAgentsEnabled } from "$lib/server/codeEnabled";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { isMachineOnline } from "$lib/server/code/machines";
 import { machineIssuer } from "$lib/server/code/machineAuth";
@@ -27,13 +27,19 @@ type DeviceIdentityFields = { enrolledIssuer?: string; revokedAt?: Date };
  * scoped to `locals.user._id`.
  */
 
-export function requireCodeAgents(locals: App.Locals): void {
+export async function requireCodeAgents(locals: App.Locals): Promise<void> {
 	requireAuth(locals);
 	if (!locals.user) {
 		error(401, "Login required");
 	}
 	if (!codeAgentsEnabled()) {
 		error(404, "Coding agents are not enabled in this deployment.");
+	}
+	// ADR 0096: the person's own answer, cached with the session's /v1/me —
+	// no gateway call per request. A 404 like the switch-off above, so the
+	// panel reads as hidden rather than as a refusal to argue with.
+	if (!(await codeAgentsAllowedFor(locals))) {
+		error(404, "Coding agents are not available for your account.");
 	}
 }
 

@@ -68,7 +68,7 @@ const SNAPSHOT_PAGE_LIMIT = 40;
 const REAUTH_FRAME = `event: reauth_required\ndata: ${JSON.stringify({ code: "reauth_required" })}\n\n`;
 
 export const GET: RequestHandler = async ({ params, locals, url, request }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	const sessionId = params.id ?? "";
 	if (!/^[A-Za-z0-9_.:~-]+$/.test(sessionId)) error(400, "Not a valid agent id.");
 	const device = await getPairedDevice(locals, url.searchParams.get("device"));

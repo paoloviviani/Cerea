@@ -8,7 +8,10 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import superjson from "superjson";
 import { ObjectId } from "mongodb";
 
-vi.mock("$lib/server/codeEnabled", () => ({ codeAgentsEnabled: () => true }));
+vi.mock("$lib/server/codeEnabled", () => ({
+	codeAgentsEnabled: () => true,
+	codeAgentsAllowedFor: async () => true,
+}));
 // The revoke route closes the machine's live socket; nothing here has one.
 vi.mock("$lib/server/code/machines", () => ({
 	dropMachineConnection: vi.fn(),

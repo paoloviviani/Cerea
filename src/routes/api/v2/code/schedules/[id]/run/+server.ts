@@ -6,7 +6,7 @@ import { runView } from "$lib/server/schedules/store";
 
 /** "Run now": one immediate run of the caller's own schedule (the executor's overlap rule applies). */
 export const POST: RequestHandler = async ({ locals, params }) => {
-	const userId = requireSchedules(locals);
+	const userId = await requireSchedules(locals);
 	const run = await answering(() => runNow(userId, params.id ?? ""));
 	return superjsonResponse({ run: runView(run) });
 };
