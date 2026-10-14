@@ -49,7 +49,7 @@ const uploadSchema = z.object({
 });
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	const key = params.key ?? "";
 	await authorizeCodeAttachmentKey(locals, key);
 
@@ -73,7 +73,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 };
 
 export const GET: RequestHandler = async ({ locals, params, url }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	const key = params.key ?? "";
 	await authorizeCodeAttachmentKey(locals, key);
 

@@ -12,7 +12,7 @@
  */
 import { callerIdentity } from "$lib/server/admin";
 import {
-	codeAgentsEnabled,
+	codeAgentsAllowedFor,
 	codeFilesEnabled,
 	codeSchedulesEnabled,
 	codeTerminalEnabled,
@@ -29,20 +29,24 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	const webSearchAvailable = locals.token
 		? (await resolveWebSearchFor(locals.token).catch(() => null))?.available === true
 		: false;
+	// ADR 0096: the sidebar's /code row is per-person, not per-deployment —
+	// a person without the capability never sees the switch, and the tab
+	// switches below fold with it so nothing offered 404s on first click.
+	const codeAllowed = await codeAgentsAllowedFor(locals);
 	return {
 		webSearchAvailable,
 		gatewayIsAdmin: identity?.isAdmin === true,
 		// Threaded the same way `gatewayIsAdmin` is (see +layout.ts): the
 		// sidebar's `/code` row reads it, and the route's guard re-checks it
 		// server-side rather than trusting the prop.
-		codeAgentsEnabled: codeAgentsEnabled(),
+		codeAgentsEnabled: codeAllowed,
 		// The /code file explorer's deployment switch (the route 404s anyway).
-		codeFilesEnabled: codeFilesEnabled(),
+		codeFilesEnabled: codeAllowed && codeFilesEnabled(),
 		// The /code terminal's deployment switch (default off, ADR 0090 §6.1);
 		// the Terminal tab reads it to hide entirely rather than show vetoed.
-		codeTerminalEnabled: codeTerminalEnabled(),
+		codeTerminalEnabled: codeAllowed && codeTerminalEnabled(),
 		// Scheduled actions (the kill switch is `CHAT_SCHEDULES_ENABLED=false`): the
 		// sidebar's Schedules row reads it, and the API answers 404 when it is off.
-		codeSchedulesEnabled: codeSchedulesEnabled(),
+		codeSchedulesEnabled: codeAllowed && codeSchedulesEnabled(),
 	};
 };

@@ -240,18 +240,26 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			if (!staleEnrolment) continue;
 			await revokeAndClose(state, "sessions_valid_after");
 		} else if (resolution.refused) {
-			// ADR 0095: the join gate refusing an authenticated caller is a
-			// loss regaining the group reverses — closing with 4404 (PROTOCOL
-			// §4: the machine retries, nothing is revoked) and leaving the
-			// device enrolled. Checked before the token verdict below: the
-			// gate only answers a token it has already validated, so there is
-			// nothing to re-check.
-			if (resolution.status === 403 && resolution.code === "outside_access_groups") {
+			// ADR 0095 / ADR 0096: the join gate or the code_agents gate
+			// refusing an authenticated caller is a loss regaining the group
+			// (or the flag) reverses — closing with 4404 (PROTOCOL §4: the
+			// machine retries, nothing is revoked) and leaving the device
+			// enrolled. Checked before the token verdict below: the gate only
+			// answers a token it has already validated, so there is nothing
+			// to re-check.
+			if (
+				resolution.status === 403 &&
+				(resolution.code === "outside_access_groups" || resolution.code === "agents_not_allowed")
+			) {
+				const reason =
+					resolution.code === "agents_not_allowed"
+						? "coding agents are not available for this account; reconnect when they say so"
+						: "outside the access groups; reconnect when they say so";
 				logger.info(
-					{ deviceId: state.deviceId },
-					"machine link: outside the access groups; closing (not revoking)"
+					{ deviceId: state.deviceId, code: resolution.code },
+					"machine link: gate refused the account; closing (not revoking)"
 				);
-				closeConnection(state, 4404, "outside the access groups; reconnect when they say so");
+				closeConnection(state, 4404, reason);
 				continue;
 			}
 			// A refusal of the TOKEN is not a refusal of the ACCOUNT. The

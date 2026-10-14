@@ -856,6 +856,17 @@ on its own first, and if that token no longer validates (it expired, or the
 identity provider revoked it on refresh, as GitLab does) the link is closed
 with 4401 and the machine renews and reconnects, with nothing revoked.
 
+A machine refused for **access groups or capabilities** is neither: the link
+is closed with 4404 and the device **stays enrolled** — no re-enroll, no bin
+icon. Regaining the group, or a group granting the coding-agents capability,
+reconnects it by itself. What you see depends on which one bit:
+
+- outside the required groups: the gateway's join gate refused the account;
+- no coding-agents capability: the account may use the chat but not `/code`
+  (a _chat-only_ person — the gateway console's Users page badges them **Chat
+  only**). The Agents switch is gone from the sidebar and `/code` answers
+  "not available for your account"; the chat itself keeps working throughout.
+
 ## What is kept where
 
 |                                                             | Where it lives                                                  |

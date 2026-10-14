@@ -338,7 +338,7 @@ async function readJson(request: Request): Promise<unknown> {
 }
 
 export const GET: RequestHandler = async (event) => {
-	requireCodeAgents(event.locals);
+	await requireCodeAgents(event.locals);
 	const path = event.params.path ?? "";
 	const method = "GET";
 	if (!RULES.some((rule) => rule.method === method && rule.pattern.test(path))) {
@@ -816,7 +816,7 @@ const terminalOpenSchema = z.object({
 const terminalNameSchema = z.object({ title: z.string().trim().min(1).max(120) });
 
 export const POST: RequestHandler = async (event) => {
-	requireCodeAgents(event.locals);
+	await requireCodeAgents(event.locals);
 	requireJsonBody(event.request);
 	const path = event.params.path ?? "";
 	const method = "POST";
@@ -1372,7 +1372,7 @@ export const POST: RequestHandler = async (event) => {
 };
 
 export const DELETE: RequestHandler = async (event) => {
-	requireCodeAgents(event.locals);
+	await requireCodeAgents(event.locals);
 	const path = event.params.path ?? "";
 	const agentMatch = new RegExp(`^v1/agents/(${ID})$`).exec(path);
 	const terminalMatch = new RegExp(`^v1/terminals/(${ID})$`).exec(path);

@@ -45,7 +45,16 @@ import { findStrays, mergeStrays } from "./identity/gatewayLogin";
 import type { ObjectId } from "mongodb";
 
 export type GatewaySessionOutcome =
-	| { kind: "valid"; isAdmin: boolean; groups: string[] }
+	| {
+			kind: "valid";
+			isAdmin: boolean;
+			groups: string[];
+			/** ADR 0096: the person's `/v1/me` capabilities, cached with the
+			 * rest of this answer. Null when the gateway did not send the
+			 * field (an older gateway) — which reads as allowed, never as a
+			 * refusal. */
+			capabilities: { code_agents: boolean } | null;
+	  }
 	| { kind: "ended" }
 	| { kind: "open" }
 	| { kind: "unavailable" };
@@ -132,10 +141,17 @@ export async function gatewaySessionCheck(
 		if (!session || idMismatch || sessionStale) {
 			outcome = { kind: "ended" };
 		} else {
+			const capabilities = body.capabilities;
 			outcome = {
 				kind: "valid",
 				isAdmin: body.is_admin === true,
 				groups: Array.isArray(body.groups) ? body.groups.map(String) : [],
+				// Absent is not denied: an older gateway sends no field, and
+				// `codeAgentsAllowedFor` reads that as allowed.
+				capabilities:
+					capabilities && typeof capabilities.code_agents === "boolean"
+						? { code_agents: capabilities.code_agents }
+						: null,
 			};
 			if (user && body.merged_at) {
 				const mergedAt = new Date(body.merged_at);

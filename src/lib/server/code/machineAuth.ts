@@ -371,8 +371,11 @@ export type MachineUserResolution =
 			refused: boolean;
 			/** The gateway's own error code, when it sent one. ADR 0095:
 			 * `outside_access_groups` is the join gate refusing an
-			 * authenticated caller — a loss regaining the group reverses, so
-			 * a live link is closed (4404), never revoked, over one. */
+			 * authenticated caller; ADR 0096: `agents_not_allowed` is the
+			 * code_agents gate refusing a machine-client token. Both are a
+			 * loss regaining the group (or the flag) reverses, so a live
+			 * link is closed (4404), never revoked, over either — and a
+			 * refused upgrade answers a plain 403 that the machine retries. */
 			code?: string;
 	  };
 

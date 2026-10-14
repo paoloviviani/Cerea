@@ -17,7 +17,7 @@ const bodySchema = z.object({ recurrence: z.unknown(), timezone: z.string().max(
  * the reason it is refused (the 15-minute floor included). Nothing is stored.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
-	requireSchedules(locals);
+	await requireSchedules(locals);
 	requireJsonBody(request);
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Expected { recurrence, timezone }.");

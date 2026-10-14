@@ -18,7 +18,7 @@ import { readAttachment } from "$lib/server/files/attachmentStore";
 import { attachmentResponse } from "$lib/server/files/downloadFile";
 
 export const GET: RequestHandler = async ({ locals, params }) => {
-	requireCodeAgents(locals);
+	await requireCodeAgents(locals);
 	const sha256 = z
 		.string()
 		.regex(/^[0-9a-f]{64}$/)
