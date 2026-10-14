@@ -5,6 +5,34 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.13.0 — 2026-10-14
+
+Pins: Cerea `0.13.0`, Pystino `0.8.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Capabilities are per group.** A person holds coding agents or API keys
+  as an administrator, or through an active membership in a group carrying
+  the flag — the old everyone/groups setting is gone as a rule.
+  **Console → Settings** sets what *new* groups start with (`ACCESS_*`,
+  now `on`/`off`; the old spellings still parse for one release) and offers
+  **Turn on/off for all groups** with a preview of how many people gain or
+  lose it; **Console → Groups** carries the two toggles. Keys are refused,
+  not deleted; machines close and reconnect when access returns. The
+  upgrade keeps everyone's access: migration 0060 turns the flag on for
+  every existing group where "everyone" was in force, and leaves flags
+  alone where "groups" was. The kit passes the two `ACCESS_*` variables to
+  the migrate service for exactly that fold.
+- **Failure banners in /code.** After a reload every failed turn shows its
+  banner again (older ones collapsed to one line); previously only the last
+  survived. The "check the provider's credit" hint still appears only on a
+  live failure, not after a reload.
+- **Docs.** Copyable commands use `$GATEWAY_BASE_URL`, `$CEREA_BASE_URL`
+  and `$OIDC_ISSUER` instead of example hosts (already on `main` as
+  `b53a0df7`; Pystino's docs as `1fa9d64`).
+- **Fixed:** the Groups page's capability checkboxes always showed off
+  after a refetch, even when a flag was set — the group list answered both
+  flags as `false` regardless of the stored value.
+
 ## v0.12.0 — 2026-10-14
 
 Pins: Cerea `0.12.0`, Pystino `0.7.1`, Authelia 4.39.22. Update the
