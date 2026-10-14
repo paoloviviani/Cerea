@@ -5,9 +5,9 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## v0.13.0 — 2026-10-14
+## v0.13.1 — 2026-10-14
 
-Pins: Cerea `0.13.0`, Pystino `0.8.1`, Authelia 4.39.22. Update the
+Pins: Cerea `0.13.1`, Pystino `0.8.1`, Authelia 4.39.22. Update the
 deployment (`docker compose pull && docker compose up -d`).
 
 - **Capabilities are per group.** A person holds coding agents or API keys
@@ -35,6 +35,10 @@ deployment (`docker compose pull && docker compose up -d`).
 - **Fixed:** on a fresh install the default group now gets the deployment's
   capability defaults when it is created (Pystino `0.8.1`), so new people
   are no longer chat-only.
+- **CI:** the boot specs no longer start an in-memory Mongo (it crashed on
+  runners without AVX); they use the test Mongo.
+- v0.13.0 was tagged and its image published, but never released: its kit
+  pinned Pystino 0.8.0, whose default group made new people chat-only.
 
 ## v0.12.0 — 2026-10-14
 
