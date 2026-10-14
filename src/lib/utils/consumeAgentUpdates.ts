@@ -598,6 +598,10 @@ export async function consumeAgentUpdates(
 					scheduleFrameFlush();
 					break;
 				}
+				// A failed turn whose message carries no parts (a provider that
+				// refused before answering) has only its boundary so far: give it
+				// its own bubble, or the banner would land on an earlier turn's.
+				if (update.state === "failed" && !current && pendingMessageId) openAssistant();
 				const target = stateTarget();
 				if (target) attach(target, update);
 				closeTurn();

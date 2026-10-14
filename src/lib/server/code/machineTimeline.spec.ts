@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
+import type { Message as ChatMessage } from "$lib/types/Message";
+import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
+import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
+import { lastFailedTurnId } from "$lib/utils/generationState";
 import type {
 	Envelope,
 	Message,
@@ -22,6 +26,7 @@ import {
 	trackedErrorReason,
 	questionRequestedToUpdate,
 	snapshotToUpdates,
+	transcriptMessagesToUpdates,
 	userMessageIdsOf,
 	type ChildContext,
 } from "./machineTimeline";
@@ -2036,5 +2041,80 @@ describe("agent thinking: the chat's own <think> wrapping", () => {
 			thinking
 		);
 		expect(out).toEqual([{ type: "childActivity", childId: "c1" }]);
+	});
+});
+
+describe("replayed failed turns", () => {
+	const twoFailures = (): Transcript["messages"] => [
+		{ message: userMessage("u1"), parts: [textPart("p1", "u1", "user", "one")] },
+		{ message: assistantMessage("a1", "Rate limited."), parts: [] },
+		{ message: userMessage("u2"), parts: [textPart("p2", "u2", "user", "two")] },
+		{ message: assistantMessage("a2", "Out of credit."), parts: [] },
+	];
+	const fold = async (updates: AgentStreamUpdate[]) => {
+		const messages: ChatMessage[] = [];
+		await consumeAgentUpdates(
+			(async function* () {
+				for (const u of updates) yield u;
+			})(),
+			messages,
+			{ isAborted: () => false, onAbort: () => {}, onTurnEvent: () => {} }
+		);
+		return messages;
+	};
+	const failedOf = (updates: AgentStreamUpdate[]) =>
+		updates.filter((u) => u.type === MessageUpdateType.TurnState && u.state === "failed");
+
+	it("a snapshot with two failed turns replays two banners, only the newer one latest", async () => {
+		const updates = snapshotToUpdates({
+			messages: twoFailures(),
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		});
+		expect(failedOf(updates)).toHaveLength(2);
+		const messages = await fold(updates);
+		const assistants = messages.filter((m) => m.from === "assistant");
+		expect(assistants).toHaveLength(2);
+		for (const m of assistants) {
+			expect(m.updates?.filter((u) => u.type === "turnState" && u.state === "failed")).toHaveLength(
+				1
+			);
+		}
+		expect(lastFailedTurnId(messages)).toBe(assistants[1].id);
+		expect(lastFailedTurnId(messages)).not.toBe(assistants[0].id);
+	});
+
+	it("a history page replays each failed turn on its own message", async () => {
+		const updates = transcriptMessagesToUpdates({ messages: twoFailures() });
+		expect(failedOf(updates)).toHaveLength(2);
+		const messages = await fold(updates);
+		const assistants = messages.filter((m) => m.from === "assistant");
+		expect(assistants).toHaveLength(2);
+		expect(lastFailedTurnId(messages)).toBe(assistants[1].id);
+		expect(assistants[0].updates?.some((u) => u.type === "turnState" && u.state === "failed")).toBe(
+			true
+		);
+	});
+
+	it("a replay with no failures emits no extra turn states", () => {
+		const messages: Transcript["messages"] = [
+			{ message: userMessage("u1"), parts: [] },
+			{ message: assistantMessage("a1"), parts: [] },
+		];
+		expect(
+			transcriptMessagesToUpdates({ messages }).filter(
+				(u) => u.type === MessageUpdateType.TurnState
+			)
+		).toHaveLength(0);
+		const snap = snapshotToUpdates({
+			messages,
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		});
+		expect(snap.filter((u) => u.type === MessageUpdateType.TurnState)).toHaveLength(1);
 	});
 });
