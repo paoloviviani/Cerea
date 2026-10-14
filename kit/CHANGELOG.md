@@ -5,6 +5,29 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.12.0 — 2026-10-14
+
+Pins: Cerea `0.12.0`, Pystino `0.7.1`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+(Pystino `0.7.0` was tagged but never released — its stack caught a
+startup refusal the capability check tripped on the compose default; that
+check is semantic now, and `0.7.1` is the release.)
+
+- **Chat-only people.** The gateway can now restrict who may use coding
+  agents and who may hold API keys: **Console → Identity** sets each
+  capability to everyone or to flagged groups (with a preview of who would
+  lose it), and **Console → Groups** carries the two toggles. A person with
+  neither is badged **Chat only** on Users; their chat keeps working while
+  `/code` reads as hidden. Keys are refused, not deleted — regaining the
+  capability restores them — and a machine whose owner loses the capability
+  closes and reconnects by itself when access returns, never revoked.
+- **New variables, both defaulting to open.** `ACCESS_CODE_AGENTS` and
+  `ACCESS_API_KEYS` (`everyone`, or `groups` for flagged groups only); the
+  console's decision wins once it saves. The kit passes the machine client
+  through to the gateway now, so a renamed client (a GitLab app uid) matches
+  instead of silently passing chat-only machines.
+
 ## v0.11.2 — 2026-10-13
 
 Pins: Cerea `0.11.2`, Pystino `0.6.0`, Authelia 4.39.22. Update the
