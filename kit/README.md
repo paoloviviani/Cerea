@@ -63,7 +63,7 @@ The images are public on the GitHub Container Registry
 (`ghcr.io/paoloviviani/cerea`, `pystino-gateway`, `pystino-redaction`); Compose
 pulls the versions this release pins, with no login.
 
-`./configure` asks for your origin (`https://chat.example.org`), the
+`./configure` asks for your origin (`https://cerea.example.org`), the
 administrator's email, a preset, the TLS mode and the identity provider. It
 generates every secret and writes `.env` at mode 0600. The first sign-in for
 the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at `https://<your origin>/` (the console; the chat is at `/chat/`), then delete that file.
@@ -75,7 +75,7 @@ generates it. Then run `./configure --check`.
 For scripted installs, every question has a flag:
 
 ```sh
-./configure --non-interactive --origin https://chat.example.org \
+./configure --non-interactive --origin https://cerea.example.org \
   --admin-email ops@example.org --preset team --tls acme --idp authelia
 ```
 
@@ -529,7 +529,8 @@ that signing out ends its session too.
 out of the IdP.
 
 ```sh
-./configure --idp external --oidc-issuer https://id.example.org/realms/main \
+export OIDC_ISSUER=https://id.example.org/realms/main   # your IdP's issuer
+./configure --idp external --oidc-issuer "$OIDC_ISSUER" \
   --admin-email ops@example.org \
   --oidc-console-client-id pystino-console --oidc-console-client-secret … \
   --oidc-chat-client-id cerea --oidc-chat-client-secret …

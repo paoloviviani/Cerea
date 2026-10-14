@@ -79,10 +79,18 @@ galopin licenses the third-party licence notices compiled into the binary
 ```
 
 ```sh
-galopin enroll --issuer https://llm.example.org/authelia \
-  --gateway https://llm.example.org --cerea https://llm.example.org/chat
+export GATEWAY_BASE_URL=https://cerea.example.org   # the kit: your PUBLIC_ORIGIN
+export CEREA_BASE_URL="$GATEWAY_BASE_URL/chat"
+export OIDC_ISSUER="$GATEWAY_BASE_URL/authelia"     # bundled Authelia; else your IdP's issuer
+
+galopin enroll --issuer "$OIDC_ISSUER" \
+  --gateway "$GATEWAY_BASE_URL" --cerea "$CEREA_BASE_URL"
 galopin run
 ```
+
+A satellite or standalone chat on another host sets `CEREA_BASE_URL` to that
+address. The chat's Pair dialog shows this command with your addresses filled
+in.
 
 `enroll` writes the opencode config to `<config-dir>/galopin/opencode.json`
 (beside `credentials.json`, whatever directory you run it from) unless
