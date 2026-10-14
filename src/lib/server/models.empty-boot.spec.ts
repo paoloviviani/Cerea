@@ -18,6 +18,8 @@ const EMPTY_BASE_URL = "http://empty-models.test.invalid/v1";
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_ORIGIN: "https://vitest.invalid" } }));
 vi.mock("$env/dynamic/private", () => ({
 	env: {
+		// Without a MONGODB_URL the database module starts mongodb-memory-server, which needs AVX.
+		MONGODB_URL: process.env.TEST_MONGODB_URL,
 		OPENAI_BASE_URL: EMPTY_BASE_URL,
 		// No key: the public-catalogue shape the gateway serves (ADR 0081).
 	},
