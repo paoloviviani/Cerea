@@ -241,6 +241,14 @@ services:
       GATEWAY_OIDC__JOIN_MODE: ${OIDC_JOIN_MODE:-open}
       GATEWAY_OIDC__REQUIRED_GROUPS: ${OIDC_REQUIRED_GROUPS:-}
       GATEWAY_OIDC__GROUP_FALLBACK: ${OIDC_GROUP_FALLBACK:-refuse}
+      # ADR 0096: which accepted client is the coding-agent machine client
+      # (the gateway matches a machine token's azp/client_id against it), and
+      # who may hold each capability. Without the machine client here the gate
+      # never matches a renamed client (a GitLab app uid), and a chat-only
+      # person's machine would pass silently.
+      GATEWAY_OIDC__MACHINE_CLIENT_ID: ${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}
+      GATEWAY_ACCESS__CODE_AGENTS: ${ACCESS_CODE_AGENTS:-everyone}
+      GATEWAY_ACCESS__API_KEYS: ${ACCESS_API_KEYS:-everyone}
       # The group every person joins at their first sign-in, with any IdP, so a
       # new account has a group to bill; it grants no model by itself. `-`,
       # not `:-`: set empty in .env, it is off.
