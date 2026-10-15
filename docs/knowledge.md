@@ -17,6 +17,13 @@ Create and fill a base from the **Workspace** page, under **Knowledge**
 **read once, at upload**, and you can open a document to see the text that
 search actually uses.
 
+**Accepted files:** PDF, Word, Excel, PowerPoint, OpenDocument, e-books, and
+text files (Markdown, CSV, JSON, plain text). The type is decided from the
+file's contents, not its name or the browser's guess, so a text file with a
+wrong extension is still accepted. Images, archives and other binary files are
+refused with a message saying so (HTTP 415); a file stored before this check
+that is not text fails its own document with the same reason.
+
 - A **scanned PDF** (pictures of pages, with no selectable text) comes out empty unless your administrator has chosen an OCR model. Open the document to check: if its text is empty, ask them.
   In a **chat**, a scan is also handled by the model: see [Attachments](chat.md#attachments).
 - A file that **cannot be read** says why, in the same words to you and to the assistant: no reader is configured for that format, the reader refused the file (and what it said), the reader could not be reached, or the file holds no text. Only a PDF with no text layer is called a scan.

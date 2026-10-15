@@ -1,0 +1,125 @@
+/**
+ * What a knowledge base accepts, decided from the bytes. Real Mongo (GridFS):
+ * `TEST_MONGODB_URL=… npx vitest run --project=server --no-file-parallelism`.
+ */
+import { describe, expect, it, afterEach } from "vitest";
+import { ObjectId } from "mongodb";
+import { collections, ready } from "$lib/server/database";
+import { ingestDocument, storeUpload } from "./service";
+
+await ready;
+
+const owner = new ObjectId();
+const stored: ObjectId[] = [];
+
+// Minimal real signatures: file-type reads the leading bytes only.
+const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4", "hex");
+const ZIP = Buffer.from("504b0304140000000000000000000000000000000000000000000000", "hex");
+const PDF = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
+const ELF = Buffer.from("7f454c4602010100000000000000000002003e00", "hex");
+
+async function put(name: string, bytes: Buffer, mime = "application/octet-stream") {
+	const result = await storeUpload({ name, bytes, mime }, owner);
+	stored.push(new ObjectId(result.id));
+	return result;
+}
+
+async function storedMime(id: string) {
+	const file = await collections.bucket.find({ _id: new ObjectId(id) }).next();
+	return file?.metadata?.mime as string;
+}
+
+afterEach(async () => {
+	for (const id of stored.splice(0)) await collections.bucket.delete(id).catch(() => undefined);
+	await collections.vectorStores.deleteMany({});
+	await collections.knowledgeDocuments.deleteMany({});
+});
+
+describe("storeUpload refuses what a knowledge base cannot index", () => {
+	it("refuses an image with 415, whatever the browser said", async () => {
+		await expect(put("photo.png", PNG, "text/plain")).rejects.toMatchObject({
+			status: 415,
+			message: expect.stringContaining("Accepted: PDF, Word, Excel"),
+		});
+	});
+
+	it("refuses a zip and an executable", async () => {
+		await expect(put("bundle.zip", ZIP, "application/zip")).rejects.toMatchObject({ status: 415 });
+		await expect(put("tool", ELF, "text/plain")).rejects.toMatchObject({ status: 415 });
+	});
+
+	it("refuses bytes that are not valid UTF-8 text", async () => {
+		await expect(
+			put("blob.txt", Buffer.from([0x68, 0xff, 0xfe, 0x00, 0x01]))
+		).rejects.toMatchObject({ status: 415 });
+	});
+
+	it("accepts markdown and csv, storing a text type", async () => {
+		const md = await put("notes.md", Buffer.from("# Title\n\nbody\n"), "application/octet-stream");
+		const csv = await put("data.csv", Buffer.from("a,b\n1,2\n"), "application/octet-stream");
+		expect(await storedMime(md.id)).toBe("text/markdown");
+		expect(await storedMime(csv.id)).toBe("text/csv");
+	});
+
+	it("accepts a PDF, and a docx by what its bytes and name say", async () => {
+		const pdf = await put("a.pdf", PDF, "text/plain");
+		expect(await storedMime(pdf.id)).toBe("application/pdf");
+		const docx = await put("a.docx", ZIP, "application/octet-stream");
+		expect(await storedMime(docx.id)).toContain("wordprocessingml");
+	});
+
+	it("accepts text the browser called an image, by sniffing", async () => {
+		const note = await put("readme", Buffer.from("just words\n"), "image/png");
+		expect(await storedMime(note.id)).toBe("text/plain");
+	});
+});
+
+describe("ingest of a stored binary", () => {
+	it("fails that document with the reason, without throwing", async () => {
+		// Written straight to GridFS, as an older upload would have been.
+		const id = new ObjectId();
+		await new Promise<void>((resolve, reject) => {
+			const up = collections.bucket.openUploadStreamWithId(id, "old.bin", {
+				metadata: { mime: "application/octet-stream", owner: owner.toString() },
+			});
+			up.once("finish", () => resolve());
+			up.once("error", reject);
+			up.end(ELF);
+		});
+		stored.push(id);
+		const storeId = new ObjectId();
+		await collections.vectorStores.insertOne({
+			_id: storeId,
+			name: "kb",
+			description: "",
+			ownerId: owner,
+			embeddingModel: "test-embedder",
+			dimensions: null,
+			chunkChars: 1200,
+			chunkOverlap: 150,
+			shares: [],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+		const documentId = new ObjectId();
+		await collections.knowledgeDocuments.insertOne({
+			_id: documentId,
+			storeId,
+			title: "old.bin",
+			filename: "old.bin",
+			fileId: id,
+			status: "pending",
+			chars: 0,
+			chunkCount: 0,
+			error: "",
+			embeddingModel: null,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		const row = await ingestDocument(documentId, "t");
+		expect(row.status).toBe("failed");
+		expect(row.error).toContain("not text");
+		expect(row.error).toContain("Accepted:");
+	});
+});

@@ -734,6 +734,16 @@ export async function ingestDocument(
 				document.filename ?? "document"
 			);
 			if (!isExtractableDocument(mime)) {
+				// Files stored before uploads were checked can be anything; only
+				// text is indexed as text, the rest fails this one document.
+				const { isPlainText, KNOWLEDGE_REFUSED_MESSAGE } =
+					await import("$lib/server/files/knowledgeUpload");
+				if (!isPlainText(bytes)) {
+					throw new KnowledgeError(
+						415,
+						`${document.filename ?? "This file"} is not text and cannot be indexed. ${KNOWLEDGE_REFUSED_MESSAGE}`
+					);
+				}
 				text = bytes.toString("utf-8");
 			} else {
 				const extracted = await extractDocument({
@@ -901,13 +911,20 @@ export async function storeUpload(
 			`Files are limited to ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB.`
 		);
 	}
+	// Decided from the bytes, not the browser's type: the stored type is the
+	// sniffed one, and anything that is neither a document the reader can
+	// extract nor text is refused here, before anything is stored.
+	const { knowledgeUploadMime, KNOWLEDGE_REFUSED_MESSAGE } =
+		await import("$lib/server/files/knowledgeUpload");
+	const mime = await knowledgeUploadMime(file.bytes, file.name);
+	if (!mime) throw new KnowledgeError(415, KNOWLEDGE_REFUSED_MESSAGE);
 	const id = new ObjectId();
 	return new Promise((resolve, reject) => {
 		const upload = bucket().openUploadStreamWithId(id, file.name, {
 			// The digest is what attachFile compares to tell a re-upload of the
 			// same file from a new one.
 			metadata: {
-				mime: file.mime,
+				mime,
 				owner: ownerId.toString(),
 				sha256: createHash("sha256").update(file.bytes).digest("hex"),
 			},
