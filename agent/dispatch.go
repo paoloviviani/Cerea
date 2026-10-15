@@ -89,6 +89,13 @@ func (mc *machine) AttachLink(lnk *link.Link) { mc.lnk = lnk }
 // need one).
 func (mc *machine) AttachAudit(a *auditLogger) { mc.audit = a }
 
+// AttachReportState persists the delegate report-back state under dir.
+func (mc *machine) AttachReportState(dir string) {
+	if mc.agentTools != nil {
+		mc.agentTools.attachState(dir)
+	}
+}
+
 // HandleBinary implements link.BinaryHandler: routes an inbound term.input
 // or term.ack frame to whichever terminal owns channel (PROTOCOL.md §9.2).
 // A channel with no known terminal (already detached, or never attached —
@@ -550,6 +557,9 @@ func (mc *machine) opSessionCancel(ctx context.Context, args json.RawMessage) (a
 	dir, _, operr := mc.resolveSession(a.SessionID)
 	if operr != nil {
 		return nil, operr
+	}
+	if mc.agentTools != nil {
+		mc.agentTools.noteStopped(a.SessionID) // a Stop is not a result (ADR 0099)
 	}
 	if err := mc.back.Cancel(ctx, dir, a.SessionID); err != nil {
 		return nil, backendErr(err)

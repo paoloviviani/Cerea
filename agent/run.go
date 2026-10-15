@@ -240,6 +240,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
+	mc.AttachReportState(stateDir)
 	// Model pins outside Pystino in opencode's global config (modelpins.go):
 	// logged, audited and filed in status.json at every start (and carried
 	// on every hello by buildHello). The files are the user's, never edited.
@@ -284,7 +285,11 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	// on ctx kept run waiting in <-eventsDone forever instead of exiting 78.
 	forwardCtx, stopForwarding := context.WithCancel(ctx)
 	defer stopForwarding()
-	eventsDone := startForwarding(forwardCtx, func(c context.Context) { forwardEvents(c, mat, lnk) })
+	eventsDone := startForwarding(forwardCtx, func(c context.Context) { forwardEvents(c, mat, lnk, mc.observeEvent) })
+
+	if mc.agentTools != nil {
+		go mc.agentTools.recover(ctx) // reports a delegate finished while galopin was down
+	}
 
 	linkErr := make(chan error, 1)
 	go func() { linkErr <- lnk.Run(ctx) }()
@@ -416,7 +421,7 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 // for as long as ctx lives. Best effort by design (link.PublishEvent
 // itself is best effort — see its doc): a client's session.sync is the
 // actual gap-recovery path, not this goroutine keeping up.
-func forwardEvents(ctx context.Context, mat *sessions.Materializer, lnk *link.Link) {
+func forwardEvents(ctx context.Context, mat *sessions.Materializer, lnk *link.Link, observe ...func(sessions.Envelope)) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -424,6 +429,9 @@ func forwardEvents(ctx context.Context, mat *sessions.Materializer, lnk *link.Li
 		case env, ok := <-mat.Events():
 			if !ok {
 				return
+			}
+			for _, o := range observe {
+				o(env)
 			}
 			raw, err := json.Marshal(eventToWire(env.Event))
 			if err != nil {

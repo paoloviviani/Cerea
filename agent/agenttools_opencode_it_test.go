@@ -47,6 +47,7 @@ func (h *itHub) run(mat *sessions.Materializer) {
 		h.log = append(h.log, env)
 		approve := h.approve
 		h.mu.Unlock()
+		h.mc.observeEvent(env) // report-back, as forwardEvents does
 		if env.Event.Kind == backend.EventPermissionAsked && env.Event.Request != nil && approve != nil {
 			if d := approve(env.Event.Request); d != "" {
 				req := env.Event.Request
@@ -242,6 +243,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	mc.AttachAudit(audit)
+	mc.AttachReportState(dirs["state"])
 	if mc.agentTools == nil {
 		t.Fatal("the agent tools were not installed on an opencode backend with a ToolsDir")
 	}
@@ -296,7 +298,10 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 	}
 	spawnArgs := func(title, prompt, mode string) string {
-		return mustJSON2(map[string]any{"title": title, "prompt": prompt, "mode": mode})
+		// report:false: the mock re-matches a caller's trigger on every later
+		// turn, so a delivered report would start the same spawn again. The
+		// report-back subtest below asks for reports explicitly.
+		return mustJSON2(map[string]any{"title": title, "prompt": prompt, "mode": mode, "report": false})
 	}
 	newSession := func(ws workspaces.Workspace, title, mode string) backend.Session {
 		t.Helper()
@@ -1420,6 +1425,59 @@ func TestAgentToolsIntegration(t *testing.T) {
 			if env.Event.Kind == backend.EventPermissionAsked {
 				t.Errorf("a ceiling of deny raised a card: %+v", env.Event.Request)
 			}
+		}
+	})
+
+	t.Run("report-back: a delegate's final message reaches its spawner with no polling, no card; report:false stays silent", func(t *testing.T) {
+		hub.setApprove(approveAll)
+		caller := newSession(ws1, "it-caller-r", "")
+		route("trigger-spawn-r", "session_spawn", mustJSON2(map[string]any{"title": "it-child-r", "prompt": "child-r first prompt", "mode": "inherit"}))
+		// The turn that answers the report must not repeat the spawn.
+		routes = append([]map[string]any{{"contains": "Report from it-child-r", "scenario": map[string]any{
+			"content": []string{"noted"}, "chunkDelayMs": 5, "finishReason": "stop"}}}, routes...)
+		publish()
+		mark := hub.mark()
+		prompt(caller, ws1, "trigger-spawn-r")
+		hub.toolDone(t, mark, caller.ID, "session_spawn")
+		kids := allTitled("it-child-r")
+		if len(kids) != 1 {
+			t.Fatalf("child sessions = %d, want 1", len(kids))
+		}
+		deadline := time.Now().Add(90 * time.Second)
+		want := "Report from it-child-r (session " + kids[0].ID + ")"
+		for !strings.Contains(mockPrompts(), want) {
+			if time.Now().After(deadline) {
+				t.Fatalf("the spawner never received the report; the model saw:\n%s", mockPrompts())
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		// The report is not a hop, a read or a send: the only card was the spawn's.
+		for _, a := range hub.asks(mark, caller.ID) {
+			if a.Tool != "session_spawn" {
+				t.Errorf("the report raised a card: %+v", a)
+			}
+		}
+		for _, r := range auditRows() {
+			if r["from"] == caller.ID && (r["tool"] == "session_read" || r["tool"] == "session_send") {
+				t.Errorf("the spawner polled instead of waiting: %v", r)
+			}
+		}
+
+		// report:false: the child runs, nothing comes back.
+		route("trigger-spawn-q", "session_spawn", mustJSON2(map[string]any{"title": "it-child-q", "prompt": "child-q first prompt", "mode": "inherit", "report": false}))
+		publish()
+		caller2 := newSession(ws1, "it-caller-q", "")
+		mark = hub.mark()
+		prompt(caller2, ws1, "trigger-spawn-q")
+		hub.toolDone(t, mark, caller2.ID, "session_spawn")
+		kids = allTitled("it-child-q")
+		if len(kids) != 1 {
+			t.Fatalf("child sessions = %d, want 1", len(kids))
+		}
+		settle(t, kids[0].ID)
+		time.Sleep(4 * time.Second)
+		if strings.Contains(mockPrompts(), "Report from it-child-q") {
+			t.Errorf("report:false still reported")
 		}
 	})
 }
