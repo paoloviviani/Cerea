@@ -34,15 +34,50 @@ const TEXT_EXTENSION_MIME: Record<string, string> = {
 	yml: "text/yaml",
 };
 
-/** True for bytes with no NUL and valid UTF-8: what indexing as text can use. */
-export function isPlainText(bytes: Uint8Array): boolean {
-	if (bytes.includes(0)) return false;
+/** The share of control bytes a single-byte text may have before it is binary. */
+const MAX_CONTROL_RATIO = 0.01;
+
+/** UTF-16 with a byte-order mark: text, but not an encoding this reads. */
+export function isUtf16(bytes: Uint8Array): boolean {
+	return (
+		bytes.length >= 2 &&
+		((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))
+	);
+}
+
+/**
+ * The text of `bytes`, or null when they are not text this can read: UTF-8
+ * (a BOM is stripped), else a single-byte file (what Excel on Windows
+ * writes, windows-1252) with almost no control characters. A NUL byte, or
+ * UTF-16, is refused.
+ */
+export function decodeText(bytes: Uint8Array): string | null {
+	if (bytes.includes(0) || isUtf16(bytes)) return null;
+	let text: string;
 	try {
-		new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-		return true;
+		text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 	} catch {
-		return false;
+		let control = 0;
+		for (const byte of bytes) {
+			if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0c && byte !== 0x0d)
+				control++;
+			else if (byte === 0x7f) control++;
+		}
+		if (control > bytes.length * MAX_CONTROL_RATIO) return null;
+		text = new TextDecoder("windows-1252").decode(bytes);
 	}
+	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+export function isPlainText(bytes: Uint8Array): boolean {
+	return decodeText(bytes) !== null;
+}
+
+/** Why bytes were refused: an unsupported text encoding is not "binary". */
+export function refusalMessage(bytes: Uint8Array): string {
+	return isUtf16(bytes)
+		? `Text encoding not supported (UTF-16): save as UTF-8. Accepted: ${KNOWLEDGE_ACCEPTED_LABEL}.`
+		: KNOWLEDGE_REFUSED_MESSAGE;
 }
 
 /**

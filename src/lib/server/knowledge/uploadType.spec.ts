@@ -6,6 +6,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { ingestDocument, storeUpload } from "./service";
+import { decodeText } from "$lib/server/files/knowledgeUpload";
 
 await ready;
 
@@ -73,6 +74,83 @@ describe("storeUpload refuses what a knowledge base cannot index", () => {
 		expect(await storedMime(note.id)).toBe("text/plain");
 	});
 });
+
+const CSV_1252 = Buffer.from([...Buffer.from("name,caf"), 0xe9, ...Buffer.from(",1\n")]);
+
+describe("text encodings", () => {
+	it("accepts a windows-1252 CSV and decodes its accents", async () => {
+		const up = await put("export.csv", CSV_1252, "application/vnd.ms-excel");
+		expect(await storedMime(up.id)).toBe("text/csv");
+		expect(decodeText(CSV_1252)).toBe("name,caf\u00e9,1\n");
+	});
+
+	it("accepts a UTF-8 file with a BOM and strips it", async () => {
+		const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("a,b\n\u00e9,2\n")]);
+		await put("bom.csv", bom);
+		expect(decodeText(bom)).toBe("a,b\n\u00e9,2\n");
+	});
+
+	it("still refuses real binary, and says UTF-16 is an encoding problem", async () => {
+		expect(decodeText(ELF)).toBeNull();
+		expect(decodeText(Buffer.from([0x80, 0x81, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]))).toBeNull();
+		const utf16 = Buffer.from("\ufeffa,b\n", "utf16le");
+		await expect(put("excel.txt", utf16)).rejects.toMatchObject({
+			status: 415,
+			message: expect.stringContaining("save as UTF-8"),
+		});
+	});
+
+	it("indexes a stored windows-1252 file with its accents", async () => {
+		const row = await ingestStored("old.csv", CSV_1252);
+		const doc = await collections.knowledgeDocuments.findOne({ _id: row.documentId });
+		expect(doc?.text).toContain("caf\u00e9");
+	});
+});
+
+async function ingestStored(name: string, bytes: Buffer) {
+	const id = new ObjectId();
+	await new Promise<void>((resolve, reject) => {
+		const up = collections.bucket.openUploadStreamWithId(id, name, {
+			metadata: { mime: "text/csv", owner: owner.toString() },
+		});
+		up.once("finish", () => resolve());
+		up.once("error", reject);
+		up.end(bytes);
+	});
+	stored.push(id);
+	const storeId = new ObjectId();
+	await collections.vectorStores.insertOne({
+		_id: storeId,
+		name: "kb",
+		description: "",
+		ownerId: owner,
+		embeddingModel: "test-embedder",
+		dimensions: null,
+		chunkChars: 1200,
+		chunkOverlap: 150,
+		shares: [],
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	} as never);
+	const documentId = new ObjectId();
+	await collections.knowledgeDocuments.insertOne({
+		_id: documentId,
+		storeId,
+		title: name,
+		filename: name,
+		fileId: id,
+		status: "pending",
+		chars: 0,
+		chunkCount: 0,
+		error: "",
+		embeddingModel: null,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	} as never);
+	// Embedding is not configured here, so indexing fails after the text is read.
+	await ingestDocument(documentId, "t").catch(() => undefined);
+	return { documentId };
+}
 
 describe("ingest of a stored binary", () => {
 	it("fails that document with the reason, without throwing", async () => {

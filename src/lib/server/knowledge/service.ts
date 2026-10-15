@@ -736,15 +736,15 @@ export async function ingestDocument(
 			if (!isExtractableDocument(mime)) {
 				// Files stored before uploads were checked can be anything; only
 				// text is indexed as text, the rest fails this one document.
-				const { isPlainText, KNOWLEDGE_REFUSED_MESSAGE } =
-					await import("$lib/server/files/knowledgeUpload");
-				if (!isPlainText(bytes)) {
+				const { decodeText, refusalMessage } = await import("$lib/server/files/knowledgeUpload");
+				const decoded = decodeText(bytes);
+				if (decoded === null) {
 					throw new KnowledgeError(
 						415,
-						`${document.filename ?? "This file"} is not text and cannot be indexed. ${KNOWLEDGE_REFUSED_MESSAGE}`
+						`${document.filename ?? "This file"} is not text and cannot be indexed. ${refusalMessage(bytes)}`
 					);
 				}
-				text = bytes.toString("utf-8");
+				text = decoded;
 			} else {
 				const extracted = await extractDocument({
 					bytes: bytes.buffer.slice(
@@ -914,10 +914,9 @@ export async function storeUpload(
 	// Decided from the bytes, not the browser's type: the stored type is the
 	// sniffed one, and anything that is neither a document the reader can
 	// extract nor text is refused here, before anything is stored.
-	const { knowledgeUploadMime, KNOWLEDGE_REFUSED_MESSAGE } =
-		await import("$lib/server/files/knowledgeUpload");
+	const { knowledgeUploadMime, refusalMessage } = await import("$lib/server/files/knowledgeUpload");
 	const mime = await knowledgeUploadMime(file.bytes, file.name);
-	if (!mime) throw new KnowledgeError(415, KNOWLEDGE_REFUSED_MESSAGE);
+	if (!mime) throw new KnowledgeError(415, refusalMessage(file.bytes));
 	const id = new ObjectId();
 	return new Promise((resolve, reject) => {
 		const upload = bucket().openUploadStreamWithId(id, file.name, {
