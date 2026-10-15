@@ -9,11 +9,11 @@ import (
 	"galopin/internal/policy"
 )
 
-// P1: the file says edit: deny, the machine's own rules say edit: allow. The
-// machine's rule sits above the file's, so it wins over it; the session's mode
-// block then takes it to the selector's word. Under Allow the write runs and
-// nothing asks. The control: the file's deny alone is a deny, and a deny is the
-// one thing the blanket never moves, so Allow does not run that write.
+// P1: the owner's opencode.json says edit: deny and the machine's own rule says
+// edit: allow. The file's deny is the owner's and stands (ADR 0097: the floor
+// restates it, so opencode refuses natively and galopin is never asked), and a
+// machine allow for edit is no licence anyway: it lifts only what the mode never
+// moves. Under Allow the write is refused with no card.
 func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "deny"},
@@ -23,10 +23,10 @@ func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
 	r.setMode(s, "allow")
 	ask, part, mark := r.try(s, "p1.txt")
 	if ask != nil {
-		t.Fatalf("asked for %s %v; the machine's allow under the session's Allow should have run it", ask.Tool, ask.Patterns)
+		t.Fatalf("asked for %s %v; the file's deny should have stood", ask.Tool, ask.Patterns)
 	}
-	if part.ToolStatus != backend.ToolCompleted || !r.exists("p1.txt") {
-		t.Errorf("write = %s (%s), file exists=%v", part.ToolStatus, part.ToolError, r.exists("p1.txt"))
+	if !refused(part) || r.exists("p1.txt") {
+		t.Errorf("write = %s (%s), file exists=%v, want refused", part.ToolStatus, part.ToolError, r.exists("p1.txt"))
 	}
 	r.idle(s, mark)
 	if asks := r.asks(mark, s); len(asks) != 0 {
