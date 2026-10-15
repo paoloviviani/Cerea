@@ -239,6 +239,9 @@ func runPolicySet(args []string) error {
 	if !changed {
 		return fmt.Errorf("policy set: nothing to change (see 'galopin policy set -h')")
 	}
+	if w := pol.Permission.IncoherentCeiling(); w != "" && (len(permMax) > 0 || len(permRules) > 0) {
+		fmt.Fprintln(os.Stderr, "warning: "+w+".")
+	}
 	if err := policy.Save(path, pol); err != nil {
 		return err
 	}
