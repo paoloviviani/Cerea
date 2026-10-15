@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/backend"
 )
@@ -299,5 +300,86 @@ func TestReportPingPongIsBounded(t *testing.T) {
 		if p.prompt.SentBy.Hop != 0 {
 			t.Fatalf("a report carried hop %d", p.prompt.SentBy.Hop)
 		}
+	}
+}
+
+// A→B→C: B's first turn ends right after spawning C, so A gets an interim
+// report. C's report starts a turn in B that nobody typed: it is part of the
+// work A handed B, so its final message reaches A too.
+func TestNestedDelegationReportsTheRealResult(t *testing.T) {
+	r := reportRig(t)
+	b := r.spawn(map[string]any{"title": "B"})
+	r.status(b, backend.StatusBusy)
+	out, err := r.call(b, "session_spawn", map[string]any{"title": "C", "prompt": "dig"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := out[strings.Index(out, `"sessionId":"`)+len(`"sessionId":"`):]
+	c = c[:strings.Index(c, `"`)]
+	r.say(b, "assistant", "started C, waiting", t0)
+	r.status(b, backend.StatusIdle)
+	if got := r.toCaller(); len(got) != 1 || !strings.Contains(got[0].prompt.Text, "started C, waiting") {
+		t.Fatalf("interim report = %+v", got)
+	}
+	r.callerTurn()
+
+	r.finishTurn(c, "C found it")
+	var toB []coordPrompt
+	for _, p := range r.prompts() {
+		if p.session == b && strings.Contains(p.prompt.Text, "C found it") {
+			toB = append(toB, p)
+		}
+	}
+	if len(toB) != 1 {
+		t.Fatalf("C's report to B = %d", len(toB))
+	}
+	// B works on it and produces the real result. The materializer already holds
+	// B's history, so the new message arrives as events, as it does live.
+	r.status(b, backend.StatusBusy)
+	r.ev(b, backend.Event{Kind: backend.EventMessage, Message: &backend.Message{ID: "b_final", Role: "assistant", CreatedAt: t0}})
+	r.ev(b, backend.Event{Kind: backend.EventPart, Part: &backend.Part{ID: "b_final_p", MessageID: "b_final", Role: "assistant", Type: backend.PartText, Text: "the real result"}})
+	r.status(b, backend.StatusIdle)
+	got := r.toCaller()
+	if len(got) != 2 || !strings.Contains(got[1].prompt.Text, "the real result") {
+		t.Fatalf("A never got B's real result: %+v", got)
+	}
+}
+
+func TestDelegateRecordsArePrunedWhenTheSessionIsGone(t *testing.T) {
+	r := reportRig(t)
+	child := r.spawn(map[string]any{})
+	if n := r.mc.agentTools.delegateCount(); n != 1 {
+		t.Fatalf("delegates = %d", n)
+	}
+	r.cb.mu.Lock()
+	delete(r.cb.sessions, child)
+	r.cb.mu.Unlock()
+	r.mc.agentTools.recover(context.Background())
+	if n := r.mc.agentTools.delegateCount(); n != 0 {
+		t.Fatalf("a deleted delegate's record stays: %d", n)
+	}
+}
+
+func TestReportDeliveryRetriesAfterAListFailure(t *testing.T) {
+	r := reportRig(t)
+	at := r.mc.agentTools
+	at.retryBase = time.Millisecond
+	child := r.spawn(map[string]any{})
+	r.cb.mu.Lock()
+	r.cb.failList = true
+	r.cb.mu.Unlock()
+	r.finishTurn(child, "after the outage")
+	if n := len(r.toCaller()); n != 0 {
+		t.Fatalf("delivered during the outage: %d", n)
+	}
+	r.cb.mu.Lock()
+	r.cb.failList = false
+	r.cb.mu.Unlock()
+	deadline := time.Now().Add(3 * time.Second)
+	for len(r.toCaller()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := r.toCaller(); len(got) != 1 || !strings.Contains(got[0].prompt.Text, "after the outage") {
+		t.Fatalf("no retry delivered: %+v", got)
 	}
 }

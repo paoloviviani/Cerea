@@ -65,6 +65,8 @@ type agentTools struct {
 	// runs its slow work off the event loop (tests run it inline).
 	reports *reportState
 	async   func(func())
+	// retryBase is the first wait of a report delivery's retry (doubling).
+	retryBase time.Duration
 
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
@@ -89,6 +91,7 @@ func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
 		scheduleLog: map[string][]time.Time{},
 		async:       func(f func()) { go f() },
 		reports:     newReportState(),
+		retryBase:   2 * time.Second,
 	}
 }
 

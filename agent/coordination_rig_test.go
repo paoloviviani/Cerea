@@ -37,6 +37,8 @@ type coordBackend struct {
 	// failAddException makes every AddException fail, for the spawn
 	// inheritance tests' copy-failure case.
 	failAddException bool
+	// failList makes ListSessions fail, for the report retry test.
+	failList bool
 }
 
 type coordPrompt struct {
@@ -54,6 +56,9 @@ func (c *coordBackend) Capabilities() backend.Capabilities {
 func (c *coordBackend) ListSessions(_ context.Context, dir string) ([]backend.Session, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.failList {
+		return nil, fmt.Errorf("list failed")
+	}
 	var out []backend.Session
 	for id, s := range c.sessions {
 		if c.dirs[id] == dir {

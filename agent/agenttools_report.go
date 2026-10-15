@@ -64,11 +64,12 @@ type reportState struct {
 	Delegates map[string]*delegateRec `json:"delegates"`
 	Queue     map[string][]reportItem `json:"queue"` // spawner -> items
 	holds     map[string]*hold
+	retries   map[string]int
 	flushMu   sync.Mutex
 }
 
 func newReportState() *reportState {
-	return &reportState{Delegates: map[string]*delegateRec{}, Queue: map[string][]reportItem{}, holds: map[string]*hold{}}
+	return &reportState{Delegates: map[string]*delegateRec{}, Queue: map[string][]reportItem{}, holds: map[string]*hold{}, retries: map[string]int{}}
 }
 
 // attachState persists the state in dir and loads what an earlier process
@@ -343,8 +344,11 @@ func (at *agentTools) flush(spawner string) {
 		return
 	}
 	if err != nil {
-		return // could not tell: try again at the next idle
+		// Could not tell: nothing else wakes an idle spawner, so retry.
+		at.scheduleRetry(spawner)
+		return
 	}
+	at.prune(all)
 	texts := make([]string, len(items))
 	for i, it := range items {
 		texts[i] = it.Text
@@ -352,8 +356,14 @@ func (at *agentTools) flush(spawner string) {
 	last := items[len(items)-1]
 	body := strings.Join(texts, "\n\n---\n\n")
 	sender := &backend.MessageSender{SessionID: last.Delegate, Title: last.Title, Hop: 0}
+	// A turn galopin starts by delivering to a session that is itself a
+	// delegate is part of its spawner's work (A→B→C: B's follow-up on C's
+	// report is what A is waiting for), so it is reported too. Set before the
+	// Prompt: the busy event can arrive before it returns.
+	wasPending := at.markDeliveryTurn(spawner)
 	if err := at.mc.back.Prompt(ctx, dir, spawner, backend.Prompt{Text: body, SentBy: sender, Preface: reportPreface}); err != nil {
 		logf("reports: delivery to %s failed: %v", spawner, err)
+		at.unmarkDeliveryTurn(spawner, wasPending)
 		rs.mu.Lock()
 		kept := rs.Queue[spawner][:0]
 		for _, it := range rs.Queue[spawner] {
@@ -363,8 +373,12 @@ func (at *agentTools) flush(spawner string) {
 			}
 		}
 		rs.Queue[spawner] = kept
+		left := len(kept) > 0
 		rs.saveLocked()
 		rs.mu.Unlock()
+		if left {
+			at.scheduleRetry(spawner)
+		}
 		return
 	}
 	rs.mu.Lock()
@@ -373,6 +387,7 @@ func (at *agentTools) flush(spawner string) {
 		delete(rs.Queue, spawner)
 	}
 	rs.holds[spawner] = &hold{at: at.now()}
+	delete(rs.retries, spawner)
 	rs.saveLocked()
 	rs.mu.Unlock()
 }
@@ -402,6 +417,7 @@ func (at *agentTools) recover(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	at.prune(all)
 	status := map[string]backend.SessionStatus{}
 	for _, l := range all {
 		status[l.s.ID] = l.s.Status
@@ -444,4 +460,80 @@ func (mc *machine) observeEvent(env sessions.Envelope) {
 	if mc.agentTools != nil {
 		mc.agentTools.observe(env)
 	}
+}
+
+// markDeliveryTurn makes the turn a delivery is about to start part of the
+// receiver's own spawner's work, when the receiver is a delegate with
+// reporting on. It returns the previous Pending value for a rollback.
+func (at *agentTools) markDeliveryTurn(spawner string) (was bool) {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rec := rs.Delegates[spawner]
+	if rec == nil || rec.NoReport {
+		return false
+	}
+	was = rec.Pending
+	rec.Pending, rec.busy, rec.stopped, rec.errMsg = true, false, false, ""
+	return was
+}
+
+func (at *agentTools) unmarkDeliveryTurn(spawner string, was bool) {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rec := rs.Delegates[spawner]; rec != nil && !rec.NoReport {
+		rec.Pending = was
+	}
+}
+
+// prune forgets delegates whose session is deleted or archived, and the queue
+// of any spawner that is gone. Only a successful listing prunes.
+func (at *agentTools) prune(all []listed) {
+	live := map[string]bool{}
+	for _, l := range all {
+		live[l.s.ID] = true
+	}
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	changed := false
+	for id := range rs.Delegates {
+		if !live[id] {
+			delete(rs.Delegates, id)
+			changed = true
+		}
+	}
+	for sp := range rs.Queue {
+		if !live[sp] {
+			delete(rs.Queue, sp)
+			changed = true
+		}
+	}
+	if changed {
+		rs.saveLocked()
+	}
+}
+
+func (at *agentTools) delegateCount() int {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return len(rs.Delegates)
+}
+
+// scheduleRetry tries a spawner's delivery again after a backoff, at most
+// maxDeliveryTries times in a row (reset by a delivery).
+func (at *agentTools) scheduleRetry(spawner string) {
+	rs := at.reports
+	rs.mu.Lock()
+	n := rs.retries[spawner]
+	if n >= maxDeliveryTries {
+		rs.mu.Unlock()
+		logf("reports: giving up on delivery to %s for now; it is retried at the spawner's next idle", spawner)
+		return
+	}
+	rs.retries[spawner] = n + 1
+	rs.mu.Unlock()
+	time.AfterFunc(at.retryBase<<n, func() { at.flush(spawner) })
 }
