@@ -391,9 +391,9 @@ func TestFloorConfigMergesOverThePinnedContent(t *testing.T) {
 	base := map[string]any{
 		"model":      "pystino/m",
 		"permission": map[string]any{"read": "allow"},
-		"agent":      map[string]any{"build": map[string]any{"model": "pystino/m", "permission": map[string]any{"read": "allow"}}},
+		"agent":      map[string]any{"build": map[string]any{"model": "pystino/m"}},
 	}
-	body, err := floorConfig(base, permrules.Layers{Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"bash": permrules.Deny}}})
+	body, err := floorConfig(base, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,15 +404,13 @@ func TestFloorConfigMergesOverThePinnedContent(t *testing.T) {
 	if got["model"] != "pystino/m" {
 		t.Error("the pinned model was lost")
 	}
-	perm := got["permission"].(map[string]any)
-	if perm["read"] != "allow" || perm["bash"] != "deny" {
-		t.Errorf("top-level permission = %v, want read kept and bash denied", perm)
+	if got["permission"].(map[string]any)["read"] != "ask" {
+		t.Errorf("the floor must beat a pinned read allow: %v", got["permission"])
 	}
-	build := got["agent"].(map[string]any)["build"].(map[string]any)
-	if build["model"] != "pystino/m" || build["permission"].(map[string]any)["bash"] != "deny" || build["permission"].(map[string]any)["read"] != "allow" {
-		t.Errorf("build = %v, want its model and read kept, bash denied", build)
+	if got["agent"].(map[string]any)["build"].(map[string]any)["model"] != "pystino/m" {
+		t.Error("build's pinned model was lost")
 	}
-	if base["permission"].(map[string]any)["bash"] != nil {
+	if base["permission"].(map[string]any)["read"] != "allow" {
 		t.Error("floorConfig mutated its base")
 	}
 }

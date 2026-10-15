@@ -65,6 +65,9 @@ type permRigOpts struct {
 	secondWorkspace bool
 	// background lets the task tool start background subagents.
 	background bool
+	// preStart runs before opencode starts, with the rig's scratch root (its
+	// config home is <root>/config).
+	preStart func(root string)
 }
 
 func newPermRig(t *testing.T, o permRigOpts) *permRig {
@@ -84,6 +87,9 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 		}
 	}
 	r.work, r.stateDir = dirs["work"], dirs["state"]
+	if o.preStart != nil {
+		o.preStart(r.root)
+	}
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{"pystino": map[string]any{

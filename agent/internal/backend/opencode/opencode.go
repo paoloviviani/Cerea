@@ -366,6 +366,7 @@ func (b *Backend) Start(ctx context.Context) error {
 		return err
 	}
 	b.cfg.Logf("opencode: healthy on %s", b.baseURL())
+	b.checkFloor(ctx)
 	return nil
 }
 
@@ -492,7 +493,10 @@ func (b *Backend) runOnce(ctx context.Context) error {
 		}
 	}
 	if b.cfg.Permissions != nil || content != nil {
-		body, err := floorConfig(content, b.layers())
+		b.perm.floorMu.Lock()
+		patch := b.perm.floorPatch
+		b.perm.floorMu.Unlock()
+		body, err := floorConfig(content, patch)
 		if err != nil {
 			return fmt.Errorf("building the permission floor: %w", err)
 		}

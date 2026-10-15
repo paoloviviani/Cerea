@@ -65,6 +65,12 @@ type permState struct {
 	staleMu sync.Mutex
 	stale   map[string]staleEntry // by root session id
 
+	// floorMu guards the floor's start-time state: the per-agent patch that
+	// closes custom agents' own allows, and the last check's findings.
+	floorMu       sync.Mutex
+	floorPatch    map[string]any
+	floorBreaches []string
+
 	// childAgent remembers which agent a subagent session runs, once the
 	// materializer has read it from the parent's task call.
 	childMu    sync.Mutex
@@ -804,19 +810,6 @@ func (b *Backend) startTimeout() time.Duration {
 		return b.cfg.StartupTimeout
 	}
 	return defaultStartupTimeout
-}
-
-// floorConfig renders the ceiling as the permission part of
-// OPENCODE_CONFIG_CONTENT, merged over base (the pinned project-config
-// content, or nothing). base's own keys survive except where the floor says
-// otherwise, key by key.
-func floorConfig(base map[string]any, l permrules.Layers) (string, error) {
-	if base == nil {
-		base = map[string]any{}
-	}
-	out := mergeConfig(base, l.Floor())
-	body, err := json.Marshal(out)
-	return string(body), err
 }
 
 // mergeConfig deep-merges over onto base (maps merge, anything else is replaced
