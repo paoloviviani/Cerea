@@ -5,8 +5,53 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.15.0 — 2026-10-16
 
+Pins: Cerea `0.15.0`, Pystino `0.9.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`), then
+**machines need the galopin update** (install step only, then
+`systemctl --user restart galopin`).
+
+- **galopin answers permission requests instead of writing rules into
+  opencode (ADR 0097).** Every tool call now asks, and galopin answers it
+  — refused, allowed once, or a card — from the machine's ceiling, the
+  session's mode and its exceptions. Nothing is written into a session any
+  more, so sessions stop growing thousands of rules and a new subagent no
+  longer inherits a stale deny. "Allow always" is kept by galopin, not by
+  opencode. The machine ceiling is unchanged and still set only on the
+  machine (`galopin enroll` / `galopin policy set`), which now warn when
+  edits or the web are capped but `bash` is not (a command can do either).
+  Until an OS sandbox exists the ceiling is advisory against `bash`; the
+  docs say so.
+- **The session selector reads Plan · Ask · Allow.** Deny is folded into
+  Plan: the plan agent, and galopin refuses anything that would change
+  something; reading still works. Ask and Allow run the build agent. The
+  agent picker now lists only your own custom agents. Existing Deny
+  sessions and schedules read as Plan.
+- **Upgrade note: sessions from before this release** get one final
+  "everything asks" rule the first time galopin sees them. A stale deny
+  already stored in them can still refuse their new subagents (the "An
+  earlier Deny is stuck" banner stays for those sessions only): start a new
+  session.
+- **Delegated sessions report back (ADR 0099).** A session started with
+  `session_spawn` is a delegate: its spawner reads it and the two message
+  each other without a card (the machine's own rules still win). When a
+  turn the spawner started ends, galopin hands the delegate's final message
+  back to the spawner, plus one notice if it fails or waits on your
+  approval; reports wait while the spawner is busy and survive a restart.
+  `report: false` turns it off. The delegation skill is rewritten around
+  situations, with a briefing template.
+- **A document reader closed to someone falls back to the local one.** When
+  the reader chosen on the Knowledge screen (or `CHAT_OCR_MODEL`) is
+  restricted to groups a person is not in, their PDFs are read by the local
+  reader when there is one, and otherwise the file is stored without text
+  with a plain reason instead of the gateway's refusal.
+- **Knowledge bases accept documents and text only.** The type is read from
+  the file's bytes: PDF, Word, Excel, PowerPoint, OpenDocument, e-books and
+  text (UTF-8 or Windows-1252, as Excel exports CSV) are accepted; images,
+  archives and other binaries are refused with a message saying what is
+  accepted. A binary file already in a knowledge base fails its own
+  reindex with that reason instead of being indexed as garbage.
 - **`./configure --fetch` / `--no-fetch` adds or removes the headless
   browser on any preset.** Before, the `fetch` profile came only with the
   enterprise preset or by editing `COMPOSE_PROFILES` by hand. On an existing
