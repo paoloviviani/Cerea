@@ -1,12 +1,48 @@
 [
-  {"id": "review-own-session", "expect": "spawn", "prompt": "Start a separate session to review notes/a.go for bugs; I want to open that session myself and talk to the reviewer afterwards. Tell me what it found when it is done."},
-  {"id": "handoff-summary", "expect": "spawn", "prompt": "Hand off the job of summarising the files in docs/ to a new session, and tell me what it concludes when it is done."},
-  {"id": "second-opinion", "expect": "spawn", "prompt": "I am stuck between approach A and approach B in DESIGN.md. Get a second opinion from a fresh session and tell me what it recommends."},
-  {"id": "independent-check", "expect": "spawn", "prompt": "Have a separate session independently check the total of the amount column in data/data.csv, and report its number back to me."},
-  {"id": "parallel-side-job", "expect": "spawn", "prompt": "I want a parallel session working on the config docs while we continue here. Start it with this brief: list every environment variable mentioned in docs/config.md. Then tell me what it found."},
-  {"id": "survey-dirs", "expect": "task", "prompt": "Survey the three directories alpha, beta and gamma in parallel with helpers and tell me one fact about each."},
-  {"id": "count-lines", "expect": "task", "prompt": "Use subagents to count the lines of each file under src/ and give me the totals."},
-  {"id": "readme-purpose", "expect": "no_spawn", "prompt": "What does README.md say this project is for? One sentence."},
-  {"id": "arithmetic", "expect": "no_spawn", "prompt": "What is 17 times 23? Just the number."},
-  {"id": "first-function", "expect": "no_spawn", "prompt": "Read main.go and tell me the name of its first function."}
+	{
+		"id": "review-own-session",
+		"expect": "spawn",
+		"prompt": "Start a separate session to review notes/a.go for bugs; I want to open that session myself and talk to the reviewer afterwards. Tell me what it found when it is done."
+	},
+	{
+		"id": "handoff-summary",
+		"expect": "spawn",
+		"prompt": "Hand off the job of summarising the files in docs/ to a new session, and tell me what it concludes when it is done."
+	},
+	{
+		"id": "second-opinion",
+		"expect": "spawn",
+		"prompt": "I am stuck between approach A and approach B in DESIGN.md. Get a second opinion from a fresh session and tell me what it recommends."
+	},
+	{
+		"id": "independent-check",
+		"expect": "spawn",
+		"prompt": "Have a separate session independently check the total of the amount column in data/data.csv, and report its number back to me."
+	},
+	{
+		"id": "parallel-side-job",
+		"expect": "spawn",
+		"prompt": "I want a parallel session working on the config docs while we continue here. Start it with this brief: list every environment variable mentioned in docs/config.md. Then tell me what it found."
+	},
+	{
+		"id": "survey-dirs",
+		"expect": "task",
+		"prompt": "Survey the three directories alpha, beta and gamma in parallel with helpers and tell me one fact about each."
+	},
+	{
+		"id": "count-lines",
+		"expect": "task",
+		"prompt": "Use subagents to count the lines of each file under src/ and give me the totals."
+	},
+	{
+		"id": "readme-purpose",
+		"expect": "no_spawn",
+		"prompt": "What does README.md say this project is for? One sentence."
+	},
+	{ "id": "arithmetic", "expect": "no_spawn", "prompt": "What is 17 times 23? Just the number." },
+	{
+		"id": "first-function",
+		"expect": "no_spawn",
+		"prompt": "Read main.go and tell me the name of its first function."
+	}
 ]

@@ -514,11 +514,11 @@ selector in the composer. It covers the whole session until you change it, and
 long ago. It is the machine's word that the selector shows: a click is reflected
 once the machine has confirmed it.
 
-| Setting   | What it does with a tool call the session has no rule for                                      |
-| --------- | ---------------------------------------------------------------------------------------------- |
+| Setting   | What it does with a tool call the session has no rule for                                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Plan**  | the agent plans and reads; every call that would change something is refused, with no card. The agent is told. Choosing Plan switches the session to opencode's `plan` agent |
-| **Ask**   | asks you, with the approval card (a read inside the project does not ask)                      |
-| **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling you set at enroll) |
+| **Ask**   | asks you, with the approval card (a read inside the project does not ask)                                                                                                    |
+| **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling you set at enroll)                                                                               |
 
 **What the setting covers.** Editing (writes and patches), `bash`, `webfetch`,
 `websearch`, `codesearch`, the `task` tool that starts a subagent, and every MCP
