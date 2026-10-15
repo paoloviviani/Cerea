@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.13.3 — 2026-10-15
+
+Pins: Cerea `0.13.3`, Pystino `0.8.2`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Pystino 0.8.2: the usage page's notes collapse to one line.** The
+  console's usage disclosures — the caveats above the figures on Your usage
+  and the admin chargeback screen — start collapsed to a single warn-toned
+  line naming the count and carrying the first note, opening onto the notes
+  exactly as before. The notes stay in the page behind `hidden`, and the
+  open-or-closed choice is remembered per page.
+
 ## v0.13.2 — 2026-10-15
 
 Pins: Cerea `0.13.2`, Pystino `0.8.1`, Authelia 4.39.22. Update the
