@@ -65,6 +65,12 @@ type permRigOpts struct {
 	secondWorkspace bool
 	// background lets the task tool start background subagents.
 	background bool
+	// real replaces the mock LLM with an OpenAI-compatible endpoint (the
+	// real-model smoke check); its key only ever lives in the rig's 0600 config.
+	real *realModel
+	// noFloor starts opencode with no permission floor and galopin with no
+	// permission state (the baseline for the latency measurement).
+	noFloor bool
 	// preStart runs before opencode starts, with the rig's scratch root (its
 	// config home is <root>/config).
 	preStart func(root string)
@@ -79,6 +85,10 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 		t.Skipf("opencode not on PATH: %v", err)
 	}
 	r := &permRig{t: t, mock: startMockLLM(t, itFreePort(t)), root: rigRoot(t)}
+	baseURL, apiKey, modelName := r.mock+"/v1", "test-secret", "mock-model"
+	if o.real != nil {
+		baseURL, apiKey, modelName = o.real.baseURL, o.real.apiKey, o.real.model
+	}
 	dirs := map[string]string{}
 	for _, n := range []string{"home", "config", "data", "cache", "work", "work2", "state"} {
 		dirs[n] = filepath.Join(r.root, n)
@@ -94,8 +104,8 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{"pystino": map[string]any{
 			"npm": "@ai-sdk/openai-compatible", "name": "Pystino Mock",
-			"options": map[string]any{"baseURL": r.mock + "/v1", "apiKey": "test-secret"},
-			"models":  map[string]any{"mock-model": map[string]any{"name": "Mock Model", "limit": map[string]any{"context": 100000, "output": 8000}}},
+			"options": map[string]any{"baseURL": baseURL, "apiKey": apiKey},
+			"models":  map[string]any{modelName: map[string]any{"name": "Mock Model", "limit": map[string]any{"context": 100000, "output": 8000}}},
 		}},
 		"enabled_providers": []string{"pystino"},
 	}
@@ -104,7 +114,7 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	}
 	body, _ := json.MarshalIndent(cfg, "", "  ")
 	configPath := filepath.Join(r.root, "opencode.json")
-	if err := os.WriteFile(configPath, body, 0o644); err != nil {
+	if err := os.WriteFile(configPath, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	env := []string{
@@ -122,7 +132,7 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	cfgOC := backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: r.stateDir, Port: r.port, Password: r.password,
 		OverlayPath: filepath.Join(r.stateDir, "opencode-overlay.json"), TmpDir: filepath.Join(itTmpDir(t), "oc-tmp"),
-		Permissions: r.live.Layers, BackgroundSubagents: o.background, StartupTimeout: 90 * time.Second, Logf: t.Logf,
+		Permissions: permLayers(o, r.live), BackgroundSubagents: o.background, StartupTimeout: 90 * time.Second, Logf: t.Logf,
 	}
 	if o.tools {
 		cfgOC.ToolsDir = filepath.Join(r.stateDir, "opencode-tools")
@@ -534,4 +544,11 @@ func (r *permRig) sessionRules(id string) []permrules.Rule {
 		r.t.Fatal(err)
 	}
 	return s.Permission
+}
+
+func permLayers(o permRigOpts, live *policy.Live) func() permrules.Layers {
+	if o.noFloor {
+		return nil
+	}
+	return live.Layers
 }

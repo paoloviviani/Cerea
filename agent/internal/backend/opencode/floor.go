@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -73,7 +74,13 @@ var probeKeys = append(append([]string(nil), floorKeys...), "task", "todowrite",
 
 // builtinAgents are the agents whose own denies the floor restates, by the
 // shape their rules have in 1.18.34.
-func builtinAgentFloor() map[string]any {
+func builtinAgentFloor(denies map[string]bool) map[string]any {
+	ask := func(k string) any {
+		if denies[k] {
+			return "deny"
+		}
+		return "ask"
+	}
 	hidden := map[string]any{"permission": ordered{{"*", "deny"}}}
 	return map[string]any{
 		"plan": map[string]any{"permission": ordered{
@@ -84,8 +91,8 @@ func builtinAgentFloor() map[string]any {
 		}},
 		"explore": map[string]any{"permission": ordered{
 			{"*", "deny"},
-			{"bash", "ask"}, {"glob", "ask"}, {"grep", "ask"}, {"list", "ask"},
-			{"read", "ask"}, {"webfetch", "ask"}, {"websearch", "ask"},
+			{"bash", ask("bash")}, {"glob", ask("glob")}, {"grep", ask("grep")}, {"list", ask("list")},
+			{"read", ask("read")}, {"webfetch", ask("webfetch")}, {"websearch", ask("websearch")},
 			{"external_directory", ordered{{"*", "ask"}}},
 		}},
 		"compaction": hidden,
@@ -97,12 +104,16 @@ func builtinAgentFloor() map[string]any {
 // floorContent is the OPENCODE_CONFIG_CONTENT permission part: the constant
 // floor plus patch, the per-agent entries for agents that are not built in
 // (see customAgentPatch).
-func floorContent(patch map[string]any) map[string]any {
+func floorContent(patch map[string]any, denies map[string]bool) map[string]any {
 	top := ordered{{"*", "ask"}}
 	for _, k := range floorKeys {
-		top = append(top, kv{k, "ask"})
+		if denies[k] {
+			top = append(top, kv{k, "deny"})
+		} else {
+			top = append(top, kv{k, "ask"})
+		}
 	}
-	agents := builtinAgentFloor()
+	agents := builtinAgentFloor(denies)
 	for name, v := range patch {
 		if _, builtin := agents[name]; !builtin {
 			agents[name] = v
@@ -246,11 +257,11 @@ func restate(rules []permrules.Rule, key string) any {
 
 // floorConfig is OPENCODE_CONFIG_CONTENT: the floor merged over base (the
 // pinned project-config content, or nothing), plus the per-agent patch.
-func floorConfig(base map[string]any, patch map[string]any) (string, error) {
+func floorConfig(base map[string]any, patch map[string]any, denies map[string]bool) (string, error) {
 	if base == nil {
 		base = map[string]any{}
 	}
-	out := mergeConfig(base, floorContent(patch))
+	out := mergeConfig(base, floorContent(patch, denies))
 	body, err := json.Marshal(out)
 	return string(body), err
 }
@@ -309,4 +320,30 @@ func (b *Backend) FloorBreaches() []string {
 	b.perm.floorMu.Lock()
 	defer b.perm.floorMu.Unlock()
 	return append([]string(nil), b.perm.floorBreaches...)
+}
+
+// fileDenies are the keys the galopin-owned opencode.json (OPENCODE_CONFIG)
+// denies outright: the owner's own deny stands under the floor, which would
+// otherwise turn it into an ask.
+func fileDenies(path string) map[string]bool {
+	out := map[string]bool{}
+	if path == "" {
+		return out
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	var cfg struct {
+		Permission map[string]any `json:"permission"`
+	}
+	if json.Unmarshal(raw, &cfg) != nil {
+		return out
+	}
+	for _, k := range floorKeys {
+		if v, ok := cfg.Permission[k].(string); ok && v == "deny" {
+			out[k] = true
+		}
+	}
+	return out
 }

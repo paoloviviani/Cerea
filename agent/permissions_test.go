@@ -745,3 +745,23 @@ func TestRetiredOpsAnswerUnsupported(t *testing.T) {
 		}
 	}
 }
+
+// A card answered after the ceiling tightened under it is rejected, never
+// approved past the ceiling.
+func TestReplyAfterTheCeilingTightenedIsAReject(t *testing.T) {
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	askFor(mc, "per_1", "webfetch")
+	ch := mc.live.Tighten(policy.Permission{Max: map[string]string{"webfetch": "deny"}})
+	if !ch.Tightened {
+		t.Fatal("setup: not tightened")
+	}
+	raw, _ := json.Marshal(map[string]any{"sessionId": "s1", "requestId": "per_1", "decision": "once"})
+	if _, operr := mc.Handle(context.Background(), "permission.reply", raw); operr != nil {
+		t.Fatalf("permission.reply: %+v", operr)
+	}
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	if len(rb.replies) != 1 || rb.replies[0] != backend.DecisionReject {
+		t.Errorf("replies = %v, want the approval sent as a reject", rb.replies)
+	}
+}

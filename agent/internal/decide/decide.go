@@ -316,7 +316,10 @@ func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool) Resu
 	if excepted(s.Exceptions, r) {
 		return once("exception")
 	}
-	if own, ok := p.ownRule(r.Key); ok && own == permrules.Allow {
+	// The machine's own allow lifts only what the mode never moves (work
+	// outside the project folder, the stuck-agent brake, a secret-file read):
+	// an owner's allow for edit or bash is not a standing licence on Ask.
+	if own, ok := p.ownRule(r.Key); ok && own == permrules.Allow && (sensitive || cat == Brake || cat == Outside) {
 		return once("machine-rule")
 	}
 	// Asks that protect a person survive Allow.

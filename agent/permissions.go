@@ -34,7 +34,11 @@ func (mc *machine) ruleHost() (backend.RuleHost, bool) {
 // decidePolicy is the machine's half of every decision: the ceiling, its own
 // rules and its safe directories, read live (they only ever tighten).
 func (mc *machine) decidePolicy(rh backend.RuleHost) decide.Policy {
-	l := mc.live.Layers()
+	layers := mc.live.Layers
+	if mc.layersFn != nil {
+		layers = mc.layersFn
+	}
+	l := layers()
 	return decide.Policy{Ceiling: l.Ceiling, Own: l.Own, SafeDirs: l.SafeDirs, PlanDirs: rh.PlanDirs()}
 }
 

@@ -334,7 +334,7 @@ func TestFloorConfigMergesOverThePinnedContent(t *testing.T) {
 		"permission": map[string]any{"read": "allow"},
 		"agent":      map[string]any{"build": map[string]any{"model": "pystino/m"}},
 	}
-	body, err := floorConfig(base, nil)
+	body, err := floorConfig(base, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

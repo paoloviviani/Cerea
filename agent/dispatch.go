@@ -15,6 +15,7 @@ import (
 	"galopin/internal/decide"
 	"galopin/internal/files"
 	"galopin/internal/link"
+	"galopin/internal/permrules"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
 	"galopin/internal/terminal"
@@ -53,6 +54,9 @@ type machine struct {
 	// caller and target are a spawner and the session it spawned. The delegation
 	// work installs it; nil means false.
 	delegates decide.DelegateHook
+	// layersFn replaces the live policy's layers for decisions (tests that
+	// change the machine's rules and ceiling while it runs); nil in production.
+	layersFn func() permrules.Layers
 	// agentTools is the agent-coordination tools' state (agenttools.go); nil
 	// when the backend has none.
 	agentTools *agentTools
@@ -1056,6 +1060,16 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		tool = asked.Tool
 	}
 	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
+	// A card answered after the ceiling tightened under it: an approval never
+	// goes past the ceiling, so it is sent as a rejection instead.
+	if rh, ok := mc.ruleHost(); ok && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") && decision != backend.DecisionReject {
+		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && res.Step == "ceiling" {
+			decision, capped = backend.DecisionReject, true
+			if a.Message == "" {
+				a.Message = res.Reason
+			}
+		}
+	}
 	// "Always allow" is an exception galopin keeps on the root session, not an
 	// approval opencode keeps for the workspace: opencode is answered "once",
 	// always, so its invisible workspace-wide store is never filled. galopin's

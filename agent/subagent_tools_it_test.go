@@ -147,8 +147,8 @@ func TestDenyModeRefusesWithoutACard(t *testing.T) {
 	if part == nil || part.ToolStatus != backend.ToolFailed {
 		t.Fatalf("the call was not refused: %+v", part)
 	}
-	if got := part.ToolError + part.Output; !strings.Contains(got, "set to Deny") {
-		t.Errorf("refusal text = %q, want the Deny message", got)
+	if got := part.ToolError + part.Output; !strings.Contains(got, "set to Plan") {
+		t.Errorf("refusal text = %q, want the Plan message", got)
 	}
 	for _, env := range r.hub.since(mark) {
 		if env.Event.Kind == backend.EventPermissionAsked && env.SessionID == s.ID {
@@ -198,8 +198,8 @@ func TestChildUnderDenyRootIsRefusedWithoutACard(t *testing.T) {
 	if part.ToolStatus != backend.ToolFailed {
 		t.Fatalf("the child's call under a Deny root completed: %+v", part)
 	}
-	if got := part.ToolError + part.Output; !strings.Contains(got, "set to Deny") {
-		t.Errorf("refusal text = %q, want the Deny message", got)
+	if got := part.ToolError + part.Output; !strings.Contains(got, "set to Plan") {
+		t.Errorf("refusal text = %q, want the Plan message", got)
 	}
 	for _, env := range r.hub.since(mark2) {
 		if env.Event.Kind == backend.EventPermissionAsked && env.SessionID == id {

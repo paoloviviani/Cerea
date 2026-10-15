@@ -68,9 +68,10 @@ func TestDecideTable(t *testing.T) {
 		{"ceiling external_directory deny caps outside edit", pol(map[string]permrules.Action{"external_directory": permrules.Deny}), State{Mode: permrules.Allow}, Request{Key: "edit", Patterns: []string{"/etc/x"}, Workspace: ws}, Reject, "ceiling"},
 		{"allow-all exception", pol(nil), State{Exceptions: exAll}, Request{Key: "edit", Patterns: []string{"a.go"}, Workspace: ws}, Once, "exception"},
 		// machine's own rules
-		{"machine allow lifts ask", Policy{Own: []permrules.Rule{{Permission: "bash", Pattern: "*", Action: permrules.Allow}}}, State{}, Request{Key: "bash", Patterns: []string{"ls"}, Workspace: ws}, Once, "machine-rule"},
-		{"machine allow never lifts plan", Policy{Own: []permrules.Rule{{Permission: "bash", Pattern: "*", Action: permrules.Allow}}}, State{Mode: permrules.Deny}, Request{Key: "bash", Patterns: []string{"ls"}, Workspace: ws}, Reject, "plan"},
-		{"machine allow under ceiling ask", Policy{Own: []permrules.Rule{{Permission: "bash", Pattern: "*", Action: permrules.Allow}}, Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"bash": permrules.Ask}}}, State{}, Request{Key: "bash", Patterns: []string{"ls"}, Workspace: ws}, Card, "ceiling"},
+		{"machine allow lifts the protected ask", Policy{Own: []permrules.Rule{{Permission: "external_directory", Pattern: "*", Action: permrules.Allow}}}, State{}, Request{Key: "external_directory", Patterns: []string{"/etc/*"}, Workspace: ws}, Once, "machine-rule"},
+		{"machine allow of bash is not a licence on Ask", Policy{Own: []permrules.Rule{{Permission: "bash", Pattern: "*", Action: permrules.Allow}}}, State{}, Request{Key: "bash", Patterns: []string{"ls"}, Workspace: ws}, Card, "ask"},
+		{"machine allow never lifts plan", Policy{Own: []permrules.Rule{{Permission: "external_directory", Pattern: "*", Action: permrules.Allow}}}, State{Mode: permrules.Deny}, Request{Key: "external_directory", Patterns: []string{"/etc/*"}, Workspace: ws}, Reject, "plan"},
+		{"machine allow under ceiling ask", Policy{Own: []permrules.Rule{{Permission: "external_directory", Pattern: "*", Action: permrules.Allow}}, Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"external_directory": permrules.Ask}}}, State{}, Request{Key: "external_directory", Patterns: []string{"/etc/*"}, Workspace: ws}, Card, "ceiling"},
 		{"machine deny rule", Policy{Own: []permrules.Rule{{Permission: "webfetch", Pattern: "*", Action: permrules.Deny}}}, State{Mode: permrules.Allow}, Request{Key: "webfetch", Patterns: []string{"u"}, Workspace: ws}, Reject, "ceiling"},
 	}
 	for _, tc := range tests {

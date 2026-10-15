@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestFloorContentShape(t *testing.T) {
-	body, err := floorConfig(nil, nil)
+	body, err := floorConfig(nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,5 +82,21 @@ func TestBreachesAndCustomAgentPatch(t *testing.T) {
 	}
 	if !strings.Contains(s, `"webfetch":{"*":"ask","https://ok/*":"ask"}`) {
 		t.Errorf("patch %s: a pattern allow must become an ask under a catch-all ask", s)
+	}
+}
+
+func TestFileDenyStandsUnderTheFloor(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/opencode.json"
+	if err := os.WriteFile(path, []byte(`{"permission":{"edit":"deny","bash":"ask","read":"allow"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := fileDenies(path)
+	if !d["edit"] || d["bash"] || d["read"] {
+		t.Fatalf("fileDenies = %v, want only edit", d)
+	}
+	body, _ := floorConfig(nil, nil, d)
+	if !strings.Contains(body, `"edit":"deny"`) || strings.Contains(body[:strings.Index(body, `"agent"`)], `"edit":"ask"`) {
+		t.Errorf("the owner's file deny did not survive the floor: %s", body)
 	}
 }
