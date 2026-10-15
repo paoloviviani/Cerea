@@ -932,57 +932,57 @@
 				     a session toggle beside the toggles, not a trailing
 				     readout. -->
 						{#if showModePill}
-						<DropdownMenu.Root bind:open={modeMenuOpen}>
-							<DropdownMenu.Trigger
-								class={pillClass}
-								disabled={applying === "mode"}
-								title="How much the agent may do on its own — the machine's modes, as the backend defines them"
-							>
-								<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
-								<IconChevronDown class={chevronClass} />
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Content
-									class={menuContentClass}
-									side="top"
-									align="start"
-									sideOffset={8}
-									trapFocus={false}
-									onCloseAutoFocus={(e) => e.preventDefault()}
-									interactOutsideBehavior="defer-otherwise-close"
+							<DropdownMenu.Root bind:open={modeMenuOpen}>
+								<DropdownMenu.Trigger
+									class={pillClass}
+									disabled={applying === "mode"}
+									title="How much the agent may do on its own — the machine's modes, as the backend defines them"
 								>
-									{#if modes === null && !modesFailure}
-										<DropdownMenu.Item class={menuNoteClass} disabled
-											>Loading modes…</DropdownMenu.Item
-										>
-									{:else if modesFailure}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											Could not load modes: {modesFailure}
-										</DropdownMenu.Item>
-									{:else if !listedModes.length}
-										<DropdownMenu.Item class={menuNoteClass} disabled>
-											The daemon lists no modes.
-										</DropdownMenu.Item>
-									{:else}
-										{#each listedModes as mode (mode.id)}
-											<DropdownMenu.Item
-												class={menuItemClass}
-												onSelect={() => void applyMode(mode.id)}
+									<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
+									<IconChevronDown class={chevronClass} />
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Portal>
+									<DropdownMenu.Content
+										class={menuContentClass}
+										side="top"
+										align="start"
+										sideOffset={8}
+										trapFocus={false}
+										onCloseAutoFocus={(e) => e.preventDefault()}
+										interactOutsideBehavior="defer-otherwise-close"
+									>
+										{#if modes === null && !modesFailure}
+											<DropdownMenu.Item class={menuNoteClass} disabled
+												>Loading modes…</DropdownMenu.Item
 											>
-												<IconCheck
-													class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
-														? 'opacity-100'
-														: 'opacity-0'}"
-												/>
-												<span class="whitespace-nowrap" title={mode.description}>
-													{mode.label}
-												</span>
+										{:else if modesFailure}
+											<DropdownMenu.Item class={menuNoteClass} disabled>
+												Could not load modes: {modesFailure}
 											</DropdownMenu.Item>
-										{/each}
-									{/if}
-								</DropdownMenu.Content>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
+										{:else if !listedModes.length}
+											<DropdownMenu.Item class={menuNoteClass} disabled>
+												The daemon lists no modes.
+											</DropdownMenu.Item>
+										{:else}
+											{#each listedModes as mode (mode.id)}
+												<DropdownMenu.Item
+													class={menuItemClass}
+													onSelect={() => void applyMode(mode.id)}
+												>
+													<IconCheck
+														class="size-3.5 shrink-0 {mode.id === (agent?.modeId ?? null)
+															? 'opacity-100'
+															: 'opacity-0'}"
+													/>
+													<span class="whitespace-nowrap" title={mode.description}>
+														{mode.label}
+													</span>
+												</DropdownMenu.Item>
+											{/each}
+										{/if}
+									</DropdownMenu.Content>
+								</DropdownMenu.Portal>
+							</DropdownMenu.Root>
 						{/if}
 						<!-- The permission selector: the session's blanket, Plan · Ask ·
 					     Allow. The value is the agent snapshot's word, so a click
