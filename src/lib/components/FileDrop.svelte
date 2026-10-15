@@ -9,26 +9,34 @@
 	would be unusable in the create dialog, where there is nothing to upload to
 	until the base is made.
 
-	**It does not filter by extension.** The gateway's extractor holds the
-	allowlist and it is the only thing that knows the answer — it sniffs the
-	bytes rather than trusting the name, and it accepts formats this component
-	should not have to keep a list of. Refusing a file here on its extension
-	would mean two allowlists, and the wrong one would be the one people meet.
+	**It does not filter by extension.** The server decides from the bytes
+	(`files/knowledgeUpload.ts`) and answers 415 with what is accepted; `accept`
+	only narrows the picker, and a refusal is shown by the caller as the
+	server's own message.
 	What it does enforce is the *size* limit, because that one is known up front
 	and a rejection after a long upload is the worse place to learn it.
 -->
 <script lang="ts">
 	import CarbonDocumentAdd from "~icons/carbon/document-add";
 	import CarbonClose from "~icons/carbon/close";
+	import { KNOWLEDGE_ACCEPT_HINT } from "$lib/constants/mime";
 
 	interface Props {
 		files: File[];
 		maxBytes?: number;
 		disabled?: boolean;
 		hint?: string;
+		/** The `accept` attribute of the picker. */
+		accept?: string;
 	}
 
-	let { files = $bindable([]), maxBytes, disabled = false, hint }: Props = $props();
+	let {
+		files = $bindable([]),
+		maxBytes,
+		disabled = false,
+		hint,
+		accept: acceptAttr,
+	}: Props = $props();
 
 	let hovering = $state(false);
 	let refused = $state<string[]>([]);
@@ -40,7 +48,7 @@
 		return `${bytes} B`;
 	}
 
-	function accept(incoming: FileList | null) {
+	function take(incoming: FileList | null) {
 		if (!incoming || disabled) return;
 		const tooBig: string[] = [];
 		const kept: File[] = [];
@@ -64,7 +72,7 @@
 	function drop(event: DragEvent) {
 		event.preventDefault();
 		hovering = false;
-		accept(event.dataTransfer?.files ?? null);
+		take(event.dataTransfer?.files ?? null);
 	}
 
 	function remove(index: number) {
@@ -93,7 +101,7 @@
 		<CarbonDocumentAdd class="text-gray-400" />
 		<span>Drop files here, or click to choose</span>
 		<span class="text-xs text-gray-500 dark:text-gray-400">
-			{hint ?? "Word, Excel, PowerPoint, or a PDF with a text layer"}
+			{hint ?? KNOWLEDGE_ACCEPT_HINT}
 			{#if maxBytes}· up to {humanise(maxBytes)} each{/if}
 		</span>
 	</button>
@@ -102,9 +110,10 @@
 		bind:this={input}
 		type="file"
 		multiple
+		accept={acceptAttr}
 		class="hidden"
 		onchange={(event) => {
-			accept((event.currentTarget as HTMLInputElement).files);
+			take((event.currentTarget as HTMLInputElement).files);
 			// Cleared so choosing the same file again still fires a change.
 			(event.currentTarget as HTMLInputElement).value = "";
 		}}

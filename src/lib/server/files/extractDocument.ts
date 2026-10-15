@@ -394,6 +394,12 @@ export interface ExtractionFailure {
  * — not per turn — so one extra request is not a cost worth caching against.
  * Exported because `attachFile` asks the same question before creating a
  * document row, so the refusal lands before anything half-exists.
+ *
+ * An explicitly chosen reader (env or Knowledge screen) is used for everyone,
+ * even if it is restricted to a Pystino group some callers are not in. The
+ * per-user safety net is not here but in `extractDocument`: when that reader
+ * is refused for the caller (403) or fails, a PDF falls back to the local
+ * reader only, never to another OCR model.
  */
 export async function resolveExtractorModel(token: string): Promise<string | null> {
 	// A configured direct endpoint overrides everything below it: an operator
@@ -557,7 +563,11 @@ export async function extractDocument(options: {
 	// the upload is given up on; its answer is used only when it found text —
 	// or, for pages that are pictures, rendered them.
 	const local = await resolveOfficeReader(token);
-	if (!local || local === model) return first;
+	if (!local || local === model) {
+		return first.status === 403
+			? closedToYou(first, "There is no local reader to fall back to")
+			: first;
+	}
 	const fallback = await extractViaGateway({
 		bytes,
 		mime,
@@ -566,12 +576,28 @@ export async function extractDocument(options: {
 		model: local,
 		imagePages: wantsPages ? pdfImagePageLimit() : 0,
 	});
-	if (!fallback.ok) return first;
+	if (!fallback.ok) {
+		return first.status === 403
+			? closedToYou(first, "The local reader could not read it either")
+			: first;
+	}
 	logger.info(
 		{ filename, model, fallback: local, firstStatus: first.status },
 		"document_extraction_fallback: the OCR model failed, the local reader read the document"
 	);
 	return fallback;
+}
+
+/**
+ * The chosen reader answered 403 (restricted to groups this user is not in) and
+ * the local reader did not step in: say so plainly, once, with what an
+ * administrator can do. The kind and status stay the refusal's own.
+ */
+function closedToYou(first: ExtractionFailure, why: string): ExtractionFailure {
+	return {
+		...first,
+		reason: `${first.reason} ${why}, so the file was stored without text. An administrator can enable the local reader or grant access to the model.`,
+	};
 }
 
 /** Whether `model` is this deployment's own reader (the gateway's `local: true`). */
@@ -684,6 +710,11 @@ async function extractViaGateway(options: {
 		if (err instanceof GatewayCallFailed) {
 			if (status === 422) {
 				reason = err.message;
+				kind = "refused";
+			} else if (status === 403) {
+				// Restricted to a group this caller is not in. The gateway's own
+				// wording is a bare code; name the reader instead.
+				reason = `The document reader ${model} isn't available to your groups.`;
 				kind = "refused";
 			} else if (status === 429 || status >= 500) reason = readerFailureReason(status, model);
 			else {

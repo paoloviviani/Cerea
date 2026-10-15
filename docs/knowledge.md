@@ -17,6 +17,13 @@ Create and fill a base from the **Workspace** page, under **Knowledge**
 **read once, at upload**, and you can open a document to see the text that
 search actually uses.
 
+**Accepted files:** PDF, Word, Excel, PowerPoint, OpenDocument, e-books, and
+text files (Markdown, CSV, JSON, plain text). The type is decided from the
+file's contents, not its name or the browser's guess, so a text file with a
+wrong extension is still accepted. Images, archives and other binary files are
+refused with a message saying so (HTTP 415); a file stored before this check
+that is not text fails its own document with the same reason.
+
 - A **scanned PDF** (pictures of pages, with no selectable text) comes out empty unless your administrator has chosen an OCR model. Open the document to check: if its text is empty, ask them.
   In a **chat**, a scan is also handled by the model: see [Attachments](chat.md#attachments).
 - A file that **cannot be read** says why, in the same words to you and to the assistant: no reader is configured for that format, the reader refused the file (and what it said), the reader could not be reached, or the file holds no text. Only a PDF with no text layer is called a scan.
@@ -174,6 +181,11 @@ deployment's **local reader** (the gateway's model flagged `local`, the
 stack's markitdown), whatever OCR model is selected, and is never sent to an
 OCR model. With no local reader, an Office file fails with "No reader for Word
 documents is configured" rather than being sent somewhere that cannot read it.
+
+If you restrict the reader model to a group, people outside it get refused by
+that model. Leave the reader on automatic, or make sure everyone can use the
+chosen one; otherwise their PDFs fall back to the local reader when there is
+one, and are stored without text when there is not.
 A legacy binary Office file saved under a `.docx` name (it sniffs as a
 compound file, not a zip) is sent to the local reader as `application/msword`;
 the reader looks at the bytes and either reads it or refuses with its own

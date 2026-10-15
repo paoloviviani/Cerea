@@ -35,6 +35,22 @@ export const DOCUMENT_MIME_ALLOWLIST = [
 ] as const;
 
 /**
+ * What a knowledge base accepts, as an `accept` attribute: the extractable
+ * documents and plain text. A convenience for the pickers; the server decides
+ * from the bytes (`files/knowledgeUpload.ts`) and answers 415 for the rest.
+ */
+export const KNOWLEDGE_ACCEPT = [
+	...DOCUMENT_MIME_ALLOWLIST,
+	".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.epub",
+	"text/*",
+	".md,.markdown,.csv,.tsv,.json,.xml,.yaml,.yml,.txt",
+].join(",");
+
+/** The same set, for people. */
+export const KNOWLEDGE_ACCEPT_HINT =
+	"PDF, Word, Excel, PowerPoint, OpenDocument, e-books and text files (Markdown, CSV, JSON)";
+
+/**
  * The per-file ceiling every attachment entry point enforces: chat's upload
  * (`conversation/[id]`), its drop zone, and the owner-keyed store's upload
  * route. One number, so an agent surface cannot drift from chat's limit.

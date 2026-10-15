@@ -17,7 +17,7 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import * as s from "$lib/components/overlay/styles";
-	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+	import { KNOWLEDGE_ACCEPT, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 	import {
 		PROJECT_DOCUMENTS_MAX_CHARS,
 		PROJECT_DOCUMENTS_WARN_CHARS,
@@ -154,6 +154,7 @@
 			bind:this={input}
 			type="file"
 			multiple
+			accept={KNOWLEDGE_ACCEPT}
 			class="hidden"
 			data-testid="project-documents-input"
 			onchange={picked}

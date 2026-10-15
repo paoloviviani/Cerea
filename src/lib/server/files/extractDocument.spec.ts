@@ -355,6 +355,82 @@ describe("when there is no text", () => {
 		});
 	});
 
+	it("reads a PDF with the local reader when the chosen model is closed to this user's groups", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "markitdown", kind: "ocr", local: true },
+				{ id: "group-ocr", kind: "ocr" },
+			],
+		});
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockImplementation(
+			async (_token: string, _path: string, body: { model: string }) => {
+				if (body.model === "group-ocr") throw new GatewayCallFailed(403, "model_forbidden");
+				return OCR_OK;
+			}
+		);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: true, text: "page one text" });
+		expect(gatewayPostMock.mock.calls.map((c) => c[2].model)).toEqual(["group-ocr", "markitdown"]);
+	});
+
+	it("says plainly that the chosen reader is closed to this user and there is no local reader", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "group-ocr", kind: "ocr" }] });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(new GatewayCallFailed(403, "model_forbidden"));
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: false, kind: "refused", status: 403 });
+		const reason = (answer as { reason: string }).reason;
+		expect(reason).toContain("group-ocr");
+		expect(reason).toContain("isn't available to your groups");
+		expect(reason).toContain("no local reader to fall back to");
+		expect(reason).toContain("stored without text");
+		expect(reason).toContain("enable the local reader or grant access to the model");
+		expect(reason).not.toContain("model_forbidden");
+	});
+
+	it("gives the same reason, once, when the local reader is closed to this user too", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "markitdown", kind: "ocr", local: true },
+				{ id: "group-ocr", kind: "ocr" },
+			],
+		});
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(new GatewayCallFailed(403, "model_forbidden"));
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({ ok: false, kind: "refused", status: 403 });
+		const reason = (answer as { reason: string }).reason;
+		expect(reason).toContain("isn't available to your groups");
+		expect(reason).toContain("stored without text");
+		expect(reason).not.toContain("model_forbidden");
+		expect(reason.match(/isn't available to your groups/g)).toHaveLength(1);
+	});
+
 	it("names the OCR model that came back empty instead of asking for an OCR model", async () => {
 		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
 		gatewayGetMock.mockResolvedValue({

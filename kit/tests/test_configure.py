@@ -357,6 +357,53 @@ class TestFreshInstall(unittest.TestCase):
         self.assertEqual(build(existing=first).values["CODE_TERMINAL_ENABLED"], "true")
         self.assertEqual(build(existing=first, agents=False).values["CODE_TERMINAL_ENABLED"], "")
 
+    def _fetch_state(self, values):
+        profiles = [p for p in values["COMPOSE_PROFILES"].split(",") if p]
+        return ("fetch" in profiles, values.get("FETCH_BACKEND"), values.get("PLAYWRIGHT_WS_ENDPOINT"))
+
+    def test_fetch_flag_adds_and_removes_the_browser(self):
+        team = dict(build().values)
+        self.assertEqual(self._fetch_state(team), (False, "direct", None))
+        on = dict(build(existing=team, fetch=True).values)
+        self.assertEqual(self._fetch_state(on), (True, "playwright", cfg.PLAYWRIGHT_ENDPOINT))
+        # A re-run without the flag keeps the choice.
+        self.assertEqual(self._fetch_state(build(existing=on).values), self._fetch_state(on))
+        off = build(existing=on, fetch=False).values
+        self.assertEqual(self._fetch_state(off), (False, "direct", None))
+
+    def test_a_foreign_renderer_is_kept_by_both_flags(self):
+        foreign = "ws://render.example.org:3000/"
+        existing = dict(build().values) | {"PLAYWRIGHT_WS_ENDPOINT": foreign}
+        on = build(existing=existing, fetch=True).values
+        self.assertEqual(on["PLAYWRIGHT_WS_ENDPOINT"], foreign)
+        self.assertEqual(on["FETCH_BACKEND"], "playwright")
+        result = build(existing=dict(on), fetch=False)
+        self.assertEqual(result.values["PLAYWRIGHT_WS_ENDPOINT"], foreign)
+        self.assertEqual(result.values["FETCH_BACKEND"], "playwright")
+        self.assertNotIn("fetch", result.values["COMPOSE_PROFILES"].split(","))
+        self.assertTrue(any(foreign in n for n in result.notes), result.notes)
+
+    def test_no_fetch_on_enterprise_and_fetch_on_satellite(self):
+        ent = dict(build(preset="enterprise").values)
+        self.assertEqual(self._fetch_state(ent)[0], True)
+        off = build(existing=ent, preset="enterprise", fetch=False).values
+        self.assertEqual(self._fetch_state(off), (False, "direct", None))
+        sat_kw = dict(preset="satellite", central_url="https://central.example.org",
+                      oidc_chat_client_secret="c")
+        sat = dict(build(**sat_kw).values)
+        on = build(existing=sat, fetch=True, **sat_kw).values
+        self.assertEqual(self._fetch_state(on), (True, "playwright", cfg.PLAYWRIGHT_ENDPOINT))
+
+    def test_fetch_flag_leaves_check_quiet(self):
+        existing = dict(build().values)
+        for flag in (True, False):
+            values = build(existing=existing, fetch=flag).values
+            existing = dict(values)
+            report = cfg.Report()
+            cfg.check_values(values, report)
+            self.assertFalse(any("PLAYWRIGHT" in w or "FETCH_BACKEND" in w for w in report.warnings),
+                             report.warnings)
+
     def test_defaults_for_the_new_adr_0093_fields(self):
         v = build().values
         self.assertEqual(v["OIDC_GROUP_SYNC"], "every_login")
@@ -752,6 +799,28 @@ class TestCommands(Deploy):
         proc = subprocess.run(["docker", "compose", "config", "-q"], cwd=self.dir,
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_fetch_flag_on_an_existing_env_changes_only_the_browser(self):
+        self.configure("--tls", "internal")
+        before = self.env()
+        code, out, err = self.run_cli("--non-interactive", "--fetch")
+        self.assertEqual(code, 0, err)
+        after = self.env()
+        self.assertIn("fetch", after["COMPOSE_PROFILES"].split(","))
+        self.assertEqual(after["FETCH_BACKEND"], "playwright")
+        self.assertEqual(after["PLAYWRIGHT_WS_ENDPOINT"], cfg.PLAYWRIGHT_ENDPOINT)
+        self.assertEqual(after["PUBLIC_ORIGIN"], before["PUBLIC_ORIGIN"])
+        self.assertIn("fetch", out)
+        code, out, err = self.run_cli("--non-interactive")
+        self.assertIn("fetch", self.env()["COMPOSE_PROFILES"].split(","))
+        code, out, err = self.run_cli("--non-interactive", "--no-fetch")
+        self.assertEqual(code, 0, err)
+        gone = self.env()
+        self.assertNotIn("fetch", gone["COMPOSE_PROFILES"].split(","))
+        self.assertNotIn("PLAYWRIGHT_WS_ENDPOINT", gone)
+        self.assertEqual(gone["FETCH_BACKEND"], "direct")
+        code, out, err = self.run_cli("--check", "--offline")
+        self.assertNotIn("PLAYWRIGHT", out + err)
 
     def test_the_script_is_executable_with_a_shebang(self):
         path = ROOT / "configure"
