@@ -331,68 +331,58 @@ type SavedApproval struct {
 	GrantedAt  string   `json:"grantedAt,omitempty"`
 }
 
-// RuleHost is the optional "permissions" capability: the backend's permission
-// rules, seen from galopin, and the session's selector. A session's rules are
-// the machine's own, the selector's mode block and exceptions, and the ceiling's
-// tail (permrules.Compose); the selector lives on a ROOT session and a subagent
-// follows it.
+// RuleHost is the optional "permissions" capability: a ROOT session's selector
+// (Plan·Ask·Allow, stored as deny|ask|allow), its exceptions and coordination
+// grant, which are galopin's own state (ADR 0097), plus what the backend can
+// show of its agent's rules. galopin writes no rule into the agent: the
+// decision function (internal/decide) answers every ask from this state.
 type RuleHost interface {
-	// EffectiveRules is the rules in force for a session, in evaluation order:
-	// its agent's, then the ones galopin applied to the session.
-	EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error)
-	// RuleLayers is EffectiveRules with each rule's source. Display only.
-	RuleLayers(ctx context.Context, workspaceDir, sessionID string) (RuleLayers, error)
+	// AgentRules is the session's agent and its rules as the agent reports
+	// them. Display only.
+	AgentRules(ctx context.Context, workspaceDir, sessionID string) (RuleLayers, error)
 	// PermissionMode is the selector's word for a session: its root's, ask when
-	// nobody set one.
+	// nobody set one. deny is Plan.
 	PermissionMode(sessionID string) permrules.Action
-	// SetPermissionMode sets a root session's mode and re-applies the rules to
-	// it and to every subagent session under it.
+	// SetPermissionMode sets a root session's mode. Nothing is written to the
+	// agent; the change governs the next ask.
 	SetPermissionMode(ctx context.Context, workspaceDir, sessionID string, mode permrules.Action) error
 	// Exceptions is the root's exceptions, in the order they were given.
 	Exceptions(sessionID string) []permrules.Exception
 	// AddException records an exception on the session's root (one already
-	// there for the same permission and patterns is returned instead) and
-	// re-applies the rules to the root and its subagents.
+	// there for the same permission and patterns is returned instead).
 	AddException(ctx context.Context, workspaceDir, sessionID string, e permrules.Exception) (permrules.Exception, error)
-	// RemoveException withdraws one by id, re-applying likewise; false when the
-	// root holds none by that id.
+	// RemoveException withdraws one by id; false when the root holds none by
+	// that id.
 	RemoveException(ctx context.Context, workspaceDir, sessionID, id string) (bool, error)
 	// Coordination is the coordination grant on the session's root (sorted,
 	// empty when none).
 	Coordination(sessionID string) []string
 	// SetCoordination records a coordination grant on a ROOT session (keys are
-	// already validated, de-duplicated and sorted; empty clears it) and
-	// re-applies the rules to it and its subagents. It persists with the
-	// selector.
+	// already validated, de-duplicated and sorted; empty clears it).
 	SetCoordination(ctx context.Context, workspaceDir, sessionID string, keys []string) error
-	// EnsureRules re-applies the machine's rules to a session if they differ
-	// from what it carries (after the ceiling changed).
-	EnsureRules(ctx context.Context, workspaceDir, sessionID string) error
-	// ApplyChildRules gives a subagent session opencode created the root's
-	// selector and the ceiling (never the machine's own allows); agent is its
-	// type, "" when unknown.
-	ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error
-	// ChildAskAction is what the child session's rules, as the root's selector
-	// and the ceiling compose them for its agent, say about one ask: Allow only
-	// when every pattern is allowed. Nothing is applied. Ask when the agent's
-	// rules cannot be read.
-	ChildAskAction(ctx context.Context, workspaceDir, sessionID, agent, tool string, patterns []string) permrules.Action
+	// PendingAsks is every permission ask the agent still holds, for the
+	// answer-on-start pass (fail safe: an ask raised while galopin was down
+	// stays pending).
+	PendingAsks(ctx context.Context) ([]PermissionRequest, error)
+	// PlanDirs are directories the agent's plan mode writes plans into.
+	PlanDirs() []string
 	// OnProcessStart registers a callback run every time the backend's process
-	// starts (the first start included, a crash restart and a deliberate one
-	// alike). What the process held in memory — its pending asks — is gone with
-	// the old one, and the machine forgets them here.
+	// starts. What the process held in memory — its pending asks — is gone
+	// with the old one, and the machine forgets them here.
 	OnProcessStart(fn func())
-	// RestartForPolicy restarts the backend process, so nothing it kept in
-	// memory outlives a tightened policy; it returns once the new process is
-	// healthy.
-	RestartForPolicy(ctx context.Context) error
-	// StaleDeny is the cached stale-deny verdict for a session's root:
-	// whether the rules opencode keeps for it carry a blanket deny the
-	// current composition no longer contains (an old Deny block, kept
-	// forever because opencode's rules are append-only). Refreshed on every
-	// prompt; a read of the cache, never I/O.
+	// StaleDeny is the cached verdict for a LEGACY session's root: its stored
+	// rules (written by an older galopin, kept forever because the agent's
+	// rules are append-only) carry a blanket deny that still seeds every new
+	// subagent. Never true for a session this galopin created.
 	StaleDeny(sessionID string) bool
 	// StalePolicy is the same cache's second verdict: a deny the ceiling no
 	// longer imposes (an earlier machine policy).
 	StalePolicy(sessionID string) bool
+}
+
+// AskNormalizer is optionally implemented by a backend whose permission
+// requests do not carry opencode's permission keys: it maps one onto the key
+// and patterns the decision function reads (ACP's tool-call kind and paths).
+type AskNormalizer interface {
+	NormalizeAsk(req PermissionRequest) (key string, patterns []string)
 }

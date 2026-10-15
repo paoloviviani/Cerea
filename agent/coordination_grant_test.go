@@ -191,7 +191,7 @@ func TestGrantCoordinationClearsAndYieldsToDeny(t *testing.T) {
 	mustGrant(t, r, "caller", []string{"session_read"})
 	_ = r.cb.SetPermissionMode(context.Background(), "", "caller", "deny")
 	_, err := r.call("caller", "session_read", map[string]any{"target": "peer"})
-	refusedWith(t, err, "set to Deny")
+	refusedWith(t, err, "set to Plan")
 }
 
 // The grant is audited with its keys and its outcome, refusals included.

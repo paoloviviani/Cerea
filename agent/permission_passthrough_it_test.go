@@ -9,11 +9,11 @@ import (
 	"galopin/internal/policy"
 )
 
-// P1: the file says edit: deny, the machine's own rules say edit: allow. The
-// machine's rule sits above the file's, so it wins over it; the session's mode
-// block then takes it to the selector's word. Under Allow the write runs and
-// nothing asks. The control: the file's deny alone is a deny, and a deny is the
-// one thing the blanket never moves, so Allow does not run that write.
+// P1: the owner's opencode.json says edit: deny and the machine's own rule says
+// edit: allow. The file's deny is the owner's and stands (ADR 0097: the floor
+// restates it, so opencode refuses natively and galopin is never asked), and a
+// machine allow for edit is no licence anyway: it lifts only what the mode never
+// moves. Under Allow the write is refused with no card.
 func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "deny"},
@@ -23,10 +23,10 @@ func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
 	r.setMode(s, "allow")
 	ask, part, mark := r.try(s, "p1.txt")
 	if ask != nil {
-		t.Fatalf("asked for %s %v; the machine's allow under the session's Allow should have run it", ask.Tool, ask.Patterns)
+		t.Fatalf("asked for %s %v; the file's deny should have stood", ask.Tool, ask.Patterns)
 	}
-	if part.ToolStatus != backend.ToolCompleted || !r.exists("p1.txt") {
-		t.Errorf("write = %s (%s), file exists=%v", part.ToolStatus, part.ToolError, r.exists("p1.txt"))
+	if !refused(part) || r.exists("p1.txt") {
+		t.Errorf("write = %s (%s), file exists=%v, want refused", part.ToolStatus, part.ToolError, r.exists("p1.txt"))
 	}
 	r.idle(s, mark)
 	if asks := r.asks(mark, s); len(asks) != 0 {
@@ -95,15 +95,10 @@ func TestPassthroughP3CeilingWinsAndAlwaysBecomesOnce(t *testing.T) {
 		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}, Max: map[string]string{"edit": "ask"}},
 	})
 	s := r.session("p3", "")
-	// The rules were in the create itself: they are on the session before any
-	// prompt exists, with the ceiling last.
-	rules := r.sessionRules(s.ID)
-	// The block opens with the tool-visibility sentinel, then the machine's
-	// own rules; the ceiling's tail closes it.
-	if len(rules) < 2 || rules[0] != permrules.ToolVisibilitySentinel ||
-		rules[1] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) ||
-		rules[len(rules)-1].Action != permrules.Ask {
-		t.Fatalf("session rules before the first prompt = %+v, want the sentinel, then the machine's allow, and the ceiling's ask last", rules)
+	// Nothing is written to the session: the machine's rule and the ceiling are
+	// galopin's own answers, not opencode rules (ADR 0097).
+	if rules := r.sessionRules(s.ID); len(rules) != 0 {
+		t.Fatalf("session rules before the first prompt = %+v, want none", rules)
 	}
 	ask, _, mark := r.try(s, "p3a.txt")
 	if ask == nil {
@@ -174,10 +169,10 @@ func TestPassthroughP6TightenedCeilingRestartsAndDenies(t *testing.T) {
 	}
 	var restarted bool
 	for _, row := range r.auditRows() {
-		restarted = restarted || (row["action"] == "permission.tightened" && row["restarted"] == true)
+		restarted = restarted || (row["action"] == "permission.tightened" && row["restarted"] == false)
 	}
 	if !restarted {
-		t.Error("the restart was not audited")
+		t.Error("the tightening was not audited (restarted:false: nothing restarts any more)")
 	}
 	if ex := r.exceptions(s); len(ex) != 1 {
 		t.Errorf("exceptions after the restart = %+v, want the one kept (it is galopin's, not the process's)", ex)
@@ -193,8 +188,10 @@ func TestPassthroughRestartWithdrawsPendingAsks(t *testing.T) {
 	if ask == nil {
 		t.Fatal("no ask")
 	}
-	ch := r.live.Tighten(policy.Permission{Max: map[string]string{"bash": "deny"}})
-	r.mc.policyTightened(r.ctx, ch)
+	// A restart of opencode (a crash, an upgrade) kills what it held in memory.
+	if err := r.oc.RestartForPolicy(r.ctx); err != nil {
+		t.Fatal(err)
+	}
 	if n := r.mat.PendingPermissions(s.ID); n != 0 {
 		t.Errorf("pending = %d after the restart, want the dead ask withdrawn", n)
 	}
@@ -286,10 +283,7 @@ func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
 	if !ch.Tightened {
 		t.Fatal("not tightened")
 	}
-	// Rules alone, no restart: the cap already holds.
-	if err := r.oc.EnsureRules(r.ctx, r.work, s.ID); err != nil {
-		t.Fatal(err)
-	}
+	// No rule and no restart: the next ask is decided under the new ceiling.
 	ask, _, _ = r.try(s, "p6b-c.txt")
 	if ask == nil {
 		t.Fatal("the exception outlived a ceiling of ask: the tail does not cap it")
@@ -297,11 +291,6 @@ func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
 	r.reply(s, ask.ID, "reject")
 
 	r.mc.policyTightened(r.ctx, ch)
-	ask, part, _ := r.try(s, "p6b-d.txt")
-	if ask == nil {
-		t.Fatalf("after the restart the write did not ask: %+v", part)
-	}
-	r.reply(s, ask.ID, "reject")
 }
 
 // F2: the machine's own ask reaches a subagent. A parent's rule normally stops

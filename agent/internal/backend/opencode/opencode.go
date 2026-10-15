@@ -222,13 +222,13 @@ type sessionOverlay struct {
 	// Effort is the model variant id sent with every prompt (opencode's
 	// thinking-effort knob), "" for the model's default.
 	Effort string `json:"effort,omitempty"`
-	// RulesFP fingerprints the rules galopin last gave this session, so they
-	// are re-sent only on change and survive an agent restart without growing
-	// the session's rule list.
-	RulesFP string `json:"rulesFp,omitempty"`
-	// Selector is the Deny/Ask/Allow choice and the exceptions of a ROOT
-	// session (session.setPermissionMode, "always allow"), kept so every
-	// re-send of the session's rules carries them and they survive a restart.
+	// Neutralised records that the one final "everything asks" rule was
+	// written to a session whose stored rules came from an older galopin
+	// (ADR 0097). Never written again.
+	Neutralised bool `json:"neutralised,omitempty"`
+	// Selector is the Plan(deny)/Ask/Allow choice and the exceptions of a ROOT
+	// session (session.setPermissionMode, "always allow"). galopin's own state:
+	// it survives a restart and is never written to opencode.
 	// A subagent has none: it follows its root's.
 	Selector permrules.Selector `json:"selector,omitempty"`
 }
@@ -366,6 +366,9 @@ func (b *Backend) Start(ctx context.Context) error {
 		return err
 	}
 	b.cfg.Logf("opencode: healthy on %s", b.baseURL())
+	if b.cfg.Permissions != nil {
+		b.checkFloor(ctx)
+	}
 	return nil
 }
 
@@ -492,7 +495,10 @@ func (b *Backend) runOnce(ctx context.Context) error {
 		}
 	}
 	if b.cfg.Permissions != nil || content != nil {
-		body, err := floorConfig(content, b.layers())
+		b.perm.floorMu.Lock()
+		patch := b.perm.floorPatch
+		b.perm.floorMu.Unlock()
+		body, err := floorConfig(content, patch, fileDenies(b.cfg.ConfigPath))
 		if err != nil {
 			return fmt.Errorf("building the permission floor: %w", err)
 		}

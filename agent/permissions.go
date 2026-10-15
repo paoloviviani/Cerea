@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/decide"
 	"galopin/internal/link"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
@@ -30,152 +31,119 @@ func (mc *machine) ruleHost() (backend.RuleHost, bool) {
 	return rh, ok
 }
 
-// installPermissions wires what runs on its own: the root's selector and the
-// ceiling onto each subagent opencode creates.
+// decidePolicy is the machine's half of every decision: the ceiling, its own
+// rules and its safe directories, read live (they only ever tighten).
+func (mc *machine) decidePolicy(rh backend.RuleHost) decide.Policy {
+	layers := mc.live.Layers
+	if mc.layersFn != nil {
+		layers = mc.layersFn
+	}
+	l := layers()
+	return decide.Policy{Ceiling: l.Ceiling, Own: l.Own, SafeDirs: l.SafeDirs, PlanDirs: rh.PlanDirs()}
+}
+
+// rootState is the ROOT session's selector, which every ask from the root and
+// from its subagents is decided by.
+func (mc *machine) rootState(rh backend.RuleHost, sessionID string) decide.State {
+	root := mc.mat.RootOf(sessionID)
+	return decide.State{Mode: rh.PermissionMode(root), Exceptions: rh.Exceptions(root), Coordination: rh.Coordination(root)}
+}
+
+// decideAsk is the one decision for an ask the backend raised (ADR 0097).
+// galopin's own gp_ asks were already decided before they were raised, so
+// they are a card unless the root is on Plan.
+func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.PermissionRequest) decide.Result {
+	st := mc.rootState(rh, req.SessionID)
+	if strings.HasPrefix(req.ID, "gp_") {
+		if st.Mode == permrules.Deny {
+			return decide.Result{Verdict: decide.Reject, Step: "plan", Reason: decide.PlanReason}
+		}
+		return decide.Result{Verdict: decide.Card, Step: "gp"}
+	}
+	key, patterns := req.Tool, req.Patterns
+	if n, ok := mc.back.(backend.AskNormalizer); ok {
+		key, patterns = n.NormalizeAsk(req)
+	}
+	return decide.Decide(mc.decidePolicy(rh), st, decide.Request{Key: key, Patterns: patterns, Workspace: dir})
+}
+
+// installPermissions wires what runs on its own: every permission ask is
+// decided by the one function before any card is shown. reject and once are
+// answered here (from a goroutine: the filter runs inside event application
+// and must not do I/O) and the ask is consumed — never materialised, so no
+// client sees it; card lets it through to the person.
 func (mc *machine) installPermissions() {
 	rh, ok := mc.ruleHost()
 	if !ok {
 		return
 	}
-	// Whatever the process held in memory dies with it, however it ended (a
-	// crash restart as much as a tightened policy): the asks it was waiting on
-	// are gone, and a card for one would answer into nothing. A session's
-	// exceptions are not among what dies: they are galopin's own, kept in its
-	// overlay and composed into the rules again.
+	// Whatever the process held in memory dies with it, however it ended: the
+	// asks it was waiting on are gone, and a card for one would answer into
+	// nothing. A session's exceptions are not among what dies: they are
+	// galopin's own, kept in its overlay.
 	rh.OnProcessStart(func() {
 		mc.mat.WithdrawPending()
 	})
-	mc.mat.OnChild(func(dir, childID string) { go mc.giveChildTheCeiling(dir, childID) })
-	mc.mat.OnChildAsk(func(dir string, req backend.PermissionRequest) { go mc.answerChildAsk(dir, req) })
-	// In Deny mode the session's block says ask for the blanket names, and
-	// galopin itself rejects every ask from that root and from its subagents
-	// before any card is shown: children then inherit no blanket deny (see
-	// permrules.ComposeParts), while nothing runs. The filter consumes the
-	// ask — it is never materialised, so no permission.asked envelope reaches
-	// any client — and the rejection goes out from a goroutine.
 	mc.mat.OnAskFilter(func(dir string, req backend.PermissionRequest) bool {
 		rh, ok := mc.ruleHost()
 		if !ok {
 			return false
 		}
-		// PermissionMode is the ROOT's word (the backend resolves it), so
-		// this covers root and child asks alike. gp_ asks are not excepted:
-		// under Deny nothing runs without a card, and there are no cards.
-		// A child whose parent edge isn't known yet resolves to itself and
-		// reads Ask, so its ask shows a card instead of being rejected:
-		// that fails toward a person, never toward running.
-		if rh.PermissionMode(mc.mat.RootOf(req.SessionID)) != permrules.Deny {
+		// A child whose parent edge is not known yet resolves to itself and
+		// reads Ask: its ask shows a card instead of running, which fails
+		// toward a person.
+		res := mc.decideAsk(rh, dir, req)
+		if res.Verdict == decide.Card {
 			return false
 		}
-		go mc.rejectDenyAsk(dir, req)
+		go mc.answerAsk(dir, req, res)
 		return true
 	})
 }
 
-// denyRejectMessage is the refusal text of an ask rejected because its root
-// session is on Deny: it names the word and the way out, since the model is
-// never shown a card for it. It rides the reply's message (opencode shows it
-// on the refused call) and the audit row's reason.
-const denyRejectMessage = "This session is set to Deny: no tool may run. Change the mode to Ask or Allow to continue."
-
-// rejectDenyAsk answers an ask the pre-filter consumed: DecisionReject with
-// the Deny message, audited as a galopin rejection. The ask was never
-// materialised, so there is no card to withdraw — answering it here is what
-// releases the tool call waiting on it.
-func (mc *machine) rejectDenyAsk(dir string, req backend.PermissionRequest) {
+// answerAsk sends a decided ask's reply, audited as a galopin answer. The ask
+// was never materialised, so there is no card to withdraw.
+func (mc *machine) answerAsk(dir string, req backend.PermissionRequest, res decide.Result) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := mc.back.ReplyPermission(ctx, dir, req.SessionID, req.ID, backend.DecisionReject, denyRejectMessage); err != nil {
+	d, msg := backend.DecisionOnce, ""
+	if res.Verdict == decide.Reject {
+		d, msg = backend.DecisionReject, res.Reason
+	}
+	if err := mc.back.ReplyPermission(ctx, dir, req.SessionID, req.ID, d, msg); err != nil {
 		if !backend.IsNotFound(err) && !errors.Is(err, backend.ErrPermissionGone) {
-			logf("permissions: could not reject Deny ask %s: %v", req.ID, err)
+			logf("permissions: could not answer ask %s (%s): %v", req.ID, d, err)
 		}
 		return
 	}
 	if mc.audit != nil {
-		mc.audit.permission(req.SessionID, req.ID, req.Tool, string(backend.DecisionReject), "galopin", false, denyRejectMessage)
+		mc.audit.permission(req.SessionID, req.ID, req.Tool, string(d), "galopin", false, msg)
 	}
 }
 
-// answerChildAsk answers a subagent's ask that its root's selector allows. A
-// child's first tool call is judged by the agent-level floor, which asks for the
-// blanket's names whatever the root's mode is (opencode takes a session's rules
-// when its turn starts, and a task starts the child's turn in the same breath
-// it creates it); the rules galopin then applies land too late for that call. So
-// the ask is read against the rules the child is entitled to — the root's mode
-// and exceptions under the ceiling, as ChildRules composes them — and answered
-// "once" when those allow it. An ask they do not allow (a root on Ask, or a key
-// the ceiling caps) is left for a person.
-//
-// A Deny root never reaches here: the sessions pre-filter (installed above)
-// consumes every ask from a Deny root — root and child asks alike — and
-// rejects it before any card, so the two hooks cannot answer the same request
-// (this one only ever answers "once", the filter only ever rejects).
-func (mc *machine) answerChildAsk(dir string, req backend.PermissionRequest) {
-	rh, ok := mc.ruleHost()
-	if !ok || strings.HasPrefix(req.ID, "gp_") {
-		return
-	}
-	if rh.PermissionMode(mc.mat.RootOf(req.SessionID)) == permrules.Deny {
-		return
-	}
-	agent := ""
-	for deadline := time.Now().Add(childAgentWait); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
-		if agent = mc.mat.ChildAgent(req.SessionID); agent != "" {
-			break
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if rh.ChildAskAction(ctx, dir, req.SessionID, agent, req.Tool, req.Patterns) != permrules.Allow {
-		return
-	}
-	if mc.askedRequest(req.SessionID, req.ID) == nil {
-		return
-	}
-	if err := mc.back.ReplyPermission(ctx, dir, req.SessionID, req.ID, backend.DecisionOnce, ""); err != nil {
-		if !backend.IsNotFound(err) {
-			logf("permissions: could not answer subagent ask %s that its root allows: %v", req.ID, err)
-		}
-		return
-	}
-	mc.audit.permission(req.SessionID, req.ID, req.Tool, string(backend.DecisionOnce), "galopin", false, "")
-}
-
-// giveChildTheCeiling applies the root's selector and the ceiling to a subagent
-// session as soon as the machine hears of it, then again when the parent's task
-// call says which agent the child is (the call's input is attached to the call
-// a moment after the session exists, and on 1.18.32 that moment can be most of a
-// second). The first application uses the agent opencode names in the child's own
-// title when the backend can read it, and applies denies only when it cannot; the
-// second is the authoritative one and changes nothing when the first was right.
-// Best effort by nature — a first tool call can still beat both — which is what
-// the agent-level floor is for.
-func (mc *machine) giveChildTheCeiling(dir, childID string) {
+// answerPending decides what opencode still holds when galopin starts: an ask
+// raised while galopin was down stayed pending (the agent waits with no
+// timeout), and a card for it is shown or it is answered like a live one.
+func (mc *machine) answerPending(ctx context.Context) {
 	rh, ok := mc.ruleHost()
 	if !ok {
 		return
 	}
-	apply := func(agent string) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := rh.ApplyChildRules(ctx, dir, childID, agent); err != nil {
-			logf("permissions: could not give subagent session %s the ceiling (the agent-level floor still stands): %v", childID, err)
-		}
+	pending, err := rh.PendingAsks(ctx)
+	if err != nil {
+		logf("permissions: could not list the asks opencode still holds: %v", err)
+		return
 	}
-	apply("")
-	agent := ""
-	for deadline := time.Now().Add(childAgentWait); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
-		if agent = mc.mat.ChildAgent(childID); agent != "" {
-			break
+	for _, req := range pending {
+		dir, ok := mc.mat.WorkspaceDir(req.SessionID)
+		if !ok || dir == "" {
+			continue
 		}
-	}
-	if agent != "" {
-		apply(agent)
+		if res := mc.decideAsk(rh, dir, req); res.Verdict != decide.Card {
+			mc.answerAsk(dir, req, res)
+		}
 	}
 }
-
-// childAgentWait is how long a new subagent waits to learn its type.
-const childAgentWait = 2 * time.Second
 
 // capDecision lowers an "always" the ceiling does not let stand. An "always
 // allow" becomes an exception that is composed under the ceiling's tail like
@@ -245,7 +213,7 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 	if !ok {
 		return nil, opErrf("unsupported", "this backend has no permission rules to show")
 	}
-	layers, err := rh.RuleLayers(ctx, dir, a.SessionID)
+	layers, err := rh.AgentRules(ctx, dir, a.SessionID)
 	if err != nil {
 		return nil, backendErr(err)
 	}
@@ -308,9 +276,13 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 	if operr != nil {
 		return nil, operr
 	}
+	if a.Mode == "plan" {
+		// Plan is the selector's first word; "deny" is its wire spelling.
+		a.Mode = "deny"
+	}
 	mode := permrules.Action(a.Mode)
 	if !mode.Valid() {
-		return nil, opErrf("invalid", "mode must be deny, ask or allow, got %q", a.Mode)
+		return nil, opErrf("invalid", "mode must be deny (Plan), ask or allow, got %q", a.Mode)
 	}
 	if mc.mat.RootOf(a.SessionID) != a.SessionID {
 		return nil, opErrf("invalid", "a subagent follows its root: set the mode on session %s", mc.mat.RootOf(a.SessionID))
@@ -324,31 +296,33 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 	}
 	mc.audit.permissionMode(a.SessionID, string(mode))
 	if mode == permrules.Deny {
-		// A Deny chosen while asks are showing must not leave cards that
-		// answer into the old word: every permission ask the materializer
-		// still holds for the root and its subagents goes out with the Deny
-		// rejection at once.
+		// A Plan chosen while asks are showing must not leave cards that
+		// answer into the old word: every ask the materializer still holds
+		// for the root and its subagents that Plan refuses is rejected at once.
 		mc.rejectTreePending(dir, a.SessionID)
 	}
 	return map[string]any{}, nil
 }
 
-// rejectTreePending answers every permission ask the materializer still
-// holds for root and its subagents with the Deny rejection. Each ask goes
-// out through rejectDenyAsk (DecisionReject + the Deny message, audited
-// like every galopin rejection), which releases the tool call waiting on
-// it in opencode; the card is then withdrawn the way an answered ask
-// normally is — the reply resolves it — and the materializer drops its
-// own copy too, so nothing lingers if the resolution event round-trips
-// after us.
+// rejectTreePending decides again every permission ask the materializer still
+// holds for root and its subagents and rejects the ones the new word refuses
+// (asks that are still a card stay one: switching to Plan never approves
+// anything). The reply releases the tool call waiting in the agent; the card
+// is then withdrawn and the materializer drops its own copy.
 func (mc *machine) rejectTreePending(dir, root string) {
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return
+	}
 	for _, id := range mc.mat.TrackedIDs() {
 		if mc.mat.RootOf(id) != root {
 			continue
 		}
 		for _, req := range mc.mat.PendingPermissionRequests(id) {
-			mc.rejectDenyAsk(dir, req)
-			mc.mat.WithdrawPermission(req.SessionID, req.ID)
+			if res := mc.decideAsk(rh, dir, req); res.Verdict == decide.Reject {
+				mc.answerAsk(dir, req, res)
+				mc.mat.WithdrawPermission(req.SessionID, req.ID)
+			}
 		}
 	}
 }
@@ -459,11 +433,10 @@ func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir,
 	return err
 }
 
-// policyTightened applies a permission policy that just got stricter: opencode
-// is restarted (its in-memory "always" approvals outrank every rule and are
-// cleared only that way), the asks that died with it are withdrawn from every
-// client, and every session is brought under the new rules before its next
-// prompt would do it anyway.
+// policyTightened applies a permission policy that just got stricter. Nothing
+// is written to the agent and nothing restarts: the next ask is decided under
+// the new ceiling. What is already showing as a card is decided again, and a
+// card the ceiling now refuses is rejected at once.
 func (mc *machine) policyTightened(ctx context.Context, ch policy.Change) {
 	if !ch.Tightened {
 		return
@@ -472,19 +445,17 @@ func (mc *machine) policyTightened(ctx context.Context, ch policy.Change) {
 	if !ok {
 		return
 	}
-	if err := rh.RestartForPolicy(ctx); err != nil {
-		logf("permissions: restarting the agent for a tightened policy failed: %v", err)
-		mc.audit.permissionTightened(false)
-		return
-	}
-	mc.audit.permissionTightened(true)
+	mc.audit.permissionTightened(false)
 	for _, id := range mc.mat.TrackedIDs() {
 		dir, ok := mc.mat.WorkspaceDir(id)
 		if !ok || dir == "" {
 			continue
 		}
-		if err := rh.EnsureRules(ctx, dir, id); err != nil {
-			logf("permissions: re-applying the rules to session %s: %v", id, err)
+		for _, req := range mc.mat.PendingPermissionRequests(id) {
+			if res := mc.decideAsk(rh, dir, req); res.Verdict == decide.Reject {
+				mc.answerAsk(dir, req, res)
+				mc.mat.WithdrawPermission(req.SessionID, req.ID)
+			}
 		}
 	}
 }

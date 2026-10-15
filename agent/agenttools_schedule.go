@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/decide"
 	"galopin/internal/link"
 	"galopin/internal/permrules"
 )
@@ -135,30 +136,19 @@ func (at *agentTools) scheduleFactsFor(ctx context.Context, tc *toolCaller, tool
 	}
 }
 
-// scheduleGrant is the session's word for `schedule`. The blanket Allow covers
-// it (the owner's choice), as it does `session_spawn` and `session_send`:
-// under Allow the rules are read as they are, the blanket's `*: allow`
-// included; under Ask or Deny a wildcard allow says nothing (permrules.Grant),
-// so only the machine's own `schedule` rule can lift it. Either way the
-// ceiling's tail, last in the rules, caps it. Unreadable rules are not consent.
-func (at *agentTools) scheduleGrant(ctx context.Context, tc *toolCaller) permrules.Action {
+// scheduleGrant is the session's decision for `schedule`: the same function as
+// the coordination tools (Allow covers it, the machine's own allow lifts it, a
+// ceiling or machine ask or deny caps it, Plan refuses it). Unknown is ask.
+func (at *agentTools) scheduleGrant(_ context.Context, tc *toolCaller) permrules.Action {
 	rh, ok := at.mc.back.(backend.RuleHost)
 	if !ok {
 		return permrules.Ask
 	}
-	rules, err := rh.EffectiveRules(ctx, tc.dir, tc.session.ID)
-	if err != nil {
+	act, _ := decide.CoordinationTool(at.mc.decidePolicy(rh), at.mc.rootState(rh, tc.session.ID), scheduleKey, false)
+	if act == permrules.Deny {
 		return permrules.Ask
 	}
-	return scheduleGrantFrom(rules, rh.PermissionMode(tc.session.ID))
-}
-
-// scheduleGrantFrom is scheduleGrant on a session's rules and its mode word.
-func scheduleGrantFrom(rules []permrules.Rule, mode permrules.Action) permrules.Action {
-	if mode == permrules.Allow {
-		return permrules.Evaluate(rules, scheduleKey, "*")
-	}
-	return permrules.Grant(rules, scheduleKey)
+	return act
 }
 
 func (at *agentTools) scheduleCeiling() permrules.Action {

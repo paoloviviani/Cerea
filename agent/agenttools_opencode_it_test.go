@@ -233,6 +233,11 @@ func TestAgentToolsIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	mc := newMachine(reg, oc, mat, pol)
+	mc.layersFn = func() permrules.Layers {
+		rulesMu.Lock()
+		defer rulesMu.Unlock()
+		return permrules.Layers{Own: permrules.OwnRules(machineRules), Ceiling: permrules.Ceiling{Max: machineCeiling}}
+	}
 	audit, err := newAuditLogger(dirs["state"])
 	if err != nil {
 		t.Fatal(err)

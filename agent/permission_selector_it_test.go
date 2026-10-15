@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"galopin/internal/decide"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -118,7 +119,9 @@ func TestSelectorS2Ask(t *testing.T) {
 	}
 }
 
-// S3 Deny: edit, bash and task are refused with no card; read works.
+// S3 Plan (wire: deny): edit and bash are refused with no card; read works.
+// Starting a subagent is not a change in itself (its child is judged by the
+// same word), see TestAnswerPlanRootChildReadsButCannotEdit.
 func TestSelectorS3Deny(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	s := r.session("s3", "")
@@ -132,7 +135,6 @@ func TestSelectorS3Deny(t *testing.T) {
 	}{
 		{"write", map[string]any{"filePath": filepath.Join(r.work, "s3-edit.txt"), "content": "x"}},
 		{"bash", bashArgs("echo hi > s3-bash.txt")},
-		{"task", map[string]any{"description": "d", "prompt": "s3-task-marker", "subagent_type": "general"}},
 	} {
 		ask, part, mark := r.tryCall(s, c.tool, c.args)
 		if ask != nil {
@@ -272,139 +274,6 @@ func TestSelectorS7AlwaysOnACappedKeyStoresNothing(t *testing.T) {
 	}
 }
 
-// S8 Subagents follow their root.
-//
-// What opencode 1.18.32 does with a session's rules shapes what can be asserted
-// here, and two of its habits are pinned by TestSelectorAModeChangedMidTurnIsInForceOnTheNextTurn:
-// it takes a session's rules once, when a turn starts, so a PATCH lands from the
-// session's NEXT turn; and a task creates its subagent session and starts its
-// first turn in one breath, before galopin has heard of it. A subagent's first
-// turn is therefore judged by what the process already carries — the agent-level
-// floor (which asks for the blanket's names, under Allow too) and the denies
-// opencode copies from its parent — and not by the root's word or exceptions.
-// Since the machine answers a child's ask its root's mode allows
-// (answerChildAsk), the ask is still raised on the first turn — it is the floor's
-// — but under Allow it is answered at once and no person is left holding it; the
-// background_permission IT asserts that. The first-turn asserts below are
-// canaries as much as specs: the day one of
-// them fails, opencode can carry the root's rules in time and the floor's ask
-// default can go. Each subtest says which it is looking at.
-func TestSelectorS8Subagents(t *testing.T) {
-	r := newPermRig(t, permRigOpts{})
-	general := r.agentRules("general")
-	childRules := func(id string) []permrules.Rule {
-		return append(append([]permrules.Rule(nil), general...), r.sessionRules(id)...)
-	}
-	child := func(id string) backend.Session { return backend.Session{ID: id} }
-
-	t.Run("root on Allow: the first turn asks anyway (the floor), a later turn's edit runs", func(t *testing.T) {
-		root := r.session("s8-allow", "")
-		r.setMode(root, "allow")
-		id, mark := r.delegate(root, "s8-allow-marker", "s8-allow.txt")
-		ask, _ := r.childOutcome(id, mark)
-		if ask == nil || ask.Tool != "edit" {
-			t.Fatalf("a task child's first turn under a root on Allow: ask=%v, want the floor's ask (the root's rules cannot be on the child before its first turn starts)", ask)
-		}
-		r.reply(child(id), ask.ID, "once")
-		r.idle(root, mark)
-		if got := permrules.Evaluate(childRules(id), "edit", "x.txt"); got != permrules.Allow {
-			t.Fatalf("the child's rules after its first turn say edit = %s, want the root's Allow", got)
-		}
-		ask, part, _ := r.tryCall(child(id), "write", map[string]any{"filePath": filepath.Join(r.work, "s8-allow-2.txt"), "content": "x"})
-		if ask != nil || part.ToolStatus != backend.ToolCompleted || !r.exists("s8-allow-2.txt") {
-			t.Errorf("the child's next turn under a root on Allow: ask=%v part=%+v exists=%v, want the edit to run", ask, part, r.exists("s8-allow-2.txt"))
-		}
-	})
-
-	t.Run("root on Deny: the child's edit is refused", func(t *testing.T) {
-		// Deny withdraws the task tool from the root itself, so the child is a
-		// session opencode is told is a child of the root's (parentID): galopin
-		// learns of it the way it learns of a task's, from its session event.
-		root := r.session("s8-deny", "")
-		r.setMode(root, "deny")
-		kid := r.rawChild(root)
-		ask, part, _ := r.tryCall(kid, "write", map[string]any{"filePath": filepath.Join(r.work, "s8-deny.txt"), "content": "x"})
-		if ask != nil {
-			r.reply(kid, ask.ID, "reject")
-			t.Fatalf("the child asked (%+v) under a root on Deny", ask)
-		}
-		if !refused(part) || r.exists("s8-deny.txt") {
-			t.Errorf("child edit under a root on Deny: part=%+v exists=%v, want refused", part, r.exists("s8-deny.txt"))
-		}
-	})
-
-	t.Run("the root's exception does not reach a child's first turn", func(t *testing.T) {
-		root := r.session("s8-first", "")
-		if _, err := r.oc.AddException(r.ctx, r.work, root.ID, permrules.Exception{
-			ID: "ex_first", Permission: "edit", Patterns: []string{"*s8-first.txt"},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		r.setMode(root, "allow")
-		id, mark := r.delegate(root, "s8-first-marker", "s8-first.txt")
-		ask, part := r.childOutcome(id, mark)
-		if ask == nil || ask.Tool != "edit" {
-			t.Fatalf("a task child's first turn under a root on Allow with an exception for this very file: ask=%v part=%+v, want the floor's ask (neither the word nor the exception can be on the child yet)", ask, part)
-		}
-		r.reply(child(id), ask.ID, "reject")
-	})
-
-	t.Run("a root change is re-applied to a tracked child", func(t *testing.T) {
-		root := r.session("s8-reapply", "")
-		id, mark := r.delegate(root, "s8-reapply-marker", "s8-reapply.txt")
-		ask, _ := r.childOutcome(id, mark)
-		if ask == nil {
-			t.Fatal("under Ask the child's edit did not ask")
-		}
-		r.reply(child(id), ask.ID, "once")
-		r.idle(root, mark)
-		if got := permrules.Evaluate(childRules(id), "edit", "x.txt"); got != permrules.Ask {
-			t.Fatalf("the child's rules under a root on Ask say edit = %s", got)
-		}
-		r.setMode(root, "allow")
-		if got := permrules.Evaluate(childRules(id), "edit", "x.txt"); got != permrules.Allow {
-			t.Errorf("the child's rules after the root went to Allow say edit = %s: the change did not reach a live child", got)
-		}
-		r.setMode(root, "deny")
-		// Deny composes as ask since deny-as-ask: the child's block must not
-		// carry a blanket deny (opencode would seed it into the child's own
-		// future children), and the refusal happens by rejection instead —
-		// the "root on Deny" case above proves the child's edit is refused.
-		if got := permrules.Evaluate(childRules(id), "edit", "x.txt"); got != permrules.Ask {
-			t.Errorf("the child's rules after the root went to Deny say edit = %s, want ask (deny-as-ask)", got)
-		}
-		if got := r.oc.PermissionMode(id); got != permrules.Deny {
-			t.Errorf("the child reports mode %s, want its root's", got)
-		}
-	})
-
-	t.Run("the root's exception reaches a later turn of the child", func(t *testing.T) {
-		root := r.session("s8-exception", "")
-		id, mark := r.delegate(root, "s8-ex-marker", "s8-ex-first.txt")
-		ask, _ := r.childOutcome(id, mark)
-		if ask == nil {
-			t.Fatal("no first ask")
-		}
-		r.reply(child(id), ask.ID, "once")
-		r.idle(root, mark)
-		if _, err := r.oc.AddException(r.ctx, r.work, root.ID, permrules.Exception{
-			ID: "ex_s8", Permission: "edit", Patterns: []string{"*s8-ex.txt"},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		ask, part, _ := r.tryCall(child(id), "write", map[string]any{"filePath": filepath.Join(r.work, "s8-ex.txt"), "content": "x"})
-		if ask != nil || part.ToolStatus != backend.ToolCompleted || !r.exists("s8-ex.txt") {
-			t.Errorf("child edit of the excepted file: ask=%v part=%+v exists=%v, want it to run", ask, part, r.exists("s8-ex.txt"))
-		}
-		ask, _, _ = r.tryCall(child(id), "write", map[string]any{"filePath": filepath.Join(r.work, "s8-other.txt"), "content": "x"})
-		if ask == nil {
-			t.Error("the exception covered a file it was not given for")
-		} else {
-			r.reply(child(id), ask.ID, "reject")
-		}
-	})
-}
-
 // opencode takes a session's rules when a turn starts, so a PATCH made while a
 // turn runs (probed live: a mode changed while the turn waited on an ask, with the
 // turn's next step still asking) applies from the next turn. galopin's selector is
@@ -449,7 +318,7 @@ func TestSelectorADeniedMidTurnRejectsThePendingAsk(t *testing.T) {
 	}
 	var rejects int
 	for _, row := range auditPermissionRows(t, r.stateDir) {
-		if row["decision"] == "reject" && row["by"] == "galopin" && row["reason"] == denyRejectMessage {
+		if row["decision"] == "reject" && row["by"] == "galopin" && row["reason"] == decide.PlanReason {
 			rejects++
 		}
 	}
@@ -601,31 +470,17 @@ func TestSelectorS12EveryPermissionNameIsClassified(t *testing.T) {
 	if len(names) < 10 {
 		t.Fatalf("read only %d permission names (%v): the canary is not seeing the binary's vocabulary", len(names), names)
 	}
-	classified := map[string]bool{}
-	for _, n := range permrules.Untouched {
-		classified[n] = true
-	}
-	for _, n := range permrules.Blanket {
-		classified[n] = true
-	}
 	var unknown []string
 	for name, where := range names {
-		if !classified[name] {
+		if !decide.Known(name) {
 			unknown = append(unknown, name+" (from "+where+")")
 		}
 	}
 	sort.Strings(unknown)
 	if len(unknown) > 0 {
-		t.Errorf("permission names opencode knows that permrules classifies neither as Untouched nor as Blanket: %v. "+
-			"Decide for each whether a blanket Allow/Deny should move it, add it to permrules.Untouched or permrules.Blanket, "+
-			"and check what it does under each mode live before shipping this opencode.", unknown)
-	}
-	// Names the table lists that this opencode does not (yet) know are fine —
-	// they are the brief's list, kept for the releases that add them — but say so.
-	for name := range classified {
-		if _, seen := names[name]; !seen {
-			t.Logf("note: %q is classified but this opencode does not name it", name)
-		}
+		t.Errorf("permission names opencode knows that decide.Classify does not know: %v. "+
+			"Decide each one's category (read, edit, bash, web, outside-workspace, spawn, internal, brake, mcp) and add it to decide.Known "+
+			"and decide.Classify before shipping this opencode.", unknown)
 	}
 }
 
@@ -713,9 +568,6 @@ func (r *permRig) rawChild(parent backend.Session) backend.Session {
 		if time.Now().After(deadline) {
 			r.t.Fatalf("galopin never learned that %s is under %s", child.ID, parent.ID)
 		}
-	}
-	if err := r.oc.ApplyChildRules(r.ctx, r.work, child.ID, "general"); err != nil {
-		r.t.Fatal(err)
 	}
 	return child
 }

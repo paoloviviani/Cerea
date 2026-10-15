@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/decide"
 	"galopin/internal/permrules"
 	"galopin/internal/workspaces"
 )
@@ -81,11 +82,12 @@ func (mc *machine) installAgentTools() {
 	}
 	at := newAgentTools(mc, host)
 	mc.agentTools = at
+	mc.delegates = func(caller, target string) bool { return at.IsDelegatePair(caller, target) != notDelegates }
 	host.SetToolHandler(at.handle)
 }
 
 func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
-	return &agentTools{
+	at := &agentTools{
 		mc: mc, host: host, now: time.Now,
 		spawnLog: map[string][]time.Time{}, sendLog: map[string][]time.Time{}, born: map[string]time.Time{},
 		scheduleLog: map[string][]time.Time{},
@@ -93,6 +95,9 @@ func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
 		reports:     newReportState(),
 		retryBase:   2 * time.Second,
 	}
+	// The delegate rule of the decision function (decide.DelegateHook).
+	mc.delegates = func(caller, target string) bool { return at.IsDelegatePair(caller, target) != notDelegates }
+	return at
 }
 
 func refuse(format string, args ...any) error {
@@ -640,43 +645,36 @@ func (at *agentTools) ask(ctx context.Context, tc *toolCaller, call backend.Tool
 // through without a card (decision "allow").
 const reasonAllowedByRules = "rule"
 
-// grant is the machine's rule for one of galopin's two coordination tools,
-// read from the asking session's opencode rules (the agent's, then the ones
-// galopin applied) by the tool's name. deny returns a refusal the model reads;
-// the caller turns allow into no card and ask into one. A backend that cannot
-// show its rules answers ask: a card is the safe reading of "unknown".
+// grant is the decision for one of galopin's coordination tools, made by the
+// one decision function (internal/decide, ADR 0097) from the caller's ROOT
+// state and the machine's policy: Plan refuses, the ceiling and the machine's
+// own ask/deny rules cap, a coordination grant or the machine's own allow
+// lifts a card, and Allow covers spawn and send (reads stay grant-gated).
+// deny returns a refusal the model reads; the caller turns allow into no card
+// and ask into one. A backend with no permission state answers ask: a card is
+// the safe reading of "unknown". grantFor is the same for a call that names a
+// target session, so the delegate relationship (decide.DelegateHook) can apply.
 func (at *agentTools) grant(ctx context.Context, tc *toolCaller, tool string) (permrules.Action, error) {
+	return at.grantFor(ctx, tc, tool, "")
+}
+
+func (at *agentTools) grantFor(_ context.Context, tc *toolCaller, tool, target string) (permrules.Action, error) {
 	rh, ok := at.mc.back.(backend.RuleHost)
 	if !ok {
 		return permrules.Ask, nil
 	}
-	if rh.PermissionMode(tc.session.ID) == permrules.Deny {
-		// The session's word is Deny: refuse before any card and before the
-		// call spends any of the pair's rate budget. The session's rules say
-		// ask for the blanket names (see permrules.ComposeParts) — the
-		// sessions pre-filter would reject the card anyway — but refusing
-		// here keeps the refusal synchronous and the budget untouched.
-		return permrules.Deny, refuse("%s", denyRejectMessage)
+	// The delegate rule (decision step "delegate"): a spawner and the session it
+	// spawned talk without a card, the machine's ceiling and own rules still
+	// capping it. A spawner reads its delegate; the pair sends either way.
+	delegate := target != "" && at.mc.delegates != nil && at.mc.delegates(tc.session.ID, target)
+	if delegate && tool == "session_read" {
+		delegate = at.IsDelegatePair(tc.session.ID, target) == callerSpawned
 	}
-	rules, err := rh.EffectiveRules(ctx, tc.dir, tc.session.ID)
-	if err != nil {
-		// Unreadable rules are not consent.
-		return permrules.Ask, nil
+	act, reason := decide.CoordinationTool(at.mc.decidePolicy(rh), at.mc.rootState(rh, tc.session.ID), tool, delegate)
+	if act == permrules.Deny {
+		return permrules.Deny, refuse("%s", reason)
 	}
-	if permrules.Grant(rules, tool) == permrules.Deny {
-		return permrules.Deny, refuse("this machine's rules do not allow %s", tool)
-	}
-	if rh.PermissionMode(tc.session.ID) == permrules.Allow {
-		// The owner's choice: an Allow session's blanket covers the mutating
-		// session tools the way it already covers `schedule` — the rules read
-		// as they are, the wildcard included. Unreadable rules took the Ask
-		// path above, and the ceiling's tail is last in these rules, so a
-		// ceiling at ask still forces the card and a ceiling at deny the
-		// refusal above; the machine's own literal rule still beats the
-		// blanket. Reads stay grant-gated whatever the word is.
-		return permrules.GrantAllowBlanket(rules, tool), nil
-	}
-	return permrules.Grant(rules, tool), nil
+	return act, nil
 }
 
 // approve is the decision before the ask: when allowed is true the machine's
@@ -739,7 +737,7 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// rate limit below is the hard brake.
 	hopFallback := hop > maxHop
 	// A deny refuses before the send spends any of the pair's rate budget.
-	grant, err := at.grant(ctx, tc, "session_send")
+	grant, err := at.grantFor(ctx, tc, "session_send", targetID)
 	if err != nil {
 		return "", targetID, err
 	}
@@ -766,13 +764,9 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// schedule's coordination grant says.
 	fromSubagent := tc.session.ParentID != "" || at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
 	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent
-	// The delegate relationship (ADR 0099) lets the pair talk without a card;
-	// the hop limit, the workspace, the subagent rule and the machine's own
-	// ask/deny all still hold.
-	if !auto && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent &&
-		at.IsDelegatePair(tc.session.ID, targetID) != notDelegates && !at.machineHolds("session_send") {
-		auto = true
-	}
+	// The delegate relationship (ADR 0099) is part of the grant above (the
+	// decision function's delegate rule); the hop limit, the workspace and the
+	// subagent rule stand over it, and so do the machine's own ask and deny.
 	meta := map[string]any{
 		"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
 		"text":   text, "hop": hop,

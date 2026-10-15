@@ -535,7 +535,7 @@
 			<div class="mt-4">
 				<span class={s.LABEL} id="sched-perm-label">Permission mode</span>
 				<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="sched-perm-label">
-					{#each [["deny", "Deny"], ["ask", "Ask"], ["allow", "Allow"]] as const as [value, label] (value)}
+					{#each [["deny", "Plan"], ["ask", "Ask"], ["allow", "Allow"]] as const as [value, label] (value)}
 						<button
 							type="button"
 							role="radio"

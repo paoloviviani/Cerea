@@ -402,6 +402,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
+	if w := pol.Permission.IncoherentCeiling(); w != "" {
+		fmt.Fprintln(os.Stderr, "warning: "+w+".")
+	}
 	// opencode loads the user's own global config into every session, so a
 	// model pinned there outside Pystino would bypass this gateway (or break
 	// background results once the provider is unreachable). Warn now, while

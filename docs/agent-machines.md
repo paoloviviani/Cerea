@@ -119,7 +119,7 @@ dialog also lists the binaries and `SHA256SUMS` for a manual download, and the
 machines waiting for confirmation.
 
 Nothing here lets a session do "anything": what a session may do is the
-**Deny / Ask / Allow selector** in its composer, inside the limits this dialog
+**Plan / Ask / Allow selector** in its composer, inside the limits this dialog
 sets (see [Permissions](#permissions)).
 
 ### The machine policy
@@ -249,63 +249,82 @@ cap, or add a `--file-deny` entry. Loosening anything back requires
 
 ### The permission posture
 
-**opencode's permission rules decide; Cerea shows their asks.** The machine does
-not run a second permission system next to opencode's. A tool call is allowed,
-refused or asked about by opencode's rules (the last matching rule wins; with
-none, it asks), and an ask appears in the panel as the approval card. The only
-approvals galopin keeps for itself are the ones opencode has no equivalent for
-(`session_read`, `session_spawn` and `session_send`, see
-[Sessions that talk to sessions](#sessions-that-talk-to-sessions)), plus hard
-limits that are not permissions at all (hop and rate limits, the same-workspace
-check on sends).
+**galopin answers every permission ask; it writes no rules into opencode.**
+(ADR 0097 in the ai-stack repository)
+opencode is configured, once per start, so that **every tool call asks** — one
+constant "everything asks" floor, the same for every agent, subagents from their
+first call included. galopin receives each ask and answers it itself: **reject**,
+**once**, or a **card** for you. It never answers "always", and it never writes a
+rule into a session. Your setting (Plan · Ask · Allow), your exceptions and the
+machine's ceiling are galopin's own state, read at each ask, so a change takes
+effect at the very next call, mid-turn included. The approvals galopin keeps for
+itself are the ones with no opencode equivalent (`session_read`, `session_spawn`
+and `session_send`, see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)),
+plus hard limits that are not permissions at all (hop and rate limits, the
+same-workspace check on sends).
 
-Where the rules come from, lowest to highest: opencode's built-in defaults
-(allow everything except a few asks), the `opencode.json` that `enroll` wrote,
-the agent's own rules, then the **session's rules** in this order: the machine's
-own rules, the session's **mode block** (what the Deny / Ask / Allow selector
-sets, below it the agent's own rules for what the selector leaves alone), the
-session's **exceptions**, and the machine's **ceiling** last. The ceiling is
-appended last on every apply, so **it always wins a tie**: nothing the selector
-or an exception asks for can go past it. A rule in the person's own opencode
-config that a later rule replaces is not deleted: the raw list in the
-[Permissions dialog](#permissions) shows it as _overridden by Cerea_ (or by the
-machine's rules, floor or limits).
+**How a call is decided**, first match wins: (1) the machine's ceiling denies it
+→ refused; (2) the ceiling asks → a card, in every setting (nothing an exception
+or Allow says can lift it); (3) on **Plan**, a read inside the project is fine
+and anything that changes something is refused; (4) a spawner and the session it
+spawned talking to each other → fine; (5) a schedule's coordination grant; (6) a
+matching exception → fine; (7) the machine's own `allow` rule; (8) on **Allow**,
+fine; (9) on **Ask**, a read inside the project is fine and everything else is a
+card. A subagent is decided by **its main session's** setting, from its first
+call.
+
+**Reads ask too, and it is cheap.** Measured on this stack, each ask costs
+about 0.2 s at the median (0.3 s at the 95th percentile) for a local round
+trip, small next to a model step.
 
 **What `enroll` and `run` put where.** `enroll` writes `edit`, `bash` and
-`webfetch` as `ask` into the galopin-owned `opencode.json` of a **new** machine,
-so a fresh machine asks before editing, running a command or fetching a URL. A
-machine enrolled earlier keeps the file it has: nothing is migrated, and
-nothing in an old policy is translated into allow rules, since that would
-silently loosen it. Separately, every `run` rebuilds the
-`OPENCODE_CONFIG_CONTENT` opencode is started with, from `policy.json`: the
-ceiling's denies and an ask **floor** for the built-in agents. The floor is what
-a subagent starts from, because opencode creates subagent sessions itself and
-hands them only their parent's _denies_ — otherwise `general` would run with
-`"*": allow`. `enroll` writes `--output` whole (it asks before replacing an
-existing file; `--yes` does not ask), so point it at a dedicated path, or re-add
-your own rules afterwards.
+`webfetch` as `ask` into the galopin-owned `opencode.json` of a **new** machine;
+under the floor that file is now harmless redundancy. Every `run` rebuilds the
+`OPENCODE_CONFIG_CONTENT` opencode is started with: the ask floor plus the
+built-in read-only agents' own denies restated (opencode merges the global
+config after an agent's rules, so a bare ask would otherwise turn `plan`'s and
+`explore`'s denies into asks). At start galopin also reads every agent back; a
+**custom agent's own allows are no longer honoured natively** — they are closed
+with one more start — because the way to give a standing allow is the machine's
+own rules (`--permission-rule KEY=allow`), which sit under the ceiling. A call
+no agent routes through a permission (a custom tool you installed in opencode's
+own config directory) still runs unasked; galopin logs and reports any native
+allow it finds. `enroll` writes `--output` whole (it asks before replacing an
+existing file; `--yes` does not ask), so point it at a dedicated path.
 
 **Machines enrolled before ceilings.** A machine whose `policy.json` predates
 ceilings has none: nothing caps its Allow, so on Allow an edit, a command or a
 fetch runs without asking, in subagents too. It does **not** need a re-enroll to
 ask by default: every session starts on **Ask**, on every machine, enrolled
 earlier or not. The panel does not show such a machine a clean bill. When the
-machine's `hello` reports an empty ceiling and its rules (read through a
-session's Permissions dialog) carry no rules from the file, the dialog
-says up front _"Re-enroll this machine to set limits…"_ with a button into the
-enroll flow, and the machine's row in the sidebar carries the same notice with
-the one-line enroll command. One re-enroll sets a ceiling, and the notice goes
-away when the machine reports one. A machine that reports a ceiling, or whose
-file carries the ask block, is never flagged.
+machine's `hello` reports an empty ceiling and its rules carry no rules from the
+file, the dialog says up front _"Re-enroll this machine to set limits…"_ with a
+button into the enroll flow, and the machine's row in the sidebar carries the
+same notice with the one-line enroll command. One re-enroll sets a ceiling, and
+the notice goes away when the machine reports one.
 
-**The one gap, stated plainly.** If the ceiling lets `bash` run, a command can
-read opencode's server password from its own environment and rewrite its
-session's rules directly — past the ceiling. Everything else is capped: the
-ceiling comes last on every apply, and the selector and exceptions are capped by
-it. That is why `enroll` defaults `bash` to `ask` (`--permission-max bash=ask`),
-and why raising that is a decision about the machine, not the session. Note too
-that `ask` is the one thing standing between a session on Allow and a `bash`
-command: leave it.
+**Sessions from before this version.** An older galopin wrote rules into each
+session, and opencode keeps them for good. On the first message after the
+update galopin adds one final "everything asks" rule to such a session and never
+writes again. It cannot remove what is stored: an old Deny a subagent inherits
+can still refuse that session's new subagents, and an old `external_directory`
+allow can still pass to them. The panel shows the **stuck Deny** banner for
+those sessions only; the way out is to **start a new session**. New sessions
+never have the problem.
+
+**What the ceiling is, stated plainly.** Until the OS sandbox exists, the
+ceiling is galopin refusing or asking about calls it is shown, and **a shell
+can do anything the ask for it does not name**. A ceiling that denies or asks for
+`bash` is meaningful against a hijacked Cerea session; `webfetch=deny` while
+`bash` is allowed is not (a command can fetch). `galopin enroll` and
+`galopin policy set` warn about that combination. The embedded terminal is a
+machine-side setting outside every permission, and enabling it lets a Cerea
+session change the ceiling; so does `bash` that is allowed to run, because a
+command can edit `policy.json` and the config galopin starts opencode with.
+That is why `enroll` defaults `bash` to `ask`, and why raising that is a
+decision about the machine, not the session. An agent reached over ACP asks
+only as far as its own policy does: a tool it runs without asking never
+reaches galopin.
 
 ## The panel
 
@@ -398,7 +417,7 @@ Inside the prompt box, in the chat's own pill idiom:
 - **mode** — the backend's own modes (plan, build, …), listed live rather
   than from a hardcoded set that would drift from what it enforces.
 - **model** — the models the session's backend offers.
-- **permission** — the **Deny · Ask · Allow** selector: what this session does
+- **permission** — the **Plan · Ask · Allow** selector: what this session does
   about a tool call it has no rule for, until you change it. A new session
   starts on **Ask**. It shows what the machine says (never a guess), and a click
   is only reflected once the machine has confirmed it. Under **Allow** it names
@@ -489,7 +508,7 @@ a request you do not want to answer is most of the point of it.
 
 ### Permissions
 
-Every session has one **permission setting**, the **Deny · Ask · Allow**
+Every session has one **permission setting**, the **Plan · Ask · Allow**
 selector in the composer. It covers the whole session until you change it, and
 **new sessions start on Ask**, on every machine, whether enrolled yesterday or
 long ago. It is the machine's word that the selector shows: a click is reflected
@@ -497,17 +516,19 @@ once the machine has confirmed it.
 
 | Setting   | What it does with a tool call the session has no rule for                                      |
 | --------- | ---------------------------------------------------------------------------------------------- |
-| **Deny**  | refuses it, with no card. The agent is told                                                    |
-| **Ask**   | asks you, with the approval card                                                               |
+| **Plan**  | the agent plans and reads; every call that would change something is refused, with no card. The agent is told. Choosing Plan switches the session to opencode's `plan` agent |
+| **Ask**   | asks you, with the approval card (a read inside the project does not ask)                      |
 | **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling you set at enroll) |
 
 **What the setting covers.** Editing (writes and patches), `bash`, `webfetch`,
 `websearch`, `codesearch`, the `task` tool that starts a subagent, and every MCP
-and custom tool follow the setting. **Reading stays allowed on all three**, and
+and custom tool follow the setting. **Reading inside the project stays allowed on all three**, and
 so does the rest of what the agent does to look around and plan: `read` (its
 `.env` files still ask, as the agent's own rules say), `glob`, `grep`, `list`,
 `lsp`, `question`, the todo and plan tools and `skill` keep their normal
-behaviour whatever you choose.
+behaviour whatever you choose, and starting a subagent (`task`) is not a change
+in itself: on **Plan** an explore-style subagent can look around, and its own
+edits are refused by the same Plan setting.
 
 **Two asks survive Allow:** writing **outside the project folder**
 (`external_directory`) and the **stuck-agent brake** (`doom_loop`, an agent
@@ -535,17 +556,16 @@ why the default list stays short. The ceiling still has the last word — with
 `external_directory` capped at ask or deny, the safe directories ask or are
 refused like everything else.
 
-**A subagent follows the session's setting from its first turn.** opencode
-starts a subagent before Cerea can hand it your setting, and it judges that
-first turn by its own starting rules, which ask. On **Allow**, galopin answers
-that ask for you when the session's rules allow it, so the subagent runs without
-a card, as the setting says. The machine's limit still holds: where it says
-`bash` asks (the default), the subagent's `bash` asks too, and so does a root
-on **Ask**. Such an ask is an ordinary card.
+**A subagent follows the session's setting from its first turn.** Its asks are
+decided by its main session's setting, exceptions and the machine's limit, like
+any other call: on **Allow** it runs without a card, on **Ask** it asks, on
+**Plan** it is refused at its first call that would change something. The
+machine's limit still holds: where it says `bash` asks (the default), the
+subagent's `bash` asks too.
 
 **The approval card.** When a tool call asks, the card offers **Allow once**,
 **Always allow (this session)** and **Deny**. The panel relays your answer
-unchanged: **opencode's rules decide**.
+unchanged to galopin, which answers opencode once.
 
 - **Always allow (this session)** adds an **exception** for that command or
   pattern, **for this session only**, on top of the setting: it is not a
@@ -556,14 +576,14 @@ unchanged: **opencode's rules decide**.
 - **Deny** refuses that call and tells the agent. It ends every other pending
   ask in the session.
 
-**Exceptions** are kept while the setting is **Deny** and blocked then: Deny
+**Exceptions** are kept while the setting is **Plan** and blocked then: Plan
 beats them. Switching back to **Ask** restores them, and on **Allow** they are
 redundant but harmless. They are removed one by one from the Permissions
 dialog.
 
 **The Permissions dialog** opens from a session's ⋯ menu (the
 **Permissions…** item, not offered on a subagent, which follows its main
-session) or from the shield button beside the **Deny · Ask · Allow** selector
+session) or from the shield button beside the **Plan · Ask · Allow** selector
 in the composer; the transcript and its approval cards stay in view while you
 read it. It is titled _Permissions — <session title>_ and reads that session's
 rules itself, so it can be opened for any row, selected or not. Besides the

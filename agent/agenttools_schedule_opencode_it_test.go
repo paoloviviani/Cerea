@@ -426,7 +426,7 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		s := newSession("it-sched-deny-other", permrules.Deny)
 		route("trigger-sched-deny-other", "schedule_update", map[string]any{"id": "sched-other", "changes": map[string]any{"paused": true}})
 		part, mark, cmark := run(s, "trigger-sched-deny-other", "schedule_update")
-		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "Deny") {
+		if part.ToolStatus != backend.ToolFailed || !strings.Contains(part.ToolError, "Plan") {
 			t.Fatalf("schedule_update = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
 		}
 		if n := len(hub.asks(mark, s.ID)); n != 0 {

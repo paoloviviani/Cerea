@@ -116,6 +116,29 @@ func (p Permission) Ceiling() permrules.Ceiling {
 	return c
 }
 
+// IncoherentCeiling explains a ceiling that restricts what a shell can do
+// anyway: a limit on edit, webfetch, websearch or codesearch while bash is
+// uncapped. Until the OS sandbox exists the ceiling is galopin refusing the
+// asks it is shown, and a command can edit, fetch and search on its own, so
+// such a ceiling holds against nothing a hijacked session would try. "" when
+// the ceiling is coherent.
+func (p Permission) IncoherentCeiling() string {
+	c := p.Ceiling()
+	if c.Of("bash") != permrules.Allow {
+		return ""
+	}
+	var capped []string
+	for _, k := range []string{"edit", "webfetch", "websearch", "codesearch"} {
+		if c.Of(k) != permrules.Allow {
+			capped = append(capped, k+"="+string(c.Of(k)))
+		}
+	}
+	if len(capped) == 0 {
+		return ""
+	}
+	return "this ceiling limits " + strings.Join(capped, ", ") + " but leaves bash uncapped; a shell command can do all of that, so the limit holds against nothing a hijacked session would try. Cap bash too (--permission-max bash=ask) — until the OS sandbox exists the ceiling is advisory against bash"
+}
+
 // OwnRules is Rules as the rule package's type, sorted.
 func (p Permission) OwnRules() []permrules.Rule {
 	m := map[string]permrules.Action{}

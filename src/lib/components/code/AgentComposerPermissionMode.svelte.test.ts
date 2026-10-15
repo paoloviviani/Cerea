@@ -6,7 +6,7 @@ import { flagCodeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
 import type { CodeAgentSession } from "$lib/types/CodeAgent";
 
 /**
- * The permission selector, Deny · Ask · Allow: the session's blanket until
+ * The permission selector, Plan · Ask · Allow (Plan is the wire's `deny`): the session's blanket until
  * changed. What this file pins:
  * - it shows the machine's word (`agent.permissionMode`) and never a guess:
  *   a click sends one op and the segment moves only when the snapshot does;
@@ -31,6 +31,7 @@ const api = vi.hoisted(() => ({
 			ceiling: Record<string, string>;
 		}> => ({ rules: [], savedApprovals: [], ceiling: {} })
 	),
+	setAgentMode: vi.fn(async (..._args: unknown[]) => ({})),
 	removeSavedApproval: vi.fn(async () => ({ ok: true })),
 	respondPermission: vi.fn(async () => ({ ok: true })),
 }));
@@ -65,6 +66,7 @@ function mount(
 	extra: {
 		ceiling?: Record<string, "ask" | "deny">;
 		permissionExceptions?: number;
+		modes?: Array<{ id: string; label: string; description: string }> | null;
 		onchanged?: () => void;
 		onpermissionchanged?: () => void;
 	} = {}
@@ -81,6 +83,11 @@ function mount(
 	});
 }
 
+const MODES = [
+	{ id: "build", label: "build", description: "" },
+	{ id: "plan", label: "plan", description: "" },
+];
+
 const segment = (screen: ReturnType<typeof mount>, mode: string) =>
 	screen.getByTestId(`permission-mode-${mode}`);
 
@@ -91,12 +98,12 @@ beforeEach(async () => {
 });
 
 describe("the permission selector", () => {
-	it("is three segments, Deny · Ask · Allow, with the machine's word selected", async () => {
+	it("is three segments, Plan · Ask · Allow, with the machine's word selected", async () => {
 		const screen = mount(session({ permissionMode: "allow" }));
 		const group = screen.getByRole("radiogroup", { name: "Permission for this session" });
 		await expect.element(group).toBeVisible();
 		const radios = group.getByRole("radio").elements();
-		expect(radios.map((el) => el.textContent?.trim())).toEqual(["Deny", "Ask", "Allow"]);
+		expect(radios.map((el) => el.textContent?.trim())).toEqual(["Plan", "Ask", "Allow"]);
 		await expect.element(segment(screen, "allow")).toHaveAttribute("aria-checked", "true");
 		await expect.element(segment(screen, "ask")).toHaveAttribute("aria-checked", "false");
 		await expect.element(segment(screen, "deny")).toHaveAttribute("aria-checked", "false");
@@ -295,5 +302,42 @@ describe("the permission details button", () => {
 		await vi.waitFor(() => expect(onpermissionchanged).toHaveBeenCalledTimes(1));
 		// One read on open, one after the removal: the dialog's own re-read.
 		await vi.waitFor(() => expect(api.getPermissionRules).toHaveBeenCalledTimes(2));
+	});
+});
+
+describe("the selector drives the build and plan agents", () => {
+	const MODE_PILL = "[title^='How much the agent may do on its own']";
+
+	it("Plan switches a build session to the plan agent, after the word is set", async () => {
+		const screen = mount(session({ permissionMode: "ask", modeId: "build" }), { modes: MODES });
+		await segment(screen, "deny").click();
+		await vi.waitFor(() => expect(api.setPermissionMode).toHaveBeenCalledWith("d1", "a1", "deny"));
+		await vi.waitFor(() => expect(api.setAgentMode).toHaveBeenCalledWith("d1", "a1", "plan"));
+	});
+
+	it("Ask and Allow switch a plan session back to build", async () => {
+		const screen = mount(session({ permissionMode: "deny", modeId: "plan" }), { modes: MODES });
+		await segment(screen, "allow").click();
+		await vi.waitFor(() => expect(api.setAgentMode).toHaveBeenCalledWith("d1", "a1", "build"));
+	});
+
+	it("never switches away a custom agent the person picked", async () => {
+		const modes = [...MODES, { id: "reviewer", label: "reviewer", description: "" }];
+		const screen = mount(session({ permissionMode: "ask", modeId: "reviewer" }), { modes });
+		await segment(screen, "deny").click();
+		await vi.waitFor(() => expect(api.setPermissionMode).toHaveBeenCalledTimes(1));
+		expect(api.setAgentMode).not.toHaveBeenCalled();
+	});
+
+	it("hides the agent picker when only build and plan exist, and keeps it for a custom agent", async () => {
+		const only = mount(session({ modeId: "build" }), { modes: MODES });
+		await expect.element(segment(only, "ask")).toBeVisible();
+		expect(document.querySelector(MODE_PILL)).toBeNull();
+		only.unmount();
+		const withCustom = mount(session({ modeId: "build" }), {
+			modes: [...MODES, { id: "reviewer", label: "reviewer", description: "" }],
+		});
+		await expect.element(segment(withCustom, "ask")).toBeVisible();
+		expect(document.querySelector(MODE_PILL)).not.toBeNull();
 	});
 });

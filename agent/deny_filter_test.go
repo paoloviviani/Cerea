@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"galopin/internal/decide"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -62,7 +62,7 @@ func TestDenyFilterRejectsARootAskWithNoCard(t *testing.T) {
 	if d != backend.DecisionReject {
 		t.Errorf("reply = %s, want reject", d)
 	}
-	if msg != denyRejectMessage {
+	if msg != decide.PlanReason {
 		t.Errorf("reply message = %q, want the Deny message", msg)
 	}
 	if n := mc.mat.PendingPermissions("s1"); n != 0 {
@@ -81,7 +81,7 @@ func TestDenyFilterRejectsARootAskWithNoCard(t *testing.T) {
 	if row["decision"] != "reject" || row["by"] != "galopin" || row["session"] != "s1" || row["requestId"] != "per_1" {
 		t.Errorf("audit row = %v, want decision reject by galopin", row)
 	}
-	if row["reason"] != denyRejectMessage {
+	if row["reason"] != decide.PlanReason {
 		t.Errorf("audit reason = %v, want the Deny message", row["reason"])
 	}
 }
@@ -110,26 +110,36 @@ func TestDenyFilterRejectsAChildAsk(t *testing.T) {
 
 // Ask and Allow roots are left alone: the ask is materialised, nothing is
 // answered, and the child-ask hook still fires for child asks.
-func TestDenyFilterLeavesAskAndAllowRootsAlone(t *testing.T) {
-	for _, mode := range []permrules.Action{permrules.Ask, permrules.Allow} {
-		mc, rb, _ := denyMachine(t, mode)
-		askFor(mc, "per_1", "bash")
-		deadline := time.Now().Add(2 * time.Second)
-		for {
-			rb.mu.Lock()
-			n := len(rb.replies)
-			rb.mu.Unlock()
-			if n > 0 {
-				t.Fatalf("%s: the filter answered an ask it must leave alone", mode)
-			}
-			if time.Now().After(deadline) {
-				break
-			}
-			time.Sleep(25 * time.Millisecond)
-		}
-		if n := mc.mat.PendingPermissions("s1"); n != 1 {
-			t.Errorf("%s: pending = %d, want the materialised ask", mode, n)
-		}
+func TestAskRootsGetACardAndAllowRootsGetOnce(t *testing.T) {
+	// Ask: a bash ask is a card, nothing answered.
+	mc, rb, _ := denyMachine(t, permrules.Ask)
+	askFor(mc, "per_1", "bash")
+	time.Sleep(200 * time.Millisecond)
+	rb.mu.Lock()
+	n := len(rb.replies)
+	rb.mu.Unlock()
+	if n != 0 {
+		t.Errorf("ask: the filter answered an ask that is a card")
+	}
+	if got := mc.mat.PendingPermissions("s1"); got != 1 {
+		t.Errorf("ask: pending = %d, want the materialised card", got)
+	}
+	// Allow: galopin answers once, with no card (the default policy's ceiling
+	// leaves edit alone).
+	mc, rb, _ = denyMachine(t, permrules.Allow)
+	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{
+		WorkspaceDir: "/x", SessionID: "s1",
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_2", SessionID: "s1", Tool: "edit", Patterns: []string{"a.go"}}},
+	})
+	waitReplies(t, rb, 1)
+	rb.mu.Lock()
+	d := rb.replies[0]
+	rb.mu.Unlock()
+	if d != backend.DecisionOnce {
+		t.Errorf("allow: reply = %s, want once", d)
+	}
+	if got := mc.mat.PendingPermissions("s1"); got != 0 {
+		t.Errorf("allow: pending = %d, want no card", got)
 	}
 }
 
@@ -137,7 +147,7 @@ func TestDenyFilterLeavesAskAndAllowRootsAlone(t *testing.T) {
 // subagents: each goes out with DecisionReject + the Deny message, audited
 // like rejectDenyAsk, and none is left pending.
 func TestSwitchToDenyRejectsPendingAsks(t *testing.T) {
-	mc, rb, dir := denyMachine(t, permrules.Allow)
+	mc, rb, dir := denyMachine(t, permrules.Ask)
 	ctx := context.Background()
 	askFor(mc, "per_1", "bash")
 	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/x", SessionID: "kid", Event: backend.Event{
@@ -159,7 +169,7 @@ func TestSwitchToDenyRejectsPendingAsks(t *testing.T) {
 		if d != backend.DecisionReject {
 			t.Errorf("reply %d = %s, want reject", i, d)
 		}
-		if rb.messages[i] != denyRejectMessage {
+		if rb.messages[i] != decide.PlanReason {
 			t.Errorf("reply %d message = %q, want the Deny message", i, rb.messages[i])
 		}
 	}
@@ -168,7 +178,7 @@ func TestSwitchToDenyRejectsPendingAsks(t *testing.T) {
 	}
 	var rejects int
 	for _, r := range auditRows(t, dir) {
-		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == denyRejectMessage {
+		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == decide.PlanReason {
 			rejects++
 		}
 	}
@@ -230,7 +240,7 @@ func TestSyncSweepRejectsSeededDenyAsk(t *testing.T) {
 	if rb.replies[0] != backend.DecisionReject {
 		t.Errorf("reply = %s, want reject", rb.replies[0])
 	}
-	if rb.messages[0] != denyRejectMessage {
+	if rb.messages[0] != decide.PlanReason {
 		t.Errorf("reply message = %q, want the Deny message", rb.messages[0])
 	}
 	if n := mc.mat.PendingPermissions("s1"); n != 0 {
@@ -243,10 +253,10 @@ func TestSyncSweepRejectsSeededDenyAsk(t *testing.T) {
 	// time beside the filter would show two rows here.
 	waitAuditRow(t, stateDir, func(r map[string]any) bool {
 		return r["action"] == "permission" && r["decision"] == "reject" &&
-			r["by"] == "galopin" && r["reason"] == denyRejectMessage
+			r["by"] == "galopin" && r["reason"] == decide.PlanReason
 	})
 	for _, r := range auditRows(t, stateDir) {
-		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == denyRejectMessage {
+		if r["action"] == "permission" && r["decision"] == "reject" && r["by"] == "galopin" && r["reason"] == decide.PlanReason {
 			rejects++
 		}
 	}
@@ -284,22 +294,5 @@ func TestDenyFilterConsumesGalopinAsks(t *testing.T) {
 	waitReplies(t, rb, 1)
 	if n := mc.mat.PendingPermissions("s1"); n != 0 {
 		t.Errorf("pending = %d, want 0", n)
-	}
-}
-
-// The two hooks cannot answer the same request: answerChildAsk never touches
-// a Deny root (the filter owns those), and the filter never touches a root
-// answerChildAsk could allow.
-func TestAnswerChildAskSkipsDenyRoots(t *testing.T) {
-	mc, rb, _ := denyMachine(t, permrules.Deny)
-	mc.answerChildAsk("/x", backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "bash", Patterns: []string{"ls"}})
-	rb.mu.Lock()
-	n := len(rb.replies)
-	rb.mu.Unlock()
-	if n != 0 {
-		t.Errorf("answerChildAsk answered under a Deny root: the filter owns those")
-	}
-	if !strings.HasPrefix(denyRejectMessage, "This session is set to Deny:") {
-		t.Errorf("the Deny message changed shape: %q", denyRejectMessage)
 	}
 }

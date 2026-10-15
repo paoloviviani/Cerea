@@ -1,21 +1,21 @@
 package opencode
 
-// The permission pass-through's opencode half (PROTOCOL.md §6 "Permissions").
-// opencode owns every tool permission; this file is where galopin puts what
-// opencode cannot know — the machine's own rules and its ceiling, and the
-// Deny/Ask/Allow selector a person set on the session with the exceptions they
-// made — into the rules a session carries, and takes the one liberty the
-// pass-through needs, restarting the process, when the ceiling tightens.
+// The permission pass-through's opencode half (PROTOCOL.md §6 "Permissions",
+// ADR 0097). galopin answers opencode's permission asks and writes no rules
+// into its sessions: the selector, the exceptions and the coordination grant
+// live in the overlay and are read by the decision function (internal/decide),
+// and opencode's own config carries one constant "everything asks" floor
+// (floor.go). The only thing ever written to a session's stored rules is ONE
+// neutralising rule on a session that already had rules from an older galopin
+// (prepareSession), because opencode's rules are append-only and a stored
+// allow would otherwise let a call through unasked.
 //
-// What opencode does with them, read from the 1.18.32 binary: a session's
-// rules sit above config and agent rules and below in-memory "always"
-// approvals; the LAST matching rule wins; a subagent inherits only its
-// parent's denies; PATCH /session/:id {permission} APPENDS to the session's
-// rules; and the deprecated `tools` map replaces them wholesale.
+// What opencode does, read from the 1.18.34 source: a session's rules sit after
+// the agent's and the LAST matching rule wins; a subagent inherits only its
+// parent's denies and external_directory rules; PATCH /session/:id APPENDS.
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -52,8 +52,8 @@ type agentRulesEntry struct {
 
 // permState is the Backend's permission bookkeeping.
 type permState struct {
-	// mu serializes applying rules, so two prompts racing on one session do
-	// not both PATCH.
+	// mu serializes selector changes and the one-time legacy check, so two
+	// prompts racing on one session do not both PATCH.
 	mu sync.Mutex
 
 	agentMu    sync.Mutex
@@ -65,6 +65,15 @@ type permState struct {
 	staleMu sync.Mutex
 	stale   map[string]staleEntry // by root session id
 
+	// floorMu guards the floor's start-time state: the per-agent patch that
+	// closes custom agents' own allows, and the last check's findings.
+	// checked is the roots prepareSession has looked at in this process.
+	checked map[string]bool
+
+	floorMu       sync.Mutex
+	floorPatch    map[string]any
+	floorBreaches []string
+
 	// childAgent remembers which agent a subagent session runs, once the
 	// materializer has read it from the parent's task call.
 	childMu    sync.Mutex
@@ -75,23 +84,13 @@ type permState struct {
 	parentOf map[string]string
 }
 
-// staleEntry is the cached stale-deny verdict for one root: whether the rules
-// opencode keeps for it carry a blanket deny the current composition no
-// longer contains (stale: an old Deny block), or a deny the ceiling no longer
-// imposes (policy: an earlier machine policy); the fingerprint of the stored
-// rules the verdict was computed from; and the inputs at check time — the
-// fingerprint of our own composition (composed), of the last rules we sent
-// (sent), and how many stored rules we saw (count). The stored rules move
-// only when we PATCH (every send updates the overlay fingerprint), so an
-// unchanged composition and an unchanged last-sent block mean the verdict
-// cannot have moved and the GET is skipped. A restart starts with an empty
-// cache and recomputes; so does any prompt after we PATCH.
+// staleEntry is the cached stale-deny verdict for one legacy root: whether
+// the rules opencode keeps for it carry a blanket deny from an old galopin
+// (stale) or a deny the ceiling no longer imposes (policy). Computed once per
+// process from the stored rules; new sessions never have any.
 type staleEntry struct {
-	fp       string
-	stale    bool
-	policy   bool
-	composed string
-	sent     string
+	stale  bool
+	policy bool
 }
 
 // layers is the machine's current inputs (empty when none are configured).
@@ -260,72 +259,6 @@ func (b *Backend) selectorOf(sessionID string) permrules.Selector {
 	return b.getOverlay(b.rootOf(sessionID)).Selector
 }
 
-// composeFor is the rules a session running agent gets now. It always
-// composes: a session nobody set is on Ask, so even a machine whose policy
-// predates permissions (no rules, no ceiling) asks before it writes. The
-// agent's rules are what the blanket is restated over (permrules.Compose), so
-// when they cannot be read it fails: a blanket applied blind could soften a
-// deny, and an unapplied one is no selector.
-func (b *Backend) composeFor(ctx context.Context, dir, agent, sessionID string) ([]permrules.Rule, error) {
-	l := b.layers()
-	agentRules, err := b.agentRuleset(ctx, dir, agent)
-	if err != nil {
-		return nil, fmt.Errorf("galopin could not read opencode's rules for agent %q, so it cannot apply this machine's permission rules: %w", agent, err)
-	}
-	sel := b.selectorOf(sessionID)
-	if b.isChild(sessionID) {
-		return permrules.ChildRules(l, sel, agentRules), nil
-	}
-	return permrules.Compose(l, sel, agentRules), nil
-}
-
-// patchRules appends rules to a session's own (opencode merges them in order).
-func (b *Backend) patchRules(ctx context.Context, sessionID string, rules []permrules.Rule) error {
-	return b.doJSON(ctx, http.MethodPatch, "/session/"+url.PathEscape(sessionID), map[string]any{"permission": rules}, nil)
-}
-
-// ensureRules makes the session carry the rules it should for the agent about
-// to run, sending them only when they differ from what it was last given (the
-// overlay remembers a fingerprint across restarts). It runs before every
-// prompt, so a session created before the ceiling tightened, or one whose mode
-// just changed, is never prompted under stale rules.
-func (b *Backend) ensureRules(ctx context.Context, dir, sessionID, agent string) error {
-	if b.cfg.Permissions == nil {
-		return nil
-	}
-	b.perm.mu.Lock()
-	defer b.perm.mu.Unlock()
-	return b.ensureRulesLocked(ctx, dir, sessionID, agent)
-}
-
-// ensureRulesLocked is ensureRules with perm.mu held.
-func (b *Backend) ensureRulesLocked(ctx context.Context, dir, sessionID, agent string) error {
-	rules, err := b.composeFor(ctx, dir, agent, sessionID)
-	if err != nil {
-		return err
-	}
-	ov := b.getOverlay(sessionID)
-	fp := permrules.Fingerprint(rules)
-	if ov.RulesFP == fp {
-		// No PATCH: the stale verdict is recomputed only if our own
-		// composition moved since the last check — detectStaleDeny skips
-		// its read of the stored rules otherwise.
-		b.detectStaleDeny(ctx, dir, sessionID)
-		return nil
-	}
-	if len(rules) > 0 {
-		if err := b.patchRules(ctx, sessionID, rules); err != nil {
-			return fmt.Errorf("applying this machine's permission rules to the session: %w", err)
-		}
-	}
-	ov.RulesFP = fp
-	if err := b.setOverlay(sessionID, ov); err != nil {
-		return err
-	}
-	b.detectStaleDeny(ctx, dir, sessionID)
-	return nil
-}
-
 // StoredRules reads the session's rules as opencode keeps them (GET
 // /session/{id} → permission). opencode only appends, so what it returns is
 // the whole history of composed blocks, including ones from before a
@@ -338,51 +271,6 @@ func (b *Backend) StoredRules(ctx context.Context, sessionID string) ([]permrule
 		return nil, err
 	}
 	return m.Permission, nil
-}
-
-// detectStaleDeny refreshes the cached stale-deny verdict for sessionID's
-// root: whether the rules opencode keeps for it carry a stale blanket deny
-// (an old Deny block, kept forever because opencode's rules are append-only,
-// which opencode seeds into every future child's first turn). Best effort —
-// a verdict must never fail a prompt — so every failure only logs and leaves
-// the cached value. Caller holds perm.mu.
-//
-// The GET /session/{root} is skipped when nothing on our side moved since
-// the last verdict: our composition is recomputed first (the agent ruleset
-// is cached, so that is cheap), and an unchanged composition fingerprint
-// plus an unchanged last-sent block (the overlay fingerprint, which every
-// PATCH updates) means the stored rules — which move only when we send —
-// cannot have moved either.
-func (b *Backend) detectStaleDeny(ctx context.Context, dir, sessionID string) {
-	root := b.rootOf(sessionID)
-	composed, err := b.composeFor(ctx, dir, b.agentFor(root), root)
-	if err != nil {
-		b.cfg.Logf("opencode: composing the current rules for stale-deny detection: %v", err)
-		return
-	}
-	composedFp := permrules.Fingerprint(composed)
-	sentFp := b.getOverlay(root).RulesFP
-	b.perm.staleMu.Lock()
-	e, ok := b.perm.stale[root]
-	if ok && e.composed == composedFp && e.sent == sentFp {
-		b.perm.staleMu.Unlock()
-		return
-	}
-	b.perm.staleMu.Unlock()
-	stored, err := b.StoredRules(ctx, root)
-	if err != nil {
-		b.cfg.Logf("opencode: reading the stored rules for stale-deny detection: %v", err)
-		return
-	}
-	fp := permrules.Fingerprint(stored)
-	stale := permrules.FindStaleBlanketDeny(stored, composed)
-	policy := permrules.FindStalePolicyDenies(stored, composed, b.layers().Ceiling)
-	b.perm.staleMu.Lock()
-	if b.perm.stale == nil {
-		b.perm.stale = map[string]staleEntry{}
-	}
-	b.perm.stale[root] = staleEntry{fp: fp, stale: stale, policy: policy, composed: composedFp, sent: sentFp}
-	b.perm.staleMu.Unlock()
 }
 
 // StaleDeny implements backend.RuleHost: the cached verdict for sessionID's
@@ -403,120 +291,6 @@ func (b *Backend) StalePolicy(sessionID string) bool {
 	defer b.perm.staleMu.Unlock()
 	return b.perm.stale[root].policy
 }
-
-// EnsureRules is ensureRules for the session's current agent, for the machine
-// layer to re-apply after the ceiling changed.
-func (b *Backend) EnsureRules(ctx context.Context, workspaceDir, sessionID string) error {
-	return b.ensureRules(ctx, workspaceDir, sessionID, b.agentFor(sessionID))
-}
-
-// ApplyChildRules gives a subagent session opencode created its root's selector
-// and the ceiling. The child already has its parent's denies; what it lacks is
-// the root's mode block and exceptions and the ceiling's caps, and none of the
-// machine's own rules reach it (an allow must not) — only their restrictions, as
-// caps. agent is the subagent type read from the parent's task call, "" when it
-// is not known yet: then only denies are applied, since a blanket restated blind
-// could soften a read-only agent. Best effort by nature — a first tool call can
-// win the race — which is what the agent-level floor is for.
-func (b *Backend) ApplyChildRules(ctx context.Context, workspaceDir, sessionID, agent string) error {
-	if b.cfg.Permissions == nil {
-		return nil
-	}
-	b.perm.mu.Lock()
-	defer b.perm.mu.Unlock()
-	b.perm.childMu.Lock()
-	if b.perm.childAgent == nil {
-		b.perm.childAgent = map[string]string{}
-	}
-	if agent != "" {
-		b.perm.childAgent[sessionID] = agent
-	}
-	// Not told: the title's hint, if there is one.
-	agent = b.perm.childAgent[sessionID]
-	b.perm.childMu.Unlock()
-	return b.applyChildLocked(ctx, workspaceDir, sessionID, agent)
-}
-
-// ChildAskAction evaluates an ask a subagent session raised against the rules
-// it is entitled to (see permrules.ChildRules), without touching the session:
-// opencode takes a session's rules when a turn starts, so a child's first call
-// is asked by the agent-level floor before ApplyChildRules can land, and this
-// is how the machine tells that ask from one the root's mode or the ceiling
-// really wants.
-func (b *Backend) ChildAskAction(ctx context.Context, dir, sessionID, agent, tool string, patterns []string) permrules.Action {
-	if b.cfg.Permissions == nil || agent == "" || !b.isChild(sessionID) {
-		return permrules.Ask
-	}
-	agentRules, err := b.agentRuleset(ctx, dir, agent)
-	if err != nil {
-		return permrules.Ask
-	}
-	rules := permrules.ChildRules(b.layers(), b.selectorOf(sessionID), agentRules)
-	if len(patterns) == 0 {
-		patterns = []string{"*"}
-	}
-	out := permrules.Allow
-	for _, p := range patterns {
-		out = permrules.Min(out, permrules.Evaluate(rules, tool, p))
-	}
-	return out
-}
-
-// applyChildLocked composes and sends a child's rules. Caller holds perm.mu.
-func (b *Backend) applyChildLocked(ctx context.Context, dir, sessionID, agent string) error {
-	l := b.layers()
-	sel := b.selectorOf(sessionID)
-	var rules []permrules.Rule
-	known := agent != ""
-	if known {
-		agentRules, err := b.agentRuleset(ctx, dir, agent)
-		if err != nil {
-			known = false
-		} else {
-			rules = permrules.ChildRules(l, sel, agentRules)
-		}
-	}
-	if !known {
-		rules = denyOnly(l.ChildCeiling())
-		if sel.Effective() == permrules.Deny {
-			// Deny restricts whatever the agent is, but by rejection, not by
-			// rule (see permrules.ComposeParts): the blanket's own names ask
-			// until the agent is known and the whole block lands, and the
-			// sessions pre-filter rejects the asks. A deny written here
-			// would poison the child's own stored rules — opencode seeds a
-			// grandchild with its parent's denies — for no enforcement gain.
-			for _, k := range permrules.Blanket {
-				rules = append(rules, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Ask})
-			}
-		}
-	}
-	ov := b.getOverlay(sessionID)
-	fp := permrules.Fingerprint(rules)
-	if ov.RulesFP == fp {
-		return nil
-	}
-	if len(rules) > 0 {
-		if err := b.patchRules(ctx, sessionID, rules); err != nil {
-			return err
-		}
-	}
-	ov.RulesFP = fp
-	return b.setOverlay(sessionID, ov)
-}
-
-// denyNote rides on every prompt of a session on Deny, as the turn's extra
-// system prompt (prompt_async's `system` field).
-// Under Deny the tools stay in the model's tool list — a deny is enforced by
-// rejection, not by hiding (see permrules.ComposeParts) — and every call is
-// refused with the Deny message before any card. A model told that says what
-// it would run and asks for the setting to change instead of burning calls
-// on refusals it cannot pass.
-const denyNote = "The person has set this session to Deny. Running commands, " +
-	"editing or writing files, fetching from the web and starting subagents are " +
-	"switched off: every such call is refused, so do not make any. " +
-	"Reading and searching the project still work. If the request needs a " +
-	"switched-off tool, do not substitute another tool for it: say what you would " +
-	"run or change, and ask the person to switch the session to Ask or Allow."
 
 // PermissionMode implements backend.RuleHost.
 func (b *Backend) PermissionMode(sessionID string) permrules.Action {
@@ -571,154 +345,6 @@ func (b *Backend) RemoveException(ctx context.Context, workspaceDir, sessionID, 
 		return next, nil
 	})
 	return found, err
-}
-
-// updateSelector changes the ROOT session's selector and re-applies the rules to
-// the root and to every subagent under it, so a change reaches a child that is
-// already running and not only the ones that appear later. A root that cannot
-// be given its new rules keeps its old selector: what is shown must be what is
-// enforced. A subagent that cannot be reached keeps the change (the root already
-// carries it, and the next re-application retries the child, its fingerprint
-// being stale) but the error is returned, because a Deny that did not land on a
-// running child must not be reported as done — except one opencode answered 404
-// for: that child was deleted, so it is forgotten (forgetChild) and the change
-// is reported as done instead of failing on it for ever.
-func (b *Backend) updateSelector(ctx context.Context, dir, sessionID string, change func(permrules.Selector) (permrules.Selector, error)) error {
-	b.perm.mu.Lock()
-	defer b.perm.mu.Unlock()
-	root := b.rootOf(sessionID)
-	ov := b.getOverlay(root)
-	prev := ov.Selector
-	next, err := change(prev)
-	if err != nil {
-		return err
-	}
-	ov.Selector = next
-	if err := b.setOverlay(root, ov); err != nil {
-		return err
-	}
-	if b.cfg.Permissions == nil {
-		return nil
-	}
-	if err := b.ensureRulesLocked(ctx, dir, root, b.agentFor(root)); err != nil {
-		ov = b.getOverlay(root)
-		ov.Selector = prev
-		_ = b.setOverlay(root, ov)
-		return err
-	}
-	var failed []string
-	for _, child := range b.descendantsOf(root) {
-		b.perm.childMu.Lock()
-		agent := b.perm.childAgent[child]
-		b.perm.childMu.Unlock()
-		if err := b.applyChildLocked(ctx, dir, child, agent); err != nil {
-			if notFound(err) {
-				// opencode no longer has the child: it was deleted. Forget
-				// it so the next change stops retrying it, and do not fail
-				// the change on a session that no longer exists.
-				b.forgetChild(child)
-				continue
-			}
-			failed = append(failed, fmt.Sprintf("%s: %v", child, err))
-		}
-	}
-	if len(failed) > 0 {
-		return fmt.Errorf("the session's rules changed, but a subagent under it could not be given them (%s)", strings.Join(failed, "; "))
-	}
-	return nil
-}
-
-// denyOnly is the part of a ceiling that can be applied without knowing the
-// agent: its denies.
-func denyOnly(c permrules.Ceiling) []permrules.Rule {
-	var out []permrules.Rule
-	for _, k := range c.Keys() {
-		if c.Of(k) == permrules.Deny {
-			out = append(out, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Deny})
-		}
-	}
-	return out
-}
-
-// EffectiveRules implements backend.RuleHost: the session's agent's rules,
-// then the ones galopin applies on top, in the order opencode evaluates them.
-func (b *Backend) EffectiveRules(ctx context.Context, workspaceDir, sessionID string) ([]permrules.Rule, error) {
-	l, err := b.RuleLayers(ctx, workspaceDir, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return l.Plain(), nil
-}
-
-// RuleLayers implements backend.RuleHost. opencode hands back an agent's
-// ruleset merged, with no record of which layer a rule came from, so the
-// sources are attributed here: walking the list from its end, a rule that is
-// one galopin's floor wrote for this agent is "floor", one the static
-// opencode.json holds is "file", and the rest are opencode's own ("default").
-func (b *Backend) RuleLayers(ctx context.Context, workspaceDir, sessionID string) (backend.RuleLayers, error) {
-	agent := b.agentFor(sessionID)
-	agentRules, err := b.agentRuleset(ctx, workspaceDir, agent)
-	if err != nil {
-		return backend.RuleLayers{}, err
-	}
-	l := b.layers()
-	out := backend.RuleLayers{Agent: agent}
-
-	floor := l.FloorRules(agent)
-	file := b.fileRules()
-	sources := make([]string, len(agentRules))
-	for i := len(agentRules) - 1; i >= 0; i-- {
-		sources[i] = backend.SourceDefault
-		if k := indexRule(floor, agentRules[i]); k >= 0 {
-			floor = append(floor[:k:k], floor[k+1:]...)
-			sources[i] = backend.SourceFloor
-		} else if k := indexRule(file, agentRules[i]); k >= 0 {
-			file = append(file[:k:k], file[k+1:]...)
-			sources[i] = backend.SourceFile
-		}
-	}
-	for i, r := range agentRules {
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: sources[i]})
-	}
-
-	sel := b.selectorOf(sessionID)
-	out.Mode = string(sel.Effective())
-	ownLayers, nOwn := l, len(l.Own)
-	if b.isChild(sessionID) {
-		// A child gets no rule of the machine's as such: its restricting ones
-		// travel inside the cap (permrules.Layers.ChildCeiling). The safe
-		// directories do travel (ChildRules carries them), as policy.
-		ownLayers, nOwn = permrules.Layers{SafeDirs: l.SafeDirs, Ceiling: l.ChildCeiling()}, 0
-	}
-	cerea, tail := permrules.ComposeParts(ownLayers, sel, agentRules)
-	// ComposeParts appends the safe directories after everything else in
-	// cerea, so that many trailing rules are the machine's policy, not the
-	// session's selector.
-	nSafe := len(permrules.SafeDirRules(ownLayers.SafeDirs))
-	// The tool-visibility sentinel opens cerea and is machinery, not a rule a
-	// person set or reads: it is left out of the listing (and so are the
-	// ceiling's restatements of it), and the machine's own rules follow it.
-	nSentinel := 0
-	if len(cerea) > 0 && permrules.IsToolVisibilitySentinel(cerea[0]) {
-		nSentinel = 1
-	}
-	for i, r := range cerea {
-		if i < nSentinel {
-			continue
-		}
-		src := backend.SourceCerea
-		if i < nSentinel+nOwn || i >= len(cerea)-nSafe {
-			src = backend.SourceMachine
-		}
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: src})
-	}
-	for _, r := range tail {
-		if r.Pattern == permrules.ToolVisibilitySentinel.Pattern {
-			continue
-		}
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCeiling})
-	}
-	return out, nil
 }
 
 func (b *Backend) isChild(sessionID string) bool {
@@ -806,19 +432,6 @@ func (b *Backend) startTimeout() time.Duration {
 	return defaultStartupTimeout
 }
 
-// floorConfig renders the ceiling as the permission part of
-// OPENCODE_CONFIG_CONTENT, merged over base (the pinned project-config
-// content, or nothing). base's own keys survive except where the floor says
-// otherwise, key by key.
-func floorConfig(base map[string]any, l permrules.Layers) (string, error) {
-	if base == nil {
-		base = map[string]any{}
-	}
-	out := mergeConfig(base, l.Floor())
-	body, err := json.Marshal(out)
-	return string(body), err
-}
-
 // mergeConfig deep-merges over onto base (maps merge, anything else is replaced
 // by over), returning a new map.
 func mergeConfig(base, over map[string]any) map[string]any {
@@ -838,31 +451,160 @@ func mergeConfig(base, over map[string]any) map[string]any {
 	return out
 }
 
-// indexRule finds r in rs (-1 when absent).
-func indexRule(rs []permrules.Rule, r permrules.Rule) int {
-	for i, x := range rs {
-		if x == r {
-			return i
-		}
+// updateSelector changes the ROOT session's selector. It is galopin's own state
+// (the overlay): nothing is written to opencode, so a change takes effect at
+// the session's next ask, mid-turn included.
+func (b *Backend) updateSelector(_ context.Context, _, sessionID string, change func(permrules.Selector) (permrules.Selector, error)) error {
+	b.perm.mu.Lock()
+	defer b.perm.mu.Unlock()
+	root := b.rootOf(sessionID)
+	ov := b.getOverlay(root)
+	next, err := change(ov.Selector)
+	if err != nil {
+		return err
 	}
-	return -1
+	ov.Selector = next
+	return b.setOverlay(root, ov)
 }
 
-// fileRules reads the `permission` block of the static opencode.json galopin
-// owns, as rules. An unreadable file or one with no block is no rules.
-func (b *Backend) fileRules() []permrules.Rule {
-	if b.cfg.ConfigPath == "" {
-		return nil
+// prepareSession runs before a prompt or command on a session. For a session
+// whose stored rules came from an older galopin it writes ONE neutralising
+// rule ("everything asks", last) and never writes again, records that in the
+// overlay, and caches the stale-deny verdict for the banner. A session with no
+// stored rules (every session this galopin created) is only noted as clean.
+//
+// What it cannot fix: stale denies already stored still seed every future
+// opencode child of this session (deriveSubagentSessionPermission copies all
+// parent denies and external_directory rules), so the banner stays for these
+// legacy sessions only, and the way out is a new session.
+func (b *Backend) prepareSession(ctx context.Context, dir, sessionID string) {
+	if b.cfg.Permissions == nil {
+		return
 	}
-	raw, err := os.ReadFile(b.cfg.ConfigPath)
+	root := b.rootOf(sessionID)
+	b.perm.mu.Lock()
+	defer b.perm.mu.Unlock()
+	if b.perm.checked == nil {
+		b.perm.checked = map[string]bool{}
+	}
+	if b.perm.checked[root] {
+		return
+	}
+	stored, err := b.StoredRules(ctx, root)
 	if err != nil {
-		return nil
+		b.cfg.Logf("opencode: reading the stored rules of %s: %v", root, err)
+		return
 	}
-	var cfg struct {
-		Permission map[string]any `json:"permission"`
+	b.perm.checked[root] = true
+	ov := b.getOverlay(root)
+	if len(stored) == 0 {
+		return
 	}
-	if json.Unmarshal(raw, &cfg) != nil {
-		return nil
+	composed := denyOnlyRules(b.layers().Ceiling)
+	stale := permrules.FindStaleBlanketDeny(stored, composed)
+	policy := permrules.FindStalePolicyDenies(stored, composed, b.layers().Ceiling)
+	b.perm.staleMu.Lock()
+	if b.perm.stale == nil {
+		b.perm.stale = map[string]staleEntry{}
 	}
-	return permrules.FromConfig(cfg.Permission)
+	b.perm.stale[root] = staleEntry{stale: stale, policy: policy}
+	b.perm.staleMu.Unlock()
+	if ov.Neutralised {
+		return
+	}
+	rule := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Ask}}
+	if err := b.doJSON(ctx, http.MethodPatch, "/session/"+url.PathEscape(root), map[string]any{"permission": rule}, nil); err != nil {
+		b.cfg.Logf("opencode: could not neutralise the stored rules of %s (it still asks through the floor, but an old allow may let a call through): %v", root, err)
+		return
+	}
+	ov.Neutralised = true
+	if err := b.setOverlay(root, ov); err != nil {
+		b.cfg.Logf("opencode: recording the neutralised rules of %s: %v", root, err)
+	}
 }
+
+// PrepareSession runs the legacy check now (prompts do it themselves); tests
+// and the machine use it to refresh a session's stale-deny verdict.
+func (b *Backend) PrepareSession(ctx context.Context, dir, sessionID string) {
+	b.prepareSession(ctx, dir, sessionID)
+}
+
+// denyOnlyRules is the ceiling's denies as rules, the one thing a stored deny
+// may legitimately still be.
+func denyOnlyRules(c permrules.Ceiling) []permrules.Rule {
+	var out []permrules.Rule
+	for _, k := range c.Keys() {
+		if c.Of(k) == permrules.Deny {
+			out = append(out, permrules.Rule{Permission: k, Pattern: "*", Action: permrules.Deny})
+		}
+	}
+	return out
+}
+
+// PendingAsks is every permission ask opencode still holds (GET /permission).
+// galopin answers them on start: an ask raised while galopin was down stays
+// pending (opencode waits for a reply with no timeout) and is decided by the
+// same function as a live one.
+func (b *Backend) PendingAsks(ctx context.Context) ([]backend.PermissionRequest, error) {
+	var raw []any
+	if err := b.doJSON(ctx, http.MethodGet, "/permission", nil, &raw); err != nil {
+		return nil, err
+	}
+	var out []backend.PermissionRequest
+	for _, m := range asMaps(raw) {
+		out = append(out, permissionFromMap(m))
+	}
+	return out, nil
+}
+
+// PlanDirs is where opencode's plan agent keeps its plans outside the project.
+func (b *Backend) PlanDirs() []string {
+	data := ""
+	home := ""
+	for _, kv := range b.cfg.Env {
+		switch {
+		case strings.HasPrefix(kv, "XDG_DATA_HOME="):
+			data = strings.TrimPrefix(kv, "XDG_DATA_HOME=")
+		case strings.HasPrefix(kv, "HOME="):
+			home = strings.TrimPrefix(kv, "HOME=")
+		}
+	}
+	if b.cfg.Env == nil {
+		data, home = os.Getenv("XDG_DATA_HOME"), os.Getenv("HOME")
+	}
+	if data == "" && home != "" {
+		data = home + "/.local/share"
+	}
+	if data == "" {
+		return nil
+	}
+	return []string{data + "/opencode/plans"}
+}
+
+// AgentRules is the session's agent and its rules as opencode reports them
+// (display only: galopin's decisions are made by internal/decide, not from
+// these), each marked with whether the floor wrote it.
+func (b *Backend) AgentRules(ctx context.Context, workspaceDir, sessionID string) (backend.RuleLayers, error) {
+	agent := b.agentFor(sessionID)
+	agentRules, err := b.agentRuleset(ctx, workspaceDir, agent)
+	if err != nil {
+		return backend.RuleLayers{}, err
+	}
+	out := backend.RuleLayers{Agent: agent, Mode: string(b.selectorOf(sessionID).Effective())}
+	for _, r := range agentRules {
+		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceDefault})
+	}
+	return out, nil
+}
+
+// planNote rides on every prompt of a session on Plan whose agent is not the
+// plan agent (a scheduled or granted run keeps its agent): the turn's extra
+// system prompt (prompt_async's `system`). Plan refuses every call that would
+// change something, so a model told that says what it would do instead of
+// burning calls on refusals.
+const planNote = "The person has set this session to Plan. Running commands, " +
+	"editing or writing files, fetching from the web and other changes are " +
+	"switched off: every such call is refused, so do not make any. " +
+	"Reading and searching the project, and starting read-only subagents, still work. " +
+	"If the request needs a switched-off tool, do not substitute another tool for it: " +
+	"say what you would run or change, and ask the person to switch the session to Ask or Allow."

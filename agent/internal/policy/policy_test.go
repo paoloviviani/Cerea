@@ -504,3 +504,24 @@ func TestDisplaySafeDirsShortensTheHomePrefix(t *testing.T) {
 		t.Errorf("DisplaySafeDirs = %v, want %v (a neighbour directory is not the home)", got, want)
 	}
 }
+
+func TestIncoherentCeilingWarnsOnlyWhenBashIsUncapped(t *testing.T) {
+	cases := []struct {
+		max  map[string]string
+		warn bool
+	}{
+		{nil, false},
+		{map[string]string{"bash": "ask"}, false},
+		{map[string]string{"webfetch": "deny"}, true},
+		{map[string]string{"webfetch": "deny", "bash": "allow"}, true},
+		{map[string]string{"webfetch": "deny", "bash": "ask"}, false},
+		{map[string]string{"edit": "ask", "bash": "deny"}, false},
+		{map[string]string{"session_spawn": "ask"}, false},
+	}
+	for _, c := range cases {
+		got := Permission{Max: c.max}.IncoherentCeiling()
+		if (got != "") != c.warn {
+			t.Errorf("max %v: warning %q, want warn=%v", c.max, got, c.warn)
+		}
+	}
+}

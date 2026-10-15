@@ -22,7 +22,7 @@ func FindStaleBlanketDeny(stored, composed []Rule) bool {
 		have[r] = true
 	}
 	for _, r := range stored {
-		if r.Action != Deny || r.Pattern != "*" || IsToolVisibilitySentinel(r) {
+		if r.Action != Deny || r.Pattern != "*" {
 			continue
 		}
 		if r.Permission != "*" && !isBlanketName(r.Permission) {
@@ -62,7 +62,7 @@ func FindStalePolicyDenies(stored, composed []Rule, ceiling Ceiling) bool {
 		have[r] = true
 	}
 	for _, r := range stored {
-		if r.Action != Deny || r.Pattern != "*" || IsToolVisibilitySentinel(r) {
+		if r.Action != Deny || r.Pattern != "*" {
 			continue
 		}
 		if r.Permission == "*" || isBlanketName(r.Permission) || IsWildcard(r.Permission) {

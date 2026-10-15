@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"galopin/internal/decide"
 	"strings"
 	"testing"
 
@@ -103,7 +104,6 @@ func TestScheduleDecisionTable(t *testing.T) {
 // tools), Ask and Deny are the session's word, the machine's own rule beats
 // the blanket (re-appended after it), and the ceiling caps everything.
 func TestScheduleGrantComposed(t *testing.T) {
-	agent := []permrules.Rule{{Permission: "*", Pattern: "*", Action: pA}} // opencode's default build agent
 	cases := []struct {
 		mode    permrules.Action
 		own     map[string]permrules.Action
@@ -128,15 +128,14 @@ func TestScheduleGrantComposed(t *testing.T) {
 		{pK, map[string]permrules.Action{"session_spawn": pA}, nil, pK},
 	}
 	for _, c := range cases {
-		l := permrules.Layers{Own: permrules.OwnRules(c.own), Ceiling: permrules.Ceiling{Max: c.ceiling}}
-		rules := append(append([]permrules.Rule(nil), agent...), permrules.Compose(l, permrules.Selector{Mode: c.mode}, agent)...)
-		if got := scheduleGrantFrom(rules, c.mode); got != c.want {
+		p := decide.Policy{Own: permrules.OwnRules(c.own), Ceiling: permrules.Ceiling{Max: c.ceiling}}
+		got, _ := decide.CoordinationTool(p, decide.State{Mode: c.mode}, scheduleKey, false)
+		if got == pD && c.mode == pD {
+			got = pK // scheduleGrant reads a Plan refusal as ask; decideSchedule refuses the rest
+		}
+		if got != c.want {
 			t.Errorf("mode %s own %v ceiling %v: got %s, want %s", c.mode, c.own, c.ceiling, got, c.want)
 		}
-	}
-	// Uncomposed rules (opencode's bare default) under Ask are not consent.
-	if got := scheduleGrantFrom(agent, pK); got != pK {
-		t.Errorf("bare `*: allow` under Ask = %s, want ask", got)
 	}
 }
 

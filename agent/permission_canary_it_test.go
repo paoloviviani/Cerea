@@ -9,7 +9,6 @@ import (
 
 	"galopin/internal/backend"
 	"galopin/internal/permrules"
-	"galopin/internal/policy"
 )
 
 // The upgrade canaries. galopin's composer is written against four things the
@@ -128,58 +127,8 @@ func TestUpgradeCanaryAlwaysIsSharedAndCheckedAfterRules(t *testing.T) {
 	}
 }
 
-// The floor canary: for every built-in agent and every capped key, the config
-// galopin hands opencode never lets an agent do MORE than it did without it,
-// and lowers exactly what permrules.Floor claims to lower. It compares the live
-// GET /agent of the same process before and after a restart under a ceiling.
-// permrules.agentGrants is a table of 1.18.32's built-in agents; this is what
-// keeps it honest.
-func TestUpgradeCanaryTheFloorNeverLoosensAndCaps(t *testing.T) {
-	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "ask", "bash": "ask", "webfetch": "ask"}})
-	agents := []string{"build", "plan", "general", "explore"}
-	keys := []string{"edit", "bash", "webfetch", "websearch", "task"}
-	patterns := []string{"*", "src/a.go", ".opencode/plans/x.md", "general", "ls -la"}
-	before := map[string][]permrules.Rule{}
-	for _, a := range agents {
-		before[a] = r.agentRules(a)
-	}
-
-	ch := r.live.Tighten(policy.Permission{Max: map[string]string{
-		"edit": "ask", "bash": "ask", "webfetch": "deny", "websearch": "ask", "task": "ask",
-	}})
-	if !ch.Tightened {
-		t.Fatal("not tightened")
-	}
-	r.mc.policyTightened(r.ctx, ch)
-	ceiling := r.live.Layers().Ceiling
-
-	for _, a := range agents {
-		after := r.agentRules(a)
-		for _, k := range keys {
-			for _, pat := range patterns {
-				was := permrules.Evaluate(before[a], k, pat)
-				now := permrules.Evaluate(after, k, pat)
-				if permrules.Min(was, now) != now {
-					t.Errorf("agent %s, %s %q: %s before, %s after — the floor LOOSENED it. permrules.agentGrants no longer matches opencode's built-in agents.",
-						a, k, pat, was, now)
-				}
-				// Where the floor claims to cap (the agent grants the key by
-				// default), it must cap exactly.
-				if was == permrules.Allow && ceiling.Of(k) != permrules.Allow && now == permrules.Allow && a != "plan" {
-					t.Errorf("agent %s, %s %q: allowed before and after under a ceiling of %s — the floor did not cap an agent it should have.",
-						a, k, pat, ceiling.Of(k))
-				}
-			}
-		}
-	}
-	// And the two read-only agents keep their edit deny despite a static
-	// `edit: ask` in opencode.json, which sits after them in opencode's merge.
-	for _, a := range []string{"plan", "explore"} {
-		if got := permrules.Evaluate(r.agentRules(a), "edit", "src/a.go"); got != permrules.Deny {
-			t.Errorf("agent %s edit = %s under the static edit: ask, want deny", a, got)
-		}
-	}
-}
+// (Canary 4, the old floor-caps table, is replaced by floor_it_test.go: the
+// constant everything-asks floor is compared against the live agents.)
 
 // Canary 5: opencode has two permission stores and only one of them governs a
 // tool call. A v1 "always" never appears in the v2 saved list (so listing that
