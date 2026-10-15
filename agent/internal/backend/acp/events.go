@@ -75,6 +75,7 @@ func (b *Backend) handleRequest(id json.RawMessage, method string, params json.R
 		Tool:      getStr(p.ToolCall, "kind", "title"),
 		Title:     getStr(p.ToolCall, "title"),
 		CallID:    getStr(p.ToolCall, "toolCallId"),
+		Metadata:  askMetadata(p.ToolCall),
 	}
 
 	st.mu.Lock()

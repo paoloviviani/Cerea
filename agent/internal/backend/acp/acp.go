@@ -109,6 +109,8 @@ type Backend struct {
 	initialized bool
 
 	reg *registry
+	// sels is galopin's own selector state per session (permissions.go).
+	sels selectors
 
 	events   chan backend.BackendEvent
 	eventsMu sync.Mutex
@@ -150,11 +152,11 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// message for any of these (PROTOCOL.md §2) — the user-question tool
 	// design's fallback for a backend without a native question mechanism
 	// is the injected MCP tool the agent-handoff work adds, not this
-	// capability. An ACP agent has no permission rules galopin can read or
-	// compose, so it has no Deny/Ask/Allow selector either: its
-	// session/request_permission asks reach a person as they come.
+	// capability. An ACP agent's own rules are not galopin's to read, but its
+	// session/request_permission asks go through the same decision function as
+	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
-		Diff: false, Children: false, Usage: false, Compact: false,
+		Diff: false, Children: false, Usage: false, Compact: false, Permissions: true,
 		Images: images, Files: false, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries
@@ -309,6 +311,8 @@ func (b *Backend) serveConn(ctx context.Context, stdout io.Reader, stdin io.Writ
 	b.mu.Lock()
 	b.conn = conn
 	b.mu.Unlock()
+	// A new connection is a new agent process: what the old one asked is gone.
+	b.processStarted()
 
 	b.readyOnce.Do(func() { close(b.ready) })
 
