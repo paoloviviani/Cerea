@@ -107,7 +107,7 @@ func (at *agentTools) read(ctx context.Context, tc *toolCaller, call backend.Too
 		return "", targetID, refuse("that is a subagent of another session's tree, not an addressable session")
 	}
 	// A deny refuses before the read spends any of the pair's rate budget.
-	grant, err := at.grant(ctx, tc, "session_read")
+	grant, err := at.grantFor(ctx, tc, "session_read", targetID)
 	if err != nil {
 		return "", targetID, err
 	}
@@ -126,11 +126,8 @@ func (at *agentTools) read(ctx context.Context, tc *toolCaller, call backend.Too
 	// another workspace: that is always a card, like a send.
 	sameWS := target.ws.ID == tc.workspaceID
 	auto := grant == permrules.Allow && sameWS
-	// A spawner reads its own delegate with no card (ADR 0099), unless the
-	// machine's rules cap the tool at ask.
-	if !auto && sameWS && at.IsDelegatePair(tc.session.ID, targetID) == callerSpawned && !at.machineHolds("session_read") {
-		auto = true
-	}
+	// A spawner reads its own delegate with no card (ADR 0099): that is part
+	// of the grant above, under the machine's ceiling and own rules.
 	decision, message, err := at.approve(ctx, tc, call, auto, targetID, reasonAllowedByRules, backend.PermissionRequest{
 		Tool:  "session_read",
 		Title: "Read messages from " + target.s.Title,

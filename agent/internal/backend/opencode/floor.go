@@ -82,7 +82,16 @@ func builtinAgentFloor(denies map[string]bool) map[string]any {
 		return "ask"
 	}
 	hidden := map[string]any{"permission": ordered{{"*", "deny"}}}
-	return map[string]any{
+	// The owner's own file denies are restated in every agent block too: the
+	// global `*: ask` is appended after a key a lower source already named
+	// (mergeDeep keeps first positions), and would otherwise beat its deny.
+	var denyBlock ordered
+	for _, k := range floorKeys {
+		if denies[k] {
+			denyBlock = append(denyBlock, kv{k, "deny"})
+		}
+	}
+	out := map[string]any{
 		"plan": map[string]any{"permission": ordered{
 			// plan's own edit rule, with the plan file asking (galopin lets
 			// it through on Plan), and its general-subagent deny.
@@ -99,6 +108,20 @@ func builtinAgentFloor(denies map[string]bool) map[string]any {
 		"title":      hidden,
 		"summary":    hidden,
 	}
+	if len(denyBlock) > 0 {
+		out["build"] = map[string]any{"permission": denyBlock}
+		out["general"] = map[string]any{"permission": denyBlock}
+		for _, name := range []string{"plan"} {
+			blk := out[name].(map[string]any)["permission"].(ordered)
+			for _, e := range denyBlock {
+				if e.K != "edit" {
+					blk = append(blk, e)
+				}
+			}
+			out[name] = map[string]any{"permission": blk}
+		}
+	}
+	return out
 }
 
 // floorContent is the OPENCODE_CONFIG_CONTENT permission part: the constant

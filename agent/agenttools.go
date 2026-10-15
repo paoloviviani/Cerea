@@ -82,11 +82,12 @@ func (mc *machine) installAgentTools() {
 	}
 	at := newAgentTools(mc, host)
 	mc.agentTools = at
+	mc.delegates = func(caller, target string) bool { return at.IsDelegatePair(caller, target) != notDelegates }
 	host.SetToolHandler(at.handle)
 }
 
 func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
-	return &agentTools{
+	at := &agentTools{
 		mc: mc, host: host, now: time.Now,
 		spawnLog: map[string][]time.Time{}, sendLog: map[string][]time.Time{}, born: map[string]time.Time{},
 		scheduleLog: map[string][]time.Time{},
@@ -94,6 +95,9 @@ func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
 		reports:     newReportState(),
 		retryBase:   2 * time.Second,
 	}
+	// The delegate rule of the decision function (decide.DelegateHook).
+	mc.delegates = func(caller, target string) bool { return at.IsDelegatePair(caller, target) != notDelegates }
+	return at
 }
 
 func refuse(format string, args ...any) error {
@@ -659,7 +663,13 @@ func (at *agentTools) grantFor(_ context.Context, tc *toolCaller, tool, target s
 	if !ok {
 		return permrules.Ask, nil
 	}
+	// The delegate rule (decision step "delegate"): a spawner and the session it
+	// spawned talk without a card, the machine's ceiling and own rules still
+	// capping it. A spawner reads its delegate; the pair sends either way.
 	delegate := target != "" && at.mc.delegates != nil && at.mc.delegates(tc.session.ID, target)
+	if delegate && tool == "session_read" {
+		delegate = at.IsDelegatePair(tc.session.ID, target) == callerSpawned
+	}
 	act, reason := decide.CoordinationTool(at.mc.decidePolicy(rh), at.mc.rootState(rh, tc.session.ID), tool, delegate)
 	if act == permrules.Deny {
 		return permrules.Deny, refuse("%s", reason)
@@ -727,7 +737,7 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// rate limit below is the hard brake.
 	hopFallback := hop > maxHop
 	// A deny refuses before the send spends any of the pair's rate budget.
-	grant, err := at.grant(ctx, tc, "session_send")
+	grant, err := at.grantFor(ctx, tc, "session_send", targetID)
 	if err != nil {
 		return "", targetID, err
 	}
@@ -754,13 +764,9 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// schedule's coordination grant says.
 	fromSubagent := tc.session.ParentID != "" || at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
 	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent
-	// The delegate relationship (ADR 0099) lets the pair talk without a card;
-	// the hop limit, the workspace, the subagent rule and the machine's own
-	// ask/deny all still hold.
-	if !auto && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent &&
-		at.IsDelegatePair(tc.session.ID, targetID) != notDelegates && !at.machineHolds("session_send") {
-		auto = true
-	}
+	// The delegate relationship (ADR 0099) is part of the grant above (the
+	// decision function's delegate rule); the hop limit, the workspace and the
+	// subagent rule stand over it, and so do the machine's own ask and deny.
 	meta := map[string]any{
 		"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
 		"text":   text, "hop": hop,
