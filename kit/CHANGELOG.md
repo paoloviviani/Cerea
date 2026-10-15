@@ -5,6 +5,26 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.14.0 — 2026-10-15
+
+Pins: Cerea `0.14.0`, Pystino `0.9.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Group quotas can apply to the group's total or to each member.**
+  Console → Quotas offers **"Applies to"** when a rule targets a group:
+  the group's total (today's behaviour — every existing rule stays "total")
+  or each member, in which case a member's cap counts only what *they* had
+  billed to the group. A group may hold both kinds at once — e.g. a €500
+  total and a €50 per member — and a request must pass every rule that
+  matches it. The rules list prints the mode with the limit ("€50/month per
+  member"), the health table reports one row per member with their name, and
+  a 429 says whose budget ran out: the member's share or the group's total,
+  never anyone else's usage.
+- **The usage page labels per-member bars.** A per-member rule appears to a
+  person as their own limit and their own consumption, marked "per member",
+  beside the group's aggregate bar (`applies_to` on the usage document,
+  additive).
+
 ## v0.13.3 — 2026-10-15
 
 Pins: Cerea `0.13.3`, Pystino `0.8.2`, Authelia 4.39.22. Update the
