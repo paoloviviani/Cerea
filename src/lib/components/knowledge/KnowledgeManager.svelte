@@ -15,6 +15,7 @@
 	import { onMount, untrack } from "svelte";
 	import { base as appBase } from "$app/paths";
 	import FileDrop from "$lib/components/FileDrop.svelte";
+	import { KNOWLEDGE_ACCEPT } from "$lib/constants/mime";
 	import {
 		GatewayError,
 		gwDelete,
@@ -690,7 +691,12 @@
 
 				<div>
 					<span class={s.LABEL}>Documents</span>
-					<FileDrop bind:files={pending} maxBytes={status?.max_upload_bytes} disabled={busy} />
+					<FileDrop
+						bind:files={pending}
+						maxBytes={status?.max_upload_bytes}
+						disabled={busy}
+						accept={KNOWLEDGE_ACCEPT}
+					/>
 					<p class={s.HINT}>
 						No titles needed — each file is titled by its filename. Word, Excel, PowerPoint, or a
 						PDF with a text layer.
@@ -774,7 +780,12 @@
 				{#if canEdit}
 					<div>
 						<h3 class={s.SECTION_TITLE}>Add to it</h3>
-						<FileDrop bind:files={pending} maxBytes={status?.max_upload_bytes} disabled={busy} />
+						<FileDrop
+							bind:files={pending}
+							maxBytes={status?.max_upload_bytes}
+							disabled={busy}
+							accept={KNOWLEDGE_ACCEPT}
+						/>
 						{#if progress}
 							<p class="{s.NOTICE} mt-2">{progress}</p>
 						{/if}
