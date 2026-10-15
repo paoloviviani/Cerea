@@ -40,6 +40,12 @@ interface MyLimitResponse {
 	/** Decimal string, or null when the counter store was unreachable. */
 	current_value: string | null;
 	notification_thresholds: number[];
+	/**
+	 * ADR 0098, additive: "each_member" means this entry is the caller's own
+	 * share of a group budget, not the group's total. Absent on an older
+	 * gateway, which only ever sent aggregate rules.
+	 */
+	applies_to?: "aggregate" | "each_member";
 }
 
 interface UsageSummaryResponse {
@@ -67,7 +73,16 @@ function windowLabel(seconds: number): string {
 function limitEntry(limit: MyLimitResponse): UsageEntry {
 	const unknown = limit.current_value === null;
 	return {
-		label: [limit.name, limit.window_label].filter(Boolean).join(" · "),
+		label: [
+			limit.name,
+			limit.window_label,
+			// Say which kind of budget this bar is: a per-member rule sits
+			// beside the group's aggregate rule with the same name and window,
+			// and without the marker one of the two numbers reads as a bug.
+			limit.applies_to === "each_member" ? "per member" : null,
+		]
+			.filter(Boolean)
+			.join(" · "),
 		// A number is still required when unknown; the UI must key off
 		// `unknown`, not read this as a real 0%.
 		used: unknown ? 0 : Number(limit.current_value),

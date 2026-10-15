@@ -147,6 +147,39 @@ describe("pystinoUsageProvider.getReport", () => {
 		]);
 	});
 
+	it("marks a per-member rule as the caller's own share, not the group's total", async () => {
+		// ADR 0098: a group rule may cap each member. What the gateway reports
+		// for one is the caller's own spend billed to that group — the right
+		// bar — but the label must say so, or it sits beside the group's
+		// aggregate bar with the same name, window and a different number,
+		// and one of them reads as a bug.
+		mockUsage({
+			limits: [
+				...limitsList,
+				{
+					id: "limit-3",
+					name: "Team requests",
+					scope: "group" as const,
+					metric: "requests",
+					window_label: "per day",
+					limit_value: "50.00",
+					current_value: "5.00",
+					notification_thresholds: [],
+					applies_to: "each_member",
+				},
+			],
+			usage: usageSummary,
+			groups: {},
+		});
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		const share = quotas?.entries.find((e) => e.limit === 50);
+		expect(share?.label).toBe("Team requests · per day · per member");
+	});
+
 	it("maps usage and group spend into stat entries plus the console link", async () => {
 		mockUsage({ limits: [], usage: usageSummary, groups: groupUsage });
 
