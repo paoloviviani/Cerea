@@ -124,7 +124,13 @@ func (at *agentTools) read(ctx context.Context, tc *toolCaller, call backend.Too
 
 	// A transcript can hold secrets, so an allow does not cover a session in
 	// another workspace: that is always a card, like a send.
-	auto := grant == permrules.Allow && target.ws.ID == tc.workspaceID
+	sameWS := target.ws.ID == tc.workspaceID
+	auto := grant == permrules.Allow && sameWS
+	// A spawner reads its own delegate with no card (ADR 0099), unless the
+	// machine's rules cap the tool at ask.
+	if !auto && sameWS && at.IsDelegatePair(tc.session.ID, targetID) == callerSpawned && !at.machineHolds("session_read") {
+		auto = true
+	}
 	decision, message, err := at.approve(ctx, tc, call, auto, targetID, reasonAllowedByRules, backend.PermissionRequest{
 		Tool:  "session_read",
 		Title: "Read messages from " + target.s.Title,

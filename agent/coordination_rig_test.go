@@ -112,7 +112,15 @@ func (c *coordBackend) Subscribe(context.Context) (<-chan backend.BackendEvent, 
 
 func (c *coordBackend) SetToolHandler(h backend.ToolHandler) { c.handler = h }
 func (c *coordBackend) SpawnMarks() map[string]backend.SpawnedBy {
-	return map[string]backend.SpawnedBy{}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[string]backend.SpawnedBy{}
+	for id, s := range c.sessions {
+		if s.SpawnedBy != nil {
+			out[id] = *s.SpawnedBy
+		}
+	}
+	return out
 }
 func (c *coordBackend) Ask(_ context.Context, _, _ string, req backend.PermissionRequest) (backend.Decision, string, error) {
 	c.mu.Lock()
@@ -291,6 +299,16 @@ func (r *coordRig) addSession(w workspaces.Workspace, id, title, parent string) 
 	r.cb.dirs[id] = w.Path
 	r.cb.mu.Unlock()
 	r.mc.trackSession(w, s)
+}
+
+// markSpawned records that `child` was created by session_spawn from `spawner`.
+func (r *coordRig) markSpawned(child, spawner string) {
+	r.t.Helper()
+	r.cb.mu.Lock()
+	defer r.cb.mu.Unlock()
+	s := r.cb.sessions[child]
+	s.SpawnedBy = &backend.SpawnedBy{SessionID: spawner, Title: r.cb.sessions[spawner].Title}
+	r.cb.sessions[child] = s
 }
 
 func (r *coordRig) say(id, role, text string, at time.Time) {

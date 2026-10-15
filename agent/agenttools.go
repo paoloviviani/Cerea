@@ -739,6 +739,13 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// schedule's coordination grant says.
 	fromSubagent := tc.session.ParentID != "" || at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
 	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent
+	// The delegate relationship (ADR 0099) lets the pair talk without a card;
+	// the hop limit, the workspace, the subagent rule and the machine's own
+	// ask/deny all still hold.
+	if !auto && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent &&
+		at.IsDelegatePair(tc.session.ID, targetID) != notDelegates && !at.machineHolds("session_send") {
+		auto = true
+	}
 	meta := map[string]any{
 		"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
 		"text":   text, "hop": hop,
