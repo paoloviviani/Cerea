@@ -15,7 +15,7 @@
 	that would drift from what it enforces) and the model. Both apply live
 	to the open agent, not to one send: the licence is the agent's until it
 	is switched again (`session.setMode`/`setModel`). Beside them sits the
-	permission selector, Deny · Ask · Allow: the session's blanket until
+	permission selector, Plan · Ask · Allow (Plan is the wire's `deny`): the session's blanket until
 	changed, claimed only from the agent's snapshot (the machine's word, never
 	an optimistic guess) and disabled on a subagent, which follows its main
 	session.
@@ -675,6 +675,17 @@
 		applyFailure = null;
 		try {
 			await setPermissionMode(deviceId, agentId, mode);
+			// The selector drives the two built-in agents: Plan runs the plan
+			// agent, Ask and Allow the build agent. A custom agent the person
+			// picked from the agent list is never switched away.
+			const driven = selectorAgent(mode);
+			if (driven && agent?.modeId !== driven && isSelectorAgent(agent?.modeId ?? null)) {
+				try {
+					await setAgentMode(deviceId, agentId, driven);
+				} catch {
+					// The word is set; the agent switch is a courtesy.
+				}
+			}
 			(onpermissionchanged ?? onchanged)();
 		} catch (err) {
 			applyFailure =
@@ -695,10 +706,10 @@
 	}> = [
 		{
 			mode: "deny",
-			label: "Deny",
+			label: "Plan",
 			icon: IconShieldX,
 			title:
-				"Edits, commands and fetches are refused without asking. Reading still works. Your exceptions are kept, but blocked.",
+				"Plan: the agent reads and plans. Edits, commands and fetches are refused without asking. Reading still works. Your exceptions are kept, but blocked.",
 		},
 		{
 			mode: "ask",
@@ -725,6 +736,26 @@
 		// Nothing capped: the selected segment already says Allow.
 		return held ? `Allow · ${held} (machine limit)` : "";
 	});
+
+	/** build and plan are driven by the selector (Plan runs plan, Ask and Allow
+	 * run build) wherever the machine shows one; custom agents stay listed. */
+	const SELECTOR_AGENTS = ["build", "plan"];
+	function isSelectorAgent(id: string | null): boolean {
+		return id === null || SELECTOR_AGENTS.includes(id);
+	}
+	function selectorAgent(mode: PermissionMode): string | null {
+		const want = mode === "deny" ? "plan" : "build";
+		return (modes ?? []).some((m) => m.id === want) ? want : null;
+	}
+	let listedModes = $derived(
+		showPermissionSelector && !isSubagent
+			? (modes ?? []).filter((m) => !SELECTOR_AGENTS.includes(m.id))
+			: (modes ?? [])
+	);
+	/** The mode pill stays only when there is a custom agent to pick. */
+	let showModePill = $derived(
+		!(showPermissionSelector && !isSubagent) || listedModes.length > 0 || modes === null
+	);
 
 	let modeLabel = $derived.by(() => {
 		if (!agent?.modeId) return "Mode";
@@ -900,6 +931,7 @@
 				     model/effort line; the mode (build/plan) pill stays here —
 				     a session toggle beside the toggles, not a trailing
 				     readout. -->
+						{#if showModePill}
 						<DropdownMenu.Root bind:open={modeMenuOpen}>
 							<DropdownMenu.Trigger
 								class={pillClass}
@@ -927,12 +959,12 @@
 										<DropdownMenu.Item class={menuNoteClass} disabled>
 											Could not load modes: {modesFailure}
 										</DropdownMenu.Item>
-									{:else if !modes?.length}
+									{:else if !listedModes.length}
 										<DropdownMenu.Item class={menuNoteClass} disabled>
 											The daemon lists no modes.
 										</DropdownMenu.Item>
 									{:else}
-										{#each modes as mode (mode.id)}
+										{#each listedModes as mode (mode.id)}
 											<DropdownMenu.Item
 												class={menuItemClass}
 												onSelect={() => void applyMode(mode.id)}
@@ -951,7 +983,8 @@
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
 						</DropdownMenu.Root>
-						<!-- The permission selector: the session's blanket, Deny · Ask ·
+						{/if}
+						<!-- The permission selector: the session's blanket, Plan · Ask ·
 					     Allow. The value is the agent snapshot's word, so a click
 					     waits for the machine's answer rather than guessing. On a
 					     subagent it is disabled and says whose it follows; under
