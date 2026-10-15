@@ -59,28 +59,25 @@ var galopinTools = []toolDef{
 	},
 	{
 		name: "session_read",
-		description: "Read what ANOTHER session on this machine has said recently (by id from session_list): its last user and assistant text messages as plain text, oldest first, each with its role and time. " +
-			"No tool calls, no tool output, no reasoning, no files. Long messages and long answers are cut. Not for yourself. " +
-			"The person is asked to approve every read unless this machine's rules allow it (a rule can also refuse it); a session in another workspace always asks. Limits apply (rate).",
+		description: "Read another session's recent text (by id from session_list): its last user and assistant messages, oldest first, with role and time; no tool output or reasoning. " +
+			"A session you spawned is readable with no card; any other asks the person unless this machine's rules allow it. Not for yourself. You do not need it to collect a spawned session's result: that is reported to you.",
 		args: `{ target: { type: "string", description: "The session id to read, from session_list." },` +
 			` last: { type: "number", description: "How many recent messages: 1 to 50 (0 for the default, 10)." } }`,
 	},
 	{
 		name: "session_spawn",
-		description: "Start a NEW top-level session in this same workspace and give it a first prompt; it runs on its own, and its transcript is the person's to read. " +
-			"Whether the person is asked first follows your own Deny / Ask / Allow and this machine's rules: an Allow session spawns with no card unless the ceiling or an explicit rule asks, and every spawn is audited with both sessions named. The new session inherits your permission word (an Allow spawner makes a child that runs without a card), your coordination grant and your exceptions, never more; " +
-			"mode may be your own or \"plan\" (read-only), and it uses your model. You get its id, not its result; " +
-			"it has the same tools, so it can session_send you a message when its work is done (each send follows the same Allow coverage). Limits apply (chain depth, live sessions, rate).",
+		description: "Hand work to a NEW top-level session in this workspace (the person can open it and talk to it). Write the prompt as a full briefing: it cannot see this conversation. " +
+			"It reports back: when it finishes, its final message arrives here as \"Report from <title>\"; you are also told if it fails or waits for the person's approval. Do not poll. Pass report:false for fire-and-forget. " +
+			"It uses your model and your mode (or \"plan\", read-only), and never more permission than you have. Limits apply (depth, live sessions, rate).",
 		args: `{ title: { type: "string", description: "Short title for the new session." },` +
 			` prompt: { type: "string", description: "The first prompt: everything the new session needs, it cannot see this conversation." },` +
-			` mode: { type: "string", description: "The new session's mode: \"plan\", \"build\", or \"inherit\" for your own." } }`,
+			` mode: { type: "string", description: "The new session's mode: \"plan\", \"build\", or \"inherit\" for your own." },` +
+			` report: { type: "boolean", description: "Default true: its result is delivered to you. false for fire-and-forget." } }`,
 	},
 	{
 		name: "session_send",
-		description: "Send a message to ANOTHER session on this machine (by id from session_list); it arrives as a prompt marked as coming from you, folded into its running turn if it is busy. " +
-			"Whether the person is asked first follows your own Deny / Ask / Allow and this machine's rules: an Allow session sends with no card inside its workspace and hop limit unless the ceiling or an explicit rule asks (a send or read into another workspace, or at hop 4+, always asks). The target has the same tools and can send a message back the same way — but do not assume it will. " +
-			"A task subagent must never use this to reply to its parent or whoever started it: its final message is the reply, delivered automatically. Every other session is a different conversation with its own person. " +
-			"Not for your own subagents (use task) or yourself. Limits apply (hops, rate).",
+		description: "Send a message to ANOTHER session (by id from session_list); it arrives as a prompt marked as coming from you, folded into its running turn if it is busy. " +
+			"Between you and a session you spawned (either way) it needs no card; any other session asks the person unless this machine's rules allow it. A task subagent must never use this to reply to its parent: its final message is the reply. Not for your own subagents (use task) or yourself. Limits apply (hops, rate).",
 		args: `{ target: { type: "string", description: "The target session id, from session_list." },` +
 			` text: { type: "string", description: "The message." } }`,
 	}, {

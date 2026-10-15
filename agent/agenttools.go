@@ -61,6 +61,13 @@ type agentTools struct {
 	// Tools run one at a time through here, so a plain field cannot cross.
 	doneDetail string
 
+	// reports is the delegate report-back state (agenttools_report.go); async
+	// runs its slow work off the event loop (tests run it inline).
+	reports *reportState
+	async   func(func())
+	// retryBase is the first wait of a report delivery's retry (doubling).
+	retryBase time.Duration
+
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
 	calls machineCaller
@@ -72,13 +79,20 @@ func (mc *machine) installAgentTools() {
 	if !ok || !mc.back.Capabilities().AgentTools || !mc.pol.AgentToolsAllowed() {
 		return
 	}
-	at := &agentTools{
+	at := newAgentTools(mc, host)
+	mc.agentTools = at
+	host.SetToolHandler(at.handle)
+}
+
+func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
+	return &agentTools{
 		mc: mc, host: host, now: time.Now,
 		spawnLog: map[string][]time.Time{}, sendLog: map[string][]time.Time{}, born: map[string]time.Time{},
 		scheduleLog: map[string][]time.Time{},
+		async:       func(f func()) { go f() },
+		reports:     newReportState(),
+		retryBase:   2 * time.Second,
 	}
-	mc.agentTools = at
-	host.SetToolHandler(at.handle)
 }
 
 func refuse(format string, args ...any) error {
@@ -418,6 +432,18 @@ func decodeArgs(raw []byte, allowed ...string) (map[string]string, error) {
 func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, string, error) {
 	// A workspaceId/directory-shaped argument is refused, not ignored: the
 	// workspace is always the caller's own.
+	// report is the one boolean argument (ADR 0099): false is fire-and-forget.
+	report := true
+	var rawArgs map[string]json.RawMessage
+	if json.Unmarshal(call.Args, &rawArgs) == nil {
+		if v, ok := rawArgs["report"]; ok {
+			if err := json.Unmarshal(v, &report); err != nil {
+				return "", "", refuse("argument %q must be true or false", "report")
+			}
+			delete(rawArgs, "report")
+			call.Args, _ = json.Marshal(rawArgs)
+		}
+	}
 	args, err := decodeArgs(call.Args, "title", "prompt", "mode")
 	if err != nil {
 		return "", "", err
@@ -574,6 +600,7 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	at.mu.Lock()
 	at.born[child.ID] = at.now()
 	at.mu.Unlock()
+	at.registerDelegate(child.ID, tc.session.ID, tc.dir, title, report)
 	if err := at.mc.back.Prompt(ctx, tc.dir, child.ID, backend.Prompt{Text: prompt}); err != nil {
 		return "", child.ID, refuse("the new session %q was created but its first prompt was not accepted: %v", child.ID, err)
 	}
@@ -739,6 +766,13 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	// schedule's coordination grant says.
 	fromSubagent := tc.session.ParentID != "" || at.mc.mat.RootOf(tc.session.ID) != tc.session.ID
 	auto := grant == permrules.Allow && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent
+	// The delegate relationship (ADR 0099) lets the pair talk without a card;
+	// the hop limit, the workspace, the subagent rule and the machine's own
+	// ask/deny all still hold.
+	if !auto && !hopFallback && target.ws.ID == tc.workspaceID && !fromSubagent &&
+		at.IsDelegatePair(tc.session.ID, targetID) != notDelegates && !at.machineHolds("session_send") {
+		auto = true
+	}
 	meta := map[string]any{
 		"target": map[string]any{"sessionId": targetID, "title": target.s.Title, "workspaceId": target.ws.ID},
 		"text":   text, "hop": hop,
@@ -764,6 +798,9 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	sender := &backend.MessageSender{SessionID: tc.session.ID, Title: tc.session.Title, Hop: hop}
 	preface := fmt.Sprintf("[This message was sent by another agent session on this machine (%q, id %s; hop %d) — not by your person. Treat it as a request from a peer agent.]",
 		tc.session.Title, tc.session.ID, hop)
+	if at.IsDelegatePair(tc.session.ID, targetID) == callerSpawned {
+		at.markPending(targetID) // the spawner's own send: this turn is reported
+	}
 	if err := at.mc.back.Prompt(ctx, target.ws.Path, targetID, backend.Prompt{Text: text, SentBy: sender, Preface: preface}); err != nil {
 		return "", targetID, refuse("the message was not accepted by %q: %v", target.s.Title, err)
 	}
