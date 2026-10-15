@@ -699,6 +699,9 @@ class Answers:
     idp: str = "authelia"
     agents: bool | None = None
     terminal: bool | None = None
+    # The headless browser (the fetch profile): None leaves it to the preset
+    # and to a hand-enabled profile; True/False add or remove it.
+    fetch: bool | None = None
     project: str | None = None
     http_port: int | None = None
     https_port: int | None = None
@@ -837,6 +840,10 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         profiles = [p for p in profiles if p != "authelia"]
     if idp == "authelia":
         profiles.append("authelia")
+    if answers.fetch is True and "fetch" not in profiles:
+        profiles.append("fetch")
+    elif answers.fetch is False:
+        profiles = [p for p in profiles if p != "fetch"]
     profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
     values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
     # The chat's renderer address follows the fetch profile. An address that
@@ -846,6 +853,11 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         values["PLAYWRIGHT_WS_ENDPOINT"] = values["PLAYWRIGHT_WS_ENDPOINT"] or PLAYWRIGHT_ENDPOINT
     elif values.get("PLAYWRIGHT_WS_ENDPOINT") in ("", PLAYWRIGHT_ENDPOINT):
         values.pop("PLAYWRIGHT_WS_ENDPOINT", None)
+    elif values.get("PLAYWRIGHT_WS_ENDPOINT") and answers.fetch is False:
+        notes.append(
+            f"fetch off, but PLAYWRIGHT_WS_ENDPOINT points at a renderer elsewhere "
+            f"({values['PLAYWRIGHT_WS_ENDPOINT']}): left as it is"
+        )
     values["PYSTINO_PRESET"] = preset.name
     if preset_changed:
         values.update(preset.values)
@@ -854,6 +866,13 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
     else:
         for key, value in preset.values.items():
             values.setdefault(key, value)
+
+    # --fetch / --no-fetch: the backend follows, after the preset's own switches.
+    if answers.fetch is True:
+        values["FETCH_BACKEND"] = "playwright"
+    elif answers.fetch is False and not values.get("PLAYWRIGHT_WS_ENDPOINT"):
+        # Back to direct fetching, unless a renderer elsewhere is still wired.
+        values["FETCH_BACKEND"] = "direct"
 
     # --- origin and TLS -----------------------------------------------------------
     values["PUBLIC_ORIGIN"] = origin
@@ -1787,6 +1806,8 @@ def cmd_configure(args, root: Path) -> int:
     print()
     print(f"  origin    {values['PUBLIC_ORIGIN']}   (TLS {values['TLS_MODE']})")
     print(f"  preset    {values['PYSTINO_PRESET']}   profiles {values['COMPOSE_PROFILES']}")
+    fetch_on = "fetch" in values["COMPOSE_PROFILES"].split(",")
+    print(f"  browser   {'on (fetch profile)' if fetch_on else 'off'}")
     print(f"  identity  {values['OIDC_ISSUER']}   (scopes: {values['OIDC_SCOPES']})")
     print()
     print("next:  ./configure --check  &&  docker compose up -d --wait")
@@ -1973,6 +1994,8 @@ def parser() -> argparse.ArgumentParser:
                    help="agent machines (/chat/code and galopin)")
     o.add_argument("--terminal", action=argparse.BooleanOptionalAction, default=None,
                    help="the browser terminal on agent machines (a full remote shell; needs --agents)")
+    o.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
+                   help="the headless browser for web fetch (the fetch profile); --no-fetch removes it")
     o.add_argument("--project", help="compose project name (default cerea)")
     o.add_argument("--http-port", type=int, help="host port for HTTP (upstream mode: what the front forwards to)")
     o.add_argument("--https-port", type=int, help="host port for HTTPS")

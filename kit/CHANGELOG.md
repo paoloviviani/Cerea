@@ -5,6 +5,17 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **`./configure --fetch` / `--no-fetch` adds or removes the headless
+  browser on any preset.** Before, the `fetch` profile came only with the
+  enterprise preset or by editing `COMPOSE_PROFILES` by hand. On an existing
+  deployment, `./configure --fetch && docker compose up -d` adds the profile,
+  sets `FETCH_BACKEND=playwright` and the renderer address; `--no-fetch`
+  removes them (a renderer you pointed at elsewhere is left alone, and said
+  so). Without the flag nothing changes. The summary shows whether the
+  browser is on.
+
 ## v0.14.0 — 2026-10-15
 
 Pins: Cerea `0.14.0`, Pystino `0.9.0`, Authelia 4.39.22. Update the

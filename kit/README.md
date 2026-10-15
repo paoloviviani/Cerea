@@ -163,10 +163,16 @@ again. Keep the old directory until the new stack works.
 | `authelia` | `authelia` | the bundled identity provider at `/authelia` (stock image, `authelia/configuration.yml`) |
 | `redaction` | `redaction` | PII redaction for the gateway |
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
-| `playwright` | `fetch` | a headless browser for the chat's web fetch |
+| `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch` |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
 in `.env` chooses the add-ons.
+
+To add the browser to a running deployment, whatever its preset:
+`./configure --fetch && docker compose up -d`. It adds the `fetch` profile,
+sets `FETCH_BACKEND=playwright` and points `PLAYWRIGHT_WS_ENDPOINT` at the
+bundled renderer, touching nothing else in `.env`. `--no-fetch` undoes it. A
+renderer you point `PLAYWRIGHT_WS_ENDPOINT` at yourself, elsewhere, is kept.
 
 ## Checking an install
 
