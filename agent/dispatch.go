@@ -12,6 +12,7 @@ import (
 	"galopin/internal/backend"
 	backendopencode "galopin/internal/backend/opencode"
 	"galopin/internal/checkout"
+	"galopin/internal/decide"
 	"galopin/internal/files"
 	"galopin/internal/link"
 	"galopin/internal/policy"
@@ -48,6 +49,10 @@ type machine struct {
 	// audit is galopin's local, tamper-resistant record (PROTOCOL.md §9.3):
 	// terminal open/close and policy refusals, never content. Nil-safe.
 	audit *auditLogger
+	// delegates is the delegate rule's predicate (decision step 4): whether
+	// caller and target are a spawner and the session it spawned. The delegation
+	// work installs it; nil means false.
+	delegates decide.DelegateHook
 	// agentTools is the agent-coordination tools' state (agenttools.go); nil
 	// when the backend has none.
 	agentTools *agentTools

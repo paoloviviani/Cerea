@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"galopin/internal/decide"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -449,7 +450,7 @@ func TestSelectorADeniedMidTurnRejectsThePendingAsk(t *testing.T) {
 	}
 	var rejects int
 	for _, row := range auditPermissionRows(t, r.stateDir) {
-		if row["decision"] == "reject" && row["by"] == "galopin" && row["reason"] == denyRejectMessage {
+		if row["decision"] == "reject" && row["by"] == "galopin" && row["reason"] == decide.PlanReason {
 			rejects++
 		}
 	}
@@ -601,31 +602,17 @@ func TestSelectorS12EveryPermissionNameIsClassified(t *testing.T) {
 	if len(names) < 10 {
 		t.Fatalf("read only %d permission names (%v): the canary is not seeing the binary's vocabulary", len(names), names)
 	}
-	classified := map[string]bool{}
-	for _, n := range permrules.Untouched {
-		classified[n] = true
-	}
-	for _, n := range permrules.Blanket {
-		classified[n] = true
-	}
 	var unknown []string
 	for name, where := range names {
-		if !classified[name] {
+		if !decide.Known(name) {
 			unknown = append(unknown, name+" (from "+where+")")
 		}
 	}
 	sort.Strings(unknown)
 	if len(unknown) > 0 {
-		t.Errorf("permission names opencode knows that permrules classifies neither as Untouched nor as Blanket: %v. "+
-			"Decide for each whether a blanket Allow/Deny should move it, add it to permrules.Untouched or permrules.Blanket, "+
-			"and check what it does under each mode live before shipping this opencode.", unknown)
-	}
-	// Names the table lists that this opencode does not (yet) know are fine —
-	// they are the brief's list, kept for the releases that add them — but say so.
-	for name := range classified {
-		if _, seen := names[name]; !seen {
-			t.Logf("note: %q is classified but this opencode does not name it", name)
-		}
+		t.Errorf("permission names opencode knows that decide.Classify does not know: %v. "+
+			"Decide each one's category (read, edit, bash, web, outside-workspace, spawn, internal, brake, mcp) and add it to decide.Known "+
+			"and decide.Classify before shipping this opencode.", unknown)
 	}
 }
 
@@ -713,9 +700,6 @@ func (r *permRig) rawChild(parent backend.Session) backend.Session {
 		if time.Now().After(deadline) {
 			r.t.Fatalf("galopin never learned that %s is under %s", child.ID, parent.ID)
 		}
-	}
-	if err := r.oc.ApplyChildRules(r.ctx, r.work, child.ID, "general"); err != nil {
-		r.t.Fatal(err)
 	}
 	return child
 }

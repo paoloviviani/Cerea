@@ -670,9 +670,8 @@ func (b *Backend) RunCommand(ctx context.Context, workspaceDir, sessionID string
 	if agent == "" {
 		agent = b.agentFor(sessionID)
 	}
-	if err := b.ensureRules(ctx, workspaceDir, sessionID, agent); err != nil {
-		return err
-	}
+	_ = agent
+	b.prepareSession(ctx, workspaceDir, sessionID)
 	messageID := mintMessageID()
 	if run.ClientMessageID != "" {
 		b.recordExactClientMessageID(messageID, run.ClientMessageID)

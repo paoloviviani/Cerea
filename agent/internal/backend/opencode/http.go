@@ -224,29 +224,13 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	if opts.Title != "" {
 		body["title"] = opts.Title
 	}
-	// The machine's rules ride in the create itself, so the session has them
-	// before its first prompt can exist — there is no window to close.
-	agent := opts.ModeID
-	if agent == "" {
-		agent = defaultAgent
-	}
-	var rules []permrules.Rule
-	if b.cfg.Permissions != nil {
-		var err error
-		if rules, err = b.composeFor(ctx, workspaceDir, agent, ""); err != nil {
-			return backend.Session{}, err
-		}
-		if len(rules) > 0 {
-			body["permission"] = rules
-		}
-	}
 	var m map[string]any
 	if err := b.doJSON(ctx, http.MethodPost, "/session"+directoryQuery(workspaceDir), body, &m); err != nil {
 		return backend.Session{}, err
 	}
 	s := sessionFromMap(m)
-	if opts.ModeID != "" || opts.ModelID != "" || opts.SpawnedBy != nil || len(rules) > 0 {
-		if err := b.setOverlay(s.ID, sessionOverlay{ModeID: opts.ModeID, ModelID: opts.ModelID, SpawnedBy: opts.SpawnedBy, RulesFP: permrules.Fingerprint(rules)}); err != nil {
+	if opts.ModeID != "" || opts.ModelID != "" || opts.SpawnedBy != nil {
+		if err := b.setOverlay(s.ID, sessionOverlay{ModeID: opts.ModeID, ModelID: opts.ModelID, SpawnedBy: opts.SpawnedBy}); err != nil {
 			return backend.Session{}, err
 		}
 	}
@@ -271,11 +255,9 @@ func (b *Backend) DeleteSession(ctx context.Context, _ string, sessionID string)
 }
 
 func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID string, prompt backend.Prompt) error {
-	// Before anything is recorded or sent: a session whose rules are stale (the
-	// ceiling tightened, its mode changed) is never prompted under them.
-	if err := b.ensureRules(ctx, workspaceDir, sessionID, b.agentFor(sessionID)); err != nil {
-		return err
-	}
+	// A session an older galopin gave rules is neutralised once (ADR 0097);
+	// every other session has none and nothing is written to it.
+	b.prepareSession(ctx, workspaceDir, sessionID)
 	parts := make([]map[string]any, 0, 2+len(prompt.Attachments))
 	if prompt.Preface != "" {
 		// A synthetic part: the model reads it, the transcript never shows it
@@ -307,7 +289,7 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID str
 		// turn: an instruction, not something the person said, so a model
 		// follows it instead of thinking aloud about it in its answer (which
 		// it did when this rode as a synthetic part of the user message).
-		body["system"] = denyNote
+		body["system"] = planNote
 	}
 	ov := b.getOverlay(sessionID)
 	if ov.ModeID != "" {

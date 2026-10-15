@@ -137,37 +137,10 @@ func (c *coordBackend) rootOf(id string) string {
 	return id
 }
 
-func (c *coordBackend) EffectiveRules(ctx context.Context, dir, id string) ([]permrules.Rule, error) {
-	l, err := c.RuleLayers(ctx, dir, id)
-	return l.Plain(), err
-}
-func (c *coordBackend) RuleLayers(_ context.Context, _, id string) (backend.RuleLayers, error) {
+func (c *coordBackend) AgentRules(_ context.Context, _, id string) (backend.RuleLayers, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	root := c.rootOf(id)
-	sel := c.sel[root]
-	l := c.layers()
-	own := l
-	nOwn := len(l.Own)
-	if root != id {
-		own, nOwn = permrules.Layers{Ceiling: l.ChildCeiling()}, 0
-	}
-	cerea, tail := permrules.ComposeParts(own, sel, agentRules)
-	out := backend.RuleLayers{Agent: "build", Mode: string(sel.Effective())}
-	for _, r := range agentRules {
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceDefault})
-	}
-	for i, r := range cerea {
-		src := backend.SourceCerea
-		if i < nOwn {
-			src = backend.SourceMachine
-		}
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: src})
-	}
-	for _, r := range tail {
-		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceCeiling})
-	}
-	return out, nil
+	return backend.RuleLayers{Agent: "build", Mode: string(c.sel[c.rootOf(id)].Effective())}, nil
 }
 func (c *coordBackend) PermissionMode(id string) permrules.Action {
 	c.mu.Lock()
@@ -214,15 +187,13 @@ func (c *coordBackend) SetCoordination(_ context.Context, _, id string, keys []s
 	c.sel[id] = sel
 	return nil
 }
-func (c *coordBackend) EnsureRules(context.Context, string, string) error             { return nil }
-func (c *coordBackend) ApplyChildRules(context.Context, string, string, string) error { return nil }
-func (c *coordBackend) ChildAskAction(context.Context, string, string, string, string, []string) permrules.Action {
-	return permrules.Ask
+func (c *coordBackend) PendingAsks(context.Context) ([]backend.PermissionRequest, error) {
+	return nil, nil
 }
-func (c *coordBackend) OnProcessStart(func())                  {}
-func (c *coordBackend) RestartForPolicy(context.Context) error { return nil }
-func (c *coordBackend) StaleDeny(string) bool                  { return false }
-func (c *coordBackend) StalePolicy(string) bool                { return false }
+func (c *coordBackend) PlanDirs() []string      { return nil }
+func (c *coordBackend) OnProcessStart(func())   {}
+func (c *coordBackend) StaleDeny(string) bool   { return false }
+func (c *coordBackend) StalePolicy(string) bool { return false }
 
 var (
 	_ backend.Backend  = (*coordBackend)(nil)

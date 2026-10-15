@@ -95,15 +95,10 @@ func TestPassthroughP3CeilingWinsAndAlwaysBecomesOnce(t *testing.T) {
 		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}, Max: map[string]string{"edit": "ask"}},
 	})
 	s := r.session("p3", "")
-	// The rules were in the create itself: they are on the session before any
-	// prompt exists, with the ceiling last.
-	rules := r.sessionRules(s.ID)
-	// The block opens with the tool-visibility sentinel, then the machine's
-	// own rules; the ceiling's tail closes it.
-	if len(rules) < 2 || rules[0] != permrules.ToolVisibilitySentinel ||
-		rules[1] != (permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Allow}) ||
-		rules[len(rules)-1].Action != permrules.Ask {
-		t.Fatalf("session rules before the first prompt = %+v, want the sentinel, then the machine's allow, and the ceiling's ask last", rules)
+	// Nothing is written to the session: the machine's rule and the ceiling are
+	// galopin's own answers, not opencode rules (ADR 0097).
+	if rules := r.sessionRules(s.ID); len(rules) != 0 {
+		t.Fatalf("session rules before the first prompt = %+v, want none", rules)
 	}
 	ask, _, mark := r.try(s, "p3a.txt")
 	if ask == nil {
@@ -286,10 +281,7 @@ func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
 	if !ch.Tightened {
 		t.Fatal("not tightened")
 	}
-	// Rules alone, no restart: the cap already holds.
-	if err := r.oc.EnsureRules(r.ctx, r.work, s.ID); err != nil {
-		t.Fatal(err)
-	}
+	// No rule and no restart: the next ask is decided under the new ceiling.
 	ask, _, _ = r.try(s, "p6b-c.txt")
 	if ask == nil {
 		t.Fatal("the exception outlived a ceiling of ask: the tail does not cap it")

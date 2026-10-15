@@ -218,9 +218,7 @@ func TestStaleDenyReportedForOldStyleBlock(t *testing.T) {
 		{"permission": "*", "pattern": "*", "action": "deny"},
 		{"permission": "bash", "pattern": "*", "action": "deny"},
 	}})
-	if err := r.oc.EnsureRules(r.ctx, r.work, s.ID); err != nil {
-		t.Fatal(err)
-	}
+	r.oc.PrepareSession(r.ctx, r.work, s.ID)
 	raw, _ := json.Marshal(map[string]any{"sessionId": s.ID})
 	res, operr := r.mc.Handle(r.ctx, "session.get", raw)
 	if operr != nil {

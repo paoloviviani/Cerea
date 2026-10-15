@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"galopin/internal/decide"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,12 +64,8 @@ func TestSpawnInheritsAllowWordAndGrant(t *testing.T) {
 	}
 	// The child's composed rules carry the word: bash evaluates allow, under
 	// the same ceiling as the caller.
-	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := permrules.Evaluate(rules, "bash", "ls"); got != permrules.Allow {
-		t.Errorf("child bash = %s, want allow", got)
+	if got := childVerdict(r, child, "bash", "ls"); got != decide.Once {
+		t.Errorf("child bash = %s, want once", got)
 	}
 }
 
@@ -117,12 +114,8 @@ func TestSpawnInheritsCallerExceptions(t *testing.T) {
 	}
 	// The composition carries them: a path the caller was allowed the child
 	// is allowed too, without a card.
-	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := permrules.Evaluate(rules, "external_directory", "/tmp/scratch/x"); got != permrules.Allow {
-		t.Errorf("child external_directory /tmp/scratch/x = %s, want allow", got)
+	if got := childVerdict(r, child, "external_directory", "/tmp/scratch/x"); got != decide.Once {
+		t.Errorf("child external_directory /tmp/scratch/x = %s, want once", got)
 	}
 	if n := len(r.asks()); n != 0 {
 		t.Errorf("an allow spawn with inherited exceptions raised %d cards: %+v", n, r.asks())
@@ -140,12 +133,8 @@ func TestSpawnFromAskInheritsExceptionsToo(t *testing.T) {
 	if got := r.cb.Exceptions(child); len(got) != 1 || got[0].Patterns[0] != "/tmp/*" {
 		t.Errorf("child exceptions = %+v, want the caller's /tmp/*", got)
 	}
-	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := permrules.Evaluate(rules, "external_directory", "/tmp/x"); got != permrules.Allow {
-		t.Errorf("child external_directory /tmp/x = %s, want allow", got)
+	if got := childVerdict(r, child, "external_directory", "/tmp/x"); got != decide.Once {
+		t.Errorf("child external_directory /tmp/x = %s, want once", got)
 	}
 }
 
@@ -158,15 +147,11 @@ func TestSpawnedExceptionsStayCappedByCeiling(t *testing.T) {
 	addException(t, r, "caller", "external_directory", "/tmp/*")
 
 	child, _ := spawnChild(t, r)
-	rules, err := r.cb.EffectiveRules(context.Background(), "", child)
-	if err != nil {
-		t.Fatal(err)
+	if got := childVerdict(r, child, "bash", "git status"); got != decide.Card {
+		t.Errorf("child bash git status = %s, want the ceiling's card", got)
 	}
-	if got := permrules.Evaluate(rules, "bash", "git status"); got != permrules.Ask {
-		t.Errorf("child bash git status = %s, want the ceiling's ask", got)
-	}
-	if got := permrules.Evaluate(rules, "external_directory", "/tmp/x"); got != permrules.Allow {
-		t.Errorf("child external_directory /tmp/x = %s, want allow", got)
+	if got := childVerdict(r, child, "external_directory", "/tmp/x"); got != decide.Once {
+		t.Errorf("child external_directory /tmp/x = %s, want once", got)
 	}
 }
 
@@ -283,4 +268,11 @@ func TestAllowBlanketYieldsToAMachineDeny(t *testing.T) {
 	if n := len(r.asks()); n != before {
 		t.Errorf("a refused send must not raise a card")
 	}
+}
+
+// childVerdict is the decision function's answer for an ask from session id,
+// decided by its root's state (ADR 0097).
+func childVerdict(r *coordRig, id, key, pattern string) decide.Verdict {
+	rh := r.mc.back.(backend.RuleHost)
+	return r.mc.decideAsk(rh, "/w", backend.PermissionRequest{ID: "perm_x", SessionID: id, Tool: key, Patterns: []string{pattern}}).Verdict
 }

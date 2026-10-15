@@ -47,9 +47,6 @@ func (r *ruleBackend) ReplyPermission(_ context.Context, _, _, _ string, d backe
 	r.messages = append(r.messages, msg)
 	return nil
 }
-func (r *ruleBackend) EffectiveRules(context.Context, string, string) ([]permrules.Rule, error) {
-	return r.layers.Plain(), nil
-}
 func (r *ruleBackend) PermissionMode(sessionID string) permrules.Action {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -119,45 +116,21 @@ func (r *ruleBackend) SetCoordination(_ context.Context, _, sessionID string, ke
 	r.sel[sessionID] = sel
 	return nil
 }
-func (r *ruleBackend) RuleLayers(context.Context, string, string) (backend.RuleLayers, error) {
-	return r.layers, nil
-}
 
-// OnProcessStart records the callback; start() plays a process start.
-func (r *ruleBackend) ChildAskAction(context.Context, string, string, string, string, []string) permrules.Action {
-	return permrules.Ask
-}
 func (r *ruleBackend) OnProcessStart(fn func()) { r.onStart = fn }
 func (r *ruleBackend) start() {
 	if r.onStart != nil {
 		r.onStart()
 	}
 }
-func (r *ruleBackend) EnsureRules(_ context.Context, _, sessionID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.ensured = append(r.ensured, sessionID)
-	return nil
-}
-func (r *ruleBackend) ApplyChildRules(_ context.Context, _, sessionID, agent string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.children == nil {
-		r.children = map[string]string{}
-	}
-	r.children[sessionID] = agent
-	return nil
-}
-func (r *ruleBackend) RestartForPolicy(context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.restarts++
-	if r.restart == nil {
-		r.start() // a restart is a start of the process
-	}
-	return r.restart
-}
 
+func (r *ruleBackend) AgentRules(context.Context, string, string) (backend.RuleLayers, error) {
+	return r.layers, nil
+}
+func (r *ruleBackend) PendingAsks(context.Context) ([]backend.PermissionRequest, error) {
+	return nil, nil
+}
+func (r *ruleBackend) PlanDirs() []string      { return nil }
 func (r *ruleBackend) StaleDeny(string) bool   { return false }
 func (r *ruleBackend) StalePolicy(string) bool { return false }
 
@@ -508,51 +481,40 @@ func TestNoOpWritesRules(t *testing.T) {
 	}
 }
 
-func TestTightenedPolicyRestartsWithdrawsAndReapplies(t *testing.T) {
+// A tightened ceiling restarts nothing and writes nothing: the next ask is
+// decided under it, and a card the ceiling now refuses is rejected at once while
+// one it still allows stays.
+func TestTightenedPolicyRejectsWhatItNowRefusesAndRestartsNothing(t *testing.T) {
 	mc, rb, dir := newRuleMachine(t, policy.Default())
 	askFor(mc, "per_1", "edit")
-	if mc.mat.PendingPermissions("s1") != 1 {
-		t.Fatal("setup: the ask was not held")
+	askFor(mc, "per_2", "webfetch")
+	if mc.mat.PendingPermissions("s1") != 2 {
+		t.Fatal("setup: the asks were not held")
 	}
-	mc.policyTightened(context.Background(), policy.Change{Tightened: true})
-	if rb.restarts != 1 {
-		t.Errorf("restarts = %d, want 1", rb.restarts)
+	ch := mc.live.Tighten(policy.Permission{Max: map[string]string{"edit": "deny"}})
+	if !ch.Tightened {
+		t.Fatal("setup: not tightened")
 	}
-	if mc.mat.PendingPermissions("s1") != 0 {
-		t.Error("an ask that died with the old process is still shown")
+	mc.policyTightened(context.Background(), ch)
+	waitReplies(t, rb, 1)
+	rb.mu.Lock()
+	d := rb.replies[0]
+	rb.mu.Unlock()
+	if d != backend.DecisionReject {
+		t.Errorf("reply = %s, want reject of the edit card the ceiling now denies", d)
 	}
-	if len(rb.ensured) != 1 || rb.ensured[0] != "s1" {
-		t.Errorf("ensured = %v, want every tracked session brought under the new rules", rb.ensured)
+	if got := mc.mat.PendingPermissions("s1"); got != 1 {
+		t.Errorf("pending = %d, want the webfetch card still showing", got)
 	}
-	var restarted bool
+	var audited bool
 	for _, r := range auditRows(t, dir) {
-		restarted = restarted || (r["action"] == "permission.tightened" && r["restarted"] == true)
+		audited = audited || (r["action"] == "permission.tightened" && r["restarted"] == false)
 	}
-	if !restarted {
-		t.Error("the restart was not audited")
+	if !audited {
+		t.Error("the tightening was not audited")
 	}
-
-	// A change that tightens nothing needs no restart.
+	// A change that tightens nothing does nothing.
 	mc.policyTightened(context.Background(), policy.Change{})
-	if rb.restarts != 1 {
-		t.Errorf("restarts = %d after a change that tightened nothing, want still 1", rb.restarts)
-	}
-}
-
-func TestFailedRestartIsAuditedAndLeavesAsksAlone(t *testing.T) {
-	mc, rb, dir := newRuleMachine(t, policy.Default())
-	rb.restart = errors.New("did not come back")
-	askFor(mc, "per_1", "edit")
-	mc.policyTightened(context.Background(), policy.Change{Tightened: true})
-	if mc.mat.PendingPermissions("s1") != 1 {
-		t.Error("asks were withdrawn though the old process may still be answering for them")
-	}
-	for _, r := range auditRows(t, dir) {
-		if r["action"] == "permission.tightened" && r["restarted"] == false {
-			return
-		}
-	}
-	t.Error("the failed restart was not audited")
 }
 
 func TestWatchPolicyTakesInOnlyTightening(t *testing.T) {
@@ -621,31 +583,6 @@ func TestWatchPolicyTakesInOnlyTightening(t *testing.T) {
 
 }
 
-func TestChildGetsTheCeilingWithItsAgent(t *testing.T) {
-	mc, rb, _ := newRuleMachine(t, policy.Default())
-	ctx := context.Background()
-	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
-		Kind: backend.EventPart,
-		Part: &backend.Part{ID: "p1", MessageID: "m1", Role: "assistant", Type: backend.PartTool, CallID: "c", Tool: "task",
-			ToolStatus: backend.ToolRunning, SubtaskSessionID: "kid", Input: map[string]any{"subagent_type": "explore"}},
-	}})
-	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/x", SessionID: "kid", Event: backend.Event{
-		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "s1"},
-	}})
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		rb.mu.Lock()
-		agent, ok := rb.children["kid"]
-		rb.mu.Unlock()
-		if ok {
-			if agent != "explore" {
-				t.Fatalf("child agent = %q, want explore", agent)
-			}
-			return
-		}
-	}
-	t.Fatal("the subagent was never given the ceiling")
-}
-
 // P7: a session.prompt that carries `tools` never hands it on: the field is
 // not part of what a prompt is, and opencode would treat it as replacing the
 // session's rules.
@@ -681,45 +618,32 @@ func TestPromptOpCarriesNoToolsField(t *testing.T) {
 	}
 }
 
-// The rule lookup behind session_spawn / session_send, as a table: allow,
-// deny, ask, absent, and the two wildcards.
-func TestGrantReadsTheAskingSessionsRules(t *testing.T) {
+// The decision behind session_spawn / session_send, from the root's word:
+// Plan refuses, Allow allows, Ask asks; a backend with no permission state asks.
+func TestGrantIsTheDecisionFunctionsAnswer(t *testing.T) {
 	mc, rb, _ := newRuleMachine(t, policy.Default())
 	at := &agentTools{mc: mc}
 	tc := &toolCaller{dir: "/x", workspaceID: "w", session: backend.Session{ID: "s1"}}
-	allowAll := permrules.Rule{Permission: "*", Pattern: "*", Action: permrules.Allow}
-	cases := []struct {
-		name    string
-		rules   []permrules.Rule
+	for _, c := range []struct {
+		mode    permrules.Action
 		want    permrules.Action
 		refused bool
 	}{
-		{"absent", nil, permrules.Ask, false},
-		{"opencode's default * allow", []permrules.Rule{allowAll}, permrules.Ask, false},
-		{"explicit allow over the default", []permrules.Rule{allowAll, {Permission: "session_spawn", Pattern: "*", Action: permrules.Allow}}, permrules.Allow, false},
-		{"explicit ask", []permrules.Rule{allowAll, {Permission: "session_spawn", Pattern: "*", Action: permrules.Ask}}, permrules.Ask, false},
-		{"explicit deny", []permrules.Rule{allowAll, {Permission: "session_spawn", Pattern: "*", Action: permrules.Deny}}, permrules.Deny, true},
-		{"* deny", []permrules.Rule{{Permission: "session_spawn", Pattern: "*", Action: permrules.Allow}, {Permission: "*", Pattern: "*", Action: permrules.Deny}}, permrules.Deny, true},
-		{"the other tool's allow is not this one's", []permrules.Rule{{Permission: "session_send", Pattern: "*", Action: permrules.Allow}}, permrules.Ask, false},
-	}
-	for _, c := range cases {
-		rb.layers = backend.RuleLayers{}
-		for _, r := range c.rules {
-			rb.layers.Rules = append(rb.layers.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceDefault})
-		}
+		{permrules.Ask, permrules.Ask, false},
+		{permrules.Allow, permrules.Allow, false},
+		{permrules.Deny, permrules.Deny, true},
+	} {
+		rb.mu.Lock()
+		rb.sel = map[string]permrules.Selector{"s1": {Mode: c.mode}}
+		rb.mu.Unlock()
 		got, err := at.grant(context.Background(), tc, "session_spawn")
 		if got != c.want || (err != nil) != c.refused {
-			t.Errorf("%s: grant = %s, %v; want %s refused=%v", c.name, got, err, c.want, c.refused)
+			t.Errorf("%s: grant = %s, %v; want %s refused=%v", c.mode, got, err, c.want, c.refused)
 		}
 	}
-
-	// A backend that cannot show its rules, or an error reading them, is not
-	// consent.
-	rb.layers = backend.RuleLayers{}
-	fb := &fakeBackend{}
-	at2 := &agentTools{mc: &machine{back: fb}}
+	at2 := &agentTools{mc: &machine{back: &fakeBackend{}}}
 	if got, err := at2.grant(context.Background(), tc, "session_spawn"); got != permrules.Ask || err != nil {
-		t.Errorf("a backend without rules = %s, %v; want ask", got, err)
+		t.Errorf("a backend without permission state = %s, %v; want ask", got, err)
 	}
 }
 

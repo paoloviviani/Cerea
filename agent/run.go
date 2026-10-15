@@ -259,6 +259,10 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		}
 	}
 
+	// An ask raised while galopin was down is still pending in the agent: decide
+	// it now like a live one (ADR 0097: fail safe, then answer on start).
+	mc.answerPending(ctx)
+
 	lnk := link.New(link.Config{
 		CereaOrigin: cereaOrigin,
 		MachineID:   machineID,

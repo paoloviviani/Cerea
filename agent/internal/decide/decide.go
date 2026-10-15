@@ -149,6 +149,20 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 	return MCP, false
 }
 
+// Known reports whether key is a permission name the function classifies on
+// purpose, as opposed to the cautious default every other name gets (MCP: an
+// effectful tool). The live canary fails when opencode adds a name that is not
+// known here, so each new name is decided by a person.
+func Known(key string) bool {
+	switch key {
+	case "read", "glob", "grep", "list", "lsp", "skill", "edit", "bash", "webfetch", "websearch",
+		"codesearch", "external_directory", "task", "todowrite", "todoread", "question", "plan_enter",
+		"plan_exit", "doom_loop", "session_list", "session_read", "session_send", "session_spawn", "schedule":
+		return true
+	}
+	return false
+}
+
 func isSensitive(path string) bool {
 	base := filepath.Base(path)
 	if strings.HasSuffix(base, ".env.example") {
