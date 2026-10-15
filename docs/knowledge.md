@@ -174,6 +174,11 @@ deployment's **local reader** (the gateway's model flagged `local`, the
 stack's markitdown), whatever OCR model is selected, and is never sent to an
 OCR model. With no local reader, an Office file fails with "No reader for Word
 documents is configured" rather than being sent somewhere that cannot read it.
+
+If you restrict the reader model to a group, people outside it get refused by
+that model. Leave the reader on automatic, or make sure everyone can use the
+chosen one; otherwise their PDFs fall back to the local reader when there is
+one, and are stored without text when there is not.
 A legacy binary Office file saved under a `.docx` name (it sniffs as a
 compound file, not a zip) is sent to the local reader as `application/msword`;
 the reader looks at the bytes and either reads it or refuses with its own
