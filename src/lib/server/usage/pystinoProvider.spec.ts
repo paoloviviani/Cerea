@@ -24,7 +24,22 @@ vi.mock("$lib/server/config", () => ({
 
 const { pystinoUsageProvider } = await import("./pystinoProvider");
 
-const limitsList = [
+/** The shape the fixture array can hold: `current_value` may be either a
+ * figure or the unreachable-store null, and ADR 0098's additive
+ * `applies_to` arrives only when the gateway sends it. */
+type LimitFixture = {
+	id: string;
+	name: string;
+	scope: "global" | "group" | "user";
+	metric: string;
+	window_label: string;
+	limit_value: string;
+	current_value: string | null;
+	notification_thresholds: number[];
+	applies_to?: "aggregate" | "each_member";
+};
+
+const limitsList: LimitFixture[] = [
 	{
 		id: "limit-1",
 		name: "Monthly tokens",
@@ -49,7 +64,7 @@ const limitsList = [
 
 /** The single `GET /v1/pystino/usage` document (ADR 0074). */
 type Bundle = {
-	limits: typeof limitsList;
+	limits: LimitFixture[];
 	usage: typeof usageSummary;
 	groups: Record<string, typeof usageSummary>;
 };
