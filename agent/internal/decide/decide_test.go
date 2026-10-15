@@ -108,7 +108,12 @@ func TestCoordinationTool(t *testing.T) {
 		{"machine ask beats grant", Policy{Own: []permrules.Rule{{Permission: "session_send", Pattern: "*", Action: permrules.Ask}}}, grant, "session_send", false, permrules.Ask},
 		{"machine allow", Policy{Own: []permrules.Rule{{Permission: "session_read", Pattern: "*", Action: permrules.Allow}}}, State{}, "session_read", false, permrules.Allow},
 		{"delegate read in ask", Policy{}, State{}, "session_read", true, permrules.Allow},
-		{"delegate send in plan", Policy{}, State{Mode: permrules.Deny}, "session_send", true, permrules.Allow},
+		{"a Plan spawner's send to its delegate is rejected", Policy{}, State{Mode: permrules.Deny}, "session_send", true, permrules.Deny},
+		{"a Plan spawner reads its delegate", Policy{}, State{Mode: permrules.Deny}, "session_read", true, permrules.Allow},
+		{"a Plan caller's spawn is rejected, delegate or not", Policy{}, State{Mode: permrules.Deny}, "session_spawn", true, permrules.Deny},
+		{"a Plan caller's schedule is rejected", Policy{}, State{Mode: permrules.Deny}, "schedule", true, permrules.Deny},
+		{"an Ask spawner's send to its delegate is once", Policy{}, State{}, "session_send", true, permrules.Allow},
+		{"a delegate on Ask sending to a Plan spawner is once", Policy{}, State{Mode: permrules.Ask}, "session_send", true, permrules.Allow},
 		{"delegate under ceiling ask", Policy{Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"session_read": permrules.Ask}}}, State{}, "session_read", true, permrules.Ask},
 		{"delegate under ceiling deny", Policy{Ceiling: permrules.Ceiling{Max: map[string]permrules.Action{"session_read": permrules.Deny}}}, State{}, "session_read", true, permrules.Deny},
 	}

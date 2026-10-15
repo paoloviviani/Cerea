@@ -384,6 +384,12 @@ func CoordinationTool(p Policy, s State, key string, delegate bool) (permrules.A
 		return permrules.Deny, "this machine's rules do not allow " + key
 	}
 	capAsk := ceiling == permrules.Ask || (hasOwn && own == permrules.Ask)
+	// Plan changes nothing: only reading one's own delegate gets through it. A
+	// send, a spawn or a schedule is refused delegate or not, because a delegate
+	// spawned on Allow would otherwise carry the change for the Plan caller.
+	if s.Mode == permrules.Deny && !(delegate && key == "session_read") {
+		return permrules.Deny, PlanReason
+	}
 	answer := permrules.Ask
 	switch {
 	case delegate:
