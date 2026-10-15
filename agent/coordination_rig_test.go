@@ -281,6 +281,7 @@ func newCoordRig(t *testing.T, mutate func(*policy.Policy)) *coordRig {
 	}
 	t.Cleanup(func() { _ = audit.Close() })
 	mc.AttachAudit(audit)
+	mc.AttachReportState(stateDir)
 	if mc.agentTools == nil {
 		t.Fatal("the agent tools were not installed on the rig")
 	}
