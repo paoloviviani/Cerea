@@ -5,6 +5,28 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.2 — 2026-10-16
+
+Pins: Cerea `0.15.2`, Pystino `0.9.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **The model can read PDFs from the web.** A PDF (or a Word, Excel,
+  PowerPoint, OpenDocument or e-book file) that `web_fetch` reaches is now
+  read by the document reader, the same one an attached file uses, instead
+  of arriving as binary. It is recognised by its type or its bytes, also
+  when the server calls it `octet-stream`, and with either fetch backend.
+  It is read once per turn, however many times the model pages through it.
+  A fetch approved from a card is read with the approver's access. If the
+  reader can't read it, the model is told why.
+- **Long pages arrive in chunks.** `web_fetch` takes an `offset`, and each
+  chunk ends with where to continue, so a long article or paper can be
+  read to the end instead of stopping at the first 24,000 characters.
+  Paging within a turn neither refetches the page nor counts toward the
+  20-page limit.
+- **Direct fetches keep the article, not the page around it.** With
+  `FETCH_BACKEND=direct`, HTML goes through Readability before the model
+  sees it, so navigation, headers and footers no longer use up the budget.
+
 ## v0.15.1 — 2026-10-16
 
 Pins: Cerea `0.15.1`, Pystino `0.9.0`, Authelia 4.39.22. Update the
