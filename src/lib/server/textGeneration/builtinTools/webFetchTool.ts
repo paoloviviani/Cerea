@@ -123,6 +123,14 @@ export async function performFetch(
 			let text: string;
 			let title = fetched.title;
 			if (fetched.document) {
+				if (!options.token) {
+					return {
+						result: {
+							error:
+								"This document could not be read: it needs the reader of the person asking, and none is available here. Approve it again from the conversation.",
+						},
+					};
+				}
 				const extraction = await extractDocument({
 					bytes: fetched.document.bytes,
 					mime: fetched.document.mime,

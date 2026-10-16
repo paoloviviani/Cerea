@@ -53,13 +53,15 @@ const NON_MCP_GATED_TOOLS: Record<
 	string,
 	(
 		url: string,
-		args: Record<string, unknown>
+		args: Record<string, unknown>,
+		token?: string
 	) => Promise<{ result: FetchOutcome; finalUrl?: string }>
 > = {
-	// No token on the resume path (the sweeper acts without a request), so a
-	// document cannot be extracted here: it fails with the extractor's own
-	// no-credential reason rather than returning bytes.
-	[WEB_FETCH_TOOL_NAME]: (url, args) => performFetch(url, { offset: args.offset as number }),
+	// The token is the approving person's, from their own POST. Where a resume
+	// runs without a request (the sweeper) there is none, and a document fetch
+	// says to approve it again from the conversation rather than returning bytes.
+	[WEB_FETCH_TOOL_NAME]: (url, args, token) =>
+		performFetch(url, { offset: args.offset as number, token }),
 	[WEB_FETCH_STRUCTURED_TOOL_NAME]: (url) => performAccessibilitySnapshot(url),
 };
 
@@ -86,7 +88,8 @@ async function runApprovedCall(
 	call: ApprovableCall,
 	toolUuid: string,
 	extraServers: McpServerConfig[],
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	token?: string
 ): Promise<MessageUpdate> {
 	if (!call.mcp) {
 		const url = typeof call.args.url === "string" ? call.args.url : "";
@@ -99,7 +102,7 @@ async function runApprovedCall(
 				message: `Unknown tool: ${call.tool}`,
 			};
 		}
-		const { result } = await runner(url, call.args);
+		const { result } = await runner(url, call.args, token);
 		return "error" in result
 			? {
 					type: MessageUpdateType.Tool,
@@ -200,12 +203,15 @@ export async function resumeParkedToolCall({
 	generationId,
 	extraServers = [],
 	signal,
+	token,
 }: {
 	conversationId: ObjectId;
 	elicitationId: string;
 	generationId?: string;
 	extraServers?: McpServerConfig[];
 	signal?: AbortSignal;
+	/** The approving person's token, from the request this resume runs inside. Absent for a sweeper. */
+	token?: string;
 }): Promise<{
 	resumed: boolean;
 	reason?: string;
@@ -290,7 +296,7 @@ export async function resumeParkedToolCall({
 		const updates: MessageUpdate[] = [settled];
 		updates.push(
 			accepted
-				? await runApprovedCall(pending, pending.toolUuid, extraServers, signal)
+				? await runApprovedCall(pending, pending.toolUuid, extraServers, signal, token)
 				: toolApprovalDenied(pending.toolUuid, pending.tool)
 		);
 
@@ -303,7 +309,7 @@ export async function resumeParkedToolCall({
 		while (queue.length > 0) {
 			const [next, ...rest] = queue;
 			if (grantedNow.has(next.tool)) {
-				updates.push(await runApprovedCall(next, next.toolUuid, extraServers, signal));
+				updates.push(await runApprovedCall(next, next.toolUuid, extraServers, signal, token));
 				queue = rest;
 				continue;
 			}

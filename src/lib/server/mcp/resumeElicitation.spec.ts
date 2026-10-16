@@ -29,6 +29,9 @@ vi.mock("./httpClient", () => ({
 const fetchPageMock = vi.fn();
 vi.mock("$lib/server/fetching", () => ({ fetchPage: fetchPageMock }));
 
+const extractDocumentMock = vi.fn();
+vi.mock("$lib/server/files/extractDocument", () => ({ extractDocument: extractDocumentMock }));
+
 const accessibilitySnapshotWithPlaywright = vi.fn();
 vi.mock("$lib/server/fetching/playwright", () => ({ accessibilitySnapshotWithPlaywright }));
 
@@ -451,6 +454,47 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 
 		const conv = await collections.conversations.findOne({ _id: conversationId });
 		expect(conv?.approvedTools ?? []).toEqual([]);
+	});
+
+	async function approvedPdf(token: string | undefined) {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const url = "https://arxiv.example/pdf/1";
+		fetchPageMock.mockResolvedValueOnce({
+			url,
+			title: null,
+			content: "",
+			contentType: "application/pdf",
+			backend: "direct",
+			document: { bytes: new ArrayBuffer(8), mime: "application/pdf", filename: "1.pdf" },
+		});
+		extractDocumentMock.mockResolvedValue({ ok: true, text: "Paper text", pages: 1 });
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "web_fetch",
+			args: { url },
+			scope: "once",
+		});
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token });
+		return outcome.updates.find(
+			(u) => "subtype" in u && (u.subtype === "result" || u.subtype === "error")
+		) as
+			undefined | { subtype: string; message?: string; result?: { outputs: { text?: string }[] } };
+	}
+
+	it("extracts an approved PDF with the token of the request the resume runs in", async () => {
+		const update = await approvedPdf("post-token");
+		expect(extractDocumentMock).toHaveBeenCalledWith(
+			expect.objectContaining({ token: "post-token" })
+		);
+		expect(update?.result?.outputs[0]?.text).toContain("Paper text");
+	});
+
+	it("without a request (no token) tells the model to approve the PDF again, not to sign out", async () => {
+		extractDocumentMock.mockReset();
+		const update = await approvedPdf(undefined);
+		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(update?.subtype).toBe("error");
+		expect(update?.message).toContain("Approve it again from the conversation");
 	});
 
 	it("grants the tool for the rest of the conversation and reports it to the caller", async () => {
