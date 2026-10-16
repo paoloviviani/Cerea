@@ -5,6 +5,19 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.1 — 2026-10-16
+
+Pins: Cerea `0.15.1`, Pystino `0.9.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Web search on by default for new accounts.** New settings documents
+  start with web search on, so new chats inherit it through the existing
+  chain (per-chat state, then the project default, then the app setting,
+  then off). Existing accounts keep whatever they set — an unset field
+  still resolves as off — and the toggle stays in Settings → Application.
+  The tool itself is still only offered when the gateway grants the caller
+  a search backend, so deployments without search are unaffected.
+
 ## v0.15.0 — 2026-10-16
 
 Pins: Cerea `0.15.0`, Pystino `0.9.0`, Authelia 4.39.22. Update the
