@@ -8,12 +8,20 @@
  * to say the content was never there.
  *
  * The body is read as bytes (`./bytes`) so a PDF or Office file comes back as
- * a document to extract, not as text.
+ * a document to extract, not as text. An HTML page is reduced to its main
+ * content (`./readable`); when that finds none, the whole page is returned and
+ * the caller strips the markup.
  */
 
 import type { FetchedPage } from "./index";
 import { fetchBytes, pageFromBytes } from "./bytes";
+import { extractArticle } from "./readable";
 
 export async function fetchDirect(url: string): Promise<FetchedPage> {
-	return pageFromBytes(await fetchBytes(url), "direct");
+	const page = await pageFromBytes(await fetchBytes(url), "direct");
+	if (page.document || !/html/i.test(page.contentType)) return page;
+	const article = extractArticle(page.content, page.url);
+	return article
+		? { ...page, title: article.title ?? page.title, content: article.content, extracted: true }
+		: page;
 }

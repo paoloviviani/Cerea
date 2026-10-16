@@ -50,3 +50,37 @@ describe("direct fetch of documents", () => {
 		expect(page).toMatchObject({ title: "Hi", content: "<html><title>Hi</title></html>" });
 	});
 });
+
+describe("direct fetch of an article page", () => {
+	beforeEach(() => vi.resetAllMocks());
+
+	const arxivLike = `<!DOCTYPE html><html><head><title>A Paper</title></head><body>
+<nav><ul><li><a href="/">arXiv home</a></li><li><a href="/login">Login to the site</a></li><li><a href="/help">Help pages</a></li></ul></nav>
+<header><div class="banner">Skip to main content. Support our donors.</div></header>
+<article class="ltx_document"><h1>A Paper</h1>
+<section><h2>1 Introduction</h2><p>${"We study the problem of reading long documents carefully. ".repeat(12)}</p></section>
+<section><h2>2 Method</h2><p>${"Our method proceeds in three stages, each described below. ".repeat(12)}</p></section>
+<section><h2>3 Results</h2><p>${"The results show a consistent improvement across tasks. ".repeat(12)}</p></section>
+</article>
+<footer><p>Copyright and privacy policy, contact us</p></footer></body></html>`;
+
+	it("keeps the article's sections and drops the navigation", async () => {
+		respond(arxivLike, "text/html");
+		const { readablePageText } = await import("../textGeneration/builtinTools/webFetchTool");
+		const page = await fetchDirect("https://x.test/f");
+		expect(page.extracted).toBe(true);
+		const text = readablePageText(page.content);
+		expect(text).toContain("1 Introduction");
+		expect(text).toContain("2 Method");
+		expect(text).toContain("3 Results");
+		expect(text).not.toContain("Login to the site");
+		expect(text).not.toContain("privacy policy");
+	});
+
+	it("falls back to the whole page when there is no article to find", async () => {
+		respond("<html><body></body></html>", "text/html");
+		const page = await fetchDirect("https://x.test/f");
+		expect(page.content).toBe("<html><body></body></html>");
+		expect(page.extracted).toBe(false);
+	});
+});
