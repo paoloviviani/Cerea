@@ -10,6 +10,17 @@ nothing useful for the growing share of pages that are empty until
 JavaScript has run. With the **headless browser** turned on, the chat renders
 the page in a real browser and reads what a person would see.
 
+## PDFs, documents and long pages
+
+With either backend, a URL that is a PDF, Word, Excel, PowerPoint or epub file
+is not read as text: it is fetched as a file and read with the same document
+reader an attached file uses, as the person asking, so it is metered and
+access-checked the same way. If the reader cannot read it, the assistant is
+told why. Long pages and documents arrive in chunks of about 24,000 characters;
+the assistant reads on by calling `web_fetch` again with an `offset`. The text
+is kept for the turn, so reading on does not fetch or extract again, and a
+read-on call does not count toward the per-turn limit of 20 fetches.
+
 ## Turning it on
 
 In the deploy kit, add the `fetch` profile. The `enterprise` preset includes it;

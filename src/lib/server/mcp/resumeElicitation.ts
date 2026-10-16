@@ -51,10 +51,16 @@ type ApprovableCall = Pick<QueuedApprovalCall, "tool" | "args" | "mcp">;
  */
 const NON_MCP_GATED_TOOLS: Record<
 	string,
-	(url: string) => Promise<{ result: FetchOutcome; finalUrl?: string }>
+	(
+		url: string,
+		args: Record<string, unknown>
+	) => Promise<{ result: FetchOutcome; finalUrl?: string }>
 > = {
-	[WEB_FETCH_TOOL_NAME]: performFetch,
-	[WEB_FETCH_STRUCTURED_TOOL_NAME]: performAccessibilitySnapshot,
+	// No token on the resume path (the sweeper acts without a request), so a
+	// document cannot be extracted here: it fails with the extractor's own
+	// no-credential reason rather than returning bytes.
+	[WEB_FETCH_TOOL_NAME]: (url, args) => performFetch(url, { offset: args.offset as number }),
+	[WEB_FETCH_STRUCTURED_TOOL_NAME]: (url) => performAccessibilitySnapshot(url),
 };
 
 /** Refusal fed back to the model exactly like OpenWebUI's deny behavior. */
@@ -93,7 +99,7 @@ async function runApprovedCall(
 				message: `Unknown tool: ${call.tool}`,
 			};
 		}
-		const { result } = await runner(url);
+		const { result } = await runner(url, call.args);
 		return "error" in result
 			? {
 					type: MessageUpdateType.Tool,
