@@ -30,7 +30,9 @@
 	import { clearTranscripts } from "$lib/stores/agentTranscriptCache";
 	import IconSun from "$lib/components/icons/IconSun.svelte";
 	import IconMoon from "$lib/components/icons/IconMoon.svelte";
+	import { reloadApp } from "$lib/utils/appReload";
 	import CarbonLogout from "~icons/carbon/logout";
+	import CarbonRenew from "~icons/carbon/renew";
 
 	interface Props {
 		/** `null` as well as `undefined`: that is what the layout's `user` is. */
@@ -95,6 +97,12 @@
 		{:else}
 			<IconMoon classNames="size-4" />
 		{/if}
+	</button>
+
+	<!-- An installed PWA has no address bar and no pull-to-refresh: this is its
+	     only way to start over from the server when the page has drifted. -->
+	<button type="button" onclick={reloadApp} aria-label="Reload app" title="Reload" class={GHOST}>
+		<CarbonRenew class="size-4" />
 	</button>
 
 	<!-- A form post, not a link: signing somebody out must not be something a

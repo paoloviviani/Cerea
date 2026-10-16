@@ -12,7 +12,8 @@ import {
 } from "./codeReauth.svelte";
 import { CodeApiError, loadCodeStatus, listDevices, mintTerminalTicket } from "$lib/codeApi";
 import { TerminalReauthRequired } from "$lib/codeApi";
-import { codeDeviceList, refreshCodeDevices } from "./codeDeviceList.svelte";
+import { codeDeviceList, refreshCodeDevices, useCodeDevicePoll } from "./codeDeviceList.svelte";
+import { resetAppResume } from "$lib/utils/appResume";
 
 /**
  * The shared "your sign-in is too old for /code" flag. The server refuses
@@ -321,5 +322,52 @@ describe("what the machines told us is dropped", () => {
 		flagCodeSignedOut();
 		expect(codeDeviceList.devices).toEqual([]);
 		expect(codeDeviceList.loading).toBe(false);
+	});
+
+	it("a plain 401 on the device poll (no session) goes to /status and the sign-in, not a frozen list", async () => {
+		vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		window.sessionStorage.clear();
+		const fetchSpy = vi.fn(async (input: RequestInfo | URL) =>
+			String(input).endsWith("/status")
+				? new Response(
+						superjson.stringify({
+							enabled: true,
+							signedIn: false,
+							fresh: false,
+							reauthPath: REAUTH_PATH,
+							signInPath: "/login?next=/code",
+						}),
+						{ status: 200 }
+					)
+				: new Response("Login required", { status: 401 })
+		);
+		vi.stubGlobal("fetch", fetchSpy);
+		codeDeviceList.devices = [{ id: "d1", name: "Box", online: true } as never];
+		await refreshCodeDevices();
+		await vi.waitFor(() => expect(codeReauth.signedOut).toBe(true));
+		expect(codeDeviceList.devices).toEqual([]);
+		expect(signOutRedirect.go).toHaveBeenCalledWith("/login?next=/code");
+	});
+
+	it("a transient failure keeps the last good list and asks nothing else", async () => {
+		const fetchSpy = vi.fn(async () => new Response("bad gateway", { status: 502 }));
+		vi.stubGlobal("fetch", fetchSpy);
+		codeDeviceList.devices = [{ id: "d1", name: "Box", online: true } as never];
+		await refreshCodeDevices();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		expect(codeDeviceList.devices).toHaveLength(1);
+	});
+
+	it("re-reads the list the moment the app comes back", async () => {
+		const fetchSpy = vi.fn(
+			async () => new Response(superjson.stringify({ devices: [] }), { status: 200 })
+		);
+		vi.stubGlobal("fetch", fetchSpy);
+		const stop = useCodeDevicePoll();
+		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+		resetAppResume();
+		window.dispatchEvent(new Event("online"));
+		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+		stop();
 	});
 });

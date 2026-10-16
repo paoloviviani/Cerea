@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import superjson from "superjson";
 import { codeAgentStream } from "./codeAgentStream";
+import { resetAppResume } from "$lib/utils/appResume";
 import { codeReauth, resetCodeReauth, signOutRedirect } from "$lib/stores/codeReauth.svelte";
 
 /**
@@ -129,5 +130,72 @@ describe("codeAgentStream and the sign-in", () => {
 		expect(codeReauth.required).toBe(false);
 		abort.abort();
 		await done;
+	});
+
+	it("reconnects with backoff after a refusal that is not the sign-in, and refolds", async () => {
+		{
+			// /status says the sign-in is fine: the server was only away (a 502
+			// during a deploy closes an EventSource for good).
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					async () =>
+						new Response(
+							superjson.stringify({ enabled: true, fresh: true, reauthPath: "/login?reauth=1" }),
+							{ status: 200 }
+						)
+				)
+			);
+			const abort = new AbortController();
+			const frames: unknown[] = [];
+			const done = (async () => {
+				for await (const frame of codeAgentStream("d1", "a1", abort.signal)) frames.push(frame);
+			})();
+			const first = FakeSource.last as FakeSource;
+			first.readyState = FakeSource.CLOSED;
+			first.emit("error");
+			await vi.waitFor(() => expect(FakeSource.last).not.toBe(first), { timeout: 3000 });
+			const second = FakeSource.last as FakeSource;
+			// The new connection replays the history from the start: the
+			// consumer is told to refold before it arrives.
+			expect(frames).toEqual([{ type: "reset" }]);
+			second.emit("update", JSON.stringify({ type: "reset" }));
+			abort.abort();
+			await done;
+		}
+	});
+
+	it("retries at once when the app comes back, instead of waiting out the backoff", async () => {
+		{
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					async () =>
+						new Response(
+							superjson.stringify({ enabled: true, fresh: true, reauthPath: "/login?reauth=1" }),
+							{ status: 200 }
+						)
+				)
+			);
+			const abort = new AbortController();
+			const done = (async () => {
+				for await (const frame of codeAgentStream("d1", "a1", abort.signal)) void frame;
+			})();
+			const first = FakeSource.last as FakeSource;
+			first.readyState = FakeSource.CLOSED;
+			first.emit("error");
+			// While /status is in flight, nothing has been retried; once the
+			// backoff is armed, coming back online retries at once (well before
+			// the 1s wait could elapse on its own).
+			const started = Date.now();
+			await vi.waitFor(() => {
+				resetAppResume();
+				window.dispatchEvent(new Event("online"));
+				expect(FakeSource.last).not.toBe(first);
+			});
+			expect(Date.now() - started).toBeLessThan(900);
+			abort.abort();
+			await done;
+		}
 	});
 });
