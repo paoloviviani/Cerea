@@ -192,8 +192,8 @@ sources whoever asks it.
 
 Whether a new conversation starts with search on follows a chain: the
 conversation's own state, then the project's default (inside a project), then
-your app setting, then off. Nothing done inside a chat writes back to the
-settings.
+your app setting (on for new accounts; older accounts keep whatever they set),
+then off. Nothing done inside a chat writes back to the settings.
 
 When you paste a link, or search finds one, the assistant can also **fetch the
 page** and read it. Some sites stay empty until JavaScript has run. If the assistant reports a page as empty, your deployment may not have the headless browser that reads pages the way a browser does; that is an operator's choice.

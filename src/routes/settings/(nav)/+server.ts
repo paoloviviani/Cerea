@@ -12,8 +12,10 @@ const settingsSchema = z.object({
 	shareConversationsWithModelAuthors: z
 		.boolean()
 		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
-	// Off by default and stored as absent: the field is the user's consent to
-	// web search, and the tool it enables also needs the console's search tier.
+	// On by default for new accounts (DEFAULT_SETTINGS); the field is the
+	// user's consent to web search, and the tool it enables also needs the
+	// console's search tier. Absent on older documents still resolves as off,
+	// and a missing search backend withholds the tool rather than failing.
 	webSearchEnabled: z.boolean().optional(),
 	// Absent means `manual` (every gated tool call asks). The v2 settings
 	// endpoint (`api/v2/user/settings`) carries this same field — the client
