@@ -5,6 +5,26 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.4 — 2026-10-17
+
+Pins: Cerea `0.15.4`, Pystino `0.9.1`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **The app recovers on its own instead of needing a reload.**
+  - An open agent chat whose connection dropped (a server restart, a deploy,
+    a network change, a laptop waking up) now reconnects by itself instead of
+    staying dead until the page was reloaded.
+  - Coming back to the tab or the installed app, or getting the network back,
+    refreshes what is on screen at once.
+  - A sign-in that lapsed while the page was open now leads to the sign-in
+    page instead of a frozen machine list.
+- **A reload button in the sidebar footer** (the circular arrow next to the
+  theme switch and sign-out), the only way to refresh the installed app. When
+  a new version is deployed, a small banner offers to reload.
+- **Invited people stop showing as "Invited" once they sign in** (Pystino
+  0.9.1). Claiming an invitation now consumes it, and the upgrade clears the
+  badge from accounts that were already claimed.
+
 ## v0.15.3 — 2026-10-16
 
 Pins: Cerea `0.15.3`, Pystino `0.9.0`, Authelia 4.39.22. Update the
