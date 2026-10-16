@@ -1,6 +1,7 @@
 import NavFooter from "./NavFooter.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { appReload } from "$lib/utils/appReload";
 
 /**
  * The footer is static by design — it replaced `UserMenu`, whose every
@@ -60,5 +61,13 @@ describe("NavFooter", () => {
 		expect(document.documentElement.classList.contains("dark")).toBe(true);
 		await screen.getByRole("button", { name: "Switch to light theme" }).click();
 		expect(document.documentElement.classList.contains("dark")).toBe(false);
+	});
+
+	it("has a Reload app control that reloads the page (a PWA has no other way)", async () => {
+		const spy = vi.spyOn(appReload, "reload").mockImplementation(() => {});
+		const screen = mount({ username: "ada" });
+		await screen.getByRole("button", { name: "Reload app" }).click();
+		expect(spy).toHaveBeenCalledTimes(1);
+		spy.mockRestore();
 	});
 });

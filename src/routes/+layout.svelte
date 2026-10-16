@@ -3,7 +3,7 @@
 
 	import { onDestroy, onMount } from "svelte";
 	import { browser } from "$app/environment";
-	import { beforeNavigate, goto } from "$app/navigation";
+	import { beforeNavigate, goto, invalidateAll } from "$app/navigation";
 	import { base } from "$app/paths";
 	import { page, updated } from "$app/state";
 
@@ -17,6 +17,9 @@
 	import Toast from "$lib/components/Toast.svelte";
 	import NotificationToasts from "$lib/components/NotificationToasts.svelte";
 	import GenerationLiveWatcher from "$lib/components/GenerationLiveWatcher.svelte";
+	import UpdateBanner from "$lib/components/UpdateBanner.svelte";
+	import { watchChunkErrors } from "$lib/utils/appReload";
+	import { onAppResume } from "$lib/utils/appResume";
 	import NavMenu from "$lib/components/NavMenu.svelte";
 	import NavigationLoadingBar from "$lib/components/NavigationLoadingBar.svelte";
 	import MobileNav from "$lib/components/MobileNav.svelte";
@@ -131,7 +134,10 @@
 		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
 	});
 
+	const cleanups: Array<() => void> = [];
+
 	onDestroy(() => {
+		for (const stop of cleanups) stop();
 		clearTimeout(errorToastTimeout);
 		cleanupAppViewport?.();
 		if (browser) window.removeEventListener("keydown", onKeydown, { capture: true });
@@ -165,6 +171,13 @@
 	});
 
 	onMount(async () => {
+		// A lazily loaded chunk that 404s after a deploy: reload the page once.
+		const stopChunkWatch = watchChunkErrors();
+		// A tab or PWA that slept (or lost the network) re-reads what the
+		// server knows — session, conversations — instead of showing a stale,
+		// broken shell until someone reloads.
+		const stopResume = onAppResume(() => void invalidateAll());
+		cleanups.push(stopChunkWatch, stopResume);
 		// Measure the window's real height for the shell (see appViewport):
 		// `100dvh` can go stale when an Android PWA returns from the login
 		// Custom Tab, cutting the composer off with no way to scroll it back.
@@ -338,6 +351,7 @@
 	{/if}
 	<GenerationLiveWatcher />
 	<NotificationToasts />
+	<UpdateBanner show={updated.current} />
 	{@render children?.()}
 
 	{#if publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}

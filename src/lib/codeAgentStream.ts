@@ -1,6 +1,7 @@
 import { base } from "$app/paths";
-import { flagCodeReauth } from "$lib/stores/codeReauth.svelte";
+import { codeReauth, flagCodeReauth } from "$lib/stores/codeReauth.svelte";
 import { loadCodeStatus } from "$lib/codeApi";
+import { onAppResume } from "$lib/utils/appResume";
 import { AGENT_STREAM_UPDATE_TYPES, type AgentStreamUpdate } from "$lib/types/CodeAgent";
 
 /**
@@ -28,55 +29,99 @@ export function agentStreamUrl(deviceId: string, agentId: string): string {
 	return `${base}/api/v2/code/agents/${encodeURIComponent(agentId)}/stream?device=${encodeURIComponent(deviceId)}`;
 }
 
+/** Consecutive failed (re)connects before the stream gives up and ends, as it
+ * always did on a refusal; the person can reopen the chat. */
+const MAX_RECONNECTS = 8;
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
+
 export async function* codeAgentStream(
 	deviceId: string,
 	agentId: string,
 	signal: AbortSignal
 ): AsyncGenerator<AgentStreamUpdate> {
-	const source = new EventSource(agentStreamUrl(deviceId, agentId));
+	let source: EventSource;
 	const queue: AgentStreamUpdate[] = [];
 	let done = false;
 	let wake: (() => void) | null = null;
+	let failures = 0;
+	let retryTimer: ReturnType<typeof setTimeout> | null = null;
 	const notify = () => {
 		wake?.();
 		wake = null;
 	};
 
-	source.addEventListener("update", (event) => {
-		try {
-			const parsed: unknown = JSON.parse((event as MessageEvent).data);
-			// The bridge validates too; this is the backstop for anything that
-			// reached the page another way (a cached frame, a proxy's injection).
-			if (isAgentUpdate(parsed)) queue.push(parsed);
-		} catch {
-			// ignore a malformed frame rather than tear down the transcript
-		}
-		notify();
-	});
-
 	// Close ourselves so EventSource does not auto-reconnect after a deliberate end.
 	const finish = () => {
 		done = true;
-		source.close();
+		if (retryTimer) clearTimeout(retryTimer);
+		retryTimer = null;
+		source?.close();
 		notify();
 	};
-	source.addEventListener("end", finish);
-	// The sign-in behind this stream lapsed (the server schedules this frame
-	// at `authTime + 7d` and closes): flip the shared flag, then stop. The
-	// panel drops its state and shows the one card.
-	source.addEventListener("reauth_required", () => {
-		flagCodeReauth();
-		finish();
-	});
-	// A refusal at open (the /code guard answers 401 to a stale session)
-	// closes an EventSource for good and says nothing about why. Ask
-	// `/status`: it is the one call a stale session may make, and it flips
-	// the flag if that is the reason. A closed source is not retried here.
-	source.addEventListener("error", () => {
-		if (source.readyState === EventSource.CLOSED) {
-			void loadCodeStatus(true);
+
+	const connect = () => {
+		retryTimer = null;
+		const next = new EventSource(agentStreamUrl(deviceId, agentId));
+		source = next;
+		next.addEventListener("open", () => {
+			failures = 0;
+		});
+		next.addEventListener("update", (event) => {
+			failures = 0;
+			try {
+				const parsed: unknown = JSON.parse((event as MessageEvent).data);
+				// The bridge validates too; this is the backstop for anything that
+				// reached the page another way (a cached frame, a proxy's injection).
+				if (isAgentUpdate(parsed)) queue.push(parsed);
+			} catch {
+				// ignore a malformed frame rather than tear down the transcript
+			}
+			notify();
+		});
+		next.addEventListener("end", finish);
+		// The sign-in behind this stream lapsed (the server schedules this frame
+		// at `authTime + 7d` and closes): flip the shared flag, then stop. The
+		// panel drops its state and shows the one card.
+		next.addEventListener("reauth_required", () => {
+			flagCodeReauth();
 			finish();
-		}
+		});
+		// A refusal at open closes an EventSource for good and says nothing about
+		// why: a stale or missing sign-in (the /code guard's 401), or a server
+		// that is restarting (a 502 from the proxy) look the same. Ask `/status`,
+		// the one call a stale session may make: it flips the flag if the
+		// sign-in is the reason, and then the stream ends. Otherwise the server
+		// or the network was only away: reconnect with backoff, and tell the
+		// consumer to refold, because the new connection replays the history
+		// from the start.
+		next.addEventListener("error", () => {
+			if (next.readyState !== EventSource.CLOSED || done || next !== source) return;
+			next.close();
+			void (async () => {
+				await loadCodeStatus(true);
+				if (done || codeReauth.required) return finish();
+				failures += 1;
+				if (failures > MAX_RECONNECTS) return finish();
+				const wait = Math.min(RECONNECT_BASE_MS * 2 ** (failures - 1), RECONNECT_MAX_MS);
+				retryTimer = setTimeout(reconnect, wait);
+			})();
+		});
+	};
+
+	const reconnect = () => {
+		if (done) return;
+		if (retryTimer) clearTimeout(retryTimer);
+		queue.push({ type: "reset" } as AgentStreamUpdate);
+		connect();
+		notify();
+	};
+
+	connect();
+	// The network came back or the tab woke: a stream waiting out its backoff
+	// retries now instead of at the end of the wait.
+	const stopResume = onAppResume(() => {
+		if (retryTimer) reconnect();
 	});
 	signal.addEventListener("abort", finish, { once: true });
 
@@ -91,6 +136,7 @@ export async function* codeAgentStream(
 			await new Promise<void>((resolve) => (wake = resolve));
 		}
 	} finally {
-		source.close();
+		stopResume();
+		finish();
 	}
 }
