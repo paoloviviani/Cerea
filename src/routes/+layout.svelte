@@ -30,6 +30,7 @@
 	import { createConversationsStore } from "$lib/stores/conversations.svelte";
 	import { createActiveGenerationsStore } from "$lib/stores/activeGenerations.svelte";
 	import { createNotificationsStore } from "$lib/stores/notifications.svelte";
+	import { initAppViewport } from "$lib/utils/appViewport";
 
 	let { data = $bindable(), children } = $props();
 
@@ -54,6 +55,7 @@
 	});
 
 	let isNavCollapsed = $state(false);
+	let cleanupAppViewport: (() => void) | undefined;
 
 	let errorToastTimeout: ReturnType<typeof setTimeout>;
 	let currentError: string | undefined = $state();
@@ -131,6 +133,7 @@
 
 	onDestroy(() => {
 		clearTimeout(errorToastTimeout);
+		cleanupAppViewport?.();
 		if (browser) window.removeEventListener("keydown", onKeydown, { capture: true });
 	});
 
@@ -162,6 +165,10 @@
 	});
 
 	onMount(async () => {
+		// Measure the window's real height for the shell (see appViewport):
+		// `100dvh` can go stale when an Android PWA returns from the login
+		// Custom Tab, cutting the composer off with no way to scroll it back.
+		cleanupAppViewport = initAppViewport();
 		// Seed the MCP store from the SSR payload before anything else runs.
 		// onMount never fires during SSR, so this matches the server-rendered HTML
 		// (stores at defaults) and avoids hydration mismatches in NavMenu / ChatWindow.
@@ -292,7 +299,7 @@
 <NavigationLoadingBar />
 
 <div
-	class="fixed grid h-dvh w-screen grid-cols-1 grid-rows-[auto_1fr] overflow-hidden text-smd {!isNavCollapsed
+	class="fixed grid h-[var(--app-dvh,100dvh)] w-screen grid-cols-1 grid-rows-[auto_1fr] overflow-hidden pb-[env(safe-area-inset-bottom)] text-smd {!isNavCollapsed
 		? 'md:grid-cols-[var(--nav-width)_1fr]'
 		: 'md:grid-cols-[0px_1fr]'} transition-[300ms] [transition-property:grid-template-columns] md:grid-rows-[1fr] dark:text-gray-300"
 >
