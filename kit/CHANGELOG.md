@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.3 — 2026-10-16
+
+Pins: Cerea `0.15.3`, Pystino `0.9.0`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Installed Android PWA no longer cuts the composer off after login.**
+  Returning from the Authelia screen could leave the viewport height stuck
+  at the taller in-tab value, pushing the chat input below the fold with no
+  way to scroll it back short of restarting the app. The shell now tracks
+  the window's measured height (re-read on every return to the page) and
+  clears the system gesture bar, so the composer stays visible.
+
 ## v0.15.2 — 2026-10-16
 
 Pins: Cerea `0.15.2`, Pystino `0.9.0`, Authelia 4.39.22. Update the
