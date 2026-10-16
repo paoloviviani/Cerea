@@ -46,6 +46,12 @@ export interface FetchedPage {
 	 * tried.
 	 */
 	extracted: boolean;
+	/**
+	 * Set instead of `content` when the URL is a document (PDF, Word, Excel,
+	 * PowerPoint, epub) rather than a page. The caller extracts it with
+	 * `extractDocument`, the reader an attached file uses.
+	 */
+	document?: { bytes: ArrayBuffer; mime: string; filename: string };
 }
 
 /** The configured backend, defaulting to what this app has always done. */

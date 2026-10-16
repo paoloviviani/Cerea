@@ -224,6 +224,7 @@ export function getEnabledBuiltinTools(params: {
 				allowedUrls: params.allowedFetchUrls,
 				toolApprovalPolicy: params.toolApprovalPolicy,
 				approvedTools: params.approvedTools,
+				token: params.token,
 			})
 		);
 	}

@@ -28,6 +28,7 @@ import { isValidUrl } from "$lib/server/urlSafety";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import type { FetchedPage } from "./index";
+import { fetchBytes, isPageContentType, pageFromBytes, probeContentType } from "./bytes";
 import type { Page } from "playwright";
 
 /**
@@ -261,6 +262,26 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 }
 
 export async function renderWithPlaywright(url: string): Promise<FetchedPage> {
+	// A browser navigated to a PDF starts a download or opens a viewer, neither
+	// of which is text. Anything that does not say it is a page is fetched
+	// directly (through the SSRF guard) and handled as bytes instead.
+	const contentType = await probeContentType(url);
+	if (contentType !== null && !isPageContentType(contentType)) {
+		return pageFromBytes(await fetchBytes(url), "playwright");
+	}
+	try {
+		return await renderPage(url);
+	} catch (err) {
+		// The probe cannot see a download that only starts on navigation (a
+		// server that refuses HEAD, a redirect to a file). Fetch it as bytes.
+		if (err instanceof Error && /download is starting/i.test(err.message)) {
+			return pageFromBytes(await fetchBytes(url), "playwright");
+		}
+		throw err;
+	}
+}
+
+async function renderPage(url: string): Promise<FetchedPage> {
 	return withRenderedPage(url, async (pageHandle) => {
 		const title = await pageHandle.title();
 
