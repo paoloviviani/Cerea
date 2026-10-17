@@ -10,6 +10,14 @@ vi.mock("playwright", () => ({ chromium: { connect } }));
 
 const httpGet = vi.fn();
 vi.mock("node:http", () => ({ default: { get: (...args: unknown[]) => httpGet(...args) } }));
+// playwright.ts reaches extractDocument through bytes.ts, and that module pulls
+// in the database: with the config mock above carrying no MONGODB_URL it starts
+// mongodb-memory-server, which crashes with SIGSEGV on CI runners without AVX
+// (it failed the v0.15.6 release run). The allowlist helpers are all this needs.
+vi.mock("$lib/server/files/extractDocument", () => ({
+	documentMime: (m: string) => m,
+	isExtractableDocument: (m: string) => m === "application/pdf",
+}));
 
 const {
 	renderWithPlaywright,
