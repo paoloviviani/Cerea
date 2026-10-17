@@ -99,6 +99,12 @@ advertises for it; they are a default you can override, not a gate. (There is
 no per-model system prompt any more: see below. Prompts that were stored per
 model were dropped, not migrated.)
 
+A model appears in the picker under the name your administrator gave it, when
+the gateway carries one; otherwise under the id it is sent as. The two are
+different on purpose — the id is what a request carries and what a conversation
+stores, so it never changes, while the display name is set on the gateway's
+model page ([Administering the gateway](chat-admin.md)).
+
 ### Custom models
 
 The **Custom models** tab of the Workspace page (`/workspace?tab=custom`)

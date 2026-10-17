@@ -152,6 +152,11 @@ const listSchema = z
 				input_modalities: z.array(z.string()).optional(),
 				output_modalities: z.array(z.string()).optional(),
 				supported_features: z.array(z.string()).optional(),
+				// What a client's model picker should show. Distinct from `id`,
+				// which is what a request carries and what every stored reference
+				// (a conversation's model, a custom model's base) keys on, so this
+				// is only ever the label. Absent means "name it as the id".
+				display_name: z.string().min(1).optional(),
 			})
 		),
 	})
@@ -362,7 +367,11 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 			return {
 				id: m.id,
 				name: m.id,
-				displayName: m.id,
+				// The gateway's own name for the model when it has one — an
+				// administrator sets it on the console's model page and it is what
+				// a picker shows. `id` stays the id: it is what a request sends
+				// and what stored references key on.
+				displayName: m.display_name || m.id,
 				description: m.description,
 				logoUrl,
 				providers: m.providers,
