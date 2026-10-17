@@ -5,6 +5,19 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.5 — 2026-10-17
+
+Pins: Cerea `0.15.5`, Pystino `0.9.2`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Models can have a friendly name.** In the console, a model's page has a
+  **Display name** field next to the name callers send (Pystino 0.9.2). The
+  models list shows the display name first, with the id beneath it when they
+  differ. The chat's model picker shows the display name and falls back to
+  the id. The id itself doesn't change, so existing conversations, custom
+  models and API clients are unaffected. A rename reaches the chat at the
+  catalogue's next refresh.
+
 ## v0.15.4 — 2026-10-17
 
 Pins: Cerea `0.15.4`, Pystino `0.9.1`, Authelia 4.39.22. Update the
