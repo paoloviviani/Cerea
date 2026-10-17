@@ -155,8 +155,12 @@ const listSchema = z
 				// What a client's model picker should show. Distinct from `id`,
 				// which is what a request carries and what every stored reference
 				// (a conversation's model, a custom model's base) keys on, so this
-				// is only ever the label. Absent means "name it as the id".
-				display_name: z.string().min(1).optional(),
+				// is only ever the label. Absent, null (what the gateway sends for
+				// an unnamed model: its ModelCard has `display_name: str | None`)
+				// or blank all mean "name it as the id". Strictness here fails the
+				// whole listing, so the chat could not boot: 0.15.5 did exactly
+				// that on `null`.
+				display_name: z.string().nullish(),
 			})
 		),
 	})
@@ -371,7 +375,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				// administrator sets it on the console's model page and it is what
 				// a picker shows. `id` stays the id: it is what a request sends
 				// and what stored references key on.
-				displayName: m.display_name || m.id,
+				displayName: m.display_name?.trim() || m.id,
 				description: m.description,
 				logoUrl,
 				providers: m.providers,
