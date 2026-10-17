@@ -45,6 +45,34 @@ docker compose ps --format '{{.Service}} {{.Image}} {{.Status}}'
 docker compose ps --format '{{.Image}}' | grep -q "cerea:${cerea_pin}$"
 docker compose ps --format '{{.Image}}' | grep -q "pystino-gateway:${pystino_pin}$"
 
+# A chat model with no display name, then the chat restarted so it builds its
+# catalogue at boot from that card. A fresh kit holds no chat model at all, so
+# without this a boot-time catalogue parse never runs here: 0.15.5 crash-looped
+# on every deployment whose gateway sent `display_name: null`, and this check
+# still printed E2E_OK. The upstream is never called; /v1/models is the
+# gateway's own catalogue.
+docker compose exec -T gateway python -c "
+import asyncio, uuid
+from gateway.config import get_settings
+from gateway.db import create_engine, create_session_factory
+from gateway.models import ModelDef, ModelKind, Provider
+async def main():
+    engine = create_engine(get_settings())
+    async with create_session_factory(engine)() as s:
+        p = Provider(id=uuid.uuid4(), name='freshcheck', base_url='http://127.0.0.1:9/v1',
+                     api_key_encrypted='', api_key_hint='', plugin='generic')
+        s.add(p)
+        await s.flush()
+        s.add(ModelDef(id=uuid.uuid4(), name='freshcheck/unnamed', upstream_model='unnamed',
+                       provider_id=p.id, kind=ModelKind.CHAT, is_active=True, is_public=True,
+                       display_name=None))
+        await s.commit()
+    await engine.dispose()
+asyncio.run(main())
+print('seeded freshcheck/unnamed (display_name null)')"
+docker compose restart chat
+docker compose up -d --wait chat
+
 # A throwaway user, never the administrator's account.
 USER_NAME=freshcheck-$(date -u +%y%m%d%H%M)
 PW=$(docker compose exec -T gateway python -c "
