@@ -39,6 +39,11 @@ beforeAll(async () => {
 					data: [
 						{ id: "acme/fast-1", display_name: "Fast summariser", kind: "chat" },
 						{ id: "acme/unnamed", kind: "chat" },
+						// What the real gateway sends for an unnamed model: its ModelCard has
+						// `display_name: str | None`, serialized as null. 0.15.5 parsed only
+						// absent-or-string, so this one card failed the whole listing and the
+						// chat crash-looped at boot.
+						{ id: "acme/null-name", display_name: null, kind: "chat" },
 					],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } }
@@ -65,5 +70,10 @@ describe("buildModels against a gateway that names its models", () => {
 	it("falls back to the id when the gateway names nothing", () => {
 		const model = built.find((m) => m.id === "acme/unnamed");
 		expect(model?.displayName).toBe("acme/unnamed");
+	});
+
+	it("takes a null display name, as the gateway sends it, for no name", () => {
+		const model = built.find((m) => m.id === "acme/null-name");
+		expect(model?.displayName).toBe("acme/null-name");
 	});
 });
