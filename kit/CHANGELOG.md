@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.6 — 2026-10-17
+
+Pins: Cerea `0.15.6`, Pystino `0.9.2`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Fixes 0.15.5's boot loop: the chat restarted endlessly.** The gateway
+  lists a model with no display name as `display_name: null`, and 0.15.5's
+  catalogue refused the whole list over it, so the chat could not start on
+  any deployment with an unnamed chat model. A missing, null or blank display
+  name now just falls back to the model's id. If you pinned back to 0.15.4,
+  remove the pin (or set `CEREA_VERSION=0.15.6`) and update.
+
 ## v0.15.5 — 2026-10-17
 
 Pins: Cerea `0.15.5`, Pystino `0.9.2`, Authelia 4.39.22. Update the
