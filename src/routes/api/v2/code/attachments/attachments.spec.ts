@@ -212,7 +212,10 @@ describe("revoke", () => {
 		expect(res.status).toBe(200);
 
 		const prefix = (id: string) => ({ "metadata.conversation": { $regex: `^code:${id}:` } });
-		expect(await collections.bucketFiles.countDocuments(prefix(device))).toBe(0);
+		// The revocation answers first; its GridFS clean-up runs behind the response.
+		await vi.waitFor(async () => {
+			expect(await collections.bucketFiles.countDocuments(prefix(device))).toBe(0);
+		});
 		expect(await collections.bucketFiles.countDocuments(prefix(other))).toBe(1);
 	});
 

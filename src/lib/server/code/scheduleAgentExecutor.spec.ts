@@ -404,12 +404,15 @@ describe("when the machine is not there", () => {
 			locals: person.locals,
 		});
 		expect(res.status).toBe(200);
-		for (const id of [row._id, other._id]) {
-			const stored = (await collections.schedules.findOne({ _id: id })) as Schedule;
-			expect(stored.enabled).toBe(false);
-			expect(stored.nextRunAt).toBeNull();
-			expect(stored.disabledReason).toMatch(/revoked/);
-		}
+		// The revocation answers first; the schedules are switched off behind the response.
+		await vi.waitFor(async () => {
+			for (const id of [row._id, other._id]) {
+				const stored = (await collections.schedules.findOne({ _id: id })) as Schedule;
+				expect(stored.enabled).toBe(false);
+				expect(stored.nextRunAt).toBeNull();
+				expect(stored.disabledReason).toMatch(/revoked/);
+			}
+		});
 	});
 });
 
