@@ -5,6 +5,20 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.8 — 2026-10-18
+
+Pins: Cerea `0.15.8`, Pystino `0.9.4`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **A price typed at import can include cache rates** (Pystino 0.9.4). In
+  **Models → Discover**, the manual price for a chat or embedding model now
+  takes optional **cache read** and **cache write** rates per million tokens.
+  Left empty, cached tokens are billed at the input rate, as before. This
+  matters for providers that report cached tokens without publishing
+  prices: Entrim, for example, reports `cached_tokens` on its chat models.
+- `gateway seed` (a setup and development command) no longer creates the
+  default provider without its upstream key.
+
 ## v0.15.7 — 2026-10-18
 
 Pins: Cerea `0.15.7`, Pystino `0.9.3`, Authelia 4.39.22. Update the
