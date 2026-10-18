@@ -27,10 +27,25 @@ onCodeReauth(() => {
 	codeDeviceList.loading = false;
 });
 
+// Bumped by every local mutation (and every new read): a list read that
+// started before it is stale and must not overwrite what the mutation
+// already showed, or a revoked machine's card would reappear until the next
+// poll tick.
+let listEpoch = 0;
+
+/** A machine was revoked/removed: drop it from the shared list now, without
+ * waiting on a round trip, and discard any list read still in flight. */
+export function dropCodeDevice(id: string): void {
+	listEpoch += 1;
+	codeDeviceList.devices = codeDeviceList.devices.filter((d) => d.id !== id);
+}
+
 export async function refreshCodeDevices(): Promise<void> {
 	if (codeReauth.required) return;
+	const epoch = ++listEpoch;
 	try {
-		codeDeviceList.devices = (await listDevices()).devices;
+		const { devices } = await listDevices();
+		if (epoch === listEpoch) codeDeviceList.devices = devices;
 	} catch (err) {
 		// A 401 that is not the stale-sign-in answer means there is no session
 		// at all (it lapsed while the tab was open): the list cannot come back
