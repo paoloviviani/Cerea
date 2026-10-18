@@ -252,7 +252,7 @@ func refreshModels(ctx context.Context, creds *credentials, token func(context.C
 	// looser than enroll's 0600.
 	mode := os.FileMode(0o600)
 	if info, err := os.Stat(creds.OpencodeConfig); err == nil {
-		mode = info.Mode().Perm()
+		mode = info.Mode().Perm() & 0o600
 	}
 	if err := writeFileAtomic(creds.OpencodeConfig, pretty.Bytes(), mode); err != nil {
 		return nil, fmt.Errorf("writing %s: %w", creds.OpencodeConfig, err)
