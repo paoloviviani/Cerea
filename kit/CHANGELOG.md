@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.10 — 2026-10-18
+
+Pins: Cerea `0.15.10`, Pystino `0.9.6`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **A price typed by hand can be in any currency the ECB publishes a rate
+  for** (Pystino 0.9.6). At import and on a model's page, a price in USD
+  (say) used to be refused when the gateway bills in EUR; it is now stored
+  as typed and converted at the day's rate, the same as a catalogue price.
+  Only a currency with no exchange rate is refused. A skipped import row no
+  longer shows its reason twice.
+
 ## v0.15.9 — 2026-10-18
 
 Pins: Cerea `0.15.9`, Pystino `0.9.5`, Authelia 4.39.22. Update the
