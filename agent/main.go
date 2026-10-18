@@ -33,6 +33,8 @@ Commands:
   serve     Local refreshing proxy shim: opencode points its baseURL here,
             the shim injects a fresh access token plus x-bill-to per request.
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
+  models    Re-discover the gateway's models ('models refresh') without
+            re-enrolling.
   policy    Show, or locally tighten, this machine's policy.json.
   licenses  Print the third-party licence notices compiled into this binary.
 
@@ -52,6 +54,8 @@ func main() {
 		err = runServe(os.Args[2:])
 	case "run":
 		err = runRun(os.Args[2:])
+	case "models":
+		err = runModels(os.Args[2:])
 	case "policy":
 		err = runPolicy(os.Args[2:])
 	case "licenses":

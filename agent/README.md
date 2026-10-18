@@ -74,6 +74,7 @@ galopin enroll   sign in, pick a billing group, write opencode.json,
                  store the refresh credential
 galopin serve    the local refreshing proxy shim alone (opencode with no /code panel)
 galopin run      serve, plus supervise opencode (or an ACP agent) and dial out to Cerea
+galopin models   'models refresh': re-discover the gateway's models, no re-enroll
 galopin policy   show, or locally tighten, this machine's policy.json
 galopin licenses the third-party licence notices compiled into the binary
 ```
@@ -98,6 +99,30 @@ in.
 `credentials.json`. `run` reads it from there and hands it to opencode, so no
 flag is needed. A machine enrolled before the path was recorded gets a warning
 from `run`: re-run `enroll`, or pass `run --opencode-config PATH`.
+
+### Models
+
+`enroll` discovers the gateway's models once and writes them into
+`provider.pystino.models`. A model added to the gateway later needs no
+re-enroll (which would re-ask the options and mint a new machine id):
+
+```sh
+galopin models refresh     # rewrites only provider.pystino.models
+```
+
+It signs in with the stored refresh credential, prints the ids added and
+removed, and leaves every other key of the file alone. If discovery fails or
+lists no chat model it changes nothing and exits non-zero. A running `run`
+keeps the list it started with, so restart it. `run` also refreshes at start,
+best-effort and bounded to 10 seconds (one warning line on failure, the old
+list kept); `run --no-refresh-models` skips that. A machine enrolled with
+`--no-discover` gets its placeholder replaced the same way.
+
+Re-enrolling (`enroll` again, e.g. after a revocation) reuses the issuer,
+gateway, Cerea origin, client id, billing group, shim port and opencode.json
+path recorded in the existing `credentials.json`, so only the login is asked;
+a flag you pass wins, and the group is asked only if the recorded one is no
+longer billable.
 
 To keep `run` up, install it as a systemd user unit (Linux) or a
 LaunchAgent (macOS). The files are `packaging/galopin.service` and
