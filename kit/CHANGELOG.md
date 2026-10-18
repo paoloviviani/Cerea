@@ -5,6 +5,26 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.7 — 2026-10-18
+
+Pins: Cerea `0.15.7`, Pystino `0.9.3`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Models with no published price can be imported with a price typed in
+  the dialog** (Pystino 0.9.3). In the console, **Models → Discover** now
+  offers price fields for each unpriced row it lists (input and output per
+  million tokens, or per page for OCR). An "apply to all ticked" control
+  helps with a provider that charges one rate for many models. The price is
+  recorded in the model's price history as entered by hand. A price the
+  provider publishes, or one from the community file, always wins over a
+  typed one, and the result says so.
+- **The console is ready for translation.** Every console text now comes
+  from a message catalogue instead of being written into the screens.
+  English is still the only language and looks exactly as before. Dates and
+  numbers still follow your browser's locale.
+- The release check now starts the chat against a model with no display
+  name, so a startup failure like 0.15.5's blocks a release.
+
 ## v0.15.6 — 2026-10-17
 
 Pins: Cerea `0.15.6`, Pystino `0.9.2`, Authelia 4.39.22. Update the
