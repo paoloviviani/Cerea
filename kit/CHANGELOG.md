@@ -5,6 +5,27 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.11 — 2026-10-18
+
+Pins: Cerea `0.15.11`, Pystino `0.9.6`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **galopin: `galopin models refresh` re-discovers the gateway's models
+  without re-enrolling**, and `galopin run` does the same at start
+  (`--no-refresh-models` skips it). A model added to the gateway used to
+  appear only to a freshly enrolled machine, and re-enrolling re-asked every
+  option and minted a new machine id. The refresh signs in with the stored
+  credential and rewrites only the model list in the recorded opencode.json;
+  re-running `galopin enroll` now reuses the issuer, gateway, group and other
+  settings recorded in the existing credentials, so only the login is asked.
+- **Removing a machine no longer leaves the confirmation stuck.** Revoking
+  waited for a fresh device list with no timeout, so a hung re-read kept the
+  dialog busy for ever, and an in-flight poll could put a revoked machine
+  back on the list. The card now goes at once on success and the list
+  re-reads in the background (a stale answer is discarded), list, confirm and
+  revoke calls get a 20 s timeout, and the server cleans up a revoked
+  machine's attachments and schedules after answering instead of before.
+
 ## v0.15.10 — 2026-10-18
 
 Pins: Cerea `0.15.10`, Pystino `0.9.6`, Authelia 4.39.22. Update the
