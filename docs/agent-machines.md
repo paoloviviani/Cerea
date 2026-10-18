@@ -159,7 +159,10 @@ Changes pane works for either backend, because the agent reads it from git.
 Each enrollment mints a new machine id (`machine-id`, in the machine's state
 directory). The chat therefore shows a re-enrolled machine as a new **Pending** machine, which you confirm again. A machine revoked in the panel is refused for good under
 its old id, and `run` reports that and exits with code 78 instead of
-reconnecting.
+reconnecting. A model the gateway gains later needs none of that:
+`galopin models refresh` re-discovers the gateway's models into the same config
+(`run` does the same at every start), so a re-enroll is for the machine's
+policy, not its model list.
 
 ### A repo's own opencode config
 
@@ -1132,7 +1135,10 @@ have no pystino provider, so the panel reports that the daemon lists no models.
 Re-run `enroll`, or pass `run --opencode-config PATH` with the opencode.json
 `enroll` wrote.
 
-If `enroll` warns that model discovery failed, no model is available to you yet. Ask your administrator to grant your group one, then run the same command again.
+If `enroll` warns that model discovery failed, no model is available to you
+yet. Ask your administrator to grant your group one, then run
+`galopin models refresh` — or just restart `run`, which re-discovers the
+gateway's models at every start. Neither re-enrolls, so the machine id stays.
 
 ## How it works
 
