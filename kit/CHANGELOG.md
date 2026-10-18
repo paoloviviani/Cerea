@@ -5,6 +5,20 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.9 — 2026-10-18
+
+Pins: Cerea `0.15.9`, Pystino `0.9.5`, Authelia 4.39.22. Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Imported models get their context window and output limit from the
+  provider's catalogue** (Pystino 0.9.5). A provider that lists
+  `max_input_tokens` and `max_output_tokens` (Entrim, for one) now has them
+  read, including for models it publishes no price for, so a model imported
+  with a hand-typed price is no longer created with blank limits. Your own
+  input cap on a model is never filled from a catalogue. Models imported
+  earlier keep their blank limits: set them on the model's page, or delete
+  and re-import.
+
 ## v0.15.8 — 2026-10-18
 
 Pins: Cerea `0.15.8`, Pystino `0.9.4`, Authelia 4.39.22. Update the
