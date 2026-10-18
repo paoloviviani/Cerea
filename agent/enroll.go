@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -134,6 +135,14 @@ Usage:
                 a rule says allow, the session was granted it, or its own word is
                 Allow with the ceiling leaving the tool alone).
    --yes        Overwrite existing files without asking.
+
+Re-enrolling: when a credential file already exists (at --creds), its
+recorded issuer, gateway, Cerea origin, client id, billing group, shim port
+and opencode.json path are the defaults, so only the login is asked again;
+a flag you pass still wins. The group is asked only when the recorded one is
+no longer billable. A new machine id is minted, so Cerea shows the machine as
+a new pending device. To pick up models added to the gateway, do NOT
+re-enroll: run 'galopin models refresh'.
 `
 
 // defaultShimPort is the loopback port serve listens on. Unprivileged and
@@ -142,14 +151,18 @@ Usage:
 const defaultShimPort = 41871
 
 type enrollOptions struct {
-	issuer                 string
-	gateway                string
-	cerea                  string
-	clientID               string
-	device                 bool
-	deviceEndpoint         string
-	loopback               bool
-	group                  string
+	issuer         string
+	gateway        string
+	cerea          string
+	clientID       string
+	device         bool
+	deviceEndpoint string
+	loopback       bool
+	group          string
+	// groupRecorded marks a group taken from the existing credential file
+	// rather than a flag: unlike --group it is allowed to have gone stale,
+	// which falls back to the prompt instead of failing.
+	groupRecorded          bool
 	output                 string
 	creds                  string
 	shimPort               int
@@ -268,7 +281,49 @@ func runEnroll(args []string) error {
 		}
 		opts.creds = path
 	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if applyRecordedDefaults(&opts, set) {
+		fmt.Fprintf(os.Stderr, "note: re-enrolling: using the settings recorded in %s where you gave no flag.\n", opts.creds)
+	}
 	return enroll(context.Background(), &opts)
+}
+
+// applyRecordedDefaults fills every option the person did not pass from the
+// credential file already at opts.creds, so a re-enroll asks for nothing but
+// the login. The file is read leniently (not loadCredentials): a revoked
+// machine has had its tokens cleared, and re-enrolling is exactly what it does
+// next. set holds the flag names given on the command line; those win.
+// Reports whether a file was found.
+func applyRecordedDefaults(opts *enrollOptions, set map[string]bool) bool {
+	body, err := os.ReadFile(opts.creds)
+	if err != nil {
+		return false
+	}
+	var rec credentials
+	if json.Unmarshal(body, &rec) != nil {
+		return false
+	}
+	fill := func(flagName string, dst *string, recorded string) {
+		if !set[flagName] && *dst == "" {
+			*dst = recorded
+		}
+	}
+	fill("issuer", &opts.issuer, rec.Issuer)
+	fill("gateway", &opts.gateway, rec.Gateway)
+	fill("cerea", &opts.cerea, rec.CereaOrigin)
+	fill("output", &opts.output, rec.OpencodeConfig)
+	if !set["client-id"] && rec.ClientID != "" {
+		opts.clientID = rec.ClientID
+	}
+	if !set["shim-port"] && rec.ShimPort != 0 {
+		opts.shimPort = rec.ShimPort
+	}
+	if !set["group"] && rec.Group != "" {
+		opts.group = rec.Group
+		opts.groupRecorded = true
+	}
+	return true
 }
 
 func enroll(ctx context.Context, opts *enrollOptions) error {
@@ -325,7 +380,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		return err
 	}
 
-	group, err := pickGroup(ctx, gateway, tokens.AccessToken, opts.group)
+	group, err := pickGroup(ctx, gateway, tokens.AccessToken, opts.group, opts.groupRecorded)
 	if err != nil {
 		return err
 	}
@@ -507,7 +562,10 @@ func selectFlow(doc *discovery, forceDevice, forceLoopback bool) (bool, error) {
 // (ADR 0061). An explicit --group must be a current membership (verified
 // against the live list, not trusted blind); several groups without a flag
 // prompt; one group is taken silently but reported.
-func pickGroup(ctx context.Context, gateway, accessToken, preselect string) (string, error) {
+//
+// recorded marks a preselect that came from the previous enrollment, not a
+// flag: when it is no longer billable the person is asked instead of failing.
+func pickGroup(ctx context.Context, gateway, accessToken, preselect string, recorded bool) (string, error) {
 	groups, err := fetchGroups(ctx, gateway, accessToken)
 	if err != nil {
 		return "", err
@@ -525,7 +583,10 @@ func pickGroup(ctx context.Context, gateway, accessToken, preselect string) (str
 				return g.Name, nil
 			}
 		}
-		return "", fmt.Errorf("group %q is not billable for this user (choices: %s)", preselect, strings.Join(names, ", "))
+		if !recorded {
+			return "", fmt.Errorf("group %q is not billable for this user (choices: %s)", preselect, strings.Join(names, ", "))
+		}
+		fmt.Fprintf(os.Stderr, "note: the recorded billing group %q is no longer billable for this user.\n", preselect)
 	}
 	if len(groups) == 1 {
 		fmt.Fprintf(os.Stderr, "billing group: %s (only one available)\n", groups[0].Name)

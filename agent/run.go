@@ -57,19 +57,23 @@ Usage:
   --machine-name NAME   Display name for this machine (default: hostname).
   --port PORT         Override the shim's port (only meaningful without
                       --no-shim; default: the port enroll recorded).
+  --no-refresh-models   Don't re-discover the gateway's models at start
+                      (default: refreshed best-effort, 10s at most, into the
+                      opencode.json enroll wrote; a failure only warns).
 `
 
 type runOptions struct {
-	cerea          string
-	credsPath      string
-	stateDir       string
-	noShim         bool
-	backendKind    string
-	opencodeBin    string
-	opencodeConfig string
-	acpCommand     string
-	machineName    string
-	port           int
+	cerea           string
+	credsPath       string
+	stateDir        string
+	noShim          bool
+	backendKind     string
+	opencodeBin     string
+	opencodeConfig  string
+	acpCommand      string
+	machineName     string
+	port            int
+	noRefreshModels bool
 }
 
 func runRun(args []string) error {
@@ -85,6 +89,7 @@ func runRun(args []string) error {
 	fs.StringVar(&opts.acpCommand, "acp-command", "opencode acp", "")
 	fs.StringVar(&opts.machineName, "machine-name", "", "")
 	fs.IntVar(&opts.port, "port", 0, "")
+	fs.BoolVar(&opts.noRefreshModels, "no-refresh-models", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -211,6 +216,18 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 			}
 		}()
 		logf("shim listening on http://%s", addr)
+	}
+
+	// A model added to the gateway since enroll shows up without a re-enroll:
+	// refreshed before opencode starts, because it reads its config once.
+	// Only the file enroll recorded, and only when it is the one in use: an
+	// explicit --opencode-config (a mock LLM in tests, say) is not ours to
+	// rewrite, and --no-shim means there is no gateway in the picture.
+	if !opts.noRefreshModels && !opts.noShim && (opts.backendKind == "" || opts.backendKind == "opencode") &&
+		creds.OpencodeConfig != "" && opts.opencodeConfig == creds.OpencodeConfig {
+		// A copy: the shim's refresh loop owns creds from here on.
+		snapshot := *creds
+		refreshModelsAtStart(ctx, &snapshot, sh.Token)
 	}
 
 	// The permission policy as the running agent holds it: loaded from

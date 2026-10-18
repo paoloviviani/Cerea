@@ -301,30 +301,13 @@ type opencodeConfig struct {
 	Permission map[string]string `json:"permission,omitempty"`
 }
 
-// buildOpencodeConfig renders the config around the shim address. Models
-// come from discovery; an empty discovery yields the same placeholder the
-// pasted-key installer writes, replaced once the gateway is reachable.
-// Only chat models make the list: opencode is a coding agent, and an
-// embedding tier in its model picker is one accidental keypress from a
-// 400. Unknown limits become defaults, never omissions — opencode's
-// schema rejects a model entry without both limit keys (found live).
-//
-// allowOpencodeProviders=false names pystino in enabled_providers, so the
-// machine's opencode sees the gateway's models and nothing else: a
-// built-in provider with ambient credentials (an ANTHROPIC_API_KEY in the
-// environment, a logged-in Copilot) would otherwise offer models that
-// bypass the gateway — its spend would never land in the caller's
-// account, which the whole point of enrolling is. allowFreeModels widens
-// the allowlist to pystino and opencode (the opencode provider's own models
-// are the free ones a machine may run); allowOpencodeProviders opts out for
-// operators who want both, omitting the key entirely.
-func buildOpencodeConfig(
-	shimAddr string,
-	shimSecret string,
-	models []gatewayModel,
-	allowOpencodeProviders bool,
-	allowFreeModels bool,
-) *opencodeConfig {
+// modelEntries turns the gateway's catalogue into opencode's models map. It
+// is the one place that decides what an entry looks like, shared by enroll
+// (buildOpencodeConfig) and `models refresh`, so a refreshed file never
+// differs from a freshly enrolled one. It may return an empty map: each
+// caller decides what that means (enroll writes a placeholder, refresh
+// refuses to touch the file).
+func modelEntries(models []gatewayModel) map[string]opencodeModel {
 	entries := make(map[string]opencodeModel, len(models))
 	for _, m := range models {
 		if m.ID == "" {
@@ -355,6 +338,34 @@ func buildOpencodeConfig(
 		}
 		entries[m.ID] = entry
 	}
+	return entries
+}
+
+// buildOpencodeConfig renders the config around the shim address. Models
+// come from discovery; an empty discovery yields the same placeholder the
+// pasted-key installer writes, replaced once the gateway is reachable.
+// Only chat models make the list: opencode is a coding agent, and an
+// embedding tier in its model picker is one accidental keypress from a
+// 400. Unknown limits become defaults, never omissions — opencode's
+// schema rejects a model entry without both limit keys (found live).
+//
+// allowOpencodeProviders=false names pystino in enabled_providers, so the
+// machine's opencode sees the gateway's models and nothing else: a
+// built-in provider with ambient credentials (an ANTHROPIC_API_KEY in the
+// environment, a logged-in Copilot) would otherwise offer models that
+// bypass the gateway — its spend would never land in the caller's
+// account, which the whole point of enrolling is. allowFreeModels widens
+// the allowlist to pystino and opencode (the opencode provider's own models
+// are the free ones a machine may run); allowOpencodeProviders opts out for
+// operators who want both, omitting the key entirely.
+func buildOpencodeConfig(
+	shimAddr string,
+	shimSecret string,
+	models []gatewayModel,
+	allowOpencodeProviders bool,
+	allowFreeModels bool,
+) *opencodeConfig {
+	entries := modelEntries(models)
 	if len(entries) == 0 {
 		entries["REPLACE-WITH-MODEL-ID"] = opencodeModel{
 			Name:  "Replace with a model id from GET /v1/models",
