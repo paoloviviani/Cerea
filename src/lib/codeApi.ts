@@ -124,8 +124,14 @@ async function unwrap<T>(response: Response): Promise<T> {
 
 const root = () => `${base}/api/v2/code`;
 
+/** Device calls give up after this long, so a hung request surfaces as an
+ * error instead of leaving a button busy until the page is reloaded. */
+const DEVICE_TIMEOUT_MS = 20_000;
+
 export async function listDevices(): Promise<{ devices: CodeDeviceView[] }> {
-	return unwrap(await fetch(`${root()}/devices`));
+	return unwrap(
+		await fetch(`${root()}/devices`, { signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS) })
+	);
 }
 
 /** Confirm a machine that connected and is waiting in `pending` — the fresh
@@ -137,6 +143,7 @@ export async function confirmDevice(id: string): Promise<{ confirmed: boolean }>
 			method: "PATCH",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ action: "confirm" }),
+			signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS),
 		})
 	);
 }
@@ -146,7 +153,10 @@ export async function confirmDevice(id: string): Promise<{ confirmed: boolean }>
  * reconnect with the same machine id is refused from then on. */
 export async function revokeDevice(id: string): Promise<{ revoked: boolean }> {
 	return unwrap(
-		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, {
+			method: "DELETE",
+			signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS),
+		})
 	);
 }
 

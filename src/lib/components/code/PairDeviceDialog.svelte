@@ -28,6 +28,7 @@
 	import {
 		codeDeviceList,
 		refreshCodeDevices,
+		dropCodeDevice,
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
@@ -102,7 +103,8 @@
 		failure = null;
 		try {
 			await revokeDevice(device.id);
-			await refreshCodeDevices();
+			dropCodeDevice(device.id);
+			void refreshCodeDevices();
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not reject the machine.";
 		} finally {

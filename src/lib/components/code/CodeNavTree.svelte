@@ -60,6 +60,7 @@
 	import {
 		codeDeviceList,
 		refreshCodeDevices,
+		dropCodeDevice,
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
@@ -380,17 +381,19 @@
 	}
 
 	async function handleRevoke(id: string) {
-		try {
-			await revokeDevice(id);
-			await refreshCodeDevices();
-			const rest = { ...trees };
-			delete rest[id];
-			trees = rest;
-			if (selectedDeviceId === id) {
-				void goto(`${base}/code`, { keepFocus: true });
-			}
-		} catch {
-			actionFailure = "Could not revoke the device.";
+		// A failure propagates to the confirm dialog, which stays open with the
+		// reason under it (and a retry) rather than closing on a silent banner.
+		await revokeDevice(id);
+		// The server said yes: the card goes now. The list is re-read in the
+		// background, never awaited: a slow or failing re-read must not hold
+		// the dialog busy (or report a revoke that happened as a failure).
+		dropCodeDevice(id);
+		void refreshCodeDevices();
+		const rest = { ...trees };
+		delete rest[id];
+		trees = rest;
+		if (selectedDeviceId === id) {
+			void goto(`${base}/code`, { keepFocus: true });
 		}
 	}
 

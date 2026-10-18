@@ -94,11 +94,13 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 	// a row that no longer exists, so nothing could ever authorize reading it
 	// again. A failure here is logged, not surfaced — the revocation itself
 	// has happened, and a retry would 404 on the missing row.
-	await deleteCodeDeviceAttachments(objectId.toHexString()).catch((err) =>
+	// Clean-up runs behind the response: the row is already tombstoned, and
+	// the person's click must not wait on GridFS or the scheduler.
+	void deleteCodeDeviceAttachments(objectId.toHexString()).catch((err) =>
 		logger.error({ err, deviceId: id.data }, "failed to delete a revoked device's attachments")
 	);
 	// A schedule pointed at it would only fail at its next run: switch it off now.
-	await disableSchedulesForDevice(locals.user?._id, id.data).catch((err) =>
+	void disableSchedulesForDevice(locals.user?._id, id.data).catch((err) =>
 		logger.error({ err, deviceId: id.data }, "failed to switch off a revoked device's schedules")
 	);
 	return json({ revoked: true });
