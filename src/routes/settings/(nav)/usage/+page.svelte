@@ -12,6 +12,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
+	import { invalidateAll } from "$app/navigation";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import UsageBar from "$lib/components/settings/UsageBar.svelte";
@@ -37,6 +38,21 @@
 	}
 	function setBillingOrganization(v: string) {
 		settings.update((s) => ({ ...s, billingOrganization: v }));
+	}
+	async function chooseBillingOrganization(v: string) {
+		// The selector's own path. Persisted now, not through the settings
+		// store's 300 ms debounce: the reload below re-runs the layout's load
+		// functions, and those read what the server has stored — a
+		// not-yet-persisted choice would come back as the previous group and
+		// the list would not change at all. (The silent sync in `onMount`
+		// keeps using `setBillingOrganization`: it follows the server's
+		// answer, so it must not write one back.)
+		await settings.instantSet({ billingOrganization: v });
+		// The model list is per-caller and cached for a minute against a URL
+		// that carries the billing group (`+layout.ts`'s `bill-to` query):
+		// the reload misses that cache, so the model picker and everything
+		// else reading `data.models` shows the new group's models at once.
+		await invalidateAll();
 	}
 
 	onMount(async () => {
@@ -156,7 +172,7 @@
 							<select
 								class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
 								value={getBillingOrganization()}
-								onchange={(e) => setBillingOrganization(e.currentTarget.value)}
+								onchange={(e) => chooseBillingOrganization(e.currentTarget.value)}
 							>
 								{#each billingOrgs as org}
 									<option value={org.preferred_username} title={org.name}
