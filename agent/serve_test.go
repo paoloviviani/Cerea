@@ -640,3 +640,72 @@ func TestRefreshCredentialKeepsANewerGroup(t *testing.T) {
 		t.Errorf("the refresh clobbered the on-disk group back to %q", reloaded.Group)
 	}
 }
+
+// In follow-default mode the shim must send NO x-bill-to — the gateway bills
+// an unheadered request to the user's default group, an empty value filters
+// it to nothing — and a caller must not be able to inject one, because the
+// shim, not opencode, owns billing. A legacy file with no group and no mode
+// is also headerless: wrong either way, and the gateway's refusal is the
+// honest answer.
+func TestShimBillsTheDefaultBySendingNoHeader(t *testing.T) {
+	var sawHeader bool
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawHeader = r.Header["X-Bill-To"], len(r.Header["X-Bill-To"]) > 0
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: ok\n\n")
+	}))
+	defer gateway.Close()
+
+	newCreds := func() *credentials {
+		return &credentials{
+			TokenEndpoint: "http://unused.example/token", ClientID: "opencode-enrollment",
+			Gateway: gateway.URL, RefreshToken: "rt", AccessToken: "at",
+			ExpiresIn: 300, ObtainedAt: time.Now().Unix(),
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		group string
+		def   bool
+	}{
+		{"following the default", "", true},
+		{"legacy file with no group", "", false},
+	} {
+		creds := newCreds()
+		creds.Group, creds.BillToDefault = tc.group, tc.def
+		credsPath := filepath.Join(t.TempDir(), "creds.json")
+		if err := saveCredentials(credsPath, creds); err != nil {
+			t.Fatal(err)
+		}
+		s := newShim(creds, credsPath, statusPathFor(credsPath), 41871)
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+		req.Header.Set("x-bill-to", "caller-invented")
+		rec := httptest.NewRecorder()
+		s.handler(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d: %s", tc.name, rec.Code, rec.Body.String())
+		}
+		if sawHeader {
+			t.Errorf("%s: the gateway saw an x-bill-to; want the header absent", tc.name)
+		}
+	}
+}
+
+// billingStartupLine is what serve prints about billing at startup: pinned
+// names the group, following says so, and a file with neither is named for
+// what it is — a credential that cannot bill until someone picks a group.
+func TestBillingStartupLineNamesTheMode(t *testing.T) {
+	pinned := &credentials{Group: "team"}
+	if got := billingStartupLine(pinned); !strings.Contains(got, "team") {
+		t.Errorf("pinned line %q lacks the group", got)
+	}
+	following := &credentials{BillToDefault: true}
+	if got := billingStartupLine(following); !strings.Contains(got, "your default (follows your Pystino setting)") {
+		t.Errorf("following line %q", got)
+	}
+	neither := &credentials{}
+	if got := billingStartupLine(neither); !strings.Contains(got, "NONE RECORDED") {
+		t.Errorf("neither line %q", got)
+	}
+}

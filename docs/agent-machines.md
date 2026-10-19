@@ -146,7 +146,8 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | **Workspace roots**              | `--workspace-root PATH` (repeatable)                                   | unrestricted                                                                                                                                                                           | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                                                                                                                                                                                                     | re-enroll                                             |
 
 Other enroll flags: `--device` or `--loopback` to force a sign-in flow,
-`--group NAME` to preselect the billing group, `--output PATH` for where the
+`--group NAME` to preselect the billing group or `--default-group` to bill to
+your console default instead of pinning one, `--output PATH` for where the
 opencode config goes (default `<config-dir>/galopin/opencode.json`), and `--yes` to overwrite without asking.
 
 `run` drives opencode by default (it supervises `opencode serve`). `run
@@ -993,9 +994,11 @@ revoked, and exits 0 to end the loop — `launchctl kickstart` the job after
 re-enrolling.
 
 **If the agent says your enrollment expired** (after a redeploy, for instance),
-run the pairing command again on that machine. The agent reports this at once
-instead of hanging; the [details](#when-the-refresh-token-dies) are under "How
-it works".
+sign in again with `galopin auth login` on that machine — no re-enroll, no new
+machine id, and a running agent picks the new credential up without a restart.
+Only a machine **revoked** in the `/code` panel needs the pairing command
+again. The agent reports this at once instead of hanging; the
+[details](#when-the-refresh-token-dies) are under "How it works".
 
 ## Removing a machine
 
@@ -1215,9 +1218,10 @@ the IdP to put a groups claim in its tokens anyway (the gateway's
 ### When the refresh token dies
 
 A gateway or IdP redeploy can revoke the refresh token the shim holds. That
-is expected and recoverable — re-enroll the machine — but the failure has to
-be fast and legible, not a 502 that opencode's client quietly retries into a
-long hang:
+is expected and recoverable — sign in again with `galopin auth login` (only a
+machine revoked in the `/code` panel needs a re-enroll) — but the failure has
+to be fast and legible, not a 502 that opencode's client quietly retries into
+a long hang:
 
 - **A 401, not a 502, once the refusal is permanent.** The token endpoint's
   `invalid_grant` (RFC 6749 §5.2) answers `401` with an OpenAI-shaped body
@@ -1232,6 +1236,12 @@ long hang:
   (`ok` / `expired` / `unreachable`) is written atomically to
   `<state-dir>/status.json` as `{"state","checkedAt","message"}`, and the
   same JSON is served at `GET http://127.0.0.1:<port>/galopin/health`.
+- **The dead state is not for ever.** Once the shim has latched `expired` it
+  answers from that verdict instead of hitting the IdP again — but
+  `galopin auth login` rewrites the credential file's token fields under the
+  same lock the shim refreshes under, and the shim notices the newer file on
+  its next request or 15-minute tick: it adopts the new tokens, clears the
+  verdict and serves again, with no restart.
 
 ### The device flow prints the code-bearing URL
 

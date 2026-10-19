@@ -7,6 +7,7 @@
 		{ "flag": "allow-free-models", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "allow-opencode-provider", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "allow-project-config", "kind": "bool", "default": false, "exposed": true },
+		{ "flag": "default-group", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "allow-terminal", "kind": "bool", "default": true, "exposed": false },
 		{ "flag": "file-deny", "kind": "list", "default": [], "exposed": true },
 		{ "flag": "max-terminals", "kind": "int", "default": 8, "exposed": true },

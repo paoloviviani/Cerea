@@ -72,6 +72,8 @@ behaviour it does not test. Commit; the `pinned` job re-runs on the merge.
 ```
 galopin enroll   sign in, pick a billing group, write opencode.json,
                  store the refresh credential
+galopin auth     sign in again with no re-enroll ('login', alias 'refresh'),
+                 change the billing group ('group'), show the state ('status')
 galopin serve    the local refreshing proxy shim alone (opencode with no /code panel)
 galopin run      serve, plus supervise opencode (or an ACP agent) and dial out to Cerea
 galopin models   'models refresh': re-discover the gateway's models, no re-enroll
@@ -123,6 +125,55 @@ gateway, Cerea origin, client id, billing group, shim port and opencode.json
 path recorded in the existing `credentials.json`, so only the login is asked;
 a flag you pass wins, and the group is asked only if the recorded one is no
 longer billable.
+
+### Auth
+
+`credentials.json` is the machine's sign-in: an OIDC refresh credential that
+the shim exchanges for short-lived access tokens, so opencode never sees one.
+Three things go wrong with it, and `galopin auth` fixes two of them without
+re-enrolling (which mints a new machine id and re-asks every option):
+
+```sh
+galopin auth status            # issuer, user, billing mode, token expiry,
+                               # the shim's last verdict, revoked or not
+galopin auth login             # sign in again, alias: galopin auth refresh
+galopin auth group             # show the billing mode; list the billable groups
+galopin auth group NAME        # bill this machine to NAME instead
+galopin auth group --default   # follow your console default instead of pinning
+```
+
+- **The refresh credential was refused** (`invalid_grant` — expired, or
+  revoked server-side): `galopin auth login` signs in again with the issuer,
+  client id and flow the credential file already records, and rewrites only
+  the token fields of that file. The machine id, billing group, gateway,
+  shim port and opencode.json path stay exactly as they are, so the /code
+  panel never shows the machine as a new Pending device. A machine that was
+  **revoked** in the panel is refused by design — its machine id is dead at
+  the other end, and only `galopin enroll` (a new machine id) brings it
+  back. A running `galopin run` picks the new tokens up at its next request
+  or refresh: no restart.
+- **The billing group changed** (you moved teams, or want the other
+  project's models): `galopin auth group NAME` re-bills this machine after
+  checking NAME against the live list, then re-discovers the models, since
+  the visible models depend on the group. A running `run` bills to the new
+  group from its next request on; restart it for the new model list.
+- **Pinned versus following your default.** By default a machine pins the
+  group it was enrolled with (`group` in `credentials.json`, sent as
+  `x-bill-to` on every request). With `--default-group` at enroll, or
+  `galopin auth group --default` later, it instead sends **no** group and
+  the gateway bills each request to your **default billing group** — the one
+  set in the Pystino console's group picker. One console setting then moves
+  billing and model visibility for the chat and for every machine following
+  it at once; `galopin auth group NAME` pins again. Enrolling or switching
+  to follow-default refuses when you have no default set in the console,
+  because the gateway would refuse every request.
+
+`galopin auth status` is read-only and answers "why are requests 401-ing"
+without touching anything: it names the issuer, the user, the billing mode
+(pinned group or following your default), when the access token expires,
+whether the refresh credential is present, whether the shim last saw the
+credential permanently refused (its `status.json` verdict), and whether the
+machine is revoked.
 
 To keep `run` up, install it as a systemd user unit (Linux) or a
 LaunchAgent (macOS). The files are `packaging/galopin.service` and

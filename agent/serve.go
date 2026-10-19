@@ -450,6 +450,21 @@ func refreshCredential(credsPath string, creds *credentials) error {
 	return nil
 }
 
+// billingStartupLine is the one line enroll and serve print about billing:
+// pinned names the group, following says so, and a file with neither is
+// named for what it is — a credential that cannot bill until someone picks
+// a group.
+func billingStartupLine(creds *credentials) string {
+	switch {
+	case creds.BillToDefault:
+		return "billing group: your default (follows your Pystino setting)"
+	case creds.Group != "":
+		return fmt.Sprintf("billing group: %s (sent as x-bill-to by the shim)", creds.Group)
+	default:
+		return "billing group: NONE RECORDED — pick one with 'galopin auth group NAME', or every request will be refused"
+	}
+}
+
 // writeTokenError turns a token() failure into what opencode sees. A
 // permanent refusal answers 401 with an OpenAI-style body: the Vercel AI SDK
 // opencode is built on treats 408/409/429/5xx as retryable and everything
@@ -628,7 +643,7 @@ func runServe(args []string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	fmt.Fprintf(os.Stderr, "galopin shim on http://%s (opencode baseURL http://%s/v1)\n", addr, addr)
-	fmt.Fprintf(os.Stderr, "forwarding to %s as the enrolled user, billing group %s\n", creds.Gateway, creds.Group)
+	fmt.Fprintf(os.Stderr, "forwarding to %s as the enrolled user; %s\n", creds.Gateway, billingStartupLine(creds))
 	fmt.Fprintf(os.Stderr, "spend is not visible here — /v1 has no usage surface; watch it in the console.\n")
 	fmt.Fprintf(os.Stderr, "health: http://%s/galopin/health, status file %s\n", addr, sh.statusPath)
 	return server.ListenAndServe()

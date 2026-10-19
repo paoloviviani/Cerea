@@ -42,13 +42,16 @@ Usage:
             whether the shim last saw the credential permanently refused
             (its status.json verdict), and whether the machine is revoked.
 
-  group     With no argument: list the billable groups, marking the current
-            one. With a NAME: bill this machine to NAME instead — verified
-            against the live list, only the group field of credentials.json
-            rewritten (atomically, 0600, under the same lock the shim
-            refreshes under), then the models map re-discovered for the new
-            group, because the visible models depend on it. No new machine
-            id, nothing else touched.
+  group     With no argument: show the billing mode and list the billable
+            groups, marking the current one. With a NAME: bill this machine
+            to NAME instead — verified against the live list, only the
+            billing fields of credentials.json rewritten (atomically, 0600,
+            under the same lock the shim refreshes under), then the models
+            map re-discovered, because the visible models depend on the
+            group. No new machine id, nothing else touched. With --default:
+            follow the person's default billing group — the one the Pystino
+            console's group picker sets — instead of pinning one here
+            (refused when no default is set); a NAME pins again.
 
   --creds     Credential file (default <config-dir>/galopin/credentials.json).
   --device    Force the device code flow (headless boxes; see 'enroll --device').
@@ -212,7 +215,9 @@ func authLogin(ctx context.Context, opts *authCommandOptions) error {
 func runAuthGroup(args []string) error {
 	fs := flagSetWithHelp("auth group", authUsage)
 	var credsPath string
+	var useDefault bool
 	fs.StringVar(&credsPath, "creds", "", "")
+	fs.BoolVar(&useDefault, "default", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -223,6 +228,9 @@ func runAuthGroup(args []string) error {
 	if len(fs.Args()) > 1 {
 		return fmt.Errorf("one billing group at a time: got %q", name)
 	}
+	if useDefault && name != "" {
+		return fmt.Errorf("--default and the billing group %q conflict: follow your default, or pin %q", name, name)
+	}
 	if credsPath == "" {
 		path, err := resolveDefaultCredsPath()
 		if err != nil {
@@ -232,7 +240,7 @@ func runAuthGroup(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), modelsRefreshTimeout+30*time.Second)
 	defer cancel()
-	return authGroup(ctx, credsPath, name)
+	return authGroup(ctx, credsPath, name, useDefault)
 }
 
 // billingModeLine is how both 'auth group' and 'auth status' name the
@@ -250,12 +258,34 @@ func billingModeLine(rec *credentials, groups []billableGroup) string {
 	return fmt.Sprintf("pinned: %s", rec.Group)
 }
 
+// statusBillingMode names the billing mode for 'auth status', in the same
+// words 'auth group' lists it. Resolving the default's current name needs
+// the gateway, so it is best-effort with the stored token as it stands:
+// status never refreshes or writes anything, and a machine whose token is
+// dead still gets its mode named.
+func statusBillingMode(rec *credentials) string {
+	if !rec.BillToDefault {
+		if rec.Group == "" {
+			return "pinned: none recorded"
+		}
+		return fmt.Sprintf("pinned: %s", rec.Group)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if groups, err := fetchGroups(ctx, rec.Gateway, rec.AccessToken); err == nil {
+		return billingModeLine(rec, groups)
+	}
+	return "following your default (its current name shows in the Pystino console)"
+}
+
 // authGroup moves the machine's billing to NAME (or lists the choices when
-// NAME is empty). The group is a billing identity, not an enrollment one:
-// it is verified against the live list exactly as pickGroup verifies an
-// explicit --group, and only the group field is rewritten — the machine
-// id, the tokens and every recorded setting stay exactly as they are.
-func authGroup(ctx context.Context, credsPath, name string) error {
+// NAME is empty; or, with followDefault, to wherever the person's console
+// default points). The billing is an identity the gateway checks per
+// request, not an enrollment one: a name is verified against the live list
+// exactly as pickGroup verifies an explicit --group, and only the billing
+// fields are rewritten — the machine id, the tokens and every recorded
+// setting stay exactly as they are.
+func authGroup(ctx context.Context, credsPath, name string, followDefault bool) error {
 	rec, err := lenientLoadCredentials(credsPath)
 	if err != nil {
 		return err
@@ -288,7 +318,7 @@ func authGroup(ctx context.Context, credsPath, name string) error {
 		}
 	}
 
-	if name == "" {
+	if name == "" && !followDefault {
 		fmt.Printf("billing mode: %s\n", billingModeLine(rec, groups))
 		fmt.Println("billable groups:")
 		for _, g := range groups {
@@ -304,15 +334,24 @@ func authGroup(ctx context.Context, credsPath, name string) error {
 		return nil
 	}
 
-	// An explicit name must be a current membership, never trusted blind.
-	if !slices.ContainsFunc(groups, func(g billableGroup) bool { return g.Name == name }) {
+	// Following a default that was never set would 403 every request ("No
+	// billing group is set for this key or user"), so the mode is checked
+	// against the live list before anything is written — the same rule
+	// enroll's --default-group applies.
+	if followDefault && !slices.ContainsFunc(groups, func(g billableGroup) bool { return g.IsDefault }) {
+		return fmt.Errorf("you have no default billing group set — pick one in the Pystino console's group picker, or pin one here with 'galopin auth group NAME'; the gateway would refuse every request with \"No billing group is set for this key or user\"")
+	}
+
+	// A name must be a current membership, never trusted blind — the same
+	// rule pickGroup applies to an explicit --group.
+	if !followDefault && !slices.ContainsFunc(groups, func(g billableGroup) bool { return g.Name == name }) {
 		return fmt.Errorf("group %q is not billable for this user (choices: %s)", name, strings.Join(names, ", "))
 	}
 
 	// Under the same lock the shim refreshes under, re-reading first: the
 	// shim or a concurrent 'auth login' may have rotated the tokens while
 	// this command verified the name, and the file's newest state is what
-	// the one-field change applies to.
+	// the billing change applies to.
 	unlock, err := lockCredsFile(credsPath)
 	if err != nil {
 		return fmt.Errorf("locking the credentials for writing: %w", err)
@@ -322,19 +361,30 @@ func authGroup(ctx context.Context, credsPath, name string) error {
 		unlock()
 		return err
 	}
-	latest.Group = name
+	if followDefault {
+		latest.Group = ""
+		latest.BillToDefault = true
+	} else {
+		latest.Group = name
+		latest.BillToDefault = false
+	}
 	if err := saveCredentials(credsPath, latest); err != nil {
 		unlock()
 		return err
 	}
 	unlock()
-	fmt.Fprintf(os.Stderr, "billing group changed to %s: only the group field of %s was rewritten.\n", name, credsPath)
+	if followDefault {
+		fmt.Fprintf(os.Stderr, "billing now follows your Pystino default: only the billing fields of %s were rewritten.\n", credsPath)
+	} else {
+		fmt.Fprintf(os.Stderr, "billing group changed to %s: only the billing fields of %s were rewritten.\n", name, credsPath)
+	}
 
 	// The visible models depend on the group (A), so the same re-discovery
-	// 'galopin models refresh' runs happens now, against the new group.
+	// 'galopin models refresh' runs happens now; following the default sends
+	// no x-bill-to, so the list follows the default as billing does.
 	diff, err := refreshModels(ctx, latest, token)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: the group is set, but re-discovering the models failed (%v) — run 'galopin models refresh'.\n", err)
+		fmt.Fprintf(os.Stderr, "warning: the billing is set, but re-discovering the models failed (%v) — run 'galopin models refresh'.\n", err)
 	} else {
 		fmt.Fprint(os.Stderr, diff.Summary(latest.OpencodeConfig))
 		for _, w := range diff.Warnings {
@@ -343,7 +393,7 @@ func authGroup(ctx context.Context, credsPath, name string) error {
 	}
 	// Billing follows at once (the shim re-reads the file); the model list
 	// a running run holds is the one it started with.
-	fmt.Fprintln(os.Stderr, "a running 'galopin run' bills to the new group from its next request on; restart it to pick up the new model list.")
+	fmt.Fprintln(os.Stderr, "a running 'galopin run' bills to the new setting from its next request on; restart it to pick up the new model list.")
 	return nil
 }
 
@@ -384,10 +434,9 @@ func authStatus(credsPath string) error {
 	} else {
 		fmt.Printf("user: unknown\n")
 	}
-	if rec.Group == "" {
-		fmt.Printf("billing group: none recorded\n")
-	} else {
-		fmt.Printf("billing group: %s\n", rec.Group)
+	fmt.Printf("billing mode: %s\n", statusBillingMode(rec))
+	if rec.Group == "" && !rec.BillToDefault {
+		fmt.Printf("warning: no billing group recorded; requests will be refused until one is picked ('galopin auth group NAME')\n")
 	}
 	switch {
 	case rec.AccessToken == "" || rec.ObtainedAt <= 0:

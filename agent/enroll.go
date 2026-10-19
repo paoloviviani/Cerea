@@ -20,7 +20,7 @@ const enrollUsage = `galopin enroll — sign in and write the opencode setup.
 Usage:
   galopin enroll [--issuer URL] [--gateway URL] [--client-id ID]
                 [--device | --loopback] [--device-endpoint URL]
-                [--group NAME] [--output PATH]
+                [--group NAME | --default-group] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
                 [--allow-opencode-provider] [--yes]
 
@@ -38,6 +38,13 @@ Usage:
                (<issuer>/oauth/authorize_device) and needs no flag.
   --loopback   Force the loopback browser flow (laptops).
   --group      Preselect the billing group (else prompted when several).
+  --default-group
+               Bill to the person's default billing group instead — the one
+               the Pystino console's group picker sets — rather than pinning
+               a group here. Refuses when no default is set (the gateway
+               would refuse every request). One setting then moves billing
+               and the visible models for the chat and every machine
+               following it; switch back with 'auth group NAME'.
   --output     Where to write opencode.json (default: opencode.json beside
                the credential file, <config-dir>/galopin/opencode.json). The
                absolute path is recorded in the credential file, so 'run'
@@ -162,7 +169,13 @@ type enrollOptions struct {
 	// groupRecorded marks a group taken from the existing credential file
 	// rather than a flag: unlike --group it is allowed to have gone stale,
 	// which falls back to the prompt instead of failing.
-	groupRecorded          bool
+	groupRecorded bool
+	// defaultGroup enrolls the machine to bill wherever the person's
+	// default billing group points — the one the Pystino console's group
+	// picker sets — instead of pinning a group here (bill_to_default in
+	// credentials.json). One console setting then moves billing and model
+	// visibility for the chat and every following machine at once.
+	defaultGroup           bool
 	output                 string
 	creds                  string
 	shimPort               int
@@ -221,6 +234,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.StringVar(&opts.deviceEndpoint, "device-endpoint", "", "")
 	fs.BoolVar(&opts.loopback, "loopback", false, "")
 	fs.StringVar(&opts.group, "group", "", "")
+	fs.BoolVar(&opts.defaultGroup, "default-group", false, "")
 	fs.StringVar(&opts.output, "output", "", "")
 	fs.StringVar(&opts.creds, "creds", "", "")
 	fs.IntVar(&opts.shimPort, "shim-port", defaultShimPort, "")
@@ -283,10 +297,36 @@ func runEnroll(args []string) error {
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["group"] && set["default-group"] {
+		return fmt.Errorf("--group and --default-group conflict: pin one group, or follow your Pystino default")
+	}
 	if applyRecordedDefaults(&opts, set) {
 		fmt.Fprintf(os.Stderr, "note: re-enrolling: using the settings recorded in %s where you gave no flag.\n", opts.creds)
 	}
+	if err := reconcileBillingMode(&opts, set); err != nil {
+		return err
+	}
 	return enroll(context.Background(), &opts)
+}
+
+// reconcileBillingMode settles the billing mode once the recorded defaults
+// are in: an explicit flag wins over the file, the two flags together were
+// refused in runEnroll, and a file recording both is a contradiction this
+// command will not guess out of.
+func reconcileBillingMode(opts *enrollOptions, set map[string]bool) error {
+	if set["default-group"] {
+		opts.group, opts.groupRecorded = "", false
+		opts.defaultGroup = true
+		return nil
+	}
+	if set["group"] {
+		opts.defaultGroup = false
+		return nil
+	}
+	if opts.defaultGroup && opts.group != "" {
+		return fmt.Errorf("%s records both a pinned group and bill_to_default: re-enroll with --group or --default-group to say which", opts.creds)
+	}
+	return nil
 }
 
 // applyRecordedDefaults fills every option the person did not pass from the
@@ -322,6 +362,11 @@ func applyRecordedDefaults(opts *enrollOptions, set map[string]bool) bool {
 	if !set["group"] && rec.Group != "" {
 		opts.group = rec.Group
 		opts.groupRecorded = true
+	}
+	// The billing mode rides along like the group: a re-enroll of a
+	// machine that follows the console default keeps following it.
+	if !set["default-group"] && rec.BillToDefault {
+		opts.defaultGroup = true
 	}
 	return true
 }
@@ -380,9 +425,16 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		return err
 	}
 
-	group, err := pickGroup(ctx, gateway, tokens.AccessToken, opts.group, opts.groupRecorded)
-	if err != nil {
-		return err
+	group := ""
+	if opts.defaultGroup {
+		if err := requireDefaultGroup(ctx, gateway, tokens.AccessToken); err != nil {
+			return err
+		}
+	} else {
+		group, err = pickGroup(ctx, gateway, tokens.AccessToken, opts.group, opts.groupRecorded)
+		if err != nil {
+			return err
+		}
 	}
 
 	var models []gatewayModel
@@ -421,6 +473,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		ClientID:           opts.clientID,
 		Gateway:            gateway,
 		Group:              group,
+		BillToDefault:      opts.defaultGroup,
 		RefreshToken:       tokens.RefreshToken,
 		AccessToken:        tokens.AccessToken,
 		ExpiresIn:          tokens.ExpiresIn,
@@ -482,7 +535,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 
 	fmt.Fprintf(os.Stderr, "wrote opencode config %s (provider pystino via shim %s) and credentials %s\n", opts.output, shimAddr, opts.creds)
 	fmt.Fprintf(os.Stderr, "'galopin run' finds the opencode config through the credentials, from any directory.\n")
-	fmt.Fprintf(os.Stderr, "billing group: %s (sent as x-bill-to by the shim)\n", group)
+	fmt.Fprintf(os.Stderr, "%s\n", billingStartupLine(creds))
 	fmt.Fprintf(os.Stderr, "next: run 'galopin run', then confirm this machine in the chat's /code panel.\n")
 	fmt.Fprintf(os.Stderr, "      (for opencode on its own without the panel, 'galopin serve' runs just the gateway shim.)\n")
 	fmt.Fprintf(os.Stderr, "spend lands in the gateway's ledger under the billing group above; see it in the console.\n")
@@ -606,6 +659,25 @@ func pickGroup(ctx context.Context, gateway, accessToken, preselect string, reco
 		return "", err
 	}
 	return groups[choice].Name, nil
+}
+
+// requireDefaultGroup refuses a follow-default enrollment when the person
+// has no default billing group set in the console: the gateway would then
+// refuse every request with "No billing group is set for this key or user",
+// and enroll would have written a machine that cannot spend. The resolved
+// default is reported so the enrollment says what it is following.
+func requireDefaultGroup(ctx context.Context, gateway, accessToken string) error {
+	groups, err := fetchGroups(ctx, gateway, accessToken)
+	if err != nil {
+		return err
+	}
+	for _, g := range groups {
+		if g.IsDefault {
+			fmt.Fprintf(os.Stderr, "billing group: follows your Pystino default (currently %s)\n", g.Name)
+			return nil
+		}
+	}
+	return fmt.Errorf("you have no default billing group set — pick one in the Pystino console's group picker, or pin one here with --group; the gateway would refuse every request with \"No billing group is set for this key or user\"")
 }
 
 // pickShimAddr finds the loopback address serve will listen on: the

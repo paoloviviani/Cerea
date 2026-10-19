@@ -495,3 +495,97 @@ func TestAuthGroupRefusesWithoutEnrollment(t *testing.T) {
 		t.Fatalf("no file: err = %v, want a refusal naming 'galopin enroll'", err)
 	}
 }
+
+// 'auth group --default' switches the machine to follow the person's console
+// default: group emptied, the mode recorded, only the billing fields
+// rewritten, and the models re-discovered with no x-bill-to so the list
+// follows the default as billing does. 'auth group NAME' switches back to
+// pinned. Neither touches anything else.
+func TestAuthGroupDefaultSwitchesAndRoundTrips(t *testing.T) {
+	issuer := newFakeAuthIssuer(t)
+	_, credsPath, configPath := rigFresh(t, issuer)
+	before := readCreds(t, credsPath)
+
+	if err := runAuth([]string{"group", "--creds", credsPath, "--default"}); err != nil {
+		t.Fatal(err)
+	}
+	following := readCreds(t, credsPath)
+	if !following.BillToDefault || following.Group != "" {
+		t.Fatalf("after --default: bill_to_default = %v, group = %q", following.BillToDefault, following.Group)
+	}
+	keepAllButBilling(t, before, following)
+	if saw := issuer.sawModelBillTo.Load().(string); saw != "" {
+		t.Errorf("the model refresh billed to %q; following-default must send no header", saw)
+	}
+	if cfg := fileBytes(t, configPath); !strings.Contains(cfg, `"model-for-":`) {
+		t.Errorf("models not re-discovered for the default group:\n%s", cfg)
+	}
+
+	if err := runAuth([]string{"group", "--creds", credsPath, "team"}); err != nil {
+		t.Fatal(err)
+	}
+	pinned := readCreds(t, credsPath)
+	if pinned.BillToDefault || pinned.Group != "team" {
+		t.Fatalf("after the round trip: bill_to_default = %v, group = %q", pinned.BillToDefault, pinned.Group)
+	}
+	keepAllButBilling(t, before, pinned)
+}
+
+// Following a default that was never set would 403 every request, so the
+// switch refuses up front and says where the default is set.
+func TestAuthGroupDefaultRefusesWithoutADefault(t *testing.T) {
+	issuer := newFakeAuthIssuer(t)
+	issuer.noDefault.Store(true)
+	_, credsPath, _ := rigFresh(t, issuer)
+	before := fileBytes(t, credsPath)
+
+	err := runAuth([]string{"group", "--creds", credsPath, "--default"})
+	if err == nil || !strings.Contains(err.Error(), "default") {
+		t.Fatalf("no console default: err = %v, want a refusal naming the default", err)
+	}
+	if cfg := fileBytes(t, credsPath); cfg != before {
+		t.Fatalf("credential file written despite the refusal:\n%s", cfg)
+	}
+}
+
+// --default and a NAME contradict each other.
+func TestAuthGroupDefaultConflictsWithAName(t *testing.T) {
+	issuer := newFakeAuthIssuer(t)
+	_, credsPath, _ := rigFresh(t, issuer)
+	err := runAuth([]string{"group", "--creds", credsPath, "--default", "team"})
+	if err == nil || !strings.Contains(err.Error(), "--default") {
+		t.Fatalf("both: err = %v, want a refusal naming both", err)
+	}
+}
+
+// status names the mode the same way 'auth group' does, from a best-effort
+// look at the gateway's group list.
+func TestAuthStatusShowsTheBillingMode(t *testing.T) {
+	issuer := newFakeAuthIssuer(t)
+	issuer.billable.Store([]string{"team", "other-group"})
+	_, pinnedPath, _ := rigFresh(t, issuer)
+
+	var stdout string
+	out := capturestdout(t, func() {
+		if err := runAuth([]string{"status", "--creds", pinnedPath}); err != nil {
+			t.Fatalf("status: %v", err)
+		}
+	})
+	stdout = out
+	if !strings.Contains(stdout, "pinned: team") {
+		t.Errorf("status of a pinned machine %q lacks 'pinned: team'", stdout)
+	}
+
+	creds := readCreds(t, pinnedPath)
+	creds.Group, creds.BillToDefault = "", true
+	writeCreds(t, pinnedPath, &creds)
+	out = capturestdout(t, func() {
+		if err := runAuth([]string{"status", "--creds", pinnedPath}); err != nil {
+			t.Fatalf("status: %v", err)
+		}
+	})
+	stdout = out
+	if !strings.Contains(stdout, "following your default (currently: team)") {
+		t.Errorf("status of a following machine %q lacks the resolved default", stdout)
+	}
+}
