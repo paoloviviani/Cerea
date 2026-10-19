@@ -24,27 +24,6 @@ interface UserInfo {
 	isEarlyAccess: boolean;
 }
 
-interface SettingsResponse {
-	webSearchEnabled?: boolean;
-	pyodidePyPiInstallEnabled?: boolean;
-	memoryEnabled?: boolean;
-	mlInternOnboardingSeen: boolean;
-	shareConversationsWithModelAuthors: boolean;
-	activeModel: string;
-	streamingMode: "raw" | "smooth";
-	directPaste: boolean;
-	hapticsEnabled: boolean;
-	globalSystemPrompt?: string;
-	multimodalOverrides: Record<string, boolean>;
-	toolsOverrides: Record<string, boolean>;
-	artifactsOverrides: Record<string, boolean>;
-	hidePromptExamples: Record<string, boolean>;
-	providerOverrides: Record<string, string>;
-	reasoningEffortOverrides: Record<string, "low" | "medium" | "high">;
-	reasoningOverrides: Record<string, boolean>;
-	billingOrganization?: string;
-}
-
 export const load = async ({ fetch, url, data }) => {
 	const client = useAPIClient({ fetch, origin: url.origin });
 	// `data` is the server load's output (+layout.server.ts): the gateway's
@@ -59,8 +38,18 @@ export const load = async ({ fetch, url, data }) => {
 	// inlined in the SSR payload so the client has it before any onMount fires,
 	// allowing +layout.svelte to pre-populate the mcpServers store synchronously
 	// and eliminate the mcpServersLoaded gate delay on first message.
+
+	// Settings first: the catalogue fetch below is keyed on the billing group
+	// the person chose (ADR 0061). The list is the gateway's answer for that
+	// bill-to, and `/api/v2/models` is served with a 60 s private cache, so
+	// the group has to be part of the URL — otherwise a change of group on
+	// the usage page would keep serving the previous group's list out of the
+	// browser cache, and the invalidated loads would see nothing new. The
+	// special reload (settings/(nav)/usage) that follows a change carries the
+	// new group, so the new URL misses the cache and the fresh list is
+	// fetched immediately.
+	const settings = await client.user.settings.get().then(handleResponse);
 	const [
-		settings,
 		catalogue,
 		user,
 		publicConfig,
@@ -69,8 +58,9 @@ export const load = async ({ fetch, url, data }) => {
 		mcpBaseServers,
 		customModels,
 	] = (await Promise.all([
-		client.user.settings.get().then(handleResponse),
-		client.models.get().then(handleResponse),
+		client.models
+			.get({ query: { "bill-to": settings.billingOrganization ?? "" } })
+			.then(handleResponse),
 		client.user.get().then(handleResponse),
 		client["public-config"].get().then(handleResponse),
 		client["feature-flags"].get().then(handleResponse),
@@ -85,7 +75,6 @@ export const load = async ({ fetch, url, data }) => {
 			.then((body) => (body?.data?.models ?? []) as CustomModelView[])
 			.catch(() => [] as CustomModelView[]),
 	])) as [
-		SettingsResponse,
 		GETModelsResponse,
 		UserInfo | null,
 		Record<string, unknown>,
