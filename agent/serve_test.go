@@ -466,3 +466,177 @@ func TestRefreshCredentialAdoptsConcurrentWinner(t *testing.T) {
 		t.Errorf("IdP hit %d times, want 0: the on-disk credential was already fresh", calls)
 	}
 }
+
+// TestShimRecoversNewerCredentialWithoutRestart pins the way out of the
+// latched "expired" state that does not involve restarting: 'galopin auth
+// login' rewrites the credential file's token fields under the same lock the
+// shim refreshes under, so a shim that has judged itself dead — token()
+// answering deadErr from cache, the refresh loop exited — must notice the
+// newer file the next time a request needs a token, adopt it, clear the dead
+// state and serve. Before the recovery existed, a server at a latched denied
+// state answered "enrollment expired" until it was restarted, even with a
+// perfectly good credential on disk.
+func TestShimRecoversNewerCredentialWithoutRestart(t *testing.T) {
+	var accept atomic.Bool
+	var postmortal int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !accept.Load() {
+			atomic.AddInt32(&postmortal, 1)
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":             "invalid_grant",
+				"error_description": "the access token was revoked",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "revived-access-token", "expires_in": 300,
+		})
+	}))
+	defer tokenServer.Close()
+
+	creds := expiredCreds(tokenServer.URL)
+	credsPath := filepath.Join(t.TempDir(), "creds.json")
+	if err := saveCredentials(credsPath, creds); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := statusPathFor(credsPath)
+	s := newShim(creds, credsPath, statusPath, 41871)
+
+	// The shim is refused once, latches denied — nothing left to check
+	// until a human fixes it and restarts this process, the old comment
+	// said — and then answers every later token() from that cached verdict.
+	if err := s.refresh(); err == nil {
+		t.Fatal("expected the dead credential to fail refresh")
+	}
+	if _, err := s.token(); err == nil {
+		t.Fatal("expected token() to answer the cached dead verdict")
+	}
+
+	// 'galopin auth login' has just rewritten the file's token fields: a
+	// newer refresh token, a fresh access one. Nothing restarted.
+	recovery := &credentials{
+		TokenEndpoint: tokenServer.URL,
+		ClientID:      "opencode-enrollment",
+		RefreshToken:  "revived-refresh-token",
+		AccessToken:   "revived-access-token",
+		ExpiresIn:     300,
+		ObtainedAt:    time.Now().Unix(),
+	}
+	if err := saveCredentials(credsPath, recovery); err != nil {
+		t.Fatal(err)
+	}
+	accept.Store(true)
+
+	got, err := s.token()
+	if err != nil {
+		t.Fatalf("token() after 'galopin auth login' rewrote the file: %v — the shim did not recover without a restart", err)
+	}
+	if got != "revived-access-token" {
+		t.Errorf("token() = %q, want the revived access token", got)
+	}
+	if postmortal := atomic.LoadInt32(&postmortal); postmortal != 1 {
+		t.Errorf("the dead refresh token was presented to the IdP %d more times, want 0", postmortal)
+	}
+	status, readErr := readStatusFile(statusPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if status.State != stateOK {
+		t.Errorf("status after recovery = %q, want %q", status.State, stateOK)
+	}
+
+	// And once recovered, the dead state stays cleared: expired
+	// credentials refresh through the ordinary path again.
+	staleness := *s.creds
+	staleness.ObtainedAt = time.Now().Add(-600 * time.Second).Unix()
+	s.creds = &staleness
+	got, err = s.token()
+	if err != nil {
+		t.Fatalf("an ordinary expired token after recovery: %v", err)
+	}
+	if got != "revived-access-token" {
+		t.Errorf("token() after an ordinary expiry = %q", got)
+	}
+}
+
+// 'galopin auth group' rewrites only the group field of the file, while the
+// shim holds its own copy in memory and stamps x-bill-to from it on every
+// request. A running 'galopin run' must therefore follow the new group at
+// its next request — the alternative is telling every owner to restart for a
+// billing change.
+func TestShimFollowsTheGroupAuthGroupWrites(t *testing.T) {
+	var sawBillTo string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawBillTo = r.Header.Get("x-bill-to")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: ok\n\n")
+	}))
+	defer gateway.Close()
+
+	creds := &credentials{
+		TokenEndpoint: "http://unused.example/token", ClientID: "opencode-enrollment",
+		Gateway: gateway.URL, Group: "team",
+		RefreshToken: "rt", AccessToken: "at", ExpiresIn: 300, ObtainedAt: time.Now().Unix(),
+	}
+	credsPath := filepath.Join(t.TempDir(), "creds.json")
+	if err := saveCredentials(credsPath, creds); err != nil {
+		t.Fatal(err)
+	}
+	s := newShim(creds, credsPath, statusPathFor(credsPath), 41871)
+
+	// 'galopin auth group other-group' rewrote the file under the lock.
+	moved := *creds
+	moved.Group = "other-group"
+	if err := saveCredentials(credsPath, &moved); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	s.handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if sawBillTo != "other-group" {
+		t.Errorf("gateway saw x-bill-to %q, want other-group without a restart", sawBillTo)
+	}
+}
+
+// The other half of the same race, at the refresh: the shim's in-memory copy
+// still carries the old group when it next refreshes, and refreshCredential
+// saves what it holds — which would write the old group back over the one
+// 'auth group' just filed. The on-disk billing settings must win.
+func TestRefreshCredentialKeepsANewerGroup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "fresh-at", "expires_in": 300})
+	}))
+	defer server.Close()
+
+	credsPath := filepath.Join(t.TempDir(), "creds.json")
+	onDisk := &credentials{
+		TokenEndpoint: server.URL, ClientID: "opencode-enrollment",
+		Group: "other-group", RefreshToken: "same-rt",
+		AccessToken: "old-at", ExpiresIn: 300, ObtainedAt: time.Now().Add(-600 * time.Second).Unix(),
+	}
+	if err := saveCredentials(credsPath, onDisk); err != nil {
+		t.Fatal(err)
+	}
+	// The shim's in-memory copy: same refresh token, the stale group.
+	inMemory := *onDisk
+	inMemory.Group = "team"
+
+	if err := refreshCredential(credsPath, &inMemory); err != nil {
+		t.Fatal(err)
+	}
+	if inMemory.Group != "other-group" {
+		t.Errorf("the refresh adopted the stale group %q over the on-disk one", inMemory.Group)
+	}
+	reloaded, err := loadCredentials(credsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Group != "other-group" {
+		t.Errorf("the refresh clobbered the on-disk group back to %q", reloaded.Group)
+	}
+}

@@ -387,7 +387,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 
 	var models []gatewayModel
 	if opts.discover {
-		models = fetchModels(ctx, gateway, tokens.AccessToken)
+		// After pickGroup on purpose: the chosen group is what the listing
+		// must be filtered by, or enroll writes the default group's models.
+		models = fetchModels(ctx, gateway, tokens.AccessToken, group)
 		if len(models) == 0 {
 			fmt.Fprintln(os.Stderr, "warning: model discovery failed; writing a placeholder models map — replace it with ids from GET /v1/models once reachable.")
 		} else {

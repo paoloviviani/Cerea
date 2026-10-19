@@ -129,18 +129,24 @@ func TestOAuth2ErrorPermanent(t *testing.T) {
 // TestPermanentRefreshErrorMessage pins the two things Cerea's classifier
 // and the human both need out of the message: the literal invalid_grant
 // token (regex: /invalid_grant|enrollment (?:has )?expired|enrollment
-// (?:was )?revoked/i) and a plain instruction naming the fix.
+// (?:was )?revoked/i) and a plain instruction naming the fix. The fix is now
+// usually 'galopin auth login'; only the classifier-required "revoked" word
+// still names re-enrolling, and revoked must print that one — a machine
+// revoked by design cannot be given a new token for the identity it lost.
 func TestPermanentRefreshErrorMessage(t *testing.T) {
 	err := &permanentRefreshError{code: "invalid_grant"}
 	msg := err.Error()
 	if !strings.Contains(msg, "invalid_grant") {
 		t.Errorf("message %q does not carry the invalid_grant token Cerea matches on", msg)
 	}
-	if !strings.Contains(msg, "re-enroll") && !strings.Contains(msg, "Re-enroll") {
-		t.Errorf("message %q does not tell the human what to do", msg)
+	if !strings.Contains(msg, "revoked") {
+		t.Errorf("message %q does not carry the 'revoked' wording Cerea matches on", msg)
 	}
-	if !strings.Contains(msg, "galopin enroll") {
-		t.Errorf("message %q does not name the concrete remedy command", msg)
+	if !strings.Contains(msg, "galopin auth login") {
+		t.Errorf("message %q does not name the ordinary remedy, galopin auth login", msg)
+	}
+	if strings.Contains(msg, "Re-enroll it: run 'galopin enroll' again") {
+		t.Errorf("message %q still steers an expired-but-alive machine to re-enrolling, which mints a new machine id", msg)
 	}
 }
 

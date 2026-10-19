@@ -175,7 +175,7 @@ func (s *shim) transitionLocked(state credState, checkedAt time.Time, message st
 	}
 	switch state {
 	case stateExpired:
-		fmt.Fprintf(os.Stderr, "\n!!! galopin shim: credential EXPIRED — every request will fail until this machine is re-enrolled !!!\n%s\n\n", message)
+		fmt.Fprintf(os.Stderr, "\n!!! galopin shim: credential EXPIRED — sign in again, or enroll again !!!\n%s\n\n", message)
 		if s.onExpired != nil {
 			// Run outside s.mu: the callback (run's link) does its own I/O
 			// and must never be able to deadlock against this shim's lock.
@@ -225,6 +225,36 @@ func (s *shim) refreshLocked() error {
 	return err
 }
 
+// recoverExpiredLocked is the way out of the latched "expired" state that is
+// neither a restart nor a re-enroll: 'galopin auth login' signs the machine
+// in again and rewrites only the credential file's token fields, under the
+// same cross-process lock this shim refreshes under (R7) and without the
+// shim's knowledge. So once dead, "what does the file hold now" is no longer
+// a foregone conclusion: if it carries a refresh token the shim does not
+// know, someone has just signed in again, and the cached refusal — which
+// described tokens that no longer exist — is cleared whether the new file
+// already carries a live access token or the shim has to (and may only)
+// present it to the IdP once. A file that is unreadable or still carries the
+// token this shim already judged dead changes nothing, and the "expired"
+// verdict — old or, after a refused recovery attempt, new — stands latched.
+// Caller holds s.mu.
+func (s *shim) recoverExpiredLocked() {
+	onDisk, err := loadCredentials(s.credsPath)
+	if err != nil {
+		return
+	}
+	if onDisk.RefreshToken == s.creds.RefreshToken {
+		return
+	}
+	*s.creds = *onDisk
+	if !s.creds.needsRefresh(time.Now()) {
+		s.deadErr = nil
+		s.transitionLocked(stateOK, time.Now(), "adopted the newer credential 'galopin auth login' wrote")
+		return
+	}
+	_ = s.refreshLocked()
+}
+
 // refresh is refreshLocked with its own lock, for callers outside the
 // request path (startup, the background timer).
 func (s *shim) refresh() error {
@@ -234,20 +264,28 @@ func (s *shim) refresh() error {
 }
 
 // refreshLoop keeps the credential proactively current so state is known
-// before any request needs it. It stops once the credential is confirmed
-// dead: nothing left to check until a human re-enrolls and restarts this
-// process, so there is no point spending a goroutine and an IdP round trip
-// every interval on an answer that cannot change.
+// before any request needs it. Once the credential is found dead the loop
+// stops refreshing against the IdP, but it does not exit: 'galopin auth
+// login' can bring the credential back — under the same cross-process lock,
+// no restart — and each tick would otherwise leave that newer file unnoticed.
 func (s *shim) refreshLoop() {
 	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		s.mu.Lock()
-		dead := s.status.State == stateExpired
-		s.mu.Unlock()
-		if dead {
-			return
+		if s.status.State == stateExpired {
+			// Dead, but no longer for ever: 'galopin auth login' writes
+			// newer token fields under the same lock (R7) and no restart,
+			// and this loop is what picks that change up on a quiet
+			// machine with no requests coming in. That is a file read per
+			// interval, not an IdP round trip: recovery is the one time
+			// latched state can move, and recoverExpiredLocked only
+			// reaches the IdP when the file really does differ now.
+			s.recoverExpiredLocked()
+			s.mu.Unlock()
+			continue
 		}
+		s.mu.Unlock()
 		_ = s.refresh()
 	}
 }
@@ -273,24 +311,68 @@ var hopByHop = map[string]bool{
 
 // token returns a usable access token, refreshing when the cached one is
 // within the skew of expiry, or the shim's cached verdict on why there is
-// none. Once the credential is known dead (stateExpired) it returns deadErr
-// straight away — no IdP round trip, because the answer cannot have changed
-// since the refresh loop or a prior request already got the final word.
+// none. Once the credential is known dead (stateExpired) it answers from the
+// cached verdict with no IdP round trip — the verdict itself cannot have
+// changed since the refresh loop or a prior request got the final word... but
+// what the credential file holds can: 'galopin auth login' rewrites its
+// token fields for exactly this case, so check for a newer file before
+// answering the cached refusal (recoverExpiredLocked).
 // Serialized: the lock both dedupes a concurrent refresh and guards the
 // credential fields it mutates.
 func (s *shim) token() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.tokenLocked()
+}
+
+// tokenAndBillTo is token() plus the billing identity the request must
+// carry, both from one locked snapshot: the handler stamps x-bill-to after
+// token() has released the lock, and a group 'galopin auth group' rewrote
+// must never be split from the token it was checked with — or read at all
+// while a refresh is mid-mutation of the same struct.
+func (s *shim) tokenAndBillTo() (accessToken, group string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	accessToken, err = s.tokenLocked()
+	return accessToken, s.creds.Group, err
+}
+
+// tokenLocked is token's body; callers hold s.mu.
+func (s *shim) tokenLocked() (string, error) {
 	if s.status.State == stateExpired {
-		return "", s.deadErr
+		s.recoverExpiredLocked()
+		if s.status.State == stateExpired {
+			return "", s.deadErr
+		}
 	}
 	if !s.creds.needsRefresh(time.Now()) {
+		// A live token, but not necessarily the file's billing: 'galopin
+		// auth group' rewrites only the group field, under the same lock
+		// (R7), and a running run must follow it without a restart. One
+		// small file read per request, against a model call that takes
+		// seconds; the refresh path picks the change up too.
+		s.adoptBillingLocked()
 		return s.creds.AccessToken, nil
 	}
 	if err := s.refreshLocked(); err != nil {
 		return "", err
 	}
 	return s.creds.AccessToken, nil
+}
+
+// adoptBillingLocked syncs the billing mode and group from the credential
+// file when 'galopin auth group' has rewritten them since this shim last
+// looked. Tokens are deliberately not adopted here: a newer file's tokens
+// come in through the refresh path (refreshCredential re-reads under the
+// lock), and overwriting a live access token with whatever the file holds
+// would serve a token that may already have been rotated away.
+func (s *shim) adoptBillingLocked() {
+	onDisk, err := loadCredentials(s.credsPath)
+	if err != nil || (onDisk.Group == s.creds.Group && onDisk.BillToDefault == s.creds.BillToDefault) {
+		return
+	}
+	s.creds.Group = onDisk.Group
+	s.creds.BillToDefault = onDisk.BillToDefault
 }
 
 // refreshCredential exchanges the refresh token for a fresh access token,
@@ -317,10 +399,18 @@ func refreshCredential(credsPath string, creds *credentials) error {
 	}
 	defer unlock()
 
-	if onDisk, loadErr := loadCredentials(credsPath); loadErr == nil && onDisk.RefreshToken != creds.RefreshToken {
-		*creds = *onDisk
-		if !creds.needsRefresh(time.Now()) {
-			return nil
+	if onDisk, loadErr := loadCredentials(credsPath); loadErr == nil {
+		if onDisk.RefreshToken != creds.RefreshToken {
+			*creds = *onDisk
+			if !creds.needsRefresh(time.Now()) {
+				return nil
+			}
+		} else if onDisk.Group != creds.Group || onDisk.BillToDefault != creds.BillToDefault {
+			// 'galopin auth group' re-billed this machine while the token
+			// stayed the same: adopt the newer billing settings, or the
+			// save below would write the stale group back over it.
+			creds.Group = onDisk.Group
+			creds.BillToDefault = onDisk.BillToDefault
 		}
 	}
 
@@ -397,7 +487,7 @@ func writeOpenAIError(w http.ResponseWriter, status int, message, errType, code 
 // streams the response back unbuffered so SSE completions render token by
 // token in opencode.
 func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
-	accessToken, err := s.token()
+	accessToken, group, err := s.tokenAndBillTo()
 	if err != nil {
 		writeTokenError(w, err)
 		return
@@ -428,7 +518,15 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 	outbound.Header.Set("Authorization", "Bearer "+accessToken)
 	// An OIDC-token caller names its billing group per request (ADR 0061);
 	// a key could not, which is why enrollment mints a token, not a key.
-	outbound.Header.Set("x-bill-to", s.creds.Group)
+	// No pinned group (follow-default mode, or an old file that never
+	// recorded one) means the header must be ABSENT, never empty: the
+	// gateway bills an unheadered request to the user's default group,
+	// while an empty value filters the request to nothing.
+	if group != "" {
+		outbound.Header.Set("x-bill-to", group)
+	} else {
+		outbound.Header.Del("x-bill-to")
+	}
 
 	resp, err := s.client.Do(outbound)
 	if err != nil {
