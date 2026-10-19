@@ -5,12 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## v0.15.12 — 2026-10-19
+## v0.15.13 — 2026-10-19
 
-Pins: Cerea `0.15.12`, Pystino `0.10.0`, Authelia 4.39.22 (unchanged). Update the
+Pins: Cerea `0.15.13`, Pystino `0.10.0`, Authelia 4.39.22 (unchanged). Update the
 deployment (`docker compose pull && docker compose up -d`).
 
-- **Pystino 0.10.0 ships model aliases, and nothing in the chat changes.**
+- **Pystino 0.10.0 ships model aliases.**
   An alias is a name you choose that resolves to a model, so you can offer a
   model under terms different from the model's own — everyone may use `fast`,
   while only one group may call the model behind it. Access is granted on the
@@ -21,10 +21,15 @@ deployment (`docker compose pull && docker compose up -d`).
   `503 alias_unavailable` and disappears from the model list rather than
   quietly pointing at something else. Aliases live under a new **Routing** tab
   in the console; the model screens stay about served models, with an "Aliases
-  pointing here" section so you can see which names a delete would affect. The
-  chat needs no change: an alias arrives as an ordinary model card, and a
-  conversation keeps the alias name, so retargeting changes what new turns run
-  on.
+  pointing here" section so you can see which names a delete would affect. An
+  alias arrives in the chat as an ordinary model card, and a conversation
+  keeps the alias name, so retargeting changes what new turns run on.
+- **The chat accepts model cards with empty fields.** The gateway sends
+  `null` for a field it has no value for, such as the description of a model
+  nobody described, and the chat refused the whole model list on it and
+  failed to start. Every optional field of a card now accepts `null`. This is
+  why v0.15.12 was tagged but never released: its release check caught the
+  failure against Pystino 0.10.0.
 
 ## v0.15.11 — 2026-10-18
 
