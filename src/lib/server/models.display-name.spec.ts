@@ -44,6 +44,20 @@ beforeAll(async () => {
 						// absent-or-string, so this one card failed the whole listing and the
 						// chat crash-looped at boot.
 						{ id: "acme/null-name", display_name: null, kind: "chat" },
+						// Every Optional the gateway has no value for arrives as null, not
+						// absent. 0.15.12 crash-looped on `description: null`, which an
+						// alias (or any model nobody described) carries.
+						{
+							id: "acme/all-null",
+							display_name: null,
+							description: null,
+							kind: null,
+							providers: null,
+							architecture: null,
+							input_modalities: null,
+							output_modalities: null,
+							supported_features: null,
+						},
 					],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } }
@@ -75,5 +89,11 @@ describe("buildModels against a gateway that names its models", () => {
 	it("takes a null display name, as the gateway sends it, for no name", () => {
 		const model = built.find((m) => m.id === "acme/null-name");
 		expect(model?.displayName).toBe("acme/null-name");
+	});
+
+	it("takes a card whose every optional field is null", () => {
+		const model = built.find((m) => m.id === "acme/all-null");
+		expect(model?.displayName).toBe("acme/all-null");
+		expect(model?.description).toBeUndefined();
 	});
 });
