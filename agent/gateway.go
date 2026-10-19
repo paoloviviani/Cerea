@@ -73,14 +73,23 @@ type gatewayModel struct {
 }
 
 // fetchModels discovers the caller's catalogue for the opencode models map.
+// The gateway filters the listing by the billing group in x-bill-to, so a
+// pinned group is sent: the models a group is billed for are the ones it can
+// reach, and listing the default group's instead would write an opencode.json
+// full of ids every request then 403s on. An empty group (follow-default
+// mode) sends no header at all — an empty value would filter to nothing —
+// so the list follows the default exactly as billing does.
 // It never fails enroll: an unreachable gateway still yields a working auth
 // setup, with a placeholder the user replaces once the gateway is reachable.
-func fetchModels(ctx context.Context, gateway, accessToken string) []gatewayModel {
+func fetchModels(ctx context.Context, gateway, accessToken, group string) []gatewayModel {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(gateway, "/")+"/models", nil)
 	if err != nil {
 		return nil
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if group != "" {
+		req.Header.Set("x-bill-to", group)
+	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil

@@ -583,6 +583,9 @@ for good. To connect it again, re-enroll (which mints a new machine id):
 
 or delete the machine id file (it lives next to the credentials, as "machine-id")
 and start 'run' again; the machine then shows up as a new pending device to confirm.
+
+Not revoked, just an expired credential? That one is fixable in place — sign in
+again with 'galopin auth login'; no new machine id, no re-enroll.
 `
 
 // exitError carries the process exit code main should use.

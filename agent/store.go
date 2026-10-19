@@ -23,10 +23,16 @@ type credentials struct {
 	ClientID           string `json:"client_id"`
 	Gateway            string `json:"gateway"`
 	Group              string `json:"group"`
-	RefreshToken       string `json:"refresh_token"`
-	AccessToken        string `json:"access_token"`
-	ExpiresIn          int    `json:"expires_in"`
-	ObtainedAt         int64  `json:"obtained_at_unix"`
+	// BillToDefault drops the pin: the shim sends no x-bill-to and the
+	// gateway bills each request to the user's default billing group — the
+	// one the Pystino console's group picker sets (PUT
+	// /api/me/default-billing-group). Absent on older files, which means
+	// false: an older file's empty group must not silently start following.
+	BillToDefault bool   `json:"bill_to_default,omitempty"`
+	RefreshToken  string `json:"refresh_token"`
+	AccessToken   string `json:"access_token"`
+	ExpiresIn     int    `json:"expires_in"`
+	ObtainedAt    int64  `json:"obtained_at_unix"`
 	// ShimPort is the loopback port enroll chose and wrote into
 	// opencode.json's baseURL; serve honours it so the two ends agree without
 	// the human passing --port. Omitted (0) falls back to defaultShimPort.

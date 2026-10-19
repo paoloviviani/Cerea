@@ -141,6 +141,7 @@ describe("each control emits exactly its flag", () => {
 		["enroll-no-agent-tools", "--no-agent-tools", "no agent tools", true],
 		["enroll-allow-free-models", "--allow-free-models", "free models", true],
 		["enroll-allow-opencode-provider", "--allow-opencode-provider", "opencode provider", true],
+		["enroll-bill-to-default", "--default-group", "bill to my default group", true],
 		["enroll-no-files", "--no-files", "no files", true],
 		["enroll-no-default-file-deny", "--no-default-file-deny", "no default deny", true],
 	];

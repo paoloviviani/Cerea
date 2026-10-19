@@ -8,12 +8,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+// lastModelsBillTo records the x-bill-to the most recent /v1/models fetch
+// carried (A): the tests here run sequentially, so one slot is enough.
+var lastModelsBillTo atomic.Value
 
 // fakeEnrollServer is an IdP (discovery, device flow, token) and a gateway
 // (billing groups) in one: just enough for enroll to run to the end offline.
 func fakeEnrollServer(t *testing.T) *httptest.Server {
+	return fakeEnrollServerWithDefault(t, true)
+}
+
+// fakeEnrollServerWithDefault stages whether the user's console default
+// billing group is set: with none, --default-group must refuse.
+func fakeEnrollServerWithDefault(t *testing.T, hasDefault bool) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	var srv *httptest.Server
@@ -34,9 +45,10 @@ func fakeEnrollServer(t *testing.T) *httptest.Server {
 		})
 	})
 	mux.HandleFunc("/v1/billing/groups", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "g1", "name": "team", "is_default": true}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "g1", "name": "team", "is_default": hasDefault}}})
 	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		lastModelsBillTo.Store(r.Header.Get("x-bill-to"))
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "gw-model", "display_name": "Gateway Model", "context_window": 100000, "max_output_tokens": 8000}}})
 	})
 	srv = httptest.NewServer(mux)
@@ -172,5 +184,100 @@ func TestCredentialsWithoutOpencodeConfigStillLoad(t *testing.T) {
 	body, _ := os.ReadFile(path)
 	if strings.Contains(string(body), "opencode_config") {
 		t.Errorf("empty field serialised: %s", body)
+	}
+}
+
+// --default-group enrolls the machine to bill wherever the person's console
+// default points: the mode is recorded, no group is pinned, and the model
+// discovery sends no x-bill-to, so the list follows the default exactly as
+// billing will (A).
+func TestEnrollDefaultGroupRecordsTheModeAndSendsNoHeader(t *testing.T) {
+	srv := fakeEnrollServer(t)
+	root := t.TempDir()
+	creds := filepath.Join(root, "credentials.json")
+	output := filepath.Join(root, "opencode.json")
+	opts := &enrollOptions{
+		discover: true, issuer: srv.URL, gateway: srv.URL, clientID: "opencode-enrollment",
+		device: true, output: output, creds: creds,
+		shimPort: defaultShimPort, yes: true, maxTerminals: 8,
+		defaultGroup: true,
+	}
+	if err := enroll(context.Background(), opts); err != nil {
+		t.Fatalf("enroll --default-group: %v", err)
+	}
+	got, err := loadCredentials(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.BillToDefault || got.Group != "" {
+		t.Fatalf("bill_to_default = %v, group = %q; want true and empty", got.BillToDefault, got.Group)
+	}
+	if saw, _ := lastModelsBillTo.Load().(string); saw != "" {
+		t.Errorf("model discovery billed to %q; following-default must send no header", saw)
+	}
+}
+
+// Both ways of naming the billing at once is a contradiction: refuse before
+// anything is signed in or written.
+func TestEnrollRefusesGroupAndDefaultGroupTogether(t *testing.T) {
+	dir := t.TempDir()
+	err := runEnroll([]string{
+		"--group", "team", "--default-group",
+		"--issuer", "https://idp.example", "--gateway", "https://gw.example/v1",
+		"--creds", filepath.Join(dir, "credentials.json"), "--yes",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--default-group") || !strings.Contains(err.Error(), "--group") {
+		t.Fatalf("both flags: err = %v, want a refusal naming both", err)
+	}
+}
+
+// Following the default with no default set would 403 every request ("No
+// billing group is set for this key or user"), so enroll refuses up front
+// and says where to set one.
+func TestEnrollDefaultGroupRefusesWithoutADefault(t *testing.T) {
+	srv := fakeEnrollServerWithDefault(t, false)
+	dir := t.TempDir()
+	opts := &enrollOptions{
+		discover: false, issuer: srv.URL, gateway: srv.URL, clientID: "opencode-enrollment",
+		device: true, output: filepath.Join(dir, "opencode.json"), creds: filepath.Join(dir, "credentials.json"),
+		shimPort: defaultShimPort, yes: true, maxTerminals: 8,
+		defaultGroup: true,
+	}
+	err := enroll(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "default") {
+		t.Fatalf("no console default: err = %v, want a refusal naming the default", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "credentials.json")); !os.IsNotExist(statErr) {
+		t.Errorf("credentials written despite the refusal: %v", statErr)
+	}
+}
+
+// Re-enrolling carries the mode over just as it carries the group, and an
+// explicit --group switches the machine back to pinned.
+func TestReEnrollCarriesTheBillingModeOver(t *testing.T) {
+	rec := &credentials{Group: "", BillToDefault: true}
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	if err := saveCredentials(path, rec); err != nil {
+		t.Fatal(err)
+	}
+	opts := &enrollOptions{creds: path}
+	if !applyRecordedDefaults(opts, map[string]bool{}) {
+		t.Fatal("the recorded file was not found")
+	}
+	if !opts.defaultGroup || opts.group != "" {
+		t.Fatalf("recorded follow-default: defaultGroup = %v, group = %q", opts.defaultGroup, opts.group)
+	}
+
+	// An explicit --group pins again, overriding the recorded mode.
+	opts = &enrollOptions{creds: path, group: "team"}
+	applyRecordedDefaults(opts, map[string]bool{"group": true})
+	if err := reconcileBillingMode(opts, map[string]bool{"group": true}); err != nil {
+		t.Fatal(err)
+	}
+	if opts.defaultGroup {
+		t.Fatal("an explicit --group must switch the machine back to pinned")
+	}
+	if opts.group != "team" {
+		t.Fatalf("group = %q, want the explicit team", opts.group)
 	}
 }

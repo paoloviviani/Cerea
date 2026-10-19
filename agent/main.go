@@ -30,6 +30,8 @@ Usage:
 Commands:
   enroll    Run the OAuth flow, pick a billing group, write opencode.json
             and store the refresh credential.
+  auth      Sign in again without re-enrolling ('auth login', alias 'auth
+            refresh') or show the credential's state ('auth status').
   serve     Local refreshing proxy shim: opencode points its baseURL here,
             the shim injects a fresh access token plus x-bill-to per request.
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
@@ -50,6 +52,8 @@ func main() {
 	switch os.Args[1] {
 	case "enroll":
 		err = runEnroll(os.Args[2:])
+	case "auth":
+		err = runAuth(os.Args[2:])
 	case "serve":
 		err = runServe(os.Args[2:])
 	case "run":

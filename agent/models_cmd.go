@@ -160,7 +160,9 @@ func refreshModels(ctx context.Context, creds *credentials, token func(context.C
 	}
 	// fetchModels folds every failure into nil, so "failed" and "listed
 	// nothing" are the same outcome here, and both leave the file alone.
-	entries := modelEntries(fetchModels(ctx, creds.Gateway, access))
+	// The recorded group rides along (A): the listing is filtered by
+	// x-bill-to, and empty means follow-default, which sends no header.
+	entries := modelEntries(fetchModels(ctx, creds.Gateway, access, creds.Group))
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("model discovery failed or listed no chat model (GET %s/models): %s left unchanged", strings.TrimSuffix(creds.Gateway, "/"), creds.OpencodeConfig)
 	}

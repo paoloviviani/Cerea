@@ -71,6 +71,12 @@ export interface EnrollPolicyChoices {
 	allowOutsideProject: boolean;
 	/** `read=allow`: no asking before reading `.env` and similar files. */
 	allowSecretReads: boolean;
+	/** `--default-group`: bill to the person's default billing group — the one
+	 * the Pystino console's group picker sets — instead of pinning a group for
+	 * this machine. The dialog has no group picker to disable: whichever
+	 * control grows one, the two ways of naming billing never print together
+	 * (enroll refuses the pair). */
+	billToDefault: boolean;
 }
 
 export function defaultPolicyChoices(): EnrollPolicyChoices {
@@ -90,6 +96,7 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 		noDefaultFileDeny: false,
 		allowOutsideProject: false,
 		allowSecretReads: false,
+		billToDefault: false,
 	};
 }
 
@@ -109,6 +116,7 @@ export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"file-deny": "enroll-file-deny",
 	"no-default-file-deny": "enroll-no-default-file-deny",
 	"permission-rule": "enroll-fixed-answers",
+	"default-group": "enroll-bill-to-default",
 };
 
 /** The flags the dialog has a control for, in the file's own terms. */
@@ -172,6 +180,9 @@ export function maxTerminalsProblem(value: number): string | null {
  * order. Defaults contribute nothing. */
 export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	const args: string[] = [];
+	if (choices.billToDefault) {
+		args.push("--default-group");
+	}
 	if (!choices.allowTerminal) {
 		args.push("--no-terminal");
 	} else if (
@@ -216,6 +227,7 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		choices.noDefaultFileDeny,
 		choices.allowOutsideProject,
 		choices.allowSecretReads,
+		choices.billToDefault,
 	].filter(Boolean).length;
 }
 
