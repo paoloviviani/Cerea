@@ -41,6 +41,26 @@ describe("UsageBar", () => {
 		expect(container.textContent).not.toContain("0 /");
 	});
 
+	it("renders a shared budget as text only: the rule is named, no numbers and no bar", () => {
+		// An aggregate group rule or a global rule: the server sends the
+		// existence of the limit, never its figures, so there is nothing to
+		// key a bar off. Rendered as a statement, never "NaN".
+		const entry: UsageEntry = {
+			label: "Team requests · per day · shared by your group",
+			unit: "requests",
+			scope: "group",
+			noFigures: true,
+		};
+		const { container } = renderWithApp(UsageBar, { entry });
+
+		expect(container.querySelector('[role="progressbar"]')).toBeNull();
+		expect(container.textContent).toContain("Team requests");
+		expect(container.textContent).toContain("per day");
+		expect(container.textContent).toContain("figures not shown");
+		expect(container.textContent).not.toContain("NaN");
+		expect(container.textContent).not.toMatch(/0/);
+	});
+
 	it("renders a plain stat, no progress bar, when there is no limit", () => {
 		const entry: UsageEntry = {
 			label: "You — spend",

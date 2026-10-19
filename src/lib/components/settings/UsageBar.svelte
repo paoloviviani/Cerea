@@ -2,6 +2,10 @@
 	One `UsageEntry`, rendered as a progress bar when it carries a `limit` and
 	a plain stat row otherwise — the one shape that has to serve both Pystino's
 	quota bars and a future stat-only provider with no changes here.
+
+	An entry marked `noFigures` (a shared budget: its "used" figure is a
+	group's or the deployment's total, which never left the server) renders as
+	a statement of the rule and its period, with no amount and no bar.
 -->
 <script lang="ts">
 	import type { UsageEntry } from "$lib/types/UsageReport";
@@ -32,7 +36,7 @@
 
 	const percent = $derived(
 		!entry.unknown && entry.limit && entry.limit > 0
-			? Math.min(100, (entry.used / entry.limit) * 100)
+			? Math.min(100, ((entry.used ?? 0) / entry.limit) * 100)
 			: 0
 	);
 	const nearLimit = $derived(percent >= 90);
@@ -54,10 +58,12 @@
 				{#if entry.unknown}
 					unknown
 				{:else}
-					{format(entry.used)} / {format(entry.limit)}{isCurrency ? "" : ` ${entry.unit}`}
+					{format(entry.used ?? 0)} / {format(entry.limit)}{isCurrency ? "" : ` ${entry.unit}`}
 				{/if}
+			{:else if entry.noFigures}
+				<span class="text-gray-400 dark:text-gray-500">figures not shown</span>
 			{:else}
-				{format(entry.used)}{isCurrency ? "" : ` ${entry.unit}`}
+				{format(entry.used ?? 0)}{isCurrency ? "" : ` ${entry.unit}`}
 			{/if}
 			{#if entry.period}
 				<span class="text-gray-400 dark:text-gray-500">· {entry.period}</span>
@@ -73,7 +79,7 @@
 			aria-valuenow={entry.unknown ? undefined : entry.used}
 			aria-valuetext={entry.unknown
 				? "unknown"
-				: `${format(entry.used)} of ${format(entry.limit)} ${entry.unit}`}
+				: `${format(entry.used ?? 0)} of ${format(entry.limit)} ${entry.unit}`}
 			class="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700"
 		>
 			{#if !entry.unknown}

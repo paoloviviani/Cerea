@@ -12,6 +12,16 @@
  * OpenAI-standard paths, so it works cross-origin (a token travels; a cookie
  * would not) — the reason this is not the browser calling `/api/me/*` directly.
  * Quota rules all render (ADR 0009: all must pass), never a single "binding" one.
+ *
+ * Personal figures only. The gateway document is the same one the console
+ * sees, so it carries what the console may see — per-group spend
+ * (`groups`) and rule counters that aggregate a group or the deployment —
+ * and this mapping is where that stops: nothing that tells a person what a
+ * group as a whole spent reaches `/api/v2/usage`. A rule of that kind is
+ * still listed (it can refuse a turn, so it exists to the person), with its
+ * period, but with no figure at all: `noFigures`. What the person is refused
+ * by such a rule sees the gateway's own quota message in the chat, which
+ * explains the refusal; this page is not the place to hint at the total.
  */
 
 import { config } from "$lib/server/config";
@@ -22,11 +32,16 @@ import type { UsageContext, UsageEntry, UsageProvider, UsageReport, UsageSection
 /** The Pystino console, same origin (the OAuth flow already routes through `/console/login`). */
 const CONSOLE_PATH = "/console";
 
-/** The single `GET /v1/pystino/usage` document (ADR 0074). */
+/** The single `GET /v1/pystino/usage` document (ADR 0074), minus what this
+ * application must not forward: the document also carries
+ * `groups: Record<string, UsageSummaryResponse>` — how much each of the
+ * person's groups spent, a valid answer for the console and for
+ * administrators, but a group spending figure all the same, so it is not
+ * typed here and never mapped out. */
 interface PystinoUsageBundle {
 	limits: MyLimitResponse[];
-	usage: UsageSummaryResponse;
-	groups: Record<string, UsageSummaryResponse>;
+	/** A gateway `Optional`; treating null as "nothing personal to show". */
+	usage?: UsageSummaryResponse | null;
 }
 
 interface MyLimitResponse {
@@ -70,9 +85,39 @@ function windowLabel(seconds: number): string {
 	return `per ${seconds}s`;
 }
 
-function limitEntry(limit: MyLimitResponse): UsageEntry {
-	const unknown = limit.current_value === null;
+/** ADR 0098: `each_member` is the caller's own share of a group budget —
+ * the one rule kind whose reported consumption is personal. Everything else
+ * on a `group` scope (and the whole of a `global` scope) aggregates higher
+ * than this person, so no figure of it may leave the server. */
+function isSharedRule(limit: MyLimitResponse): boolean {
+	return (
+		limit.scope === "global" || (limit.scope === "group" && limit.applies_to !== "each_member")
+	);
+}
+
+/** The shared-budget entry: it says the limit exists and its period, and
+ * carries no number — not the used amount (the group's or deployment's
+ * total), not the limit, not a percentage, not a remainder. */
+function sharedLimitEntry(limit: MyLimitResponse): UsageEntry {
 	return {
+		label: [
+			limit.name,
+			limit.window_label,
+			limit.scope === "group" ? "shared by your group" : "shared by everyone",
+		]
+			.filter(Boolean)
+			.join(" · "),
+		unit: limit.metric,
+		scope: limit.scope,
+		noFigures: true,
+	};
+}
+
+function limitEntry(limit: MyLimitResponse): UsageEntry {
+	if (isSharedRule(limit)) return sharedLimitEntry(limit);
+
+	const unknown = limit.current_value === null;
+	const entry: UsageEntry = {
 		label: [
 			limit.name,
 			limit.window_label,
@@ -89,8 +134,9 @@ function limitEntry(limit: MyLimitResponse): UsageEntry {
 		limit: Number(limit.limit_value),
 		unit: limit.metric,
 		scope: limit.scope,
-		unknown,
 	};
+	if (unknown) entry.unknown = true;
+	return entry;
 }
 
 /** The three stats one `/me/usage*` summary contributes, all sharing its window. */
@@ -146,13 +192,8 @@ export const pystinoUsageProvider: UsageProvider = {
 			};
 
 			const spend: UsageSection = {
-				title: "Spend",
-				entries: [
-					...summaryEntries("You", bundle.usage, "user"),
-					...Object.entries(bundle.groups ?? {}).flatMap(([groupName, summary]) =>
-						summaryEntries(groupName, summary, "group")
-					),
-				],
+				title: "Your spending",
+				entries: bundle.usage ? summaryEntries("You", bundle.usage, "user") : [],
 				link: { label: "Manage in the Pystino console", href: CONSOLE_PATH },
 			};
 

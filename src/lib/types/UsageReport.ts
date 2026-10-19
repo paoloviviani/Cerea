@@ -10,12 +10,24 @@ export type UsageScope = "user" | "group" | "global";
 
 export interface UsageEntry {
 	label: string;
-	used: number;
+	/**
+	 * The figure, when this entry carries one. Omitted for a shared budget
+	 * (`noFigures`): that entry names the rule and its period, no amount.
+	 */
+	used?: number;
 	/** Present → the UI renders a progress bar. Absent → a plain stat. */
 	limit?: number;
 	unit: string;
 	period?: string;
 	scope?: UsageScope;
+	/**
+	 * A shared budget: an aggregate group rule or a global rule, whose "used"
+	 * figure is the group's or the deployment's total — a group spending
+	 * figure this application never sends to the browser. The entry still
+	 * says the limit exists and its period; there is neither a bar (a fill
+	 * percentage would be such a figure too) nor a remainder.
+	 */
+	noFigures?: boolean;
 	/**
 	 * The counter behind this entry could not be read (Pystino's
 	 * `current_value: null`, meaning its store was unreachable). Rendered as
