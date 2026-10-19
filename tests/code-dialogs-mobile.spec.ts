@@ -261,8 +261,10 @@ test.describe("the pair dialog's setup commands", () => {
 
 		await dialog.getByTestId("enroll-advanced").locator("summary").click();
 		await dialog.getByRole("checkbox", { name: /Terminals/ }).uncheck();
+		// The billing box is ticked by default, so --default-group sits between
+		// --cerea and the terminal flag.
 		await expect(commandBlock).toContainText(
-			`  --cerea '${E2E_APP_URL}' \\\n  --no-terminal &&\n~/.local/bin/galopin run`
+			`  --cerea '${E2E_APP_URL}' \\\n  --default-group \\\n  --no-terminal &&\n~/.local/bin/galopin run`
 		);
 
 		// Checking it again removes the flag: the checkbox is a live toggle.

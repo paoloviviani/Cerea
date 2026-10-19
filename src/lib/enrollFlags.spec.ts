@@ -13,7 +13,8 @@ import {
 
 /**
  * The dialog and `galopin enroll` must not drift: every flag enroll has is
- * classified, every exposed one has a control, and the defaults emit nothing.
+ * classified, every exposed one has a control, and the dialog's defaults print
+ * exactly what they should.
  *
  * `agent/packaging/enroll-flags.json` is the agent half's own classification
  * (a Go test there fails when `enroll` gains a flag it does not list). The
@@ -59,8 +60,14 @@ describe("enrollFlags (the TypeScript copy)", () => {
 		}
 	});
 
-	it("an exposed flag's default is what the empty dialog emits: nothing", () => {
-		expect(policyFlagArgs(defaultPolicyChoices())).toEqual([]);
+	it("the empty dialog emits exactly the one flag whose default is the dialog's, not enroll's", () => {
+		// Every control's default is what `enroll` does on its own, so it
+		// prints nothing -- except Bill to my default group: the dialog ticks
+		// it (a paired machine follows the console default group), while
+		// `enroll` itself keeps requiring an explicit --default-group. The
+		// flags table records enroll's default; this is the deliberate
+		// divergence, pinned here.
+		expect(policyFlagArgs(defaultPolicyChoices())).toEqual(["--default-group"]);
 		// And every flag the dialog can print is a known, exposed one. Terminals
 		// off and a terminal cap are exclusive, so it takes two dialogs to print
 		// them all.

@@ -11,6 +11,9 @@
 	has a default equal to enroll's own and a default emits no flag
 	(`codeEnrollPolicy.ts`) — terminals, the command shell and background
 	subagents are on by default, so only turning one off prints anything. The
+	one exception is Bill to my default group, which the dialog ticks by
+	default while `enroll` itself keeps requiring an explicit `--default-group`:
+	unticking it is what removes the flag. The
 	risky ones (terminal, command shell, trusting repos' own config, dropping
 	the secret list, a bash ceiling of Allow) read in an amber tone.
 
@@ -222,7 +225,7 @@
 				"billToDefault",
 				"enroll-bill-to-default",
 				"Bill to my default group.",
-				"Follows the group you pick in the Pystino console, instead of fixing one group for this machine. Off (the default) pins the group a plain enroll would pick. Change the mode later with 'galopin auth group' on the machine, without re-enrolling."
+				"Follows the group you pick in the Pystino console, instead of fixing one group for this machine. On by default: untick to pin the group a plain enroll would pick. Change the mode later with 'galopin auth group' on the machine, without re-enrolling."
 			)}
 			<div class="mb-3 text-xs text-ink-muted">
 				<label class="flex items-start gap-2">

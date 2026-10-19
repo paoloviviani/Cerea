@@ -7,7 +7,9 @@
  * keeps, each pinned in `codeEnrollPolicy.spec.ts`:
  *
  * - a default emits **nothing**: the printed command carries a flag only for
- *   a choice that differs from what `enroll` does on its own;
+ *   a choice that differs from what `enroll` does on its own — with the one
+ *   deliberate divergence below (`billToDefault`: the dialog ticks it, while
+ *   `enroll` itself keeps requiring an explicit `--default-group`);
  * - the ceiling flag **replaces** enroll's default set (bash asks) rather than adding to it, so one changed row emits the
  *   whole set, and an unchanged table emits nothing;
  * - every value a person types is shell-quoted (`quoteShellArg`), so a path
@@ -75,7 +77,11 @@ export interface EnrollPolicyChoices {
 	 * the Pystino console's group picker sets — instead of pinning a group for
 	 * this machine. The dialog has no group picker to disable: whichever
 	 * control grows one, the two ways of naming billing never print together
-	 * (enroll refuses the pair). */
+	 * (enroll refuses the pair). The dialog's default is **on** — a machine
+	 * paired through the dialog follows the console default unless the person
+	 * unticks it — while `enroll`'s own default stays off (the CLI keeps
+	 * requiring an explicit `--default-group`; `enroll-flags.json` records
+	 * that CLI default, and the Go drift test pins it). */
 	billToDefault: boolean;
 }
 
@@ -96,7 +102,7 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 		noDefaultFileDeny: false,
 		allowOutsideProject: false,
 		allowSecretReads: false,
-		billToDefault: false,
+		billToDefault: true,
 	};
 }
 
@@ -210,8 +216,10 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	return args;
 }
 
-/** How many controls differ from `enroll`'s default, for the Advanced
- * summary's count (the preview carries the values themselves). */
+/** How many Advanced controls differ from the dialog's own opening state, for
+ * the Advanced summary's count (the preview carries the values themselves).
+ * For every control but billing that is also `enroll`'s default; the billing
+ * box opens ticked, so unticking it is the change that counts. */
 export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 	return [
 		!choices.allowTerminal || choices.maxTerminals !== DEFAULT_MAX_TERMINALS,
@@ -227,7 +235,7 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		choices.noDefaultFileDeny,
 		choices.allowOutsideProject,
 		choices.allowSecretReads,
-		choices.billToDefault,
+		!choices.billToDefault,
 	].filter(Boolean).length;
 }
 
