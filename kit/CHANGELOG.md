@@ -5,6 +5,32 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.16.0 — 2026-10-20
+
+Pins: Cerea `0.16.0`, Pystino `0.11.0`, Authelia 4.39.22 (unchanged). Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **The model list follows the billing group.** A person sees exactly the
+  models their current billing group can use, and switching group in the
+  chat's settings updates the list at once. Before, models from every group
+  they belonged to were listed, and the other groups' models were refused on
+  use.
+- **The settings usage page shows only personal figures.** Your spend, your
+  limits and your share of per-member group limits. Shared group and
+  deployment limits are listed without figures.
+- **galopin:**
+  - `galopin auth login` signs a machine in again without re-enrolling. It
+    keeps the machine id, so there's no new device to confirm.
+  - `galopin auth status` shows who the machine is signed in as and when the
+    token expires.
+  - `galopin auth group NAME` changes the billing group, and
+    `galopin auth group --default` makes a machine follow your console
+    default group.
+  - `galopin enroll --default-group` sets that mode when enrolling, and the
+    pair-a-machine dialog offers it under Advanced.
+  - A running `galopin run` picks up a new sign-in or a new group without a
+    restart. A new model list still needs a restart.
+
 ## v0.15.13 — 2026-10-19
 
 Pins: Cerea `0.15.13`, Pystino `0.10.0`, Authelia 4.39.22 (unchanged). Update the
