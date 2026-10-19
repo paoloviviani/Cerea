@@ -10,6 +10,24 @@ billing group, not to the chat. What you can use is whatever the gateway
 grants your groups: the model list, the search tier and the document reader
 below are all per person.
 
+## Your billing group
+
+Every request is billed to one of your groups, and that group decides what
+you are offered: **the model list shows exactly what your current billing
+group can use** — not every model your groups collectively hold. You choose
+the group in **Settings → Usage & billing**, and the model list follows the
+choice at once; a model you had selected that the new group cannot use falls
+back to the first one available, the way any model that disappeared from the
+deployment does.
+
+The same page is where your spend is shown — your own figures only: your
+totals, your limits, and your share of a group limit that is charged to each
+member separately. Limits that apply to the group or the deployment as a
+whole are listed so you know they exist, without figures, because their
+totals are not yours to see. If you manage a machine through the
+[Agents panel](agent-machines.md), its billing follows the same rule, and
+there it can also be set to follow this choice.
+
 ## Conversations
 
 The sidebar has two trees, **Projects** and **Chats**, then a few single
