@@ -70,6 +70,45 @@ async def main():
     await engine.dispose()
 asyncio.run(main())
 print('seeded freshcheck/unnamed (display_name null)')"
+
+# An alias card with both display_name and description null (ADR 0101). The
+# 0.15.5 boot loop was the chat parsing a gateway card strictly; the unnamed
+# model above covers a card with no display name, and this one covers a card
+# that is an alias as well. Guarded on the *table*, not on a version number: a
+# table exists iff the gateway's migrations have run, which is the thing that
+# actually decides whether the insert below can work, and it needs no version
+# comparison to keep in step with a release.
+docker compose exec -T gateway python -c "
+import asyncio, uuid
+import sqlalchemy as sa
+from gateway.config import get_settings
+from gateway.db import create_engine, create_session_factory
+from gateway.models import ModelDef, ModelKind
+async def main():
+    engine = create_engine(get_settings())
+    async with engine.connect() as conn:
+        has_aliases = await conn.run_sync(
+            lambda c: sa.inspect(c).has_table('model_route_targets'))
+    if not has_aliases:
+        print('gateway has no model aliases; skipping the alias seed')
+        await engine.dispose()
+        return
+    from gateway.models import ModelRouteTarget
+    async with create_session_factory(engine)() as s:
+        target = (await s.execute(sa.select(ModelDef).where(ModelDef.name == 'freshcheck/unnamed'))).scalar_one()
+        alias = ModelDef(id=uuid.uuid4(), name='freshcheck/alias', provider_id=None,
+                         upstream_model=None, is_alias=True, kind=target.kind,
+                         is_active=True, is_public=True,
+                         display_name=None, description=None)
+        s.add(alias)
+        await s.flush()
+        # One target, which is what this step supports: the save path writes
+        # exactly one route row, and so does this seed.
+        s.add(ModelRouteTarget(alias_id=alias.id, target_model_id=target.id, position=0))
+        await s.commit()
+    await engine.dispose()
+asyncio.run(main())
+print('seeded freshcheck/alias (an alias, display_name and description null)')"
 docker compose restart chat
 docker compose up -d --wait chat
 
