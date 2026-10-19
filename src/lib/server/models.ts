@@ -122,36 +122,40 @@ const isHFRouter = openaiBaseUrl === "https://router.huggingface.co/v1";
 
 const listSchema = z
 	.object({
+		// Every optional field is `.nullish()`, not `.optional()`: the gateway
+		// sends JSON null for an Optional it has no value for, and one strict
+		// field fails the whole listing, so the chat cannot boot. 0.15.5 did
+		// that on `display_name`, 0.15.12 on `description`.
 		data: z.array(
 			z.object({
 				id: z.string(),
-				description: z.string().optional(),
+				description: z.string().nullish(),
 				// Pystino reports what surface a model serves. Absent on a
 				// generic OpenAI-compatible endpoint, which is why the filter
 				// below treats missing as chat rather than as unusable.
-				kind: z.string().optional(),
+				kind: z.string().nullish(),
 				providers: z
 					.array(
 						z
 							.object({
-								supports_tools: z.boolean().optional(),
-								context_length: z.number().int().positive().optional(),
+								supports_tools: z.boolean().nullish(),
+								context_length: z.number().int().positive().nullish(),
 							})
 							.passthrough()
 					)
-					.optional(),
+					.nullish(),
 				architecture: z
 					.object({
-						input_modalities: z.array(z.string()).optional(),
+						input_modalities: z.array(z.string()).nullish(),
 					})
 					.passthrough()
-					.optional(),
+					.nullish(),
 				// Pystino's own, flat and per model (ADR 0031). `supported_features`
 				// is deliberately an open set of strings rather than a boolean per
 				// feature, so this is matched by membership.
-				input_modalities: z.array(z.string()).optional(),
-				output_modalities: z.array(z.string()).optional(),
-				supported_features: z.array(z.string()).optional(),
+				input_modalities: z.array(z.string()).nullish(),
+				output_modalities: z.array(z.string()).nullish(),
+				supported_features: z.array(z.string()).nullish(),
 				// What a client's model picker should show. Distinct from `id`,
 				// which is what a request carries and what every stored reference
 				// (a conversation's model, a custom model's base) keys on, so this
@@ -376,9 +380,9 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				// a picker shows. `id` stays the id: it is what a request sends
 				// and what stored references key on.
 				displayName: m.display_name?.trim() || m.id,
-				description: m.description,
+				description: m.description ?? undefined,
 				logoUrl,
-				providers: m.providers,
+				providers: m.providers ?? undefined,
 				contextLength,
 				// Derived, not opted into: see reasoningPolicy.ts. A MODELS override
 				// with an explicit value replaces this in the merge below.
