@@ -5,6 +5,27 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.15.12 — 2026-10-19
+
+Pins: Cerea `0.15.12`, Pystino `0.10.0`, Authelia 4.39.22 (unchanged). Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Pystino 0.10.0 ships model aliases, and nothing in the chat changes.**
+  An alias is a name you choose that resolves to a model, so you can offer a
+  model under terms different from the model's own — everyone may use `fast`,
+  while only one group may call the model behind it. Access is granted on the
+  alias and is independent of the target; billing follows the target, and
+  reports carry a "via alias" count so you can see how much of a model's
+  spend arrived under a name callers chose. An alias you cannot serve — its
+  target deleted, deactivated, or behind a deactivated provider — answers
+  `503 alias_unavailable` and disappears from the model list rather than
+  quietly pointing at something else. Aliases live under a new **Routing** tab
+  in the console; the model screens stay about served models, with an "Aliases
+  pointing here" section so you can see which names a delete would affect. The
+  chat needs no change: an alias arrives as an ordinary model card, and a
+  conversation keeps the alias name, so retargeting changes what new turns run
+  on.
+
 ## v0.15.11 — 2026-10-18
 
 Pins: Cerea `0.15.11`, Pystino `0.9.6`, Authelia 4.39.22. Update the
