@@ -53,6 +53,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "allow-free-models", kind: "bool", default: false, exposed: true },
 	{ flag: "allow-opencode-provider", kind: "bool", default: false, exposed: true },
 	{ flag: "allow-project-config", kind: "bool", default: false, exposed: true },
+	{ flag: "default-group", kind: "bool", default: false, exposed: true },
 	{ flag: "file-deny", kind: "list", default: [], exposed: true },
 	{ flag: "max-terminals", kind: "int", default: 8, exposed: true },
 	{ flag: "no-agent-tools", kind: "bool", default: false, exposed: true },

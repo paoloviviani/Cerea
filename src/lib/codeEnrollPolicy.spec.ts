@@ -102,6 +102,7 @@ describe("each control emits exactly its flag", () => {
 			["--permission-rule", "'external_directory=allow'"],
 		],
 		["secret reads", { allowSecretReads: true }, ["--permission-rule", "'read=allow'"]],
+		["bill to the console default", { billToDefault: true }, ["--default-group"]],
 	];
 	for (const [label, over, expected] of cases) {
 		it(`${label}`, () => {
@@ -161,9 +162,31 @@ describe("each control emits exactly its flag", () => {
 			fileDeny: ["x"],
 			allowOutsideProject: true,
 			allowSecretReads: true,
+			billToDefault: true,
 			ceiling: { ...DEFAULT_CEILING, edit: "ask" },
 		});
 		expect(policyFlagArgs(everything).join(" ")).not.toContain("auto-accept");
+	});
+});
+
+describe("billing to the console default", () => {
+	it("never next to --group: the two ways of naming billing contradict each other", () => {
+		// The dialog has no group picker today, so this pins the shape rather
+		// than a live bug: whichever control grows one, the two flags must
+		// never print together (enroll refuses the pair). Element equality,
+		// not substring: "--default-group" contains "--group".
+		const everything = choose({
+			billToDefault: true,
+			allowTerminal: false,
+			workspaceRoots: ["/a"],
+			ceiling: { ...DEFAULT_CEILING, edit: "ask" },
+		});
+		expect(policyFlagArgs(everything)).toContain("--default-group");
+		expect(policyFlagArgs(everything)).not.toContain("--group");
+	});
+
+	it("counts in the Advanced badge", () => {
+		expect(advancedChangedCount(choose({ billToDefault: true }))).toBe(1);
 	});
 });
 

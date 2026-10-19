@@ -52,7 +52,8 @@
 		| "noFiles"
 		| "noDefaultFileDeny"
 		| "allowOutsideProject"
-		| "allowSecretReads";
+		| "allowSecretReads"
+		| "billToDefault";
 
 	const ACTION_LABEL: Record<CeilingAction, string> = {
 		allow: "Allow",
@@ -217,6 +218,12 @@
 			{/if}
 		</summary>
 		<div class="mt-3">
+			{@render flag(
+				"billToDefault",
+				"enroll-bill-to-default",
+				"Bill to my default group.",
+				"Follows the group you pick in the Pystino console, instead of fixing one group for this machine. Off (the default) pins the group a plain enroll would pick. Change the mode later with 'galopin auth group' on the machine, without re-enrolling."
+			)}
 			<div class="mb-3 text-xs text-ink-muted">
 				<label class="flex items-start gap-2">
 					<input
