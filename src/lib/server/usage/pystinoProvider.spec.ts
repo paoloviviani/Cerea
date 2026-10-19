@@ -26,7 +26,8 @@ const { pystinoUsageProvider } = await import("./pystinoProvider");
 
 /** The shape the fixture array can hold: `current_value` may be either a
  * figure or the unreachable-store null, and ADR 0098's additive
- * `applies_to` arrives only when the gateway sends it. */
+ * `applies_to` (null included — gateway `Optional`s arrive as JSON null)
+ * arrives only when the gateway sends it. */
 type LimitFixture = {
 	id: string;
 	name: string;
@@ -36,37 +37,63 @@ type LimitFixture = {
 	limit_value: string;
 	current_value: string | null;
 	notification_thresholds: number[];
-	applies_to?: "aggregate" | "each_member";
+	applies_to?: "aggregate" | "each_member" | null;
 };
 
-const limitsList: LimitFixture[] = [
-	{
-		id: "limit-1",
-		name: "Monthly tokens",
-		scope: "user" as const,
-		metric: "tokens",
-		window_label: "per month",
-		limit_value: "1000.00",
-		current_value: "250.00",
-		notification_thresholds: [80],
-	},
-	{
-		id: "limit-2",
-		name: "Team requests",
-		scope: "group" as const,
-		metric: "requests",
-		window_label: "per day",
-		limit_value: "500.00",
-		current_value: null,
-		notification_thresholds: [],
-	},
-];
+/** A rule on this person's own allowance: figures are yours to see. */
+const userLimit: LimitFixture = {
+	id: "limit-1",
+	name: "Monthly tokens",
+	scope: "user",
+	metric: "tokens",
+	window_label: "per month",
+	limit_value: "1000.00",
+	current_value: "250.00",
+	notification_thresholds: [80],
+};
+
+/** ADR 0098: the caller's own share of a group budget, not the group's total. */
+const memberLimit: LimitFixture = {
+	id: "limit-2",
+	name: "Team spend",
+	scope: "group",
+	metric: "spend",
+	window_label: "per month",
+	limit_value: "50.00",
+	current_value: "5.00",
+	notification_thresholds: [],
+	applies_to: "each_member",
+};
+
+/** The group's total — never shown to a member. */
+const aggregateLimit: LimitFixture = {
+	id: "limit-3",
+	name: "Team requests",
+	scope: "group",
+	metric: "requests",
+	window_label: "per day",
+	limit_value: "500.00",
+	current_value: "470.00",
+	notification_thresholds: [],
+};
+
+/** The deployment's total — likewise. */
+const globalLimit: LimitFixture = {
+	id: "limit-4",
+	name: "Deployment spend",
+	scope: "global",
+	metric: "requests",
+	window_label: "per day",
+	limit_value: "10000.00",
+	current_value: "3100.00",
+	notification_thresholds: [],
+};
 
 /** The single `GET /v1/pystino/usage` document (ADR 0074). */
 type Bundle = {
 	limits: LimitFixture[];
 	usage: typeof usageSummary;
-	groups: Record<string, typeof usageSummary>;
+	groups: Record<string, typeof usageSummary> | null;
 };
 const mockUsage = (bundle: Bundle) =>
 	gatewayGetMock.mockImplementation(async (_token: string, path: string) => {
@@ -83,12 +110,14 @@ const usageSummary = {
 	estimated_requests: 10,
 };
 
+/** Distinct figures, so the "never sent" assertions below cannot be fooled by
+ * a coincidence with the caller's own numbers. */
 const groupUsage = {
 	acme: {
 		window_seconds: 86400,
-		requests: 7,
-		total_tokens: 999,
-		cost: "1.20",
+		requests: 616,
+		total_tokens: 98765,
+		cost: "77.77",
 		currency: "USD",
 		estimated_requests: 2,
 	},
@@ -125,64 +154,129 @@ describe("pystinoUsageProvider.getReport", () => {
 		expect(report.sections[0].error).toMatch(/OIDC session/);
 	});
 
-	it("maps limits into one bar entry per rule, both scopes", async () => {
-		mockUsage({ limits: limitsList, usage: usageSummary, groups: {} });
+	it("sends no per-group spend: the document's groups are never mapped out", async () => {
+		mockUsage({ limits: [], usage: usageSummary, groups: groupUsage });
 
 		const report = await pystinoUsageProvider.getReport({
 			locals: { token: "bearer-token" } as App.Locals,
 		});
 
-		const quotas = report.sections.find((s) => s.title === "Quotas");
-		expect(quotas?.entries).toHaveLength(2);
+		const spend = report.sections.find((s) => s.title === "Your spending");
+		expect(spend?.entries.map((e) => e.label)).toEqual([
+			"You — requests",
+			"You — tokens",
+			"You — spend",
+		]);
+		expect(spend?.link).toEqual({ label: "Manage in the Pystino console", href: "/console" });
 
-		const [userLimit, groupLimit] = quotas?.entries ?? [];
-		expect(userLimit).toMatchObject({ used: 250, limit: 1000, unit: "tokens", scope: "user" });
-		expect(userLimit.unknown).toBeFalsy();
-
-		// current_value: null renders as unknown, never a 0% bar.
-		expect(groupLimit).toMatchObject({
-			limit: 500,
-			unit: "requests",
-			scope: "group",
-			unknown: true,
-		});
-		expect(groupLimit.used).toBe(0);
+		// What the browser receives, checked the way it receives it: the
+		// provider's report is what `/api/v2/usage` superjson-serializes.
+		const serialized = JSON.stringify(report);
+		expect(serialized).not.toContain("acme");
+		expect(serialized).not.toContain("77.77");
+		expect(serialized).not.toContain("98765");
+		expect(serialized).not.toContain("616");
 	});
 
-	it("keeps quota rules 'all must pass': every rule listed, never a single binding one", async () => {
-		mockUsage({ limits: limitsList, usage: usageSummary, groups: {} });
+	it("treats a null groups document (a gateway Optional) as none", async () => {
+		mockUsage({ limits: [], usage: usageSummary, groups: null });
 
 		const report = await pystinoUsageProvider.getReport({
 			locals: { token: "bearer-token" } as App.Locals,
 		});
-		const quotas = report.sections.find((s) => s.title === "Quotas");
-		expect(quotas?.entries.map((e) => e.label)).toEqual([
-			"Monthly tokens · per month",
-			"Team requests · per day",
+		const spend = report.sections.find((s) => s.title === "Your spending");
+		expect(spend?.entries.map((e) => e.label)).toEqual([
+			"You — requests",
+			"You — tokens",
+			"You — spend",
 		]);
 	});
 
-	it("marks a per-member rule as the caller's own share, not the group's total", async () => {
-		// ADR 0098: a group rule may cap each member. What the gateway reports
-		// for one is the caller's own spend billed to that group — the right
-		// bar — but the label must say so, or it sits beside the group's
-		// aggregate bar with the same name, window and a different number,
-		// and one of them reads as a bug.
+	it("lists an aggregate group rule but hides its figures — neither the used amount nor the limit", async () => {
+		mockUsage({ limits: [aggregateLimit], usage: usageSummary, groups: {} });
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		expect(quotas?.entries).toHaveLength(1);
+		const entry = quotas?.entries[0];
+		// The rule stays visible (ADR 0009: all must pass), saying it exists
+		// and for how long — the amounts are the group's, so it still shows
+		// nothing numeric. Exact shape on purpose: no figure field survives.
+		expect(entry).toEqual({
+			label: "Team requests · per day · shared by your group",
+			unit: "requests",
+			scope: "group",
+			noFigures: true,
+		});
+		expect(entry?.used).toBeUndefined();
+		expect(entry?.limit).toBeUndefined();
+		expect(entry?.unknown).toBeUndefined();
+		expect(JSON.stringify(report)).not.toContain("470");
+		expect(JSON.stringify(report)).not.toContain("500.00");
+	});
+
+	it("lists a global rule the same way — the used figure is the deployment's total", async () => {
+		mockUsage({ limits: [globalLimit], usage: usageSummary, groups: {} });
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		const entry = quotas?.entries[0];
+		expect(entry).toEqual({
+			label: "Deployment spend · per day · shared by everyone",
+			unit: "requests",
+			scope: "global",
+			noFigures: true,
+		});
+		expect(entry?.used).toBeUndefined();
+		expect(entry?.limit).toBeUndefined();
+		expect(JSON.stringify(report)).not.toContain("3100");
+		expect(JSON.stringify(report)).not.toContain("10000.00");
+	});
+
+	it("keeps the caller's own figures: their personal spend, a user rule and a per-member rule", async () => {
+		mockUsage({ limits: [userLimit, memberLimit], usage: usageSummary, groups: groupUsage });
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		expect(quotas?.entries).toEqual([
+			{
+				label: "Monthly tokens · per month",
+				used: 250,
+				limit: 1000,
+				unit: "tokens",
+				scope: "user",
+			},
+			{
+				label: "Team spend · per month · per member",
+				used: 5,
+				limit: 50,
+				unit: "spend",
+				scope: "group",
+			},
+		]);
+
+		const spend = report.sections.find((s) => s.title === "Your spending");
+		const yourSpend = spend?.entries.find((e) => e.label === "You — spend");
+		expect(yourSpend).toMatchObject({ used: 3.5, unit: "USD", scope: "user" });
+		expect(yourSpend?.limit).toBeUndefined();
+
+		// Personal figures, not the group's: 250 and 5 of the caller's own
+		// are in; 470 of the group's would only be in if a rule leaked.
+		const serialized = JSON.stringify(report);
+		expect(serialized).not.toContain("470");
+		expect(serialized).not.toContain("77.77");
+	});
+
+	it("keeps every rule listed, 'all must pass': aggregate rules appear next to kept ones", async () => {
 		mockUsage({
-			limits: [
-				...limitsList,
-				{
-					id: "limit-3",
-					name: "Team requests",
-					scope: "group" as const,
-					metric: "requests",
-					window_label: "per day",
-					limit_value: "50.00",
-					current_value: "5.00",
-					notification_thresholds: [],
-					applies_to: "each_member",
-				},
-			],
+			limits: [userLimit, memberLimit, aggregateLimit, globalLimit],
 			usage: usageSummary,
 			groups: {},
 		});
@@ -191,33 +285,42 @@ describe("pystinoUsageProvider.getReport", () => {
 			locals: { token: "bearer-token" } as App.Locals,
 		});
 		const quotas = report.sections.find((s) => s.title === "Quotas");
-		const share = quotas?.entries.find((e) => e.limit === 50);
-		expect(share?.label).toBe("Team requests · per day · per member");
+		expect(quotas?.entries.map((e) => e.label)).toEqual([
+			"Monthly tokens · per month",
+			"Team spend · per month · per member",
+			"Team requests · per day · shared by your group",
+			"Deployment spend · per day · shared by everyone",
+		]);
 	});
 
-	it("maps usage and group spend into stat entries plus the console link", async () => {
-		mockUsage({ limits: [], usage: usageSummary, groups: groupUsage });
+	it("carries a null applies_to (a gateway Optional) as a shared rule, not the caller's own", async () => {
+		mockUsage({
+			limits: [{ ...aggregateLimit, applies_to: null }],
+			usage: usageSummary,
+			groups: {},
+		});
 
 		const report = await pystinoUsageProvider.getReport({
 			locals: { token: "bearer-token" } as App.Locals,
 		});
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		expect(quotas?.entries[0]).toMatchObject({ noFigures: true });
+	});
 
-		const spend = report.sections.find((s) => s.title === "Spend");
-		expect(spend?.link).toEqual({ label: "Manage in the Pystino console", href: "/console" });
+	it("still reads the caller's own unreadable counter as unknown, never 0%", async () => {
+		mockUsage({
+			limits: [{ ...memberLimit, current_value: null }],
+			usage: usageSummary,
+			groups: {},
+		});
 
-		const spendLabels = spend?.entries.map((e) => e.label);
-		expect(spendLabels).toEqual([
-			"You — requests",
-			"You — tokens",
-			"You — spend",
-			"acme — requests",
-			"acme — tokens",
-			"acme — spend",
-		]);
-
-		const yourSpend = spend?.entries.find((e) => e.label === "You — spend");
-		expect(yourSpend).toMatchObject({ used: 3.5, unit: "USD", scope: "user" });
-		expect(yourSpend?.limit).toBeUndefined();
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		const entry = quotas?.entries[0];
+		expect(entry).toMatchObject({ limit: 50, scope: "group", unknown: true });
+		expect(entry?.used).toBe(0);
 	});
 
 	it("degrades to an 'unavailable' section instead of throwing when the gateway errors", async () => {

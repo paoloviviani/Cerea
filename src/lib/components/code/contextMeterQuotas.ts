@@ -11,6 +11,12 @@
  * bar from a plain stat row, so filtering on it here keeps the two views
  * consistent without a second flag.
  *
+ * Shared budgets (an aggregate group rule or a global rule) arrive
+ * figure-less (`noFigures`) — their used figure, the group's or the
+ * deployment's total, never leaves the server — but they are still quotas
+ * this person is subject to, so they list as figure-less rows rather than
+ * reading as "No quotas".
+ *
  * "No quotas" and "fetch failed" render differently on purpose: no quotas is
  * a quiet, expected fact (shown as its own muted line, per the brief), while
  * a failure is the one case worth calling out, without breaking the meter
@@ -40,7 +46,7 @@ export function deriveQuotaDisplay(
 	const withQuotas = sections
 		.map((section) => ({
 			title: section.title,
-			quotas: section.entries.filter((e) => e.limit !== undefined),
+			quotas: section.entries.filter((e) => e.limit !== undefined || e.noFigures === true),
 		}))
 		.filter((section) => section.quotas.length > 0);
 	const qualify = withQuotas.length > 1;

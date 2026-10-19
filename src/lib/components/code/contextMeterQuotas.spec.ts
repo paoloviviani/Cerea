@@ -28,6 +28,26 @@ describe("deriveQuotaDisplay", () => {
 		expect(deriveQuotaDisplay([], null)).toEqual({ kind: "empty" });
 	});
 
+	it("lists a shared (figure-less) quota too — the limit exists, the amounts are not anyone's to see", () => {
+		const sharedOnly: UsageSection[] = [
+			{
+				title: "Quotas",
+				entries: [
+					{
+						label: "Team requests · per day · shared by your group",
+						unit: "requests",
+						scope: "group",
+						noFigures: true,
+					},
+				],
+			},
+		];
+		expect(deriveQuotaDisplay(sharedOnly, null)).toEqual({
+			kind: "quotas",
+			quotas: sharedOnly[0].entries,
+		});
+	});
+
 	it("reports no quotas when every entry is a plain stat with no limit", () => {
 		const statsOnly: UsageSection[] = [SECTIONS[1]];
 		expect(deriveQuotaDisplay(statsOnly, null)).toEqual({ kind: "empty" });
