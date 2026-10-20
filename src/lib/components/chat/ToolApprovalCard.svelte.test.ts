@@ -169,6 +169,17 @@ describe("ToolApprovalCard, galopin approvals", () => {
 			.toBeVisible();
 	});
 
+	it("says an edit's Always allow covers every edit in the session", async () => {
+		const onanswer = vi.fn(async () => ({ ok: true }));
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("edit", { filepath: "src/a.ts" }),
+			onanswer,
+		});
+		await screen.getByRole("button", { name: "Always allow edits (this session)" }).click();
+		expect(onanswer).toHaveBeenCalledWith("accept", "always");
+	});
+
 	it("labels the agent's second button as a per-session exception, never a standing grant", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
@@ -214,7 +225,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		it("keeps Always allow for a key it does not cap", async () => {
 			const screen = withCeiling((tool) => tool === "bash", "edit");
 			await expect
-				.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+				.element(screen.getByRole("button", { name: "Always allow edits (this session)" }))
 				.toBeVisible();
 		});
 	});

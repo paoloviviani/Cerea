@@ -56,6 +56,17 @@
 
 	const toolApproval = $derived(request.toolApproval);
 
+	/**
+	 * The agent path's "always" saves the patterns the agent proposes, and for a
+	 * file edit that is every file in the session, not this one: say so on the
+	 * button, so one click is not read as "this edit, here".
+	 */
+	let alwaysLabel = $derived(
+		toolApproval?.tool === "edit"
+			? "Always allow edits (this session)"
+			: "Always allow (this session)"
+	);
+
 	let submitting = $state<"once" | "conversation" | "always" | "deny" | null>(null);
 	let error = $state<string | null>(null);
 	/** Settles the card without waiting for the run to echo the outcome back. */
@@ -354,7 +365,7 @@
 						disabled={submitting !== null}
 						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
 					>
-						{onanswer ? "Always allow (this session)" : "Allow for this conversation"}
+						{onanswer ? alwaysLabel : "Allow for this conversation"}
 					</button>
 				{/if}
 				<button
