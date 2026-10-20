@@ -48,7 +48,13 @@ env:
 jobs:
   check:
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to Ubuntu 26 (kernel 6.19+) on 2026-10-19/20, and the
+    # mongo:8 service container refuses to boot on that kernel
+    # (SERVER-121912: "Linux kernel versions 6.19 and newer has a known
+    # incompatibility with this version of MongoDB"). Pinned to the previous
+    # runner image until the mongo image or the runner situation changes;
+    # every other job passed on the new image, so only this one is pinned.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       mongo:
