@@ -97,6 +97,7 @@ function personalScope(userId: User["_id"]): Scope {
 	return {
 		filter: { userId },
 		stamp: { userId },
+		// Collection<T> is invariant; Row is the subset of columns both stores share.
 		collection: collections.memories as unknown as Collection<Row>,
 		textMaxChars: MEMORY_TEXT_MAX_CHARS,
 		maxItems: MEMORY_MAX_FACTS,

@@ -77,10 +77,7 @@ async function* textGenerationWithoutTitle(
 			// Same effective credential as dispatch: an operator-pinned Hub entry
 			// launched the jobs, so it is what can read them back; the user's own
 			// token otherwise.
-			const token =
-				pinnedHubToken() ??
-				(ctx.locals as unknown as { hfAccessToken?: string } | undefined)?.hfAccessToken ??
-				(ctx.locals as unknown as { token?: string } | undefined)?.token;
+			const token = pinnedHubToken() ?? ctx.locals?.token;
 			const settled = await settleMlBudget({
 				conversationId: convId,
 				budget: conv.mlBudget,
@@ -112,9 +109,7 @@ async function* textGenerationWithoutTitle(
 	let skillsPreprompt: string | undefined;
 	try {
 		const { assembleSkillsContext } = await import("$lib/server/skills/prompt");
-		const skillsUserId = (
-			ctx.locals as unknown as { user?: { _id?: import("mongodb").ObjectId } } | undefined
-		)?.user?._id;
+		const skillsUserId = ctx.locals?.user?._id;
 		const lastUserMessage = [...messages].reverse().find((message) => message.from === "user");
 		skillsPreprompt = (await assembleSkillsContext(skillsUserId, lastUserMessage?.content ?? ""))
 			.preprompt;
@@ -135,11 +130,11 @@ async function* textGenerationWithoutTitle(
 		mlAssistant,
 		artifactsOverride: ctx.artifactsOverride,
 		supportsArtifacts: ctx.model.supportsArtifacts,
-		supportsTools: (ctx.model as unknown as { supportsTools?: boolean }).supportsTools,
+		supportsTools: ctx.model.supportsTools,
 		forceTools: ctx.forceTools,
-		artifactsMode: (ctx.model as unknown as { artifactsMode?: "tool" | "tags" }).artifactsMode,
+		artifactsMode: ctx.model.artifactsMode,
 		username: ctx.username,
-		timezone: (ctx.locals as unknown as { timezone?: string } | undefined)?.timezone,
+		timezone: ctx.locals?.timezone,
 		budget: conv.mlBudget,
 		skillsPreprompt,
 	});
@@ -201,7 +196,7 @@ async function* textGenerationWithoutTitle(
 				project,
 				knowledgeBaseIds: conv.knowledgeBaseIds,
 				question: lastUser?.content ?? "",
-				token: (ctx.locals as unknown as { token?: string } | undefined)?.token,
+				token: ctx.locals?.token,
 				locals: ctx.locals,
 			});
 			if (context) {

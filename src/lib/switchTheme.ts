@@ -5,6 +5,13 @@ type ThemeState = {
 	isDark: boolean;
 };
 
+declare global {
+	interface Window {
+		/** The live system-theme listener, kept on window so a re-evaluated module can replace it. */
+		__theme_mql_listener?: (this: MediaQueryList, ev: MediaQueryListEvent) => void;
+	}
+}
+
 type ThemeSubscriber = (state: ThemeState) => void;
 
 let currentPreference: ThemePreference = "system";
@@ -80,38 +87,24 @@ export function setTheme(preference: ThemePreference) {
 	// If following system, listen for changes; otherwise remove listener
 	const listener = () => resolve();
 	// Store on window to allow replacing listener later
-	const key = "__theme_mql_listener" as const;
-	const w = window as unknown as {
-		[key: string]: ((this: MediaQueryList, ev: MediaQueryListEvent) => void) | undefined;
-	};
-	const existing = w[key];
+	const existing = window.__theme_mql_listener;
 	if (existing) {
 		try {
 			mql.removeEventListener("change", existing);
 		} catch (_err) {
 			// older Safari compatibility
-			const legacy = (
-				mql as unknown as {
-					removeListener?: (l: (this: MediaQueryList, ev: MediaQueryListEvent) => void) => void;
-				}
-			).removeListener;
-			legacy?.(existing);
+			mql.removeListener?.(existing);
 		}
-		w[key] = undefined;
+		window.__theme_mql_listener = undefined;
 	}
 	if (preference === "system") {
 		try {
 			mql.addEventListener("change", listener);
 		} catch (_err) {
 			// older Safari compatibility
-			const legacy = (
-				mql as unknown as {
-					addListener?: (l: (this: MediaQueryList, ev: MediaQueryListEvent) => void) => void;
-				}
-			).addListener;
-			legacy?.(listener);
+			mql.addListener?.(listener);
 		}
-		w[key] = listener;
+		window.__theme_mql_listener = listener;
 	}
 }
 

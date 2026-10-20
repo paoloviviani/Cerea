@@ -1051,7 +1051,10 @@
 							{/if}
 						{/if}
 						{#if message.routerMetadata.provider}
-							{@const hubOrg = PROVIDERS_HUB_ORGS[message.routerMetadata.provider]}
+							{@const hubOrg =
+								PROVIDERS_HUB_ORGS[
+									message.routerMetadata.provider as keyof typeof PROVIDERS_HUB_ORGS
+								]}
 							<span class="text-gray-500 @max-xl:hidden">via</span>
 							<a
 								target="_blank"

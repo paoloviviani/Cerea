@@ -117,7 +117,7 @@ async function runApprovedCall(
 					result: {
 						status: ToolResultStatus.Success,
 						call: { name: call.tool, parameters: { url } },
-						outputs: [{ text: result.resultText }] as unknown as Record<string, unknown>[],
+						outputs: [{ text: result.resultText }],
 						display: true,
 					},
 				};
@@ -173,7 +173,7 @@ async function runApprovedCall(
 						structured: response.structured,
 						content: response.content,
 					},
-				] as unknown as Record<string, unknown>[],
+				],
 				display: true,
 			},
 		};
@@ -266,7 +266,7 @@ export async function resumeParkedToolCall({
 									taken.row.content
 								),
 							},
-						] as unknown as Record<string, unknown>[],
+						],
 						display: true,
 					},
 				},
@@ -411,7 +411,7 @@ export async function resumeParkedToolCall({
 								structured: response.structured,
 								content: response.content,
 							},
-						] as unknown as Record<string, unknown>[],
+						],
 						display: true,
 					},
 				};

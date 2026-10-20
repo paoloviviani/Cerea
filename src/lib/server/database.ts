@@ -1060,6 +1060,7 @@ export const ready = (async () => {
 		const db = await Database.getInstance();
 		collections = db.getCollections();
 	} else {
+		// At build time there is no database; nothing reads a collection then.
 		collections = {} as unknown as ReturnType<typeof Database.prototype.getCollections>;
 	}
 })();

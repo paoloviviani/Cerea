@@ -31,6 +31,7 @@ export const GET: RequestHandler = (async ({ params }) => {
 		"<style>" + renderedComponent.head + "</style>" + renderedComponent.body
 	) as unknown as never;
 
+	// The `*.ttf` imports are ArrayBuffers (vite plugin) but vite/client types them as strings.
 	const svg = await satori(reactLike, {
 		width: 1200,
 		height: 648,

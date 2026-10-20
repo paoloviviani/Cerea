@@ -29,7 +29,7 @@ import { codeSchedulesEnabled } from "$lib/server/codeEnabled";
 import { recordCodeAuditRow } from "$lib/server/code/audit";
 import { MachineLink } from "$lib/server/code/machines";
 import "$lib/server/code/scheduleAgentExecutor";
-import type { AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
+import { parseTarget, type AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
 import { recurrenceSchema } from "$lib/server/schedules/recurrence";
 import {
 	createSchedule,
@@ -158,7 +158,13 @@ interface CallContext {
 }
 
 function parseTargetOf(schedule: Schedule): AgentTarget {
-	return schedule.target as unknown as AgentTarget;
+	// Read back from the database, so checked rather than cast: a row whose
+	// target no longer parses is refused here, as the executor refuses to run it.
+	const target = parseTarget(schedule.target);
+	if (!target) {
+		throw new CallError("invalid", "That schedule's target is malformed; edit it in the web app.");
+	}
+	return target;
 }
 
 async function deviceSchedule(ctx: CallContext, id: string): Promise<Schedule> {
@@ -331,12 +337,15 @@ async function opList(ctx: CallContext) {
 		schedulesRunIn(ctx),
 	]);
 	return {
-		schedules: rows.map((row) =>
-			listItem(
-				row,
-				own.some((id) => id.equals(row._id))
-			)
-		),
+		// A row whose target no longer parses is left out, not allowed to fail the list.
+		schedules: rows
+			.filter((row) => parseTarget(row.target) !== null)
+			.map((row) =>
+				listItem(
+					row,
+					own.some((id) => id.equals(row._id))
+				)
+			),
 	};
 }
 

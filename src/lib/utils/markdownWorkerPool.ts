@@ -280,12 +280,14 @@ export function cancelMarkdownClient(clientId: number): void {
 // count equaled the number of mounted MarkdownRenderer instances (hundreds in a long
 // thread), which is what exhausted the mobile renderer's memory.
 if (browser) {
-	(globalThis as unknown as { __mdWorkerPool?: unknown }).__mdWorkerPool = {
-		poolSize: POOL_SIZE,
-		workers: () => createdWorkers,
-		idle: () => idle.length,
-		queued: () => queue.length,
-		inFlight: () => inFlight.size,
-		broken: () => workersBroken,
-	};
+	Object.assign(globalThis, {
+		__mdWorkerPool: {
+			poolSize: POOL_SIZE,
+			workers: () => createdWorkers,
+			idle: () => idle.length,
+			queued: () => queue.length,
+			inFlight: () => inFlight.size,
+			broken: () => workersBroken,
+		},
+	});
 }

@@ -827,6 +827,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
  * `database.ts`'s `getCollections()` under this exact key — asserted by the
  * guard spec, not just assumed here. */
 function collectionForCount(name: string): Pick<Collection<Document>, "countDocuments"> {
+	// Every plain name in the registry is a key of `collections` (asserted by the guard spec).
 	return (collections as unknown as Record<string, Collection<Document>>)[name];
 }
 

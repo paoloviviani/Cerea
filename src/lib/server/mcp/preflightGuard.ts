@@ -25,9 +25,7 @@ type Validate = (args: Record<string, unknown>) => string | undefined;
 /** Compiles once per tool. `undefined` means "cannot check this one — allow it". */
 function compile(schema: Record<string, unknown>): Validate | undefined {
 	try {
-		const standard = fromJsonSchema(schema) as unknown as {
-			"~standard": { validate: (value: unknown) => unknown };
-		};
+		const standard = fromJsonSchema(schema);
 		const validate = standard?.["~standard"]?.validate;
 		if (typeof validate !== "function") return undefined;
 		return (args) => {

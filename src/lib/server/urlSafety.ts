@@ -230,6 +230,7 @@ async function guardedFetch(
 	if (callerRedirect === "error") {
 		// Honour redirect:"error" — make the request and throw if we get a redirect
 		assertSafeUrlHost(url.toString(), allowLocal);
+		// undici's Response is the runtime's Response; only its type differs from the DOM one.
 		const response = (await undiciFetch(url.toString(), {
 			...(init as Record<string, unknown>),
 			redirect: "manual",

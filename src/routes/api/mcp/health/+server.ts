@@ -95,9 +95,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		// The logged-in user's HF token, only for the official HF endpoint and
 		// only when the deployment opted in.
 		try {
-			const userToken =
-				(locals as unknown as { hfAccessToken?: string } | undefined)?.hfAccessToken ??
-				(locals as unknown as { token?: string } | undefined)?.token;
+			const userToken = locals?.token;
 			if (
 				config.MCP_FORWARD_HF_USER_TOKEN === "true" &&
 				typeof headersRecord["Authorization"] !== "string" &&

@@ -250,10 +250,12 @@
 	// command when the draft is submitted.
 	const slash = new SlashCommandState();
 	if (typeof window !== "undefined")
-		(window as unknown as Record<string, unknown>).__slash = {
-			state: slash,
-			commands: () => slashCommands ?? [],
-		};
+		Object.assign(window, {
+			__slash: {
+				state: slash,
+				commands: () => slashCommands ?? [],
+			},
+		});
 	$effect(() => {
 		slash.setCommands(() => slashCommands ?? []);
 	});

@@ -279,10 +279,10 @@ export async function callMcpTool(
 		.map((p) => p.text);
 
 	const text = textParts.join("\n");
-	const structured = (response as unknown as { structuredContent?: unknown })?.structuredContent;
+	const structured = response?.structuredContent;
 	const contentBlocks = Array.isArray(response?.content)
 		? (response.content as unknown[])
 		: undefined;
-	const isError = (response as unknown as { isError?: unknown })?.isError === true;
+	const isError = response?.isError === true;
 	return { text, isError, structured, content: contentBlocks };
 }

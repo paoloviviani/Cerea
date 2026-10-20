@@ -156,6 +156,7 @@ export async function renderShareThumbnailPng(options: ShareThumbnailOptions): P
 	const svg = await satori(element as unknown as never, {
 		width: SHARE_THUMBNAIL_WIDTH,
 		height: SHARE_THUMBNAIL_HEIGHT,
+		// The `*.ttf` import is an ArrayBuffer (vite plugin) but vite/client types it as a string.
 		fonts: [
 			{ name: "Inter", data: InterRegular as unknown as ArrayBuffer, weight: 400 },
 			{ name: "Inter", data: InterBold as unknown as ArrayBuffer, weight: 700 },

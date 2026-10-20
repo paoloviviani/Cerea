@@ -247,7 +247,7 @@ export async function* executeToolCalls({
 				closed = true;
 				let waiter: ((v: IteratorResult<T>) => void) | undefined;
 				while ((waiter = waiters.shift())) {
-					waiter({ value: undefined as unknown as T, done: true });
+					waiter({ value: undefined, done: true });
 				}
 			},
 			async *iterator() {
@@ -496,7 +496,7 @@ export async function* executeToolCalls({
 					result: {
 						status: ToolResultStatus.Success,
 						call: { name: p.call.name, parameters: p.paramsClean },
-						outputs: [{ text: outcome.resultText } as unknown as Record<string, unknown>],
+						outputs: [{ text: outcome.resultText }],
 						display: true,
 					},
 				});
@@ -735,7 +735,7 @@ export async function* executeToolCalls({
 							text: annotated ?? "",
 							structured: toolResponse.structured,
 							content: toolResponse.content,
-						} as unknown as Record<string, unknown>,
+						},
 					],
 					display: true,
 				},

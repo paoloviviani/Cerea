@@ -402,6 +402,7 @@ function sanitizeHtmlForMultimedia(html: string): string {
 	if (!MULTIMEDIA_HTML_REGEX.test(html)) {
 		return escapeHTML(html);
 	}
+	// domhandler's node types are a class hierarchy; HtmlNode is the slice the serializer reads.
 	const document = parseDocument(html, {
 		lowerCaseAttributeNames: true,
 		lowerCaseTags: true,
