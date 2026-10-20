@@ -21,7 +21,7 @@ The kit's version is Cerea's: one release tag `vX.Y.Z` of the repository is one 
 This kit contains no third-party code. It references stock images you
 pull from their publishers under their own licences: Authelia
 (Apache-2.0), Caddy (Apache-2.0), PostgreSQL with pgvector (PostgreSQL
-Licence), Valkey (BSD-3-Clause) and MongoDB 4.4 (Server Side Public
+Licence), Valkey (BSD-3-Clause) and MongoDB 8 or 4.4 (Server Side Public
 License v1, run here as Cerea's internal database, not offered as a
 service). The optional backup sidecar's image, built on your machine from
 `tools/backup/`, copies in the official restic (BSD-2-Clause) and rclone
@@ -174,6 +174,63 @@ sets `FETCH_BACKEND=playwright` and points `PLAYWRIGHT_WS_ENDPOINT` at the
 bundled renderer, touching nothing else in `.env`. `--no-fetch` undoes it. A
 renderer you point `PLAYWRIGHT_WS_ENDPOINT` at yourself, elsewhere, is kept.
 
+## MongoDB: 8 by default, 4.4 where the host cannot run it
+
+The chat's database is MongoDB 8 (`mongo:8.0.x`, an exact patch version) on a
+new install, and `mongo:4.4.30` where the host cannot run 8. `./configure`
+decides when it writes `.env`, says why, and writes the result as `MONGO_IMAGE`:
+
+| The host | `MONGO_IMAGE` |
+| --- | --- |
+| x86-64 with AVX, Linux kernel outside 6.19 to 7.0.13 | `mongo:8.0.34` |
+| no AVX (some small VPS hosts and low-power CPUs) | `mongo:4.4.30` |
+| Linux 6.19 to 7.0.13 | `mongo:4.4.30` |
+| AVX or kernel version cannot be read | `mongo:4.4.30` |
+
+MongoDB 5 and later need AVX (`grep -c -w avx /proc/cpuinfo` is 0 without it),
+and MongoDB 8.0 does not start on Linux 6.19 to 7.0.13 (its memory allocator
+against a kernel change; kernel 7.0.14 and later are fixed). Only the upstream
+version counts, so `7.0.0-38-generic` is 7.0.0. On **Docker Desktop (macOS,
+Windows)** the Docker VM's CPU and kernel are what matter, and `./configure`
+cannot read them from the host, so it picks 4.4 and says so. Look from inside
+the VM, `docker run --rm alpine sh -c 'grep -c -w avx /proc/cpuinfo; uname -r'`,
+and if the CPU has AVX and the kernel is fine, `./configure --set MONGO_IMAGE=mongo:8.0.34`.
+
+Your own `MONGO_IMAGE` is kept: `./configure` never overwrites it, and
+`./configure --check` reports one the host cannot run as an error. A `.env`
+with no `MONGO_IMAGE` runs `mongo:4.4.30` (compose's default): such an install
+predates the setting and its data is on 4.4, which MongoDB 8 cannot open, so
+the default is the image every host can run and re-running `./configure` does
+not change it.
+
+### Upgrading an existing install to MongoDB 8
+
+MongoDB cannot go from 4.4 to 8 in one move: it steps 4.4 to 5.0 to 6.0 to 7.0
+to 8.0 and, after each, `featureCompatibilityVersion` must be raised before the
+next version will start. `tools/mongo-upgrade` does that, on hosts with AVX only
+(it refuses on others, changing nothing):
+
+```sh
+tools/mongo-upgrade --plan     # what it would do, nothing changed
+tools/mongo-upgrade            # asks once, then upgrades (--yes skips the question)
+tools/mongo-upgrade --target 7.0   # stop at 7.0, for a kernel MongoDB 8 cannot run on
+docker compose up -d --wait
+```
+
+It stops the chat, takes a backup (a `mongodump` archive next to the script,
+mode 0600, and a `backup-now` too when the [restic sidecar](#example-backups-with-restic)
+runs), then runs each version's image alone on the data volume (no network, no
+published port), sets and checks the compatibility version, stops it cleanly, and
+writes `MONGO_IMAGE` after every verified step so `.env` always names the version
+the data is at. The chat stays down until you start the stack. It takes minutes
+for a few gigabytes, mostly image pulls.
+
+If a step fails it says which and why, and leaves the chat stopped: fix the cause
+and run it again. It resumes (the progress is in `.mongo-upgrade.json` and
+`MONGO_IMAGE`), skipping steps that are done. There is no downgrade: to go back,
+restore the backup into the older image (see [Backup and restore](#backup-and-restore)).
+The archive is not deleted; remove it when you are satisfied.
+
 ## Checking an install
 
 ```sh
@@ -186,6 +243,7 @@ This reports everything wrong at once:
 - leftovers from older installs;
 - images that aren't on the host, and whether the registry needs a login;
 - the Compose version;
+- a `MONGO_IMAGE` this host cannot run: MongoDB 5 and later without AVX, or MongoDB 8 on a Linux kernel from 6.19 to 7.0.13 (an error, with the image to use instead);
 - in `acme` mode, whether the name resolves to this host and ports 80 and 443 answer.
 
 Among them, what identity configuration turns up:
@@ -929,6 +987,7 @@ needed.
 
 ## Troubleshooting
 
+- `chat-mongo` restarts and its log says `Illegal instruction`: the CPU has no AVX but `MONGO_IMAGE` is MongoDB 5 or later. Set `./configure --set MONGO_IMAGE=mongo:4.4.30`, and only if the data was never upgraded; otherwise restore the backup `tools/mongo-upgrade` took. On a MongoDB 8 that fails at start on a recent kernel, see [MongoDB](#mongodb-8-by-default-44-where-the-host-cannot-run-it).
 - Asking for help: run `tools/diagnose` and attach the file it writes (see [Reporting a problem](#reporting-a-problem)).
 - `docker compose logs <service> --tail 50` is the first stop. The `bootstrap` service explains any refusal in one line ("fix .env and run `docker compose up -d` again").
 - `/chat` redirects in a loop, or sign-in never sticks: the origin in `.env` doesn't match the one in the browser, or the host is a single-word name such as `myserver` (the bundled Authelia needs a dotted name or an IP address).

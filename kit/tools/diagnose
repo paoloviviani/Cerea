@@ -62,6 +62,7 @@ ENV_ALLOWLIST = frozenset(
         "COMPOSE_PROFILES",
         "PYSTINO_PRESET",
         "PYSTINO_CONFIG_VERSION",
+        "MONGO_IMAGE",
         "TLS_MODE",
         "HTTP_PORT",
         "HTTPS_PORT",

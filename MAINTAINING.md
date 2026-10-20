@@ -175,7 +175,9 @@ release. Version: patch for fixes, minor for features.
    commands, and whether machines need the galopin update.
 
 The fresh-kit test needs Docker, `uv`, `gh`, and ports 80/443 free on the
-machine that runs it.
+machine that runs it. On a CPU without AVX or a kernel in 6.19 to 7.0.13 it
+runs MongoDB 4.4, because `./configure` picks the image from the host (no flag
+needed); the MongoDB 8 path is what CI and operators on capable hosts run.
 
 Pystino is released from its own repository (tag, then its `images` workflow);
 afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.

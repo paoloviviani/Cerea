@@ -66,6 +66,11 @@ class Deploy(unittest.TestCase):
         patcher = mock.patch.object(cfg, "fetch_discovery", side_effect=lambda issuer, *a, **k: self.discovery)
         self.fetch = patcher.start()
         self.addCleanup(patcher.stop)
+        # The MongoDB choice reads the host's CPU and kernel; pin a capable one
+        # so the suite says the same on every machine (test_mongo.py covers the rest).
+        host = mock.patch.object(cfg, "detect_host", return_value=(True, "6.8.0-1-generic"))
+        host.start()
+        self.addCleanup(host.stop)
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)

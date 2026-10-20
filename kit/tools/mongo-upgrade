@@ -1,0 +1,377 @@
+#!/usr/bin/env python3
+"""Move the chat's MongoDB from 4.4 to 8, one supported step at a time.
+
+    tools/mongo-upgrade --plan        say what would happen; change nothing
+    tools/mongo-upgrade               ask once, then upgrade
+    tools/mongo-upgrade --yes         the same, without the question
+    tools/mongo-upgrade --target 7.0  stop at 7.0 (5.0, 6.0, 7.0 or 8.0)
+
+MongoDB cannot jump from 4.4 to 8: each major version opens only the data its
+predecessor left, so the path is 4.4 -> 5.0 -> 6.0 -> 7.0 -> 8.0, and after
+each step `featureCompatibilityVersion` (FCV) must be raised to that version
+before the next binary will start. This does exactly that, and checks each
+step before taking the next.
+
+What it does, in order:
+
+  1. Refuses unless the host can run what comes next: MongoDB 5 and later need
+     AVX, and MongoDB 8 does not start on Linux 6.19 to 7.0.13. (On such a
+     host stay on mongo:4.4; nothing here changes that.)
+  2. Stops the chat and takes a backup: a `mongodump` archive written next to
+     this file (mode 0600), and, when the restic `backup` sidecar runs, a
+     `backup-now` as well. The chat stays stopped until the end.
+  3. Stops chat-mongo cleanly, then for each step starts that version's image
+     on the data volume alone (no network, no published port), waits for it,
+     sets the FCV, reads it back, and stops it cleanly.
+  4. After each verified step writes MONGO_IMAGE in .env, so the stack's
+     configuration always names the version the data is at.
+
+It starts nothing at the end: run `docker compose up -d --wait`.
+
+Safe to re-run. Progress is kept in .mongo-upgrade.json and in .env's
+MONGO_IMAGE, and every step first reads the FCV it finds: a step that already
+finished is skipped, one that failed half-way is repeated. Restoring the
+backup is the way back: `mongorestore --drop` into the older image (README,
+"Backup and restore").
+
+Standard library only, like ./configure. Python 3.10 or newer.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import importlib.machinery
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Callable, Sequence
+
+ROOT = Path(__file__).resolve().parent.parent
+STATE_NAME = ".mongo-upgrade.json"
+
+
+def _load_configure():
+    # One definition of "which hosts can run which MongoDB": ./configure's.
+    loader = importlib.machinery.SourceFileLoader("cerea_configure", str(ROOT / "configure"))
+    spec = importlib.util.spec_from_loader("cerea_configure", loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["cerea_configure"] = module  # dataclasses looks its module up here
+    loader.exec_module(module)
+    return module
+
+
+cfg = _load_configure()
+
+#: (series, image, whether setFeatureCompatibilityVersion needs `confirm: true`).
+#: Exact patch versions, so a re-run uses the same bytes. 8.0 is configure's.
+STEPS = (
+    ("5.0", "mongo:5.0.33", False),
+    ("6.0", "mongo:6.0.28", False),
+    ("7.0", "mongo:7.0.45", True),
+    ("8.0", cfg.MONGO_DEFAULT, True),
+)
+SERIES = {s[0]: (int(s[0].split(".")[0]), int(s[0].split(".")[1])) for s in STEPS}
+
+
+class Refused(Exception):
+    """A reason not to start (or to stop), printed as is."""
+
+
+class StepFailed(Exception):
+    pass
+
+
+# --- what to do -------------------------------------------------------------------
+
+
+def current_series(env: dict, state: dict) -> tuple:
+    """(major, minor) the data is at, from the last verified step or .env."""
+    done = state.get("completed") or []
+    if done:
+        return SERIES[done[-1]]
+    image = env.get("MONGO_IMAGE") or cfg.MONGO_FALLBACK
+    series = cfg.mongo_series(image)
+    if series is None:
+        raise Refused(f"MONGO_IMAGE={image} is not an official mongo:X.Y image; upgrade that by hand")
+    return series
+
+
+def plan(current: tuple, target: str) -> list:
+    """The steps still to take to reach `target`, in order."""
+    if target not in SERIES:
+        raise Refused(f"--target must be one of {', '.join(SERIES)}")
+    if current < (4, 4):
+        raise Refused(
+            f"the data is at MongoDB {current[0]}.{current[1]}; upgrade it to 4.4 first "
+            "(this tool starts at 4.4)"
+        )
+    if current[0] == 4 and current != (4, 4):
+        raise Refused(f"unexpected MongoDB {current[0]}.{current[1]}; this tool starts at 4.4")
+    if current[0] >= 5 and f"{current[0]}.{current[1]}" not in SERIES:
+        raise Refused(f"MongoDB {current[0]}.{current[1]} is not on this tool's path (5.0, 6.0, 7.0, 8.0)")
+    return [s for s in STEPS if SERIES[s[0]] > current and SERIES[s[0]] <= SERIES[target]]
+
+
+def preflight(avx, release: str, target: str) -> None:
+    """Refuse a host that cannot run the versions on the path."""
+    if avx is None:
+        raise Refused(
+            "this host's AVX support could not be read, and MongoDB 5 and later need it. Nothing "
+            "was changed. On Docker Desktop, check the VM: docker run --rm alpine grep -c -w avx /proc/cpuinfo"
+        )
+    if not avx:
+        raise Refused(
+            "this CPU has no AVX, which MongoDB 5 and later need: MongoDB 4.4 is the newest this "
+            "host can run. Nothing was changed; stay on mongo:4.4."
+        )
+    if target == "8.0" and cfg.mongo8_kernel_broken(release):
+        raise Refused(
+            f"Linux {release} is in the range (6.19 to 7.0.13) where MongoDB 8 does not start. "
+            "Update the kernel to 7.0.14 or later, or stop at 7.0 with --target 7.0."
+        )
+
+
+# --- docker, behind one seam so the logic is a unit test -----------------------------
+
+Runner = Callable[..., "tuple[int, str]"]
+
+
+def run(argv: Sequence[str], timeout: int = 600, cwd: Path = ROOT, stdout_path: Path | None = None) -> tuple:
+    """(returncode, combined text). With stdout_path the stdout goes to that file (mode 0600)."""
+    try:
+        if stdout_path is not None:
+            fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as out:
+                proc = subprocess.run(list(argv), cwd=cwd, stdout=out, stderr=subprocess.PIPE, timeout=timeout)
+            return proc.returncode, proc.stderr.decode("utf-8", "replace")
+        proc = subprocess.run(
+            list(argv), cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout
+        )
+        return proc.returncode, proc.stdout + proc.stderr
+    except FileNotFoundError:
+        return 127, f"{argv[0]}: not found"
+    except subprocess.TimeoutExpired:
+        return 124, f"{' '.join(argv[:3])}...: timed out after {timeout}s"
+
+
+SHELL_EVAL = 'mongosh --quiet --eval "$1" 2>/dev/null || mongo --quiet --eval "$1"'
+
+
+class Upgrade:
+    def __init__(self, root: Path, runner: Runner, *, say=print, sleep=time.sleep, wait_seconds: int = 180):
+        self.root = root
+        self.run = runner
+        self.say = say
+        self.sleep = sleep
+        self.wait_seconds = wait_seconds
+        self.env = cfg.parse_env((root / ".env").read_text(encoding="utf-8")) if (root / ".env").is_file() else {}
+        self.project = self.env.get("COMPOSE_PROJECT_NAME") or "cerea"
+        self.volume = f"{self.project}_chat-mongo-data"
+        self.container = f"cerea-mongo-upgrade-{self.project}"
+        self.state_path = root / STATE_NAME
+
+    # state ---------------------------------------------------------------------
+
+    def load_state(self) -> dict:
+        try:
+            return json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def save_state(self, state: dict) -> None:
+        tmp = self.state_path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, indent=2)
+        os.replace(tmp, self.state_path)
+
+    # docker --------------------------------------------------------------------
+
+    def compose(self, *args: str, **kw) -> tuple:
+        return self.run(["docker", "compose", *args], cwd=self.root, **kw)
+
+    def shell(self, expression: str) -> tuple:
+        return self.run(["docker", "exec", self.container, "sh", "-c", SHELL_EVAL, "sh", expression], timeout=60)
+
+    def remove_container(self) -> None:
+        self.run(["docker", "rm", "-f", self.container], timeout=60)
+
+    def wait_ready(self) -> None:
+        deadline = self.wait_seconds
+        waited = 0
+        while True:
+            rc, out = self.run(["docker", "inspect", "-f", "{{.State.Running}}", self.container], timeout=30)
+            if rc != 0 or out.strip() != "true":
+                _, logs = self.run(["docker", "logs", "--tail", "25", self.container], timeout=30)
+                raise StepFailed(f"mongod stopped instead of starting. Its last lines:\n{logs.strip()}")
+            rc, out = self.shell("db.adminCommand({ping:1}).ok")
+            if rc == 0 and out.strip().endswith("1"):
+                return
+            if waited >= deadline:
+                raise StepFailed(f"mongod did not answer within {deadline}s")
+            self.sleep(2)
+            waited += 2
+
+    def read_fcv(self) -> dict:
+        rc, out = self.shell(
+            "JSON.stringify(db.adminCommand({getParameter:1,featureCompatibilityVersion:1}).featureCompatibilityVersion)"
+        )
+        if rc != 0:
+            raise StepFailed(f"could not read the featureCompatibilityVersion: {out.strip()[-300:]}")
+        for line in reversed(out.strip().splitlines()):
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(value, dict) and "version" in value:
+                return value
+        raise StepFailed(f"unreadable featureCompatibilityVersion answer: {out.strip()[-300:]}")
+
+    def set_fcv(self, series: str, confirm: bool) -> None:
+        extra = ", confirm: true" if confirm else ""
+        rc, out = self.shell(
+            f'JSON.stringify(db.adminCommand({{setFeatureCompatibilityVersion: "{series}"{extra}}}))'
+        )
+        if rc != 0 or '"ok":1' not in out.replace(" ", ""):
+            raise StepFailed(f"setFeatureCompatibilityVersion {series} failed: {out.strip()[-300:]}")
+
+    # steps ---------------------------------------------------------------------
+
+    def backup(self, state: dict) -> None:
+        previous = state.get("backup")
+        if previous and (self.root / previous).is_file() and (self.root / previous).stat().st_size > 0:
+            self.say(f"backup: already taken ({previous}); not repeated")
+            return
+        self.say("stopping the chat (it must not write while the data is copied and upgraded)")
+        self.compose("stop", "-t", "60", "chat")
+        self.say("starting chat-mongo for the backup")
+        rc, out = self.compose("up", "-d", "--wait", "chat-mongo", timeout=300)
+        if rc != 0:
+            raise StepFailed(f"chat-mongo did not start for the backup: {out.strip()[-300:]}")
+        name = f"mongo-upgrade-backup-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}.archive.gz"
+        path = self.root / name
+        rc, out = self.compose("exec", "-T", "chat-mongo", "mongodump", "--quiet", "--archive", "--gzip",
+                               stdout_path=path, timeout=3600)
+        if rc != 0 or not path.is_file() or path.stat().st_size == 0:
+            path.unlink(missing_ok=True)
+            raise StepFailed(f"mongodump failed, nothing was changed: {out.strip()[-300:]}")
+        self.say(f"backup: {name} ({path.stat().st_size} bytes, mode 0600)")
+        rc, out = self.compose("ps", "--status", "running", "--services")
+        if rc == 0 and "backup" in out.split():
+            self.say("backup: the restic sidecar is running; taking a snapshot as well")
+            rc, out = self.compose("exec", "-T", "backup", "backup-now", timeout=3600)
+            if rc != 0:
+                raise StepFailed(f"the sidecar's backup-now failed: {out.strip()[-300:]}")
+        state["backup"] = name
+        self.save_state(state)
+
+    def stop_stack_mongo(self) -> None:
+        self.compose("stop", "-t", "120", "chat", "chat-mongo", timeout=300)
+
+    def step(self, series: str, image: str, confirm: bool) -> None:
+        self.say(f"step {series}: {image}")
+        self.remove_container()
+        try:
+            rc, out = self.run(["docker", "pull", "-q", image], timeout=1200)
+            if rc != 0:
+                raise StepFailed(f"cannot pull {image}: {out.strip()[-300:]}")
+            rc, out = self.run(
+                ["docker", "run", "-d", "--name", self.container, "--network", "none",
+                 "-v", f"{self.volume}:/data/db", image, "--bind_ip", "127.0.0.1"], timeout=120)
+            if rc != 0:
+                raise StepFailed(f"cannot start {image} on {self.volume}: {out.strip()[-300:]}")
+            self.wait_ready()
+            fcv = self.read_fcv()
+            if fcv.get("version") == series and "targetVersion" not in fcv:
+                self.say(f"  featureCompatibilityVersion is already {series}")
+            else:
+                self.say(f"  featureCompatibilityVersion {fcv.get('version')} -> {series}")
+                self.set_fcv(series, confirm)
+            after = self.read_fcv()
+            if after.get("version") != series or "targetVersion" in after:
+                raise StepFailed(f"featureCompatibilityVersion reads {after}, expected {series}")
+            rc, out = self.run(["docker", "stop", "-t", "120", self.container], timeout=180)
+            rc, code = self.run(["docker", "inspect", "-f", "{{.State.ExitCode}}", self.container], timeout=30)
+            if rc != 0 or code.strip() != "0":
+                raise StepFailed(f"{image} did not shut down cleanly (exit code {code.strip() or '?'})")
+        finally:
+            self.remove_container()
+
+    def set_image(self, image: str) -> None:
+        rc, out = self.run([sys.executable, str(self.root / "configure"), "--set", f"MONGO_IMAGE={image}"],
+                           cwd=self.root, timeout=120)
+        if rc != 0:
+            raise StepFailed(f"could not write MONGO_IMAGE={image} to .env: {out.strip()[-300:]}")
+
+    def execute(self, steps: list, target: str) -> None:
+        state = self.load_state()
+        state.setdefault("started", dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
+        state["target"] = target
+        self.save_state(state)
+        self.backup(state)
+        self.stop_stack_mongo()
+        for series, image, confirm in steps:
+            self.step(series, image, confirm)
+            state.setdefault("completed", []).append(series)
+            self.save_state(state)
+            self.set_image(image)
+            self.say(f"step {series}: done, MONGO_IMAGE={image}")
+        self.state_path.unlink(missing_ok=True)
+
+
+def main(argv: Sequence[str] | None = None, runner: Runner = run) -> int:
+    p = argparse.ArgumentParser(description="Upgrade the chat's MongoDB 4.4 -> 5.0 -> 6.0 -> 7.0 -> 8.0.")
+    p.add_argument("--plan", action="store_true", help="print the plan and change nothing")
+    p.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    p.add_argument("--target", default="8.0", choices=list(SERIES), help="stop at this version (default 8.0)")
+    p.add_argument("--dir", help=argparse.SUPPRESS)
+    args = p.parse_args(argv)
+    root = Path(args.dir).resolve() if args.dir else ROOT
+    try:
+        if not (root / ".env").is_file():
+            raise Refused(f"no .env in {root}: run ./configure first")
+        up = Upgrade(root, runner)
+        if "chat" not in (up.env.get("COMPOSE_PROFILES") or "").split(","):
+            raise Refused("the chat profile is off: there is no chat database to upgrade")
+        state = up.load_state()
+        current = current_series(up.env, state)
+        steps = plan(current, args.target)
+        if not steps:
+            print(f"MongoDB is already at {current[0]}.{current[1]}; nothing to do.")
+            return 0
+        preflight(*cfg.detect_host(), args.target)
+        print(f"MongoDB {current[0]}.{current[1]} -> " + " -> ".join(s[0] for s in steps)
+              + f"   (volume {up.volume})")
+        if state.get("completed"):
+            print(f"resuming: steps done so far: {', '.join(state['completed'])}")
+        if args.plan:
+            print("plan only: nothing was changed.")
+            return 0
+        if not args.yes:
+            if not sys.stdin.isatty():
+                raise Refused("not a terminal: pass --yes to go ahead")
+            print("The chat stays down until the end, and a backup is taken first.")
+            if input("Type 'yes' to continue: ").strip().lower() != "yes":
+                raise Refused("not confirmed; nothing was changed")
+        up.execute(steps, args.target)
+    except Refused as exc:
+        print(f"mongo-upgrade: {exc}", file=sys.stderr)
+        return 2
+    except StepFailed as exc:
+        print(f"mongo-upgrade: FAILED: {exc}", file=sys.stderr)
+        print("The chat is stopped. Fix the cause and run tools/mongo-upgrade again: it resumes. "
+              f"The backup is {up.load_state().get('backup', '(none yet)')}.", file=sys.stderr)
+        return 1
+    final = cfg.parse_env((root / ".env").read_text(encoding="utf-8")).get("MONGO_IMAGE")
+    print(f"done: MONGO_IMAGE={final}")
+    print("next:  ./configure --check  &&  docker compose up -d --wait")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
