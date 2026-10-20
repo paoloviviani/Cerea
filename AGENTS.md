@@ -71,11 +71,18 @@ Two things about running the suites in a container:
 - **`mongodb-memory-server` needs `libcurl4`**, which `node:*-slim` does not
   carry. Without it 49 test _files_ fail to start their in-memory Mongo and
   report as failures that have nothing to do with the code.
-- **If `mongodb-memory-server` dies with `SIGILL`**, the CPU lacks AVX (MongoDB
-  5.0+ needs it). Point the tests at a real MongoDB instead (4.4 works), and
-  run the files serially, because the tests share that database and their
-  clean-up helpers would otherwise wipe each other's collections. Only
-  `TEST_MONGODB_URL` is honoured (not `MONGODB_URL`):
+- **A CPU without AVX needs no setup.** MongoDB 5.0+ is built for AVX and dies
+  with `SIGILL` without it, so the test setup, `database.ts` and the e2e
+  fixtures pick the mongod version with `mongoMemoryVersion()`
+  (`src/lib/server/mongoMemoryVersion.ts`): 7.0.18, or 4.4.30 when
+  `/proc/cpuinfo` has no `avx` flag. 4.4 links OpenSSL 1.1, which current
+  distributions no longer ship, so `scripts/setups/legacyOpenssl.ts` fetches it
+  once into `~/.cache/cerea-libssl1.1` (needs `curl` and `dpkg-deb`) and puts it
+  on `LD_LIBRARY_PATH`. A plain `npx vitest run --project=server` therefore
+  works on such a machine. To use a real MongoDB instead, and run the files
+  serially because they then share that database and their clean-up helpers
+  would wipe each other's collections, set `TEST_MONGODB_URL` (not
+  `MONGODB_URL`, which the setup ignores):
 
   ```bash
   TEST_MONGODB_URL=mongodb://127.0.0.1:27017/ npx vitest run --project=server --project=ssr --no-file-parallelism
@@ -132,9 +139,9 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
   Playwright and the full test suites, so two of them never run at once. Never
   wrap a script that takes the lock itself (`kit/dev/build.sh` with
   `BUILD_LOCK` set) in another flock.
-- **`mongodb-memory-server` dies with `SIGILL` on a CPU without AVX.** Point
-  tests at a real MongoDB (`TEST_MONGODB_URL`, `--no-file-parallelism`), and for
-  e2e `E2E_MONGO_PORT`/`E2E_MONGO_URL`. Running the whole `client` project in
+- **`mongodb-memory-server` on a CPU without AVX** runs mongod 4.4 by itself
+  (see Testing above). To use a real MongoDB, set `TEST_MONGODB_URL` with
+  `--no-file-parallelism`, and for e2e `E2E_MONGO_PORT`/`E2E_MONGO_URL`. Running the whole `client` project in
   one command can hit the same crash: give the Playwright container the real
   database too (`--network host -e MONGODB_URL=mongodb://localhost:<port>
 -e MONGODB_DB_NAME=cerea-client-test`), or run the affected files and let CI

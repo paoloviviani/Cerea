@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import type { Client } from "@modelcontextprotocol/client";
 import { collections, ready } from "$lib/server/database";
@@ -471,8 +471,17 @@ describe("submitElicitationAnswer budget grants", () => {
 		return elicitationId;
 	};
 
+	// The shared test database outlives this file, and other specs count or sweep
+	// conversations globally (the empty-conversation migration deletes every one it
+	// finds), so a conversation made here must not be left behind.
+	const createdConversations: ObjectId[] = [];
+	afterEach(async () => {
+		await collections.conversations.deleteMany({ _id: { $in: createdConversations.splice(0) } });
+	});
+
 	const mlConversation = async (mlAssistant: boolean) => {
 		const _id = new ObjectId();
+		createdConversations.push(_id);
 		await collections.conversations.insertOne({
 			_id,
 			title: "grant test",

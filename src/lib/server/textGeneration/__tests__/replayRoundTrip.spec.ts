@@ -193,12 +193,17 @@ async function sendMessage(
  * away does. Triggers the route's `cancel()` path, which persists whatever the
  * turn had produced so far — the only way to get a message with tool calls that
  * never recorded an outcome.
+ *
+ * It reads until the stream has delivered `until`, not for a number of chunks:
+ * the route interleaves keep-alive chunks on a 100 ms timer, so how many chunks
+ * precede a given event depends on how fast the machine is, and counting them
+ * detached before the tool call under load.
  */
 async function sendMessageAndDetach(
 	conv: Conversation,
 	locals: App.Locals,
 	prompt: string,
-	chunksToRead: number
+	until: (update: { type?: string; subtype?: string }) => boolean
 ): Promise<void> {
 	const parentId = conv.messages.at(-1)?.id;
 	const form = new FormData();
@@ -223,11 +228,30 @@ async function sendMessageAndDetach(
 
 	const reader = response.body?.getReader();
 	if (!reader) throw new Error("no response body");
-	for (let i = 0; i < chunksToRead; i += 1) {
-		const { done } = await reader.read();
+	for (;;) {
+		const { done, value } = await reader.read();
 		if (done) return;
+		// One JSON update per chunk; the whitespace padding chunk is not one.
+		const text = (typeof value === "string" ? value : new TextDecoder().decode(value)).trim();
+		if (text && until(JSON.parse(text))) break;
 	}
 	await reader.cancel();
+}
+
+/**
+ * Wait for every generation on the conversation to end. A client that detaches
+ * does not stop its generation, which keeps running (and calling the scripted
+ * upstream) until it finishes, so a test that detaches must not end before that.
+ */
+async function untilGenerationsEnd(conv: Conversation): Promise<void> {
+	for (;;) {
+		const running = await collections.generations.countDocuments({
+			conversationId: conv._id,
+			status: "running",
+		});
+		if (running === 0) return;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
 }
 
 /** The messages array sent on the nth upstream completion request (0-indexed). */
@@ -494,14 +518,20 @@ describe.sequential("replaying a turn that ended badly", () => {
 			{ content: "Never reached." },
 			{ content: "Next turn." },
 		]);
-		// Hangs past the detach below, so the Result update is never emitted.
-		mocks.callMcpTool.mockImplementation(
-			() => new Promise((resolve) => setTimeout(() => resolve({ text: "late" }), 5_000))
-		);
+		// Hangs until this test lets it go, so the Result update is not emitted while
+		// the assertions run. Detaching does not stop the generation: it carries on
+		// in the background, so it is released and awaited at the end. Left to a
+		// timer instead, it would wake up during a later test and consume that
+		// test's scripted upstream rounds and tool results.
+		let releaseTool: (response: { text: string }) => void = () => {};
+		mocks.callMcpTool.mockImplementation(() => new Promise((resolve) => (releaseTool = resolve)));
 
-		// One more chunk than before the turnState events existed: the turn now
-		// opens with an in-band `running` transition ahead of the tool call.
-		await sendMessageAndDetach(conv, locals, "Weather?", 4);
+		await sendMessageAndDetach(
+			conv,
+			locals,
+			"Weather?",
+			(u) => u.type === MessageUpdateType.Tool && u.subtype === MessageToolUpdateType.Call
+		);
 
 		const stored = await reload(conv);
 		const lastAssistant = assistantMessages(stored).at(-1);
@@ -512,6 +542,10 @@ describe.sequential("replaying a turn that ended badly", () => {
 
 		const replayed = outgoing(mocks.create.mock.calls.length - 1);
 		const toolMessage = replayed.find((m) => m.role === "tool");
+
+		releaseTool({ text: "late" });
+		await untilGenerationsEnd(conv);
+
 		// Fabricating an empty success here would teach the model the tool
 		// returned nothing, rather than that it never finished.
 		expect(String(toolMessage?.content)).toContain("interrupted");

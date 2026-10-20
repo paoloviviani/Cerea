@@ -9,7 +9,14 @@ import dotenv from "dotenv";
 import { resolve } from "path";
 import fs from "fs";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { mongoMemoryVersion } from "../../src/lib/server/mongoMemoryVersion";
+import { ensureLegacyOpenssl } from "./legacyOpenssl";
 import { MODELS_FIXTURE, TEST_OPENAI_BASE_URL } from "../../src/lib/server/__fixtures__/models";
+
+// Without AVX the in-memory Mongo is 4.4, which needs OpenSSL 1.1. This runs for every
+// worker, ahead of any spec, because specs that mock the env without a MONGODB_URL
+// reach `database.ts`'s own in-memory start as well as the one below.
+ensureLegacyOpenssl();
 
 let mongoServer: MongoMemoryServer;
 // Load the .env file
@@ -108,7 +115,8 @@ vi.mock("$env/dynamic/private", async () => {
 		};
 	}
 
-	mongoServer = await MongoMemoryServer.create();
+	// The newest mongod the CPU can run (4.4 without AVX).
+	mongoServer = await MongoMemoryServer.create({ binary: { version: mongoMemoryVersion() } });
 
 	return {
 		env: {

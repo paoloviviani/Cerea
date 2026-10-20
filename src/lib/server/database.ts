@@ -35,6 +35,7 @@ import type { Semaphore } from "$lib/types/Semaphore";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import type { CodeRunFiles } from "$lib/types/CodeRunFiles";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { mongoMemoryVersion } from "./mongoMemoryVersion";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
 import { onExit } from "./exitHandler";
@@ -208,7 +209,7 @@ export class Database {
 					dbPath: DB_FOLDER,
 				},
 				binary: {
-					version: "7.0.18",
+					version: mongoMemoryVersion(),
 				},
 			});
 			this.client = new MongoClient(this.mongoServer.getUri(), {

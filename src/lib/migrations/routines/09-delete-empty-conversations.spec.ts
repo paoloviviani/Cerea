@@ -193,6 +193,10 @@ describe.sequential("Deleting discarded conversations", async () => {
 
 	beforeAll(async () => {
 		await ready;
+		// The migration sweeps every conversation in the database and the tests assert
+		// exact counts, so they start from an empty collection rather than from whatever
+		// an earlier spec left in the shared test database.
+		await collections.conversations.deleteMany({});
 		await collections.users.insertOne(userData);
 		await collections.sessions.insertOne(sessionForUser);
 	}, 20000);

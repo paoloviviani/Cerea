@@ -63,9 +63,11 @@ func TestPromptSendsAMintedAscendingMessageID(t *testing.T) {
 
 	first := ""
 	for i := 0; i < 2; i++ {
+		before := time.Now().UnixMilli()
 		if err := b.Prompt(ctx, "/ws", "ses_1", backend.Prompt{Text: "go"}); err != nil {
 			t.Fatal(err)
 		}
+		after := time.Now().UnixMilli()
 		id, _ := (*last)["messageID"].(string)
 		if id == "" {
 			t.Fatalf("prompt body = %v, want a messageID field", *last)
@@ -80,9 +82,14 @@ func TestPromptSendsAMintedAscendingMessageID(t *testing.T) {
 		}
 		// opencode keeps only the low 48 bits, so the decoded timestamp is
 		// the wall clock modulo 2^36 ms (its own Identifier.timestamp does
-		// the same arithmetic).
-		if diff := (encoded/0x1000 - uint64(time.Now().UnixMilli()%(1<<36)) + (1 << 36)) % (1 << 36); diff > 5 && diff < (1<<36)-5 {
-			t.Errorf("messageID timestamp = %d, want roughly now", encoded/0x1000)
+		// the same arithmetic). The id was minted somewhere between the two
+		// clock reads around the call, so its offset from the start of that
+		// window, taken modulo 2^36, must not exceed the window's width. No
+		// tolerance is involved, so scheduling delay cannot move the result.
+		const cycle = uint64(1) << 36
+		offset := (encoded/0x1000 + cycle - uint64(before)%cycle) % cycle
+		if width := uint64(after - before); offset > width {
+			t.Errorf("messageID timestamp is %d ms into the window [%d, %d] (modulo 2^36), want within it", offset, before, after)
 		}
 		if first != "" && id <= first {
 			t.Errorf("second minted messageID %q must sort after the first %q", id, first)
