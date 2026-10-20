@@ -247,6 +247,7 @@ function toSession(session: Session): CodeAgentSession {
 		...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
 		...(session.staleDeny ? { staleDeny: true } : {}),
 		...(session.stalePolicy ? { stalePolicy: true } : {}),
+		...(session.cancelled ? { cancelled: true } : {}),
 		...(session.rootId ? { rootId: session.rootId } : {}),
 		...(session.childSummary ? { childSummary: session.childSummary } : {}),
 		...(session.spawnedBy ? { spawnedBy: session.spawnedBy } : {}),
@@ -282,7 +283,13 @@ async function requireTerminalAllowed(
 
 function toSubagent(session: Session): CodeSubagent {
 	const status: CodeSubagent["status"] =
-		session.status === "error" ? "failed" : session.status === "idle" ? "completed" : "running";
+		session.status === "error"
+			? "failed"
+			: session.status === "idle"
+				? session.cancelled
+					? "canceled"
+					: "completed"
+				: "running";
 	return {
 		id: session.id,
 		parentAgentId: session.parentId ?? "",

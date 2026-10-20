@@ -177,7 +177,14 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 	if status, ok := mc.mat.Status(s.ID); ok && status != "" {
 		s.Status = status
 	}
+	s.Cancelled = mc.cancelled(s)
 	return s
+}
+
+// cancelled: a subagent idle after a turn a Stop cut short (the panel draws it
+// as cancelled, not finished).
+func (mc *machine) cancelled(s backend.Session) bool {
+	return s.ParentID != "" && s.Status == backend.StatusIdle && mc.mat.LastTurnAborted(s.ID)
 }
 
 // enrichAll enriches every session in sessions, sharing one
@@ -198,6 +205,7 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 		if status, ok := mc.mat.Status(s.ID); ok && status != "" {
 			s.Status = status
 		}
+		s.Cancelled = mc.cancelled(s)
 		out[i] = s
 	}
 	return out
@@ -915,6 +923,14 @@ func (mc *machine) opSessionChildren(ctx context.Context, args json.RawMessage) 
 	}
 	out := make([]backend.Session, 0, len(children))
 	for _, c := range children {
+		// A child this process never watched has no transcript yet: read it
+		// once so a turn a Stop cut short is told from one that finished.
+		if st, known := mc.mat.Status(c.ID); !known || st == backend.StatusIdle {
+			if !mc.mat.HasMessages(c.ID) {
+				mc.mat.Track(dir, c)
+				_, _ = mc.mat.Sync(ctx, c.ID, "", 0)
+			}
+		}
 		// Register the tree edge with the materializer too: a child the
 		// backend reports here may never have been Tracked from its own
 		// events yet, and its parent linkage is what routes its later

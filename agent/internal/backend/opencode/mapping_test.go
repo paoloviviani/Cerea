@@ -249,10 +249,16 @@ func TestAbortedMessageIsNotAnError(t *testing.T) {
 	if aborted.Error != "" {
 		t.Errorf("aborted message error = %q, want none", aborted.Error)
 	}
+	if !aborted.Aborted {
+		t.Error("an aborted message must carry Aborted (it is how a cancelled subagent is told from a finished one)")
+	}
 	failed := messageFromMap(map[string]any{"id": "m", "role": "assistant",
 		"error": map[string]any{"name": "APIError", "message": "upstream 500"}})
 	if failed.Error == "" {
 		t.Error("a real provider error must still be reported")
+	}
+	if failed.Aborted {
+		t.Error("a provider error is not an abort")
 	}
 }
 

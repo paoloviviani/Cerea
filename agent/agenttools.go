@@ -68,6 +68,9 @@ type agentTools struct {
 	async   func(func())
 	// retryBase is the first wait of a report delivery's retry (doubling).
 	retryBase time.Duration
+	// cancelWait is how long a cancelled background task waits for its
+	// siblings before the note goes out (0: at once, for tests).
+	cancelWait time.Duration
 
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
@@ -94,6 +97,7 @@ func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
 		async:       func(f func()) { go f() },
 		reports:     newReportState(),
 		retryBase:   2 * time.Second,
+		cancelWait:  cancelWindow,
 	}
 	// The delegate rule of the decision function (decide.DelegateHook).
 	mc.delegates = func(caller, target string) bool { return at.IsDelegatePair(caller, target) != notDelegates }

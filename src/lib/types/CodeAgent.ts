@@ -445,6 +445,10 @@ export interface CodeAgentSession {
 	/** A deny in the stored rules that the machine's ceiling no longer
 	 * imposes (an earlier machine policy). Absent like staleDeny. */
 	stalePolicy?: boolean;
+	/** A subagent whose last turn a Stop cut short (a background task cancelled
+	 * with its parent): the row says cancelled, not finished. Absent on a
+	 * machine that predates it. */
+	cancelled?: boolean;
 	/** The session this one was spawned from, when it is a subagent. */
 	parentId?: string | null;
 	/** Its top-level ancestor (itself when it has no parent). */

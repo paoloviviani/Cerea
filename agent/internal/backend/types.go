@@ -38,8 +38,11 @@ type Session struct {
 	// StalePolicy says the root's stored rules carry a deny the machine's
 	// ceiling no longer imposes (an earlier machine policy). Absent like
 	// StaleDeny.
-	StalePolicy bool   `json:"stalePolicy,omitempty"`
-	ParentID    string `json:"parentId,omitempty"`
+	StalePolicy bool `json:"stalePolicy,omitempty"`
+	// Cancelled says a subagent's last turn was cut short by a Stop and it is
+	// idle now: its work did not finish (PROTOCOL.md §6). Absent otherwise.
+	Cancelled bool   `json:"cancelled,omitempty"`
+	ParentID  string `json:"parentId,omitempty"`
 	// Agent is the subagent type a task child was started as (opencode's
 	// session agent, e.g. "explore"), read from the session record. Empty
 	// for top-level sessions and when the backend does not report it.
@@ -84,6 +87,10 @@ type Message struct {
 	ModelID     string     `json:"modelId,omitempty"`
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 	Error       string     `json:"error,omitempty"`
+	// Aborted says the message was cut short by a Stop (opencode's
+	// MessageAbortedError): not an error, so Error stays empty. Lets a
+	// subagent that was cancelled be told from one that finished.
+	Aborted bool `json:"aborted,omitempty"`
 	// ClientMessageID echoes session.prompt's clientMessageId on the user
 	// message it created (it keys Cerea's attachment store). Set once, when
 	// the backend first reports the user message a prompt produced; never
