@@ -34,6 +34,7 @@ import type { ErasureRecord } from "$lib/types/Erasure";
 import type { Semaphore } from "$lib/types/Semaphore";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 import type { CodeRunFiles } from "$lib/types/CodeRunFiles";
+import type { WebFetchCacheEntry } from "$lib/types/WebFetchCache";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
@@ -365,6 +366,8 @@ export class Database {
 		// Which message a code block's or an artifact cell's stored files belong
 		// to (see CodeRunFiles.ts); the bytes stay in `codeOutputs`.
 		const codeRunFiles = db.collection<CodeRunFiles>("codeRunFiles");
+		// Text web_fetch extracted, per conversation (see WebFetchCache.ts).
+		const webFetchCache = db.collection<WebFetchCacheEntry>("webFetchCache");
 
 		// Collections with secondaryPreferred - heavy reads, can tolerate slight replication lag
 		const secondaryPreferred = ReadPreference.SECONDARY_PREFERRED;
@@ -419,6 +422,7 @@ export class Database {
 			codeExecutionOutputs,
 			codeOutputBucket,
 			codeRunFiles,
+			webFetchCache,
 			migrationResults,
 			semaphores,
 			tools,
@@ -467,6 +471,7 @@ export class Database {
 			config,
 			codeExecutionOutputs,
 			codeRunFiles,
+			webFetchCache,
 			bucketFiles,
 			erasures,
 		} = this.getCollections();
@@ -1003,6 +1008,18 @@ export class Database {
 			.catch((e) => logger.error(e, "Error creating index for codeRunFiles"));
 		// The same retention as the bytes they name, swept with them.
 		void replaceTtlIndex(codeRunFiles, "codeRunFiles");
+
+		// One entry per conversation, owner and URL; the TTL index expires each at
+		// its own `expiresAt` (written from CHAT_WEBFETCH_CACHE_DAYS).
+		webFetchCache
+			.createIndex({ conversationId: 1, userId: 1, url: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for webFetchCache by conversation"));
+		webFetchCache
+			.createIndex({ userId: 1 })
+			.catch((e) => logger.error(e, "Error creating index for webFetchCache by userId"));
+		webFetchCache
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for webFetchCache"));
 
 		codeAudit
 			.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })

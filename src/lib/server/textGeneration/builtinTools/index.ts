@@ -52,6 +52,12 @@ export function getEnabledBuiltinTools(params: {
 	searchBackend?: string;
 	/** The user's web-search setting; on, the search builtin joins any conversation. */
 	webSearchEnabled?: boolean;
+	/**
+	 * Keep what `web_fetch` extracts for the conversation across turns
+	 * (`webFetchCache.ts`). Present means on; `userId` is the owner, absent
+	 * for an anonymous session. Absent means the per-turn cache only.
+	 */
+	webFetchCache?: { userId?: ObjectId };
 	/** URLs from user messages; search results join this set during the run. */
 	allowedFetchUrls?: Set<string>;
 	/** The global tool-approval policy (ADR 0075). Absent means `manual`. */
@@ -225,6 +231,9 @@ export function getEnabledBuiltinTools(params: {
 				toolApprovalPolicy: params.toolApprovalPolicy,
 				approvedTools: params.approvedTools,
 				token: params.token,
+				persist: params.webFetchCache
+					? { conversationId: params.conv._id, userId: params.webFetchCache.userId }
+					: undefined,
 			})
 		);
 	}

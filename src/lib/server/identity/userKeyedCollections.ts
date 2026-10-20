@@ -763,6 +763,18 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (_userId, ctx) => eraseByConversation(collections.codeRunFiles, ctx),
 	},
 	{
+		name: "webFetchCache",
+		owner: "userId, and conversationId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner-or-conversation",
+		ownerField: "userId",
+		// Extracted text of pages the person had the model read: theirs, and
+		// (an anonymous session has no userId) the conversation's.
+		merge: (stray, target) => reassignSimple(collections.webFetchCache, "userId", stray, target),
+		erase: (userId, ctx) =>
+			eraseByOwnerOrConversation(collections.webFetchCache, "userId", userId, ctx),
+	},
+	{
 		name: "mcpElicitations",
 		owner: "conversationId (carries no owner field of its own)",
 		mergeRule: "follows-conversation",

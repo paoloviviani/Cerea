@@ -272,6 +272,7 @@ export async function* runMcpFlow({
 			settingsEnabled: serverSettings?.webSearchEnabled,
 		}),
 		allowedFetchUrls,
+		webFetchCache: { userId: identityUser?._id as import("mongodb").ObjectId | undefined },
 		playwrightReachable,
 		toolApprovalPolicy,
 		approvedTools,
