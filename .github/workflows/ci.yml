@@ -48,17 +48,18 @@ env:
 jobs:
   check:
     if: github.event_name != 'schedule'
-    # ubuntu-latest moved to Ubuntu 26 (kernel 6.19+) on 2026-10-19/20, and the
-    # mongo:8 service container refuses to boot on that kernel
-    # (SERVER-121912: "Linux kernel versions 6.19 and newer has a known
-    # incompatibility with this version of MongoDB"). Pinned to the previous
-    # runner image until the mongo image or the runner situation changes;
-    # every other job passed on the new image, so only this one is pinned.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
       mongo:
-        image: mongo:8
+        # mongo:8 (8.0.x) refuses to boot on Linux kernel 6.19+ (SERVER-121912,
+        # the tcmalloc rseq bug), and since the 20261018.339 runner images both
+        # ubuntu-latest (Ubuntu 26) and ubuntu-24.04 carry such a kernel — a
+        # pin to 24.04 passed at first, then failed the same way, so no runner
+        # image avoids it any more. The 8.2 series boots where 8.0 and the
+        # 8.3/9.0 lines refuse (SERVER-136272: "on 9.0.x and 8.3.x but not
+        # 8.2"), so the service pins to it until 8.0 ships the fixed tcmalloc.
+        image: mongo:8.2
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test"
