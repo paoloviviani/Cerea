@@ -5,6 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.16.2 — 2026-10-20
+
+Pins: Cerea `0.16.2`, Pystino `0.12.0`, Authelia 4.39.22 (unchanged). Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **The gateway console's navigation is a collapsible sidebar.** The bar
+  carried twelve administration links on one row and the wordmark beside
+  them; it now keeps only the title — "Pystino LLM gateway" — and the
+  account, and the sections move to a sidebar that collapses to an icon rail
+  and slides in as a drawer on a phone (ships with gateway 0.12.0).
+- **The administration landing page groups its sections.** The ten cards sit
+  under five categories — Usage & limits, Serving, Privacy, People,
+  Deployment — and the sidebar carries the same grouping; both read one
+  shared list, so they cannot drift apart (ships with gateway 0.12.0).
+
 ## v0.16.1 — 2026-10-20
 
 Pins: Cerea `0.16.1`, Pystino `0.11.1`, Authelia 4.39.22 (unchanged). Update the
