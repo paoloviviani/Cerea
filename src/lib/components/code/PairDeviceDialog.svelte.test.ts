@@ -9,11 +9,12 @@ import { FLAG_CONTROLS, exposedFlags } from "$lib/codeEnrollPolicy";
 /**
  * The enrollment dialog prints the command a person runs on their machine,
  * and offers every enroll flag that sets machine policy so nobody edits the
- * printed command by hand. Pinned here: every exposed flag has a control; a
- * default emits nothing; each control emits exactly its flag; the ceiling
- * table writes the whole set once a row changes; Advanced is collapsed by
- * default yet never hides a choice from the preview; and no word of
- * auto-accept survives.
+ * printed command by hand. Pinned here: every exposed flag has a control; the
+ * untouched dialog prints exactly the defaults — `enroll`'s own, plus the one
+ * deliberate divergence, Bill to my default group ticked; each control emits
+ * exactly its flag; the ceiling table writes the whole set once a row changes;
+ * Advanced is collapsed by default yet never hides a choice from the preview;
+ * and no word of auto-accept survives.
  */
 vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
@@ -45,8 +46,17 @@ function command(screen: Screen): string {
 	return screen.getByTestId("galopin-enroll-command").element().textContent?.trim() ?? "";
 }
 
-/** The command with no policy flag at all: what an untouched dialog prints. */
+/** The command an untouched dialog prints: the plain enroll one plus
+ * `--default-group`, the one policy flag the dialog ticks by default. */
 const PLAIN = buildEnrollCommand({ origin: ORIGIN, issuer: ISSUER, gatewayOrigin: GATEWAY });
+/** The command with no policy flag at all: what the dialog prints with the
+ * billing box unticked — the one control whose default is not enroll's own. */
+const BARE = buildEnrollCommand({
+	origin: ORIGIN,
+	issuer: ISSUER,
+	gatewayOrigin: GATEWAY,
+	billToDefault: false,
+});
 
 /** Advanced's own toggle (other text mentions "Advanced" too). */
 function toggleAdvanced(screen: Screen) {
@@ -72,12 +82,14 @@ function policyPart(screen: Screen): string {
 }
 
 describe("PairDeviceDialog", () => {
-	it("opens with every default, and prints exactly the plain command", async () => {
+	it("opens with every default, and prints exactly the defaults: --default-group, nothing else", async () => {
 		await browserPage.viewport(1200, 1000);
 		const screen = mount();
 		await expect.element(screen.getByText("Pair a machine")).toBeVisible();
 		expect(command(screen)).toBe(PLAIN);
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
+		await openAdvanced(screen);
+		await expect.element(screen.getByTestId("enroll-bill-to-default")).toBeChecked();
 	});
 
 	it("says once, plainly, that these are fixed at enroll", async () => {
@@ -133,7 +145,9 @@ describe("every exposed flag has a control", () => {
 describe("each control emits exactly its flag", () => {
 	const checkboxes: Array<[string, string, string, boolean]> = [
 		// testid, flag, label, needs Advanced open. Terminals, the command shell and
-		// background subagents are on by default: clicking turns them off.
+		// background subagents are on by default: clicking turns them off. The
+		// billing box is not here: it is ticked by default, so clicking REMOVES
+		// its flag, and it has its own test below.
 		["enroll-allow-terminal", "--no-terminal", "terminals off", true],
 		["enroll-allow-project-config", "--allow-project-config", "trust repos", false],
 		["enroll-allow-command-shell", "--no-command-shell", "command shell off", true],
@@ -141,7 +155,6 @@ describe("each control emits exactly its flag", () => {
 		["enroll-no-agent-tools", "--no-agent-tools", "no agent tools", true],
 		["enroll-allow-free-models", "--allow-free-models", "free models", true],
 		["enroll-allow-opencode-provider", "--allow-opencode-provider", "opencode provider", true],
-		["enroll-bill-to-default", "--default-group", "bill to my default group", true],
 		["enroll-no-files", "--no-files", "no files", true],
 		["enroll-no-default-file-deny", "--no-default-file-deny", "no default deny", true],
 	];
@@ -150,11 +163,26 @@ describe("each control emits exactly its flag", () => {
 			const screen = mount();
 			if (advanced) await openAdvanced(screen);
 			await screen.getByTestId(testid).click();
-			expect(policyPart(screen)).toBe(flag);
+			// --default-group was already there: the billing box is ticked
+			// before the click, and stays ticked.
+			expect(policyPart(screen)).toBe(`--default-group ${flag}`);
 			await screen.getByTestId(testid).click();
 			expect(command(screen)).toBe(PLAIN);
 		});
 	}
+
+	it("bill to my default group: ticked by default; unticking removes --default-group alone, ticking again restores it", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await expect.element(screen.getByTestId("enroll-bill-to-default")).toBeChecked();
+		expect(policyPart(screen)).toBe("--default-group");
+		await screen.getByTestId("enroll-bill-to-default").click();
+		expect(policyPart(screen)).toBe("");
+		expect(command(screen)).toBe(BARE);
+		await screen.getByTestId("enroll-bill-to-default").click();
+		expect(policyPart(screen)).toBe("--default-group");
+		expect(command(screen)).toBe(PLAIN);
+	});
 
 	it("Install opencode adds the install line, and is not a policy flag", async () => {
 		const screen = mount();
@@ -162,7 +190,7 @@ describe("each control emits exactly its flag", () => {
 		expect(command(screen)).toContain(
 			` &&\ncurl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} &&\n`
 		);
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 	});
 
 	it("max terminals: shown while terminals are on, emitted when not 8", async () => {
@@ -170,21 +198,21 @@ describe("each control emits exactly its flag", () => {
 		await openAdvanced(screen);
 		const number = screen.getByTestId("enroll-max-terminals");
 		await expect.element(number).toHaveValue(8);
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 		await number.fill("3");
-		expect(policyPart(screen)).toBe("--max-terminals 3");
+		expect(policyPart(screen)).toBe("--default-group --max-terminals 3");
 		await number.fill("8");
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 		// An unusable number says so, and the command keeps the default rather
 		// than print a flag enroll would refuse.
 		await number.fill("0");
 		await expect.element(screen.getByTestId("enroll-max-terminals-problem")).toBeVisible();
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 		// Turning terminals off hides the cap and forgets it in the command.
 		await number.fill("3");
 		await screen.getByTestId("enroll-allow-terminal").click();
 		expect(screen.getByTestId("enroll-max-terminals").elements()).toHaveLength(0);
-		expect(policyPart(screen)).toBe("--no-terminal");
+		expect(policyPart(screen)).toBe("--default-group --no-terminal");
 	});
 
 	it("workspace roots: a repeatable list, one flag per entry, blank rows ignored", async () => {
@@ -194,11 +222,13 @@ describe("each control emits exactly its flag", () => {
 		await list.getByRole("button", { name: "Add" }).click();
 		await list.getByRole("button", { name: "Add" }).click();
 		await list.getByRole("textbox", { name: "Workspace folders. 1" }).fill("/srv/a");
-		expect(policyPart(screen)).toBe("--workspace-root '/srv/a'");
+		expect(policyPart(screen)).toBe("--default-group --workspace-root '/srv/a'");
 		await list.getByRole("textbox", { name: "Workspace folders. 2" }).fill("/srv/b");
-		expect(policyPart(screen)).toBe("--workspace-root '/srv/a' --workspace-root '/srv/b'");
+		expect(policyPart(screen)).toBe(
+			"--default-group --workspace-root '/srv/a' --workspace-root '/srv/b'"
+		);
 		await list.getByRole("button", { name: "Remove workspace folders. 1" }).click();
-		expect(policyPart(screen)).toBe("--workspace-root '/srv/b'");
+		expect(policyPart(screen)).toBe("--default-group --workspace-root '/srv/b'");
 	});
 
 	it("file deny: a repeatable glob list", async () => {
@@ -207,7 +237,7 @@ describe("each control emits exactly its flag", () => {
 		const list = screen.getByTestId("enroll-file-deny");
 		await list.getByRole("button", { name: "Add" }).click();
 		await list.getByRole("textbox", { name: "Hide files. 1" }).fill("*.secret");
-		expect(policyPart(screen)).toBe("--file-deny '*.secret'");
+		expect(policyPart(screen)).toBe("--default-group --file-deny '*.secret'");
 	});
 
 	it("fixed answers: two checkboxes, off by default, replace the old free-form list", async () => {
@@ -228,7 +258,7 @@ describe("each control emits exactly its flag", () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		await screen.getByTestId("enroll-allow-outside-project").click();
-		expect(policyPart(screen)).toBe("--permission-rule 'external_directory=allow'");
+		expect(policyPart(screen)).toBe("--default-group --permission-rule 'external_directory=allow'");
 		await screen.getByTestId("enroll-allow-outside-project").click();
 		expect(command(screen)).toBe(PLAIN);
 	});
@@ -237,7 +267,7 @@ describe("each control emits exactly its flag", () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		await screen.getByTestId("enroll-allow-secret-reads").click();
-		expect(policyPart(screen)).toBe("--permission-rule 'read=allow'");
+		expect(policyPart(screen)).toBe("--default-group --permission-rule 'read=allow'");
 		const label = screen.getByTestId("enroll-allow-secret-reads").element().closest("label");
 		expect(label?.querySelector('[data-risky="true"]')).not.toBeNull();
 		const outside = screen.getByTestId("enroll-allow-outside-project").element().closest("label");
@@ -250,7 +280,7 @@ describe("each control emits exactly its flag", () => {
 		await screen.getByTestId("enroll-allow-secret-reads").click();
 		await screen.getByTestId("enroll-allow-outside-project").click();
 		expect(policyPart(screen)).toBe(
-			"--permission-rule 'external_directory=allow' --permission-rule 'read=allow'"
+			"--default-group --permission-rule 'external_directory=allow' --permission-rule 'read=allow'"
 		);
 	});
 });
@@ -267,7 +297,7 @@ describe("the ceiling", () => {
 		await expect.element(row(screen, "all")).toBeVisible();
 		expect(pressed(screen, "all")).toBeNull();
 		await expect.element(screen.getByTestId("enroll-ceiling-mixed")).toHaveTextContent("bash");
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 	});
 
 	it("has the eight rows under Advanced, with enroll's default: bash asks", async () => {
@@ -285,7 +315,7 @@ describe("the ceiling", () => {
 		];
 		const expected = ["Allow", "Ask", "Allow", "Allow", "Allow", "Allow", "Allow", "Allow"];
 		for (const [i, key] of keys.entries()) expect(pressed(screen, key), key).toBe(expected[i]);
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 	});
 
 	it("All tools sets every row with one click, and prints the whole set", async () => {
@@ -293,12 +323,13 @@ describe("the ceiling", () => {
 		await pick(screen, "all", "Ask");
 		expect(pressed(screen, "all")).toBe("Ask");
 		expect(policyPart(screen)).toBe(
-			"--permission-max edit=ask --permission-max bash=ask --permission-max webfetch=ask " +
+			"--default-group " +
+				"--permission-max edit=ask --permission-max bash=ask --permission-max webfetch=ask " +
 				"--permission-max task=ask --permission-max session_spawn=ask --permission-max session_send=ask " +
 				"--permission-max session_read=ask --permission-max schedule=ask"
 		);
 		await pick(screen, "all", "Allow");
-		expect(policyPart(screen)).toBe("--permission-max bash=allow");
+		expect(policyPart(screen)).toBe("--default-group --permission-max bash=allow");
 		await expect.element(screen.getByTestId("enroll-bash-allow-warning")).toBeVisible();
 	});
 
@@ -306,11 +337,13 @@ describe("the ceiling", () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		await pick(screen, "edit", "Ask");
-		expect(policyPart(screen)).toBe("--permission-max edit=ask --permission-max bash=ask");
+		expect(policyPart(screen)).toBe(
+			"--default-group --permission-max edit=ask --permission-max bash=ask"
+		);
 		await expect.element(screen.getByTestId("enroll-ceiling-edited")).toBeVisible();
 		// Back to the default: nothing again.
 		await pick(screen, "edit", "Allow");
-		expect(policyPart(screen)).toBe("");
+		expect(policyPart(screen)).toBe("--default-group");
 		expect(screen.getByTestId("enroll-ceiling-edited").elements()).toHaveLength(0);
 	});
 
@@ -319,7 +352,7 @@ describe("the ceiling", () => {
 		await openAdvanced(screen);
 		expect(screen.getByTestId("enroll-bash-allow-warning").elements()).toHaveLength(0);
 		await pick(screen, "bash", "Allow");
-		expect(policyPart(screen)).toBe("--permission-max bash=allow");
+		expect(policyPart(screen)).toBe("--default-group --permission-max bash=allow");
 		await expect.element(screen.getByTestId("enroll-bash-allow-warning")).toBeVisible();
 	});
 
@@ -350,7 +383,7 @@ describe("Advanced", () => {
 		expect((screen.getByTestId("enroll-advanced").element() as HTMLDetailsElement).open).toBe(
 			false
 		);
-		expect(policyPart(screen)).toBe("--no-command-shell --no-files");
+		expect(policyPart(screen)).toBe("--default-group --no-command-shell --no-files");
 		await expect
 			.element(screen.getByTestId("enroll-advanced-count"))
 			.toHaveTextContent("2 changed");
@@ -363,7 +396,7 @@ describe("Advanced", () => {
 		await list.getByRole("button", { name: "Add" }).click();
 		await list.getByRole("textbox", { name: "Workspace folders. 1" }).fill("/srv/a");
 		toggleAdvanced(screen);
-		expect(policyPart(screen)).toBe("--workspace-root '/srv/a'");
+		expect(policyPart(screen)).toBe("--default-group --workspace-root '/srv/a'");
 	});
 });
 
@@ -374,7 +407,7 @@ describe("quoting in the preview", () => {
 		const list = screen.getByTestId("enroll-workspace-roots");
 		await list.getByRole("button", { name: "Add" }).click();
 		await list.getByRole("textbox", { name: "Workspace folders. 1" }).fill("/home/me/my projects");
-		expect(policyPart(screen)).toBe("--workspace-root '/home/me/my projects'");
+		expect(policyPart(screen)).toBe("--default-group --workspace-root '/home/me/my projects'");
 	});
 
 	it("a glob with * is quoted so the shell leaves it alone", async () => {
@@ -383,7 +416,7 @@ describe("quoting in the preview", () => {
 		const list = screen.getByTestId("enroll-file-deny");
 		await list.getByRole("button", { name: "Add" }).click();
 		await list.getByRole("textbox", { name: "Hide files. 1" }).fill("config/*.pem");
-		expect(policyPart(screen)).toBe("--file-deny 'config/*.pem'");
+		expect(policyPart(screen)).toBe("--default-group --file-deny 'config/*.pem'");
 	});
 });
 

@@ -7,8 +7,10 @@
  * when a flag is added without being classified there). `enrollFlags.spec.ts`
  * compares this copy with that file, so the two cannot drift apart silently;
  * it also checks that every `exposed: true` flag has a dialog control
- * (`codeEnrollPolicy.ts`'s `FLAG_CONTROLS`) and that every default emits
- * nothing.
+ * (`codeEnrollPolicy.ts`'s `FLAG_CONTROLS`) and that the dialog's defaults
+ * print exactly what they should: `enroll`'s own defaults print nothing, and
+ * the one deliberate divergence — `default-group`, whose dialog control
+ * starts ticked — prints its flag (see `codeEnrollPolicy.ts`).
  *
  * `kind` is how the flag takes its value: `bool` (present or absent), `int`,
  * `string`, `list` (repeatable, one value each) or `keyAction` (repeatable

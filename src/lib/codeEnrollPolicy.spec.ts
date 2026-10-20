@@ -19,14 +19,18 @@ const choose = (over: Partial<EnrollPolicyChoices>): EnrollPolicyChoices => ({
 	...defaultPolicyChoices(),
 	...over,
 });
+// Every choice set starts from the dialog's own defaults, and the dialog now
+// opens with the billing box ticked: the expected arrays below carry its
+// --default-group first (its default is pinned in "the dialog's defaults"
+// and "billing to the console default").
 const flags = (over: Partial<EnrollPolicyChoices>) => policyFlagArgs(choose(over));
 
-describe("defaults emit nothing", () => {
-	it("an untouched dialog adds no policy flag at all", () => {
-		expect(policyFlagArgs(defaultPolicyChoices())).toEqual([]);
+describe("the dialog's defaults", () => {
+	it("an untouched dialog adds exactly one policy flag: --default-group, the one default the dialog deliberately does not share with enroll", () => {
+		expect(policyFlagArgs(defaultPolicyChoices())).toEqual(["--default-group"]);
 	});
 
-	it("the command is the plain enroll one, byte for byte", () => {
+	it("the default choices are exactly what the command already prints, byte for byte", () => {
 		const base = {
 			origin: "https://cerea.example.org/chat",
 			issuer: "https://idp.example.org",
@@ -81,27 +85,47 @@ describe("defaults emit nothing", () => {
 
 describe("each control emits exactly its flag", () => {
 	const cases: Array<[string, Partial<EnrollPolicyChoices>, string[]]> = [
-		["terminal off", { allowTerminal: false }, ["--no-terminal"]],
-		["trust repos", { allowProjectConfig: true }, ["--allow-project-config"]],
-		["command shell off", { allowCommandShell: false }, ["--no-command-shell"]],
+		["terminal off", { allowTerminal: false }, ["--default-group", "--no-terminal"]],
+		["trust repos", { allowProjectConfig: true }, ["--default-group", "--allow-project-config"]],
+		["command shell off", { allowCommandShell: false }, ["--default-group", "--no-command-shell"]],
 		[
 			"background subagents off",
 			{ allowBackgroundSubagents: false },
-			["--no-background-subagents"],
+			["--default-group", "--no-background-subagents"],
 		],
-		["no agent tools", { noAgentTools: true }, ["--no-agent-tools"]],
-		["free models", { allowFreeModels: true }, ["--allow-free-models"]],
-		["opencode provider", { allowOpencodeProvider: true }, ["--allow-opencode-provider"]],
-		["no files", { noFiles: true }, ["--no-files"]],
-		["no default file deny", { noDefaultFileDeny: true }, ["--no-default-file-deny"]],
-		["a workspace root", { workspaceRoots: ["/srv/work"] }, ["--workspace-root", "'/srv/work'"]],
-		["a file deny glob", { fileDeny: ["*.secret"] }, ["--file-deny", "'*.secret'"]],
+		["no agent tools", { noAgentTools: true }, ["--default-group", "--no-agent-tools"]],
+		["free models", { allowFreeModels: true }, ["--default-group", "--allow-free-models"]],
+		[
+			"opencode provider",
+			{ allowOpencodeProvider: true },
+			["--default-group", "--allow-opencode-provider"],
+		],
+		["no files", { noFiles: true }, ["--default-group", "--no-files"]],
+		[
+			"no default file deny",
+			{ noDefaultFileDeny: true },
+			["--default-group", "--no-default-file-deny"],
+		],
+		[
+			"a workspace root",
+			{ workspaceRoots: ["/srv/work"] },
+			["--default-group", "--workspace-root", "'/srv/work'"],
+		],
+		[
+			"a file deny glob",
+			{ fileDeny: ["*.secret"] },
+			["--default-group", "--file-deny", "'*.secret'"],
+		],
 		[
 			"work outside the project",
 			{ allowOutsideProject: true },
-			["--permission-rule", "'external_directory=allow'"],
+			["--default-group", "--permission-rule", "'external_directory=allow'"],
 		],
-		["secret reads", { allowSecretReads: true }, ["--permission-rule", "'read=allow'"]],
+		[
+			"secret reads",
+			{ allowSecretReads: true },
+			["--default-group", "--permission-rule", "'read=allow'"],
+		],
 		["bill to the console default", { billToDefault: true }, ["--default-group"]],
 	];
 	for (const [label, over, expected] of cases) {
@@ -111,15 +135,22 @@ describe("each control emits exactly its flag", () => {
 	}
 
 	it("max terminals: a number only with terminals on, only when not 8", () => {
-		expect(flags({ allowTerminal: true, maxTerminals: 3 })).toEqual(["--max-terminals", "3"]);
-		expect(flags({ allowTerminal: true, maxTerminals: 8 })).toEqual([]);
+		expect(flags({ allowTerminal: true, maxTerminals: 3 })).toEqual([
+			"--default-group",
+			"--max-terminals",
+			"3",
+		]);
+		expect(flags({ allowTerminal: true, maxTerminals: 8 })).toEqual(["--default-group"]);
 		// A number left behind in a hidden field is not a flag.
-		expect(flags({ allowTerminal: false, maxTerminals: 3 })).toEqual(["--no-terminal"]);
+		expect(flags({ allowTerminal: false, maxTerminals: 3 })).toEqual([
+			"--default-group",
+			"--no-terminal",
+		]);
 	});
 
 	it("max terminals: an unusable number emits nothing rather than a refused enroll", () => {
 		for (const bad of [0, -1, 2.5, Number.NaN]) {
-			expect(flags({ allowTerminal: true, maxTerminals: bad })).toEqual([]);
+			expect(flags({ allowTerminal: true, maxTerminals: bad })).toEqual(["--default-group"]);
 			expect(maxTerminalsProblem(bad)).not.toBeNull();
 		}
 		expect(maxTerminalsProblem(1)).toBeNull();
@@ -127,6 +158,7 @@ describe("each control emits exactly its flag", () => {
 
 	it("repeatable lists emit one flag per entry, in order, skipping blanks", () => {
 		expect(flags({ workspaceRoots: ["/a", "  ", "/b"], fileDeny: ["", "x*", "y"] })).toEqual([
+			"--default-group",
 			"--workspace-root",
 			"'/a'",
 			"--workspace-root",
@@ -140,6 +172,7 @@ describe("each control emits exactly its flag", () => {
 
 	it("both fixed answers emit together, outside-project first", () => {
 		expect(flags({ allowSecretReads: true, allowOutsideProject: true })).toEqual([
+			"--default-group",
 			"--permission-rule",
 			"'external_directory=allow'",
 			"--permission-rule",
@@ -170,6 +203,23 @@ describe("each control emits exactly its flag", () => {
 });
 
 describe("billing to the console default", () => {
+	it("the dialog's default: the generated command carries --default-group, never --group beside it", () => {
+		// Element equality, not substring: a future group picker must not
+		// print the two ways of naming billing together (enroll refuses the
+		// pair) -- and "--default-group" itself is not "--group", so the
+		// string check below means what it says.
+		const args = policyFlagArgs(defaultPolicyChoices());
+		expect(args).toContain("--default-group");
+		expect(args).not.toContain("--group");
+		expect(
+			buildEnrollCommand({
+				origin: "https://cerea.example.org/chat",
+				issuer: "https://idp.example.org",
+				gatewayOrigin: "https://gateway.example.org",
+			})
+		).toContain("--default-group");
+	});
+
 	it("never next to --group: the two ways of naming billing contradict each other", () => {
 		// The dialog has no group picker today, so this pins the shape rather
 		// than a live bug: whichever control grows one, the two flags must
@@ -185,16 +235,17 @@ describe("billing to the console default", () => {
 		expect(policyFlagArgs(everything)).not.toContain("--group");
 	});
 
-	it("counts in the Advanced badge", () => {
-		expect(advancedChangedCount(choose({ billToDefault: true }))).toBe(1);
+	it("counts in the Advanced badge, when unticked: ticked is the dialog's own default", () => {
+		expect(advancedChangedCount(choose({ billToDefault: false }))).toBe(1);
+		expect(advancedChangedCount(choose({ billToDefault: true }))).toBe(0);
 	});
 });
 
 describe("the ceiling table", () => {
-	it("an unchanged table emits nothing", () => {
+	it("an unchanged table emits nothing (the billing default aside)", () => {
 		expect(ceilingChanged({ ...DEFAULT_CEILING })).toBe(false);
 		expect(ceilingPairs({ ...DEFAULT_CEILING })).toEqual([]);
-		expect(flags({ ceiling: { ...DEFAULT_CEILING } })).toEqual([]);
+		expect(flags({ ceiling: { ...DEFAULT_CEILING } })).toEqual(["--default-group"]);
 	});
 
 	it("one changed row emits the FULL set, defaults included", () => {
@@ -202,6 +253,7 @@ describe("the ceiling table", () => {
 		expect(ceilingChanged(ceiling)).toBe(true);
 		expect(ceilingPairs(ceiling)).toEqual(["edit=ask", "bash=ask"]);
 		expect(flags({ ceiling })).toEqual([
+			"--default-group",
 			"--permission-max",
 			"edit=ask",
 			"--permission-max",
@@ -249,6 +301,7 @@ describe("the ceiling table", () => {
 describe("quoting", () => {
 	it("a path with spaces reaches enroll as one argument", () => {
 		expect(flags({ workspaceRoots: ["/home/me/my projects"] })).toEqual([
+			"--default-group",
 			"--workspace-root",
 			"'/home/me/my projects'",
 		]);
@@ -256,6 +309,7 @@ describe("quoting", () => {
 
 	it("a glob is quoted so the shell cannot expand it", () => {
 		expect(flags({ fileDeny: ["*.pem", "config/prod?.yml", "[a-z]*"] })).toEqual([
+			"--default-group",
 			"--file-deny",
 			"'*.pem'",
 			"--file-deny",
@@ -268,6 +322,7 @@ describe("quoting", () => {
 	it("an embedded single quote, a dollar and a backtick stay inert", () => {
 		expect(quoteShellArg("it's")).toBe(`'it'"'"'s'`);
 		expect(flags({ workspaceRoots: ["/a/$(rm -rf ~)/`x`"] })).toEqual([
+			"--default-group",
 			"--workspace-root",
 			"'/a/$(rm -rf ~)/`x`'",
 		]);
@@ -286,7 +341,11 @@ describe("quoting", () => {
 	});
 
 	it("trims stray spaces around a typed value, not inside it", () => {
-		expect(flags({ workspaceRoots: ["  /a b  "] })).toEqual(["--workspace-root", "'/a b'"]);
+		expect(flags({ workspaceRoots: ["  /a b  "] })).toEqual([
+			"--default-group",
+			"--workspace-root",
+			"'/a b'",
+		]);
 	});
 });
 

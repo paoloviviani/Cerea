@@ -19,13 +19,18 @@ describe("buildEnrollCommand", () => {
 	it("chains install, enroll and run, one step and one flag per line, default client id omitted", () => {
 		const command = buildEnrollCommand(BASE_OPTIONS);
 
+		// The dialog ticks "Bill to my default group" by default, so the
+		// printed command carries --default-group even untouched (enroll's
+		// own default stays off; the divergence is the dialog's, pinned in
+		// codeEnrollPolicy.spec.ts).
 		expect(command).toBe(
 			[
 				"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh &&",
 				`${GALOPIN_BIN} enroll \\`,
 				"  --issuer 'https://idp.example.org' \\",
 				"  --gateway 'https://gateway.example.org' \\",
-				"  --cerea 'https://cerea.example.org/chat' &&",
+				"  --cerea 'https://cerea.example.org/chat' \\",
+				"  --default-group &&",
 				`${GALOPIN_BIN} run`,
 			].join("\n")
 		);
@@ -76,7 +81,7 @@ describe("buildEnrollCommand", () => {
 
 		expect(on).not.toContain("terminal");
 		expect(off).toContain(
-			`  --cerea 'https://cerea.example.org/chat' \\\n  --no-terminal &&\n${GALOPIN_BIN} run`
+			`  --cerea 'https://cerea.example.org/chat' \\\n  --default-group \\\n  --no-terminal &&\n${GALOPIN_BIN} run`
 		);
 	});
 
@@ -99,7 +104,9 @@ describe("buildEnrollCommand", () => {
 			clientId: "custom-client",
 			allowTerminal: false,
 		});
-		expect(command).toContain("  --client-id 'custom-client' \\\n  --no-terminal");
+		expect(command).toContain(
+			"  --client-id 'custom-client' \\\n  --default-group \\\n  --no-terminal"
+		);
 	});
 
 	it("parses as one POSIX command list: every line but the last continues", () => {
