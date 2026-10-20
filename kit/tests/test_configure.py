@@ -1177,6 +1177,111 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestExclusiveModes(Deploy):
+    """Pystino mode (personal tokens, no shared key) and standalone mode (one
+    shared key, no personal tokens) are never mixed (issue #16)."""
+
+    GENERIC = ("--preset", "generic", "--idp", "external", "--oidc-issuer", "https://id.example.org",
+               "--oidc-chat-client-secret", "c", "--oidc-console-client-id", "x",
+               "--oidc-console-client-secret", "y", "--admin-email", "ops@example.org",
+               "--upstream-api-key", "k")
+
+    def configure(self, *extra):
+        return self.run_cli("--non-interactive", "--origin", "https://chat.example.org",
+                            "--admin-email", "ops@example.org", *extra)
+
+    def write_env(self, **changes):
+        """A written .env, then hand-edited the way an older install was."""
+        self.configure("--tls", "internal")
+        values = self.env()
+        values.update(changes)
+        (self.dir / ".env").write_text(cfg.render(TEMPLATE, values, cfg.HEADER), encoding="utf-8")
+
+    def test_pystino_presets_never_write_a_shared_key(self):
+        extra = {"satellite": dict(central_url="https://central.example.org", oidc_chat_client_secret="c")}
+        for name, preset in cfg.PRESETS.items():
+            if name == "generic":
+                continue
+            with self.subTest(preset=name):
+                v = build(preset=name, **extra.get(name, {})).values
+                self.assertFalse(v.get("CHAT_OPENAI_API_KEY"))
+                self.assertIn(v.get("CHAT_USE_USER_TOKEN", "true"), ("true",))
+                self.assertEqual(cfg.model_mode_problems(v), [])
+
+    def test_a_pystino_preset_drops_a_shared_key_an_older_env_held(self):
+        v = build(existing={"CHAT_OPENAI_API_KEY": "sk-old", "CHAT_USE_USER_TOKEN": "false"}).values
+        self.assertFalse(v.get("CHAT_OPENAI_API_KEY"))
+        self.assertEqual(v.get("CHAT_USE_USER_TOKEN", "true"), "true")
+
+    def test_generic_writes_a_key_with_personal_tokens_off(self):
+        v = build(preset="generic", idp="external", oidc_issuer="https://id.example.org",
+                  oidc_chat_client_secret="c", upstream_api_key="k").values
+        self.assertEqual((v["CHAT_OPENAI_API_KEY"], v["CHAT_USE_USER_TOKEN"]), ("k", "false"))
+        self.assertEqual(cfg.model_mode_problems(v), [])
+        v["CHAT_USE_USER_TOKEN"] = "true"
+        self.assertTrue(cfg.model_mode_problems(v))
+
+    def test_a_mix_is_detected(self):
+        self.assertTrue(cfg.model_mode_problems({"PYSTINO_PRESET": "team", "CHAT_OPENAI_API_KEY": "k"}))
+        self.assertTrue(cfg.model_mode_problems(
+            {"PYSTINO_PRESET": "team", "CHAT_OPENAI_API_KEY": "k", "CHAT_USE_USER_TOKEN": "true"}))
+        self.assertTrue(cfg.model_mode_problems({"PYSTINO_PRESET": "team", "CHAT_USE_USER_TOKEN": "false"}))
+        self.assertTrue(cfg.model_mode_problems({"PYSTINO_PRESET": "generic", "CHAT_USE_USER_TOKEN": "true"}))
+        self.assertFalse(cfg.model_mode_problems({"PYSTINO_PRESET": "team"}))
+
+    def test_check_flags_a_mixed_env(self):
+        self.write_env(CHAT_OPENAI_API_KEY="sk-old")
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        self.assertTrue(any("CHAT_OPENAI_API_KEY" in e and "shared key" in e for e in report.errors), report.errors)
+
+    def test_configure_says_so_and_fixes_a_mixed_env(self):
+        self.write_env(CHAT_OPENAI_API_KEY="sk-old")
+        code, out, err = self.configure("--tls", "internal")
+        self.assertEqual(code, 0, err)
+        self.assertIn("mixes Pystino mode and standalone mode", out)
+        self.assertIn("empty CHAT_OPENAI_API_KEY", out)
+        self.assertFalse(self.env().get("CHAT_OPENAI_API_KEY"))
+        self.assertEqual(cfg.check(self.dir, network=False, probe_host=False).errors, [])
+
+    def test_configure_offers_the_fix_interactively_and_stops_on_no(self):
+        self.write_env(CHAT_OPENAI_API_KEY="sk-old")
+        before = (self.dir / ".env").read_text()
+        with mock.patch.object(cfg.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(cfg, "interview", side_effect=lambda a, g, e: a), \
+                mock.patch("builtins.input", return_value="no"):
+            code, out, err = self.run_cli("--tls", "internal")
+        self.assertEqual(code, 2)
+        self.assertIn("Fix it", out)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+
+    def test_a_clean_env_gets_no_mix_notice(self):
+        self.configure("--tls", "internal")
+        code, out, _ = self.configure("--tls", "internal")
+        self.assertEqual(code, 0)
+        self.assertNotIn("mixes", out)
+
+    def test_generic_with_personal_tokens_is_fixed_to_off(self):
+        self.configure(*self.GENERIC)
+        values = self.env()
+        values["CHAT_USE_USER_TOKEN"] = "true"
+        (self.dir / ".env").write_text(cfg.render(TEMPLATE, values, cfg.HEADER), encoding="utf-8")
+        code, out, err = self.run_cli("--non-interactive", "--origin", "https://chat.example.org",
+                                      *self.GENERIC[:-2])
+        self.assertEqual(code, 0, err)
+        self.assertIn("mixes", out)
+        self.assertEqual(self.env()["CHAT_USE_USER_TOKEN"], "false")
+
+    def test_set_refuses_to_create_a_mix(self):
+        self.configure("--tls", "internal")
+        before = (self.dir / ".env").read_text()
+        code, _, err = self.run_cli("--set", "CHAT_OPENAI_API_KEY=sk-x")
+        self.assertEqual(code, 2)
+        self.assertIn("would mix", err)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+        # ...but a --set that does not add a problem still works.
+        self.assertEqual(self.run_cli("--set", "PYSTINO_REGISTRY=local")[0], 0)
+
+
 class TestJoinMode(unittest.TestCase):
     """ADR 0095: the who-may-jay answers ./configure writes."""
 

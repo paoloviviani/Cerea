@@ -5,6 +5,7 @@ import { startMachineRevalidationLoop } from "$lib/server/code/machines";
 import "$lib/server/code/scheduleAgentExecutor";
 import { ScheduleRunner } from "$lib/server/schedules/scheduler";
 import { initExitHandler } from "$lib/server/exitHandler";
+import { assertModelModeValid } from "$lib/server/modelMode";
 import { assertOcrConfigValid } from "$lib/server/files/extractDocument";
 import { configuredBackend } from "$lib/server/fetching";
 import { checkAndRunMigrations } from "$lib/migrations/migrations";
@@ -29,6 +30,11 @@ export async function initServer(): Promise<void> {
 	// A direct OCR endpoint with no model named would otherwise surface as a
 	// 503 on somebody's first attachment; this fails the boot instead.
 	assertOcrConfigValid();
+
+	// One mode, never a mix (#16): personal tokens to the gateway only, or one
+	// shared key to one endpoint. Refuses to boot on a mix, naming the setting.
+	const mode = assertModelModeValid(config);
+	logger.info({ mode }, "[models] Model mode");
 
 	// Ensure legacy env expected by some libs: map OPENAI_API_KEY -> HF_TOKEN if absent
 	const canonicalToken = config.OPENAI_API_KEY || config.HF_TOKEN;

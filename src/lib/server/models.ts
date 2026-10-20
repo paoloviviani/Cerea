@@ -9,14 +9,9 @@ import { setMlAssistantCatalog } from "./mlAssistantModels";
 import { logger } from "$lib/server/logger";
 import { preservesReasoningByDefault } from "$lib/server/reasoningPolicy";
 import { makeRouterEndpoint } from "$lib/server/router/endpoint";
+import { assertModelModeValid, isPystinoMode, sanitizeJSONEnv } from "$lib/server/modelMode";
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
-
-const sanitizeJSONEnv = (val: string, fallback: string) => {
-	const raw = (val ?? "").trim();
-	const unquoted = raw.startsWith("`") && raw.endsWith("`") ? raw.slice(1, -1) : raw;
-	return unquoted || fallback;
-};
 
 const modelConfig = z.object({
 	/** Used as an identifier in DB */
@@ -287,11 +282,15 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 		const baseURL = openaiBaseUrl;
 		logger.info({ baseURL }, "[models] Using OpenAI-compatible base URL");
 
-		// Canonical auth token is OPENAI_API_KEY; keep HF_TOKEN as legacy alias
-		const authToken = config.OPENAI_API_KEY || config.HF_TOKEN;
+		// Pystino mode never sends a shared key: the catalogue is fetched without
+		// one (the gateway answers /v1/models publicly, ADR 0081) and filtered per
+		// person afterwards (`visibleModels`). A key here would also hide models
+		// people are entitled to. Standalone mode has the shared key and uses it.
+		// Canonical auth token is OPENAI_API_KEY; keep HF_TOKEN as legacy alias.
+		const authToken = isPystinoMode(config) ? undefined : config.OPENAI_API_KEY || config.HF_TOKEN;
 
-		// Use auth token from the start if available to avoid rate limiting issues
-		// Some APIs rate-limit unauthenticated requests more aggressively
+		// Standalone: use the key from the start to avoid rate limiting, since
+		// some APIs rate-limit unauthenticated requests more aggressively.
 		const response = await fetch(`${baseURL}/models`, {
 			headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
 		});
@@ -605,6 +604,7 @@ export const ensureModelsFresh = async (): Promise<ProcessedModel[]> => {
 // operator adds a provider through the console — the console the chat must be
 // up to serve.
 if (!building) {
+	assertModelModeValid(config);
 	await publishModels();
 }
 

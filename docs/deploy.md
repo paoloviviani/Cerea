@@ -63,6 +63,11 @@ sign in through the gateway and inference bills to _them_:
   `USE_USER_TOKEN` unset or `false`, `OPENAI_API_KEY` set (one shared
   key), and OIDC variables for your own identity provider.
 
+The two never mix: the chat refuses to start with a shared key beside
+`USE_USER_TOKEN=true`, or with a `MODELS` override that sends a model
+somewhere other than the gateway in the first mode
+([Configuration](configuration.md#two-modes-never-a-mix)).
+
 In both: `MONGODB_URL`, and `CHAT_SECRET_KEY` (the key that encrypts
 connector credentials at rest — unset, adding a connector fails
 deliberately). The fork's own variables are on

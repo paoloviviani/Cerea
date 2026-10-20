@@ -92,6 +92,16 @@ For scripted installs, every question has a flag:
 A preset only chooses compose profiles and feature switches in `.env`. You can
 change either afterwards.
 
+**Pystino mode or standalone mode, never both.** Every preset but `generic`
+runs the chat in Pystino mode: each person's own token to the gateway, and no
+shared key (`CHAT_OPENAI_API_KEY` stays empty). `generic` is standalone mode:
+one shared key to one endpoint, with personal tokens off. `./configure` writes
+only one of the two, `./configure --check` reports a mix as an error, and
+`./configure --set` refuses to create one. The chat itself refuses to start on a
+mix ([Configuration](https://paoloviviani.github.io/Cerea/configuration/#two-modes-never-a-mix)).
+An `.env` from an older install that mixes them: run `./configure`, which says
+so and offers the fix.
+
 ## Upgrading
 
 ```sh

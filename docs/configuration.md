@@ -25,8 +25,39 @@ running, before any of the fork's variables below matter:
 | Variable              | What it decides                                                                                                                                                                                                                                                                                                                                                                |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `OPENAI_BASE_URL`     | Where inference goes: a Pystino gateway's `/v1`, or any OpenAI-compatible endpoint.                                                                                                                                                                                                                                                                                            |
-| `USE_USER_TOKEN`      | With `OPENAI_BASE_URL` set, `true` makes this a **gateway deployment**: people sign in through the gateway and every inference call carries their own token, so quotas and the ledger are theirs. Unset or `false` means one shared `OPENAI_API_KEY` and no per-person billing. A hand-built chat pointed at Pystino without this silently bills everything to the shared key. |
+| `USE_USER_TOKEN`      | Names the mode (below). `true` is **Pystino mode**: people sign in through the gateway and every inference call carries their own token, so quotas and the ledger are theirs. Unset or `false` is **standalone mode**: one shared `OPENAI_API_KEY` and no per-person billing. A hand-built chat pointed at Pystino without `true` silently bills everything to the shared key. |
 | `OPENID_PROVIDER_URL` | The identity provider people sign in with. The machine agent's issuer (`CODE_MACHINE_ISSUER`) defaults to it.                                                                                                                                                                                                                                                                  |
+
+### Two modes, never a mix
+
+The chat reaches models in exactly one of two ways, decided by `USE_USER_TOKEN`
+(no other setting names the mode):
+
+|                               | **Pystino mode** (`USE_USER_TOKEN=true`)                                        | **Standalone mode** (unset or not `true`) |
+| ----------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------- |
+| Credential                    | each person's own sign-in token, only                                           | one shared `OPENAI_API_KEY`, only         |
+| Endpoints                     | the gateway at `OPENAI_BASE_URL`, for every model, including `MODELS` overrides | one OpenAI-compatible endpoint            |
+| `OPENAI_API_KEY` / `HF_TOKEN` | must be empty                                                                   | the shared key                            |
+| Boot catalogue                | fetched with no key, then filtered per person and billing group                 | fetched with the shared key               |
+
+A mix either bypasses the gateway's per-person access, billing and redaction,
+or hides models people are entitled to, so **the chat refuses to start** on
+one, and the error names the setting to change:
+
+- `OPENAI_API_KEY` (or the legacy `HF_TOKEN`) set while `USE_USER_TOKEN=true`:
+  empty it, or set `USE_USER_TOKEN=false` for a standalone endpoint.
+- In Pystino mode, a `MODELS` entry whose `endpoints` name a `baseURL` other
+  than `OPENAI_BASE_URL` (an endpoint with no `baseURL` counts: it defaults to
+  `api.openai.com`), or carry their own `apiKey`: remove `endpoints` from that
+  entry. Overrides that only set flags such as `supportsArtifacts` are fine.
+- `USE_USER_TOKEN=true` with no `OPENAI_BASE_URL`: there is no gateway to
+  present tokens to.
+
+An install from before this rule that mixed the two fails to start after
+upgrading until one of those is changed. With the deploy kit, run
+`./configure`: it reports the mix and offers the fix. It can only write one
+mode: the `generic` preset writes a shared key with personal tokens off, every
+other preset writes no key.
 
 The [Deploying](deploy.md) page shows the two complete variable sets, for a
 chat against Pystino and for a chat against any other endpoint.
