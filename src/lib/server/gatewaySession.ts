@@ -121,6 +121,33 @@ async function foldMergedIdentities(
 	await collections.users.updateOne({ _id: targetId }, { $set: { lastMergeSyncAt: mergedAt } });
 }
 
+/** The folds in flight, by target user. A fold is launched off the request
+ * path and not awaited by it, so this is the one place that knows about it:
+ * a second check for the same user while one is running joins it instead of
+ * starting a concurrent merge of the same strays, and `settleGatewayFolds`
+ * lets a test (or a shutdown) wait on the real completion signal. */
+const foldsInFlight = new Map<string, Promise<void>>();
+
+function launchFold(
+	targetId: ObjectId,
+	token: string,
+	options: GatewayIdentityOptions,
+	mergedAt: Date
+): void {
+	const key = targetId.toString();
+	if (foldsInFlight.has(key)) return;
+	const fold = foldMergedIdentities(targetId, token, options, mergedAt)
+		.catch((err) => logger.warn({ err }, "gateway_session_fold_failed"))
+		.finally(() => foldsInFlight.delete(key));
+	foldsInFlight.set(key, fold);
+}
+
+/** Resolves once every background fold launched so far has finished
+ * (successfully or not; failures are logged by the fold itself). */
+export async function settleGatewayFolds(): Promise<void> {
+	while (foldsInFlight.size > 0) await Promise.all([...foldsInFlight.values()]);
+}
+
 export async function gatewaySessionCheck(
 	sessionId: string,
 	token: string,
@@ -186,9 +213,7 @@ export async function gatewaySessionCheck(
 			if (user && body.merged_at) {
 				const mergedAt = new Date(body.merged_at);
 				if (!user.lastMergeSyncAt || mergedAt.getTime() > user.lastMergeSyncAt.getTime()) {
-					foldMergedIdentities(user._id, token, gwOptions, mergedAt).catch((err) =>
-						logger.warn({ err }, "gateway_session_fold_failed")
-					);
+					launchFold(user._id, token, gwOptions, mergedAt);
 				}
 			}
 		}

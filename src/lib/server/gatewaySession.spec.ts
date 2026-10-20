@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ObjectId } from "mongodb";
 
 import { collections, ready } from "$lib/server/database";
-import { forgetGatewaySession, gatewaySessionCheck } from "./gatewaySession";
+import { forgetGatewaySession, gatewaySessionCheck, settleGatewayFolds } from "./gatewaySession";
 
 function fakeFetch(status: number, body: unknown = {}) {
 	let calls = 0;
@@ -229,8 +229,8 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		const answer = await gatewaySessionCheck(sessionId, "tok", { ...base, fetchImpl });
 		expect(answer).toEqual({ kind: "valid", isAdmin: false, groups: [], capabilities: "absent" });
 
-		// The fold is launched in the background; give it a turn to run.
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		// The fold is launched in the background; wait for it to finish.
+		await settleGatewayFolds();
 
 		expect(await collections.users.findOne({ _id: strayId })).toBeNull();
 		const movedConv = await collections.conversations.findOne({ _id: conv });
@@ -238,6 +238,45 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		const target = await collections.users.findOne({ _id: userId });
 		expect(target?.lastMergeSyncAt?.toISOString()).toBe("2026-01-01T00:00:00.000Z");
 
+		forgetGatewaySession(sessionId);
+	});
+
+	it("runs one fold at a time per user: a second check joins the one in flight", async () => {
+		const { sessionId, gatewayUserId } = await makeSession("gw-5b");
+		let identityFetches = 0;
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const fetchImpl = (async (input: RequestInfo | URL) => {
+			const url = new URL(typeof input === "string" ? input : input.toString());
+			const p = url.pathname.replace(/^.*\/v1/, "");
+			if (p === "/me/identities") {
+				identityFetches++;
+				await gate;
+				return new Response(
+					JSON.stringify({ id: gatewayUserId, identities: [], merged_from: [] }),
+					{ status: 200 }
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					id: gatewayUserId,
+					is_admin: false,
+					groups: [],
+					merged_at: "2026-02-01T00:00:00Z",
+				}),
+				{ status: 200 }
+			);
+		}) as typeof fetch;
+
+		await gatewaySessionCheck(sessionId, "tok", { ...base, fetchImpl });
+		// Drop the cache so the second check really asks again, while the
+		// first fold is parked on the gate and lastMergeSyncAt is still unset.
+		forgetGatewaySession(sessionId);
+		await gatewaySessionCheck(sessionId, "tok", { ...base, fetchImpl });
+		release();
+		await settleGatewayFolds();
+
+		expect(identityFetches).toBe(1);
 		forgetGatewaySession(sessionId);
 	});
 
