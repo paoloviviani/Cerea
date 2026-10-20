@@ -200,7 +200,7 @@ cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 
 passed.
 
 **The opencode pin pipeline.** The opencode release galopin is built and tested
-against is written once, in `agent/packaging/opencode-version` (1.18.34 today).
+against is written once, in `agent/packaging/opencode-version` (1.19.3 today).
 galopin embeds it, CI installs it, and the pairing dialog's install line
 (`OPENCODE_VERSION` in `src/lib/codeEnrollCommand.ts`) must equal it:
 `codeEnrollCommand.spec.ts` fails if not. The `opencode` workflow runs the whole
