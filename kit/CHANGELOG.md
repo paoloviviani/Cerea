@@ -5,6 +5,25 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.16.1 — 2026-10-20
+
+Pins: Cerea `0.16.1`, Pystino `0.11.1`, Authelia 4.39.22 (unchanged). Update the
+deployment (`docker compose pull && docker compose up -d`).
+
+- **Pairing a machine bills your default group by default.** The
+  pair-a-machine dialog's "Bill to my default group" checkbox is now ticked:
+  a machine paired through the panel follows the group you pick in the
+  Pystino console, instead of fixing one group at pairing time. Untick it to
+  pin a group as before. Machines already enrolled are unchanged, and the
+  `galopin enroll` command itself still requires an explicit
+  `--default-group`.
+- **The gateway console's landing page includes Routing.** The alias
+  management surface is reachable from the administration overview like the
+  other sections (ships with gateway 0.11.1).
+- **The billing-group rule is documented** for the people it governs: what
+  the model list shows, where the choice lives, and what the usage page
+  reports.
+
 ## v0.16.0 — 2026-10-20
 
 Pins: Cerea `0.16.0`, Pystino `0.11.0`, Authelia 4.39.22 (unchanged). Update the
