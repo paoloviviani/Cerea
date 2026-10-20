@@ -201,7 +201,10 @@ released only when all of these pass, in this order:
    directory, `./configure`, `docker compose pull`, `up -d --wait`, a check that
    the running containers carry the new tags, and a real sign-in through the
    identity provider, the gateway and the chat to `/chat/code`, which must print
-   exactly `E2E_OK`. The test stack is then removed and checked gone.
+   exactly `E2E_OK`. The test stack is then removed and checked gone. Its full
+   output is kept at `~/.cache/cerea-release/vX.Y.Z-fresh-kit.log` (override
+   with `CEREA_RELEASE_LOG_DIR`), and the release prints its `seeded …` lines,
+   so what the check created can be verified after the release.
 6. Only then fast-forward the **`stable`** branch to the tag. Operators follow
    `stable` or a tag, never `main`.
 
