@@ -1,5 +1,6 @@
 import { collections } from "$lib/server/database";
 import { z } from "zod";
+import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { authCondition } from "$lib/server/auth";
 import { config } from "$lib/server/config";
@@ -47,6 +48,7 @@ const settingsSchema = z.object({
 	hapticsEnabled: z.boolean().default(true),
 	hidePromptExamples: z.record(z.boolean()).default({}),
 	billingOrganization: z.string().optional(),
+	...locationSettingsFields,
 	...paletteFields,
 });
 

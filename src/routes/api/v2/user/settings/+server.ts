@@ -12,6 +12,7 @@ import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
 import { parseAccent, parseNeutral } from "$lib/utils/palettes";
 import { z } from "zod";
+import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 
 const settingsSchema = z.object({
@@ -50,6 +51,7 @@ const settingsSchema = z.object({
 	hapticsEnabled: z.boolean().default(true),
 	hidePromptExamples: z.record(z.boolean()).default({}),
 	billingOrganization: z.string().optional(),
+	...locationSettingsFields,
 	...paletteFields,
 });
 
@@ -93,6 +95,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		toolApprovalPolicy: settings?.toolApprovalPolicy ?? undefined,
 		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
 		memoryEnabled: settings?.memoryEnabled ?? undefined,
+		locationMode: settings?.locationMode ?? undefined,
+		locationPlace: settings?.locationPlace ?? undefined,
 		mlInternOnboardingSeen: !!settings?.mlInternOnboardingSeenAt,
 
 		activeModel: settings?.activeModel ?? DEFAULT_SETTINGS.activeModel,

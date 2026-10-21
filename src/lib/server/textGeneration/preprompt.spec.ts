@@ -337,3 +337,38 @@ describe("the person's own prompts: global, then custom model, then the conversa
 		expect(resolved).not.toContain("CUSTOM");
 	});
 });
+
+describe("the opt-in location line", () => {
+	const line = "The person's location (shared by them): Torino, Italy, timezone Europe/Rome.";
+
+	it("reads after the global, custom-model and conversation prompts", () => {
+		expect(
+			composeUserPrompt({
+				globalPrompt: "GLOBAL",
+				customModelPrompt: "CUSTOM",
+				conversationPreprompt: "CONVERSATION",
+				locationLine: line,
+			})
+		).toBe(`GLOBAL\n\nCUSTOM\n\nCONVERSATION\n\n${line}`);
+	});
+
+	it("adds nothing when no line is given", () => {
+		expect(composeUserPrompt({ globalPrompt: "GLOBAL" })).toBe("GLOBAL");
+		expect(composeUserPrompt({})).toBe("");
+	});
+
+	it("sits in the turn's system prompt ahead of the contracts, for a plain chat only", () => {
+		const resolved =
+			resolvePreprompt({
+				conversationPreprompt: "CONVERSATION",
+				locationLine: line,
+				mlAssistant: false,
+			}) ?? "";
+		expect(resolved.indexOf("CONVERSATION")).toBeLessThan(resolved.indexOf(line));
+		expect(resolved.indexOf(line)).toBeLessThan(
+			resolved.indexOf(injectExecutionPrompt("").trim().slice(0, 40))
+		);
+		// the ML Assistant preset supplies its whole prompt
+		expect(resolvePreprompt({ locationLine: line, mlAssistant: true })).not.toContain(line);
+	});
+});

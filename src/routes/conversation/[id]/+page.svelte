@@ -4,6 +4,11 @@
 	import { isAborted } from "$lib/stores/isAborted";
 	import { onDestroy, onMount, untrack } from "svelte";
 	import { page } from "$app/state";
+	import {
+		clearDeviceLocation,
+		currentDeviceLocation,
+		requestDeviceLocation,
+	} from "$lib/utils/deviceLocation";
 	import { beforeNavigate, replaceState } from "$app/navigation";
 	import { UrlDependency } from "$lib/types/UrlDependency";
 	import { safeInvalidate } from "$lib/utils/safeInvalidate";
@@ -119,6 +124,14 @@
 		untrack(() => data.toolApprovalOverride === "always-allow")
 	);
 	let toolApprovalForConv: string | null = $state(null);
+
+	// "From this device": read a fresh position whenever a chat is opened, so
+	// the turn carries a current one. Asks the browser only in that mode.
+	$effect(() => {
+		void page.params.id;
+		if ($settings.locationMode === "device") void requestDeviceLocation();
+		else clearDeviceLocation();
+	});
 
 	// The MCP selection for THIS conversation: initialized from the project
 	// defaults when the project names any, else the workspace defaults, then
@@ -378,6 +391,8 @@
 					// defined on the server, and so is its credential.
 					selectedConnectorIds: $enabledConnectors.map((c) => c.id),
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					// Only while the person chose "From this device"; never otherwise.
+					location: $settings.locationMode === "device" ? currentDeviceLocation() : undefined,
 					streamingMode,
 				},
 				messageUpdatesAbortController.signal

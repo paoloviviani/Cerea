@@ -21,6 +21,8 @@ declare global {
 			billingOrganization?: string;
 			/** The browser's IANA timezone for this request (conversation route). */
 			timezone?: string;
+			/** Rounded device coordinates for this turn; used only if the setting is "device". */
+			location?: { lat: number; lon: number; accuracy?: number };
 			/** The MCP servers this turn runs with (`mcpLocalsFor`). */
 			mcp?: McpLocals;
 		}

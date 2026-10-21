@@ -2,6 +2,7 @@ import { browser } from "$app/environment";
 import { base } from "$app/paths";
 import type { Accent, Neutral } from "$lib/utils/palettes";
 import type { ReasoningEffort, StreamingMode } from "$lib/types/Settings";
+import type { LocationMode } from "$lib/utils/location";
 import { getContext, setContext } from "svelte";
 import { type Writable, writable, get } from "svelte/store";
 
@@ -11,6 +12,8 @@ type SettingsStore = {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;
 	memoryEnabled?: boolean;
+	locationMode?: LocationMode;
+	locationPlace?: string;
 	mlInternOnboardingSeen: boolean;
 	activeModel: string;
 	globalSystemPrompt?: string;

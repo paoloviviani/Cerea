@@ -6,6 +6,8 @@
 
 	import { useSettingsStore } from "$lib/stores/settings";
 	import type { StreamingMode } from "$lib/types/Settings";
+	import LocationSettings from "$lib/components/settings/LocationSettings.svelte";
+	import { parseLocationMode } from "$lib/utils/location";
 	import Switch from "$lib/components/Switch.svelte";
 	import SwatchGroup from "$lib/components/settings/SwatchGroup.svelte";
 	import {
@@ -264,6 +266,17 @@
 				</div>
 			</div>
 		</section>
+
+		<LocationSettings
+			mode={parseLocationMode($settings.locationMode)}
+			place={$settings.locationPlace ?? ""}
+			onchange={(next) =>
+				settings.update((s) => ({
+					...s,
+					...(next.mode !== undefined && { locationMode: next.mode }),
+					...(next.place !== undefined && { locationPlace: next.place }),
+				}))}
+		/>
 
 		<div
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"

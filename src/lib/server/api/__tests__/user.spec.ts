@@ -177,6 +177,33 @@ describe("POST /api/v2/user/settings", () => {
 		await cleanupTestData();
 	}, 20000);
 
+	it("stores the location mode and a sanitised place, and reads them back", async () => {
+		const { locals } = await createTestUser();
+		const res = await testRequest(settingsPOST, {
+			path: "/api/v2/user/settings",
+			locals,
+			...jsonBody({
+				activeModel: "test-model",
+				locationMode: "place",
+				locationPlace: "Torino\nItaly",
+			}),
+		});
+		expect(res.status).toBe(200);
+		const got = await parseResponse<Record<string, unknown>>(
+			await testRequest(settingsGET, { path: "/api/v2/user/settings", locals })
+		);
+		expect(got.locationMode).toBe("place");
+		expect(got.locationPlace).toBe("Torino Italy");
+	});
+
+	it("leaves location off when never set", async () => {
+		const { locals } = await createTestUser();
+		const got = await parseResponse<Record<string, unknown>>(
+			await testRequest(settingsGET, { path: "/api/v2/user/settings", locals })
+		);
+		expect(got.locationMode ?? "off").toBe("off");
+	});
+
 	it("creates settings with upsert", async () => {
 		const { user, locals } = await createTestUser();
 
