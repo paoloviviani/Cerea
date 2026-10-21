@@ -72,6 +72,12 @@ type agentTools struct {
 	// siblings before the note goes out (0: at once, for tests).
 	cancelWait time.Duration
 
+	// afterFunc runs f after d (time.AfterFunc; tests drive it by hand).
+	afterFunc func(d time.Duration, f func())
+
+	// stateDir holds profiles.json (agenttools_profiles.go); set by attachState.
+	stateDir string
+
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
 	calls machineCaller
@@ -95,6 +101,7 @@ func newAgentTools(mc *machine, host backend.ToolHost) *agentTools {
 		spawnLog: map[string][]time.Time{}, sendLog: map[string][]time.Time{}, born: map[string]time.Time{},
 		scheduleLog: map[string][]time.Time{},
 		async:       func(f func()) { go f() },
+		afterFunc:   func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 		reports:     newReportState(),
 		retryBase:   2 * time.Second,
 		cancelWait:  cancelWindow,
@@ -114,6 +121,13 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		at.mc.audit.agentTool(call.Tool, call.SessionID, "", "refused", "unverified caller")
 		return "", err
 	}
+	return at.dispatch(ctx, call)
+}
+
+// dispatch runs a call whose caller is already proven: by the matching tool
+// part on the event stream (handle), or by the per-session MCP token (mcp.go).
+// Every gate below is the same for both.
+func (at *agentTools) dispatch(ctx context.Context, call backend.ToolCall) (string, error) {
 	dir, workspaceID, operr := at.mc.resolveSession(call.SessionID)
 	if operr != nil {
 		at.mc.audit.agentTool(call.Tool, call.SessionID, "", "refused", "session not tracked")
@@ -131,6 +145,10 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		out, err = at.list(ctx, tc)
 	case "session_spawn":
 		out, to, err = at.spawn(ctx, tc, call)
+	case "session_committee":
+		out, to, err = at.committee(ctx, tc, call)
+	case "session_profiles":
+		out, err = at.profiles()
 	case "session_send":
 		out, to, err = at.send(ctx, tc, call)
 	case "session_read":
@@ -436,6 +454,15 @@ func decodeArgs(raw []byte, allowed ...string) (map[string]string, error) {
 	return out, nil
 }
 
+// spawnSpec is what one spawn is asked to do; session_spawn builds it from its
+// arguments and session_committee builds one per member.
+type spawnSpec struct {
+	title, prompt, mode, profile string
+	report                       bool
+	// group is the committee a member belongs to ("" for none).
+	group string
+}
+
 // spawn implements session_spawn; the second result is the child id for the
 // audit row.
 func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, string, error) {
@@ -453,11 +480,21 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 			call.Args, _ = json.Marshal(rawArgs)
 		}
 	}
-	args, err := decodeArgs(call.Args, "title", "prompt", "mode")
+	args, err := decodeArgs(call.Args, "title", "prompt", "mode", "profile")
 	if err != nil {
 		return "", "", err
 	}
-	title, prompt := strings.TrimSpace(args["title"]), args["prompt"]
+	return at.spawnCore(ctx, tc, call, spawnSpec{
+		title: args["title"], prompt: args["prompt"], mode: args["mode"], profile: args["profile"], report: report,
+	})
+}
+
+// spawnCore is one delegate's whole spawn: every check, the card, the
+// session, its inherited state and its first prompt.
+func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backend.ToolCall, spec spawnSpec) (string, string, error) {
+	args := map[string]string{"mode": spec.mode}
+	report := spec.report
+	title, prompt := strings.TrimSpace(spec.title), spec.prompt
 	if title == "" || len(title) > 200 {
 		return "", "", refuse("title is required (at most 200 characters)")
 	}
@@ -469,6 +506,15 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	}
 	if _, ok := at.mc.workspaces.Get(tc.workspaceID); !ok {
 		return "", "", refuse("this session's workspace is no longer registered")
+	}
+	prof, err := at.resolveProfile(spec.profile)
+	if err != nil {
+		return "", "", err
+	}
+	// The profile's notes lead the brief; the card shows the whole of it.
+	prompt = briefWith(prof.Notes, prompt)
+	if len(prompt) > maxToolText+maxProfileNotes {
+		return "", "", refuse("prompt is longer than %d bytes with the profile's notes; shorten it", maxToolText)
 	}
 	// The machine's rules decide whether this needs a card at all: allow runs
 	// it unasked, deny refuses it (before it spends any of the rate budget),
@@ -491,10 +537,17 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 			return "", "", refuse("mode %q does not exist in this workspace", childMode)
 		}
 	}
-	// The child runs on the caller's model, under the same free-model gate as
-	// session.setModel.
-	if tc.session.ModelID != "" && !at.mc.pol.AllowFreeModels && len(at.mc.pol.FilterModelIDs([]string{tc.session.ModelID})) == 0 {
-		return "", "", refuse("model %q is not a gateway model, and this machine does not allow free models", tc.session.ModelID)
+	// The child runs on the caller's model (or its profile's), under the same
+	// free-model gate as session.setModel.
+	childModel := tc.session.ModelID
+	if prof.Model != "" {
+		if err := at.checkProfileModel(ctx, tc.dir, prof.Model); err != nil {
+			return "", "", err
+		}
+		childModel = prof.Model
+	}
+	if childModel != "" && !at.mc.pol.AllowFreeModels && len(at.mc.pol.FilterModelIDs([]string{childModel})) == 0 {
+		return "", "", refuse("model %q is not a gateway model, and this machine does not allow free models", childModel)
 	}
 
 	// The child's starting word: the caller's. Backends without a selector
@@ -505,6 +558,11 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 			childWord = word
 		}
 	}
+	// A profile's mode can only tighten it: never looser than the caller's.
+	callerWord := childWord
+	profWord, _ := profileWord(prof.Mode) // validated at load
+	childWord, clamped := clampWord(profWord, callerWord)
+	stricter := childWord != callerWord
 
 	// Fork-bomb limits, all before any ask is raised.
 	marks := at.host.SpawnMarks()
@@ -538,8 +596,17 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	// child starts with.
 	auto := grant == permrules.Allow && !escalates
 	meta := map[string]any{
-		"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(tc.session.ModelID),
+		"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(childModel),
 		"workspaceId": tc.workspaceID, "prompt": prompt, "permissionMode": string(childWord),
+	}
+	if spec.profile != "" {
+		meta["profile"] = spec.profile
+		if clamped {
+			meta["profileModeClamped"] = true
+		}
+	}
+	if spec.group != "" {
+		meta["committee"] = spec.group
 	}
 	if escalates {
 		meta["escalates"] = true
@@ -559,7 +626,7 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 
 	w, _ := at.mc.workspaces.Get(tc.workspaceID)
 	child, err := at.mc.back.CreateSession(ctx, tc.dir, backend.CreateSessionOptions{
-		Title: title, ModeID: childMode, ModelID: tc.session.ModelID,
+		Title: title, ModeID: childMode, ModelID: childModel,
 		SpawnedBy: &backend.SpawnedBy{SessionID: tc.session.ID, Title: tc.session.Title},
 	})
 	if err != nil {
@@ -573,12 +640,21 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	// same way it caps the caller (it is composed last when the rules are
 	// re-applied). Both stay unset for backends without a selector.
 	if rh, ok := at.mc.back.(backend.RuleHost); ok {
-		if childWord == permrules.Allow {
+		if childWord != permrules.Ask {
 			if err := rh.SetPermissionMode(ctx, tc.dir, child.ID, childWord); err != nil {
 				return "", child.ID, refuse("the new session %q was created but its permission word was not inherited: %v", child.ID, err)
 			}
 		}
-		if keys := rh.Coordination(tc.session.ID); len(keys) > 0 {
+		// A profile stricter than its spawner is a delegate on a tighter leash:
+		// it does not also inherit the spawner's grant or the person's
+		// "always" answers.
+		var keys []string
+		var exceptions []permrules.Exception
+		if !stricter {
+			keys = rh.Coordination(tc.session.ID)
+			exceptions = rh.Exceptions(tc.session.ID)
+		}
+		if len(keys) > 0 {
 			if err := rh.SetCoordination(ctx, tc.dir, child.ID, keys); err != nil {
 				return "", child.ID, refuse("the new session %q was created but its coordination grant was not inherited: %v", child.ID, err)
 			}
@@ -590,7 +666,6 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 		// exceptions are the person's own answers, not a licence the word
 		// implies. Later changes are not propagated: removing one from the
 		// parent leaves the child's copy in place.
-		exceptions := rh.Exceptions(tc.session.ID)
 		for _, e := range exceptions {
 			if _, err := rh.AddException(ctx, tc.dir, child.ID, e); err != nil {
 				return "", child.ID, refuse("the new session %q was created but its exceptions were not inherited: %v", child.ID, err)
@@ -610,12 +685,22 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 	at.born[child.ID] = at.now()
 	at.mu.Unlock()
 	at.registerDelegate(child.ID, tc.session.ID, tc.dir, title, report)
+	if spec.group != "" {
+		at.joinGroup(child.ID, spec.group)
+	}
 	if err := at.mc.back.Prompt(ctx, tc.dir, child.ID, backend.Prompt{Text: prompt}); err != nil {
 		return "", child.ID, refuse("the new session %q was created but its first prompt was not accepted: %v", child.ID, err)
 	}
 	result := map[string]any{
 		"sessionId": child.ID, "title": title, "mode": modeLabel(childMode),
 		"permissionMode": string(childWord),
+	}
+	if spec.profile != "" {
+		result["profile"] = spec.profile
+		result["model"] = childModel
+		if clamped {
+			result["profileModeClamped"] = "the profile asked for a looser permission mode than yours; it got yours"
+		}
 	}
 	if auto {
 		result["autoApproved"] = true

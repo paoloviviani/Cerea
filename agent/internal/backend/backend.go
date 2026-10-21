@@ -265,6 +265,38 @@ type ToolHost interface {
 	SpawnMarks() map[string]SpawnedBy
 }
 
+// MCPEndpoint is one session's galopin MCP endpoint: where the agent reaches
+// the coordination tools, and the bearer secret that makes a call that
+// session's (PROTOCOL.md §6, "Coordination tools over MCP").
+type MCPEndpoint interface {
+	URL() string
+	// Token is the bearer secret; it goes only into the agent's own session
+	// configuration and is never logged.
+	Token() string
+	// Bind names the session the endpoint acts as, once the backend knows its
+	// id; until then no tool runs. Revoke ends the endpoint.
+	Bind(sessionID string)
+	Revoke()
+}
+
+// MCPIssuer is galopin's MCP server as a backend sees it.
+type MCPIssuer interface {
+	// Mint creates an endpoint for a session about to be created or loaded.
+	Mint() MCPEndpoint
+	// RevokeSession ends every endpoint bound to a session that has ended.
+	RevokeSession(sessionID string)
+}
+
+// MCPHost is the optional capability of a backend that hands its agents MCP
+// servers per session (ACP's session/new "mcpServers"), so galopin's
+// coordination tools reach an agent that is not opencode. The issuer is set
+// once, before any session is created. Requires ToolHost.
+type MCPHost interface {
+	// MCPCapable reports whether the agent can use an HTTP MCP server.
+	MCPCapable() bool
+	SetMCPIssuer(MCPIssuer)
+}
+
 // Rule sources, as permission.rules labels them.
 const (
 	// SourceDefault is opencode's own: its built-in defaults and each built-in

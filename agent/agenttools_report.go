@@ -38,6 +38,9 @@ type delegateRec struct {
 	NoReport     bool   `json:"noReport,omitempty"`
 	Pending      bool   `json:"pending,omitempty"` // a spawner-started turn is not reported yet
 	LastReported string `json:"lastReported,omitempty"`
+	// Group is the open committee this delegate answers to ("" for none): its
+	// report is gathered there instead of delivered alone.
+	Group string `json:"group,omitempty"`
 
 	busy    bool // busy seen since Pending was set
 	stopped bool
@@ -66,6 +69,8 @@ type reportState struct {
 	// CancelNoted: background child -> the aborted message already told to its
 	// parent, so a replayed event never tells twice.
 	CancelNoted map[string]string `json:"cancelNoted,omitempty"`
+	// Groups: open committees (agenttools_committee.go).
+	Groups map[string]*groupRec `json:"groups,omitempty"`
 	// Held: session -> cancellation notes that wait for the person's next
 	// prompt there (the person stopped the turn; galopin must not wake the
 	// agent again on its own).
@@ -80,13 +85,14 @@ type reportState struct {
 
 func newReportState() *reportState {
 	return &reportState{Delegates: map[string]*delegateRec{}, Queue: map[string][]reportItem{}, holds: map[string]*hold{}, retries: map[string]int{},
-		CancelNoted: map[string]string{}, Held: map[string][]string{}, cancelling: map[string][]cancelledTask{}}
+		CancelNoted: map[string]string{}, Groups: map[string]*groupRec{}, Held: map[string][]string{}, cancelling: map[string][]cancelledTask{}}
 }
 
 // attachState persists the state in dir and loads what an earlier process
 // left. A missing or unreadable file starts empty: a lost queue costs one
 // report, which recover() re-derives from the delegate's transcript.
 func (at *agentTools) attachState(dir string) {
+	at.stateDir = dir
 	rs := at.reports
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -100,6 +106,7 @@ func (at *agentTools) attachState(dir string) {
 		Queue       map[string][]reportItem `json:"queue"`
 		CancelNoted map[string]string       `json:"cancelNoted"`
 		Held        map[string][]string     `json:"held"`
+		Groups      map[string]*groupRec    `json:"groups"`
 	}
 	if json.Unmarshal(body, &disk) != nil {
 		return
@@ -116,6 +123,14 @@ func (at *agentTools) attachState(dir string) {
 	if disk.Held != nil {
 		rs.Held = disk.Held
 	}
+	if disk.Groups != nil {
+		rs.Groups = disk.Groups
+		for _, g := range rs.Groups {
+			if g.Results == nil {
+				g.Results = map[string]string{}
+			}
+		}
+	}
 }
 
 // saveLocked writes the state atomically; the caller holds rs.mu.
@@ -128,7 +143,8 @@ func (rs *reportState) saveLocked() {
 		Queue       map[string][]reportItem `json:"queue"`
 		CancelNoted map[string]string       `json:"cancelNoted,omitempty"`
 		Held        map[string][]string     `json:"held,omitempty"`
-	}{rs.Delegates, rs.Queue, rs.CancelNoted, rs.Held})
+		Groups      map[string]*groupRec    `json:"groups,omitempty"`
+	}{rs.Delegates, rs.Queue, rs.CancelNoted, rs.Held, rs.Groups})
 	if err != nil {
 		return
 	}
@@ -284,6 +300,9 @@ func (at *agentTools) delegateIdle(id string) {
 	rs.saveLocked()
 	rs.mu.Unlock()
 	if stopped {
+		// A stop is no result, but a committee must not wait on it.
+		at.groupAbsorb(reportItem{Kind: "error", Delegate: id, Title: title,
+			Text: fmt.Sprintf("%s (session %s) was stopped by the person before it answered.", title, id)})
 		return
 	}
 	var item reportItem
@@ -318,6 +337,9 @@ func (at *agentTools) reportItemFor(id, title, msgID, text string) reportItem {
 }
 
 func (at *agentTools) enqueue(spawner string, item reportItem) {
+	if at.groupAbsorb(item) {
+		return
+	}
 	rs := at.reports
 	rs.mu.Lock()
 	rs.Queue[spawner] = append(rs.Queue[spawner], item)

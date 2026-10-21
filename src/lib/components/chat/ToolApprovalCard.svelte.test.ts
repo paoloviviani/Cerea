@@ -78,6 +78,28 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		).toHaveLength(0);
 	});
 
+	it("names a spawn's profile, the clamp and the committee it belongs to", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("session_spawn", {
+				galopin: true,
+				title: "Which db (1/2, reviewer)",
+				modeId: "plan",
+				modelId: "gw/fast",
+				prompt: "Postgres or SQLite?",
+				profile: "reviewer",
+				profileModeClamped: true,
+				committee: "g_1",
+			}),
+			onanswer: async () => ({ ok: true }),
+		});
+		const facts = screen.getByTestId("galopin-approval");
+		await expect.element(facts).toHaveTextContent("reviewer");
+		await expect.element(facts).toHaveTextContent("permission mode was lowered");
+		await expect.element(facts).toHaveTextContent("a committee");
+		await expect.element(facts).toHaveTextContent("gw/fast");
+	});
+
 	it("shows who a send goes to and exactly what it says", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",

@@ -258,6 +258,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
 	mc.AttachReportState(stateDir)
+	mcpSrv, err := mc.startMCP()
+	if err != nil {
+		return err
+	}
+	if mcpSrv != nil {
+		defer mcpSrv.Close()
+	}
 	// Model pins outside Pystino in opencode's global config (modelpins.go):
 	// logged, audited and filed in status.json at every start (and carried
 	// on every hello by buildHello). The files are the user's, never edited.
@@ -425,7 +432,10 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 		}
 		acpBackend := backendacp.New(backendacp.Config{
 			Command: cmd,
-			Logf:    func(format string, args ...any) { logf(format, args...) },
+			// galopin's coordination tools, offered over MCP when the agent can
+			// use an HTTP MCP server (PROTOCOL.md §6).
+			Tools: pol.AgentToolsAllowed(),
+			Logf:  func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := acpBackend.Start(ctx); err != nil {
 			return nil, fmt.Errorf("starting acp agent %q: %w", opts.acpCommand, err)
