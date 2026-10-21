@@ -194,6 +194,24 @@ repo's `.opencode/plugin/` scripts from being executed when opencode opens
 the directory. Do not open a repository you do not trust in an agent, whatever
 this setting says.
 
+**Skills installed on the machine are offered to every session.** opencode
+discovers skills from the user's own folders as well as galopin's:
+`~/.config/opencode/skills/`, `~/.claude/skills/` (for compatibility with
+Claude Code) and `~/.agents/skills/`, each `<name>/SKILL.md`. galopin does not
+filter them, so whatever is installed there shows up in the session's skill
+list. That includes skills that Claude Code syncs from a Claude account into
+`~/.claude/skills/` (document skills such as pptx, docx, xlsx and pdf, for
+example). Some of those were written for Claude's own apps and refer to tools
+that opencode does not have, so a model may try to follow instructions it
+cannot carry out. What an agent can do on a machine therefore depends on what
+else is installed there. On the opencode release galopin pins there is no
+switch for it: to keep a skill out of agent sessions, remove or move it from
+those folders. A built-in agent can also be denied the skill tool altogether
+in your global opencode config (`"agent": {"build": {"tools": {"skill":
+false}}}`), which hides every skill from it, including galopin's own. opencode
+2.0.30 and later honour `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` for the
+`~/.claude/skills/` folder.
+
 `enroll --allow-project-config` (the pairing dialog's checkbox) opts in for
 machines whose repositories you trust: the repo's config loads, **including
 its plugins, which run as you**. galopin still pins the gateway provider,
