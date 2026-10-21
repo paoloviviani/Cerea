@@ -71,11 +71,16 @@ rm -rf "$anon"
 echo "anonymous pull OK"
 
 # 5. Fresh-kit test.
-log=$(mktemp)
+# The full log is kept, not a temp file: it is the only record of what the
+# check seeded and saw, and a release is verified from it afterwards.
+logdir=${CEREA_RELEASE_LOG_DIR:-$HOME/.cache/cerea-release}
+mkdir -p "$logdir" || stop "cannot create $logdir"
+log="$logdir/$T-fresh-kit.log"
 scripts/release/fresh-kit-check.sh "$T" >"$log" 2>&1
 grep -qx E2E_OK "$log" || { tail -30 "$log"; stop "fresh-kit test (full log: $log)"; }
-grep -E "^(chat|gateway) " "$log"
+grep -E "^(chat|gateway|seeded) " "$log"
 echo E2E_OK
+echo "fresh-kit log: $log"
 
 # 6. stable, then the GitHub release from the changelog entry.
 gh api -X PATCH "repos/$REPO/git/refs/heads/stable" -f "sha=$SHA" >/dev/null || stop "stable"
