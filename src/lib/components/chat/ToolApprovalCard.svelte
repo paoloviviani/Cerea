@@ -200,6 +200,17 @@
 			facts.push({ label: "Title", value: text(args.title) });
 			facts.push({ label: "Mode", value: text(args.modeId) });
 			facts.push({ label: "Model", value: text(args.modelId) || "this session's model" });
+			if (text(args.profile)) {
+				facts.push({
+					label: "Profile",
+					value:
+						text(args.profile) +
+						(args.profileModeClamped === true
+							? " (its permission mode was lowered to this session's own)"
+							: ""),
+				});
+			}
+			if (text(args.committee)) facts.push({ label: "Part of", value: "a committee" });
 			facts.push({ label: "Prompt", value: text(args.prompt), long: true });
 		} else if (toolApproval?.tool === "session_read") {
 			const target = args.target as { title?: unknown } | undefined;

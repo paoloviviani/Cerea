@@ -48,6 +48,10 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		"every create asks the person",   // the runaway guard, so the model expects the card
 		"all together (or none of them)", // the coordination options Cerea stores
 		"Deny included",                  // stopping your own schedule always works
+		"## Profiles and recipes",        // delegate profiles and the three recipes
+		"session_profiles", "session_committee", "**Handoff**", "**Second opinion**", "**Committee**",
+		"only ever makes a delegate stricter", // a profile never widens what a delegate may do
+		"2 to 3 members",                      // the committee bound
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("skill does not mention %q", want)
@@ -56,10 +60,10 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 	if strings.Contains(s, "do the work yourself") {
 		t.Error("the skill must not tell the model to do the work itself")
 	}
-	if n := strings.Count(s, "\n"); n > 100 {
+	if n := strings.Count(s, "\n"); n > 110 {
 		t.Errorf("skill is %d lines; keep it short", n)
 	}
-	for _, name := range []string{"session_list", "session_spawn", "session_send",
+	for _, name := range []string{"session_list", "session_spawn", "session_send", "session_profiles", "session_committee",
 		"schedule_list", "schedule_create", "schedule_update", "schedule_delete"} {
 		if _, err := os.Stat(filepath.Join(dir, "tools", name+".js")); err != nil {
 			t.Errorf("tool %s: %v", name, err)

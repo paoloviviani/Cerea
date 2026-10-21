@@ -37,6 +37,9 @@ type coordBackend struct {
 	// failAddException makes every AddException fail, for the spawn
 	// inheritance tests' copy-failure case.
 	failAddException bool
+	// models is what Models answers; created records every CreateSession.
+	models  []backend.Model
+	created []backend.CreateSessionOptions
 	// failList makes ListSessions fail, for the report retry test.
 	failList bool
 }
@@ -90,6 +93,7 @@ func (c *coordBackend) Transcript(_ context.Context, _, id string) (backend.Tran
 func (c *coordBackend) CreateSession(_ context.Context, dir string, o backend.CreateSessionOptions) (backend.Session, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.created = append(c.created, o)
 	id := fmt.Sprintf("spawned_%d", len(c.sessions))
 	s := backend.Session{ID: id, Title: o.Title, Status: backend.StatusIdle, SpawnedBy: o.SpawnedBy, CreatedAt: time.Now()}
 	c.sessions[id], c.dirs[id] = s, dir
@@ -109,8 +113,12 @@ func (c *coordBackend) SetModel(context.Context, string, string, string) (backen
 func (c *coordBackend) ReplyPermission(context.Context, string, string, string, backend.Decision, string) error {
 	panic("not used")
 }
-func (c *coordBackend) Modes(context.Context, string) ([]backend.Mode, error)   { return nil, nil }
-func (c *coordBackend) Models(context.Context, string) ([]backend.Model, error) { return nil, nil }
+func (c *coordBackend) Modes(context.Context, string) ([]backend.Mode, error) { return nil, nil }
+func (c *coordBackend) Models(context.Context, string) ([]backend.Model, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.models, nil
+}
 func (c *coordBackend) Subscribe(context.Context) (<-chan backend.BackendEvent, error) {
 	panic("not used")
 }
