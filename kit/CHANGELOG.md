@@ -5,6 +5,62 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.17.0 — 2026-10-21
+
+Pins: Cerea `0.17.0`, Pystino `0.13.0`, Authelia 4.39.22 (unchanged). Update the
+deployment (`docker compose pull && docker compose up -d`), **but read the two
+upgrade notes below first.**
+
+**Upgrade notes**
+
+- **The chat refuses to start on a mixed model setup.** It runs either in
+  Pystino mode (each person's own token against the gateway, no shared key, no
+  model endpoint other than the gateway) or in standalone mode (one shared key
+  against one endpoint, the `generic` preset). If your `.env` sets
+  `CHAT_OPENAI_API_KEY` on a gateway preset, or a `MODELS` entry has its own
+  endpoint or key, run `./configure` before `docker compose up -d`: it says
+  what is mixed and offers the fix. `./configure --check` reports it too, and
+  the startup error names the setting to change. A standalone deployment with
+  no key (a local endpoint) is still allowed.
+- **MongoDB.** New installs get `mongo:8.0.34` when the host has AVX and its
+  Linux kernel is outside 6.19–7.0.13 (where MongoDB 8 does not start), else
+  `mongo:4.4.30`; `./configure` says which and why, and `./configure --check`
+  reports an image the host cannot run. **Existing installs are not changed**:
+  a `.env` without `MONGO_IMAGE` keeps running 4.4. `tools/mongo-upgrade`
+  moves an existing install to MongoDB 8 on an AVX host (backup first, then
+  4.4 → 5.0 → 6.0 → 7.0 → 8.0, resumable; `--plan` shows what it would do).
+  **It is experimental:** it has not been run against real MongoDB 5–8 data
+  yet. Take your own backup before using it.
+
+**Changes**
+
+- **Pystino 0.13.0:**
+  - A **request log**: one line per request, never any prompt or reply text,
+    for administrators (Usage & limits → Requests) and for each person (Your
+    requests), with filters and CSV export.
+  - An **audit log** of administrators' changes (models, prices, aliases,
+    grants, providers, quota rules), with before and after values and never a
+    secret.
+  - **Image prices by size.**
+  - A quota admission race under concurrency is fixed.
+  - The console's shared components are translatable.
+- **web_fetch keeps what it read across turns**, per conversation: a later
+  turn that needs the same PDF or page reuses its text instead of downloading
+  and extracting it again (and paying again for OCR). New, optional:
+  `CHAT_WEBFETCH_CACHE_DAYS` (default 7, `0` turns it off) and
+  `CHAT_WEBFETCH_FRESH_MINUTES` (default 10).
+- **galopin:**
+  - When you stop a session, the background tasks it cancelled are reported
+    with your next message, and the /code panel marks them "cancelled".
+  - opencode is pinned to 1.19.3.
+  - opencode's temporary files leave galopin's config directory (they go to
+    `$XDG_RUNTIME_DIR/galopin` or the user cache).
+  - The agent card's "Always allow" on a file edit now reads "Always allow
+    edits (this session)", which is what it does.
+  - The docs say that skills installed on the machine (including Claude
+    Code's) reach agent sessions.
+- The release check keeps its full log, and its seed lines are printed.
+
 ## v0.16.2 — 2026-10-20
 
 Pins: Cerea `0.16.2`, Pystino `0.12.0`, Authelia 4.39.22 (unchanged). Update the
