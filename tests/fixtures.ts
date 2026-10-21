@@ -76,6 +76,7 @@ export const SESSION_COOKIE_NAME = process.env.COOKIE_NAME ?? "hf-chat";
 
 /** Collections wiped between tests. */
 const MUTABLE_COLLECTIONS = [
+	"pushSubscriptions",
 	"conversations",
 	"conversations.stats",
 	"sharedConversations",

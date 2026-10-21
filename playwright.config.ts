@@ -190,6 +190,12 @@ export default defineConfig({
 				// unlike CODE_FILES_ENABLED — the terminal specs need it on; each
 				// machine's own policy (--allow-terminal) still gates per test.
 				CODE_TERMINAL_ENABLED: "true",
+				// Web Push on, with a key pair that exists only for this suite
+				// (the kit mints a real one per deployment).
+				CHAT_VAPID_PUBLIC_KEY:
+					"BBSGmzB0XcUpeZJVviiKNBwRU61mX6uIrgo1LupjZ5S9SGhtdNy8MsQYvQhefarOpkcmZmsWgXJgz-c4dhlQ4WA",
+				CHAT_VAPID_PRIVATE_KEY: "wJ0WNM-a8M96gmZVuEGnIaxXcM1S-fWDlOAPZ7-jYEc",
+				CHAT_VAPID_SUBJECT: "mailto:e2e@example.org",
 				// The machine pairing endpoint validates its bearer against the
 				// issuer; the e2e stack has none, so point discovery at a port
 				// nothing listens on — the failure is instant and local, which
