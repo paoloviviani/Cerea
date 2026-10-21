@@ -23,7 +23,8 @@ pull from their publishers under their own licences: Authelia
 (Apache-2.0), Caddy (Apache-2.0), PostgreSQL with pgvector (PostgreSQL
 Licence), Valkey (BSD-3-Clause) and MongoDB 8 or 4.4 (Server Side Public
 License v1, run here as Cerea's internal database, not offered as a
-service). The optional backup sidecar's image, built on your machine from
+service). The optional `office` profile runs Gotenberg (MIT) with LibreOffice
+(MPL-2.0 and others) inside it, unmodified. The optional backup sidecar's image, built on your machine from
 `tools/backup/`, copies in the official restic (BSD-2-Clause) and rclone
 (MIT) binaries and installs Alpine's PostgreSQL client (PostgreSQL Licence),
 MongoDB Database Tools (Apache-2.0) and supercronic (MIT). The Cerea and
@@ -174,6 +175,8 @@ again. Keep the old directory until the new stack works.
 | `redaction` | `redaction` | PII redaction for the gateway |
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
 | `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch` |
+| `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
+| `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
 in `.env` chooses the add-ons.
@@ -183,6 +186,27 @@ To add the browser to a running deployment, whatever its preset:
 sets `FETCH_BACKEND=playwright` and points `PLAYWRIGHT_WS_ENDPOINT` at the
 bundled renderer, touching nothing else in `.env`. `--no-fetch` undoes it. A
 renderer you point `PLAYWRIGHT_WS_ENDPOINT` at yourself, elsewhere, is kept.
+
+### Office previews and document conversion (`office` profile)
+
+`./configure --office-preview && docker compose up -d` adds Gotenberg, a
+document converter. With it, Word, Excel, PowerPoint and OpenDocument files
+preview as PDF in the chat, and models get a `convert_document` tool (a file in
+the conversation, or Markdown/HTML they write, to a PDF saved in the
+conversation). `./configure` sets `CHAT_GOTENBERG_URL=http://gotenberg:3000`
+while the profile is on and removes it when off (`--no-office-preview`); empty
+means the feature is off, and PowerPoint then previews in the browser,
+approximately. It is off in every preset. The image is large (about 1.5 GB) and
+a conversion takes a few hundred MB of memory.
+
+Gotenberg runs LibreOffice and Chromium on documents people upload, so it is
+boxed in: it sits alone with the chat on an `internal` Docker network (no route
+to the internet, no published port), has no volumes (scratch space is tmpfs,
+the root filesystem read-only), no capabilities, CPU and memory limits
+(`GOTENBERG_CPUS`, `GOTENBERG_MEM_LIMIT`, defaults 2 and 2g), its own request
+timeout (`GOTENBERG_API_TIMEOUT`, 60s), short queues, no JavaScript in
+Chromium, and refuses non-public addresses and `downloadFrom`. Pin another
+image with `GOTENBERG_IMAGE`.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 

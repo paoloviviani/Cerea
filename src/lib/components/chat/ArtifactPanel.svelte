@@ -4,7 +4,7 @@
 
 	import type { ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
 	import type { FileArtifactRegistry, FileArtifactVersion } from "$lib/utils/fileArtifacts";
-	import { filePreviewKindFor } from "$lib/utils/filePreview";
+	import { filePreviewKindFor, fileKindLabel as extensionKindLabel } from "$lib/utils/filePreview";
 	import type { MessageArtifactDraftUpdate } from "$lib/types/MessageUpdate";
 	import type { PaneItem } from "$lib/utils/paneItems";
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
@@ -640,8 +640,11 @@
 				return "Image";
 			case "text":
 				return "Text";
-			default:
-				return "File";
+			default: {
+				// Office files (Word, spreadsheets, slides) by extension; "File" otherwise.
+				const label = extensionKindLabel(name);
+				return ["Word", "Spreadsheet", "Slides"].includes(label) ? label : "File";
+			}
 		}
 	}
 

@@ -166,6 +166,8 @@ type ExtraConfigKeys =
 	| "MCP_TOOL_TIMEOUT_MS"
 	| "EXA_API_KEY"
 	| "GITHUB_TOKEN"
+	/** Where the chat reaches Gotenberg (the kit's `office` profile); empty is off. */
+	| "CHAT_GOTENBERG_URL"
 	/** The issuer a machine link's bearer must carry (`iss`, exact match after
 	 * trailing-slash normalization). Defaults to `OPENID_PROVIDER_URL` so a
 	 * normal deployment needs nothing extra; set separately so a test harness

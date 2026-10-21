@@ -10,6 +10,14 @@
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import { base } from "$app/paths";
 	import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
+	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import { isOfficeDocument } from "$lib/utils/officeFormats";
+	import {
+		officePreviewEnabledIn,
+		pdfPayloadFor,
+		previewUrlFor,
+		slidesPayloadFor,
+	} from "$lib/utils/officePreview";
 
 	interface Props {
 		file: MessageFile;
@@ -71,7 +79,49 @@
 	const isPlainText = (mime: string) =>
 		mime === "application/vnd.chatui.clipboard" || matchesAllowed(mime, TEXT_MIME_ALLOWLIST);
 
-	let isClickable = $derived(isImage(file.mime) || isPlainText(file.mime));
+	// An Office attachment of this conversation previews in the side pane: as the
+	// server's PDF when the deployment has a converter, and for a PowerPoint deck
+	// drawn in the browser when it has not. Only files in a conversation's own
+	// store (not another surface's `fileBaseUrl`) have the preview route.
+	const officeMode = $derived.by(() => {
+		if (file.type !== "hash" || fileBaseUrl !== undefined || !isOfficeDocument(file.name)) {
+			return null;
+		}
+		if (officePreviewEnabledIn(page.data)) return "pdf" as const;
+		return file.name.toLowerCase().endsWith(".pptx") ? ("slides" as const) : null;
+	});
+	let officeBusy = $state(false);
+	let officeError = $state<string | null>(null);
+
+	async function openOfficePreview(): Promise<void> {
+		if (!officeMode || officeBusy) return;
+		officeBusy = true;
+		officeError = null;
+		try {
+			const fileUrl = outputBase + "/" + file.value;
+			if (officeMode === "pdf") {
+				sidePane.openPreview(await pdfPayloadFor(file.name, previewUrlFor(fileUrl, file.name)));
+			} else {
+				const res = await fetch(fileUrl);
+				if (!res.ok) throw new Error("that file is no longer available");
+				sidePane.openPreview(
+					await slidesPayloadFor(file.name, new Uint8Array(await res.arrayBuffer()))
+				);
+			}
+		} catch (err) {
+			officeError = err instanceof Error ? err.message : "the preview is unavailable";
+		} finally {
+			officeBusy = false;
+		}
+	}
+
+	let isClickable = $derived(isImage(file.mime) || isPlainText(file.mime) || officeMode !== null);
+
+	function activate(): void {
+		if (!isClickable) return;
+		if (officeMode !== null) void openOfficePreview();
+		else showModal = true;
+	}
 </script>
 
 {#if showModal && isClickable}
@@ -134,13 +184,13 @@
 {/if}
 
 <div
-	onclick={() => isClickable && (showModal = true)}
+	onclick={activate}
 	onkeydown={(e) => {
 		if (!isClickable) {
 			return;
 		}
 		if (e.key === "Enter" || e.key === " ") {
-			showModal = true;
+			activate();
 		}
 	}}
 	class:clickable={isClickable}
@@ -238,7 +288,13 @@
 					<dd class="text-sm">
 						{truncateMiddle(file.name, 28)}
 					</dd>
-					<dt class="text-xs text-gray-400">{file.mime}</dt>
+					{#if officeError}
+						<dt class="text-xs text-amber-600 dark:text-amber-400">{officeError}</dt>
+					{:else if officeBusy}
+						<dt class="text-xs text-gray-400">Preparing preview…</dt>
+					{:else}
+						<dt class="text-xs text-gray-400">{file.mime}</dt>
+					{/if}
 				</dl>
 			</div>
 		{/if}

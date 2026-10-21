@@ -14,6 +14,7 @@ import { createTrackioTool } from "./createTrackioTool";
 import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
+import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
 import { createMemoryBuiltins } from "./memoryTool";
 import { configuredBackend } from "$lib/server/fetching";
@@ -33,6 +34,7 @@ export {
 	FORGET_FOR_PROJECT_TOOL_NAME,
 } from "./memoryTool";
 export { isNestedAgentTool } from "./nestedAgent";
+export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 
 /**
  * Enablement policy lives here, per tool — never in the dispatch or gate
@@ -177,6 +179,10 @@ export function getEnabledBuiltinTools(params: {
 	// Gated on the deployment-level flag alone: absent flag = fences only,
 	// exactly today's behavior. The tool withholds itself when the flag is off.
 	tools.push(...createExecuteCodeBuiltin());
+
+	// PDF conversion through the deployment's Gotenberg (the kit's `office`
+	// profile). Gated on `CHAT_GOTENBERG_URL` alone: unset, nothing registers.
+	tools.push(...createConvertDocumentBuiltin());
 
 	// Memory joins every conversation, not just the ML Assistant preset: a
 	// standing fact about somebody is as relevant to an ordinary chat as to a

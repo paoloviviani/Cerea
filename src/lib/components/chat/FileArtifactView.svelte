@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
 	import { base } from "$app/paths";
+	import { page } from "$app/state";
+	import SlideImages from "./SlideImages.svelte";
+	import {
+		fetchPreviewPdfDataUrl,
+		officePreviewEnabledIn,
+		previewUrlFor,
+		slidesPayloadFor,
+	} from "$lib/utils/officePreview";
 	import CarbonDocument from "~icons/carbon/document";
 	import CarbonDownload from "~icons/carbon/download";
 	import { renderDocxPreview } from "$lib/utils/docxPreview";
@@ -43,13 +51,23 @@
 			? `${base}/conversation/${conversationId}/code-execution/output/${version.sha256}`
 			: undefined
 	);
-	const kind = $derived(filePreviewKindFor(version.name));
+	// Persisted files are always in the server's store, so a deployment with a
+	// converter turns any Office file into a PDF; without one a deck is drawn
+	// in the browser.
+	const officePreview = $derived(officePreviewEnabledIn(page.data));
+	const kind = $derived(filePreviewKindFor(version.name, { officePreview }));
 
 	type Payload =
 		| { kind: "text"; text: string; truncated: boolean }
 		| { kind: "image"; url: string }
 		| { kind: "pdf"; dataUrl: string }
-		| { kind: "docx"; html: string };
+		| { kind: "docx"; html: string }
+		| {
+				kind: "slides";
+				slides: { number: number; src: string }[];
+				note: string | null;
+				details: string[];
+		  };
 
 	let status = $state<"idle" | "loading" | "ready" | "error">("idle");
 	let payload = $state<Payload | null>(null);
@@ -85,7 +103,7 @@
 		const url = downloadUrl;
 		const name = version.name;
 		const size = version.size;
-		const selected = filePreviewKindFor(name);
+		const selected = filePreviewKindFor(name, { officePreview });
 		const ext = fileExtensionOf(name);
 		if (!url || selected === "none") {
 			status = "idle";
@@ -94,7 +112,10 @@
 			revokeObjectUrl();
 			return;
 		}
-		if (size > FILE_PREVIEW_MAX_BYTES && (selected === "pdf" || selected === "docx")) {
+		if (
+			size > FILE_PREVIEW_MAX_BYTES &&
+			(selected === "pdf" || selected === "docx" || selected === "pptx")
+		) {
 			status = "error";
 			payload = null;
 			error = "too large to preview — download it to read the whole document";
@@ -115,8 +136,31 @@
 		revokeObjectUrl();
 		void (async () => {
 			try {
+				if (selected === "office") {
+					// The server's PDF of this file (made on the first view and kept),
+					// shown through the same path as a PDF.
+					const dataUrl = await fetchPreviewPdfDataUrl(previewUrlFor(url));
+					if (cancelled) return;
+					payload = { kind: "pdf", dataUrl };
+					status = "ready";
+					return;
+				}
 				const res = await fetch(url);
 				if (!res.ok) throw new Error("that file is no longer available");
+				if (selected === "pptx") {
+					const buffer = await res.arrayBuffer();
+					if (cancelled) return;
+					const shown = await slidesPayloadFor(name, new Uint8Array(buffer));
+					if (cancelled) return;
+					payload = {
+						kind: "slides",
+						slides: shown.slides ?? [],
+						note: shown.note ?? null,
+						details: shown.details ?? [],
+					};
+					status = "ready";
+					return;
+				}
 				if (selected === "text") {
 					const blob = await res.blob();
 					if (cancelled) return;
@@ -296,6 +340,15 @@
 					</button>
 				</div>
 			{/if}
+		</div>
+	{:else if payload?.kind === "slides"}
+		<div class="min-h-0 flex-1">
+			<SlideImages
+				title={version.name}
+				slides={payload.slides}
+				note={payload.note}
+				details={payload.details}
+			/>
 		</div>
 	{:else if payload?.kind === "docx"}
 		<div class="min-h-0 flex-1">

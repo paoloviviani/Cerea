@@ -50,6 +50,8 @@ CONFIG_VERSION = "1"
 MIN_COMPOSE = (2, 24)
 AUTHELIA_INTERNAL = "http://authelia:9091/authelia"
 PLAYWRIGHT_ENDPOINT = "ws://playwright:3000/"
+#: Where the chat reaches Gotenberg, on the office profile's internal network.
+GOTENBERG_ENDPOINT = "http://gotenberg:3000"
 DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
@@ -174,7 +176,7 @@ PRESETS = {
         ),
     )
 }
-PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch")
+PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office")
 
 #: configuration.yml's template quotes these with Authelia's own `msquote`,
 #: which does not escape an embedded quote (an unescaped `'` still ends a
@@ -834,6 +836,9 @@ class Answers:
     # The headless browser (the fetch profile): None leaves it to the preset
     # and to a hand-enabled profile; True/False add or remove it.
     fetch: bool | None = None
+    # Office previews and the convert_document tool (the office profile:
+    # Gotenberg). Off unless asked for; None leaves it as it is.
+    office: bool | None = None
     project: str | None = None
     http_port: int | None = None
     https_port: int | None = None
@@ -904,6 +909,7 @@ def answers_from(values: dict) -> Answers:
         idp="authelia" if "authelia" in profiles or not profiles else "external",
         agents=values.get("CODE_AGENTS_ENABLED", "") == "true",
         terminal=values.get("CODE_TERMINAL_ENABLED", "") == "true",
+        office="office" in profiles,
     )
 
 
@@ -978,6 +984,10 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         profiles.append("fetch")
     elif answers.fetch is False:
         profiles = [p for p in profiles if p != "fetch"]
+    if answers.office is True and "office" not in profiles:
+        profiles.append("office")
+    elif answers.office is False:
+        profiles = [p for p in profiles if p != "office"]
     profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
     values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
     # The chat's renderer address follows the fetch profile. An address that
@@ -991,6 +1001,17 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         notes.append(
             f"fetch off, but PLAYWRIGHT_WS_ENDPOINT points at a renderer elsewhere "
             f"({values['PLAYWRIGHT_WS_ENDPOINT']}): left as it is"
+        )
+    # The chat's converter address follows the office profile, like the
+    # renderer's above: one that is not ours (a Gotenberg elsewhere) is kept.
+    if "office" in profiles:
+        values["CHAT_GOTENBERG_URL"] = values.get("CHAT_GOTENBERG_URL") or GOTENBERG_ENDPOINT
+    elif values.get("CHAT_GOTENBERG_URL") in ("", GOTENBERG_ENDPOINT):
+        values.pop("CHAT_GOTENBERG_URL", None)
+    elif values.get("CHAT_GOTENBERG_URL") and answers.office is False:
+        notes.append(
+            f"office previews off, but CHAT_GOTENBERG_URL points at a converter elsewhere "
+            f"({values['CHAT_GOTENBERG_URL']}): left as it is"
         )
     # --- MongoDB ------------------------------------------------------------------
     # Chosen once, for a fresh install, and then the operator's. An existing
@@ -1554,6 +1575,17 @@ def check_values(values: dict, report: Report) -> None:
             "the admin screen will report the renderer unreachable. Unset it, or add fetch to "
             "COMPOSE_PROFILES"
         )
+    gotenberg = values.get("CHAT_GOTENBERG_URL", "")
+    if "office" in profiles and not gotenberg:
+        report.warnings.append(
+            "the office profile is on but CHAT_GOTENBERG_URL is empty: the chat cannot reach "
+            f"Gotenberg, so there are no Office previews. Set CHAT_GOTENBERG_URL='{GOTENBERG_ENDPOINT}'"
+        )
+    elif "office" not in profiles and gotenberg == GOTENBERG_ENDPOINT:
+        report.warnings.append(
+            f"CHAT_GOTENBERG_URL points at {GOTENBERG_ENDPOINT} but the office profile is off: "
+            "every preview and conversion will fail. Unset it, or add office to COMPOSE_PROFILES"
+        )
     if values.get("FETCH_BACKEND") == "playwright" and not endpoint:
         report.warnings.append(
             "FETCH_BACKEND=playwright with no renderer (PLAYWRIGHT_WS_ENDPOINT empty): web fetch "
@@ -1874,6 +1906,15 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
                     },
                     existing.get("OIDC_GROUP_FALLBACK") or "refuse",
                 )
+    if "office" not in given:
+        answers.office = choose(
+            "Office previews (Gotenberg, a LibreOffice converter: about 1.5 GB image, 2 GB of memory while converting):",
+            {
+                "no": "off: PowerPoint previews in the browser, Word as today (recommended unless you need more)",
+                "yes": "on: Word, Excel, PowerPoint and OpenDocument files preview as PDF, and models can convert files",
+            },
+            "yes" if answers.office else "no",
+        ) == "yes"
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
             "OpenAI-compatible endpoint", existing.get("CHAT_OPENAI_BASE_URL", DEFAULT_UPSTREAM)
@@ -2034,6 +2075,8 @@ def cmd_configure(args, root: Path) -> int:
     print(f"  preset    {values['PYSTINO_PRESET']}   profiles {values['COMPOSE_PROFILES']}")
     fetch_on = "fetch" in values["COMPOSE_PROFILES"].split(",")
     print(f"  browser   {'on (fetch profile)' if fetch_on else 'off'}")
+    office_on = "office" in values["COMPOSE_PROFILES"].split(",")
+    print(f"  office    {'on (Gotenberg previews and convert_document)' if office_on else 'off'}")
     print(f"  identity  {values['OIDC_ISSUER']}   (scopes: {values['OIDC_SCOPES']})")
     print()
     print("next:  ./configure --check  &&  docker compose up -d --wait")
@@ -2230,6 +2273,9 @@ def parser() -> argparse.ArgumentParser:
                    help="the browser terminal on agent machines (a full remote shell; needs --agents)")
     o.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
                    help="the headless browser for web fetch (the fetch profile); --no-fetch removes it")
+    o.add_argument("--office-preview", dest="office", action=argparse.BooleanOptionalAction, default=None,
+                   help="Office documents as PDF previews, and the convert_document tool, through Gotenberg "
+                        "(the office profile; off by default); --no-office-preview removes it")
     o.add_argument("--project", help="compose project name (default cerea)")
     o.add_argument("--http-port", type=int, help="host port for HTTP (upstream mode: what the front forwards to)")
     o.add_argument("--https-port", type=int, help="host port for HTTPS")

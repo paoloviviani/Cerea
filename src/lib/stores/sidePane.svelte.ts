@@ -27,7 +27,7 @@ export interface FencePreview {
 	 * docx-preview HTML (docxPreview.ts), which PreviewPane wraps with
 	 * buildDocxSrcdoc — the postMessage hook plus the fit-to-width script.
 	 */
-	kind: "html" | "svg" | "mermaid" | "pdf" | "docx";
+	kind: "html" | "svg" | "mermaid" | "pdf" | "docx" | "slides";
 	/** Shown in the pane header: the annotated filename, or a generic label. */
 	title: string;
 	/**
@@ -36,6 +36,15 @@ export interface FencePreview {
 	 * lifetime to manage across panel open/close).
 	 */
 	content: string;
+	/**
+	 * For "slides" (a PowerPoint deck drawn in the browser, `pptxPreview.ts`):
+	 * one image URL per slide, shown as `<img>` — never as markup. `content`
+	 * is empty then.
+	 */
+	slides?: { number: number; src: string }[];
+	/** For "slides": the "approximate rendering" note, and what it is about. */
+	note?: string | null;
+	details?: string[];
 }
 
 /**

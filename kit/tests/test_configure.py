@@ -409,6 +409,57 @@ class TestFreshInstall(unittest.TestCase):
             self.assertFalse(any("PLAYWRIGHT" in w or "FETCH_BACKEND" in w for w in report.warnings),
                              report.warnings)
 
+    def _office_state(self, values):
+        profiles = [p for p in values["COMPOSE_PROFILES"].split(",") if p]
+        return ("office" in profiles, values.get("CHAT_GOTENBERG_URL"))
+
+    def test_office_is_off_by_default_in_every_preset(self):
+        for preset in ("homelab", "team", "enterprise"):
+            self.assertEqual(self._office_state(build(preset=preset).values), (False, None), preset)
+
+    def test_office_flag_adds_and_removes_gotenberg(self):
+        team = dict(build().values)
+        on = dict(build(existing=team, office=True).values)
+        self.assertEqual(self._office_state(on), (True, cfg.GOTENBERG_ENDPOINT))
+        # A re-run without the flag keeps the choice, and the fetch browser is untouched.
+        self.assertEqual(self._office_state(build(existing=on).values), self._office_state(on))
+        self.assertEqual(self._fetch_state(on), self._fetch_state(team))
+        off = build(existing=on, office=False).values
+        self.assertEqual(self._office_state(off), (False, None))
+
+    def test_a_foreign_converter_is_kept_by_both_flags(self):
+        foreign = "http://convert.example.org:3000"
+        existing = dict(build().values) | {"CHAT_GOTENBERG_URL": foreign}
+        self.assertEqual(build(existing=existing, office=True).values["CHAT_GOTENBERG_URL"], foreign)
+        result = build(existing=dict(build(existing=existing, office=True).values), office=False)
+        self.assertEqual(result.values["CHAT_GOTENBERG_URL"], foreign)
+        self.assertNotIn("office", result.values["COMPOSE_PROFILES"].split(","))
+        self.assertTrue(any(foreign in n for n in result.notes), result.notes)
+
+    def test_office_flag_leaves_check_quiet_and_a_mismatch_warns(self):
+        existing = dict(build().values)
+        for flag in (True, False):
+            values = build(existing=existing, office=flag).values
+            existing = dict(values)
+            report = cfg.Report()
+            cfg.check_values(values, report)
+            self.assertFalse(any("GOTENBERG" in w or "office" in w for w in report.warnings), report.warnings)
+        on = dict(build(office=True).values)
+        on["CHAT_GOTENBERG_URL"] = ""
+        report = cfg.Report()
+        cfg.check_values(on, report)
+        self.assertTrue(any("CHAT_GOTENBERG_URL is empty" in w for w in report.warnings), report.warnings)
+        off = dict(build().values) | {"CHAT_GOTENBERG_URL": cfg.GOTENBERG_ENDPOINT}
+        report = cfg.Report()
+        cfg.check_values(off, report)
+        self.assertTrue(any("office profile is off" in w for w in report.warnings), report.warnings)
+
+    def test_the_env_file_carries_the_converter_address(self):
+        text = cfg.render(TEMPLATE, build(office=True).values, "# header")
+        self.assertIn("CHAT_GOTENBERG_URL='http://gotenberg:3000'", text)
+        self.assertIn("office", [l for l in text.splitlines() if l.startswith("COMPOSE_PROFILES=")][0])
+        self.assertNotIn("\nCHAT_GOTENBERG_URL=", cfg.render(TEMPLATE, build().values, "# header"))
+
     def test_defaults_for_the_new_adr_0093_fields(self):
         v = build().values
         self.assertEqual(v["OIDC_GROUP_SYNC"], "every_login")
@@ -478,7 +529,7 @@ class TestFreshInstall(unittest.TestCase):
 
         a = answers(**self._EXTERNAL)
         given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
-                 "oidc_console_client_secret", "oidc_chat_client_secret"}
+                 "oidc_console_client_secret", "oidc_chat_client_secret", "office"}
         with mock.patch("builtins.input", side_effect=fake_input), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
             result = cfg.interview(a, given, {})

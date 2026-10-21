@@ -33,6 +33,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { parseCodeAttachmentKey } from "$lib/server/codeAttachments";
 import { parseProjectOwnerKey } from "$lib/server/projectDocuments";
+import { sweepOrphanPreviews } from "$lib/server/office/previewStore";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
 
 export const ATTACHMENT_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -41,6 +42,8 @@ const BATCH = 500;
 export interface OrphanAttachmentCounts {
 	files: number;
 	shares: number;
+	/** Office previews whose source files are all gone (`office/previewStore.ts`). */
+	previews: number;
 }
 
 const OBJECT_ID = /^[0-9a-f]{24}$/;
@@ -139,7 +142,7 @@ async function sweepOrphanShares(): Promise<number> {
 
 /** One pass. Throws only on a database failure; the caller logs and moves on. */
 export async function sweepOrphanAttachments(now = new Date()): Promise<OrphanAttachmentCounts> {
-	const counts: OrphanAttachmentCounts = { files: 0, shares: 0 };
+	const counts: OrphanAttachmentCounts = { files: 0, shares: 0, previews: 0 };
 	// Shares first, so the copies they leave are found as dead tags below at
 	// the latest, and the ones they delete here are not counted twice.
 	counts.shares = await sweepOrphanShares();
@@ -169,5 +172,8 @@ export async function sweepOrphanAttachments(now = new Date()): Promise<OrphanAt
 			}
 		}
 	}
+	// Last, so the previews of the files deleted just above are already
+	// without a source.
+	counts.previews = await sweepOrphanPreviews();
 	return counts;
 }

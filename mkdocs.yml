@@ -105,6 +105,7 @@ nav:
       - Connectors: connectors.md
       - "Agent machines": agent-machines.md
       - "The headless browser": browser.md
+      - "Office previews": office.md
   - Operating Cerea:
       - Deploying: deploy.md
       - "The deploy kit": deploy-kit.md
