@@ -97,4 +97,4 @@ components (gmpy2 with GMP and MPFR; GDAL), which are unmodified upstream
 builds — source: https://github.com/pyodide/pyodide and each project's
 upstream repository.
 
-MPL-2.0 npm packages, unmodified: pyodide, satori, @resvg/resvg-js.
+MPL-2.0 npm packages, unmodified: pyodide, satori, @resvg/resvg-js, @resvg/resvg-wasm (via pptx-glimpse).
