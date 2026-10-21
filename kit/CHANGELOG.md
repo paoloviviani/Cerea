@@ -5,6 +5,22 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.18.1 — 2026-10-21
+
+Pins: Cerea `0.18.1`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`). Machines
+do not need the galopin update.
+
+- **Better Word previews without the office profile.**
+  - Bullets show as bullets: Word's Symbol and Wingdings bullet characters no
+    longer render as missing-glyph boxes.
+  - Calibri, Arial, Times New Roman, Cambria and similar fonts are drawn with
+    the metric-compatible open fonts the PowerPoint preview already ships
+    (Carlito, Liberation), so lines wrap as in Word. Only the fonts a document
+    uses are loaded.
+  - Pages shrink to fit the pane instead of being cut off with a sideways
+    scrollbar.
+
 ## v0.18.0 — 2026-10-21
 
 Pins: Cerea `0.18.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
