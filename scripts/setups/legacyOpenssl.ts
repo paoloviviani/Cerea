@@ -1,11 +1,18 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cpuHasAvx } from "../../src/lib/server/mongoMemoryVersion";
 
 const DEB = "libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb";
-const DEB_URL = `http://security.ubuntu.com/ubuntu/pool/main/o/openssl/${DEB}`;
+const DEB_URL = `https://security.ubuntu.com/ubuntu/pool/main/o/openssl/${DEB}`;
+/**
+ * The package's SHA-256, as published in Ubuntu's signed focal-security index
+ * (dists/focal-security/main/binary-amd64/Packages). The library is loaded into
+ * every test worker, so a download that does not match is refused, never used.
+ */
+const DEB_SHA256 = "7cf39d70a639017d1dd7c8d36daa2258063608688e449fddf40ffdd46f992a78";
 const SYSTEM_DIRS = [
 	"/usr/lib/x86_64-linux-gnu",
 	"/lib/x86_64-linux-gnu",
@@ -33,10 +40,14 @@ export function ensureLegacyOpenssl(): void {
 		mkdirSync(work, { recursive: true });
 		try {
 			const deb = join(work, DEB);
-			writeFileSync(
-				deb,
-				execFileSync("curl", ["-fsSL", "--max-time", "120", DEB_URL], { maxBuffer: 64 << 20 })
-			);
+			const bytes = execFileSync("curl", ["-fsSL", "--max-time", "120", DEB_URL], {
+				maxBuffer: 64 << 20,
+			});
+			const digest = createHash("sha256").update(bytes).digest("hex");
+			if (digest !== DEB_SHA256) {
+				throw new Error(`${DEB} has sha256 ${digest}, expected ${DEB_SHA256}`);
+			}
+			writeFileSync(deb, bytes);
 			execFileSync("dpkg-deb", ["-x", deb, work]);
 			if (!existsSync(join(lib, "libcrypto.so.1.1"))) {
 				mkdirSync(join(root, "usr/lib"), { recursive: true });
