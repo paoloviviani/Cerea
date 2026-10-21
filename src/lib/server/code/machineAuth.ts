@@ -178,6 +178,23 @@ function looksLikeIdToken(typ: string | undefined): boolean {
 	return /id[-_]?token/i.test(typ);
 }
 
+/**
+ * Which client asked for this token: `azp`, else `client_id`, else — for an
+ * issuer that sets neither — the token's one audience. Dex is that issuer: its
+ * access token names the requesting client as `aud` and nothing else (a second
+ * audience only when the client asks for it), so with Dex in front of Authelia
+ * the machine client is the deployment's audience and also who asked. A token
+ * with several audiences and no azp names nobody.
+ */
+export function tokenClient(payload: JWTPayload): string | undefined {
+	const claimed = (payload.azp as string | undefined) ?? (payload.client_id as string | undefined);
+	if (claimed) return claimed;
+	const aud = payload.aud;
+	if (typeof aud === "string") return aud;
+	if (Array.isArray(aud) && aud.length === 1) return aud[0];
+	return undefined;
+}
+
 export class MachineAuthError extends Error {
 	constructor(
 		readonly status: 401 | 403,
@@ -226,8 +243,7 @@ export async function validateMachineToken(token: string): Promise<ValidatedMach
 			"The token is invalid, expired, or not meant for this deployment."
 		);
 	}
-	const azp = (payload.azp as string | undefined) ?? (payload.client_id as string | undefined);
-	if (azp !== machineClientId()) {
+	if (tokenClient(payload) !== machineClientId()) {
 		throw new MachineAuthError(
 			401,
 			"The token was not issued to this deployment's machine-enrollment client."

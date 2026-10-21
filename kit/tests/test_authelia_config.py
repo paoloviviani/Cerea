@@ -96,6 +96,25 @@ class AutheliaConfigTests(unittest.TestCase):
                 self.assertEqual(out.count("authorization_policy: 'one_factor'"), 3)
                 self.assertIn("default_policy: 'one_factor'", out)
 
+    def test_the_dex_client_exists_only_when_dex_is_in_front(self) -> None:
+        """The Authelia-alone mode renders no `dex` client and no `dex_connector`
+        lifespan; with Dex's digest set both appear, still without a second factor."""
+        alone = self._authelia("template", BASE_ENV).stdout
+        self.assertNotIn("client_id: 'dex'", alone)
+        self.assertNotIn("dex_connector", alone)
+        fronted = {**BASE_ENV, "X_PYSTINO_DEX_CLIENT_DIGEST": "$pbkdf2-sha512$310000$c2FsdA$aGFzaA"}
+        proc = self._authelia("template", fronted)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = proc.stdout
+        self.assertIn("client_id: 'dex'", out)
+        self.assertIn("- 'https://cerea.example.org/dex/callback'", out)
+        self.assertEqual(out.count("authorization_policy: 'one_factor'"), 4)
+        self.assertIn("lifespan: 'dex_connector'", out)
+        self.assertIn("totp:\n  disable: true", out)
+        validated = self._authelia("validate", fronted)
+        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+        self.assertNotIn("errors", validated.stdout)
+
     def test_without_smtp_uses_the_filesystem_notifier_and_disables_reset(self) -> None:
         out = self._authelia("template", BASE_ENV).stdout
         self.assertIn("filesystem:", out)

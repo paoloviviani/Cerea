@@ -1,0 +1,11 @@
+# Google sign-in. Create an OAuth client (type: web) in Google Cloud and
+# register <PUBLIC_ORIGIN>/dex/callback. Google sends no groups claim: groups
+# stay the console's. hostedDomains limits sign-in to your Workspace domain.
+- type: google
+  id: google
+  name: Google
+  config:
+    clientID: 1234567890-abc.apps.googleusercontent.com
+    clientSecret: ${GOOGLE_CLIENT_SECRET}
+    redirectURI: https://cerea.example.org/dex/callback
+    hostedDomains: [example.org]

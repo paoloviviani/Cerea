@@ -37,7 +37,7 @@ EXAMPLE_PIN = {
     "cerea": re.compile(r"^(# CEREA_VERSION=')([^']*)(')$", re.MULTILINE),
 }
 #: Service name -> the directory it mounts as its configuration.
-CONFIG_DIRS = {"proxy": "caddy", "authelia": "authelia"}
+CONFIG_DIRS = {"proxy": "caddy", "authelia": "authelia", "dex": "dex"}
 PIN = {
     "pystino": re.compile(r"(\$\{PYSTINO_VERSION:-)([^}]*)(\})"),
     "cerea": re.compile(r"(\$\{CEREA_VERSION:-)([^}]*)(\})"),

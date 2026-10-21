@@ -49,13 +49,18 @@ ROOT = Path(__file__).resolve().parent
 CONFIG_VERSION = "1"
 MIN_COMPOSE = (2, 24)
 AUTHELIA_INTERNAL = "http://authelia:9091/authelia"
+DEX_INTERNAL = "http://dex:5556/dex"
+DEX_DIR = "dex.d"
+DEX_ENV_FILE = "connectors.env"
 PLAYWRIGHT_ENDPOINT = "ws://playwright:3000/"
 #: Where the chat reaches Gotenberg, on the office profile's internal network.
 GOTENBERG_ENDPOINT = "http://gotenberg:3000"
 DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
-IDPS = ("authelia", "external")
+IDPS = ("authelia", "dex+authelia", "external")
+#: The identity mode with Dex in front of the bundled Authelia (`dex` and `authelia` profiles).
+DEX_MODE = "dex+authelia"
 #: What the console and the chat ask the IdP for. `groups` is a scope only at
 #: some providers (Authelia, Keycloak); others carry the claim without it.
 WANTED_SCOPES = ("openid", "profile", "email", "groups")
@@ -176,7 +181,7 @@ PRESETS = {
         ),
     )
 }
-PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office")
+PROFILES = ("gateway", "chat", "authelia", "dex", "redaction", "documents", "fetch", "office")
 
 #: configuration.yml's template quotes these with Authelia's own `msquote`,
 #: which does not escape an embedded quote (an unescaped `'` still ends a
@@ -208,6 +213,14 @@ MINTED_AUTHELIA = {
     # as the three above, since a later ./configure --smtp-host must not find
     # the value missing.
     "AUTHELIA_RESET_PASSWORD_JWT_SECRET": 32,
+}
+#: Secrets the dex+authelia mode adds, minted when empty.
+MINTED_DEX = {
+    # Dex's own role on the stack's PostgreSQL. Hex, because compose's dex-init
+    # puts it in a SQL string.
+    "DEX_PG_PASSWORD": 24,
+    # Dex's client secret at Authelia (its digest is made with it, below).
+    "DEX_AUTHELIA_CLIENT_SECRET": 32,
 }
 #: Client secret -> the Authelia digest of it.
 DIGESTS = {
@@ -253,6 +266,13 @@ REQUIRED_BY_PROFILE = {
         # check_values below flags it only alongside SMTP_HOST.
     ),
 }
+REQUIRED_BY_PROFILE["dex"] = (
+    "IDP_MODE",
+    "IDP_PUBLIC_HOST",
+    "DEX_PG_PASSWORD",
+    "DEX_AUTHELIA_CLIENT_SECRET",
+    "AUTHELIA_DEX_CLIENT_DIGEST",
+)
 #: Variables older installs (`pystino init`) wrote that nothing reads here.
 RETIRED = {
     "COMPOSE_FILE": "this repository has one compose.yaml; remove it (a stale list breaks `up`)",
@@ -356,6 +376,47 @@ def compute_scopes(discovery: dict | None) -> tuple:
 def scopes_json(scopes: str) -> str:
     """The gateway's list-typed setting wants JSON; the chat's takes the words."""
     return json.dumps(scopes.split(), separators=(",", ":"))
+
+
+#: Dex names a second audience in a token only when the client asks for it with
+#: this scope (and the client named trusts the asker, which itself always does).
+AUDIENCE_SCOPE = "audience:server:client_id:"
+
+
+def dex_scopes(base: list, client: str, machine: str) -> list:
+    """`base` plus the audience scopes that make a Dex token carry the client's
+    own id (the ID token's audience, which the gateway checks at sign-in) and
+    the machine client's (the audience the gateway wants of every access token).
+    """
+    asked = dict.fromkeys(f"{AUDIENCE_SCOPE}{c}" for c in (client, machine))
+    return [*base, *asked]
+
+
+def scopes_twin(values: dict) -> str:
+    """OIDC_SCOPES_JSON as it follows from OIDC_SCOPES: the same words, except
+    with Dex in front, where the console's differ by its own client id."""
+    words = values.get("OIDC_SCOPES", "")
+    if values.get("IDP_MODE") != DEX_MODE:
+        return scopes_json(words)
+    base = [w for w in words.split() if not w.startswith(AUDIENCE_SCOPE)]
+    console = values.get("OIDC_CONSOLE_CLIENT_ID") or "pystino-console"
+    machine = values.get("OIDC_MACHINE_CLIENT_ID") or "opencode-enrollment"
+    return scopes_json(" ".join(dex_scopes(base, console, machine)))
+
+
+_MODE_NAMES = {"authelia": "the bundled Authelia alone", DEX_MODE: "Dex in front of Authelia", "external": "an external issuer"}
+
+
+def switch_note(before: str, after: str) -> str:
+    """What changing the identity mode does, said at the moment it happens."""
+    return (
+        f"the identity mode changes from {_MODE_NAMES[before]} to {_MODE_NAMES[after]}: the issuer changes, and "
+        "people are keyed on issuer plus subject, so everyone who signs in again would be a new person. To keep "
+        "their accounts: turn on --link-by-email for the switch (a verified email then attaches to the existing "
+        "non-admin account with it), have people sign in once, merge administrators' old and new accounts in the "
+        "console (Users, Merge), then turn it off (--no-link-by-email). Machines (galopin) must re-enroll. "
+        "See the README, \"Switching the identity mode\""
+    )
 
 
 # --- .env files ------------------------------------------------------------------
@@ -677,6 +738,285 @@ def refuse_authelia(host: str) -> None:
         )
 
 
+# --- Dex connectors (dex+authelia) ------------------------------------------------
+#
+# A federated login is one file in dex.d/, one Dex connector (a YAML list item)
+# that the Dex container adds after the bundled Authelia's when it starts.
+# ./configure --dex-connector 'TYPE key=value ...' writes one from the answers;
+# a file you write yourself is never touched. Secrets never go in the YAML: they
+# go in dex.d/connectors.env, and the YAML names them as ${NAME}.
+
+DEX_GENERATED = "# generated by ./configure --dex-connector: re-running it replaces this file.\n"
+DEX_ID = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+#: type -> (required keys, optional keys, secret keys). Keys are the words on
+#: the command line; the table below turns them into Dex's own field names.
+DEX_TYPES = {
+    "oidc": (
+        ("issuer", "client-id", "client-secret"),
+        ("name", "scopes", "groups-claim", "get-user-info"),
+        ("client-secret",),
+    ),
+    "google": (
+        ("client-id", "client-secret"),
+        ("name", "hosted-domains"),
+        ("client-secret",),
+    ),
+    "ldap": (
+        ("host", "user-base-dn"),
+        ("name", "bind-dn", "bind-password", "start-tls", "insecure-no-ssl", "root-ca", "user-filter",
+         "username-attr", "id-attr", "email-attr", "name-attr", "group-base-dn", "group-filter",
+         "group-user-attr", "group-group-attr", "group-name-attr"),
+        ("bind-password",),
+    ),
+    "saml": (
+        ("sso-url", "ca"),
+        ("name", "entity-issuer", "username-attr", "email-attr", "groups-attr", "name-id-policy-format"),
+        (),
+    ),
+}
+_TRUE = ("true", "yes", "on", "1")
+
+
+@dataclass
+class DexConnector:
+    id: str
+    text: str
+    #: ENV_NAME -> secret value, for dex.d/connectors.env.
+    secrets: dict
+
+
+def _dex_env_name(connector_id: str, key: str) -> str:
+    return f"DEX_CONN_{connector_id.upper().replace('-', '_')}_{key.upper().replace('-', '_')}"
+
+
+def parse_dex_connector(spec: str, origin: str, environ: dict | None = None) -> DexConnector:
+    """`TYPE key=value ...` -> a connector file's text and its secrets.
+
+    A secret is `key=value` (visible in argv: prefer the next form) or
+    `key-env=VAR`, read from `environ` (the process environment by default).
+    Pure apart from that: nothing is written here.
+    """
+    import shlex
+
+    environ = os.environ if environ is None else environ
+    try:
+        words = shlex.split(spec)
+    except ValueError as exc:
+        raise ConfigError(f"--dex-connector {spec!r}: {exc}") from None
+    if not words or words[0] not in DEX_TYPES:
+        raise ConfigError(f"--dex-connector starts with a type: one of {', '.join(DEX_TYPES)}; got {spec!r}")
+    kind = words[0]
+    required, optional, secret_keys = DEX_TYPES[kind]
+    given: dict = {}
+    for word in words[1:]:
+        key, sep, value = word.partition("=")
+        if not sep:
+            raise ConfigError(f"--dex-connector {kind}: {word!r} is not key=value")
+        given[key] = value
+    connector_id = given.pop("id", "")
+    if not DEX_ID.match(connector_id) or connector_id == "authelia":
+        raise ConfigError(
+            f"--dex-connector {kind}: id=… is a short lower-case name (letters, digits, '-'), not "
+            f"'authelia', got {connector_id!r}"
+        )
+    secrets: dict = {}
+    for key in list(given):
+        if key.endswith("-env") and key[: -len("-env")] in secret_keys:
+            name = given.pop(key)
+            if name not in environ or not environ[name]:
+                raise ConfigError(f"--dex-connector {connector_id}: {key}={name}, but {name} is not set")
+            given[key[: -len("-env")]] = environ[name]
+    unknown = sorted(set(given) - set(required) - set(optional))
+    if unknown:
+        raise ConfigError(
+            f"--dex-connector {kind} {connector_id}: unknown key(s) {', '.join(unknown)}; "
+            f"known: {', '.join((*required, *optional))}"
+        )
+    missing = [k for k in required if not given.get(k)]
+    if missing:
+        raise ConfigError(f"--dex-connector {kind} {connector_id}: needs {', '.join(missing)}")
+    for key, value in given.items():
+        if key not in secret_keys and ("$" in value or "\n" in value):
+            raise ConfigError(
+                f"--dex-connector {connector_id}: {key} holds a '$' or a newline, which Dex's "
+                "environment expansion would mangle; write a file in dex.d/ yourself instead"
+            )
+    for key in secret_keys:
+        if given.get(key):
+            name = _dex_env_name(connector_id, key)
+            secrets[name] = given[key]
+            given[key] = "${" + name + "}"
+    if any("\n" in v or "'" in v for v in secrets.values()):
+        raise ConfigError(f"--dex-connector {connector_id}: a secret may not hold a newline or a single quote")
+
+    def q(value: str) -> str:
+        # JSON strings are YAML strings; ${NAME} stays visible to Dex.
+        return json.dumps(value)
+
+    def words_of(value: str) -> list:
+        return [w for w in re.split(r"[,\s]+", value) if w]
+
+    lines = [f"- type: {kind}", f"  id: {connector_id}", f"  name: {q(given.get('name') or connector_id)}", "  config:"]
+    redirect = f"    redirectURI: {q(origin + '/dex/callback')}"
+    if kind == "oidc":
+        scopes = words_of(given.get("scopes", "openid profile email groups"))
+        if "openid" not in scopes:
+            raise ConfigError(f"--dex-connector {connector_id}: scopes must include openid")
+        lines += [
+            f"    issuer: {q(given['issuer'].rstrip('/'))}",
+            f"    clientID: {q(given['client-id'])}",
+            f"    clientSecret: {q(given['client-secret'])}",
+            redirect,
+            f"    scopes: [{', '.join(q(w) for w in scopes)}]",
+            # Groups only reach the gateway if Dex is told to pass them on.
+            "    insecureEnableGroups: true",
+        ]
+        if given.get("groups-claim") and given["groups-claim"] != "groups":
+            lines += ["    claimMapping:", f"      groups: {q(given['groups-claim'])}"]
+        if given.get("get-user-info", "").lower() in _TRUE:
+            lines.append("    getUserInfo: true")
+    elif kind == "google":
+        lines += [
+            f"    clientID: {q(given['client-id'])}",
+            f"    clientSecret: {q(given['client-secret'])}",
+            redirect,
+        ]
+        if given.get("hosted-domains"):
+            lines.append(f"    hostedDomains: [{', '.join(q(w) for w in words_of(given['hosted-domains']))}]")
+    elif kind == "ldap":
+        lines.append(f"    host: {q(given['host'])}")
+        if given.get("insecure-no-ssl", "").lower() in _TRUE:
+            lines.append("    insecureNoSSL: true")
+        elif given.get("start-tls", "").lower() in _TRUE:
+            lines.append("    startTLS: true")
+        if given.get("root-ca"):
+            lines.append(f"    rootCA: {q(given['root-ca'])}")
+        if given.get("bind-dn"):
+            lines.append(f"    bindDN: {q(given['bind-dn'])}")
+        if given.get("bind-password"):
+            lines.append(f"    bindPW: {q(given['bind-password'])}")
+        lines += [
+            "    userSearch:",
+            f"      baseDN: {q(given['user-base-dn'])}",
+            f"      filter: {q(given.get('user-filter', '(objectClass=person)'))}",
+            f"      username: {q(given.get('username-attr', 'uid'))}",
+            f"      idAttr: {q(given.get('id-attr', 'uid'))}",
+            f"      emailAttr: {q(given.get('email-attr', 'mail'))}",
+            f"      nameAttr: {q(given.get('name-attr', 'cn'))}",
+        ]
+        if given.get("group-base-dn"):
+            lines += [
+                "    groupSearch:",
+                f"      baseDN: {q(given['group-base-dn'])}",
+                f"      filter: {q(given.get('group-filter', '(objectClass=groupOfNames)'))}",
+                "      userMatchers:",
+                f"        - userAttr: {q(given.get('group-user-attr', 'DN'))}",
+                f"          groupAttr: {q(given.get('group-group-attr', 'member'))}",
+                f"      nameAttr: {q(given.get('group-name-attr', 'cn'))}",
+            ]
+    elif kind == "saml":
+        lines += [
+            f"    ssoURL: {q(given['sso-url'])}",
+            f"    ca: {q(given['ca'])}",
+            redirect,
+            f"    entityIssuer: {q(given.get('entity-issuer', origin + '/dex/callback'))}",
+            f"    usernameAttr: {q(given.get('username-attr', 'name'))}",
+            f"    emailAttr: {q(given.get('email-attr', 'email'))}",
+            f"    groupsAttr: {q(given.get('groups-attr', 'groups'))}",
+        ]
+        if given.get("name-id-policy-format"):
+            lines.append(f"    nameIDPolicyFormat: {q(given['name-id-policy-format'])}")
+    return DexConnector(connector_id, DEX_GENERATED + "\n".join(lines) + "\n", secrets)
+
+
+def dex_files(root: Path) -> list:
+    """The connector files in dex.d/, sorted: what the Dex container will load."""
+    directory = root / DEX_DIR
+    return sorted(directory.glob("*.yaml")) if directory.is_dir() else []
+
+
+def dex_connectors_rev(root: Path) -> str:
+    """A digest of dex.d/*.yaml. Written into dex.d/connectors.env, whose
+    content compose folds into Dex's configuration hash: a changed connector
+    file therefore recreates Dex on the next `up`, which a changed mounted
+    file alone never would."""
+    digest = hashlib.sha256()
+    for path in dex_files(root):
+        digest.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()[:16]
+
+
+def write_dex_connectors(root: Path, add: list, remove: list) -> list:
+    """Write the generated connector files and their secrets; returns notes.
+
+    Generated files are the ones carrying DEX_GENERATED's first line: `add`
+    replaces its own id's, `remove` deletes the named ids' (and their secrets).
+    A file without the marker is the operator's and is never touched.
+    """
+    directory = root / DEX_DIR
+    directory.mkdir(exist_ok=True)
+    env_path = directory / DEX_ENV_FILE
+    env = parse_env(env_path.read_text(encoding="utf-8")) if env_path.exists() else {}
+    notes = []
+
+    def generated_for(connector_id: str) -> list:
+        found = []
+        for path in dex_files(root):
+            head = path.read_text(encoding="utf-8").splitlines()[:1]
+            if head == [DEX_GENERATED.rstrip("\n")] and re.search(
+                rf"^  id: {re.escape(connector_id)}$", path.read_text(encoding="utf-8"), re.MULTILINE
+            ):
+                found.append(path)
+        return found
+
+    def drop_secrets(connector_id: str) -> None:
+        prefix = _dex_env_name(connector_id, "")
+        for key in [k for k in env if k.startswith(prefix)]:
+            del env[key]
+
+    for connector_id in remove:
+        paths = generated_for(connector_id)
+        if not paths:
+            notes.append(f"--no-dex-connector {connector_id}: no generated connector with that id (a file you wrote is yours to delete)")
+        for path in paths:
+            path.unlink()
+            notes.append(f"removed {DEX_DIR}/{path.name}")
+        drop_secrets(connector_id)
+    taken = {p.name for p in dex_files(root)}
+    for connector in add:
+        for path in dex_files(root):
+            text = path.read_text(encoding="utf-8")
+            if re.search(rf"^\s*(- )?id: {re.escape(connector.id)}$", text, re.MULTILINE) and path not in generated_for(connector.id):
+                raise ConfigError(
+                    f"dex.d/{path.name} (not generated by ./configure) already defines a connector with id "
+                    f"{connector.id!r}; pick another id or delete that file"
+                )
+        paths = generated_for(connector.id)
+        name = paths[0].name if paths else None
+        if name is None:
+            n = 10
+            while f"{n}-{connector.id}.yaml" in taken:
+                n += 1
+            name = f"{n}-{connector.id}.yaml"
+        drop_secrets(connector.id)
+        # Not private: Dex's container user must read it, and it holds no secret
+        # (only the ${NAME} of one, which lives in connectors.env).
+        (directory / name).write_text(connector.text, encoding="utf-8")
+        (directory / name).chmod(0o644)
+        taken.add(name)
+        env.update(connector.secrets)
+        notes.append(f"wrote {DEX_DIR}/{name}" + (f" and {len(connector.secrets)} secret(s) in {DEX_DIR}/{DEX_ENV_FILE}" if connector.secrets else ""))
+    env["DEX_CONNECTORS_REV"] = dex_connectors_rev(root)
+    body = (
+        "# Written by ./configure (mode 0600): the secrets the connector files in this\n"
+        "# directory name as ${NAME}, and a digest of those files so that a change\n"
+        "# recreates Dex. Add your own NAME=value lines freely; they are kept.\n"
+        + "".join(quote(k, v) + "\n" for k, v in env.items())
+    )
+    write_private(env_path, body)
+    return notes
+
+
 def default_sni_for(tls: str, host: str) -> str:
     """Browsers send no SNI to an IP, and Docker's port mapping hides the address
     the client dialled, so Caddy needs to be told which certificate to serve."""
@@ -857,6 +1197,9 @@ class Answers:
     oidc_groups_claim: str | None = None
     oidc_scopes: str | None = None
     oidc_logout_url: str | None = None
+    # dex+authelia: connectors to add (`TYPE key=value ...` specs) and ids to remove.
+    dex_connector: list | None = None
+    no_dex_connector: list | None = None
     # Who is an administrator (external IdP only; the bundled Authelia uses
     # admin_email as its bootstrap address instead).
     admin_claim: str | None = None
@@ -906,7 +1249,11 @@ def answers_from(values: dict) -> Answers:
         admin_email=values.get("PYSTINO_BOOTSTRAP_ADMIN_EMAIL", ""),
         preset=values.get("PYSTINO_PRESET", "team") or "team",
         tls=values.get("TLS_MODE", "acme") or "acme",
-        idp="authelia" if "authelia" in profiles or not profiles else "external",
+        idp=(
+            DEX_MODE if "dex" in profiles
+            else "authelia" if "authelia" in profiles or not profiles
+            else "external"
+        ),
         agents=values.get("CODE_AGENTS_ENABLED", "") == "true",
         terminal=values.get("CODE_TERMINAL_ENABLED", "") == "true",
         office="office" in profiles,
@@ -946,13 +1293,18 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         notes.append("satellite: the IdP is the central Pystino's (external)")
     if idp not in IDPS:
         raise ConfigError(f"the IdP must be one of {', '.join(IDPS)}")
-    if idp == "authelia":
+    if answers.dex_connector or answers.no_dex_connector:
+        if idp != DEX_MODE:
+            raise ConfigError("--dex-connector needs the dex+authelia identity mode (--idp dex+authelia)")
+    dex = idp == DEX_MODE
+    if idp in ("authelia", DEX_MODE):
         refuse_authelia(host)
-    # The bundled Authelia's bootstrap door needs an address; an external IdP
-    # does not, on its own — an admin rule does (checked below, once it is
-    # known whether a claim rule was given instead), and the bootstrap
-    # address is honoured only with the bundled IdP anyway.
-    if idp == "authelia":
+    # The bundled Authelia's bootstrap door needs an address (with Dex in front
+    # it is also the administrator rule); an external IdP does not, on its own
+    # — an admin rule does (checked below, once it is known whether a claim
+    # rule was given instead), and the bootstrap address is honoured only
+    # with the bundled IdP anyway.
+    if idp in ("authelia", DEX_MODE):
         admin_email = check_email(answers.admin_email)
     else:
         admin_email = (answers.admin_email or "").strip()
@@ -977,9 +1329,11 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
     else:
         # Keep profiles the operator switched on by hand (fetch on team, say).
         profiles = [p for p in values.get("COMPOSE_PROFILES", "").split(",") if p]
-        profiles = [p for p in profiles if p != "authelia"]
-    if idp == "authelia":
+        profiles = [p for p in profiles if p not in ("authelia", "dex")]
+    if idp in ("authelia", DEX_MODE):
         profiles.append("authelia")
+    if dex:
+        profiles.append("dex")
     if answers.fetch is True and "fetch" not in profiles:
         profiles.append("fetch")
     elif answers.fetch is False:
@@ -1183,7 +1537,7 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
     values.setdefault("SMTP_PORT", "587")
     values.setdefault("SMTP_SECURITY", "starttls")
 
-    if idp == "authelia":
+    if idp in ("authelia", DEX_MODE):
         values.update(
             OIDC_ISSUER=f"{origin}/authelia",
             OIDC_INTERNAL_BASE_URL=AUTHELIA_INTERNAL,
@@ -1225,13 +1579,75 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             password = secrets.token_urlsafe(18)
             values["AUTHELIA_ADMIN_PASSWORD_DIGEST"] = sha512_crypt(password)
             result.admin_password = password
-    else:
+    if dex:
+        # Dex in front of the bundled Authelia: Dex is the one issuer the gateway
+        # and the chat see (the values above were Authelia's own).
+        machine = values["OIDC_MACHINE_CLIENT_ID"]
+        values.update(
+            OIDC_ISSUER=f"{origin}/dex",
+            OIDC_INTERNAL_BASE_URL=DEX_INTERNAL,
+            # Still the bundled kind: the console's Users page (add, reset, disable)
+            # and break-glass work on Authelia's users file, whoever the issuer
+            # is. Groups, though, come from the claim, which is what the next
+            # setting says (a gateway that does not know it ignores it).
+            OIDC_KIND="authelia",
+            OIDC_GROUPS_FROM_CLAIM="true",
+            # Dex puts one audience in a token, the client's own, and another
+            # only when the client asks. The machine client's id is the one
+            # audience galopin's token has without asking, so it is the
+            # gateway's, and the console and the chat ask for it.
+            OIDC_AUDIENCE=machine,
+            IDP_MODE=DEX_MODE,
+            IDP_PUBLIC_HOST=origin[len("https://"):],
+            # Dex has no session of its own: ending Authelia's is what signs out.
+            OIDC_LOGOUT_URL=f"{origin}/authelia/logout?rd={{redirect}}",
+        )
+        values.setdefault("DEX_AUTHELIA_NAME", "Cerea account")
+        for key, nbytes in MINTED_DEX.items():
+            if not values.get(key):
+                values[key] = mint(nbytes)
+        digest = values.get("AUTHELIA_DEX_CLIENT_DIGEST", "")
+        secret = values["DEX_AUTHELIA_CLIENT_SECRET"]
+        if not digest or digest_matches(secret, digest) is False:
+            values["AUTHELIA_DEX_CLIENT_DIGEST"] = pbkdf2_digest(secret)
+        if answers.group_import is not None:
+            values["OIDC_GROUP_IMPORT"] = answers.group_import
+        values["OIDC_GROUP_IMPORT"] = values.get("OIDC_GROUP_IMPORT") or "manual"
+        base = (
+            answers.oidc_scopes.replace(",", " ").split() if answers.oidc_scopes is not None
+            else [w for w in values.get("OIDC_SCOPES", "").split() if not w.startswith(AUDIENCE_SCOPE)]
+            if not idp_changed and values.get("OIDC_SCOPES") else list(WANTED_SCOPES)
+        )
+        if "openid" not in base:
+            raise ConfigError("--oidc-scopes must include openid")
+        values["OIDC_SCOPES"] = " ".join(dex_scopes(base, values["OIDC_CHAT_CLIENT_ID"], machine))
+        values["OIDC_SCOPES_JSON"] = scopes_json(" ".join(dex_scopes(base, values["OIDC_CONSOLE_CLIENT_ID"], machine)))
+        if before is not None and before.idp != DEX_MODE:
+            notes.append(switch_note(before.idp, DEX_MODE))
+    elif idp == "authelia":
+        for key in ("IDP_MODE", "IDP_PUBLIC_HOST", "DEX_PG_PASSWORD", "DEX_AUTHELIA_CLIENT_SECRET",
+                    "AUTHELIA_DEX_CLIENT_DIGEST", "DEX_AUTHELIA_NAME", "OIDC_GROUPS_FROM_CLAIM"):
+            # Dex is not run in this mode; its settings would only mislead.
+            values.pop(key, None)
+        if before is not None and before.idp != "authelia":
+            notes.append(switch_note(before.idp, "authelia"))
+    if idp not in ("authelia", DEX_MODE):
+        for key in ("IDP_MODE", "IDP_PUBLIC_HOST", "OIDC_GROUPS_FROM_CLAIM"):
+            values.pop(key, None)
+        if before is not None and before.idp != "external":
+            notes.append(switch_note(before.idp, "external"))
+    if idp == "external":
         if idp_changed:
             # The bundled IdP's own values would be wrong for another issuer.
             for key in ("OIDC_ISSUER", "OIDC_INTERNAL_BASE_URL", "OIDC_LOGOUT_URL"):
-                if values.get(key, "").startswith((f"{origin}/authelia", AUTHELIA_INTERNAL)):
+                if values.get(key, "").startswith(
+                    (f"{origin}/authelia", f"{origin}/dex", AUTHELIA_INTERNAL, DEX_INTERNAL)
+                ):
                     values[key] = ""
             values["OIDC_KIND"] = "generic"
+            if before is not None and before.idp == DEX_MODE:
+                # The machine client's id was the audience only through Dex.
+                values["OIDC_AUDIENCE"] = "pystino-api"
         old_issuer = values.get("OIDC_ISSUER", "")
         for attr, key in (
             ("oidc_issuer", "OIDC_ISSUER"),
@@ -1309,8 +1725,10 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
                 "an external identity provider needs an admin rule: --admin-email, or "
                 "--admin-claim with --admin-claim-value"
             )
-    # The gateway's setting is a JSON list; written from the one list above.
-    values["OIDC_SCOPES_JSON"] = scopes_json(values.get("OIDC_SCOPES", ""))
+    # The gateway's setting is a JSON list; written from the one list above
+    # (dex+authelia wrote its own: the console asks for a different audience).
+    if not dex:
+        values["OIDC_SCOPES_JSON"] = scopes_json(values.get("OIDC_SCOPES", ""))
     return result
 
 
@@ -1410,7 +1828,7 @@ def model_mode_problems(values: dict) -> list:
     return problems
 
 
-def check_values(values: dict, report: Report) -> None:
+def check_values(values: dict, report: Report, root: Path | None = None) -> None:
     """Everything that can be said from .env alone."""
     profiles = {p for p in values.get("COMPOSE_PROFILES", "").split(",") if p}
     for key in REQUIRED:
@@ -1426,6 +1844,7 @@ def check_values(values: dict, report: Report) -> None:
         report.errors.append("COMPOSE_PROFILES has neither gateway nor chat: nothing to serve")
     for problem in model_mode_problems(values):
         report.errors.append(f"{problem}; run ./configure to fix it")
+    check_dex(values, profiles, report, root)
     for key, why in RETIRED.items():
         if key in values:
             report.warnings.append(f"{key} is set but no longer read: {why}")
@@ -1433,7 +1852,7 @@ def check_values(values: dict, report: Report) -> None:
         words = values["OIDC_SCOPES"].split()
         if "openid" not in words:
             report.errors.append("OIDC_SCOPES must include openid")
-        if values.get("OIDC_SCOPES_JSON", scopes_json(values["OIDC_SCOPES"])) != scopes_json(values["OIDC_SCOPES"]):
+        if values.get("OIDC_SCOPES_JSON", scopes_twin(values)) != scopes_twin(values):
             report.warnings.append(
                 "OIDC_SCOPES_JSON (the gateway's) differs from OIDC_SCOPES (the chat's): "
                 "set both with `./configure --set OIDC_SCOPES='...'`, which writes the JSON twin too"
@@ -1476,6 +1895,7 @@ def check_values(values: dict, report: Report) -> None:
             report.notes.append("TLS_MODE=internal: browsers will warn; fine for development only")
     if values.get("PROXY_DEFAULT", "gateway") == "gateway" and "gateway" not in profiles:
         report.errors.append("PROXY_DEFAULT=gateway but the gateway profile is off; set PROXY_DEFAULT='chat'")
+    dex_mode = values.get("IDP_MODE") == DEX_MODE
     try:
         check_email(values.get("PYSTINO_BOOTSTRAP_ADMIN_EMAIL", ""))
     except ConfigError as exc:
@@ -1486,7 +1906,7 @@ def check_values(values: dict, report: Report) -> None:
             refuse_authelia(host)
         except ConfigError as exc:
             report.errors.append(str(exc))
-        if values.get("OIDC_ISSUER") != f"{origin}/authelia":
+        if not dex_mode and values.get("OIDC_ISSUER") != f"{origin}/authelia":
             report.errors.append(f"with the bundled Authelia, OIDC_ISSUER must be {origin}/authelia")
         if values.get("AUTHELIA_COOKIE_DOMAIN") and values["AUTHELIA_COOKIE_DOMAIN"] != host:
             report.errors.append(f"AUTHELIA_COOKIE_DOMAIN must be {host}, the origin's host")
@@ -1502,7 +1922,7 @@ def check_values(values: dict, report: Report) -> None:
                 "OIDC_LOGOUT_URL is empty: signing out of the chat will not end the Authelia "
                 f"session. Set OIDC_LOGOUT_URL='{origin}/authelia/logout?rd={{redirect}}'"
             )
-    else:
+    if "authelia" not in profiles:
         admin_claim = values.get("OIDC_ADMIN_CLAIM", "")
         admin_claim_value = values.get("OIDC_ADMIN_CLAIM_VALUE", "")
         if bool(admin_claim) != bool(admin_claim_value):
@@ -1599,9 +2019,73 @@ def check_values(values: dict, report: Report) -> None:
             )
 
 
+def check_dex(values: dict, profiles: set, report: Report, root: Path | None) -> None:
+    """The dex+authelia mode's own consistency: profiles, issuer, secrets, files."""
+    mode = values.get("IDP_MODE", "authelia") or "authelia"
+    if mode not in ("authelia", DEX_MODE):
+        report.errors.append(f"IDP_MODE must be authelia or {DEX_MODE}, got {mode!r}")
+        return
+    if mode == "authelia":
+        if "dex" in profiles:
+            report.errors.append(
+                f"COMPOSE_PROFILES runs dex but IDP_MODE is not {DEX_MODE}: Dex runs only in that mode "
+                "(./configure --idp dex+authelia)"
+            )
+        return
+    if "dex" not in profiles or "authelia" not in profiles:
+        report.errors.append(f"IDP_MODE={DEX_MODE} needs both the dex and the authelia profiles in COMPOSE_PROFILES")
+    origin = values.get("PUBLIC_ORIGIN", "").rstrip("/")
+    issuer = values.get("OIDC_ISSUER", "").rstrip("/")
+    if origin and issuer != f"{origin}/dex":
+        report.errors.append(f"IDP_MODE={DEX_MODE}: OIDC_ISSUER must be '{origin}/dex', found {issuer!r}")
+    if values.get("OIDC_INTERNAL_BASE_URL", "").rstrip("/") != DEX_INTERNAL:
+        report.errors.append(f"IDP_MODE={DEX_MODE}: OIDC_INTERNAL_BASE_URL must be '{DEX_INTERNAL}'")
+    if values.get("OIDC_KIND") != "authelia":
+        report.warnings.append(
+            f"IDP_MODE={DEX_MODE}: OIDC_KIND is not authelia, so the console's Users page cannot add, reset or "
+            "disable Authelia's accounts and break-glass cannot recover one (groups would come from the claim "
+            "either way)"
+        )
+    machine = values.get("OIDC_MACHINE_CLIENT_ID") or "opencode-enrollment"
+    if values.get("OIDC_AUDIENCE") != machine:
+        report.errors.append(
+            f"IDP_MODE={DEX_MODE}: OIDC_AUDIENCE must be the machine client's id ({machine!r}): Dex puts no other "
+            "audience in galopin's token"
+        )
+    password = values.get("DEX_PG_PASSWORD", "")
+    if password and not re.fullmatch(r"[A-Za-z0-9]+", password):
+        report.errors.append("DEX_PG_PASSWORD may hold only letters and digits (dex-init puts it in a SQL string)")
+    if root is None:
+        return
+    files = dex_files(root)
+    env_path = root / DEX_DIR / DEX_ENV_FILE
+    report.notes.append(
+        "Dex connectors: authelia" + "".join(f", {p.stem.split('-', 1)[-1]}" for p in files)
+    )
+    recorded = parse_env(env_path.read_text(encoding="utf-8")).get("DEX_CONNECTORS_REV", "") if env_path.exists() else ""
+    if recorded != dex_connectors_rev(root):
+        report.warnings.append(
+            f"{DEX_DIR}/*.yaml changed since ./configure last ran (or {DEX_DIR}/{DEX_ENV_FILE} is missing): run "
+            "`./configure` (it records the change), then `docker compose up -d`, so Dex reloads them"
+        )
+    if env_path.exists() and stat.S_IMODE(env_path.stat().st_mode) & 0o077:
+        report.warnings.append(f"{DEX_DIR}/{DEX_ENV_FILE} holds connector secrets and is readable by others: chmod 600 it")
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        if not all(re.search(pattern, text, re.MULTILINE) for pattern in (r"^- type: \w+", r"^  id: \S+", r"^  name: \S")):
+            report.errors.append(
+                f"{DEX_DIR}/{path.name} is not a Dex connector list item (expected '- type: ...' with '  id:' and '  name:' under it)"
+            )
+        for name in dict.fromkeys(re.findall(r"\$\{(\w+)\}", text)):
+            known = name in (parse_env(env_path.read_text(encoding="utf-8")) if env_path.exists() else {})
+            if not known:
+                report.errors.append(f"{DEX_DIR}/{path.name} uses ${{{name}}}, which {DEX_DIR}/{DEX_ENV_FILE} does not define")
+
+
 def check_scopes(values: dict, report: Report) -> None:
     """Warn about scopes the external issuer's discovery does not list."""
-    if values.get("OIDC_KIND") == "authelia":
+    if values.get("OIDC_KIND") == "authelia" or values.get("IDP_MODE") == DEX_MODE:
+        # Dex lists no audience scopes in scopes_supported, though it honours them.
         return
     issuer = values.get("OIDC_ISSUER", "")
     if not issuer.startswith("https://"):
@@ -1739,9 +2223,11 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
         report.warnings.append(f".env is mode {oct(mode)}; it holds every secret: chmod 600 .env")
     if (root / FIRST_SIGN_IN).exists():
         report.warnings.append(f"{FIRST_SIGN_IN} still exists: sign in once, then delete it")
+    if values.get("IDP_MODE") == DEX_MODE and not (root / DEX_DIR).is_dir():
+        report.errors.append(f"{DEX_DIR}/ is missing (Dex mounts it); restore it with git checkout {DEX_DIR}")
     if not (root / "proxy.d").is_dir():
         report.errors.append("proxy.d/ is missing (the proxy mounts it); restore it with git checkout proxy.d")
-    check_values(values, report)
+    check_values(values, report, root)
     check_mongo(values, report, *detect_host())
     if network:
         check_scopes(values, report)
@@ -1837,14 +2323,50 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
         answers.idp = choose(
             "Identity provider:",
             {
-                "authelia": "the bundled Authelia (users managed in the console)",
+                "authelia": "the bundled Authelia alone (users managed in the console; the default)",
+                DEX_MODE: "Dex in front of the bundled Authelia: add federated logins (OIDC, Google, SAML, LDAP) next to it",
                 "external": "your own OIDC issuer (Keycloak, Entra ID, Google, …)",
             },
             answers.idp,
         )
-    if answers.idp == "authelia":
+    if existing and answers_from(existing).idp != answers.idp:
+        # The issuer changes; say so before anything is written.
+        print(f"\nnote: {switch_note(answers_from(existing).idp, answers.idp)}\n")
+        if "link_by_email" not in given:
+            answers.link_by_email = choose(
+                "Link accounts by verified email while people move over (turn it off afterwards)?",
+                {"yes": "yes: a first sign-in attaches to the existing non-admin account with that email",
+                 "no": "no: everyone who signs in again becomes a new person"},
+                "yes",
+            ) == "yes"
+    if answers.idp in ("authelia", DEX_MODE):
         refuse_authelia(host)
-    else:
+    if answers.idp == DEX_MODE:
+        origin = split_origin(answers.origin)[0]
+        if "dex_connector" not in given:
+            specs = list(answers.dex_connector or [])
+            while True:
+                kind = choose(
+                    "Add a federated login next to the bundled Authelia?",
+                    {"no": "no more (ldap and saml: ./configure --dex-connector, or a file in dex.d/)",
+                     "oidc": "an OpenID Connect provider (Keycloak, Entra ID, Okta, GitLab, ...)",
+                     "google": "Google"},
+                    "no",
+                )
+                if kind == "no":
+                    break
+                spec = f"{kind} id={ask('  id (short, lower-case)', kind)}"
+                name = ask("  name on the sign-in page", "")
+                if name:
+                    spec += " name=" + shlex_quote(name)
+                if kind == "oidc":
+                    spec += " issuer=" + shlex_quote(ask("  issuer URL", "", validate=lambda v: None if v.startswith("https://") else _raise("an https:// URL")))
+                print(f"  register redirect URI {origin}/dex/callback")
+                spec += " client-id=" + shlex_quote(ask("  client id", ""))
+                spec += " client-secret=" + shlex_quote(ask("  client secret", "", secret=True))
+                specs.append(spec)
+            answers.dex_connector = specs or None
+    if answers.idp == "external":
         origin = split_origin(answers.origin)[0]
         if "oidc_issuer" not in given and answers.preset != "satellite":
             answers.oidc_issuer = ask(
@@ -1863,6 +2385,7 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             answers.oidc_chat_client_secret = ask(
                 "  client secret", existing.get("OIDC_CHAT_CLIENT_SECRET", ""), secret=True
             )
+    if answers.idp != "authelia":
         if "group_import" not in given:
             answers.group_import = choose(
                 "Groups from the identity provider:",
@@ -1922,6 +2445,12 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
         answers.upstream_api_key = ask("Its API key", existing.get("CHAT_OPENAI_API_KEY", ""), secret=True)
     print()
     return answers
+
+
+def shlex_quote(value: str) -> str:
+    import shlex
+
+    return shlex.quote(value)
 
 
 # --- commands ---------------------------------------------------------------------
@@ -2045,9 +2574,19 @@ def cmd_configure(args, root: Path) -> int:
     try:
         result = build(answers, existing, template, discovery, choose_mongo(*detect_host()))
         text = render(template, result.values, HEADER)
+        connectors = [parse_dex_connector(spec, result.values["PUBLIC_ORIGIN"]) for spec in answers.dex_connector or []]
+        if len({c.id for c in connectors}) != len(connectors):
+            raise ConfigError("--dex-connector: two connectors share an id")
     except ConfigError as exc:
         print(f"configure: {exc}", file=sys.stderr)
         return 2
+    dex_mode = result.values.get("IDP_MODE") == DEX_MODE
+    if dex_mode:
+        try:
+            result.notes.extend(write_dex_connectors(root, connectors, answers.no_dex_connector or []))
+        except ConfigError as exc:
+            print(f"configure: {exc}", file=sys.stderr)
+            return 2
 
     if existing and parse_env(text) == existing:
         print(f"{env_path} is already up to date; nothing written")
@@ -2078,6 +2617,9 @@ def cmd_configure(args, root: Path) -> int:
     office_on = "office" in values["COMPOSE_PROFILES"].split(",")
     print(f"  office    {'on (Gotenberg previews and convert_document)' if office_on else 'off'}")
     print(f"  identity  {values['OIDC_ISSUER']}   (scopes: {values['OIDC_SCOPES']})")
+    if dex_mode:
+        names = ["authelia"] + [p.stem.split("-", 1)[-1] for p in dex_files(root)]
+        print(f"  sign-in   Dex, with {', '.join(names)}")
     print()
     print("next:  ./configure --check  &&  docker compose up -d --wait")
     return 0
@@ -2107,7 +2649,10 @@ def cmd_break_glass(args, root: Path) -> int:
     template = (root / ".env.example").read_text(encoding="utf-8")
     existing = parse_env(env_path.read_text(encoding="utf-8"))
     answers = answers_from(existing)
-    answers.idp = "authelia"
+    # Break-glass keeps the mode: with Dex in front the issuer must stay Dex, or
+    # recovery would make everyone a new person on top of everything else.
+    if answers.idp != DEX_MODE:
+        answers.idp = "authelia"
     answers.admin_email = args.admin_email
     answers.link_by_email = False
 
@@ -2216,7 +2761,7 @@ def cmd_set(args, root: Path) -> int:
         return 2
     if "OIDC_SCOPES" in changes and "OIDC_SCOPES_JSON" not in changes:
         # The gateway reads the JSON twin; keep it in step with the words.
-        values["OIDC_SCOPES_JSON"] = scopes_json(values.get("OIDC_SCOPES", ""))
+        values["OIDC_SCOPES_JSON"] = scopes_twin(values)
         changes.append("OIDC_SCOPES_JSON")
     try:
         text = render(template, values, HEADER)
@@ -2264,7 +2809,17 @@ def parser() -> argparse.ArgumentParser:
     q.add_argument("--admin-email", help="the administrator's email")
     q.add_argument("--preset", choices=list(PRESETS))
     q.add_argument("--tls", choices=TLS_MODES, help="acme | internal | upstream")
-    q.add_argument("--idp", choices=IDPS, help="authelia (bundled) | external")
+    q.add_argument("--idp", choices=IDPS, help="authelia (the bundled Authelia alone, the default) | "
+                   "dex+authelia (Dex in front of it, for federated logins) | external. Chosen at install: "
+                   "changing it later changes the issuer")
+    o_dex = p.add_argument_group("dex+authelia: federated logins")
+    o_dex.add_argument("--dex-connector", action="append", metavar="'TYPE id=ID key=value ...'",
+                       help="add (or replace) a federated login: oidc (issuer, client-id, client-secret), google "
+                            "(client-id, client-secret), ldap (host, user-base-dn, ...) or saml (sso-url, ca, ...); "
+                            "name= is what the sign-in page says; a secret as client-secret-env=VAR reads it from "
+                            "that environment variable. Repeat for more. Writes dex.d/NN-ID.yaml")
+    o_dex.add_argument("--no-dex-connector", action="append", metavar="ID",
+                       help="remove a connector this command generated")
 
     o = p.add_argument_group("optional")
     o.add_argument("--agents", action=argparse.BooleanOptionalAction, default=None,

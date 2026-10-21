@@ -60,6 +60,11 @@
 	}
 	redir /chat /chat/
 
+	# Identity mode (./configure --idp): authelia or dex+authelia. The snippet
+	# publishes Dex at /dex in the second; it is empty in the first, so the
+	# Authelia-alone mode's proxy behaves exactly as before.
+	import /etc/caddy/idp/{$IDP_MODE:authelia}.route
+
 	handle /authelia/* {
 		reverse_proxy authelia:9091 {
 			import to_app

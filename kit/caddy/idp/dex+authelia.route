@@ -1,0 +1,9 @@
+# Identity mode dex+authelia: Dex is the one issuer, published under /dex.
+# Everything the browser needs (sign-in, device flow, keys, discovery) lives
+# under that path, so this is the only route Dex needs.
+handle /dex/* {
+	reverse_proxy dex:5556 {
+		import to_app
+	}
+}
+redir /dex /dex/

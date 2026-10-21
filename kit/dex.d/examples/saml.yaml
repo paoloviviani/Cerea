@@ -1,0 +1,14 @@
+# A SAML 2.0 identity provider. Give it <PUBLIC_ORIGIN>/dex/callback as the
+# assertion consumer URL and the entity ID below. `ca` is the provider's
+# signing certificate, a file beside this one (mounted at /etc/dex.d).
+- type: saml
+  id: corp-saml
+  name: Corporate SSO (SAML)
+  config:
+    ssoURL: https://idp.example.org/saml/sso
+    ca: /etc/dex.d/saml-idp-ca.pem
+    redirectURI: https://cerea.example.org/dex/callback
+    entityIssuer: https://cerea.example.org/dex/callback
+    usernameAttr: name
+    emailAttr: email
+    groupsAttr: groups

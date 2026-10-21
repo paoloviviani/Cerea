@@ -7,6 +7,7 @@ import {
 	authenticateMachineRequest,
 	MachineAuthError,
 	resetMachineDiscoveryCacheForTests,
+	tokenClient,
 	validateMachineToken,
 } from "./machineAuth";
 
@@ -131,6 +132,23 @@ async function signToken(
 		.sign(privateKey);
 }
 
+describe("tokenClient", () => {
+	it("prefers azp, then client_id", () => {
+		expect(tokenClient({ azp: "a", client_id: "b", aud: "c" })).toBe("a");
+		expect(tokenClient({ client_id: "b", aud: "c" })).toBe("b");
+	});
+
+	it("takes the one audience when the issuer sets neither (Dex)", () => {
+		expect(tokenClient({ aud: "opencode-enrollment" })).toBe("opencode-enrollment");
+		expect(tokenClient({ aud: ["opencode-enrollment"] })).toBe("opencode-enrollment");
+	});
+
+	it("names nobody for several audiences without azp, or none at all", () => {
+		expect(tokenClient({ aud: ["pystino-api", "opencode-enrollment"] })).toBeUndefined();
+		expect(tokenClient({})).toBeUndefined();
+	});
+});
+
 describe("validateMachineToken", () => {
 	it("accepts a well-formed token and returns its claims", async () => {
 		const token = await signToken({ sub: "hf-user-1" });
@@ -160,6 +178,20 @@ describe("validateMachineToken", () => {
 
 	it("rejects a token whose azp is not the machine client", async () => {
 		const token = await signToken({ sub: "hf-user-1", azp: "some-other-client" });
+		await expect(validateMachineToken(token)).rejects.toBeInstanceOf(MachineAuthError);
+	});
+
+	it("rejects a token with no azp whose one audience is not the machine client", async () => {
+		// `aud` is the configured audience here, which is not the machine client's
+		// id in this setup: the Dex fallback must not turn it into one.
+		const token = await new SignJWT({})
+			.setProtectedHeader({ alg: "RS256", kid: "test-key" })
+			.setIssuedAt()
+			.setIssuer(ISSUER_URL)
+			.setAudience(AUDIENCE)
+			.setExpirationTime("1h")
+			.setSubject("hf-user-1")
+			.sign(privateKey);
 		await expect(validateMachineToken(token)).rejects.toBeInstanceOf(MachineAuthError);
 	});
 

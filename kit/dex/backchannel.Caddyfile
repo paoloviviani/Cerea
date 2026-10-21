@@ -1,0 +1,23 @@
+# The address Dex reaches Authelia on, inside the compose network only (no port
+# is published). Authelia derives its issuer, and so every token's iss, from
+# X-Forwarded-Proto and X-Forwarded-Host, and Dex cannot add headers to its
+# requests; this listener adds them, naming the public origin. The gateway and
+# the chat do the same themselves for the Authelia-alone mode.
+#
+# A service of its own, not a listener on the proxy: Dex opens its connectors
+# when it starts, and fails to start if none opens, while the proxy waits (through
+# the chat) for Dex. This one waits for nothing.
+{
+	auto_https off
+	admin off
+}
+
+http://:9092 {
+	handle /authelia/* {
+		reverse_proxy authelia:9091 {
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {$IDP_PUBLIC_HOST}
+		}
+	}
+	respond 404
+}

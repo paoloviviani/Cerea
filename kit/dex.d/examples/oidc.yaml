@@ -1,0 +1,23 @@
+# Any OpenID Connect provider (Keycloak, Entra ID, Okta, GitLab, ...).
+# Register <PUBLIC_ORIGIN>/dex/callback as its redirect URI. Copy to
+# dex.d/<your name>.yaml, put the secret in dex.d/connectors.env, then
+# ./configure and docker compose up -d. Or: ./configure --dex-connector
+# 'oidc id=acme name="ACME" issuer=... client-id=... client-secret-env=VAR'
+- type: oidc
+  id: acme
+  name: ACME single sign-on
+  config:
+    issuer: https://sso.acme.example/realms/main
+    clientID: cerea
+    clientSecret: ${ACME_CLIENT_SECRET}
+    redirectURI: https://cerea.example.org/dex/callback
+    scopes: [openid, profile, email, groups]
+    # Without this Dex drops the provider's groups and the gateway sees none.
+    insecureEnableGroups: true
+    # If the provider names the claim differently:
+    # claimMapping:
+    #   groups: roles
+    # Entra ID and some others send no email_verified: Dex then reports the
+    # address as unverified and the gateway will not link by it. Trust it only
+    # if the provider guarantees the address:
+    # insecureSkipEmailVerified: true

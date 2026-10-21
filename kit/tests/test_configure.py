@@ -58,7 +58,7 @@ class Deploy(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp(prefix="configure-test-"))
         for name in (".env.example", "compose.yaml"):
             shutil.copy(ROOT / name, self.dir / name)
-        for name in ("caddy", "authelia", "proxy.d"):
+        for name in ("caddy", "authelia", "proxy.d", "dex", "dex.d"):
             shutil.copytree(ROOT / name, self.dir / name)
         # No test reaches a real issuer; one that needs a discovery document
         # sets `self.discovery`.
@@ -1408,3 +1408,352 @@ class TestDeviceFlowCheck(unittest.TestCase):
     def test_an_unreachable_issuer_is_not_a_device_problem(self):
         self.assertIsNone(cfg.device_flow_problem(None))
         self.assertIsNone(cfg.device_flow_problem({}))
+
+
+class TestDexMode(Deploy):
+    """The dex+authelia identity mode: Dex is the issuer, Authelia a connector."""
+
+    def configure(self, *extra, idp="dex+authelia"):
+        return self.run_cli("--non-interactive", "--offline", "--origin", "https://chat.example.org",
+                            "--admin-email", "ops@example.org", "--tls", "internal", "--idp", idp, *extra)
+
+    def test_a_fresh_install_makes_dex_the_issuer(self):
+        code, out, err = self.configure()
+        self.assertEqual(code, 0, err)
+        v = self.env()
+        profiles = v["COMPOSE_PROFILES"].split(",")
+        self.assertIn("dex", profiles)
+        self.assertIn("authelia", profiles)
+        self.assertEqual(v["IDP_MODE"], "dex+authelia")
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/dex")
+        self.assertEqual(v["OIDC_INTERNAL_BASE_URL"], "http://dex:5556/dex")
+        self.assertEqual(v["IDP_PUBLIC_HOST"], "chat.example.org")
+        # Authelia stays the bundled kind, so the console still manages its
+        # accounts; groups come from the claim so the connectors' arrive.
+        self.assertEqual(v["OIDC_KIND"], "authelia")
+        self.assertEqual(v["OIDC_GROUPS_FROM_CLAIM"], "true")
+        self.assertEqual(v["PYSTINO_BOOTSTRAP_ADMIN_EMAIL"], "ops@example.org")
+        self.assertIn("sign-in   Dex, with authelia", out)
+
+    def test_the_audience_is_the_machine_clients_and_the_scopes_ask_for_it(self):
+        self.configure()
+        v = self.env()
+        a = cfg.AUDIENCE_SCOPE
+        self.assertEqual(v["OIDC_AUDIENCE"], "opencode-enrollment")
+        self.assertEqual(
+            v["OIDC_SCOPES"].split(),
+            ["openid", "profile", "email", "groups", a + "cerea", a + "opencode-enrollment"],
+        )
+        # The console asks as itself: its ID token must name it.
+        self.assertEqual(
+            cfg.json.loads(v["OIDC_SCOPES_JSON"]),
+            ["openid", "profile", "email", "groups", a + "pystino-console", a + "opencode-enrollment"],
+        )
+        report = cfg.Report()
+        cfg.check_values(v, report)
+        self.assertFalse(any("OIDC_SCOPES" in w for w in report.warnings), report.warnings)
+
+    def test_secrets_are_minted_once_and_the_digest_matches(self):
+        self.configure()
+        v = self.env()
+        self.assertRegex(v["DEX_PG_PASSWORD"], r"^[0-9a-f]{48}$")
+        self.assertIs(cfg.digest_matches(v["DEX_AUTHELIA_CLIENT_SECRET"], v["AUTHELIA_DEX_CLIENT_DIGEST"]), True)
+        self.configure()
+        again = self.env()
+        for key in ("DEX_PG_PASSWORD", "DEX_AUTHELIA_CLIENT_SECRET", "AUTHELIA_DEX_CLIENT_DIGEST"):
+            self.assertEqual(again[key], v[key], key)
+
+    def test_the_default_mode_is_untouched_and_never_names_dex(self):
+        self.configure(idp="authelia")
+        v = self.env()
+        self.assertEqual(v["COMPOSE_PROFILES"].split(","), ["gateway", "chat", "authelia", "redaction"])
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/authelia")
+        self.assertEqual(v["OIDC_AUDIENCE"], "pystino-api")
+        for key in ("IDP_MODE", "IDP_PUBLIC_HOST", "DEX_PG_PASSWORD", "DEX_AUTHELIA_CLIENT_SECRET",
+                    "AUTHELIA_DEX_CLIENT_DIGEST", "OIDC_GROUPS_FROM_CLAIM"):
+            self.assertNotIn(key, v)
+        text = (self.dir / ".env").read_text()
+        self.assertNotRegex(text, r"(?m)^(IDP_MODE|DEX_[A-Z_]+)=")
+        self.assertFalse((self.dir / "dex.d" / "connectors.env").exists())
+
+    def test_check_passes_and_flags_each_inconsistency(self):
+        self.configure()
+        report = cfg.Report()
+        cfg.check_values(self.env(), report, self.dir)
+        self.assertEqual(report.errors, [])
+        broken = {**self.env(), "OIDC_ISSUER": "https://chat.example.org/authelia"}
+        report = cfg.Report()
+        cfg.check_values(broken, report, self.dir)
+        self.assertTrue(any("OIDC_ISSUER must be" in e for e in report.errors), report.errors)
+        report = cfg.Report()
+        cfg.check_values({**self.env(), "COMPOSE_PROFILES": "gateway,chat,authelia"}, report, self.dir)
+        self.assertTrue(any("needs both the dex and the authelia profiles" in e for e in report.errors))
+        # Dex runs in no other mode.
+        report = cfg.Report()
+        cfg.check_values({**self.env(), "IDP_MODE": "authelia"}, report, self.dir)
+        self.assertTrue(any("Dex runs only in that mode" in e for e in report.errors), report.errors)
+        report = cfg.Report()
+        cfg.check_values({**self.env(), "OIDC_AUDIENCE": "pystino-api"}, report, self.dir)
+        self.assertTrue(any("OIDC_AUDIENCE must be the machine client" in e for e in report.errors))
+        report = cfg.Report()
+        cfg.check_values({**self.env(), "DEX_PG_PASSWORD": "it's"}, report, self.dir)
+        self.assertTrue(any("DEX_PG_PASSWORD" in e for e in report.errors), report.errors)
+
+    # --- switching modes -----------------------------------------------------
+
+    def test_switching_to_dex_warns_and_keeps_the_people_settings(self):
+        self.configure(idp="authelia")
+        before = self.env()
+        code, out, err = self.configure()
+        self.assertEqual(code, 0, err)
+        self.assertIn("the issuer changes", out)
+        self.assertIn("--link-by-email", out)
+        v = self.env()
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/dex")
+        for key in ("AUTHELIA_STORAGE_KEY", "AUTHELIA_ADMIN_PASSWORD_DIGEST", "GATEWAY_SECRET_KEY"):
+            self.assertEqual(v[key], before[key], key)
+        # Configure never turns the linking on behind the operator's back.
+        self.assertEqual(v["OIDC_LINK_BY_EMAIL"], "false")
+
+    def test_switching_back_drops_every_dex_value_and_warns(self):
+        self.configure()
+        code, out, err = self.configure(idp="authelia")
+        self.assertEqual(code, 0, err)
+        self.assertIn("the issuer changes", out)
+        v = self.env()
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/authelia")
+        self.assertEqual(v["OIDC_AUDIENCE"], "pystino-api")
+        self.assertNotIn("dex", v["COMPOSE_PROFILES"].split(","))
+        for key in ("IDP_MODE", "DEX_PG_PASSWORD", "OIDC_GROUPS_FROM_CLAIM"):
+            self.assertNotIn(key, v)
+        self.assertEqual(v["OIDC_SCOPES"], "openid profile email groups")
+        self.assertEqual(v["OIDC_SCOPES_JSON"], '["openid","profile","email","groups"]')
+
+    def test_switching_to_an_external_issuer_clears_dex_values(self):
+        self.configure()
+        code, out, err = self.configure(
+            "--oidc-issuer", "https://idp.example.org", "--oidc-console-client-secret", "s1",
+            "--oidc-chat-client-secret", "s2", idp="external",
+        )
+        self.assertEqual(code, 0, err)
+        v = self.env()
+        self.assertEqual(v["OIDC_ISSUER"], "https://idp.example.org")
+        self.assertEqual(v["OIDC_AUDIENCE"], "pystino-api")
+        self.assertEqual(v["OIDC_KIND"], "generic")
+        self.assertNotIn("IDP_MODE", v)
+        self.assertNotIn("dex", v["COMPOSE_PROFILES"].split(","))
+        self.assertNotIn("audience:", v["OIDC_SCOPES"])
+
+    def test_set_scopes_in_dex_mode_keeps_the_consoles_twin_right(self):
+        self.configure()
+        a = cfg.AUDIENCE_SCOPE
+        words = "openid email " + a + "cerea " + a + "opencode-enrollment"
+        code, _, err = self.run_cli("--set", f"OIDC_SCOPES={words}")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(
+            cfg.json.loads(self.env()["OIDC_SCOPES_JSON"]),
+            ["openid", "email", a + "pystino-console", a + "opencode-enrollment"],
+        )
+
+    def test_break_glass_keeps_dex_as_the_issuer(self):
+        self.configure()
+
+        def fake_run(cmd, timeout=30, cwd=None):
+            out = "login:    ops\npassword: hunter2\n" if cmd[:5] == ["docker", "compose", "run", "--rm", "--no-deps"] else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+        with mock.patch.object(cfg, "_run", side_effect=fake_run):
+            code, _, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 0, err)
+        v = self.env()
+        self.assertEqual(v["OIDC_ISSUER"], "https://chat.example.org/dex")
+        self.assertEqual(v["IDP_MODE"], "dex+authelia")
+
+    def test_a_port_in_the_origin_reaches_the_forwarded_host(self):
+        code, _, err = self.run_cli("--non-interactive", "--offline", "--origin", "https://10.0.0.5:8443",
+                                    "--admin-email", "ops@example.org", "--tls", "internal",
+                                    "--idp", "dex+authelia", "--https-port", "8443")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["IDP_PUBLIC_HOST"], "10.0.0.5:8443")
+
+
+class TestDexConnectors(Deploy):
+    """`--dex-connector`: federated logins written as files in dex.d/."""
+
+    ORIGIN = "https://chat.example.org"
+
+    def configure(self, *extra):
+        return self.run_cli("--non-interactive", "--offline", "--origin", self.ORIGIN,
+                            "--admin-email", "ops@example.org", "--tls", "internal",
+                            "--idp", "dex+authelia", *extra)
+
+    def test_oidc_names_its_secret_and_passes_groups_on(self):
+        c = cfg.parse_dex_connector(
+            'oidc id=acme name="ACME SSO" issuer=https://sso.acme.example/ client-id=cid client-secret=s3cret',
+            self.ORIGIN,
+        )
+        self.assertEqual(c.id, "acme")
+        self.assertEqual(c.secrets, {"DEX_CONN_ACME_CLIENT_SECRET": "s3cret"})
+        self.assertNotIn("s3cret", c.text)
+        self.assertIn('clientSecret: "${DEX_CONN_ACME_CLIENT_SECRET}"', c.text)
+        self.assertIn('issuer: "https://sso.acme.example"', c.text)
+        self.assertIn('redirectURI: "https://chat.example.org/dex/callback"', c.text)
+        self.assertIn("insecureEnableGroups: true", c.text)
+        self.assertTrue(c.text.startswith(cfg.DEX_GENERATED))
+
+    def test_a_secret_can_come_from_the_environment(self):
+        c = cfg.parse_dex_connector(
+            "google id=g client-id=1.apps client-secret-env=G_SECRET hosted-domains=example.org",
+            self.ORIGIN, {"G_SECRET": "from-env"},
+        )
+        self.assertEqual(c.secrets, {"DEX_CONN_G_CLIENT_SECRET": "from-env"})
+        self.assertIn('hostedDomains: ["example.org"]', c.text)
+        with self.assertRaises(cfg.ConfigError):
+            cfg.parse_dex_connector("google id=g client-id=1 client-secret-env=MISSING", self.ORIGIN, {})
+
+    def test_ldap_and_saml_render_their_own_shapes(self):
+        ldap = cfg.parse_dex_connector(
+            "ldap id=corp host=ldap.example.org:636 user-base-dn=ou=people,dc=example,dc=org "
+            "bind-dn=cn=dex,dc=example,dc=org bind-password=pw group-base-dn=ou=groups,dc=example,dc=org",
+            self.ORIGIN,
+        )
+        self.assertIn("userSearch:", ldap.text)
+        self.assertIn("groupSearch:", ldap.text)
+        self.assertIn('bindPW: "${DEX_CONN_CORP_BIND_PASSWORD}"', ldap.text)
+        self.assertEqual(ldap.secrets, {"DEX_CONN_CORP_BIND_PASSWORD": "pw"})
+        saml = cfg.parse_dex_connector("saml id=sso sso-url=https://idp.example.org/s ca=/etc/dex.d/ca.pem", self.ORIGIN)
+        self.assertIn('ca: "/etc/dex.d/ca.pem"', saml.text)
+        self.assertIn('groupsAttr: "groups"', saml.text)
+        self.assertEqual(saml.secrets, {})
+
+    def test_refusals(self):
+        bad = {
+            "": "starts with a type",
+            "oidc": "short lower-case name",
+            "oidc id=Bad issuer=https://x client-id=a client-secret=b": "short lower-case name",
+            "oidc id=authelia issuer=https://x client-id=a client-secret=b": "not 'authelia'",
+            "oidc id=x client-id=a client-secret=b": "needs issuer",
+            "oidc id=x issuer=https://x client-id=a client-secret=b colour=red": "unknown key",
+            "oidc id=x issuer=https://x client-id=a client-secret=b scopes=profile": "include openid",
+            "oidc id=x issuer=https://x/$HOME client-id=a client-secret=b": "'$'",
+            "oidc id=x issuer=https://x client-id=a client-secret=\"it's\"": "single quote",
+            "weird id=x": "starts with a type",
+            "oidc id=x nonsense": "not key=value",
+        }
+        for spec, message in bad.items():
+            with self.subTest(spec):
+                with self.assertRaises(cfg.ConfigError) as caught:
+                    cfg.parse_dex_connector(spec, self.ORIGIN)
+                self.assertIn(message, str(caught.exception))
+
+    def test_the_flag_writes_a_file_and_the_secret_apart(self):
+        code, out, err = self.configure(
+            "--dex-connector", "oidc id=acme name=ACME issuer=https://sso.acme.example client-id=cid client-secret=s3cret",
+        )
+        self.assertEqual(code, 0, err)
+        path = self.dir / "dex.d" / "10-acme.yaml"
+        self.assertIn("- type: oidc", path.read_text())
+        self.assertNotIn("s3cret", path.read_text())
+        # Dex's container user reads the YAML; the secrets file is private.
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+        env_path = self.dir / "dex.d" / "connectors.env"
+        self.assertEqual(stat.S_IMODE(env_path.stat().st_mode), 0o600)
+        env = cfg.parse_env(env_path.read_text())
+        self.assertEqual(env["DEX_CONN_ACME_CLIENT_SECRET"], "s3cret")
+        self.assertEqual(env["DEX_CONNECTORS_REV"], cfg.dex_connectors_rev(self.dir))
+        self.assertNotIn("s3cret", out + err + (self.dir / ".env").read_text())
+        self.assertIn("sign-in   Dex, with authelia, acme", out)
+
+    def test_rerunning_replaces_its_own_file_and_keeps_the_operators(self):
+        spec = "oidc id=acme issuer=https://sso.acme.example client-id=cid client-secret=one"
+        self.configure("--dex-connector", spec)
+        mine = self.dir / "dex.d" / "50-mine.yaml"
+        mine.write_text("- type: mockCallback\n  id: mock\n  name: Mock\n")
+        extra = self.dir / "dex.d" / "connectors.env"
+        extra.write_text(extra.read_text() + "MY_OWN='kept'\n")
+        code, _, err = self.configure("--dex-connector", spec.replace("=one", "=two"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(p.name for p in (self.dir / "dex.d").glob("*.yaml")), ["10-acme.yaml", "50-mine.yaml"])
+        env = cfg.parse_env(extra.read_text())
+        self.assertEqual(env["DEX_CONN_ACME_CLIENT_SECRET"], "two")
+        self.assertEqual(env["MY_OWN"], "kept")
+        self.assertEqual(env["DEX_CONNECTORS_REV"], cfg.dex_connectors_rev(self.dir))
+        # An operator's file is never overwritten by a connector of the same id.
+        code, _, err = self.configure(
+            "--dex-connector", "oidc id=mock issuer=https://sso.acme.example client-id=cid client-secret=x",
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("not generated by ./configure", err)
+        self.assertEqual(mine.read_text(), "- type: mockCallback\n  id: mock\n  name: Mock\n")
+
+    def test_remove_deletes_only_generated_files_and_their_secrets(self):
+        self.configure("--dex-connector", "oidc id=acme issuer=https://sso.acme.example client-id=cid client-secret=s")
+        mine = self.dir / "dex.d" / "50-mine.yaml"
+        mine.write_text("- type: mockCallback\n  id: mine\n  name: Mine\n")
+        code, out, err = self.configure("--no-dex-connector", "acme", "--no-dex-connector", "mine")
+        self.assertEqual(code, 0, err)
+        self.assertFalse((self.dir / "dex.d" / "10-acme.yaml").exists())
+        self.assertTrue(mine.exists())
+        self.assertIn("a file you wrote is yours to delete", out)
+        self.assertNotIn("DEX_CONN_ACME_CLIENT_SECRET", (self.dir / "dex.d" / "connectors.env").read_text())
+
+    def test_a_connector_needs_the_dex_mode(self):
+        code, _, err = self.run_cli(
+            "--non-interactive", "--offline", "--origin", self.ORIGIN, "--admin-email", "ops@example.org",
+            "--tls", "internal", "--idp", "authelia",
+            "--dex-connector", "oidc id=a issuer=https://x client-id=c client-secret=s",
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("dex+authelia", err)
+        self.assertFalse((self.dir / ".env").exists())
+        self.assertFalse((self.dir / "dex.d" / "connectors.env").exists())
+
+    def test_a_bad_spec_writes_nothing(self):
+        code, _, err = self.configure("--dex-connector", "oidc id=a")
+        self.assertEqual(code, 2)
+        self.assertFalse((self.dir / ".env").exists())
+        self.assertEqual(list((self.dir / "dex.d").glob("*.yaml")), [])
+
+    def test_check_notices_a_hand_edit_a_missing_secret_and_a_loose_file(self):
+        self.configure("--dex-connector", "oidc id=acme issuer=https://sso.acme.example client-id=cid client-secret=s")
+        report = cfg.Report()
+        cfg.check_values(self.env(), report, self.dir)
+        self.assertEqual((report.errors, [w for w in report.warnings if "dex.d" in w]), ([], []))
+        self.assertTrue(any("Dex connectors: authelia, acme" in n for n in report.notes), report.notes)
+        # A file added by hand after configure ran.
+        (self.dir / "dex.d" / "50-mine.yaml").write_text("- type: oidc\n  id: m\n  name: M\n  config:\n    clientSecret: ${NOPE}\n")
+        report = cfg.Report()
+        cfg.check_values(self.env(), report, self.dir)
+        self.assertTrue(any("changed since ./configure last ran" in w for w in report.warnings), report.warnings)
+        self.assertTrue(any("${NOPE}" in e for e in report.errors), report.errors)
+        (self.dir / "dex.d" / "50-mine.yaml").write_text("not a connector\n")
+        report = cfg.Report()
+        cfg.check_values(self.env(), report, self.dir)
+        self.assertTrue(any("not a Dex connector list item" in e for e in report.errors), report.errors)
+        (self.dir / "dex.d" / "50-mine.yaml").unlink()
+        (self.dir / "dex.d" / "connectors.env").chmod(0o644)
+        report = cfg.Report()
+        cfg.check_values(self.env(), report, self.dir)
+        self.assertTrue(any("readable by others" in w for w in report.warnings), report.warnings)
+
+    @unittest.skipUnless(shutil.which("docker"), "needs docker")
+    def test_compose_accepts_the_dex_mode_and_gates_dex_on_its_profile(self):
+        self.configure("--dex-connector", "oidc id=acme issuer=https://sso.acme.example client-id=cid client-secret=s")
+
+        def services(env):
+            proc = subprocess.run(["docker", "compose", "config", "--services"], cwd=self.dir, env=env,
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return set(proc.stdout.split())
+
+        base = {k: v for k, v in os.environ.items() if not k.startswith(("COMPOSE_", "DEX_", "OIDC_"))}
+        on = services(base)
+        self.assertLessEqual({"dex", "dex-init", "authelia"}, on)
+        # The default mode is the same compose file with Dex out of it.
+        self.run_cli("--non-interactive", "--offline", "--idp", "authelia", "--origin", self.ORIGIN,
+                     "--admin-email", "ops@example.org", "--tls", "internal")
+        off = services(base)
+        self.assertNotIn("dex", off)
+        self.assertNotIn("dex-init", off)
+        self.assertIn("authelia", off)
+

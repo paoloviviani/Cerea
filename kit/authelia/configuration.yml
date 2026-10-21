@@ -133,6 +133,14 @@ identity_providers:
         agent_machine:
           access_token: '1h'
           refresh_token: '90d'
+{{ if env "X_PYSTINO_DEX_CLIENT_DIGEST" }}
+        # Dex's own client (dex+authelia mode): Dex renews a machine's token by
+        # refreshing the one it holds from Authelia, so that one must outlive
+        # the machine's idle time just as agent_machine's does.
+        dex_connector:
+          access_token: '1h'
+          refresh_token: '90d'
+{{ end }}
     clients:
       - client_id: 'pystino-console'
         client_name: 'Pystino Console'
@@ -173,6 +181,32 @@ identity_providers:
         claims_policy: 'pystino'
         # First-party: auto-approved, no consent screen.
         consent_mode: 'implicit'
+      # Dex's client, only in the dex+authelia identity mode (the digest is
+      # empty, so this block renders to nothing in the Authelia-alone mode).
+      # Dex is the one issuer the stack sees; it signs people in here as one of
+      # its connectors and reads the same claims as the three clients above.
+{{ if env "X_PYSTINO_DEX_CLIENT_DIGEST" }}
+      - client_id: 'dex'
+        client_name: 'Dex'
+        client_secret: '{{ env "X_PYSTINO_DEX_CLIENT_DIGEST" }}'
+        public: false
+        authorization_policy: 'one_factor'
+        require_pkce: true
+        pkce_challenge_method: 'S256'
+        redirect_uris:
+          - '{{ env "X_PYSTINO_PUBLIC_ORIGIN" }}/dex/callback'
+        scopes: ['openid', 'profile', 'email', 'groups', 'offline_access']
+        response_types: ['code']
+        grant_types: ['authorization_code', 'refresh_token']
+        access_token_signed_response_alg: 'RS256'
+        token_endpoint_auth_method: 'client_secret_basic'
+        claims_policy: 'pystino'
+        lifespan: 'dex_connector'
+        # offline_access (which a machine's refresh needs) is never implicit:
+        # Authelia shows its consent screen once and remembers the answer.
+        consent_mode: 'pre-configured'
+        pre_configured_consent_duration: '1y'
+{{ end }}
       # galopin's public client (agent machines). Kept under this id so
       # machines enrolled before the move keep refreshing.
       - client_id: 'opencode-enrollment'

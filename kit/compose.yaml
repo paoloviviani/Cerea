@@ -10,16 +10,18 @@
 # dev/build.sh builds the same images from source and points .env at them.
 #
 # Add-ons are compose profiles chosen by COMPOSE_PROFILES in .env: gateway,
-# chat, authelia, redaction, documents, fetch, office. Profiles select services; they never change
-# what a service is.
+# chat, authelia, dex, redaction, documents, fetch, office. Profiles select services; they never change
+# what a service is. The identity mode is the authelia profile alone (the default) or
+# authelia with dex (Dex in front of Authelia, ./configure --idp dex+authelia): Dex runs
+# in no other mode.
 #
-# Caddy and Authelia run their stock images. Their configuration is the
-# readable files in caddy/ and authelia/, mounted read-only. Compose does not
+# Caddy, Authelia and Dex run their stock images. Their configuration is the
+# readable files in caddy/, authelia/ and dex/, mounted read-only. Compose does not
 # recreate a container when a mounted file changes, so each of those services
 # carries a `cerea.config-rev` label: a digest of its directory, which
 # tools/pin rewrites whenever the files change. A release that changes the
 # Caddyfile therefore changes this file too, and `up -d` recreates the proxy.
-# Edited them locally? `docker compose up -d --force-recreate proxy authelia`.
+# Edited them locally? `docker compose up -d --force-recreate proxy authelia dex`.
 
 name: ${COMPOSE_PROJECT_NAME:-cerea}
 
@@ -94,7 +96,7 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.11-alpine}
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:19f552f754158415"
+      cerea.config-rev: "sha256:2dd48c10839b9c2e"
     ports:
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
@@ -105,6 +107,9 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.org}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
       PROXY_DEFAULT: ${PROXY_DEFAULT:-gateway}
+      # authelia (the default) or dex+authelia: which caddy/idp/ snippet the
+      # Caddyfile imports (Dex's route, in the second).
+      IDP_MODE: ${IDP_MODE:-authelia}
     volumes:
       - caddy-data:/data
       - caddy-config:/config
@@ -230,6 +235,10 @@ services:
       # with the bundled Authelia regardless of what is set here, since its
       # users file carries no groups claim worth polling.
       GATEWAY_OIDC__GROUP_SYNC: ${OIDC_GROUP_SYNC:-every_login}
+      # With Dex in front of the bundled Authelia (kind authelia, issuer Dex):
+      # read groups from the claim, so a federated connector's groups arrive.
+      # Off otherwise, and ignored by a gateway that predates it.
+      GATEWAY_OIDC__GROUPS_FROM_CLAIM: ${OIDC_GROUPS_FROM_CLAIM:-false}
       # What a group name from the IdP that no group carries yet does at a
       # sign-in: manual lists it in the console (Groups, "Seen from your
       # identity provider") to import or dismiss; auto creates it. Groups that
@@ -322,6 +331,9 @@ services:
       authelia:
         condition: service_healthy
         required: false
+      dex:
+        condition: service_healthy
+        required: false
       redaction:
         condition: service_healthy
         required: false
@@ -346,7 +358,7 @@ services:
     command: ["--config", "/etc/authelia/configuration.yml"]
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:7e65be1f5d7fb4da"
+      cerea.config-rev: "sha256:e73046daa6a7a662"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
       # The gateway's uid: the console manages the bundled users file,
@@ -366,6 +378,8 @@ services:
       X_PYSTINO_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_RESET_PASSWORD_JWT_SECRET:-}
       X_PYSTINO_CONSOLE_CLIENT_DIGEST: ${AUTHELIA_CONSOLE_CLIENT_DIGEST:-}
       X_PYSTINO_CHAT_CLIENT_DIGEST: ${AUTHELIA_CHAT_CLIENT_DIGEST:-}
+      # Empty unless Dex is in front (dex+authelia): then Dex's own client.
+      X_PYSTINO_DEX_CLIENT_DIGEST: ${AUTHELIA_DEX_CLIENT_DIGEST:-}
       # Empty SMTP_HOST is how configuration.yml's own template picks the
       # filesystem notifier and a disabled password_reset -- the same one
       # setting the gateway's mail reads, never a second copy to disagree
@@ -396,6 +410,93 @@ services:
       timeout: 5s
       retries: 18
       start_period: 20s
+
+  # --- profile: dex (Dex in front of Authelia) ---------------------------------
+
+  # Creates Dex's database and role on the stack's PostgreSQL, idempotently, on
+  # every `up` (bootstrap's job for the chat, done here because bootstrap ships
+  # with the gateway image and Dex is not the gateway's). Runs and exits.
+  dex-init:
+    profiles: [dex]
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18}
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-gateway}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-gateway}
+      DEX_PG_PASSWORD: ${DEX_PG_PASSWORD:-}
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        [ -n "$$DEX_PG_PASSWORD" ] || { echo "DEX_PG_PASSWORD is empty: run ./configure --idp dex+authelia" >&2; exit 1; }
+        has() { [ "$$(psql -tAqc "$$1")" = 1 ]; }
+        if has "SELECT 1 FROM pg_roles WHERE rolname = 'dex'"; then
+          psql -qc "ALTER ROLE dex LOGIN PASSWORD '$$DEX_PG_PASSWORD'"
+        else
+          psql -qc "CREATE ROLE dex LOGIN PASSWORD '$$DEX_PG_PASSWORD'"
+        fi
+        has "SELECT 1 FROM pg_database WHERE datname = 'dex'" || psql -qc "CREATE DATABASE dex OWNER dex"
+        echo "dex database ready"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The address Dex reaches Authelia on (dex/backchannel.Caddyfile): a stock
+  # Caddy that adds the forwarded headers Authelia builds its issuer from.
+  # Compose-internal; publishes nothing.
+  dex-backchannel:
+    profiles: [dex]
+    image: ${CADDY_IMAGE:-caddy:2.11-alpine}
+    command: ["caddy", "run", "--config", "/etc/dex/backchannel.Caddyfile", "--adapter", "caddyfile"]
+    restart: unless-stopped
+    environment:
+      IDP_PUBLIC_HOST: ${IDP_PUBLIC_HOST:-}
+    volumes:
+      - ./dex:/etc/dex:ro
+
+  dex:
+    profiles: [dex]
+    # Stock Dex, the one issuer the gateway and the chat see (dex+authelia
+    # mode). The image's entrypoint renders dex/config.yaml.tpl at start;
+    # dex.d/*.yaml adds federated connectors next to the bundled Authelia.
+    image: ${DEX_IMAGE:-ghcr.io/dexidp/dex:v2.45.1}
+    command: ["dex", "serve", "/etc/dex/config.yaml.tpl"]
+    restart: unless-stopped
+    labels:
+      cerea.config-rev: "sha256:f51a689f30d985dc"
+    environment:
+      DEX_ISSUER: ${OIDC_ISSUER:-}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
+      DEX_PG_PASSWORD: ${DEX_PG_PASSWORD:-}
+      DEX_CONSOLE_CLIENT_ID: ${OIDC_CONSOLE_CLIENT_ID:-pystino-console}
+      DEX_CONSOLE_CLIENT_SECRET: ${OIDC_CONSOLE_CLIENT_SECRET:-}
+      DEX_CHAT_CLIENT_ID: ${OIDC_CHAT_CLIENT_ID:-cerea}
+      DEX_CHAT_CLIENT_SECRET: ${OIDC_CHAT_CLIENT_SECRET:-}
+      DEX_MACHINE_CLIENT_ID: ${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}
+      DEX_AUTHELIA_CLIENT_SECRET: ${DEX_AUTHELIA_CLIENT_SECRET:-}
+      DEX_AUTHELIA_NAME: ${DEX_AUTHELIA_NAME:-Cerea account}
+    # Federated connectors' secrets: ./configure writes them here; an operator
+    # may add their own NAME=value lines. Absent when there are none.
+    env_file:
+      - path: dex.d/connectors.env
+        required: false
+    volumes:
+      - ./dex:/etc/dex:ro
+      - ./dex.d:/etc/dex.d:ro
+    depends_on:
+      dex-init:
+        condition: service_completed_successfully
+      authelia:
+        condition: service_healthy
+      dex-backchannel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5556/dex/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
   # --- profile: chat -----------------------------------------------------------
 
@@ -523,6 +624,9 @@ services:
         condition: service_healthy
         required: false
       authelia:
+        condition: service_healthy
+        required: false
+      dex:
         condition: service_healthy
         required: false
 

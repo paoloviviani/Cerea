@@ -16,3 +16,8 @@ __pycache__/
 # built output never belongs in git).
 docs-site/
 diagnose-*.txt
+# Dex connectors (dex+authelia mode): the ones you write and the ones
+# ./configure generates, and their secrets. The README and examples/ are tracked.
+dex.d/*
+!dex.d/README.md
+!dex.d/examples/
