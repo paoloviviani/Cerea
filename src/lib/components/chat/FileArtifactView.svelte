@@ -24,6 +24,7 @@
 	} from "$lib/utils/filePreview";
 	import {
 		browserRendersPdfInFrame,
+		pdfFrameSrc,
 		buildDocxSrcdoc,
 		PREVIEW_ALLOW,
 		PREVIEW_SANDBOX,
@@ -324,7 +325,7 @@
 					allow={PREVIEW_ALLOW}
 					allowfullscreen
 					referrerpolicy="no-referrer"
-					src={payload.dataUrl}
+					src={pdfFrameSrc(payload.dataUrl)}
 				></iframe>
 			{:else}
 				<div
