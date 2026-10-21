@@ -546,10 +546,15 @@ func (mc *machine) opSessionPrompt(ctx context.Context, args json.RawMessage) (a
 	if operr != nil {
 		return nil, operr
 	}
+	// Cancellation notes held since the person's Stop ride with this prompt.
+	preface, held := mc.takeHeldFor(a.SessionID)
 	err := mc.back.Prompt(ctx, dir, a.SessionID, backend.Prompt{
-		Text: a.Text, ClientMessageID: a.ClientMessageID, Attachments: a.Attachments,
+		Text: a.Text, ClientMessageID: a.ClientMessageID, Attachments: a.Attachments, Preface: preface,
 	})
 	if err != nil {
+		if len(held) > 0 {
+			mc.agentTools.restoreHeld(a.SessionID, held)
+		}
 		return nil, backendErr(err)
 	}
 	return map[string]any{}, nil

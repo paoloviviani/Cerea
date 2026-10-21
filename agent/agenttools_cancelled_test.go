@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -48,22 +50,41 @@ func TestStopTellsTheParentWhichBackgroundTasksWereCancelled(t *testing.T) {
 	r.mc.agentTools.async = func(f func()) { f() }
 	r.mc.agentTools.flushCancelled("caller")
 	r.status("caller", backend.StatusIdle)
-	got := r.toCaller()
-	if len(got) != 1 {
-		t.Fatalf("prompts to the parent = %d, want one note: %+v", len(got), got)
+	// The person pressed Stop: galopin sends the parent nothing on its own.
+	if got := r.toCaller(); len(got) != 0 {
+		t.Fatalf("galopin woke the stopped parent: %+v", got)
 	}
 	want := "Stopping this turn also cancelled 2 background tasks; they did not finish: scan the repo (kidA), write docs (kidB)."
-	if got[0].prompt.Text != want {
-		t.Errorf("note = %q\nwant   %q", got[0].prompt.Text, want)
-	}
-	if !strings.Contains(got[0].prompt.Preface, "not from your person") {
-		t.Errorf("preface = %q", got[0].prompt.Preface)
-	}
-	// The same child aborted again with the same message: no second note.
+	// A replay never tells twice.
 	r.abort("kidA", "a1")
 	r.mc.agentTools.flushCancelled("caller")
-	if n := len(r.toCaller()); n != 1 {
-		t.Fatalf("a duplicate note was sent: %d", n)
+
+	// A restart in between keeps the held note.
+	at2 := newAgentTools(r.mc, r.mc.agentTools.host)
+	at2.async = func(f func()) { f() }
+	at2.attachState(r.stateDir)
+	r.mc.agentTools = at2
+
+	// The person's next prompt carries it, once.
+	r.userPrompt("caller", "carry on")
+	r.userPrompt("caller", "and again")
+	got := r.toCaller()
+	if len(got) != 2 {
+		t.Fatalf("prompts to the parent = %d, want the person's two", len(got))
+	}
+	if got[0].prompt.Text != "carry on" || !strings.Contains(got[0].prompt.Preface, want) || !strings.Contains(got[0].prompt.Preface, "not from your person") {
+		t.Errorf("first prompt = %+v, want the note in its preface", got[0].prompt)
+	}
+	if got[1].prompt.Preface != "" {
+		t.Errorf("the note was delivered twice: %q", got[1].prompt.Preface)
+	}
+}
+
+func (r *coordRig) userPrompt(id, text string) {
+	r.t.Helper()
+	raw, _ := json.Marshal(map[string]any{"sessionId": id, "text": text})
+	if _, operr := r.mc.opSessionPrompt(context.Background(), raw); operr != nil {
+		r.t.Fatal(operr)
 	}
 }
 

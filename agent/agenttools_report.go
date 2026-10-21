@@ -66,6 +66,10 @@ type reportState struct {
 	// CancelNoted: background child -> the aborted message already told to its
 	// parent, so a replayed event never tells twice.
 	CancelNoted map[string]string `json:"cancelNoted,omitempty"`
+	// Held: session -> cancellation notes that wait for the person's next
+	// prompt there (the person stopped the turn; galopin must not wake the
+	// agent again on its own).
+	Held map[string][]string `json:"held,omitempty"`
 	// cancelling: parent -> background children aborted, waiting out the
 	// short window in which the rest of a Stop's cancellations arrive.
 	cancelling map[string][]cancelledTask
@@ -76,7 +80,7 @@ type reportState struct {
 
 func newReportState() *reportState {
 	return &reportState{Delegates: map[string]*delegateRec{}, Queue: map[string][]reportItem{}, holds: map[string]*hold{}, retries: map[string]int{},
-		CancelNoted: map[string]string{}, cancelling: map[string][]cancelledTask{}}
+		CancelNoted: map[string]string{}, Held: map[string][]string{}, cancelling: map[string][]cancelledTask{}}
 }
 
 // attachState persists the state in dir and loads what an earlier process
@@ -95,6 +99,7 @@ func (at *agentTools) attachState(dir string) {
 		Delegates   map[string]*delegateRec `json:"delegates"`
 		Queue       map[string][]reportItem `json:"queue"`
 		CancelNoted map[string]string       `json:"cancelNoted"`
+		Held        map[string][]string     `json:"held"`
 	}
 	if json.Unmarshal(body, &disk) != nil {
 		return
@@ -108,6 +113,9 @@ func (at *agentTools) attachState(dir string) {
 	if disk.CancelNoted != nil {
 		rs.CancelNoted = disk.CancelNoted
 	}
+	if disk.Held != nil {
+		rs.Held = disk.Held
+	}
 }
 
 // saveLocked writes the state atomically; the caller holds rs.mu.
@@ -119,7 +127,8 @@ func (rs *reportState) saveLocked() {
 		Delegates   map[string]*delegateRec `json:"delegates"`
 		Queue       map[string][]reportItem `json:"queue"`
 		CancelNoted map[string]string       `json:"cancelNoted,omitempty"`
-	}{rs.Delegates, rs.Queue, rs.CancelNoted})
+		Held        map[string][]string     `json:"held,omitempty"`
+	}{rs.Delegates, rs.Queue, rs.CancelNoted, rs.Held})
 	if err != nil {
 		return
 	}
@@ -528,6 +537,12 @@ func (at *agentTools) prune(all []listed) {
 			changed = true
 		}
 	}
+	for sp := range rs.Held {
+		if !live[sp] {
+			delete(rs.Held, sp)
+			changed = true
+		}
+	}
 	for sp := range rs.Queue {
 		if !live[sp] {
 			delete(rs.Queue, sp)
@@ -622,7 +637,49 @@ func (at *agentTools) flushCancelled(parent string) {
 	if len(tasks) == 0 {
 		return
 	}
-	at.enqueue(parent, at.cancelledItem(parent, tasks))
+	item := at.cancelledItem(parent, tasks)
+	if at.mc.mat.LastTurnAborted(parent) {
+		// The person pressed Stop: waking the agent again would defeat it.
+		// The note rides with the person's next prompt instead.
+		rs.mu.Lock()
+		rs.Held[parent] = append(rs.Held[parent], item.Text)
+		rs.saveLocked()
+		rs.mu.Unlock()
+		return
+	}
+	at.enqueue(parent, item)
+}
+
+// takeHeld removes and returns the preface that carries a session's held
+// cancellation notes, empty when there are none. The caller sends it with the
+// person's prompt and calls restoreHeld if the send fails.
+func (at *agentTools) takeHeld(session string) (preface string, notes []string) {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	notes = rs.Held[session]
+	if len(notes) == 0 {
+		return "", nil
+	}
+	delete(rs.Held, session)
+	rs.saveLocked()
+	return cancelPreface + "\n" + strings.Join(notes, "\n"), notes
+}
+
+func (at *agentTools) restoreHeld(session string, notes []string) {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.Held[session] = append(notes, rs.Held[session]...)
+	rs.saveLocked()
+}
+
+// takeHeldFor is takeHeld on a machine whose agent tools may be absent.
+func (mc *machine) takeHeldFor(session string) (string, []string) {
+	if mc.agentTools == nil {
+		return "", nil
+	}
+	return mc.agentTools.takeHeld(session)
 }
 
 func (at *agentTools) cancelledItem(parent string, tasks []cancelledTask) reportItem {
