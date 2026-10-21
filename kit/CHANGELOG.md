@@ -5,6 +5,38 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.21.0 — 2026-10-22
+
+Pins: Cerea `0.21.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Machines do not need the galopin update.
+
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then **run
+`./configure` once** — it generates the deployment's push keys
+(`CHAT_VAPID_*`, kept from then on) — then
+`docker compose pull && docker compose up -d`. Without the keys everything
+works and the Notifications page says push is not set up.
+
+- **Push notifications** (Settings → Notifications), opt-in per device, with a
+  switch per event: an agent needs you, a long agent turn finished, a scheduled
+  run finished or failed, a background task failed, and (off by default) a long
+  chat reply finished. A notification carries a title, one line and a link —
+  never message text or prompts — and is skipped while the app is in front.
+  On iPhone and iPad it needs the app added to the Home Screen (iOS 16.4+).
+- **Voice dictation in the composer**, using the browser's own speech
+  recognition (Chrome, Edge and Safari; may send audio to the browser vendor's
+  cloud; Firefox has none and shows no button). Administration → Voice sets
+  whether it is offered: always, never, or only when the deployment has no
+  server-side voice model (the default).
+- **Opt-in location** (Settings → Application → Location): off, a place you
+  type, or this device's location (rounded to about 1 km, never stored on the
+  server). While on, one line with it goes to the model with each message, so
+  weather and other local answers fit.
+- **Agent screenshots stay visible**: a tool call that returned images is no
+  longer folded into "Called N tools" when the turn ends.
+- The usage page shows a quota that applies to each person separately (coming
+  in Pystino 0.14.0) as the person's own budget, with its figures.
+- A terminal test that failed on busy machines is fixed at the cause.
+
 ## v0.20.0 — 2026-10-21
 
 Pins: Cerea `0.20.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
