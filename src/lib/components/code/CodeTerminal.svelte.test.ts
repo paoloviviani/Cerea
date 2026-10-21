@@ -1,6 +1,6 @@
 import CodeTerminal from "./CodeTerminal.svelte";
 import { render } from "vitest-browser-svelte";
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { BIN_TERM_INPUT, decodeTerminalFrame } from "$lib/utils/terminalBinary";
 
 /**
@@ -52,6 +52,22 @@ const clipboard = {
 	writeText: vi.fn(async (_text: string) => {}),
 	readText: vi.fn(async () => "pasted text"),
 };
+
+/** The component loads xterm lazily, and the first test to mount it pays
+ * for fetching those chunks from the dev server: under load that exceeds the
+ * one second `vi.waitFor` allows for xterm's DOM to appear, failing whichever
+ * test happens to run first. The imports are module-cached, so doing them once
+ * here (under the hook's own, longer timeout) leaves every test a warm mount
+ * and its waits measuring only the component's wiring. */
+beforeAll(async () => {
+	await Promise.all([
+		import("@xterm/xterm"),
+		import("@xterm/addon-fit"),
+		import("@xterm/addon-unicode11"),
+		import("@xterm/addon-web-links"),
+		import("@xterm/xterm/css/xterm.css"),
+	]);
+}, 30_000);
 
 beforeEach(() => {
 	vi.stubGlobal("WebSocket", FakeWebSocket);
