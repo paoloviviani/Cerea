@@ -196,17 +196,25 @@ export class Database {
 		if (!config.MONGODB_URL) {
 			logger.warn("No MongoDB URL found, using in-memory server");
 
-			logger.info(`Using database path: ${DB_FOLDER}`);
-			// Create db directory if it doesn't exist
-			if (!existsSync(DB_FOLDER)) {
-				logger.info(`Creating database directory at ${DB_FOLDER}`);
-				mkdirSync(DB_FOLDER, { recursive: true });
+			// Every spec file that boots this module starts its own server, one after
+			// the other. On one shared folder the next mongod meets the previous one
+			// still holding the lock (it dies with the worker, a moment later) and
+			// exits with code 100, so a test gets its own temporary directory, which
+			// the memory server removes when it stops.
+			const isTest = import.meta.env.MODE === "test";
+			if (!isTest) {
+				logger.info(`Using database path: ${DB_FOLDER}`);
+				// Create db directory if it doesn't exist
+				if (!existsSync(DB_FOLDER)) {
+					logger.info(`Creating database directory at ${DB_FOLDER}`);
+					mkdirSync(DB_FOLDER, { recursive: true });
+				}
 			}
 
 			this.mongoServer = await MongoMemoryServer.create({
 				instance: {
-					dbName: config.MONGODB_DB_NAME + (import.meta.env.MODE === "test" ? "-test" : ""),
-					dbPath: DB_FOLDER,
+					dbName: config.MONGODB_DB_NAME + (isTest ? "-test" : ""),
+					...(isTest ? {} : { dbPath: DB_FOLDER }),
 				},
 				binary: {
 					version: mongoMemoryVersion(),
