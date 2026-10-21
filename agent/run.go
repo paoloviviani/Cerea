@@ -506,6 +506,9 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 		}},
 		Machine: link.MachineInfo{Capabilities: map[string]bool{
 			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
+			// Delegate profiles (PROTOCOL.md §6): the profiles.list/set ops, with
+			// the agent tools they are for.
+			"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),
 		}},
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,

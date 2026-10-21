@@ -31,17 +31,17 @@ var mcpTools = []mcpserve.Tool{
 		Name: "session_spawn",
 		Description: "Hand work to a NEW top-level session in this workspace (the person can open it and talk to it). Write the prompt as a full briefing: it cannot see this conversation. " +
 			"It reports back: when it finishes, its final message arrives in this session as a message from galopin; you are also told if it fails or waits for the person's approval. Do not poll. Pass report:false for fire-and-forget. " +
-			"It uses your model and your mode (or \"plan\", read-only), and never more permission than you have. Limits apply (depth, live sessions, rate). " +
-			"A profile (see session_profiles) presets the delegate's model, permission mode and notes; it can only make the delegate stricter than you, never looser.",
+			"It uses your mode (or \"plan\", read-only), and never more permission than you have. Limits apply (depth, live sessions, rate). " +
+			"Its model is your own unless the machine has delegate profiles (see session_profiles): a profile is a named model, and with none named the machine's default profile applies. A model is not a permission.",
 		Schema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","description":"Short title for the new session."},` +
 			`"prompt":{"type":"string","description":"The first prompt: everything the new session needs, it cannot see this conversation."},` +
 			`"mode":{"type":"string","description":"The new session's mode: \"plan\", \"build\", or \"inherit\" for your own."},` +
-			`"profile":{"type":"string","description":"A delegate profile name from session_profiles (for example \"reviewer\"); \"\" for none."},` +
+			`"profile":{"type":"string","description":"A delegate profile name from session_profiles; \"\" for the machine's default profile (or your own model when it has none)."},` +
 			`"report":{"type":"boolean","description":"Default true: its result is delivered to you. false for fire-and-forget."}},"required":["title","prompt"]}`),
 	},
 	{
 		Name:        "session_profiles",
-		Description: "List the delegate profiles on this machine: named presets (model, permission mode, notes) you can pass as session_spawn's or session_committee's profile. Read-only; asks nothing.",
+		Description: "List this machine's delegate profiles (each a name and a model) and which one is the default, for session_spawn's or session_committee's profile. Read-only; asks nothing.",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"note":{"type":"string","description":"Anything, e.g. why you are listing. Ignored."}}}`),
 	},
 	{
@@ -50,7 +50,8 @@ var mcpTools = []mcpserve.Tool{
 			"Each member is a delegate spawned like session_spawn (same card, same limits, never more permission than you have), so it follows this session's Deny / Ask / Allow; under Ask the person sees one card per member. Do not poll: end your turn and the combined answers arrive.",
 		Schema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","description":"Short name for the committee, shown in each member's title."},` +
 			`"question":{"type":"string","description":"The one question every member answers; members cannot see this conversation, so include the context they need."},` +
-			`"profiles":{"type":"array","items":{"type":"string"},"description":"One profile name per member, 2 to 3 (from session_profiles); \"\" for a member with no profile. Different profiles may use different models."},` +
+			`"mode":{"type":"string","description":"Every member's mode: \"plan\" (read-only), \"build\", or \"inherit\" for your own (default)."},` +
+			`"profiles":{"type":"array","items":{"type":"string"},"description":"One profile name per member, 2 to 3 (from session_profiles); \"\" for the machine's default profile. Different profiles may use different models."},` +
 			`"timeoutMinutes":{"type":"number","description":"How long to wait for all members: 1 to 60; 0 for the default (15)."}},"required":["title","question","profiles"]}`),
 	},
 	{

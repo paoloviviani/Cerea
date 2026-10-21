@@ -223,7 +223,7 @@ func memberBrief(i, n int, question string) string {
 
 // committee implements session_committee.
 func (at *agentTools) committee(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, string, error) {
-	m, err := decodeObject(call.Args, "the arguments", "title", "question", "profiles", "timeoutMinutes")
+	m, err := decodeObject(call.Args, "the arguments", "title", "question", "profiles", "mode", "timeoutMinutes")
 	if err != nil {
 		return "", "", err
 	}
@@ -244,9 +244,13 @@ func (at *agentTools) committee(ctx context.Context, tc *toolCaller, call backen
 	if len(question) > maxToolText-1024 {
 		return "", "", refuse("question is longer than %d bytes; shorten it or put the detail in a file the members can read", maxToolText-1024)
 	}
+	var mode string
+	if v, ok := m["mode"]; ok && json.Unmarshal(v, &mode) != nil {
+		return "", "", refuse("mode must be a string")
+	}
 	var profiles []string
 	if v, ok := m["profiles"]; !ok || json.Unmarshal(v, &profiles) != nil {
-		return "", "", refuse("profiles is required: a list of %d to %d profile names, one per member (\"\" for none)", committeeMin, committeeMax)
+		return "", "", refuse("profiles is required: a list of %d to %d profile names, one per member (\"\" for the default)", committeeMin, committeeMax)
 	}
 	if len(profiles) < committeeMin || len(profiles) > committeeMax {
 		return "", "", refuse("a committee has %d to %d members; got %d", committeeMin, committeeMax, len(profiles))
@@ -266,10 +270,13 @@ func (at *agentTools) committee(ctx context.Context, tc *toolCaller, call backen
 	}
 	// Refuse what could never work before anything is started: unknown profiles
 	// and limits that would cut the committee short.
-	for _, p := range profiles {
-		if _, err := at.resolveProfile(p); err != nil {
+	names := make([]string, len(profiles))
+	for i, p := range profiles {
+		_, name, err := at.resolveProfile(p)
+		if err != nil {
 			return "", "", err
 		}
+		names[i] = name
 	}
 	if err := at.spawnHeadroom(ctx, tc, len(profiles)); err != nil {
 		return "", "", err
@@ -288,11 +295,11 @@ func (at *agentTools) committee(ctx context.Context, tc *toolCaller, call backen
 	var spawnErr error
 	for i, p := range profiles {
 		mtitle := fmt.Sprintf("%s (%d/%d)", title, i+1, len(profiles))
-		if p = strings.TrimSpace(p); p != "" {
+		if p = names[i]; p != "" {
 			mtitle = fmt.Sprintf("%s (%d/%d, %s)", title, i+1, len(profiles), p)
 		}
 		out, childID, err := at.spawnMember(ctx, tc, call, gid, spawnSpec{
-			title: mtitle, prompt: memberBrief(i+1, len(profiles), question), profile: p, report: true, group: gid,
+			title: mtitle, prompt: memberBrief(i+1, len(profiles), question), profile: p, mode: mode, report: true, group: gid,
 		}, groupMember{Title: mtitle, Profile: p})
 		if err != nil {
 			spawnErr = err

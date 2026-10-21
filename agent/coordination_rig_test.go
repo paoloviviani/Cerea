@@ -40,6 +40,7 @@ type coordBackend struct {
 	failAddException bool
 	// models is what Models answers; created records every CreateSession.
 	models  []backend.Model
+	modes   []backend.Mode
 	created []backend.CreateSessionOptions
 	// failList makes ListSessions fail, for the report retry test.
 	failList bool
@@ -114,7 +115,11 @@ func (c *coordBackend) SetModel(context.Context, string, string, string) (backen
 func (c *coordBackend) ReplyPermission(context.Context, string, string, string, backend.Decision, string) error {
 	panic("not used")
 }
-func (c *coordBackend) Modes(context.Context, string) ([]backend.Mode, error) { return nil, nil }
+func (c *coordBackend) Modes(context.Context, string) ([]backend.Mode, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.modes, nil
+}
 func (c *coordBackend) Models(context.Context, string) ([]backend.Model, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

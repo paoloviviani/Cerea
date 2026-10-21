@@ -290,6 +290,11 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 	case "permissions.pending":
 		return mc.opPermissionsPending(ctx)
 
+	case "profiles.list":
+		return mc.opProfilesList(ctx, args)
+	case "profiles.set":
+		return mc.opProfilesSet(ctx, args)
+
 	case "backend.modes":
 		return mc.opBackendModes(ctx, args)
 	case "backend.models":
@@ -1295,21 +1300,9 @@ func (mc *machine) opBackendModels(ctx context.Context, args json.RawMessage) (a
 		}
 		dir = w.Path
 	}
-	models, err := mc.back.Models(ctx, dir)
+	models, hidden, err := mc.offeredModels(ctx, dir)
 	if err != nil {
 		return nil, backendErr(err)
-	}
-	hidden := 0
-	if !mc.pol.AllowFreeModels {
-		hidden = len(models)
-		filtered := models[:0]
-		for _, m := range models {
-			if m.ProviderID == policy.GatewayProviderID {
-				filtered = append(filtered, m)
-			}
-		}
-		models = filtered
-		hidden -= len(models)
 	}
 	// hidden lets the panel say why the list is short (PROTOCOL.md §6) instead
 	// of looking broken; the ids themselves never leave the machine.

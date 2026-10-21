@@ -175,6 +175,13 @@ func (a *auditLogger) permissionSavedRemove(session, id string) {
 	a.write(map[string]any{"action": "permission.saved.remove", "session": session, "id": id})
 }
 
+// profilesSet records the machine's delegate profiles being replaced from the
+// panel: how many there are and which is the default ("" for none). Model ids
+// are not secret but are not needed in the row.
+func (a *auditLogger) profilesSet(count int, def string) {
+	a.write(map[string]any{"action": "profiles.set", "count": count, "default": def})
+}
+
 // permissionMode records a session's Deny / Ask / Allow selector being set: the
 // blanket decides what runs without a card, so it is a decision worth a row.
 func (a *auditLogger) permissionMode(session, mode string) {

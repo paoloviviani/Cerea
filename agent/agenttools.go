@@ -77,6 +77,9 @@ type agentTools struct {
 
 	// stateDir holds profiles.json (agenttools_profiles.go); set by attachState.
 	stateDir string
+	// profilesMu serialises writes of profiles.json (reads are of a whole file
+	// that is only ever replaced by rename).
+	profilesMu sync.Mutex
 
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
@@ -507,14 +510,11 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 	if _, ok := at.mc.workspaces.Get(tc.workspaceID); !ok {
 		return "", "", refuse("this session's workspace is no longer registered")
 	}
-	prof, err := at.resolveProfile(spec.profile)
+	// The named profile, else the machine's default one (none: the spawner's
+	// own model). A profile is a model and nothing else.
+	prof, profName, err := at.resolveProfile(spec.profile)
 	if err != nil {
 		return "", "", err
-	}
-	// The profile's notes lead the brief; the card shows the whole of it.
-	prompt = briefWith(prof.Notes, prompt)
-	if len(prompt) > maxToolText+maxProfileNotes {
-		return "", "", refuse("prompt is longer than %d bytes with the profile's notes; shorten it", maxToolText)
 	}
 	// The machine's rules decide whether this needs a card at all: allow runs
 	// it unasked, deny refuses it (before it spends any of the rate budget),
@@ -558,11 +558,6 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 			childWord = word
 		}
 	}
-	// A profile's mode can only tighten it: never looser than the caller's.
-	callerWord := childWord
-	profWord, _ := profileWord(prof.Mode) // validated at load
-	childWord, clamped := clampWord(profWord, callerWord)
-	stricter := childWord != callerWord
 
 	// Fork-bomb limits, all before any ask is raised.
 	marks := at.host.SpawnMarks()
@@ -599,11 +594,8 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 		"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(childModel),
 		"workspaceId": tc.workspaceID, "prompt": prompt, "permissionMode": string(childWord),
 	}
-	if spec.profile != "" {
-		meta["profile"] = spec.profile
-		if clamped {
-			meta["profileModeClamped"] = true
-		}
+	if profName != "" {
+		meta["profile"] = profName
 	}
 	if spec.group != "" {
 		meta["committee"] = spec.group
@@ -645,15 +637,8 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 				return "", child.ID, refuse("the new session %q was created but its permission word was not inherited: %v", child.ID, err)
 			}
 		}
-		// A profile stricter than its spawner is a delegate on a tighter leash:
-		// it does not also inherit the spawner's grant or the person's
-		// "always" answers.
-		var keys []string
-		var exceptions []permrules.Exception
-		if !stricter {
-			keys = rh.Coordination(tc.session.ID)
-			exceptions = rh.Exceptions(tc.session.ID)
-		}
+		keys := rh.Coordination(tc.session.ID)
+		exceptions := rh.Exceptions(tc.session.ID)
 		if len(keys) > 0 {
 			if err := rh.SetCoordination(ctx, tc.dir, child.ID, keys); err != nil {
 				return "", child.ID, refuse("the new session %q was created but its coordination grant was not inherited: %v", child.ID, err)
@@ -695,12 +680,9 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 		"sessionId": child.ID, "title": title, "mode": modeLabel(childMode),
 		"permissionMode": string(childWord),
 	}
-	if spec.profile != "" {
-		result["profile"] = spec.profile
+	if profName != "" {
+		result["profile"] = profName
 		result["model"] = childModel
-		if clamped {
-			result["profileModeClamped"] = "the profile asked for a looser permission mode than yours; it got yours"
-		}
 	}
 	if auto {
 		result["autoApproved"] = true

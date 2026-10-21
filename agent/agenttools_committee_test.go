@@ -41,14 +41,22 @@ func (r *coordRig) committee(args map[string]any) ([]string, map[string]any, err
 
 func TestCommitteeGathersAllAnswersIntoOneMessage(t *testing.T) {
 	r, _ := committeeRig(t)
-	ids, res, err := r.committee(map[string]any{"title": "Which db", "question": "Postgres or SQLite?", "profiles": []string{"reviewer", "", "worker"}})
+	r.offer("pystino/fast", "pystino/deep")
+	r.writeProfiles(`{"default":"deep","profiles":{"fast":{"model":"pystino/fast"},"deep":{"model":"pystino/deep"}}}`)
+	ids, res, err := r.committee(map[string]any{"title": "Which db", "question": "Postgres or SQLite?", "profiles": []string{"fast", "", "deep"}})
 	if err != nil || len(ids) != 3 {
 		t.Fatalf("ids=%v err=%v", ids, err)
 	}
 	if res["timeoutMinutes"].(float64) != 15 {
 		t.Errorf("default timeout = %v", res["timeoutMinutes"])
 	}
-	// Every member got the same question, its profile's notes first, and its profile.
+	// "" is the default profile; each member runs on its profile's model.
+	for i, want := range []string{"pystino/fast", "pystino/deep", "pystino/deep"} {
+		if got := r.cb.created[i].ModelID; got != want {
+			t.Errorf("member %d model = %q, want %q", i, got, want)
+		}
+	}
+	// Every member got the same question.
 	ps := r.prompts()
 	for i, id := range ids {
 		var text string
@@ -227,7 +235,9 @@ func TestCommitteeDeclinedCardStopsIt(t *testing.T) {
 
 func TestCommitteeAskRaisesOneCardPerMember(t *testing.T) {
 	r, _ := committeeRig(t)
-	if _, _, err := r.committee(map[string]any{"title": "Q", "question": "?", "profiles": []string{"", "reviewer"}}); err != nil {
+	r.offer("pystino/fast")
+	r.writeProfiles(`{"profiles":{"fast":{"model":"pystino/fast"}}}`)
+	if _, _, err := r.committee(map[string]any{"title": "Q", "question": "?", "profiles": []string{"", "fast"}}); err != nil {
 		t.Fatal(err)
 	}
 	a := r.asks()
@@ -236,21 +246,40 @@ func TestCommitteeAskRaisesOneCardPerMember(t *testing.T) {
 	}
 }
 
-func TestCommitteeAllowCallerNoCardsAndMembersKeepProfileMode(t *testing.T) {
+func TestCommitteeAllowCallerNoCardsAndMembersKeepTheCallersWord(t *testing.T) {
 	r, _ := committeeRig(t)
 	allowCaller(t, r)
-	ids, _, err := r.committee(map[string]any{"title": "Q", "question": "?", "profiles": []string{"reviewer", ""}})
+	ids, _, err := r.committee(map[string]any{"title": "Q", "question": "?", "profiles": []string{"", ""}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(r.asks()) != 0 {
 		t.Errorf("an Allow caller's committee raised cards: %+v", r.asks())
 	}
-	if got := string(r.cb.PermissionMode(ids[0])); got != "deny" {
-		t.Errorf("reviewer member word = %s", got)
+	for _, id := range ids {
+		if got := string(r.cb.PermissionMode(id)); got != "allow" {
+			t.Errorf("member word = %s, want the caller's", got)
+		}
 	}
-	if got := string(r.cb.PermissionMode(ids[1])); got != "allow" {
-		t.Errorf("plain member word = %s, want the caller's", got)
+}
+
+func TestCommitteeModePlanIsPassedToEveryMember(t *testing.T) {
+	r, _ := committeeRig(t)
+	r.cb.modes = []backend.Mode{{ID: "plan"}, {ID: "build"}}
+	_, _, err := r.committee(map[string]any{"title": "Q", "question": "?", "profiles": []string{"", ""}, "mode": "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.cb.created) != 2 {
+		t.Fatalf("created %d", len(r.cb.created))
+	}
+	for _, c := range r.cb.created {
+		if c.ModeID != "plan" {
+			t.Errorf("member mode = %q", c.ModeID)
+		}
+	}
+	if _, _, err := r.committee(map[string]any{"title": "Q", "question": "?", "profiles": []string{"", ""}, "mode": 3}); err == nil {
+		t.Error("a non-string mode must be refused")
 	}
 }
 
