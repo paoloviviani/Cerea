@@ -173,6 +173,10 @@ export interface Session {
 	/** A deny in the stored rules that the machine's ceiling no longer
 	 * imposes (an earlier machine policy). Absent like staleDeny. */
 	stalePolicy?: boolean;
+	/** A subagent idle after a turn a Stop cut short: its work did not finish
+	 * (background tasks are cancelled with their parent). Absent otherwise and
+	 * on a machine that predates it, which then reads as finished. */
+	cancelled?: boolean;
 	parentId: string | null;
 	/** For a child session (session.children): the parent's tool call that spawned it. */
 	parentToolCallId?: string;

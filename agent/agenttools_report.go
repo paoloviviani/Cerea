@@ -63,13 +63,24 @@ type reportState struct {
 	path      string
 	Delegates map[string]*delegateRec `json:"delegates"`
 	Queue     map[string][]reportItem `json:"queue"` // spawner -> items
-	holds     map[string]*hold
-	retries   map[string]int
-	flushMu   sync.Mutex
+	// CancelNoted: background child -> the aborted message already told to its
+	// parent, so a replayed event never tells twice.
+	CancelNoted map[string]string `json:"cancelNoted,omitempty"`
+	// Held: session -> cancellation notes that wait for the person's next
+	// prompt there (the person stopped the turn; galopin must not wake the
+	// agent again on its own).
+	Held map[string][]string `json:"held,omitempty"`
+	// cancelling: parent -> background children aborted, waiting out the
+	// short window in which the rest of a Stop's cancellations arrive.
+	cancelling map[string][]cancelledTask
+	holds      map[string]*hold
+	retries    map[string]int
+	flushMu    sync.Mutex
 }
 
 func newReportState() *reportState {
-	return &reportState{Delegates: map[string]*delegateRec{}, Queue: map[string][]reportItem{}, holds: map[string]*hold{}, retries: map[string]int{}}
+	return &reportState{Delegates: map[string]*delegateRec{}, Queue: map[string][]reportItem{}, holds: map[string]*hold{}, retries: map[string]int{},
+		CancelNoted: map[string]string{}, Held: map[string][]string{}, cancelling: map[string][]cancelledTask{}}
 }
 
 // attachState persists the state in dir and loads what an earlier process
@@ -85,8 +96,10 @@ func (at *agentTools) attachState(dir string) {
 		return
 	}
 	var disk struct {
-		Delegates map[string]*delegateRec `json:"delegates"`
-		Queue     map[string][]reportItem `json:"queue"`
+		Delegates   map[string]*delegateRec `json:"delegates"`
+		Queue       map[string][]reportItem `json:"queue"`
+		CancelNoted map[string]string       `json:"cancelNoted"`
+		Held        map[string][]string     `json:"held"`
 	}
 	if json.Unmarshal(body, &disk) != nil {
 		return
@@ -97,6 +110,12 @@ func (at *agentTools) attachState(dir string) {
 	if disk.Queue != nil {
 		rs.Queue = disk.Queue
 	}
+	if disk.CancelNoted != nil {
+		rs.CancelNoted = disk.CancelNoted
+	}
+	if disk.Held != nil {
+		rs.Held = disk.Held
+	}
 }
 
 // saveLocked writes the state atomically; the caller holds rs.mu.
@@ -105,9 +124,11 @@ func (rs *reportState) saveLocked() {
 		return
 	}
 	body, err := json.Marshal(struct {
-		Delegates map[string]*delegateRec `json:"delegates"`
-		Queue     map[string][]reportItem `json:"queue"`
-	}{rs.Delegates, rs.Queue})
+		Delegates   map[string]*delegateRec `json:"delegates"`
+		Queue       map[string][]reportItem `json:"queue"`
+		CancelNoted map[string]string       `json:"cancelNoted,omitempty"`
+		Held        map[string][]string     `json:"held,omitempty"`
+	}{rs.Delegates, rs.Queue, rs.CancelNoted, rs.Held})
 	if err != nil {
 		return
 	}
@@ -159,6 +180,11 @@ func (at *agentTools) queuedFor(spawner string) int {
 func (at *agentTools) observe(env sessions.Envelope) {
 	switch env.Event.Kind {
 	case backend.EventStatus, backend.EventError, backend.EventPermissionAsked:
+	case backend.EventMessage:
+		if m := env.Event.Message; m != nil && m.Role == "assistant" && m.Aborted {
+			at.noteAborted(env.SessionID, m.ID)
+		}
+		return
 	default:
 		return
 	}
@@ -356,12 +382,13 @@ func (at *agentTools) flush(spawner string) {
 	last := items[len(items)-1]
 	body := strings.Join(texts, "\n\n---\n\n")
 	sender := &backend.MessageSender{SessionID: last.Delegate, Title: last.Title, Hop: 0}
+	preface := prefaceFor(items)
 	// A turn galopin starts by delivering to a session that is itself a
 	// delegate is part of its spawner's work (A→B→C: B's follow-up on C's
 	// report is what A is waiting for), so it is reported too. Set before the
 	// Prompt: the busy event can arrive before it returns.
 	wasPending := at.markDeliveryTurn(spawner)
-	if err := at.mc.back.Prompt(ctx, dir, spawner, backend.Prompt{Text: body, SentBy: sender, Preface: reportPreface}); err != nil {
+	if err := at.mc.back.Prompt(ctx, dir, spawner, backend.Prompt{Text: body, SentBy: sender, Preface: preface}); err != nil {
 		logf("reports: delivery to %s failed: %v", spawner, err)
 		at.unmarkDeliveryTurn(spawner, wasPending)
 		rs.mu.Lock()
@@ -504,6 +531,18 @@ func (at *agentTools) prune(all []listed) {
 			changed = true
 		}
 	}
+	for id := range rs.CancelNoted {
+		if !live[id] {
+			delete(rs.CancelNoted, id)
+			changed = true
+		}
+	}
+	for sp := range rs.Held {
+		if !live[sp] {
+			delete(rs.Held, sp)
+			changed = true
+		}
+	}
 	for sp := range rs.Queue {
 		if !live[sp] {
 			delete(rs.Queue, sp)
@@ -536,4 +575,148 @@ func (at *agentTools) scheduleRetry(spawner string) {
 	rs.retries[spawner] = n + 1
 	rs.mu.Unlock()
 	time.AfterFunc(at.retryBase<<n, func() { at.flush(spawner) })
+}
+
+// Cancelled background tasks (issue 23). Stopping a session makes opencode
+// cancel its background subagents too, and it tells the parent nothing: the
+// parent keeps believing they run. A child's assistant message ending in
+// MessageAbortedError is what a cancel leaves, and only a turn that was
+// running can end that way, so it proves the child was running at the stop.
+// galopin tells the parent once, through the same queue report-back uses.
+
+// cancelWindow collects the cancellations one Stop causes (opencode logs them
+// within ~25 ms of each other) into a single note.
+const cancelWindow = 750 * time.Millisecond
+
+const cancelPreface = "[Automatic message from galopin: not from your person. " +
+	"It tells you which of your background tasks were cancelled; they produced no result.]"
+
+type cancelledTask struct{ id, title string }
+
+// noteAborted is fed every aborted assistant message. A background child of a
+// known parent is queued for that parent's note; anything else is ignored.
+func (at *agentTools) noteAborted(child, msgID string) {
+	parent, title, ok := at.mc.mat.BackgroundTaskOf(child)
+	if !ok {
+		return
+	}
+	rs := at.reports
+	rs.mu.Lock()
+	if rs.CancelNoted[child] == msgID {
+		rs.mu.Unlock()
+		return
+	}
+	for _, c := range rs.cancelling[parent] {
+		if c.id == child {
+			rs.mu.Unlock()
+			return
+		}
+	}
+	rs.CancelNoted[child] = msgID
+	first := len(rs.cancelling[parent]) == 0
+	rs.cancelling[parent] = append(rs.cancelling[parent], cancelledTask{child, title})
+	rs.saveLocked()
+	rs.mu.Unlock()
+	if first {
+		if at.cancelWait <= 0 {
+			at.async(func() { at.flushCancelled(parent) })
+		} else {
+			time.AfterFunc(at.cancelWait, func() { at.flushCancelled(parent) })
+		}
+	}
+}
+
+// flushCancelled turns the collected cancellations of one parent into one
+// queued note and delivers it when the parent is idle.
+func (at *agentTools) flushCancelled(parent string) {
+	rs := at.reports
+	rs.mu.Lock()
+	tasks := rs.cancelling[parent]
+	delete(rs.cancelling, parent)
+	rs.mu.Unlock()
+	if len(tasks) == 0 {
+		return
+	}
+	item := at.cancelledItem(parent, tasks)
+	if at.mc.mat.LastTurnAborted(parent) {
+		// The person pressed Stop: waking the agent again would defeat it.
+		// The note rides with the person's next prompt instead.
+		rs.mu.Lock()
+		rs.Held[parent] = append(rs.Held[parent], item.Text)
+		rs.saveLocked()
+		rs.mu.Unlock()
+		return
+	}
+	at.enqueue(parent, item)
+}
+
+// takeHeld removes and returns the preface that carries a session's held
+// cancellation notes, empty when there are none. The caller sends it with the
+// person's prompt and calls restoreHeld if the send fails.
+func (at *agentTools) takeHeld(session string) (preface string, notes []string) {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	notes = rs.Held[session]
+	if len(notes) == 0 {
+		return "", nil
+	}
+	delete(rs.Held, session)
+	rs.saveLocked()
+	return cancelPreface + "\n" + strings.Join(notes, "\n"), notes
+}
+
+func (at *agentTools) restoreHeld(session string, notes []string) {
+	rs := at.reports
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.Held[session] = append(notes, rs.Held[session]...)
+	rs.saveLocked()
+}
+
+// takeHeldFor is takeHeld on a machine whose agent tools may be absent.
+func (mc *machine) takeHeldFor(session string) (string, []string) {
+	if mc.agentTools == nil {
+		return "", nil
+	}
+	return mc.agentTools.takeHeld(session)
+}
+
+func (at *agentTools) cancelledItem(parent string, tasks []cancelledTask) reportItem {
+	list := make([]string, len(tasks))
+	for i, c := range tasks {
+		list[i] = fmt.Sprintf("%s (%s)", c.title, c.id)
+	}
+	n := len(tasks)
+	noun := "background task"
+	if n != 1 {
+		noun += "s"
+	}
+	var text string
+	if at.mc.mat.LastTurnAborted(parent) {
+		text = fmt.Sprintf("Stopping this turn also cancelled %d %s; they did not finish: %s.", n, noun, strings.Join(list, ", "))
+	} else {
+		text = fmt.Sprintf("%d %s %s stopped before finishing: %s.", n, noun, map[bool]string{true: "was", false: "were"}[n == 1], strings.Join(list, ", "))
+	}
+	return reportItem{Kind: "cancelled", Delegate: tasks[len(tasks)-1].id, Title: tasks[len(tasks)-1].title, Text: text}
+}
+
+// prefaceFor is the preface of a delivery: report-back's for delegate items,
+// the cancellation one for cancellation notes, both when mixed.
+func prefaceFor(items []reportItem) string {
+	var report, cancel bool
+	for _, it := range items {
+		if it.Kind == "cancelled" {
+			cancel = true
+		} else {
+			report = true
+		}
+	}
+	switch {
+	case cancel && report:
+		return reportPreface + "\n" + cancelPreface
+	case cancel:
+		return cancelPreface
+	}
+	return reportPreface
 }

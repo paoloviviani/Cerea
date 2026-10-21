@@ -250,6 +250,20 @@ describe("CodeNavTree spawned sessions", () => {
 		reset();
 	});
 
+	it("labels a subagent whose turn a Stop cut short as cancelled, not finished", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			{ ...agent("a2", "w1"), parentId: "a1", cancelled: true },
+			{ ...agent("a3", "w1"), parentId: "a1" },
+		];
+		go("?device=d1&ws=w1&agent=a1");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+		const chips = [...screen.baseElement.querySelectorAll('[data-testid="subagent-cancelled"]')];
+		expect(chips.map(text)).toEqual(["cancelled"]);
+		reset();
+	});
+
 	it("sorts spawned sessions after their spawner along a two-level chain, at one indent", async () => {
 		AGENTS.d1 = [
 			agent("a1", "w1"),

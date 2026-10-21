@@ -941,7 +941,13 @@
 																	data-testid="subagent-badge">sub</span
 																>
 															{/if}
-															{#if agent.state === "waiting-permission" || kids?.waiting}
+															{#if sub && agent.cancelled && agent.state !== "running" && agent.state !== "waiting-permission"}
+																<span
+																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+																	title="Stopped before it finished; its work was not completed"
+																	data-testid="subagent-cancelled">cancelled</span
+																>
+															{:else if agent.state === "waiting-permission" || kids?.waiting}
 																<span
 																	class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
 																	title={agent.state === "waiting-permission"

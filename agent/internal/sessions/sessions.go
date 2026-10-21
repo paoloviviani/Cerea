@@ -361,6 +361,68 @@ func (m *Materializer) ChildAgent(childID string) string {
 	return ""
 }
 
+// BackgroundTaskOf says whether childID is a background task of its parent:
+// the parent's task call that started it carries background:true. It returns
+// the parent and the task's title. False when the parent's call is not known
+// (a parent whose transcript was never loaded), so nothing is guessed.
+func (m *Materializer) BackgroundTaskOf(childID string) (parentID, title string, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	child, found := m.sessions[childID]
+	if !found || child.parentID == "" {
+		return "", "", false
+	}
+	parent, found := m.sessions[child.parentID]
+	if !found {
+		return "", "", false
+	}
+	for _, parts := range parent.parts {
+		for _, p := range parts {
+			if p.Type != backend.PartTool || p.Tool != "task" || p.SubtaskSessionID != childID {
+				continue
+			}
+			if bg, _ := p.Input["background"].(bool); !bg {
+				return "", "", false
+			}
+			title, _ = p.Input["description"].(string)
+			if title == "" {
+				title = p.Title
+			}
+			if title == "" {
+				title = "background task"
+			}
+			return child.parentID, title, true
+		}
+	}
+	return "", "", false
+}
+
+// HasMessages reports whether the materializer holds any message of the
+// session (live or seeded).
+func (m *Materializer) HasMessages(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	return ok && len(st.messageOrder) > 0
+}
+
+// LastTurnAborted reports whether the session's newest assistant message was
+// cut short by a Stop.
+func (m *Materializer) LastTurnAborted(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	for i := len(st.messageOrder) - 1; i >= 0; i-- {
+		if msg := st.messages[st.messageOrder[i]]; msg != nil && msg.Role == "assistant" {
+			return msg.Aborted
+		}
+	}
+	return false
+}
+
 // rootLocked walks the parent chain to the top-level ancestor, returning
 // sessionID itself when it has no parent. Cycle-safe: a corrupted chain
 // resolves to wherever the walk gives up rather than looping forever.
