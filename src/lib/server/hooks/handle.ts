@@ -16,6 +16,7 @@ import { runWithRequestContext, updateRequestContext } from "$lib/server/request
 import { config, ready } from "$lib/server/config";
 import { authTimeFresh } from "$lib/server/code/stepUp";
 import { paletteAttributesFor } from "$lib/server/paletteSettings";
+import { safeRequestFields } from "./safeLogFields";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 
 type HandleInput = Parameters<Handle>[0];
@@ -108,10 +109,8 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 
 			logger.debug(
 				{
-					locals: event.locals,
-					url: event.url.pathname,
-					params: event.params,
-					request: event.request,
+					...safeRequestFields(event),
+					method: event.request.method,
 				},
 				"Request received"
 			);

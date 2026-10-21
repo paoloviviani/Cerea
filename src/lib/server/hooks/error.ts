@@ -1,5 +1,6 @@
 import type { HandleServerError } from "@sveltejs/kit";
 import { logger } from "$lib/server/logger";
+import { safeRequestFields } from "./safeLogFields";
 
 type HandleServerErrorInput = Parameters<HandleServerError>[0];
 
@@ -19,10 +20,8 @@ export async function handleServerError({
 	const errorId = crypto.randomUUID();
 
 	logger.error({
-		locals: event.locals,
-		url: event.request.url,
-		params: event.params,
-		request: event.request,
+		...safeRequestFields(event),
+		method: event.request.method,
 		message,
 		error,
 		errorId,

@@ -243,21 +243,6 @@
 	let artifactRegistry = $derived(
 		collectArtifacts(messages, loading ? messages.at(-1)?.id : undefined)
 	);
-	setArtifactsContext({
-		get registry() {
-			return artifactRegistry;
-		},
-		get fileRegistry() {
-			return fileRegistry;
-		},
-		panel: sidePane,
-		// Deep consumers (e.g. the code-block preview modal) can't render a
-		// meaningful disabled state, so streaming also gates availability here;
-		// the panel gets the handler as a prop and disables on `loading` itself.
-		get requestFix() {
-			return canSendFix && !loading ? sendFixRequest : undefined;
-		},
-	});
 
 	// Auto-open the panel when a new artifact version starts streaming in
 	// (once per version, so closing it mid-stream sticks).
@@ -421,6 +406,27 @@
 		}
 		return true;
 	}
+
+	// Set after every $derived it reads. The server compiler emits a derived
+	// read inside a getter as `return /* @__PURE__ */\n derived()` when the
+	// derived is declared further down, and the newline after `return` is ASI:
+	// the getter returned undefined, so a reload (SSR) of any conversation with
+	// run files 500'd in FileArtifactCard. The client compiler is unaffected.
+	setArtifactsContext({
+		get registry() {
+			return artifactRegistry;
+		},
+		get fileRegistry() {
+			return fileRegistry;
+		},
+		panel: sidePane,
+		// Deep consumers (e.g. the code-block preview modal) can't render a
+		// meaningful disabled state, so streaming also gates availability here;
+		// the panel gets the handler as a prop and disables on `loading` itself.
+		get requestFix() {
+			return canSendFix && !loading ? sendFixRequest : undefined;
+		},
+	});
 
 	// Expose currently running tool call name (if any) from the streaming assistant message
 	const availableTools: ToolFront[] = $derived.by(
